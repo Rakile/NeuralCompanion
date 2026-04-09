@@ -1,0 +1,104 @@
+{
+  "id": "first_run",
+  "title": "First Run",
+  "description": "An interactive setup tutorial that guides the user through a safe low-VRAM streaming configuration.",
+  "steps": [
+    {
+      "title": "Welcome",
+      "body": "This interactive first-run tutorial will guide you through a safe starting setup. For this tutorial, follow the requested actions when they appear.",
+      "target": "main_window"
+    },
+    {
+      "title": "Choose MuseTalk",
+      "body": "For this tutorial, please choose MuseTalk as the Avatar Engine. The next step will appear automatically when you do it.",
+      "target": "engine_combo",
+      "actions": [
+        { "type": "set_combo_text", "target": "engine_combo", "value": "VSeeFace" }
+      ],
+      "require": {
+        "type": "combo_text",
+        "target": "engine_combo",
+        "value": "MuseTalk",
+        "auto_advance": true
+      }
+    },
+    {
+      "title": "Enable Stream Mode",
+      "body": "For this tutorial, please turn Stream Mode on. In this app, turning Stream Mode on defaults to PocketTTS, while turning it off defaults to the more expressive Chatterbox / TurboTTS path.",
+      "target": "stream_mode_combo",
+      "actions": [
+        { "type": "set_combo_text", "target": "stream_mode_combo", "value": "Off" }
+      ],
+      "require": {
+        "type": "combo_text",
+        "target": "stream_mode_combo",
+        "value": "On",
+        "auto_advance": true
+      }
+    },
+    {
+      "title": "Observe the TTS Backend",
+      "body": "Notice that the TTS Backend has defaulted to PocketTTS because Stream Mode is on. Later, if you turn Stream Mode off, the app will default back to Chatterbox / TurboTTS.",
+      "target": "tts_backend_combo"
+    },
+    {
+      "title": "Choose a Safe VRAM Mode",
+      "body": "For this tutorial, please set MuseTalk VRAM to Very Low VRAM. This is the most broadly compatible starting point for new users and smaller GPUs.",
+      "target": "musetalk_vram_combo",
+      "actions": [
+        { "type": "set_combo_text", "target": "musetalk_vram_combo", "value": "Quality" }
+      ],
+      "require": {
+        "type": "combo_text",
+        "target": "musetalk_vram_combo",
+        "value": "Very Low VRAM",
+        "auto_advance": true
+      }
+    },
+    {
+      "title": "Check the Model",
+      "body": "This is where you choose the LM Studio model. For this tutorial, make sure LM Studio is running and that a model is available here before you continue.",
+      "target": "model_combo"
+    },
+    {
+      "title": "Persona Tab",
+      "body": "This is the Persona tab. It contains voice settings, expressive tags, and the system prompt. PocketTTS is bundled with the app and will be used automatically when selected. Push Next when you are ready to load the tutorial persona.",
+      "tab": "Persona",
+      "target": "persona_tab"
+    },
+    {
+      "title": "Load the Tutorial Persona",
+      "body": "For this tutorial, please click Load to load the bundled Tutorial Persona preset.",
+      "target": "btn_preset_load",
+      "actions": [
+        { "type": "set_combo_text", "target": "preset_combo", "value": "Tutorial Persona" }
+      ],
+      "require": {
+        "type": "button_click",
+        "target": "btn_preset_load",
+        "auto_advance": true
+      }
+    },
+    {
+      "title": "Initialize the System",
+      "body": "When LM Studio is ready, please click INITIALIZE SYSTEM. The tutorial will continue automatically after you do it.",
+      "target": "btn_start_engine",
+      "require": {
+        "type": "button_click",
+        "target": "btn_start_engine",
+        "auto_advance": true
+      }
+    },
+    {
+      "title": "MuseTalk Preview",
+      "body": "When MuseTalk starts, a preview view may appear. That is normal. This app now has the avatar engine running in a safe first-run configuration.",
+      "target": "MuseTalkPreviewDock"
+    },
+    {
+      "title": "Dry Run Later",
+      "body": "After you have the system working, the Dry Run tab can profile your hardware and recommend better chunking and startup settings. You do not need to do that immediately.",
+      "tab": "Dry Run",
+      "target": "dry_run_tab"
+    }
+  ]
+}

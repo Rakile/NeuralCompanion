@@ -1,0 +1,36 @@
+# Friend-ready bootstrap requirements for Neural Companion
+# This is intentionally broader than the old minimal requirements.txt.
+accelerate==0.28.0
+chatterbox-tts==0.1.6
+diffusers==0.29.0
+einops==0.8.1
+ffmpeg-python
+flask
+flask-cors
+faster-whisper
+gdown
+gradio==5.44.1
+huggingface_hub==0.33.5
+imageio[ffmpeg]
+keyboard
+librosa==0.11.0
+nltk
+numpy==1.24.4
+omegaconf
+opencv-python==4.9.0.80
+openai
+pandas==1.5.3
+pillow
+pydub
+pynvml
+PySide6
+python-osc
+requests
+scipy
+sounddevice
+soundfile==0.12.1
+SpeechRecognition
+torch
+torchaudio
+tqdm
+transformers==4.46.3

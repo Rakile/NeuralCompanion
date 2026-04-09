@@ -1,0 +1,47 @@
+{
+  "id": "heart_rate_threshold_rules",
+  "title": "Heart Rate Threshold Rules",
+  "description": "A walkthrough of the Heart Rate source and its supervisor-style Threshold Rules behaviors.",
+  "steps": [
+    {
+      "title": "Open Vision -> Heart Rate",
+      "body": "This tutorial covers the Heart Rate source. If you do not see the Heart Rate tab, include it in the Vision source selector on the Core page first.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Heart Rate" }
+      ]
+    },
+    {
+      "title": "Source Tab",
+      "body": "The Heart Rate source contributes BPM as hidden sensory input. It is the same source-and-child-addon model as the visual sources, but the signal is physiological rather than visual.",
+      "target": "vision_source_tabs_heart_rate",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "vision_source_tabs_heart_rate", "value": "Source" }
+      ]
+    },
+    {
+      "title": "Threshold Rules Tab",
+      "body": "Now switch to Threshold Rules. This addon uses the same persona pattern as the Supervisor family, but its first field is called Signal Trigger because the source data is BPM, not an image.",
+      "target": "vision_source_tabs_heart_rate",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "vision_source_tabs_heart_rate", "value": "Threshold Rules" }
+      ]
+    },
+    {
+      "title": "Signal Trigger and Action",
+      "body": "Each behavior pairs a heart-rate state with a response style. For example: above 120 BPM, below 50 BPM, sustained elevation for several cycles, or recovery after an earlier spike.",
+      "target": "vision_source_tabs_heart_rate"
+    },
+    {
+      "title": "Same Behavior Language",
+      "body": "Even though the source is different, the underlying authoring language is now the same: persona, trigger, action, strictness, and emotion override. That consistency is what makes it easy to learn.",
+      "target": "vision_source_tabs_heart_rate"
+    },
+    {
+      "title": "Best Use",
+      "body": "Heart Rate Threshold Rules are a strong fit for coaching, concern, teasing, workout callouts, and any persona-driven reaction that should depend on a measurable BPM state rather than guesswork.",
+      "target": "main_window"
+    }
+  ]
+}

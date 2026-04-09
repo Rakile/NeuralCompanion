@@ -1,0 +1,157 @@
+import json
+import os
+import queue
+import re
+import subprocess
+import threading
+import uuid
+
+MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
+_PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
+
+
+def _is_progress_noise_line(line):
+    text = str(line or "").strip()
+    if not text:
+        return False
+    if _PROGRESS_LINE_RE.match(text) and "it/s" in text:
+        return True
+    return False
+
+
+class MuseTalkBridge:
+    def __init__(self, root_dir="MuseTalk", worker_options=None):
+        self.root_dir = os.path.abspath(root_dir)
+        self.python_exe = os.path.join(self.root_dir, ".venv", "Scripts", "python.exe")
+        self.worker_script = os.path.join(self.root_dir, "musetalk_worker.py")
+        self.runtime_dir = os.path.join(self.root_dir, "runtime")
+        self.log_path = os.path.join(self.runtime_dir, "musetalk_worker.log")
+        self.worker_options = dict(worker_options or {})
+        self.process = None
+        self.pending = {}
+        self._reader_thread = None
+        self._lock = threading.Lock()
+
+    def start(self):
+        if self.process and self.process.poll() is None:
+            return
+
+        if not os.path.exists(self.python_exe):
+            raise FileNotFoundError(f"MuseTalk Python not found: {self.python_exe}")
+        if not os.path.exists(self.worker_script):
+            raise FileNotFoundError(f"MuseTalk worker not found: {self.worker_script}")
+        os.makedirs(self.runtime_dir, exist_ok=True)
+
+        command = [self.python_exe, self.worker_script]
+        vram_mode = str(self.worker_options.get("vram_mode", "") or "").strip()
+        if vram_mode:
+            command.extend(["--vram-mode", vram_mode])
+
+        self.process = subprocess.Popen(
+            command,
+            cwd=self.root_dir,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        print(f"[MuseTalkBridge] Worker process started: pid={self.process.pid}, command={os.path.basename(self.python_exe)} {os.path.basename(self.worker_script)}")
+        self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+        self._reader_thread.start()
+
+    def stop(self):
+        if not self.process:
+            return
+        try:
+            self.request({"action": "shutdown"}, timeout=5)
+        except Exception:
+            pass
+        try:
+            if self.process.poll() is None:
+                self.process.terminate()
+                self.process.wait(timeout=5)
+        except Exception:
+            pass
+        try:
+            if self.process and self.process.poll() is None and os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                )
+        except Exception:
+            pass
+        try:
+            if self.process and self.process.stdin:
+                self.process.stdin.close()
+        except Exception:
+            pass
+        try:
+            if self.process and self.process.stdout:
+                self.process.stdout.close()
+        except Exception:
+            pass
+        self.process = None
+
+    def request(self, payload, timeout=120):
+        self.start()
+        request_id = str(uuid.uuid4())
+        response_queue = queue.Queue(maxsize=1)
+        self.pending[request_id] = response_queue
+        message = dict(payload)
+        message["request_id"] = request_id
+
+        with self._lock:
+            if not self.process or self.process.poll() is not None:
+                raise RuntimeError("MuseTalk worker is not running.")
+            self.process.stdin.write(json.dumps(message) + "\n")
+            self.process.stdin.flush()
+
+        try:
+            response = response_queue.get(timeout=timeout)
+        finally:
+            self.pending.pop(request_id, None)
+        if not response.get("ok", False):
+            raise RuntimeError(response.get("error", "Unknown MuseTalk worker error"))
+        return response
+
+    def _read_stdout(self):
+        while self.process and self.process.poll() is None:
+            line = self.process.stdout.readline()
+            if not line:
+                break
+            line = line.strip()
+            if not line:
+                continue
+            if _is_progress_noise_line(line):
+                continue
+            try:
+                with open(self.log_path, "a", encoding="utf-8") as log_file:
+                    log_file.write(line + "\n")
+            except Exception:
+                pass
+            try:
+                payload = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if payload.get("worker_info") == "musetalk_vram_profile" and MUSE_BRIDGE_DIAGNOSTIC_ECHO:
+                print(
+                    "[MuseTalkBridge] Worker profile: "
+                    f"pid={payload.get('pid')} mode={payload.get('mode')} "
+                    f"batch_size={payload.get('batch_size')} whisper_device={payload.get('whisper_device')} "
+                    f"vae_slicing={payload.get('vae_slicing')} preload_face_parsing={payload.get('preload_face_parsing')} "
+                    f"gpu={payload.get('gpu')}"
+                )
+            elif payload.get("worker_info") == "checkpoint" and MUSE_BRIDGE_DIAGNOSTIC_ECHO:
+                print(
+                    "[MuseTalkBridge] Worker checkpoint: "
+                    f"pid={payload.get('pid')} label={payload.get('label')} "
+                    f"gpu={payload.get('gpu')}"
+                )
+            request_id = payload.get("request_id")
+            if request_id in self.pending:
+                self.pending[request_id].put(payload)

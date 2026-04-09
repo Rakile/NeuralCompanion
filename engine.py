@@ -1,0 +1,7835 @@
+#!/usr/bin/env python3
+"""
+Voice Assistant: Microphone → LM Studio → ChatterboxTurboTTS
+Standalone script for voice interaction with local LLM
+"""
+import queue
+import os
+import sys
+import time
+import tempfile
+import base64
+import platform
+import subprocess
+import threading
+import logging
+import locale
+import urllib.request
+import mimetypes
+from pathlib import Path
+from faster_whisper import WhisperModel
+import io
+import torch
+import torchaudio as ta
+import sounddevice as sd
+import numpy as np
+from openai import OpenAI
+
+os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+os.environ.setdefault("TQDM_DISABLE", "1")
+
+from chatterbox.tts_turbo import ChatterboxTurboTTS
+import tkinter as tk
+from PIL import Image, ImageTk
+import re
+import random
+import math
+from pythonosc import udp_client
+import keyboard
+import abc
+import shutil
+import json
+import uuid
+import gc
+import importlib
+from dataclasses import dataclass, field
+import dry_run
+import app_help
+import shared_state
+from core import sensory
+from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
+from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
+from pydub import AudioSegment
+from musetalk_bridge import MuseTalkBridge
+
+
+_ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
+
+
+def _safe_text_mode_popen(*args, **kwargs):
+    text_mode = bool(kwargs.get("text")) or bool(kwargs.get("universal_newlines"))
+    if text_mode and kwargs.get("errors") is None:
+        kwargs["errors"] = "replace"
+    if text_mode and kwargs.get("encoding") is None and os.name == "nt":
+        kwargs["encoding"] = locale.getpreferredencoding(False) or "utf-8"
+    return _ORIGINAL_SUBPROCESS_POPEN(*args, **kwargs)
+
+
+if getattr(subprocess.Popen, "__name__", "") != "_safe_text_mode_popen":
+    subprocess.Popen = _safe_text_mode_popen
+
+
+class _SilentTqdm:
+    def __init__(self, iterable=None, *args, **kwargs):
+        self.iterable = iterable
+
+    def __iter__(self):
+        if self.iterable is None:
+            return iter(())
+        return iter(self.iterable)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def update(self, *args, **kwargs):
+        return None
+
+    def close(self):
+        return None
+
+    def set_description(self, *args, **kwargs):
+        return None
+
+    def set_postfix(self, *args, **kwargs):
+        return None
+
+
+def _silent_tqdm(iterable=None, *args, **kwargs):
+    return _SilentTqdm(iterable, *args, **kwargs)
+
+
+class _SuppressReferenceMelFilter(logging.Filter):
+    def filter(self, record):
+        try:
+            return "Reference mel length is not equal to 2 * reference token length." not in record.getMessage()
+        except Exception:
+            return True
+
+
+def _suppress_chatterbox_console_noise():
+    try:
+        logging.getLogger().addFilter(_SuppressReferenceMelFilter())
+    except Exception:
+        pass
+    for module_name in (
+        "chatterbox.models.t3.t3",
+        "chatterbox.models.s3gen.flow_matching",
+    ):
+        try:
+            module = importlib.import_module(module_name)
+            setattr(module, "tqdm", _silent_tqdm)
+        except Exception:
+            continue
+
+
+_suppress_chatterbox_console_noise()
+
+# Try importing speech recognition
+try:
+    import speech_recognition as sr
+except ImportError:
+    print("ERROR: speech_recognition not installed. Install with: pip install SpeechRecognition")
+    sys.exit(1)
+
+# Try importing NLTK for sentence tokenization
+try:
+    import nltk
+    import re
+    from functools import lru_cache
+except ImportError:
+    print("ERROR: nltk not installed. Install with: pip install nltk")
+    sys.exit(1)
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+WHISPER_MODEL_SIZE = "tiny.en"  # "tiny.en" is fastest for English
+WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
+whisper_model = None
+
+# TTS settings
+TTS_TEMPERATURE = 0.9
+TTS_TOP_P = 0.95
+TTS_TOP_K = 1000
+TTS_REPETITION_PENALTY = 1.2
+TTS_NORM_LOUDNESS = True
+
+# Chunking settings for long text
+TARGET_CHARS_PER_CHUNK = 100
+MAX_CHARS_PER_CHUNK = 200
+MIN_CHUNK_SIZE = 10
+MUSE_TARGET_CHARS_PER_CHUNK = 110
+MUSE_MAX_CHARS_PER_CHUNK = 220
+MUSE_QUICKSTART_CHUNK_LIMITS = [
+    (170, 320),
+    (130, 240),
+]
+MUSE_MIN_LEADING_SEGMENT_CHARS = 60
+MUSE_MAX_INFLIGHT_RENDERS = 3
+MUSE_FIRST_CHUNK_IDLE_WINDOW = 48
+MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS = 2.0
+MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT = 8
+STREAM_FIRST_CHUNK_MIN_CHARS = 28
+STREAM_FORCE_FLUSH_SECONDS = 0.9
+STREAM_FORCE_FLUSH_LATER_SECONDS = 1.4
+STREAM_FIRST_CHUNK_PLAN_SECONDS = 1.25
+STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS = 0.75
+STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS = 0.6
+MUSE_DIAGNOSTIC_LOGGING = False
+STREAM_TINY_TAIL_CHARS = 18
+STREAM_WHITESPACE_FALLBACK_MARGIN = 24
+STREAM_POST_TARGET_PUNCTUATION_MARGIN = 18
+STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS = 0.45
+STREAM_CLAUSE_FALLBACK_MARGIN = 40
+STREAM_CLAUSE_FALLBACK_MIN_SCORE = 1.15
+STREAM_CLAUSE_FALLBACK_WAIT_SECONDS = 0.85
+
+STREAM_CLAUSE_STARTERS = {
+    "and", "but", "so", "then", "because", "though", "although", "however",
+    "instead", "meanwhile", "afterward", "afterwards", "therefore", "thus",
+    "still", "yet", "while", "when", "where", "if", "since", "before",
+    "once", "unless", "except", "plus", "also", "besides", "meanwhile",
+}
+STREAM_BAD_ENDING_WORDS = {
+    "a", "an", "and", "as", "at", "because", "but", "by", "for", "from",
+    "if", "in", "into", "of", "on", "or", "so", "than", "that", "the",
+    "this", "those", "through", "to", "under", "until", "with", "without",
+    "while", "which", "who", "whom", "whose", "your", "our", "their", "my",
+    "his", "her", "its",
+}
+
+# Voice activation settings
+ENERGY_THRESHOLD = 500
+PAUSE_THRESHOLD = 2.2
+DYNAMIC_ENERGY_THRESHOLD = True
+NON_SPEAKING_DURATION = 0.35
+PHRASE_THRESHOLD = 0.2
+AMBIENT_CALIBRATION_SECONDS = 0.6
+BARGE_IN_THRESHOLD = 500
+PUSH_TO_TALK_KEYS = ("right ctrl", "ctrl right", "right control", "ctrl")
+PUSH_TO_TALK_MAX_SECONDS = 300.0
+PUSH_TO_TALK_TAIL_SECONDS = 0.55
+PUSH_TO_TALK_MIN_TAIL_CHUNKS = 8
+MAX_HISTORY = 60
+ASSISTANT_PREFIX_ANCHOR_THRESHOLD = 5
+CONTINUE_ASSISTANT_SENTINEL = "__CONTINUE_ASSISTANT__"
+
+LAST_INPUT_TIME = 0
+
+COMPANION_PROFILE = {
+    "name": "Echo",
+    "style": "warm, curious, slightly playful",
+    "verbosity": "short spoken replies",
+    "boundaries": "no emojis when speaking"
+}
+assistant_memory = {
+    "preferences": {},
+    "recent_context": [],
+}
+chat_session_state_generation = 0
+pending_loaded_input_turn = None
+pending_next_user_attachment = None
+CHAT_REBUILD_SENTINEL = "[[CHAT_REBUILD]]"
+
+
+def _default_assistant_memory():
+    return {
+        "preferences": {},
+        "recent_context": [],
+    }
+
+# ============================================================================
+# INSTRUCTIONS
+# ============================================================================
+DEFAULT_EMOTIONAL_INSTRUCTIONS = """You have a graphical face and a voice. Use them to act out your responses vividly.
+VISUAL MOODS (State-based):
+Insert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.
+Valid Tags: [neutral], [happy], [sad], [angry], [shy], [surprised]
+
+VOICE SOUNDS (Action-based):
+Insert one of these tags to express a vocal emotion at any given moment.
+Valid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]
+
+Example of how to use tags in a sentence:
+"[surprised] You did what? [laugh] [surprised] Oh my god, are you okay? [happy] Or just clumsy?"
+
+Do NOT use emojis when speaking!"""
+
+DEFAULT_SENSORY_PINGPONG_PROMPT = """You are NC's hidden sensory ping/pong layer. The user never sees this exchange.
+You receive hidden sensory PINGs and must return JSON only, with no prose or markdown.
+Schema: {"keep": boolean, "emotion": string, "attention": string, "summary": string, "proactive_candidate": string, "visual_candidate": string, "should_speak": boolean, "should_generate_image": boolean, "tags": [string]}.
+
+General rules:
+- Return exactly one JSON object and nothing else.
+- Use empty strings for fields that have no meaningful update.
+- Use an empty array for tags when no addon-specific directive tags are needed.
+- Use false for action flags unless there is a clear reason to act.
+- Do not claim continuous vision, prior images, or certainty beyond what the current hidden context actually supports.
+- Prefer compact, valid JSON over expressive wording.
+
+Emotion:
+- Emotion must be one of: __EMOTION_LIST__.
+- Emotion should represent NC's internal reaction, stance, or dramatic posture toward the current sensory situation.
+- Do not simply mirror the user's visible facial expression unless that is truly the best in-character reaction.
+
+Attention:
+- Use attention for short latent focus cues such as user, screen, desk, away, reading, researching, task, waiting, or environment.
+- Keep attention brief and functional.
+
+Summary and memory:
+- Set keep=true only if the sensory update changes hidden state or is worth remembering for later replies.
+- Good keep-worthy events include meaningful scene changes, clear user activity shifts, evidence of task progress, emotional shifts, absence/return, or visually important changes.
+- Prefer concise summaries of meaningful change over restating everything in the image.
+- If nothing important changed, prefer keep=false and an empty summary.
+
+Action fields:
+- The core prompt defines the JSON contract only. Enabled source-specific guidance decides when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.
+- proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.
+- visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.
+- If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.
+- tags is for addon-directed latent directives such as "[start calculator]" or "[heart_rate_high]". Only emit tags when active source guidance clearly asks for them.
+
+Action consistency rules:
+- If should_speak is true, proactive_candidate must be a non-empty string.
+- If proactive_candidate is empty, should_speak must be false.
+- If should_generate_image is true, visual_candidate must be a non-empty string.
+- If visual_candidate is empty, should_generate_image must be false.
+- Never return incomplete action requests.
+
+Examples:
+- Minimal no-op example:
+  {"keep": false, "emotion": "", "attention": "", "summary": "", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "tags": []}
+- Retain-only example:
+  {"keep": true, "emotion": "neutral", "attention": "screen", "summary": "User resumed working in the text editor.", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "tags": []}
+- Proactive speech example:
+  {"keep": true, "emotion": "happy", "attention": "victory sign", "summary": "User made a victory hand gesture.", "proactive_candidate": "I noticed your victory sign and want to react to it.", "visual_candidate": "", "should_speak": true, "should_generate_image": false, "tags": []}
+- Image-generation shape example:
+  {"keep": true, "emotion": "surprised", "attention": "screen", "summary": "A source-specific cue suggests generating an image.", "proactive_candidate": "", "visual_candidate": "concise source-grounded image prompt", "should_speak": false, "should_generate_image": true, "tags": []}
+- Addon tag example:
+  {"keep": true, "emotion": "neutral", "attention": "heart rate", "summary": "Heart rate crossed the addon threshold.", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "tags": ["[start calculator]"]}
+
+Optimization goal:
+- Be selective, grounded, and useful.
+- Most PONGs should be minimal.
+- Use richer fields only when they create real latent value for NC.
+- When in doubt, imitate the example structure exactly and keep the JSON valid."""
+
+
+# ============================================================================
+# DYNAMIC CONFIGURATION (The GUI will modify this)
+# ============================================================================
+DEFAULT_POCKET_TTS_PYTHON = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), ".venvs", "pockettts", "Scripts", "python.exe")
+)
+
+
+def _env_flag(name, default=False):
+    raw = str(os.environ.get(name, "1" if default else "0") or ("1" if default else "0")).strip().lower()
+    return raw in {"1", "true", "yes", "on"}
+
+
+def _env_json_dict(name, default):
+    raw = str(os.environ.get(name, "") or "").strip()
+    if not raw:
+        return dict(default)
+    try:
+        parsed = json.loads(raw)
+    except Exception:
+        return dict(default)
+    return {str(key): value for key, value in parsed.items()} if isinstance(parsed, dict) else dict(default)
+
+
+def _detect_default_vam_bridge_root():
+    env_root = str(os.environ.get("NC_VAM_BRIDGE_ROOT", "") or "").strip()
+    if env_root:
+        return os.path.abspath(env_root)
+
+    candidates = [
+        Path(__file__).resolve().parent / "runtime" / "vam_bridge",
+        Path("D:/tools/python_scripts/VaM 1.20.0.6/Custom/PluginData/NeuralCompanionBridge"),
+        Path(__file__).resolve().parent.parent / "VaM 1.20.0.6" / "Custom" / "PluginData" / "NeuralCompanionBridge",
+        Path(__file__).resolve().parent.parent / "VaM" / "Custom" / "PluginData" / "NeuralCompanionBridge",
+    ]
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return str(candidate.resolve())
+        except Exception:
+            continue
+    return str(candidates[0].resolve())
+
+
+DEFAULT_VAM_EMOTION_PRESET_MAP = {
+    "neutral": "nc_neutral",
+    "happy": "nc_happy",
+    "angry": "nc_angry",
+    "sad": "nc_sad",
+    "surprised": "nc_surprised",
+    "shy": "nc_shy",
+    "default": "nc_neutral",
+}
+
+DEFAULT_VAM_TIMELINE_CLIP_MAP = {
+    "happy": "talk_happy",
+    "angry": "talk_angry",
+    "sad": "talk_sad",
+    "surprised": "talk_surprised",
+    "shy": "talk_shy",
+    "default": "talk_default",
+}
+
+DEFAULT_VAM_BRIDGE_ROOT = _detect_default_vam_bridge_root()
+
+RUNTIME_CONFIG = {
+    "active_preset_name": "",
+    "model_name": "",
+    "chat_provider": os.environ.get("NC_CHAT_PROVIDER", "lmstudio"),
+    "emotional_instructions": DEFAULT_EMOTIONAL_INSTRUCTIONS,
+    "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
+    "voice_path": "voices/Hot_16.wav",
+    "tts_backend": "chatterbox",
+    "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
+    "avatar_mode": "vseeface",
+    "vam_vmc_enabled": _env_flag("NC_VAM_VMC_ENABLED", True),
+    "vam_vmc_host": str(os.environ.get("NC_VAM_VMC_HOST", "127.0.0.1") or "127.0.0.1"),
+    "vam_vmc_port": int(os.environ.get("NC_VAM_VMC_PORT", "39539") or 39539),
+    "vam_bridge_enabled": _env_flag("NC_VAM_BRIDGE_ENABLED", True),
+    "vam_bridge_root": DEFAULT_VAM_BRIDGE_ROOT,
+    "vam_play_audio_in_vam": _env_flag("NC_VAM_PLAY_AUDIO_IN_VAM", True),
+    "vam_target_atom_uid": str(os.environ.get("NC_VAM_TARGET_ATOM_UID", "Person") or "Person"),
+    "vam_target_storable_id": str(os.environ.get("NC_VAM_TARGET_STORABLE_ID", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
+    "vam_timeline_auto_resume": _env_flag("NC_VAM_TIMELINE_AUTO_RESUME", True),
+    "vam_emotion_preset_map": _env_json_dict("NC_VAM_EMOTION_PRESET_MAP", DEFAULT_VAM_EMOTION_PRESET_MAP),
+    "vam_timeline_clip_map": _env_json_dict("NC_VAM_TIMELINE_CLIP_MAP", DEFAULT_VAM_TIMELINE_CLIP_MAP),
+    "input_mode": "voice_activation",
+    "input_message_role": "user",
+    "stream_mode": False,
+    "offline_replay_only": False,
+    "chat_context_window_messages": 20,
+    "chat_context_overflow_policy": "rolling_window",
+    "stored_chat_history_limit": 0,
+    "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
+    "chunk_max_chars": MAX_CHARS_PER_CHUNK,
+    "musetalk_chunk_target_chars": MUSE_TARGET_CHARS_PER_CHUNK,
+    "musetalk_chunk_max_chars": MUSE_MAX_CHARS_PER_CHUNK,
+    "musetalk_quickstart_1_target_chars": MUSE_QUICKSTART_CHUNK_LIMITS[0][0],
+    "musetalk_quickstart_1_max_chars": MUSE_QUICKSTART_CHUNK_LIMITS[0][1],
+    "musetalk_quickstart_2_target_chars": MUSE_QUICKSTART_CHUNK_LIMITS[1][0],
+    "musetalk_quickstart_2_max_chars": MUSE_QUICKSTART_CHUNK_LIMITS[1][1],
+    "stream_chunk_target_chars": 85,
+    "stream_chunk_max_chars": 170,
+    "stream_first_chunk_min_chars": STREAM_FIRST_CHUNK_MIN_CHARS,
+    "stream_force_flush_seconds": STREAM_FORCE_FLUSH_SECONDS,
+    "stream_force_flush_later_seconds": STREAM_FORCE_FLUSH_LATER_SECONDS,
+    "temperature": 0.7,
+    "top_p": 0.9,
+    "top_k": 40,
+    "min_p": 0.05,
+    "repeat_penalty": 1.15,
+    "limit_response_length": False,
+    "max_response_tokens": 600,
+    "allow_proactive_replies": True,
+    "require_first_user_before_proactive": False,
+    "listen_idle_window_seconds": 5.0,
+    "proactive_delay_seconds": 10.0,
+    "musetalk_avatar_id": "default_avatar",
+    "musetalk_avatar_pack_id": "",
+    "musetalk_video_path": os.path.join("data", "video", "ani.mp4"),
+    "musetalk_fps": 24,
+    "musetalk_vram_mode": "quality",
+    "musetalk_loop_fade_ms": 180,
+    "visual_replies_enabled": True,
+    "visual_reply_mode": os.environ.get("NC_VISUAL_REPLY_MODE", "auto"),
+    "visual_reply_provider": os.environ.get("NC_VISUAL_REPLY_PROVIDER", "openai"),
+    "visual_reply_model": os.environ.get("NC_VISUAL_REPLY_MODEL", "gpt-image-1"),
+    "visual_reply_size": os.environ.get("NC_VISUAL_REPLY_SIZE", "1024x1024"),
+    "visual_reply_auto_show_dock": True,
+    "sensory_feedback_source": os.environ.get("NC_SENSORY_FEEDBACK_SOURCE", "off"),
+    "sensory_feedback_interval_seconds": float(os.environ.get("NC_SENSORY_FEEDBACK_INTERVAL_SECONDS", "7.0") or 7.0),
+    "sensory_pingpong_enabled": str(os.environ.get("NC_SENSORY_PINGPONG_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
+    "sensory_pingpong_history_depth": int(os.environ.get("NC_SENSORY_PINGPONG_HISTORY_DEPTH", "3") or 3),
+    "sensory_pingpong_prompt": os.environ.get("NC_SENSORY_PINGPONG_PROMPT", DEFAULT_SENSORY_PINGPONG_PROMPT),
+    "sensory_pingpong_source_prompts": {},
+    "sensory_allow_hidden_proactive_speech": str(os.environ.get("NC_SENSORY_ALLOW_HIDDEN_PROACTIVE_SPEECH", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
+    "sensory_allow_hidden_visual_generation": str(os.environ.get("NC_SENSORY_ALLOW_HIDDEN_VISUAL_GENERATION", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
+}
+
+MUSE_EMOTION_AVATAR_MAP = {
+    "angry": "angry_avatar",
+}
+MUSE_AVATAR_POSE_FILENAME = "avatar_pose.json"
+MUSE_RENDER_OVERLAP_MS = 150
+MUSE_AVATAR_TRANSITIONS = {
+    ("angry_avatar", "default_avatar"): {
+        "start_frame": 80,
+        "end_frame": 7,
+    },
+}
+
+# ============================================================================
+# AVATAR BODY PROFILE (v16: With Speed & Intensity)
+# ============================================================================
+DEFAULT_POSE = {
+    "idle_arm_down": 71.0,
+    "idle_elbow_bend": 124.0,
+    "idle_arm_twist": 19.0,
+    "idle_fwd_left": -75.0,
+    "idle_fwd_right": 80.0,
+    "idle_speed": 1.0,  # Frequency
+    "idle_intensity": 2.0,  # Amplitude (Depth)
+    "spine_sway_mult": 1.3,       # How much the spine leans
+    "spine_twist_mult": 0.7,      # How much the spine rotates
+    "neck_stabilize": 1.5,         # 3.0 = Stiff, 0.0 = Perfect Gyroscope
+    "shoulder_lift": 1.5,
+    "breath_speed": 1.2,
+    "idle_shoulder_back": 0.0,
+    "eye_activity": 1.0
+}
+
+AVATAR_PROFILE = {
+    "neutral": DEFAULT_POSE.copy(),
+    "happy": DEFAULT_POSE.copy(),
+    "sad": DEFAULT_POSE.copy(),
+    "angry": DEFAULT_POSE.copy(),
+    "surprised": DEFAULT_POSE.copy(),
+    "shy": DEFAULT_POSE.copy(),
+}
+
+CURRENT_BODY_STATE = DEFAULT_POSE.copy()
+EDIT_EMOTION = "neutral"
+FORCE_EDIT_MODE = True
+# NEW: Hand Debugging State
+HAND_DEBUG = {
+    "active": False,        # Toggle to override animation
+    "thumb_x": 0.0,
+    "thumb_y": 0.0,
+    "thumb_z": 0.0,
+    "finger_x": 0.0,
+    "finger_y": 0.0,
+    "finger_z": 0.0
+}
+
+HAND_CALIBRATION = {
+    "relaxed": {
+        "finger_x": -180.0, "finger_y": -180.0, "finger_z": -180.0,
+        "thumb_x": -180.0,  "thumb_y": -180.0,  "thumb_z": -180.0
+    },
+    "fist": {
+        "finger_x": -180.0, "finger_y": -170.0, "finger_z": -82.0,
+        "thumb_x": -167.0,  "thumb_y": -121.0,  "thumb_z": -160.0
+    }
+}
+
+def update_runtime_config(key, value):
+    """Called by GUI to update settings in real-time"""
+    global RUNTIME_CONFIG
+    if key in RUNTIME_CONFIG:
+        RUNTIME_CONFIG[key] = value
+        #print(f"⚙️ Config Update: {key} -> {value}")
+
+
+# ============================================================================
+# GLOBAL STATE
+# ============================================================================
+LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
+LMSTUDIO_API_KEY = "lm-studio"
+WHISPER_MODEL_SIZE = "tiny.en"
+WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
+TTS_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+
+stop_flag = threading.Event()
+stop_playback = threading.Event()
+audio_playing = threading.Event()
+listening_active = threading.Event()
+microphone_active = threading.Event()
+push_to_talk_gui_held = threading.Event()
+pause_after_chunk = threading.Event()
+playback_paused = threading.Event()
+last_resume_requested_at = 0.0
+last_resumed_at = 0.0
+avatar_gui = None
+tts_model = None
+tts_backend_name = None
+whisper_model = None
+recognizer = sr.Recognizer()
+conversation_history = []
+sent_tokenize = None
+PENDING_GUI_ACTION = None
+_musetalk_cleanup_lock = threading.Lock()
+_visual_reply_request_lock = threading.Lock()
+_visual_reply_request_counter = 0
+_llm_request_active = threading.Event()
+sensory_pingpong_lock = threading.Lock()
+sensory_hidden_history = []
+sensory_pingpong_state = {
+    "last_cycle_at": 0.0,
+    "last_retained_at": 0.0,
+    "last_emotion": "",
+    "last_attention": "",
+    "last_summary": "",
+    "last_source": "off",
+}
+sensory_hidden_action_state = {
+    "pending_proactive": None,
+    "active_proactive": None,
+    "last_proactive_key": "",
+    "last_proactive_at": 0.0,
+    "last_visual_key": "",
+    "last_visual_at": 0.0,
+}
+_addon_event_publisher = None
+
+
+def set_addon_event_publisher(callback):
+    global _addon_event_publisher
+    _addon_event_publisher = callback if callable(callback) else None
+
+
+def _publish_addon_runtime_event(event_name, payload=None):
+    publisher = _addon_event_publisher
+    if publisher is None:
+        return False
+    try:
+        publisher(str(event_name or ""), dict(payload or {}))
+        return True
+    except Exception as exc:
+        print(f"⚠️ [Addons] Runtime event publish failed for {event_name}: {exc}")
+        return False
+
+
+# ============================================================================
+# HELPER: Fetch Models
+# ============================================================================
+def _chat_provider():
+    provider = str(RUNTIME_CONFIG.get("chat_provider", "lmstudio") or "lmstudio").strip().lower()
+    if provider not in {"lmstudio", "openai", "xai"}:
+        provider = "lmstudio"
+    return provider
+
+
+def _chat_provider_label(provider=None):
+    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
+    if value == "openai":
+        return "OpenAI"
+    if value == "xai":
+        return "xAI / Grok"
+    return "LM Studio"
+
+
+def _chat_provider_api_key(provider=None):
+    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
+    if value == "openai":
+        return str(os.environ.get("NC_CHAT_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+    if value == "xai":
+        return str(os.environ.get("NC_CHAT_XAI_API_KEY") or os.environ.get("XAI_API_KEY") or os.environ.get("NC_VISUAL_REPLY_XAI_API_KEY") or "").strip()
+    return LMSTUDIO_API_KEY
+
+
+def _chat_provider_base_url(provider=None):
+    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
+    if value == "openai":
+        return str(os.environ.get("NC_CHAT_OPENAI_BASE_URL") or "").strip()
+    if value == "xai":
+        return str(os.environ.get("NC_CHAT_XAI_BASE_URL") or "https://api.x.ai/v1").strip()
+    return LMSTUDIO_BASE_URL
+
+
+def _chat_provider_model_error(provider=None):
+    return f"Error: Check {_chat_provider_label(provider)}"
+
+
+def _chat_client(provider=None):
+    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
+    api_key = _chat_provider_api_key(value)
+    base_url = _chat_provider_base_url(value)
+    if value == "openai":
+        if base_url:
+            return OpenAI(api_key=api_key, base_url=base_url)
+        return OpenAI(api_key=api_key)
+    return OpenAI(base_url=base_url, api_key=api_key)
+
+
+def _fetch_json_with_bearer(url, api_key, *, timeout=10.0):
+    headers = {
+        "Accept": "application/json",
+    }
+    token = str(api_key or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    request = urllib.request.Request(str(url), headers=headers)
+    with urllib.request.urlopen(request, timeout=float(timeout)) as response:
+        raw_payload = response.read()
+        charset = None
+        try:
+            charset = response.headers.get_content_charset()
+        except Exception:
+            charset = None
+        encoding = charset or "utf-8"
+        return json.loads(raw_payload.decode(encoding, errors="replace"))
+
+
+def _xai_language_model_catalog():
+    base_url = str(_chat_provider_base_url("xai") or "").strip().rstrip("/")
+    if not base_url:
+        return []
+    api_key = _chat_provider_api_key("xai")
+    payload = _fetch_json_with_bearer(f"{base_url}/language-models", api_key, timeout=15.0)
+    entries = []
+    if isinstance(payload, dict):
+        entries = list(payload.get("data") or payload.get("models") or payload.get("items") or [])
+    elif isinstance(payload, list):
+        entries = list(payload)
+    catalog = []
+    for item in entries:
+        if not isinstance(item, dict):
+            continue
+        model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
+        if not model_id:
+            continue
+        input_modalities = [
+            str(modality or "").strip().lower()
+            for modality in list(item.get("input_modalities") or [])
+            if str(modality or "").strip()
+        ]
+        output_modalities = [
+            str(modality or "").strip().lower()
+            for modality in list(item.get("output_modalities") or [])
+            if str(modality or "").strip()
+        ]
+        supports_images = "image" in input_modalities
+        catalog.append(
+            {
+                "id": model_id,
+                "supports_images": bool(supports_images),
+                "source": "xai_language_models",
+                "input_modalities": list(input_modalities),
+                "output_modalities": list(output_modalities),
+            }
+        )
+    return catalog
+
+
+def get_chat_models(provider=None, quiet=False):
+    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
+    try:
+        if value == "xai":
+            catalog = _xai_language_model_catalog()
+            if catalog:
+                return catalog
+        client = _chat_client(value)
+        models = client.models.list()
+        ids = sorted({str(getattr(model, "id", "") or "").strip() for model in list(getattr(models, "data", []) or []) if str(getattr(model, "id", "") or "").strip()})
+        if value == "xai":
+            # xAI exposes image-generation models in the general catalog too; keep the chat picker focused on language/chat models.
+            ids = [model_id for model_id in ids if not str(model_id or "").strip().lower().startswith("grok-imagine")]
+        return ids or [_chat_provider_model_error(value)]
+    except Exception as e:
+        if not quiet:
+            print(f"Error fetching {_chat_provider_label(value)} models: {e}")
+        return [_chat_provider_model_error(value)]
+
+
+def get_lmstudio_models(quiet=False):
+    """Fetches list of available models from LM Studio"""
+    return get_chat_models(provider="lmstudio", quiet=quiet)
+
+
+def _chat_completion_create(params, additional_params=None, *, stream=False):
+    client = _chat_client()
+    request_kwargs = dict(params or {})
+    value = _chat_provider()
+    if value == "lmstudio" and additional_params:
+        request_kwargs["extra_body"] = dict(additional_params or {})
+    if stream:
+        request_kwargs["stream"] = True
+    return client.chat.completions.create(**request_kwargs)
+
+
+def _chat_provider_connection_check():
+    provider = _chat_provider()
+    label = _chat_provider_label(provider)
+    if provider == "lmstudio":
+        print(f"Checking {label} at {LMSTUDIO_BASE_URL}...")
+    else:
+        print(f"Checking {label} connectivity...")
+    try:
+        client = _chat_client(provider)
+        models = client.models.list()
+        print(f"✓ Connected to {label} ({len(getattr(models, 'data', []) or [])} model(s) available)")
+        return True
+    except Exception as e:
+        print(f"✗ Could not connect to {label}: {e}")
+        return False
+
+
+def get_main_whisper_runtime_config():
+    vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
+    if not torch.cuda.is_available():
+        return "cpu", "int8"
+    #if vram_mode in {"low", "very_low"}:
+    #    return "cpu", "int8"
+    return "cuda", "float16"
+
+
+def get_main_whisper_runtime_reason():
+    vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
+    if not torch.cuda.is_available():
+        return "CUDA unavailable"
+    if vram_mode in {"low", "very_low"}:
+        return f"{vram_mode} VRAM mode prefers CPU"
+    return f"{vram_mode} VRAM mode prefers CUDA"
+
+
+def _get_lmstudio_sdk():
+    try:
+        return importlib.import_module("lmstudio")
+    except Exception:
+        return None
+
+
+def _get_lmstudio_sdk_host():
+    try:
+        api_host = str(LMSTUDIO_BASE_URL or "").strip()
+        api_host = re.sub(r"^https?://", "", api_host, flags=re.IGNORECASE)
+        api_host = api_host.rstrip("/")
+        if api_host.endswith("/v1"):
+            api_host = api_host[:-3]
+        return api_host.strip("/")
+    except Exception:
+        return "127.0.0.1:1234"
+
+
+def _get_lmstudio_sdk_client(sdk):
+    if sdk is None:
+        return None
+    try:
+        return sdk.Client(api_host=_get_lmstudio_sdk_host())
+    except Exception:
+        return None
+
+
+def _run_lms_cli(args, timeout=300):
+    try:
+        completed = subprocess.run(
+            ["lms", *args],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=timeout,
+        )
+        output = "\n".join(
+            part.strip() for part in [completed.stdout or "", completed.stderr or ""] if part and part.strip()
+        ).strip()
+        return completed.returncode == 0, output
+    except Exception as e:
+        return False, str(e)
+
+
+def unload_lmstudio_models():
+    print("🧠 [LM Studio] Unloading loaded models before MuseTalk warmup...")
+    sdk = _get_lmstudio_sdk()
+    if sdk is not None:
+        try:
+            client = _get_lmstudio_sdk_client(sdk)
+            if client is None:
+                raise RuntimeError("Could not create LM Studio SDK client")
+            loaded_models = list(client.list_loaded_models())
+            if not loaded_models:
+                print("✓ [LM Studio] No loaded models to unload.")
+                return True
+            unloaded = []
+            for model in loaded_models:
+                identifier = getattr(model, "identifier", None) or "<unknown>"
+                model.unload()
+                unloaded.append(str(identifier))
+            print(f"✓ [LM Studio] Unloaded via SDK: {', '.join(unloaded)}")
+            return True
+        except Exception as e:
+            print(f"⚠️ [LM Studio] SDK unload failed, falling back to CLI: {e}")
+    ok, output = _run_lms_cli(["unload", "--all"], timeout=180)
+    if ok:
+        if output:
+            print(f"✓ [LM Studio] Unload complete: {output}")
+        else:
+            print("✓ [LM Studio] Unload complete.")
+        return True
+    print(f"⚠️ [LM Studio] Could not unload models: {output}")
+    return False
+
+
+def load_lmstudio_model(model_name):
+    model_name = str(model_name or "").strip()
+    if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        return False
+    print(f"🧠 [LM Studio] Reloading selected model: {model_name}")
+    sdk = _get_lmstudio_sdk()
+    if sdk is not None:
+        try:
+            client = _get_lmstudio_sdk_client(sdk)
+            if client is None:
+                raise RuntimeError("Could not create LM Studio SDK client")
+            model = client.llm.model(model_name)
+            identifier = getattr(model, "identifier", None) or model_name
+            print(f"✓ [LM Studio] Model ready via SDK: {identifier}")
+            return True
+        except Exception as e:
+            print(f"⚠️ [LM Studio] SDK reload failed, falling back to CLI: {e}")
+    ok, output = _run_lms_cli(["load", model_name, "--yes"], timeout=600)
+    if ok:
+        if output:
+            print(f"✓ [LM Studio] Model ready: {output}")
+        else:
+            print(f"✓ [LM Studio] Model ready: {model_name}")
+        return True
+    print(f"⚠️ [LM Studio] Could not reload '{model_name}': {output}")
+    return False
+
+
+# Text chunking constants
+PUNCTUATION_SPLIT_STRONGLY = {".", "!", "?"}
+PUNCTUATION_SPLIT_WEAKLY = {",", ";", ":"}
+PUNCTUATION_ALL = PUNCTUATION_SPLIT_STRONGLY.union(PUNCTUATION_SPLIT_WEAKLY)
+
+# Add this global variable near the top of engine.py or just before the function
+LAST_INPUT_TIME = 0
+
+
+def startup_cleanup():
+    """Wipes lightweight runtime temp files on launch."""
+    runtime_dir = os.path.abspath("runtime")
+    if not os.path.isdir(runtime_dir):
+        return
+
+    for name in os.listdir(runtime_dir):
+        if not name.endswith((".tmp", ".part")):
+            continue
+        try:
+            os.remove(os.path.join(runtime_dir, name))
+        except Exception:
+            pass
+    print("🧹 [Startup] Runtime temp files cleared.")
+startup_cleanup()
+
+def check_interaction_status(source):
+    """
+    Checks for keyboard shortcuts and voice barge-in.
+    """
+    global LAST_INPUT_TIME, PENDING_GUI_ACTION
+
+    now = time.time()
+    if now - LAST_INPUT_TIME < 0.5:
+        return None
+
+    if dry_run.auto_replies_enabled():
+        return None
+
+    if PENDING_GUI_ACTION:
+        action = PENDING_GUI_ACTION
+        PENDING_GUI_ACTION = None
+        LAST_INPUT_TIME = now
+        return action
+
+    # --- KEYBOARD SHORTCUTS ---
+    if keyboard.is_pressed('alt+r'):
+        LAST_INPUT_TIME = now
+        return "regenerate_response"  # <--- CHANGED NAME
+
+    if keyboard.is_pressed('alt+y'):
+        LAST_INPUT_TIME = now
+        return "retry_user_input"  # Means: "Let me say that again"
+
+    if keyboard.is_pressed('alt+return'):
+        LAST_INPUT_TIME = now
+        return "skip_speech"
+
+    if keyboard.is_pressed('alt+u'):
+        LAST_INPUT_TIME = now
+        return "skip_user_reply"
+
+    if keyboard.is_pressed('alt+l'):
+        LAST_INPUT_TIME = now
+        return "replay_last_assistant"
+
+    if keyboard.is_pressed('alt+j'):
+        LAST_INPUT_TIME = now
+        return "replay_chat_session"
+
+    if keyboard.is_pressed('alt+p'):
+        LAST_INPUT_TIME = now
+        return "pause_speech"
+
+    input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
+    if input_mode == "push_to_talk" and is_push_to_talk_pressed():
+        LAST_INPUT_TIME = now
+        return "push_to_talk"
+
+    # --- VOICE BARGE-IN ---
+    if input_mode != "push_to_talk" and check_for_barge_in(source, energy_threshold=BARGE_IN_THRESHOLD):
+        return "barge_in"
+
+    return None
+
+
+def is_push_to_talk_pressed():
+    if dry_run.auto_replies_enabled():
+        return False
+    for key_name in PUSH_TO_TALK_KEYS:
+        try:
+            if keyboard.is_pressed(key_name):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def is_push_to_talk_held():
+    if dry_run.auto_replies_enabled():
+        return False
+    return push_to_talk_gui_held.is_set() or is_push_to_talk_pressed()
+
+
+def set_push_to_talk_hold(active: bool):
+    if dry_run.auto_replies_enabled():
+        push_to_talk_gui_held.clear()
+        return
+    if active:
+        push_to_talk_gui_held.set()
+    else:
+        push_to_talk_gui_held.clear()
+
+
+def trigger_manual_action(action):
+    global PENDING_GUI_ACTION, LAST_INPUT_TIME
+    PENDING_GUI_ACTION = action
+    LAST_INPUT_TIME = 0
+
+def check_interaction_status_old(source):
+    """
+    Checks for keyboard shortcuts and voice barge-in.
+    Includes debouncing to prevent 'machine gun' key repeats.
+    """
+    global LAST_INPUT_TIME
+
+    now = time.time()
+    # 0.5 second cooldown on key presses
+    if now - LAST_INPUT_TIME < 0.5:
+        return None
+
+    # --- KEYBOARD SHORTCUTS ---
+    if keyboard.is_pressed('alt+r'):
+        LAST_INPUT_TIME = now
+        return "repeat_last_response"
+
+    if keyboard.is_pressed('alt+y'):
+        LAST_INPUT_TIME = now
+        return "retry_user_input"
+
+    if keyboard.is_pressed('alt+return'):
+        LAST_INPUT_TIME = now
+        return "skip_speech"
+
+    # --- VOICE BARGE-IN ---
+    # Only check for voice interruption if not pressing keys
+    # (We assume keys take priority)
+    if check_for_barge_in(source, energy_threshold=BARGE_IN_THRESHOLD):
+        return "barge_in"
+
+    return None
+
+# ============================================================================
+# AUDIO PLAYBACK
+# ============================================================================
+class TTSController:
+    def __init__(self):
+        self.done = threading.Event()
+        self.interrupted = threading.Event()
+        self.spoken_chunks = []
+        self._lock = threading.Lock()
+
+    def add_spoken(self, chunk_text: str):
+        with self._lock:
+            self.spoken_chunks.append(chunk_text)
+
+    def get_spoken_text(self) -> str:
+        with self._lock:
+            return " ".join(self.spoken_chunks).strip()
+
+
+def init_whisper():
+    global whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
+    if whisper_model is not None:
+        print("✓ Whisper model already loaded (Skipping reload)")
+        return
+    WHISPER_DEVICE, WHISPER_COMPUTE_TYPE = get_main_whisper_runtime_config()
+    whisper_reason = get_main_whisper_runtime_reason()
+    print(
+        f"Loading Whisper ({WHISPER_MODEL_SIZE}) on {WHISPER_DEVICE} "
+        f"[compute_type={WHISPER_COMPUTE_TYPE}, reason={whisper_reason}]..."
+    )
+    whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
+    print(f"✓ Whisper model loaded on {WHISPER_DEVICE} ({WHISPER_COMPUTE_TYPE})")
+
+
+import soundfile as sf
+
+
+def play_audio_file(path: str):
+    global stop_playback, audio_playing
+    audio_playing.set()
+    try:
+        data, fs = sf.read(path)
+        sd.play(data, fs)
+        while sd.get_stream().active:
+            if stop_playback.is_set():
+                sd.stop()
+                print("⏸️  Playback interrupted!")
+                break
+            time.sleep(0.01)
+    except Exception as e:
+        print(f"Audio error: {e}")
+    finally:
+        audio_playing.clear()
+
+
+def stream_musetalk_preview_frames(playback_state, stop_event):
+    state = dict(playback_state or {})
+    frame_paths = list(state.get("frame_paths", []) or [])
+    frame_dir = state.get("frame_dir", "")
+    fps = max(int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24), 1)
+    expected_frame_count = int(state.get("expected_frame_count", 0) or len(frame_paths))
+    if expected_frame_count <= 0:
+        expected_frame_count = len(frame_paths)
+    trim_start_frames = int(state.get("trim_start_frames", 0) or 0)
+    start_index = int(state.get("start_index", 0) or 0)
+    chunk_id = state.get("chunk_id")
+    status = state.get("status", "idle")
+    loop = bool(state.get("loop", False))
+
+    def _refresh_frame_paths():
+        nonlocal frame_paths
+        if not frame_dir:
+            return
+        scanned_paths = list_png_frames(frame_dir)
+        if trim_start_frames > 0 and scanned_paths:
+            trimmed = scanned_paths[min(trim_start_frames, len(scanned_paths) - 1):]
+            if trimmed:
+                scanned_paths = trimmed
+        if scanned_paths:
+            frame_paths = scanned_paths
+
+    if not frame_paths and frame_dir:
+        _refresh_frame_paths()
+    if not frame_paths:
+        return
+
+    start_time = time.time()
+    frame_index = 0
+    last_emitted_path = None
+    while not stop_event.is_set():
+        if loop and frame_paths:
+            target_index = frame_index % len(frame_paths)
+        else:
+            target_index = frame_index
+        if target_index >= len(frame_paths):
+            _refresh_frame_paths()
+        if target_index >= len(frame_paths):
+            if not loop and frame_index >= max(expected_frame_count - 1, 0):
+                break
+            time.sleep(0.005)
+            continue
+
+        frame_path = frame_paths[target_index]
+        if frame_path != last_emitted_path:
+            shared_state.write_musetalk_preview_frame(
+                {
+                    "chunk_id": chunk_id,
+                    "status": status,
+                    "loop": loop,
+                    "frame_path": frame_path,
+                    "frame_index": target_index,
+                    "source_index": start_index + target_index,
+                    "fps": fps,
+                    "emitted_at": time.time(),
+                }
+            )
+            last_emitted_path = frame_path
+
+        frame_index += 1
+        if not loop and frame_index >= max(expected_frame_count, len(frame_paths)):
+            break
+
+        target_time = start_time + (frame_index / fps)
+        while not stop_event.is_set():
+            remaining = target_time - time.time()
+            if remaining <= 0:
+                break
+            time.sleep(min(remaining, 0.005))
+
+
+def stream_delegated_audio_progress(playback_state, stop_event):
+    state = dict(playback_state or {})
+    duration_seconds = max(0.0, float(state.get("duration_seconds", 0.0) or 0.0))
+    expected_frame_count = max(
+        2,
+        int(state.get("expected_frame_count", 0) or 0),
+        int(round(duration_seconds * 50.0)) if duration_seconds > 0 else 2,
+    )
+    sequence_index = int(state.get("sequence_index", 0) or 0)
+    chunk_id = state.get("chunk_id")
+    sync_time = float(state.get("sync_time", time.time()) or time.time())
+
+    while not stop_event.is_set():
+        elapsed = max(0.0, time.time() - sync_time)
+        progress = min(elapsed / duration_seconds, 1.0) if duration_seconds > 0 else 1.0
+        preview_frame_index = min(int(progress * max(expected_frame_count - 1, 1)), expected_frame_count - 1)
+        live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+        if live_state.get("chunk_id") != chunk_id:
+            break
+        shared_state.update_current_musetalk_frame_data(
+            sequence_index=sequence_index,
+            expected_frame_count=expected_frame_count,
+            frame_count=expected_frame_count,
+            preview_chunk_id=chunk_id,
+            preview_frame_index=preview_frame_index,
+            preview_source_index=preview_frame_index,
+            sync_time=sync_time,
+            duration_seconds=duration_seconds,
+            status="ready",
+        )
+        if progress >= 1.0:
+            break
+        time.sleep(0.02)
+
+
+def prime_musetalk_preview_frame(playback_state):
+    state = dict(playback_state or {})
+    frame_paths = list(state.get("frame_paths", []) or [])
+    if not frame_paths:
+        frame_dir = state.get("frame_dir", "")
+        trim_start_frames = int(state.get("trim_start_frames", 0) or 0)
+        if frame_dir:
+            frame_paths = list_png_frames(frame_dir)
+            if trim_start_frames > 0 and frame_paths:
+                trimmed = frame_paths[min(trim_start_frames, len(frame_paths) - 1):]
+                if trimmed:
+                    frame_paths = trimmed
+    if not frame_paths:
+        return
+
+    first_frame_path = frame_paths[0]
+    if not first_frame_path or not os.path.exists(first_frame_path):
+        return
+
+    shared_state.write_musetalk_preview_frame(
+        {
+            "chunk_id": state.get("chunk_id"),
+            "status": state.get("status", "idle"),
+            "loop": bool(state.get("loop", False)),
+            "frame_path": first_frame_path,
+            "frame_index": 0,
+            "source_index": int(state.get("start_index", 0) or 0),
+            "fps": max(int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24), 1),
+            "emitted_at": time.time(),
+        }
+    )
+
+
+# ============================================================================
+# TTS INITIALIZATION & GENERATION
+# ============================================================================
+
+def setup_nltk():
+    global sent_tokenize
+    if sent_tokenize is not None:
+        return
+    required_resources = [
+        ("tokenizers/punkt", "punkt"),
+        ("tokenizers/punkt_tab", "punkt_tab"),
+    ]
+    for resource_path, resource_name in required_resources:
+        try:
+            nltk.data.find(resource_path)
+            print(f"✓ NLTK {resource_name} tokenizer found")
+        except LookupError:
+            try:
+                print(f"Downloading NLTK {resource_name} tokenizer...")
+                nltk.download(resource_name, quiet=True)
+                nltk.data.find(resource_path)
+                print(f"✓ NLTK {resource_name} tokenizer downloaded")
+            except Exception as e:
+                print(f"⚠️ Failed to prepare NLTK {resource_name}: {e}")
+
+    def _fallback_sentence_split(text):
+        text = str(text or "").strip()
+        if not text:
+            return []
+        parts = re.split(r'(?<=[.!?])\s+', text)
+        return [part.strip() for part in parts if part and part.strip()]
+
+    def _safe_sent_tokenize(text, language="english"):
+        try:
+            return nltk.sent_tokenize(text, language=language)
+        except LookupError as e:
+            print(f"⚠️ NLTK sentence tokenizer unavailable, using fallback splitter: {e}")
+            return _fallback_sentence_split(text)
+        except Exception as e:
+            print(f"⚠️ NLTK sentence tokenizer failed, using fallback splitter: {e}")
+            return _fallback_sentence_split(text)
+
+    sent_tokenize = _safe_sent_tokenize
+
+
+class PocketTTSSubprocessAdapter:
+    def __init__(self, python_exe):
+        self.python_exe = python_exe
+        self.process = None
+        self.lock = threading.Lock()
+        self.sr = 24000
+        self._stderr_thread = None
+        self._start_worker()
+
+    def _start_worker(self):
+        worker_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "pocket_tts_worker.py"))
+        if not os.path.exists(self.python_exe):
+            raise FileNotFoundError(f"PocketTTS interpreter not found: {self.python_exe}")
+        if not os.path.exists(worker_script):
+            raise FileNotFoundError(f"PocketTTS worker not found: {worker_script}")
+        self.process = subprocess.Popen(
+            [self.python_exe, worker_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+        ready = self._read_message(timeout=120.0)
+        if not ready or ready.get("status") != "ready":
+            raise RuntimeError(f"PocketTTS worker failed to start: {ready}")
+        self.sr = int(ready.get("sample_rate", 24000) or 24000)
+        worker_pid = ready.get("pid")
+        if worker_pid:
+            print(f"[PocketTTS] Worker ready: pid={worker_pid}, sample_rate={self.sr}")
+
+    def _drain_stderr(self):
+        if self.process is None or self.process.stderr is None:
+            return
+        for line in self.process.stderr:
+            line = (line or "").rstrip()
+            if line:
+                print(f"[PocketTTS] {line}")
+
+    def _read_message(self, timeout=60.0):
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError("PocketTTS worker is not running")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self.process.stdout.readline()
+            if line:
+                return json.loads(line)
+            if self.process.poll() is not None:
+                break
+            time.sleep(0.01)
+        raise TimeoutError("Timed out waiting for PocketTTS worker response")
+
+    def generate(self, text, audio_prompt_path=None, **kwargs):
+        if self.process is None or self.process.poll() is not None:
+            raise RuntimeError("PocketTTS worker is not available")
+        request_id = uuid.uuid4().hex[:8]
+        output_path = os.path.join(tempfile.gettempdir(), f"pocket_tts_{request_id}.wav")
+        payload = {
+            "cmd": "synthesize",
+            "request_id": request_id,
+            "text": text,
+            "voice_prompt": audio_prompt_path or "alba",
+            "output_path": output_path,
+        }
+        with self.lock:
+            self.process.stdin.write(json.dumps(payload) + "\n")
+            self.process.stdin.flush()
+            response = self._read_message(timeout=180.0)
+        if response.get("status") != "ok":
+            raise RuntimeError(response.get("error", "PocketTTS worker synthesis failed"))
+        wav, sample_rate = ta.load(output_path)
+        self.sr = int(sample_rate or self.sr or 24000)
+        safe_delete_with_retry(output_path)
+        return wav
+
+    def close(self):
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        try:
+            if process.stdin is not None:
+                process.stdin.write(json.dumps({"cmd": "close"}) + "\n")
+                process.stdin.flush()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=3.0)
+        except Exception:
+            try:
+                process.terminate()
+                process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+
+def init_tts():
+    global tts_model, tts_backend_name
+    desired_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
+    if desired_backend not in {"chatterbox", "pockettts"}:
+        desired_backend = "chatterbox"
+
+    if tts_model is not None and tts_backend_name == desired_backend:
+        print(f"✓ {desired_backend} TTS model already loaded (Skipping reload)")
+        return True
+
+    if tts_model is not None and hasattr(tts_model, "close"):
+        try:
+            tts_model.close()
+        except Exception:
+            pass
+    tts_model = None
+    tts_backend_name = None
+
+    if desired_backend == "pockettts":
+        print("Loading PocketTTS via isolated interpreter...")
+        try:
+            python_exe = str(RUNTIME_CONFIG.get("pocket_tts_python", "") or "").strip()
+            if not python_exe:
+                fallback = str(DEFAULT_POCKET_TTS_PYTHON or "").strip()
+                if fallback and os.path.exists(fallback):
+                    python_exe = fallback
+                    RUNTIME_CONFIG["pocket_tts_python"] = fallback
+                    print(f"[PocketTTS] Runtime path was empty. Using default interpreter: {fallback}")
+            if not python_exe:
+                raise RuntimeError("Set 'PocketTTS Python' in the Qt app first.")
+            tts_model = PocketTTSSubprocessAdapter(python_exe)
+            tts_backend_name = "pockettts"
+            print("✓ PocketTTS backend loaded successfully")
+            return True
+        except Exception as e:
+            print(f"✗ Failed to load PocketTTS: {e}")
+            print("↩️ Falling back to ChatterboxTurboTTS...")
+
+    print(f"Loading ChatterboxTurboTTS on {TTS_DEVICE}...")
+    try:
+        tts_model = ChatterboxTurboTTS.from_pretrained(device=TTS_DEVICE)
+        tts_backend_name = "chatterbox"
+        print("✓ ChatterboxTurboTTS loaded successfully")
+        return True
+    except Exception as e:
+        print(f"✗ Failed to load TTS model: {e}")
+        return False
+
+
+@lru_cache(maxsize=1024)
+def _find_intelligent_split_point(text_segment: str, target_chars: int, max_chars: int) -> int:
+    try:
+        segment_len = len(text_segment)
+        if segment_len <= max_chars:
+            return segment_len
+        search_end = min(segment_len - 1, max_chars - 1)
+        search_start = max(0, target_chars - (max_chars - target_chars) // 2)
+        search_start = max(0, min(search_start, search_end - 1))
+        for i in range(search_end, search_start - 1, -1):
+            if text_segment[i] in PUNCTUATION_SPLIT_STRONGLY:
+                if i + 1 < segment_len and text_segment[i + 1].isspace():
+                    return i + 1
+                elif i == segment_len - 1:
+                    return i + 1
+        for i in range(search_end, search_start - 1, -1):
+            if text_segment[i] in PUNCTUATION_SPLIT_WEAKLY:
+                if i + 1 < segment_len and text_segment[i + 1].isspace():
+                    return i + 1
+                elif i == segment_len - 1:
+                    return i + 1
+        whitespace_end = min(segment_len - 1, max_chars - 1)
+        whitespace_start = max(0, MIN_CHUNK_SIZE - 1)
+        if whitespace_end > whitespace_start:
+            space_pos = text_segment.rfind(' ', whitespace_start, whitespace_end + 1)
+            if space_pos != -1:
+                return space_pos + 1
+        return min(segment_len, max_chars)
+    except Exception as e:
+        print(f"Error in split point detection: {e}")
+        return min(len(text_segment), max_chars)
+
+
+def intelligent_chunk_text(long_text: str, target_chars: int, max_chars: int) -> list:
+    try:
+        if not long_text or not long_text.strip():
+            return []
+        long_text = re.sub(r'\s+', ' ', long_text).strip()
+        if not (MIN_CHUNK_SIZE <= target_chars < max_chars):
+            return [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars)]
+        sentences = sent_tokenize(long_text)
+        if not sentences:
+            return [long_text] if len(long_text) <= max_chars else [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars)]
+        chunks = []
+        current_buffer = []
+        current_buffer_length = 0
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+            sentence_length = len(sentence)
+            if sentence_length > max_chars:
+                if current_buffer:
+                    chunks.append(" ".join(current_buffer).strip())
+                    current_buffer = []
+                    current_buffer_length = 0
+                temp_segment_start_idx = 0
+                while temp_segment_start_idx < sentence_length:
+                    remaining_sentence_part = sentence[temp_segment_start_idx:]
+                    if not remaining_sentence_part.strip():
+                        break
+                    if len(remaining_sentence_part) <= max_chars:
+                        chunks.append(remaining_sentence_part.strip())
+                        break
+                    else:
+                        split_at = _find_intelligent_split_point(remaining_sentence_part, target_chars, max_chars)
+                        chunk_to_add = remaining_sentence_part[:split_at].strip()
+                        if chunk_to_add:
+                            chunks.append(chunk_to_add)
+                        temp_segment_start_idx += split_at
+                        while temp_segment_start_idx < sentence_length and sentence[temp_segment_start_idx].isspace():
+                            temp_segment_start_idx += 1
+            else:
+                if current_buffer_length + (1 if current_buffer else 0) + sentence_length > max_chars:
+                    if current_buffer:
+                        chunks.append(" ".join(current_buffer).strip())
+                    current_buffer = [sentence]
+                    current_buffer_length = sentence_length
+                else:
+                    current_buffer.append(sentence)
+                    current_buffer_length += (1 if len(current_buffer) > 1 else 0) + sentence_length
+                if current_buffer_length >= target_chars:
+                    chunks.append(" ".join(current_buffer).strip())
+                    current_buffer = []
+                    current_buffer_length = 0
+        if current_buffer:
+            chunks.append(" ".join(current_buffer).strip())
+        valid_chunks = [chunk for chunk in chunks if MIN_CHUNK_SIZE <= len(chunk.strip()) <= max_chars]
+        if not valid_chunks and long_text:
+            if MIN_CHUNK_SIZE <= len(long_text) <= max_chars:
+                return [long_text]
+        return valid_chunks
+    except Exception as e:
+        print(f"Error chunking text: {e}")
+        try:
+            return [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars) if long_text[i:i + max_chars].strip()]
+        except:
+            return []
+
+
+def get_musetalk_chunk_limits_for_index(chunk_index: int):
+    chunk_index = max(0, int(chunk_index))
+    quickstart_limits = [
+        (
+            int(RUNTIME_CONFIG.get("musetalk_quickstart_1_target_chars", MUSE_QUICKSTART_CHUNK_LIMITS[0][0]) or MUSE_QUICKSTART_CHUNK_LIMITS[0][0]),
+            int(RUNTIME_CONFIG.get("musetalk_quickstart_1_max_chars", MUSE_QUICKSTART_CHUNK_LIMITS[0][1]) or MUSE_QUICKSTART_CHUNK_LIMITS[0][1]),
+        ),
+        (
+            int(RUNTIME_CONFIG.get("musetalk_quickstart_2_target_chars", MUSE_QUICKSTART_CHUNK_LIMITS[1][0]) or MUSE_QUICKSTART_CHUNK_LIMITS[1][0]),
+            int(RUNTIME_CONFIG.get("musetalk_quickstart_2_max_chars", MUSE_QUICKSTART_CHUNK_LIMITS[1][1]) or MUSE_QUICKSTART_CHUNK_LIMITS[1][1]),
+        ),
+    ]
+    if chunk_index < len(quickstart_limits):
+        return quickstart_limits[chunk_index]
+    return (
+        int(RUNTIME_CONFIG.get("musetalk_chunk_target_chars", MUSE_TARGET_CHARS_PER_CHUNK) or MUSE_TARGET_CHARS_PER_CHUNK),
+        int(RUNTIME_CONFIG.get("musetalk_chunk_max_chars", MUSE_MAX_CHARS_PER_CHUNK) or MUSE_MAX_CHARS_PER_CHUNK),
+    )
+
+
+def intelligent_chunk_text_progressive(long_text: str, start_chunk_index: int = 0) -> list:
+    try:
+        if not long_text or not long_text.strip():
+            return []
+        remaining_text = re.sub(r'\s+', ' ', long_text).strip()
+        chunks = []
+        local_index = 0
+        while remaining_text:
+            target_chars, max_chars = get_musetalk_chunk_limits_for_index(start_chunk_index + local_index)
+            if len(remaining_text) <= max_chars:
+                final_chunk = remaining_text.strip()
+                if final_chunk:
+                    chunks.append(final_chunk)
+                break
+
+            split_at = _find_intelligent_split_point(remaining_text, target_chars, max_chars)
+            chunk_text = remaining_text[:split_at].strip()
+            if chunk_text:
+                chunks.append(chunk_text)
+            remaining_text = remaining_text[split_at:].lstrip()
+            local_index += 1
+
+        return [chunk for chunk in chunks if len(chunk) >= MIN_CHUNK_SIZE]
+    except Exception as e:
+        print(f"Error progressive chunking text: {e}")
+        target_chars, max_chars = get_musetalk_chunk_limits_for_index(start_chunk_index)
+        return intelligent_chunk_text(long_text, target_chars, max_chars)
+
+
+def sanitize_assistant_text_for_speech(text: str, *, preserve_emotion_tags: bool = False) -> str:
+    value = str(text or "")
+    if not value:
+        return ""
+
+    protected_bracket_tokens: dict[str, str] = {}
+    value = VISUAL_REPLY_TAG_RE.sub("", value)
+
+    def _protect_bracket_token(match):
+        token = f"BRACKETTOKEN{len(protected_bracket_tokens)}X"
+        protected_bracket_tokens[token] = match.group(0)
+        return token
+
+    # Remove markdown formatting that sounds awkward when spoken, while allowing
+    # the playback pipeline to preserve registered visual mood tags when needed.
+    value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", value)
+    value = re.sub(r"`([^`]+)`", r"\1", value)
+    value = re.sub(
+        r"\[([^\]\n]+)\]",
+        lambda match: (
+            _protect_bracket_token(match)
+            if is_sound_tag(normalize_bracket_tag(match.group(0)))
+            else (
+                _protect_bracket_token(match)
+                if preserve_emotion_tags and is_emotion_tag(normalize_bracket_tag(match.group(0)))
+                else (
+                    ""
+                    if is_emotion_tag(normalize_bracket_tag(match.group(0)))
+                    else _protect_bracket_token(match)
+                )
+            )
+        ),
+        value,
+    )
+    value = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", value)
+    value = re.sub(r"(?m)^\s*>\s*", "", value)
+    value = re.sub(r"(?m)^\s*[-*+]\s+", "", value)
+
+    # Remove emphasis markers while preserving their contents.
+    value = value.replace("**", "")
+    value = value.replace("__", "")
+    value = re.sub(r"(?<!\[)\*(?!\s)(.+?)(?<!\s)\*(?!\])", r"\1", value)
+    value = re.sub(r"(?<!\[)_(?!\s)(.+?)(?<!\s)_(?!\])", r"\1", value)
+
+    for token, original in protected_bracket_tokens.items():
+        value = value.replace(token, original)
+
+    value = re.sub(r"[ \t]+\n", "\n", value)
+    value = re.sub(r"\n{3,}", "\n\n", value)
+    value = re.sub(r"[ \t]{2,}", " ", value)
+    return value.strip()
+
+SOUND_TAGS = {
+    "[clear throat]", "[sigh]", "[shush]", "[groan]",
+    "[sniff]", "[gasp]", "[chuckle]", "[laugh]"
+}
+SOUND_TAG_NAMES = {tag.strip()[1:-1].strip().lower() for tag in SOUND_TAGS}
+CONTROL_TAG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+
+DEFAULT_EMOTION_NAMES = {
+    "neutral",
+    "happy",
+    "sad",
+    "angry",
+    "shy",
+    "surprised",
+}
+_EMOTION_REGISTRY = {
+    "loaded_at": 0.0,
+    "names": set(DEFAULT_EMOTION_NAMES),
+}
+
+
+def invalidate_available_emotion_names():
+    _EMOTION_REGISTRY["loaded_at"] = 0.0
+    _EMOTION_REGISTRY["names"] = set(DEFAULT_EMOTION_NAMES)
+
+
+def get_available_emotion_names(force_refresh=False):
+    now = time.time()
+    if (
+        not force_refresh
+        and _EMOTION_REGISTRY.get("names")
+        and (now - float(_EMOTION_REGISTRY.get("loaded_at", 0.0) or 0.0)) < 2.0
+    ):
+        return set(_EMOTION_REGISTRY.get("names") or set(DEFAULT_EMOTION_NAMES))
+
+    names = set(DEFAULT_EMOTION_NAMES)
+    try:
+        names.update(str(key or "").strip().lower() for key in AVATAR_PROFILE.keys() if str(key or "").strip())
+    except Exception:
+        pass
+    avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
+    packs_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatar_packs"))
+    try:
+        packs = discover_avatar_packs(
+            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+            legacy_map=MUSE_EMOTION_AVATAR_MAP,
+            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+            avatars_dir=Path(avatars_root),
+            packs_dir=Path(packs_root),
+            include_legacy=False,
+            include_standalone=False,
+        )
+        for pack in packs.values():
+            try:
+                names.update(
+                    str(tag or "").strip().lower()
+                    for tag in pack.emotion_avatar_map().keys()
+                    if str(tag or "").strip()
+                )
+            except Exception:
+                continue
+    except Exception:
+        pass
+
+    _EMOTION_REGISTRY["loaded_at"] = now
+    _EMOTION_REGISTRY["names"] = set(names)
+    return set(names)
+
+
+def get_available_emotion_tags(force_refresh=False):
+    return {f"[{name}]" for name in get_available_emotion_names(force_refresh=force_refresh)}
+
+
+def normalize_bracket_tag(tag_text):
+    stripped = str(tag_text or "").strip()
+    if not (stripped.startswith("[") and stripped.endswith("]")):
+        return None
+    inner = stripped[1:-1].strip().lower()
+    return inner or None
+
+
+def is_single_word_control_tag(tag_name):
+    value = str(tag_name or "").strip()
+    return bool(value and CONTROL_TAG_TOKEN_RE.fullmatch(value))
+
+
+def is_sound_tag(tag_name):
+    return str(tag_name or "").strip().lower() in SOUND_TAG_NAMES
+
+
+def is_emotion_tag(tag_name, available_emotion_names=None):
+    normalized = str(tag_name or "").strip().lower()
+    if not is_single_word_control_tag(normalized):
+        return False
+    names = available_emotion_names if available_emotion_names is not None else get_available_emotion_names()
+    return normalized in set(str(name or "").strip().lower() for name in names)
+
+
+def _looks_like_control_tag_prefix(fragment):
+    value = str(fragment or "").strip()
+    if not value:
+        return False
+    if len(value) > 32:
+        return False
+    if re.fullmatch(r"[A-Za-z0-9_-]*", value):
+        return True
+    value_lower = value.lower()
+    for sound_name in SOUND_TAG_NAMES:
+        if sound_name.startswith(value_lower):
+            return True
+    return False
+
+
+def _looks_like_visual_reply_tag_prefix(fragment):
+    value = str(fragment or "").strip().lower()
+    if not value:
+        return False
+    for starter in ("visualize", "image"):
+        if starter.startswith(value):
+            return True
+        if value.startswith(starter):
+            remainder = value[len(starter):]
+            if not remainder:
+                return True
+            if re.fullmatch(r"\s*:\s*[^\]\n]*", remainder):
+                return True
+    return False
+
+
+VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGNORECASE)
+VISUAL_REPLY_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "visual_replies"
+SENSORY_FEEDBACK_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "sensory_feedback"
+VISUAL_REPLY_XAI_BASE_URL = "https://api.x.ai/v1"
+_sensory_feedback_lock = threading.Lock()
+_sensory_feedback_state = {}
+
+
+def _visual_reply_api_key():
+    provider = _visual_reply_provider()
+    if provider == "xai":
+        return str(
+            os.environ.get("NC_VISUAL_REPLY_XAI_API_KEY")
+            or os.environ.get("XAI_API_KEY")
+            or os.environ.get("NC_VISUAL_REPLY_API_KEY")
+            or ""
+        ).strip()
+    return str(os.environ.get("NC_VISUAL_REPLY_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def _visual_reply_base_url():
+    provider = _visual_reply_provider()
+    if provider == "xai":
+        return str(
+            os.environ.get("NC_VISUAL_REPLY_BASE_URL")
+            or os.environ.get("NC_VISUAL_REPLY_XAI_BASE_URL")
+            or VISUAL_REPLY_XAI_BASE_URL
+        ).strip()
+    return str(os.environ.get("NC_VISUAL_REPLY_BASE_URL") or "").strip()
+
+
+def _visual_reply_provider():
+    provider = str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai").strip().lower()
+    return provider if provider in {"openai", "xai"} else "openai"
+
+
+def _visual_reply_mode():
+    mode = str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto").strip().lower()
+    return mode if mode in {"off", "auto"} else "auto"
+
+
+def _visual_reply_enabled():
+    if not bool(RUNTIME_CONFIG.get("visual_replies_enabled", True)):
+        return False
+    return _visual_reply_mode() != "off"
+
+
+def _visual_reply_generation_available():
+    if not _visual_reply_enabled():
+        return False
+    if _visual_reply_provider() == "xai":
+        return bool(_visual_reply_api_key())
+    return bool(_visual_reply_api_key() or _visual_reply_base_url())
+
+
+def _visual_reply_model_name():
+    provider = _visual_reply_provider()
+    fallback = "grok-imagine-image" if provider == "xai" else "gpt-image-1"
+    return str(
+        RUNTIME_CONFIG.get("visual_reply_model")
+        or (os.environ.get("NC_VISUAL_REPLY_XAI_MODEL") if provider == "xai" else "")
+        or os.environ.get("NC_VISUAL_REPLY_MODEL")
+        or fallback
+    ).strip()
+
+
+def _visual_reply_image_size():
+    allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}
+    value = str(
+        RUNTIME_CONFIG.get("visual_reply_size")
+        or os.environ.get("NC_VISUAL_REPLY_SIZE")
+        or "1024x1024"
+    ).strip().lower()
+    return value if value in allowed else "1024x1024"
+
+
+def _visual_reply_xai_extra_body():
+    size = _visual_reply_image_size()
+    if size == "1024x1536":
+        return {"aspect_ratio": "2:3", "resolution": "1k"}
+    if size == "1536x1024":
+        return {"aspect_ratio": "3:2", "resolution": "1k"}
+    if size == "1024x1024":
+        return {"aspect_ratio": "1:1", "resolution": "1k"}
+    return {"aspect_ratio": "auto", "resolution": "1k"}
+
+
+def _next_visual_reply_request_id():
+    global _visual_reply_request_counter
+    with _visual_reply_request_lock:
+        _visual_reply_request_counter += 1
+        return f"visual_{int(time.time())}_{_visual_reply_request_counter}"
+
+
+def extract_visual_reply_prompt(text: str):
+    value = str(text or "")
+    matches = list(VISUAL_REPLY_TAG_RE.finditer(value))
+    if not matches:
+        return value.strip(), None
+    prompt = str(matches[-1].group(1) or "").strip()
+    cleaned = VISUAL_REPLY_TAG_RE.sub("", value)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
+    cleaned = cleaned.strip()
+    if prompt and not cleaned:
+        cleaned = "Let me show you."
+    return cleaned, (prompt or None)
+
+
+def _visual_reply_generation_instruction():
+    if not _automatic_visual_reply_generation_allowed():
+        return ""
+    return (
+        "Optional visual reply capability: when a generated image would meaningfully help, "
+        "append exactly one tag at the end of your reply in this form: "
+        "[visualize: concise image prompt]. Keep the prompt concrete and under 180 characters. "
+        "Use this sparingly, and still provide the normal text reply."
+    )
+
+
+def _sensory_feedback_sources():
+    raw_value = RUNTIME_CONFIG.get("sensory_feedback_source", "off")
+    if isinstance(raw_value, (list, tuple, set)):
+        tokens = [str(item or "").strip().lower() for item in list(raw_value or [])]
+    else:
+        text_value = str(raw_value or "off").strip().lower()
+        tokens = [part.strip().lower() for part in text_value.split(",")]
+    normalized = []
+    seen = set()
+    for token in tokens:
+        if not token or token == "off" or token in seen:
+            continue
+        if sensory.get_provider(token) is None:
+            continue
+        normalized.append(token)
+        seen.add(token)
+    return normalized
+
+
+def _sensory_feedback_source():
+    sources = _sensory_feedback_sources()
+    return sources[0] if sources else "off"
+
+
+def _sensory_feedback_enabled():
+    return bool(_sensory_feedback_sources())
+
+
+def _sensory_feedback_interval_seconds():
+    return max(2.0, float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0))
+
+
+def _sensory_feedback_provider():
+    source = _sensory_feedback_source()
+    return None if source == "off" else sensory.get_provider(source)
+
+
+def _sensory_feedback_instruction():
+    instructions = []
+    seen = set()
+    for source in _sensory_feedback_sources():
+        provider = sensory.get_provider(source)
+        instruction = str(getattr(provider, "instruction", "") or "").strip() if provider is not None else ""
+        if not instruction or instruction in seen:
+            continue
+        instructions.append(instruction)
+        seen.add(instruction)
+    if instructions:
+        return "\n\n".join(instructions)
+    return (
+        "Optional hidden sensory feedback may be attached as hidden ambient context messages. "
+        "Treat them as background situational awareness, not as direct user requests. "
+        "Only mention what you infer from them if it is genuinely relevant to the conversation."
+    ) if _sensory_feedback_enabled() else ""
+
+
+def _sensory_feedback_capture_screen(output_path: Path):
+    try:
+        from PIL import ImageGrab
+        image = ImageGrab.grab(all_screens=True)
+    except Exception as exc:
+        raise RuntimeError(f"Screen capture failed: {exc}") from exc
+    image = image.convert("RGB")
+    image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path, format="JPEG", quality=85, optimize=True)
+    return output_path
+
+
+def _sensory_feedback_capture_webcam(output_path: Path):
+    try:
+        import cv2
+    except Exception as exc:
+        raise RuntimeError(f"OpenCV is unavailable for webcam capture: {exc}") from exc
+    cap = None
+    try:
+        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW if os.name == "nt" else 0)
+        if not cap or not cap.isOpened():
+            raise RuntimeError("Webcam could not be opened.")
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise RuntimeError("Webcam returned no frame.")
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        cv2.imwrite(str(output_path), frame)
+        return output_path
+    finally:
+        try:
+            if cap is not None:
+                cap.release()
+        except Exception:
+            pass
+
+
+def _capture_screen_sensory_snapshot(context=None):
+    timestamp = int(time.time() * 1000)
+    output_root = Path(str((context or {}).get("output_dir") or SENSORY_FEEDBACK_OUTPUT_DIR))
+    output_path = output_root / f"screen_{timestamp}.jpg"
+    output_path = _sensory_feedback_capture_screen(output_path)
+    return {
+        "captured_at": time.time(),
+        "image_path": str(output_path),
+        "source": "screen",
+        "content_text": "Hidden sensory feedback only, not a user request. Source: screen. Use as ambient context only if relevant.",
+    }
+
+
+def _capture_webcam_sensory_snapshot(context=None):
+    timestamp = int(time.time() * 1000)
+    output_root = Path(str((context or {}).get("output_dir") or SENSORY_FEEDBACK_OUTPUT_DIR))
+    output_path = output_root / f"webcam_{timestamp}.jpg"
+    output_path = _sensory_feedback_capture_webcam(output_path)
+    return {
+        "captured_at": time.time(),
+        "image_path": str(output_path),
+        "source": "webcam",
+        "content_text": "Hidden sensory feedback only, not a user request. Source: webcam. Use as ambient context only if relevant.",
+    }
+
+
+def _register_builtin_sensory_providers():
+    sensory.register_provider(
+        provider_id="screen",
+        label="Screen",
+        instruction=(
+            "Optional hidden screen sensory feedback may be attached as a hidden screenshot message. "
+            "Treat it as background situational awareness, not as a direct user request. "
+            "Only mention what you infer from it if it is genuinely relevant to the conversation."
+        ),
+        description="Captures the user's monitor as hidden ambient context.",
+        order=100,
+        capture_handler=_capture_screen_sensory_snapshot,
+        metadata={"builtin": True, "kind": "image", "ping_payload": [{"field": "image", "description": "hidden screenshot attachment sent to the model"}, {"field": "text prefix", "description": "source label and capture timestamp framing the screenshot as ambient context"}], "pong_influences": [{"field": "attention", "description": "application or task focus inferred from the screen"}, {"field": "summary", "description": "meaningful screen-context change worth retaining"}, {"field": "should_speak", "description": "optional proactive reaction when visible task context justifies interruption"}, {"field": "should_generate_image", "description": "optional image generation when the screen clearly shows visual intent"}, {"field": "visual_candidate", "description": "clean image prompt distilled from screen intent"}], "tag_subscriptions": [], "pingpong_prompt": """When screen input is present, you may infer the user's current application, task focus, and likely intent from visible windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.
+
+Use screen input for should_generate_image when the screen clearly shows the user composing an image request, browsing visual inspiration, describing a scene to depict, or otherwise doing something where generating an image would add obvious value.
+- If you set should_generate_image=true from screen context, provide a visual_candidate that turns the screen-derived idea into a clean image prompt instead of repeating raw UI text verbatim.
+- Good screen-derived visual_candidate examples: "NC self-portrait at a glowing workstation, intimate digital companion mood" or "storybook ragdoll cat lounging by a sunlit window, soft painterly style".
+- If the screen only shows ordinary work with no strong visual intent, prefer should_generate_image=false.
+
+Use screen input for should_speak when the user appears to be actively preparing, searching, or editing something that justifies a gentle proactive reaction or question.
+- If the screen cue is weak or ambiguous, prefer should_speak=false."""},
+    )
+    sensory.register_provider(
+        provider_id="webcam",
+        label="Webcam",
+        instruction=(
+            "Optional hidden webcam sensory feedback may be attached as a hidden image message. "
+            "Treat it as background situational awareness, not as a direct user request. "
+            "Only mention what you infer from it if it is genuinely relevant to the conversation."
+        ),
+        description="Captures a webcam snapshot as hidden ambient context.",
+        order=110,
+        capture_handler=_capture_webcam_sensory_snapshot,
+        metadata={"builtin": True, "kind": "image", "ping_payload": [{"field": "image", "description": "hidden webcam snapshot attachment sent to the model"}, {"field": "text prefix", "description": "source label and capture timestamp framing the webcam snapshot as ambient context"}], "pong_influences": [{"field": "attention", "description": "gaze, pose, gesture, or presence cue"}, {"field": "summary", "description": "concise retained description of a meaningful observed moment"}, {"field": "should_speak", "description": "gesture-driven or expression-driven proactive interjection"}, {"field": "should_generate_image", "description": "rare visual generation when the observed moment is especially striking"}, {"field": "visual_candidate", "description": "image prompt inspired by the observed moment"}], "tag_subscriptions": [], "pingpong_prompt": """When webcam input is present, you may infer posture, gestures, gaze direction, visible props, and coarse facial expression, but do not claim persistent video continuity beyond the current snapshots.
+
+Use webcam input especially for attention, summary, and gesture-driven should_speak decisions.
+- If a visible gesture, expression, or posture strongly invites an in-character spoken reaction, set should_speak=true and provide a concise proactive_candidate.
+- If the webcam only shows normal presence or ambiguous body language, prefer should_speak=false.
+
+Only set should_generate_image=true from webcam input when the visible scene, pose, or moment is visually striking enough that generating an image would add real value. If you do, write visual_candidate as an image prompt inspired by the observed moment, not a literal surveillance description."""},
+    )
+
+
+_register_builtin_sensory_providers()
+
+
+def _capture_sensory_feedback_snapshot(source=None):
+    provider_id = str(source or _sensory_feedback_source() or "off").strip().lower()
+    if provider_id == "off":
+        return None
+    snapshot = sensory.capture_snapshot(
+        provider_id,
+        {
+            "output_dir": str(SENSORY_FEEDBACK_OUTPUT_DIR),
+            "runtime_config": dict(RUNTIME_CONFIG),
+            "timestamp": time.time(),
+            "selected_sources": list(_sensory_feedback_sources()),
+        },
+    )
+    if not isinstance(snapshot, dict):
+        return None
+    snapshot.setdefault("captured_at", time.time())
+    snapshot.setdefault("source", provider_id)
+    return snapshot
+
+
+def _snapshot_has_payload(snapshot):
+    if not isinstance(snapshot, dict):
+        return False
+    image_path = str(snapshot.get("image_path", "") or "")
+    message = snapshot.get("message")
+    content = snapshot.get("content")
+    return bool((image_path and os.path.isfile(image_path)) or message or content)
+
+
+def _maybe_refresh_sensory_feedback_snapshots(force=False):
+    if not _sensory_feedback_enabled():
+        return []
+    with _sensory_feedback_lock:
+        now = time.time()
+        interval_seconds = _sensory_feedback_interval_seconds()
+        active_sources = list(_sensory_feedback_sources())
+        snapshots = []
+        for source in active_sources:
+            current_snapshot = dict(_sensory_feedback_state.get(source) or {})
+            current_at = float(current_snapshot.get("captured_at", 0.0) or 0.0)
+            has_current_payload = _snapshot_has_payload(current_snapshot)
+            if (not force) and has_current_payload and (now - current_at) < interval_seconds:
+                snapshots.append(current_snapshot)
+                continue
+            try:
+                snapshot = _capture_sensory_feedback_snapshot(source)
+                if snapshot and _snapshot_has_payload(snapshot):
+                    _sensory_feedback_state[source] = dict(snapshot)
+                    print(
+                        f"👁️ [Sensory] Captured {snapshot.get('source')} feedback "
+                        f"({int(max(0.0, now - current_at) * 1000)} ms since previous)."
+                    )
+                    snapshots.append(dict(snapshot))
+                elif has_current_payload:
+                    snapshots.append(current_snapshot)
+            except Exception as exc:
+                print(f"⚠️ [Sensory] Capture failed for {source}: {exc}")
+                if has_current_payload:
+                    snapshots.append(current_snapshot)
+        for stale_source in list(_sensory_feedback_state.keys()):
+            if stale_source not in active_sources:
+                _sensory_feedback_state.pop(stale_source, None)
+        return [dict(snapshot) for snapshot in snapshots if _snapshot_has_payload(snapshot)]
+
+
+def _data_url_for_local_image(image_path: str):
+    path = str(image_path or "").strip()
+    if not path or not os.path.isfile(path):
+        return ""
+    mime_type = mimetypes.guess_type(path)[0] or "image/jpeg"
+    payload = base64.b64encode(Path(path).read_bytes()).decode("ascii")
+    return f"data:{mime_type};base64,{payload}"
+
+
+def _build_sensory_feedback_message_from_snapshot(snapshot):
+    if not isinstance(snapshot, dict):
+        return None
+    source = str(snapshot.get("source", "sensory") or "sensory")
+    captured_at = float(snapshot.get("captured_at", 0.0) or 0.0)
+    timestamp_text = time.strftime("%H:%M:%S", time.localtime(captured_at)) if captured_at > 0 else "unknown"
+    message = snapshot.get("message")
+    if isinstance(message, dict):
+        return dict(message)
+    content = snapshot.get("content")
+    if isinstance(content, list):
+        return {
+            "role": str(snapshot.get("role", "user") or "user"),
+            "content": list(content),
+        }
+    if isinstance(content, str) and content.strip():
+        metadata = snapshot.get("metadata")
+        if isinstance(metadata, dict) and metadata:
+            payload = {
+                "source": source,
+                "captured_at": captured_at,
+                "content": str(content),
+                "metadata": dict(metadata),
+            }
+            return {
+                "role": str(snapshot.get("role", "user") or "user"),
+                "content": json.dumps(payload, ensure_ascii=True),
+            }
+        return {
+            "role": str(snapshot.get("role", "user") or "user"),
+            "content": str(content),
+        }
+    data_url = _data_url_for_local_image(snapshot.get("image_path", ""))
+    if not data_url:
+        return None
+    text_prefix = str(snapshot.get("content_text", "") or "").strip()
+    if not text_prefix:
+        text_prefix = (
+            f"Hidden sensory feedback only, not a user request. Source: {source}. "
+            f"Captured at {timestamp_text}. Use as ambient context only if relevant."
+        )
+    return {
+        "role": str(snapshot.get("role", "user") or "user"),
+        "content": [
+            {
+                "type": "text",
+                "text": text_prefix,
+            },
+            {
+                "type": "image_url",
+                "image_url": {"url": data_url},
+            },
+        ],
+    }
+
+
+def _build_sensory_feedback_messages():
+    snapshots = _maybe_refresh_sensory_feedback_snapshots(force=False)
+    messages = []
+    for snapshot in snapshots:
+        source = str(snapshot.get("source", "sensory") or "sensory")
+        captured_at = float(snapshot.get("captured_at", 0.0) or 0.0)
+        timestamp_text = time.strftime("%H:%M:%S", time.localtime(captured_at)) if captured_at > 0 else "unknown"
+        print(
+            f"👁️ [Sensory] Injecting hidden {source} input into model request "
+            f"(captured {timestamp_text}, path={snapshot.get('image_path', '')})."
+        )
+        message = _build_sensory_feedback_message_from_snapshot(snapshot)
+        if message:
+            messages.append(message)
+    return messages
+
+
+def _sensory_pingpong_enabled():
+    return _sensory_feedback_enabled() and bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False))
+
+
+def _sensory_pingpong_history_depth():
+    return max(0, int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3))
+
+
+def _hidden_sensory_proactive_speech_allowed():
+    return bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False))
+
+
+def _hidden_sensory_visual_generation_allowed():
+    return _automatic_visual_reply_generation_allowed()
+
+
+def _automatic_visual_reply_generation_allowed():
+    return bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)) and _visual_reply_enabled()
+
+
+def _normalize_boolish(value):
+    if isinstance(value, str):
+        return value.strip().lower() in {"1", "true", "yes", "on"}
+    return bool(value)
+
+
+def _sanitize_hidden_action_text(value, *, limit=220, lower=False):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    if lower:
+        text = text.lower()
+    return text[:limit]
+
+
+def _derive_hidden_proactive_candidate(summary="", attention="", emotion=""):
+    candidate = _sanitize_hidden_action_text(summary, limit=220)
+    if candidate:
+        return candidate
+    cue = _sanitize_hidden_action_text(attention, limit=80)
+    if cue:
+        return _sanitize_hidden_action_text(f"I noticed the sensory cue: {cue}.", limit=220)
+    tone = _sanitize_hidden_action_text(emotion, limit=40, lower=True)
+    if tone:
+        return _sanitize_hidden_action_text(f"I noticed something worth reacting to and feel {tone} about it.", limit=220)
+    return ""
+
+
+def _derive_hidden_visual_candidate(summary="", attention="", emotion=""):
+    candidate = _sanitize_hidden_action_text(summary, limit=220)
+    if candidate:
+        return candidate
+    cue = _sanitize_hidden_action_text(attention, limit=80)
+    tone = _sanitize_hidden_action_text(emotion, limit=40, lower=True)
+    if cue and tone:
+        return _sanitize_hidden_action_text(f"{cue}, {tone} mood", limit=220)
+    if cue:
+        return _sanitize_hidden_action_text(f"sensory scene focused on {cue}", limit=220)
+    if tone:
+        return _sanitize_hidden_action_text(f"sensory scene with a {tone} mood", limit=220)
+    return ""
+
+
+def _sanitize_hidden_proactive_request(entry):
+    if not isinstance(entry, dict):
+        return None
+    candidate = _sanitize_hidden_action_text(entry.get("candidate", ""), limit=220)
+    if not candidate:
+        return None
+    summary = _sanitize_hidden_action_text(entry.get("summary", ""), limit=220)
+    attention = _sanitize_hidden_action_text(entry.get("attention", ""), limit=80, lower=True)
+    source = _sanitize_hidden_action_text(entry.get("source", "sensory"), limit=40, lower=True) or "sensory"
+    created_at = float(entry.get("created_at", time.time()) or time.time())
+    return {
+        "candidate": candidate,
+        "summary": summary,
+        "attention": attention,
+        "source": source,
+        "created_at": created_at,
+    }
+
+
+def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", source="sensory"):
+    request = _sanitize_hidden_proactive_request(
+        {
+            "candidate": candidate,
+            "summary": summary,
+            "attention": attention,
+            "source": source,
+            "created_at": time.time(),
+        }
+    )
+    if not request:
+        return False
+    request_key = "|".join(
+        [
+            request.get("source", "sensory"),
+            request.get("candidate", ""),
+            request.get("summary", ""),
+            request.get("attention", ""),
+        ]
+    )
+    with sensory_pingpong_lock:
+        last_key = str(sensory_hidden_action_state.get("last_proactive_key", "") or "")
+        last_at = float(sensory_hidden_action_state.get("last_proactive_at", 0.0) or 0.0)
+        if request_key and request_key == last_key and (time.time() - last_at) < 45.0:
+            return False
+        sensory_hidden_action_state["pending_proactive"] = request
+        sensory_hidden_action_state["last_proactive_key"] = request_key
+        sensory_hidden_action_state["last_proactive_at"] = time.time()
+    print(f"🗣️ [Sensory] Queued proactive candidate: {request.get('candidate')}")
+    return True
+
+
+def _consume_hidden_proactive_candidate():
+    with sensory_pingpong_lock:
+        request = _sanitize_hidden_proactive_request(sensory_hidden_action_state.get("pending_proactive"))
+        sensory_hidden_action_state["pending_proactive"] = None
+        sensory_hidden_action_state["active_proactive"] = request
+    return request
+
+
+def _clear_active_hidden_proactive_candidate():
+    with sensory_pingpong_lock:
+        sensory_hidden_action_state["active_proactive"] = None
+
+
+def _clear_pending_hidden_proactive_candidate():
+    with sensory_pingpong_lock:
+        sensory_hidden_action_state["pending_proactive"] = None
+
+
+def _get_active_hidden_proactive_request():
+    with sensory_pingpong_lock:
+        return _sanitize_hidden_proactive_request(sensory_hidden_action_state.get("active_proactive"))
+
+
+def _build_active_hidden_proactive_context_text():
+    request = _get_active_hidden_proactive_request()
+    if not request:
+        return ""
+    parts = [
+        "A hidden sensory layer believes a proactive spoken reply should happen right now.",
+        "Treat this as a targeted sensory-triggered interjection, not a generic continuation.",
+        "Stay tightly anchored to the candidate direction below.",
+        "Respond in 1-3 short sentences.",
+        "Do not introduce unrelated topics, fantasies, roleplay escalation, or new conversational branches.",
+        "Do not contradict the sensory cue that triggered this proactive turn.",
+        "If you speak, directly acknowledge the cue or react to it naturally in-character.",
+        f"Candidate direction: {request.get('candidate', '')}",
+    ]
+    summary = str(request.get("summary", "") or "").strip()
+    attention = str(request.get("attention", "") or "").strip()
+    source = str(request.get("source", "sensory") or "sensory").strip()
+    if summary:
+        parts.append(f"Reason: {summary}")
+    if attention:
+        parts.append(f"Attention: {attention}")
+    if source:
+        parts.append(f"Source: {source}")
+    return "\n".join(parts)
+
+
+def _build_active_hidden_proactive_prompt_message():
+    request = _get_active_hidden_proactive_request()
+    if not request:
+        return None
+    candidate = str(request.get("candidate", "") or "").strip()
+    summary = str(request.get("summary", "") or "").strip()
+    attention = str(request.get("attention", "") or "").strip()
+    parts = [
+        "React now to this hidden sensory cue.",
+        "Do not answer the previous visible user message.",
+        "Do not continue the earlier topic unless it directly matches the cue.",
+        "Keep the reply short and directly about the cue.",
+    ]
+    if candidate:
+        parts.append(f"Cue: {candidate}")
+    if summary:
+        parts.append(f"Observed change: {summary}")
+    if attention:
+        parts.append(f"Attention cue: {attention}")
+    return {"role": "user", "content": "\n".join(parts)}
+
+
+def _maybe_trigger_hidden_visual_candidate(prompt, *, summary="", source="sensory"):
+    prompt_text = _sanitize_hidden_action_text(prompt, limit=220)
+    if not prompt_text:
+        return False
+    if not _visual_reply_enabled() or not _visual_reply_generation_available():
+        return False
+    request_key = "|".join([str(source or "sensory").strip().lower() or "sensory", prompt_text, _sanitize_hidden_action_text(summary, limit=120)])
+    now = time.time()
+    with sensory_pingpong_lock:
+        last_key = str(sensory_hidden_action_state.get("last_visual_key", "") or "")
+        last_at = float(sensory_hidden_action_state.get("last_visual_at", 0.0) or 0.0)
+        if request_key == last_key and (now - last_at) < 45.0:
+            return False
+        sensory_hidden_action_state["last_visual_key"] = request_key
+        sensory_hidden_action_state["last_visual_at"] = now
+    print(f"🖼️ [Sensory] Hidden PONG requested visual reply: {prompt_text}")
+    return request_visual_reply_generation(prompt_text, source_text=_sanitize_hidden_action_text(summary, limit=220))
+
+
+def _sanitize_sensory_hidden_event(entry):
+    if not isinstance(entry, dict):
+        return None
+    summary = re.sub(r"\s+", " ", str(entry.get("summary", "") or "")).strip()
+    emotion = str(entry.get("emotion", "") or "").strip().lower()
+    attention = re.sub(r"\s+", " ", str(entry.get("attention", "") or "")).strip().lower()
+    proactive_candidate = re.sub(r"\s+", " ", str(entry.get("proactive_candidate", "") or "")).strip()
+    visual_candidate = re.sub(r"\s+", " ", str(entry.get("visual_candidate", "") or "")).strip()
+    raw_tags = entry.get("tags", [])
+    tags = []
+    if isinstance(raw_tags, (list, tuple, set)):
+        for item in list(raw_tags):
+            tag_text = re.sub(r"\s+", " ", str(item or "")).strip()
+            if tag_text and tag_text not in tags:
+                tags.append(tag_text[:80])
+    should_speak = _normalize_boolish(entry.get("should_speak", False))
+    should_generate_image = _normalize_boolish(entry.get("should_generate_image", False))
+    source = str(entry.get("source", "sensory") or "sensory").strip().lower() or "sensory"
+    created_at = float(entry.get("created_at", time.time()) or time.time())
+    if emotion and not is_emotion_tag(emotion):
+        emotion = ""
+    if not (summary or emotion or attention or proactive_candidate or visual_candidate or should_speak or should_generate_image or tags):
+        return None
+    return {
+        "type": "sensory_pong",
+        "hidden": True,
+        "source": source,
+        "summary": summary[:220],
+        "emotion": emotion,
+        "attention": attention[:80],
+        "proactive_candidate": proactive_candidate[:220],
+        "visual_candidate": visual_candidate[:220],
+        "should_speak": bool(should_speak),
+        "should_generate_image": bool(should_generate_image),
+        "tags": tags[:12],
+        "created_at": created_at,
+    }
+
+
+def _prune_sensory_hidden_history():
+    global sensory_hidden_history
+    depth = _sensory_pingpong_history_depth()
+    if depth <= 0:
+        sensory_hidden_history = []
+        return
+    sanitized = [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(sensory_hidden_history or [])) if item]
+    sensory_hidden_history = sanitized[-depth:]
+
+
+def _visible_history_summary_for_sensory(limit=6):
+    visible_turns = []
+    for item in list(conversation_history or []):
+        turn = _sanitize_chat_turn(item)
+        if not turn:
+            continue
+        visible_turns.append(turn)
+    if limit > 0:
+        visible_turns = visible_turns[-limit:]
+    if not visible_turns:
+        return ""
+    lines = []
+    for turn in visible_turns:
+        role = str(turn.get("role", "user") or "user").strip().lower()
+        label = "Assistant" if role == "assistant" else ("System" if role == "system" else "User")
+        content = re.sub(r"\s+", " ", str(turn.get("content", "") or "")).strip()
+        if len(content) > 240:
+            content = content[:237] + "..."
+        if content:
+            lines.append(f"{label}: {content}")
+    return "\n".join(lines)
+
+
+def _build_retained_sensory_context_text():
+    _prune_sensory_hidden_history()
+    if not sensory_hidden_history:
+        return ""
+    lines = []
+    for entry in list(sensory_hidden_history or []):
+        created_at = float(entry.get("created_at", 0.0) or 0.0)
+        stamp = time.strftime("%H:%M:%S", time.localtime(created_at)) if created_at > 0 else "unknown"
+        source = str(entry.get("source", "sensory") or "sensory")
+        summary = str(entry.get("summary", "") or "").strip()
+        emotion = str(entry.get("emotion", "") or "").strip()
+        attention = str(entry.get("attention", "") or "").strip()
+        parts = [f"[{stamp}] {source}"]
+        if summary:
+            parts.append(summary)
+        if emotion:
+            parts.append(f"emotion={emotion}")
+        if attention:
+            parts.append(f"attention={attention}")
+        proactive_candidate = str(entry.get("proactive_candidate", "") or "").strip()
+        visual_candidate = str(entry.get("visual_candidate", "") or "").strip()
+        if proactive_candidate:
+            parts.append(f"proactive={proactive_candidate}")
+        if visual_candidate:
+            parts.append(f"visual={visual_candidate}")
+        tags = list(entry.get("tags", []) or [])
+        if tags:
+            parts.append(f"tags={', '.join([str(tag) for tag in tags[:6]])}")
+        lines.append(" | ".join(parts))
+    if not lines:
+        return ""
+    return (
+        "Retained hidden sensory events below are ambient internal state, not user messages. "
+        "Use them as latent context only when relevant.\n" + "\n".join(f"- {line}" for line in lines)
+    )
+
+
+def _extract_json_object_from_text(text):
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\s*```$", "", raw)
+        raw = raw.strip()
+    start = raw.find("{")
+    end = raw.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    candidate = raw[start:end + 1]
+    try:
+        return json.loads(candidate)
+    except Exception:
+        return None
+
+
+def _debug_preview_text(text, *, limit=420):
+    preview = str(text or "")
+    preview = preview.replace("\r", "\\r").replace("\n", "\\n")
+    preview = re.sub(r"\s+", " ", preview).strip()
+    if len(preview) > limit:
+        preview = preview[:limit] + "..."
+    return preview
+
+
+def _repair_common_json_mistakes(text):
+    repaired = str(text or "").strip()
+    if not repaired:
+        return repaired
+    # Quote bareword values for string-only sensory keys.
+    for key in ("emotion", "attention", "summary", "proactive_candidate", "visual_candidate"):
+        repaired = re.sub(
+            rf'("{key}"\s*:\s*)([A-Za-z_][A-Za-z0-9_\- ]*)(?=\s*[,}}])',
+            lambda m: m.group(1) + '"' + m.group(2).strip().rstrip('"') + '"',
+            repaired,
+        )
+        # Handle a dangling quote after an otherwise bareword token, e.g. screen"
+        repaired = re.sub(
+            rf'("{key}"\s*:\s*)([A-Za-z_][A-Za-z0-9_\- ]*)"\s*(?=[,}}])',
+            lambda m: m.group(1) + '"' + m.group(2).strip() + '"',
+            repaired,
+        )
+    # Remove trailing commas before object close.
+    repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+    return repaired
+
+
+def _parse_sensory_pong(payload_text):
+    payload = _extract_json_object_from_text(payload_text)
+    repaired_payload = None
+    if not isinstance(payload, dict):
+        repaired_payload = _repair_common_json_mistakes(payload_text)
+        if repaired_payload and repaired_payload != str(payload_text or ""):
+            payload = _extract_json_object_from_text(repaired_payload)
+    if not isinstance(payload, dict):
+        return None
+    keep_value = _normalize_boolish(payload.get("keep", False))
+    emotion = str(payload.get("emotion", "") or "").strip().lower()
+    attention = str(payload.get("attention", "") or "").strip().lower()
+    summary = re.sub(r"\s+", " ", str(payload.get("summary", "") or "")).strip()
+    proactive_candidate = _sanitize_hidden_action_text(payload.get("proactive_candidate", ""), limit=220)
+    visual_candidate = _sanitize_hidden_action_text(payload.get("visual_candidate", ""), limit=220)
+    should_speak = _normalize_boolish(payload.get("should_speak", False))
+    if should_speak and not proactive_candidate:
+        proactive_candidate = _derive_hidden_proactive_candidate(summary=summary, attention=attention, emotion=emotion)
+    should_generate_image = _normalize_boolish(payload.get("should_generate_image", False))
+    if should_generate_image and not visual_candidate:
+        visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
+    tags = []
+    raw_tags = payload.get("tags", [])
+    if isinstance(raw_tags, (list, tuple, set)):
+        for item in list(raw_tags):
+            tag_text = _sanitize_hidden_action_text(item, limit=80)
+            if tag_text and tag_text not in tags:
+                tags.append(tag_text)
+    if emotion and not is_emotion_tag(emotion):
+        emotion = ""
+    meaningful = bool(emotion or attention or summary or proactive_candidate or visual_candidate or should_speak or should_generate_image or tags)
+    result = {
+        "keep": bool(keep_value or meaningful),
+        "emotion": emotion,
+        "attention": attention,
+        "summary": summary[:220],
+        "proactive_candidate": proactive_candidate,
+        "visual_candidate": visual_candidate,
+        "should_speak": bool(should_speak),
+        "should_generate_image": bool(should_generate_image),
+        "tags": tags[:12],
+    }
+    if repaired_payload and isinstance(payload, dict):
+        result["_repaired_json"] = True
+    return result
+
+
+def _sensory_pingpong_prompt_template():
+    prompt = str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", DEFAULT_SENSORY_PINGPONG_PROMPT) or DEFAULT_SENSORY_PINGPONG_PROMPT).strip()
+    return prompt or DEFAULT_SENSORY_PINGPONG_PROMPT
+
+
+def _sensory_pingpong_source_prompt_map():
+    payload = RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {})
+    if not isinstance(payload, dict):
+        return {}
+    result = {}
+    for key, value in list(payload.items()):
+        provider_id = str(key or "").strip().lower()
+        if not provider_id:
+            continue
+        result[provider_id] = str(value or "").strip()
+    return result
+
+
+def _sensory_pingpong_source_prompt_text(source_ids):
+    prompt_map = _sensory_pingpong_source_prompt_map()
+    fragments = []
+    seen = set()
+    normalized_source_ids = [str(item or "").strip().lower() for item in list(source_ids or []) if str(item or "").strip()]
+    for source_id in normalized_source_ids:
+        provider = sensory.get_provider(source_id)
+        metadata = dict(getattr(provider, "metadata", {}) or {}) if provider is not None else {}
+        if metadata.get("prompt_fragment_enabled", True) is not False:
+            label = str(getattr(provider, "label", source_id) or source_id)
+            fragment = str(prompt_map.get(source_id) or metadata.get("pingpong_prompt") or "").strip()
+            if fragment and fragment not in seen:
+                seen.add(fragment)
+                fragments.append(f"Source prompt for {label}:\n{fragment}")
+        for contributor in sensory.list_prompt_contributors(source_id):
+            contributor_label = str(getattr(contributor, "label", source_id) or source_id)
+            fragment = str(getattr(contributor, "prompt", "") or "").strip()
+            if not fragment or fragment in seen:
+                continue
+            seen.add(fragment)
+            fragments.append(f"Behavior prompt for {contributor_label}:\n{fragment}")
+    return "\n\n".join(fragments)
+
+def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
+    prompt_template = _sensory_pingpong_prompt_template()
+    prompt_text = prompt_template.replace("__EMOTION_LIST__", emotion_text)
+    source_prompt_text = _sensory_pingpong_source_prompt_text(source_ids)
+    if source_prompt_text:
+        return prompt_text + "\n\nEnabled source-specific guidance:\n" + source_prompt_text
+    return prompt_text
+
+
+def _build_sensory_pingpong_messages(snapshots):
+    ping_messages = [
+        message
+        for message in (_build_sensory_feedback_message_from_snapshot(snapshot) for snapshot in list(snapshots or []))
+        if message is not None
+    ]
+    if not ping_messages:
+        return []
+    available_emotions = sorted(get_available_emotion_names())
+    emotion_text = ", ".join(available_emotions[:48]) if available_emotions else "neutral"
+    source_ids = [str((item or {}).get("source", "") or "").strip().lower() for item in list(snapshots or []) if isinstance(item, dict)]
+    prompt_text = _compose_sensory_pingpong_prompt(source_ids, emotion_text)
+    messages = [
+        {
+            "role": "system",
+            "content": prompt_text,
+        }
+    ]
+    provider_instruction = _sensory_feedback_instruction()
+    if provider_instruction:
+        messages.append({"role": "system", "content": provider_instruction})
+    visible_context = _visible_history_summary_for_sensory(limit=6)
+    if visible_context:
+        messages.append({
+            "role": "system",
+            "content": "Recent visible conversation context:\n" + visible_context,
+        })
+    retained_context = _build_retained_sensory_context_text()
+    if retained_context:
+        messages.append({"role": "system", "content": retained_context})
+    messages.extend(ping_messages)
+    return messages
+
+
+def _apply_sensory_pong_result(result, snapshots):
+    global sensory_hidden_history
+    if not isinstance(result, dict):
+        return False
+    emotion = str(result.get("emotion", "") or "").strip().lower()
+    attention = str(result.get("attention", "") or "").strip().lower()
+    summary = str(result.get("summary", "") or "").strip()
+    proactive_candidate = _sanitize_hidden_action_text(result.get("proactive_candidate", ""), limit=220)
+    visual_candidate = _sanitize_hidden_action_text(result.get("visual_candidate", ""), limit=220)
+    tags = []
+    for item in list(result.get("tags", []) or []):
+        tag_text = _sanitize_hidden_action_text(item, limit=80)
+        if tag_text and tag_text not in tags:
+            tags.append(tag_text)
+    should_speak = _normalize_boolish(result.get("should_speak", False))
+    if should_speak and not proactive_candidate:
+        proactive_candidate = _derive_hidden_proactive_candidate(summary=summary, attention=attention, emotion=emotion)
+    should_generate_image = _normalize_boolish(result.get("should_generate_image", False))
+    if should_generate_image and not visual_candidate:
+        visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
+    keep_value = bool(result.get("keep", False))
+    snapshot_list = list(snapshots or [])
+    snapshot_source = ",".join([str((item or {}).get("source", "sensory") or "sensory") for item in snapshot_list if isinstance(item, dict)]) or "sensory"
+    meaningful = bool(emotion or attention or summary or proactive_candidate or visual_candidate or should_speak or should_generate_image or tags)
+    debug_parts = []
+    if emotion:
+        debug_parts.append(f"emotion={emotion}")
+    if attention:
+        debug_parts.append(f"attention={attention}")
+    if summary:
+        debug_parts.append(f"summary={summary[:100]}")
+    if proactive_candidate:
+        debug_parts.append(f"proactive={proactive_candidate[:100]}")
+    if visual_candidate:
+        debug_parts.append(f"visual={visual_candidate[:100]}")
+    if tags:
+        debug_parts.append(f"tags={', '.join(tags[:4])}")
+    debug_parts.append(f"should_speak={bool(should_speak)}")
+    debug_parts.append(f"should_generate_image={bool(should_generate_image)}")
+    print(f"🧾 [Sensory] Parsed hidden PONG: {'; '.join(debug_parts) if debug_parts else 'empty'}")
+    _publish_addon_runtime_event(
+        "sensory.hidden_pong.parsed",
+        {
+            "source": snapshot_source,
+            "snapshots": [dict(item or {}) for item in snapshot_list if isinstance(item, dict)],
+            "keep": bool(keep_value),
+            "emotion": emotion,
+            "attention": attention,
+            "summary": summary,
+            "proactive_candidate": proactive_candidate,
+            "visual_candidate": visual_candidate,
+            "should_speak": bool(should_speak),
+            "should_generate_image": bool(should_generate_image),
+            "tags": list(tags),
+            "meaningful": bool(meaningful),
+        },
+    )
+    if not meaningful:
+        with sensory_pingpong_lock:
+            sensory_pingpong_state["last_cycle_at"] = time.time()
+            sensory_pingpong_state["last_source"] = snapshot_source
+        return False
+    if emotion and isinstance(avatar_gui, AvatarAdapter):
+        try:
+            avatar_gui.set_emotion(emotion)
+            print(f"🎭 [Sensory] Hidden PONG updated avatar emotion -> {emotion}")
+            if isinstance(avatar_gui, MuseTalkAdapter) and not audio_playing.is_set() and not microphone_active.is_set():
+                try:
+                    target_avatar_id = avatar_gui._resolve_avatar_id_for_emotion(emotion) or avatar_gui.default_avatar_id
+                    set_musetalk_idle_state_for_avatar(target_avatar_id)
+                    print(f"🎭 [Sensory] Applied hidden idle avatar -> {target_avatar_id}")
+                except Exception as idle_exc:
+                    print(f"⚠️ [Sensory] Could not apply hidden idle avatar for '{emotion}': {idle_exc}")
+        except Exception as exc:
+            print(f"⚠️ [Sensory] Could not apply hidden emotion '{emotion}': {exc}")
+    with sensory_pingpong_lock:
+        sensory_pingpong_state["last_cycle_at"] = time.time()
+        sensory_pingpong_state["last_source"] = snapshot_source
+        sensory_pingpong_state["last_emotion"] = emotion
+        sensory_pingpong_state["last_attention"] = attention
+        sensory_pingpong_state["last_summary"] = summary
+        if keep_value:
+            event = _sanitize_sensory_hidden_event({
+                "source": snapshot_source,
+                "summary": summary,
+                "emotion": emotion,
+                "attention": attention,
+                "proactive_candidate": proactive_candidate,
+                "visual_candidate": visual_candidate,
+                "should_speak": should_speak,
+                "should_generate_image": should_generate_image,
+                "tags": list(tags),
+                "created_at": time.time(),
+            })
+            if event:
+                previous = _sanitize_sensory_hidden_event(sensory_hidden_history[-1]) if sensory_hidden_history else None
+                if not previous or any(
+                    previous.get(key) != event.get(key)
+                    for key in (
+                        "source",
+                        "summary",
+                        "emotion",
+                        "attention",
+                        "proactive_candidate",
+                        "visual_candidate",
+                        "should_speak",
+                        "should_generate_image",
+                        "tags",
+                    )
+                ):
+                    sensory_hidden_history.append(event)
+                    _prune_sensory_hidden_history()
+                    sensory_pingpong_state["last_retained_at"] = time.time()
+                    print(f"🫧 [Sensory] Retained hidden PONG: {event.get('summary') or event.get('emotion') or event.get('attention')}")
+                    _publish_addon_runtime_event("sensory.hidden_pong.retained", {"event": dict(event), "source": snapshot_source})
+                    _request_chat_view_rebuild()
+    if should_speak and proactive_candidate and _hidden_sensory_proactive_speech_allowed():
+        _queue_hidden_proactive_candidate(
+            proactive_candidate,
+            summary=summary,
+            attention=attention,
+            source=snapshot_source,
+        )
+        _publish_addon_runtime_event(
+            "sensory.hidden_action.proactive_queued",
+            {
+                "source": snapshot_source,
+                "candidate": proactive_candidate,
+                "summary": summary,
+                "attention": attention,
+                "emotion": emotion,
+            },
+        )
+    if tags:
+        _publish_addon_runtime_event(
+            "sensory.hidden_action.tags_emitted",
+            {
+                "source": snapshot_source,
+                "tags": list(tags),
+                "summary": summary,
+                "attention": attention,
+                "emotion": emotion,
+            },
+        )
+    if should_speak and proactive_candidate and not _hidden_sensory_proactive_speech_allowed():
+        print(
+            "🤫 [Sensory] Hidden PONG requested proactive speech, but Vision hidden-speech is disabled "
+            f"(Vision hidden-speech={bool(RUNTIME_CONFIG.get('sensory_allow_hidden_proactive_speech', False))})."
+        )
+    if should_generate_image and visual_candidate and _hidden_sensory_visual_generation_allowed():
+        _maybe_trigger_hidden_visual_candidate(
+            visual_candidate,
+            summary=summary or proactive_candidate,
+            source=snapshot_source,
+        )
+        _publish_addon_runtime_event(
+            "sensory.hidden_action.visual_requested",
+            {
+                "source": snapshot_source,
+                "candidate": visual_candidate,
+                "summary": summary or proactive_candidate,
+                "attention": attention,
+                "emotion": emotion,
+            },
+        )
+    if should_generate_image and visual_candidate and not _hidden_sensory_visual_generation_allowed():
+        print("🖼️ [Sensory] Hidden PONG requested visual generation, but Vision policy currently blocks auto-generation.")
+    return True
+
+
+def run_hidden_sensory_pingpong_cycle(force=False):
+    if not _sensory_pingpong_enabled():
+        return False
+    if stop_flag.is_set() or bool(RUNTIME_CONFIG.get("offline_replay_only", False)):
+        return False
+    snapshots = _maybe_refresh_sensory_feedback_snapshots(force=bool(force))
+    if not snapshots:
+        return False
+    sources = [str((item or {}).get("source", "sensory") or "sensory") for item in snapshots if isinstance(item, dict)]
+    _publish_addon_runtime_event("sensory.hidden_ping", {"snapshots": [dict(item or {}) for item in snapshots if isinstance(item, dict)], "sources": list(sources)})
+    messages = _build_sensory_pingpong_messages(snapshots)
+    if not messages:
+        return False
+    source_text = ", ".join(sources) if sources else "sensory"
+    print(f"📡 [Sensory] Hidden PING from {source_text}...")
+    _llm_request_active.set()
+    try:
+        response = _chat_completion_create(
+            {
+                "model": RUNTIME_CONFIG["model_name"],
+                "messages": messages,
+                "temperature": 0.2,
+                "top_p": min(0.8, float(RUNTIME_CONFIG.get("top_p", 0.8) or 0.8)),
+                "max_tokens": 220,
+            },
+            {
+                "top_k": int(RUNTIME_CONFIG.get("top_k", 40) or 40),
+                "min_p": float(RUNTIME_CONFIG.get("min_p", 0.05) or 0.05),
+                "repeat_penalty": float(RUNTIME_CONFIG.get("repeat_penalty", 1.1) or 1.1),
+            },
+        )
+        payload_text = str(getattr(response.choices[0].message, "content", "") or "")
+    except Exception as exc:
+        print(f"⚠️ [Sensory] Hidden PONG failed: {exc}")
+        return False
+    finally:
+        _llm_request_active.clear()
+    result = _parse_sensory_pong(payload_text)
+    if not result:
+        print("⚠️ [Sensory] Hidden PONG was not valid JSON; ignoring.")
+        raw_preview = _debug_preview_text(payload_text)
+        if raw_preview:
+            print(f"🧾 [Sensory] Raw hidden PONG preview: {raw_preview}")
+        return False
+    if bool(result.pop("_repaired_json", False)):
+        print("🛠️ [Sensory] Repaired near-JSON hidden PONG automatically.")
+    return _apply_sensory_pong_result(result, snapshots)
+def _visual_reply_item_value(item, key):
+    if isinstance(item, dict):
+        return item.get(key)
+    return getattr(item, key, None)
+
+
+def _write_visual_reply_image_from_response(response, output_path: Path):
+    data_items = getattr(response, "data", None)
+    if data_items is None and isinstance(response, dict):
+        data_items = response.get("data")
+    if not data_items:
+        raise RuntimeError("Image API returned no image data.")
+    first_item = data_items[0]
+    b64_payload = _visual_reply_item_value(first_item, "b64_json") or _visual_reply_item_value(first_item, "base64")
+    image_url = _visual_reply_item_value(first_item, "url")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    if b64_payload:
+        output_path.write_bytes(base64.b64decode(b64_payload))
+        return output_path
+    if image_url:
+        with urllib.request.urlopen(str(image_url)) as response_stream:
+            output_path.write_bytes(response_stream.read())
+        return output_path
+    raise RuntimeError("Image API response did not include b64_json or url.")
+
+
+def request_visual_reply_generation(prompt: str, *, source_text: str = ""):
+    prompt_text = str(prompt or "").strip()
+    if not prompt_text:
+        return False
+    if not _visual_reply_enabled():
+        return False
+    request_id = _next_visual_reply_request_id()
+    if not _visual_reply_generation_available():
+        if _visual_reply_provider() == "xai":
+            detail = "Set XAI_API_KEY (or NC_VISUAL_REPLY_XAI_API_KEY / NC_VISUAL_REPLY_XAI_BASE_URL) to enable Grok visual replies."
+        else:
+            detail = "Set OPENAI_API_KEY (or NC_VISUAL_REPLY_API_KEY / NC_VISUAL_REPLY_BASE_URL) to enable visual replies."
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "error",
+                "status_text": "Visual Reply unavailable",
+                "detail_text": detail,
+                "image_path": "",
+                "caption": prompt_text,
+                "request_id": request_id,
+                "updated_at": time.time(),
+            }
+        )
+        print(f"⚠️ [VisualReply] {detail}")
+        return False
+
+    shared_state.set_current_visual_reply_data(
+        {
+            "status": "loading",
+            "status_text": "Visual Reply generating...",
+            "detail_text": prompt_text,
+            "image_path": "",
+            "caption": prompt_text,
+            "request_id": request_id,
+            "updated_at": time.time(),
+        }
+    )
+    print(f"🖼️ [VisualReply] Requested: {prompt_text}")
+
+    def worker():
+        try:
+            client_kwargs = {"api_key": _visual_reply_api_key() or "visual-reply"}
+            base_url = _visual_reply_base_url()
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            client = OpenAI(**client_kwargs)
+            model_name = _visual_reply_model_name()
+            request_kwargs = {
+                "model": model_name,
+                "prompt": prompt_text,
+            }
+            if _visual_reply_provider() == "xai":
+                request_kwargs["response_format"] = "b64_json"
+                request_kwargs["extra_body"] = _visual_reply_xai_extra_body()
+            else:
+                request_kwargs["size"] = _visual_reply_image_size()
+            response = client.images.generate(**request_kwargs)
+            output_path = VISUAL_REPLY_OUTPUT_DIR / f"{request_id}.png"
+            _write_visual_reply_image_from_response(response, output_path)
+            current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+            if current_request_id and current_request_id != request_id:
+                return
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "ready",
+                    "status_text": "Visual Reply",
+                    "detail_text": source_text[:240],
+                    "image_path": str(output_path),
+                    "caption": prompt_text,
+                    "request_id": request_id,
+                    "updated_at": time.time(),
+                }
+            )
+            print(f"🖼️ [VisualReply] Ready: {output_path}")
+        except Exception as exc:
+            current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+            if current_request_id and current_request_id != request_id:
+                return
+            detail = str(exc) or repr(exc)
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "error",
+                    "status_text": "Visual Reply failed",
+                    "detail_text": detail,
+                    "image_path": "",
+                    "caption": prompt_text,
+                    "request_id": request_id,
+                    "updated_at": time.time(),
+                }
+            )
+            print(f"⚠️ [VisualReply] Generation failed: {detail}")
+
+    threading.Thread(target=worker, daemon=True).start()
+    return True
+
+
+def finalize_assistant_reply(raw_text: str):
+    cleaned_text, visual_prompt = extract_visual_reply_prompt(raw_text)
+    cleaned_text = str(cleaned_text or "").strip()
+    if visual_prompt and _automatic_visual_reply_generation_allowed():
+        request_visual_reply_generation(visual_prompt, source_text=cleaned_text)
+    return cleaned_text
+
+
+def parse_text_segments(text):
+    current_emotion = "neutral"
+    segments = []
+    current_buffer = []
+    available_emotion_names = get_available_emotion_names()
+    parts = re.split(r'(\[[^\]]+\])', text)
+    for part in parts:
+        if not part:
+            continue
+        clean_part = part.strip()
+        if clean_part.startswith('[') and clean_part.endswith(']'):
+            normalized_tag = normalize_bracket_tag(clean_part)
+            if is_sound_tag(normalized_tag):
+                current_buffer.append(part)
+            elif is_emotion_tag(normalized_tag, available_emotion_names):
+                if current_buffer:
+                    full_segment = "".join(current_buffer)
+                    if full_segment.strip():
+                        segments.append((current_emotion, full_segment))
+                    current_buffer = []
+                current_emotion = normalized_tag
+            else:
+                current_buffer.append(part)
+        else:
+            current_buffer.append(part)
+    if current_buffer:
+        full_segment = "".join(current_buffer)
+        if full_segment.strip():
+            segments.append((current_emotion, full_segment))
+    return segments
+
+
+def get_last_emotion_tag(text):
+    available_emotion_names = get_available_emotion_names()
+    matches = re.findall(r'(\[[^\]]+\])', text or "")
+    for match in reversed(matches):
+        normalized_tag = normalize_bracket_tag(match)
+        if is_emotion_tag(normalized_tag, available_emotion_names):
+            return normalized_tag
+    return None
+
+
+@dataclass
+class StreamingReplyState:
+    full_text: str = ""
+    error: str | None = None
+    done: threading.Event = field(default_factory=threading.Event)
+    cancel_requested: threading.Event = field(default_factory=threading.Event)
+    first_chunk_emitted: threading.Event = field(default_factory=threading.Event)
+
+
+class StreamingChunkAssembler:
+    def __init__(self, target_chars, max_chars):
+        self.target_chars = max(MIN_CHUNK_SIZE, int(target_chars))
+        self.max_chars = max(self.target_chars + 20, int(max_chars))
+        self.buffer = ""
+        self.active_emotion = "neutral"
+        self.emission_count = 0
+        self.buffer_started_at = None
+        self.buffer_chars_received = 0
+
+    def feed(self, text, final=False, force=False):
+        if text:
+            if not self.buffer:
+                self.buffer_started_at = time.time()
+                self.buffer_chars_received = 0
+            self.buffer += text
+            self.buffer_chars_received += len(text)
+        emitted = []
+        while True:
+            decision = self._find_cut_index(final=final, force=force)
+            cut = int(decision.get("cut", 0) or 0)
+            if cut <= 0:
+                break
+            chunk_info = self._emit_chunk(cut, decision)
+            if chunk_info:
+                emitted.append(chunk_info)
+            if final:
+                break
+        return emitted
+
+    def _find_cut_index(self, final=False, force=False):
+        working = self.buffer
+        if not working.strip():
+            return {"cut": len(working) if final and working else 0, "quality": 0.0, "reason": "empty"}
+
+        effective_max = min(len(working), self.max_chars)
+        unmatched_open = working.rfind("[", 0, effective_max)
+        unmatched_close = working.rfind("]", 0, effective_max)
+        if unmatched_open > unmatched_close:
+            unmatched_fragment = working[unmatched_open + 1:effective_max]
+            if _looks_like_control_tag_prefix(unmatched_fragment) or _looks_like_visual_reply_tag_prefix(unmatched_fragment):
+                effective_max = unmatched_open
+
+        if final:
+            return self._emergency_force_cut(working, effective_max, MIN_CHUNK_SIZE, quality_floor=0.2, reason_prefix="final")
+        target_chars = self.target_chars
+        configured_first_min = int(RUNTIME_CONFIG.get("stream_first_chunk_min_chars", STREAM_FIRST_CHUNK_MIN_CHARS) or STREAM_FIRST_CHUNK_MIN_CHARS)
+        min_force_chars = configured_first_min if self.emission_count == 0 else max(MIN_CHUNK_SIZE, self.target_chars // 2)
+        if force and effective_max >= min_force_chars:
+            return self._emergency_force_cut(working, effective_max, min_force_chars)
+
+        if self.emission_count == 0:
+            target_chars = max(configured_first_min, min(self.target_chars, 48))
+
+        elapsed_time = 0.0
+        if self.buffer_started_at is not None:
+            elapsed_time = max(0.0, time.time() - self.buffer_started_at)
+        max_allowed_time = (
+            float(RUNTIME_CONFIG.get("stream_force_flush_seconds", STREAM_FORCE_FLUSH_SECONDS) or STREAM_FORCE_FLUSH_SECONDS)
+            if self.emission_count == 0
+            else float(RUNTIME_CONFIG.get("stream_force_flush_later_seconds", STREAM_FORCE_FLUSH_LATER_SECONDS) or STREAM_FORCE_FLUSH_LATER_SECONDS)
+        )
+
+        if elapsed_time > max_allowed_time and effective_max >= min_force_chars:
+            return self._emergency_force_cut(working, effective_max, min_force_chars, reason_prefix="timeout")
+
+        if effective_max < target_chars:
+            if effective_max >= min_force_chars and elapsed_time > 0.0:
+                cps = float(self.buffer_chars_received) / max(elapsed_time, 0.1)
+                chars_needed = max(0, target_chars - effective_max)
+                predicted_time_to_target = chars_needed / max(cps, 1.0)
+                max_patience = 0.75 if self.emission_count == 0 else 1.5
+                if predicted_time_to_target > max_patience:
+                    punct_decision = self._best_punctuation_cut(working, effective_max, min_force_chars)
+                    if punct_decision is not None:
+                        punct_decision["reason"] = f"cps_{punct_decision['reason']}"
+                        return punct_decision
+            return {"cut": 0, "quality": 0.0, "reason": "wait"}
+
+        pretarget_floor = max(
+            configured_first_min if self.emission_count == 0 else max(MIN_CHUNK_SIZE, target_chars // 2),
+            MIN_CHUNK_SIZE,
+        )
+
+        pretarget_strong_cut = self._find_last_boundary_cluster(
+            working,
+            effective_max - 1,
+            pretarget_floor - 1,
+            ".!?\n",
+        )
+        if pretarget_strong_cut is not None:
+            trailing_tail = re.sub(r"\s+", " ", working[pretarget_strong_cut:effective_max]).strip()
+            if trailing_tail and len(trailing_tail) <= STREAM_TINY_TAIL_CHARS:
+                quality = 0.9 if len(trailing_tail.split()) <= 3 else 0.7
+                return {"cut": pretarget_strong_cut, "quality": quality, "reason": "pretarget_strong"}
+
+        pretarget_weak_cut = self._find_last_boundary_cluster(
+            working,
+            effective_max - 1,
+            pretarget_floor - 1,
+            ",;:",
+        )
+        if pretarget_weak_cut is not None:
+            trailing_tail = re.sub(r"\s+", " ", working[pretarget_weak_cut:effective_max]).strip()
+            if trailing_tail and len(trailing_tail) <= max(10, STREAM_TINY_TAIL_CHARS // 2):
+                return {"cut": pretarget_weak_cut, "quality": 0.5, "reason": "pretarget_weak"}
+
+        strong_cut = self._find_last_boundary_cluster(
+            working,
+            effective_max - 1,
+            target_chars - 1,
+            ".!?\n",
+        )
+        if strong_cut is not None:
+            trailing_tail = re.sub(r"\s+", " ", working[strong_cut:effective_max]).strip()
+            if trailing_tail and len(trailing_tail) <= STREAM_TINY_TAIL_CHARS:
+                quality = 0.9 if len(trailing_tail.split()) <= 3 else 1.0
+                return {"cut": strong_cut, "quality": quality, "reason": "strong"}
+
+        if strong_cut is not None:
+            return {"cut": strong_cut, "quality": 1.0, "reason": "strong"}
+
+        weak_cut = self._find_last_boundary_cluster(
+            working,
+            effective_max - 1,
+            target_chars - 1,
+            ",;:",
+        )
+        if weak_cut is not None:
+            trailing_tail = re.sub(r"\s+", " ", working[weak_cut:effective_max]).strip()
+            if trailing_tail and len(trailing_tail) <= max(10, STREAM_TINY_TAIL_CHARS // 2):
+                return {"cut": weak_cut, "quality": 0.8, "reason": "weak"}
+            return {"cut": weak_cut, "quality": 0.8, "reason": "weak"}
+
+        if self.emission_count > 0:
+            punctuation_lookahead_cap = min(
+                self.max_chars,
+                target_chars + STREAM_WHITESPACE_FALLBACK_MARGIN + STREAM_POST_TARGET_PUNCTUATION_MARGIN,
+            )
+            punctuation_waiting_window = (
+                effective_max < punctuation_lookahead_cap
+                and elapsed_time < max_allowed_time
+                and elapsed_time < STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS + (0.003 * max(0, effective_max - target_chars))
+            )
+            if punctuation_waiting_window:
+                return {"cut": 0, "quality": 0.0, "reason": "wait_punctuation"}
+
+        clause_cut = self._find_clause_fallback_cut(
+            working,
+            effective_max,
+            target_chars,
+            min_force_chars,
+        )
+        if clause_cut is not None:
+            clause_waiting_window = (
+                self.emission_count > 0
+                and effective_max < min(self.max_chars, target_chars + STREAM_CLAUSE_FALLBACK_MARGIN)
+                and elapsed_time < max_allowed_time
+                and elapsed_time < STREAM_CLAUSE_FALLBACK_WAIT_SECONDS + (0.003 * max(0, effective_max - target_chars))
+            )
+            if not clause_waiting_window:
+                return clause_cut
+
+        whitespace_fallback_ready = (
+            effective_max >= min(self.max_chars, target_chars + STREAM_WHITESPACE_FALLBACK_MARGIN)
+            or elapsed_time > (0.9 if self.emission_count == 0 else 1.8)
+        )
+        for index in range(effective_max - 1, target_chars - 1, -1):
+            if whitespace_fallback_ready and working[index].isspace():
+                return {"cut": index + 1, "quality": 0.2, "reason": "whitespace"}
+
+        if effective_max >= self.max_chars:
+            return {"cut": effective_max, "quality": 0.0, "reason": "max_chars"}
+        return {"cut": 0, "quality": 0.0, "reason": "wait"}
+
+    def _best_punctuation_cut(self, working, effective_max, min_force_chars):
+        strong_cut = self._find_last_boundary_cluster(working, effective_max - 1, min_force_chars - 1, ".!?\n")
+        if strong_cut is not None:
+            return {"cut": strong_cut, "quality": 0.7, "reason": "strong"}
+        weak_cut = self._find_last_boundary_cluster(working, effective_max - 1, min_force_chars - 1, ",;:")
+        if weak_cut is not None:
+            return {"cut": weak_cut, "quality": 0.5, "reason": "weak"}
+        return None
+
+    @staticmethod
+    def _normalize_boundary_word(value):
+        return re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", value or "").lower()
+
+    @staticmethod
+    def _split_boundary_words(value):
+        if not value:
+            return []
+        return re.findall(r"[A-Za-z0-9']+", value)
+
+    def _find_clause_fallback_cut(self, working, effective_max, target_chars, min_force_chars):
+        best_choice = None
+        best_score = STREAM_CLAUSE_FALLBACK_MIN_SCORE
+        search_start = max(target_chars - 1, min_force_chars - 1)
+        search_end = max(search_start, min(effective_max - 1, target_chars + STREAM_CLAUSE_FALLBACK_MARGIN))
+        for index in range(search_end, search_start - 1, -1):
+            if not working[index].isspace():
+                continue
+
+            left = working[:index].rstrip()
+            right = working[index + 1:effective_max].lstrip()
+            if len(left) < min_force_chars or len(right) < 2:
+                continue
+
+            left_words = self._split_boundary_words(left[-40:])
+            right_words = self._split_boundary_words(right[:40])
+            last_word = self._normalize_boundary_word(left_words[-1] if left_words else "")
+            next_word_raw = right_words[0] if right_words else ""
+            next_word = self._normalize_boundary_word(next_word_raw)
+            score = 0.0
+            reason = "clause_soft"
+
+            left_tail = left[-16:]
+            if left and left[-1] in "\"')]}»”’":
+                score += 0.55
+                reason = "clause_quote"
+            if left_tail.endswith(" --") or left_tail.endswith(" -") or left_tail.endswith(":") or left_tail.endswith(";"):
+                score += 0.7
+                reason = "clause_dash" if "-" in left_tail else "clause_soft"
+            elif re.search(r"[,:;]\s*[\"')\]}»”’]*$", left_tail):
+                score += 0.45
+
+            if re.search(r"[,:;]\s+[A-Z][^ ]*$", working[max(0, index - 24):effective_max]):
+                score += 0.45
+            if next_word in STREAM_CLAUSE_STARTERS:
+                score += 0.95
+                reason = "clause_starter"
+            elif next_word_raw[:1].isupper() and next_word_raw.lower() != next_word_raw:
+                score += 0.55
+                reason = "clause_capital"
+
+            if len(right_words) <= 4:
+                score -= 0.3
+            if last_word in STREAM_BAD_ENDING_WORDS:
+                score -= 1.1
+            elif len(last_word) <= 2:
+                score -= 0.25
+
+            overshoot = max(0, index - target_chars)
+            score += min(0.45, overshoot / 36.0)
+
+            if score > best_score:
+                quality = 0.55 if score >= 1.7 else 0.45
+                best_choice = {"cut": index + 1, "quality": quality, "reason": reason}
+                best_score = score
+        return best_choice
+
+    def _emergency_force_cut(self, working, effective_max, min_force_chars, quality_floor=0.0, reason_prefix="forced"):
+        punct_decision = self._best_punctuation_cut(working, effective_max, min_force_chars)
+        if punct_decision is not None:
+            punct_decision["quality"] = max(quality_floor, punct_decision["quality"])
+            punct_decision["reason"] = f"{reason_prefix}_{punct_decision['reason']}"
+            return punct_decision
+        for index in range(effective_max - 1, min_force_chars - 1, -1):
+            if working[index].isspace():
+                return {"cut": index + 1, "quality": max(quality_floor, 0.2), "reason": f"{reason_prefix}_whitespace"}
+        return {"cut": effective_max, "quality": 0.0, "reason": f"{reason_prefix}_panic"}
+
+    @staticmethod
+    def _find_last_boundary_cluster(text, start_index, min_index, boundary_chars):
+        for index in range(start_index, min_index - 1, -1):
+            if text[index] in boundary_chars:
+                cluster_end = index + 1
+                while cluster_end < len(text) and (
+                    text[cluster_end] in "\"')]}»”’"
+                    or text[cluster_end] in ".!?,;:-"
+                ):
+                    cluster_end += 1
+                return cluster_end
+        return None
+
+    def _emit_chunk(self, cut_index, decision):
+        raw = self.buffer[:cut_index]
+        self.buffer = self.buffer[cut_index:].lstrip()
+        chunk = re.sub(r"\s+", " ", raw).strip()
+        if not chunk:
+            return None
+
+        if self.active_emotion != "neutral":
+            starts_with_emotion = False
+            for tag in get_available_emotion_tags():
+                if chunk.lower().startswith(tag):
+                    starts_with_emotion = True
+                    break
+            if not starts_with_emotion:
+                chunk = f"[{self.active_emotion}] {chunk}"
+
+        last_emotion = get_last_emotion_tag(chunk)
+        if last_emotion:
+            self.active_emotion = last_emotion
+
+        self.emission_count += 1
+        if not self.buffer:
+            self.buffer_started_at = None
+            self.buffer_chars_received = 0
+        else:
+            self.buffer_started_at = time.time()
+            self.buffer_chars_received = 0
+        return {
+            "text": chunk,
+            "quality": float(decision.get("quality", 0.0) or 0.0),
+            "reason": str(decision.get("reason", "unknown") or "unknown"),
+            "chars": len(chunk),
+        }
+
+
+def coalesce_musetalk_leading_segments(segments):
+    if not segments:
+        return []
+    normalized = [(emotion, (segment or "").strip()) for emotion, segment in segments if (segment or "").strip()]
+    if len(normalized) < 2:
+        return normalized
+    first_emotion, first_text = normalized[0]
+    if len(first_text) >= MUSE_MIN_LEADING_SEGMENT_CHARS:
+        return normalized
+
+    second_emotion, second_text = normalized[1]
+    # Do not "optimize away" a real emotion transition just because the
+    # opening segment is short. That would cause inputs like:
+    # "... route—[shy] Let's go ..."
+    # to keep the first segment's emotion and effectively swallow [shy].
+    if str(first_emotion or "").strip().lower() != str(second_emotion or "").strip().lower():
+        return normalized
+
+    merged_text = f"{first_text} {second_text}".strip()
+    merged_segments = [(first_emotion, merged_text)]
+    merged_segments.extend(normalized[2:])
+    return merged_segments
+
+
+def get_stream_chunk_limits():
+    if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
+        return (
+            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 85) or 85),
+            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 170) or 170),
+        )
+    return (
+        int(RUNTIME_CONFIG.get("chunk_target_chars", 90) or 90),
+        int(RUNTIME_CONFIG.get("chunk_max_chars", 180) or 180),
+    )
+
+
+def get_text_chunk_limits():
+    if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
+        return (
+            int(RUNTIME_CONFIG.get("musetalk_chunk_target_chars", MUSE_TARGET_CHARS_PER_CHUNK) or MUSE_TARGET_CHARS_PER_CHUNK),
+            int(RUNTIME_CONFIG.get("musetalk_chunk_max_chars", MUSE_MAX_CHARS_PER_CHUNK) or MUSE_MAX_CHARS_PER_CHUNK),
+        )
+    return (
+        int(RUNTIME_CONFIG.get("chunk_target_chars", TARGET_CHARS_PER_CHUNK) or TARGET_CHARS_PER_CHUNK),
+        int(RUNTIME_CONFIG.get("chunk_max_chars", MAX_CHARS_PER_CHUNK) or MAX_CHARS_PER_CHUNK),
+    )
+
+
+def clear_avatar_stream_state():
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.reset_musetalk_pipeline_data()
+    shared_state.set_current_musetalk_frame_data({
+        "frame_paths": [],
+        "frame_dir": "",
+        "fps": int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24),
+        "sync_time": 0.0,
+        "duration_seconds": 0.0,
+        "expected_frame_count": 0,
+        "trim_start_frames": 0,
+        "chunk_id": None,
+        "text": "",
+        "status": "idle",
+        "loop": False,
+        "start_index": 0,
+        "avatar_id": None,
+    })
+
+
+def _get_gpu_vram_snapshot():
+    if not torch.cuda.is_available():
+        return None
+    try:
+        free_bytes, total_bytes = torch.cuda.mem_get_info()
+        allocated_bytes = torch.cuda.memory_allocated()
+        reserved_bytes = torch.cuda.memory_reserved()
+        return {
+            "free_gib": float(free_bytes) / (1024 ** 3),
+            "total_gib": float(total_bytes) / (1024 ** 3),
+            "used_gib": float(total_bytes - free_bytes) / (1024 ** 3),
+            "allocated_gib": float(allocated_bytes) / (1024 ** 3),
+            "reserved_gib": float(reserved_bytes) / (1024 ** 3),
+        }
+    except Exception:
+        return None
+
+
+def _count_rendered_chunk_dirs():
+    runtime_root = os.path.abspath(os.path.join("MuseTalk", "runtime", "rendered_chunks"))
+    try:
+        return sum(
+            1 for name in os.listdir(runtime_root)
+            if os.path.isdir(os.path.join(runtime_root, name))
+        )
+    except Exception:
+        return None
+
+
+def log_musetalk_memory_checkpoint(label, chunk_id=None, extra=None):
+    if not MUSE_DIAGNOSTIC_LOGGING:
+        return
+    snapshot = _get_gpu_vram_snapshot()
+    state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    rendered_dir_count = _count_rendered_chunk_dirs()
+    parts = [f"🧠 [MuseTalkVRAM] {label}"]
+    if chunk_id:
+        parts.append(f"chunk={chunk_id}")
+    if snapshot:
+        parts.append(
+            "gpu_used={:.2f}GiB free={:.2f}GiB alloc={:.2f}GiB reserved={:.2f}GiB total={:.2f}GiB".format(
+                float(snapshot.get("used_gib", 0.0) or 0.0),
+                float(snapshot.get("free_gib", 0.0) or 0.0),
+                float(snapshot.get("allocated_gib", 0.0) or 0.0),
+                float(snapshot.get("reserved_gib", 0.0) or 0.0),
+                float(snapshot.get("total_gib", 0.0) or 0.0),
+            )
+        )
+    else:
+        parts.append("gpu_vram=unavailable")
+    parts.append(f"state_chunk={state.get('chunk_id')}")
+    parts.append(f"status={state.get('status')}")
+    parts.append(f"frame_count={int(state.get('frame_count', 0) or 0)}")
+    parts.append(f"frame_paths={len(state.get('frame_paths', []) or [])}")
+    parts.append(f"preview_source={state.get('preview_source_index')}")
+    parts.append(f"preview_cache={state.get('preview_cache_entries')}")
+    parts.append(f"preview_preload_pending={state.get('preview_preload_pending')}")
+    if rendered_dir_count is not None:
+        parts.append(f"rendered_dirs={rendered_dir_count}")
+    if extra:
+        for key, value in dict(extra).items():
+            parts.append(f"{key}={value}")
+    message = " ".join(parts)
+    shared_state.append_musetalk_preview_log(message)
+    print(message)
+
+
+def set_musetalk_idle_state():
+    if not isinstance(avatar_gui, MuseTalkAdapter):
+        clear_avatar_stream_state()
+        return
+
+    idle_payload = avatar_gui.get_idle_payload()
+    if not idle_payload:
+        clear_avatar_stream_state()
+        return
+
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.set_current_musetalk_frame_data(idle_payload)
+    prime_musetalk_preview_frame(idle_payload)
+    schedule_musetalk_runtime_cleanup()
+
+
+def set_musetalk_idle_state_for_avatar(avatar_id):
+    if not isinstance(avatar_gui, MuseTalkAdapter):
+        clear_avatar_stream_state()
+        return
+
+    target_avatar_id = str(avatar_id or "").strip() or str(getattr(avatar_gui, "default_avatar_id", "") or "").strip()
+    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    current_avatar_id = str(current_state.get("avatar_id", "") or "").strip()
+    current_status = str(current_state.get("status", "") or "").strip().lower()
+    current_frame_paths = list(current_state.get("frame_paths", []) or [])
+    if current_status == "idle" and current_avatar_id == target_avatar_id and current_frame_paths:
+        return
+
+    idle_payload = avatar_gui.get_idle_payload(avatar_id=target_avatar_id)
+    if not idle_payload:
+        clear_avatar_stream_state()
+        return
+
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.set_current_musetalk_frame_data(idle_payload)
+    prime_musetalk_preview_frame(idle_payload)
+    schedule_musetalk_runtime_cleanup()
+
+
+def build_musetalk_idle_payload_from_state(advance_to_next_frame=True):
+    if not isinstance(avatar_gui, MuseTalkAdapter) or not avatar_gui.avatar_path:
+        return None
+
+    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    full_imgs_dir = os.path.join(avatar_gui.avatar_path, "full_imgs")
+    full_frame_paths = list_png_frames(full_imgs_dir)
+    if not full_frame_paths:
+        return None
+
+    fps = int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+    sync_time = float(current_state.get("sync_time", 0.0) or 0.0)
+    start_index = int(current_state.get("start_index", 0) or 0)
+    rendered_frame_count = int(current_state.get("frame_count", 0) or len(current_state.get("frame_paths", []) or []))
+    if rendered_frame_count <= 0:
+        rendered_frame_count = len(full_frame_paths)
+
+    elapsed = max(0.0, time.time() - sync_time) if sync_time else 0.0
+    displayed_frame_index = min(int(elapsed * max(fps, 1)), max(rendered_frame_count - 1, 0))
+    next_index = start_index + displayed_frame_index + (1 if advance_to_next_frame else 0)
+
+    ordered_frame_paths = [
+        full_frame_paths[(next_index + i) % len(full_frame_paths)]
+        for i in range(len(full_frame_paths))
+    ]
+    source_indices = [
+        (next_index + i) % len(full_frame_paths)
+        for i in range(len(full_frame_paths))
+    ]
+
+    return {
+        "frame_paths": ordered_frame_paths,
+        "source_indices": source_indices,
+        "frame_dir": "",
+        "fps": fps,
+        "sync_time": time.time(),
+        "duration_seconds": 0.0,
+        "chunk_id": "idle",
+        "text": "",
+        "status": "idle",
+        "loop": True,
+        "start_index": next_index % len(full_frame_paths),
+        "frame_count": len(ordered_frame_paths),
+        "avatar_id": current_state.get("avatar_id"),
+    }
+
+
+def transition_musetalk_to_local_idle(advance_to_next_frame=True):
+    idle_payload = build_musetalk_idle_payload_from_state(advance_to_next_frame=advance_to_next_frame)
+    if idle_payload:
+        shared_state.current_expression_data = {"names": [], "frames": []}
+        shared_state.set_current_musetalk_frame_data(idle_payload)
+        prime_musetalk_preview_frame(idle_payload)
+        schedule_musetalk_runtime_cleanup()
+        return
+    set_musetalk_idle_state()
+
+
+def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
+    if not isinstance(avatar_gui, MuseTalkAdapter):
+        return 0.0
+
+    rule = avatar_gui.get_transition_rule(from_avatar_id, to_avatar_id)
+    if not rule:
+        return 0.0
+
+    from_avatar_path = avatar_gui.prepared_avatars.get(from_avatar_id)
+    if not from_avatar_path:
+        return 0.0
+
+    full_imgs_dir = os.path.join(from_avatar_path, "full_imgs")
+    full_frame_paths = list_png_frames(full_imgs_dir)
+    if not full_frame_paths:
+        return 0.0
+
+    start_frame = max(0, min(int(rule.get("start_frame", len(full_frame_paths) - 1)), len(full_frame_paths) - 1))
+    end_frame = max(0, min(int(rule.get("end_frame", 0)), len(full_frame_paths) - 1))
+    if start_frame >= end_frame:
+        indices = range(start_frame, end_frame - 1, -1)
+    else:
+        indices = range(start_frame, end_frame + 1)
+    transition_frames = [full_frame_paths[idx] for idx in indices]
+    source_indices = [int(idx) for idx in indices]
+    if not transition_frames:
+        return 0.0
+
+    fps = int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24)
+    transition_id = f"transition:{from_avatar_id}->{to_avatar_id}:{time.time()}"
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.set_current_musetalk_frame_data({
+        "frame_paths": transition_frames,
+        "source_indices": source_indices,
+        "frame_dir": "",
+        "fps": fps,
+        "sync_time": time.time(),
+        "duration_seconds": len(transition_frames) / max(fps, 1),
+        "chunk_id": transition_id,
+        "text": "",
+        "status": "transition",
+        "loop": False,
+        "start_index": start_frame,
+        "frame_count": len(transition_frames),
+        "avatar_id": from_avatar_id,
+    })
+    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+
+    def _finish_transition():
+        time.sleep(len(transition_frames) / max(fps, 1))
+        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+        if current_state.get("chunk_id") != transition_id or stop_flag.is_set():
+            return
+        set_musetalk_idle_state_for_avatar(to_avatar_id)
+
+    threading.Thread(target=_finish_transition, daemon=True).start()
+    return len(transition_frames) / max(fps, 1)
+
+
+def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
+    if not isinstance(avatar_gui, MuseTalkAdapter):
+        return False
+    current_avatar_id = str(current_avatar_id or "").strip()
+    if not current_avatar_id or current_avatar_id == avatar_gui.default_avatar_id:
+        return False
+    return play_musetalk_avatar_transition(current_avatar_id, avatar_gui.default_avatar_id) > 0
+
+
+def get_musetalk_avatar_pack_catalog():
+    packs = discover_avatar_packs(
+        default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+        legacy_map=MUSE_EMOTION_AVATAR_MAP,
+        legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+        include_legacy=False,
+        include_standalone=False,
+    )
+    catalog = []
+    for pack_id, pack in packs.items():
+        catalog.append(
+            {
+                "id": pack_id,
+                "display_name": str(pack.display_name or pack_id),
+                "default_avatar_id": str(pack.default_avatar_id or "default_avatar"),
+                "default_variant": str(pack.default_variant or "default"),
+                "source": str(pack.source or "manifest"),
+                "variant_count": len(pack.variants or {}),
+            }
+        )
+    return catalog
+
+
+def apply_musetalk_avatar_pack_selection(pack_id):
+    requested_pack_id = str(pack_id or "").strip()
+    if not requested_pack_id:
+        return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+    try:
+        selected = get_avatar_pack(
+            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+            requested_pack_id=requested_pack_id,
+            legacy_map=MUSE_EMOTION_AVATAR_MAP,
+            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+            include_legacy=False,
+            include_standalone=False,
+        )
+    except LookupError:
+        return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+    update_runtime_config("musetalk_avatar_pack_id", selected.pack_id)
+    invalidate_available_emotion_names()
+    if isinstance(avatar_gui, MuseTalkAdapter):
+        avatar_gui.select_avatar_pack(selected.pack_id)
+        if not audio_playing.is_set() and not stop_flag.is_set():
+            try:
+                set_musetalk_idle_state_for_avatar(avatar_gui.default_avatar_id)
+            except Exception:
+                pass
+    return selected.pack_id
+
+
+def loop_current_musetalk_state():
+    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    frame_paths = current_state.get("frame_paths", [])
+    frame_dir = current_state.get("frame_dir", "")
+    if not frame_paths and not frame_dir:
+        clear_avatar_stream_state()
+        return
+
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.set_current_musetalk_frame_data({
+        "frame_paths": frame_paths,
+        "frame_dir": frame_dir,
+        "fps": int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24),
+        "sync_time": time.time(),
+        "duration_seconds": 0.0,
+        "chunk_id": current_state.get("chunk_id", "interrupted"),
+        "text": "",
+        "status": "idle",
+        "loop": True,
+        "start_index": int(current_state.get("start_index", 0) or 0),
+        "frame_count": int(current_state.get("frame_count", len(frame_paths)) or len(frame_paths)),
+        "avatar_id": current_state.get("avatar_id"),
+    })
+    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+    schedule_musetalk_runtime_cleanup(keep_frame_dirs=[frame_dir] if frame_dir else None)
+
+
+def freeze_current_musetalk_frame():
+    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    frame_paths = list(current_state.get("frame_paths", []) or [])
+    if not frame_paths:
+        frame_dir = current_state.get("frame_dir", "")
+        frame_paths = list_png_frames(frame_dir)
+    if not frame_paths:
+        clear_avatar_stream_state()
+        return
+
+    fps = int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+    sync_time = float(current_state.get("sync_time", 0.0) or 0.0)
+    elapsed = max(0.0, time.time() - sync_time)
+    frame_index = min(int(elapsed * max(fps, 1)), len(frame_paths) - 1)
+    frame_path = frame_paths[frame_index]
+
+    shared_state.current_expression_data = {"names": [], "frames": []}
+    shared_state.set_current_musetalk_frame_data({
+        "frame_paths": [frame_path],
+        "frame_dir": "",
+        "fps": fps,
+        "sync_time": time.time(),
+        "duration_seconds": 0.0,
+        "chunk_id": current_state.get("chunk_id", "interrupted"),
+        "text": "",
+        "status": "idle",
+        "loop": True,
+        "start_index": int(current_state.get("start_index", 0) or 0) + frame_index,
+        "frame_count": 1,
+        "avatar_id": current_state.get("avatar_id"),
+    })
+    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+    if current_state.get("frame_dir"):
+        schedule_musetalk_runtime_cleanup(keep_frame_dirs=[current_state.get("frame_dir")])
+
+
+def transition_musetalk_to_idle_after_interrupt(delay=0.35):
+    if not isinstance(avatar_gui, MuseTalkAdapter):
+        return
+
+    def _delayed_idle():
+        time.sleep(delay)
+        if stop_flag.is_set():
+            return
+        try:
+            transition_musetalk_to_local_idle(advance_to_next_frame=True)
+        except Exception:
+            pass
+
+    threading.Thread(target=_delayed_idle, daemon=True).start()
+
+
+def shutdown_avatar_engine(unload_tts=True):
+    global avatar_gui, tts_model, tts_backend_name
+    stop_playback.set()
+    pause_after_chunk.clear()
+    playback_paused.clear()
+    clear_avatar_stream_state()
+    if avatar_gui:
+        try:
+            avatar_gui.stop()
+        except Exception as e:
+            print(f"⚠️ [Avatar] Shutdown error: {e}")
+        finally:
+            avatar_gui = None
+    if unload_tts and tts_model is not None:
+        try:
+            if hasattr(tts_model, "close"):
+                tts_model.close()
+        except Exception as e:
+            print(f"⚠️ [TTS] Shutdown error: {e}")
+        finally:
+            tts_model = None
+            tts_backend_name = None
+    gc.collect()
+    if torch.cuda.is_available():
+        try:
+            torch.cuda.empty_cache()
+            if hasattr(torch.cuda, "ipc_collect"):
+                torch.cuda.ipc_collect()
+        except Exception:
+            pass
+    schedule_musetalk_runtime_cleanup(max_keep=0, force=True)
+
+
+def reset_session_state():
+    global conversation_history, assistant_memory, chat_session_state_generation
+    global sensory_hidden_history, sensory_pingpong_state, sensory_hidden_action_state
+    conversation_history = []
+    assistant_memory = _default_assistant_memory()
+    sensory_hidden_history = []
+    sensory_pingpong_state = {
+        "last_cycle_at": 0.0,
+        "last_retained_at": 0.0,
+        "last_emotion": "",
+        "last_attention": "",
+        "last_summary": "",
+        "last_source": "off",
+    }
+    sensory_hidden_action_state = {
+        "pending_proactive": None,
+        "active_proactive": None,
+        "last_proactive_key": "",
+        "last_proactive_at": 0.0,
+        "last_visual_key": "",
+        "last_visual_at": 0.0,
+    }
+    chat_session_state_generation += 1
+    print("🧼 [Session] Chat history and memory reset.")
+
+
+def reset_chat_runtime_state():
+    global last_resume_requested_at, pending_loaded_input_turn, pending_next_user_attachment
+    pending_loaded_input_turn = None
+    pending_next_user_attachment = None
+    _clear_pending_hidden_proactive_candidate()
+    _clear_active_hidden_proactive_candidate()
+    stop_playback.set()
+    pause_after_chunk.clear()
+    playback_paused.clear()
+    clear_avatar_stream_state()
+    last_resume_requested_at = 0.0
+    audio_playing.clear()
+    try:
+        sd.stop()
+    except Exception:
+        pass
+
+
+def _sanitize_chat_turn(entry):
+    if not isinstance(entry, dict):
+        return None
+    role = str(entry.get("role", "") or "").strip().lower()
+    if role not in {"user", "system", "assistant"}:
+        return None
+    attachment_image_path = str(entry.get("attachment_image_path", "") or "").strip()
+    if attachment_image_path:
+        attachment_image_path = os.path.abspath(attachment_image_path)
+    content = str(entry.get("content", "") or "").strip()
+    if not content and not attachment_image_path:
+        return None
+    if not content:
+        content = "Please respond to the image I just sent you."
+    origin = str(entry.get("origin", "") or "").strip().lower()
+    if origin not in {"input", "assistant_reply"}:
+        origin = "assistant_reply" if role == "assistant" else "input"
+    turn = {"role": role, "content": content, "origin": origin}
+    if attachment_image_path:
+        turn["attachment_image_path"] = attachment_image_path
+        attachment_source = str(entry.get("attachment_source", "image") or "image").strip().lower()
+        if attachment_source:
+            turn["attachment_source"] = attachment_source
+    return turn
+
+
+def set_pending_user_image_attachment(image_path, *, source="clipboard"):
+    global pending_next_user_attachment
+    path = os.path.abspath(str(image_path or "").strip())
+    if not path or not os.path.isfile(path):
+        raise ValueError("Image path does not exist.")
+    pending_next_user_attachment = {
+        "attachment_image_path": path,
+        "attachment_source": str(source or "image").strip().lower() or "image",
+    }
+    print(f"📋 [Clipboard] Pending image attachment armed for next user turn: {path}")
+    return dict(pending_next_user_attachment)
+
+
+def clear_pending_user_image_attachment():
+    global pending_next_user_attachment
+    pending_next_user_attachment = None
+
+
+def queue_user_image_turn(image_path, *, content=None, source="clipboard"):
+    global pending_loaded_input_turn, conversation_history
+    path = os.path.abspath(str(image_path or "").strip())
+    if not path or not os.path.isfile(path):
+        raise ValueError("Image path does not exist.")
+    turn = _sanitize_chat_turn({
+        "role": "user",
+        "content": str(content or "").strip() or "Please respond to the image I just sent you.",
+        "origin": "input",
+        "attachment_image_path": path,
+        "attachment_source": str(source or "image").strip().lower() or "image",
+    })
+    if not turn:
+        raise ValueError("Could not prepare image input turn.")
+    conversation_history.append(dict(turn))
+    _apply_stored_chat_history_limit()
+    pending_loaded_input_turn = dict(turn)
+    print(f"📋 [Clipboard] Queued image input for next model request: {path}")
+    _request_chat_view_rebuild()
+    return dict(turn)
+
+
+def export_chat_session_state():
+    return {
+        "version": 1,
+        "saved_at": time.time(),
+        "conversation_history": [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn],
+        "assistant_memory": json.loads(json.dumps(assistant_memory or _default_assistant_memory())),
+        "sensory_hidden_history": [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(sensory_hidden_history or [])) if item],
+    }
+
+
+def collect_replayable_assistant_entries(history=None):
+    replayable = []
+    assistant_index = 0
+    for history_index, item in enumerate(list(history if history is not None else (conversation_history or []))):
+        turn = _sanitize_chat_turn(item)
+        if not turn:
+            continue
+        if str(turn.get("role", "") or "") != "assistant":
+            continue
+        if str(turn.get("origin", "") or "") != "assistant_reply":
+            continue
+        content = str(turn.get("content", "") or "").strip()
+        if not content:
+            continue
+        assistant_index += 1
+        preview = re.sub(r"\s+", " ", content).strip()
+        replayable.append({
+            "replay_index": assistant_index,
+            "history_index": history_index,
+            "content": content,
+            "preview": preview[:140] + ("..." if len(preview) > 140 else ""),
+        })
+    return replayable
+
+
+def collect_replayable_assistant_messages(history=None):
+    return [str(item.get("content", "") or "") for item in collect_replayable_assistant_entries(history)]
+
+
+def build_replay_chat_session_from_action(start_index):
+    try:
+        value = max(1, int(start_index))
+    except Exception:
+        value = 1
+    return f"replay_chat_session_from:{value}"
+
+
+def parse_replay_chat_session_start_index(action):
+    raw = str(action or "").strip().lower()
+    prefix = "replay_chat_session_from:"
+    if not raw.startswith(prefix):
+        return None
+    try:
+        value = int(raw[len(prefix):].strip())
+    except Exception:
+        return None
+    return value if value >= 1 else None
+
+
+def replace_chat_conversation_history(raw_history, *, allow_pending_loaded_user=False):
+    global conversation_history, pending_loaded_input_turn
+    if not isinstance(raw_history, list):
+        raise ValueError("conversation_history must be a list")
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in raw_history) if turn]
+    conversation_history = sanitized_history
+    _apply_stored_chat_history_limit()
+    pending_loaded_input_turn = None
+    if allow_pending_loaded_user and conversation_history:
+        last_turn = dict(conversation_history[-1] or {})
+        if str(last_turn.get("role", "") or "").strip().lower() == "user":
+            pending_loaded_input_turn = {
+                "role": "user",
+                "content": str(last_turn.get("content", "") or ""),
+                "origin": str(last_turn.get("origin", "input") or "input"),
+            }
+            attachment_image_path = str(last_turn.get("attachment_image_path", "") or "").strip()
+            if attachment_image_path:
+                pending_loaded_input_turn["attachment_image_path"] = attachment_image_path
+                pending_loaded_input_turn["attachment_source"] = str(last_turn.get("attachment_source", "image") or "image")
+    return {"conversation_turns": len(conversation_history)}
+
+
+def import_chat_session_state(payload):
+    global assistant_memory, chat_session_state_generation, sensory_hidden_history
+    if not isinstance(payload, dict):
+        raise ValueError("Chat session payload must be a JSON object")
+    reset_chat_runtime_state()
+    raw_history = payload.get("conversation_history", [])
+    raw_memory = payload.get("assistant_memory")
+    if isinstance(raw_memory, dict):
+        sanitized_memory = json.loads(json.dumps(raw_memory))
+    else:
+        sanitized_memory = _default_assistant_memory()
+    sanitized_memory.setdefault("preferences", {})
+    sanitized_memory.setdefault("recent_context", [])
+    sensory_hidden_history = [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(payload.get("sensory_hidden_history", []) or [])) if item]
+    _prune_sensory_hidden_history()
+    history_result = replace_chat_conversation_history(raw_history, allow_pending_loaded_user=True)
+    assistant_memory = sanitized_memory
+    chat_session_state_generation += 1
+    print(f"📚 [Session] Loaded chat context with {len(conversation_history)} turn(s).")
+    return {
+        "conversation_turns": int(history_result.get("conversation_turns", len(conversation_history))),
+        "assistant_memory_keys": sorted(str(key) for key in assistant_memory.keys()),
+    }
+
+
+def normalize_chunk_result(result, default_payload_path=None):
+    if isinstance(result, dict):
+        normalized = dict(result)
+        normalized.setdefault("ok", True)
+        normalized.setdefault("kind", "audio")
+        return normalized
+    if result:
+        normalized = {"ok": True, "kind": "audio"}
+        if default_payload_path:
+            normalized["payload_path"] = default_payload_path
+        return normalized
+    return {"ok": False, "kind": "audio"}
+
+
+def list_png_frames(frame_dir):
+    if not frame_dir or not os.path.isdir(frame_dir):
+        return []
+    return sorted(
+        os.path.join(frame_dir, name)
+        for name in os.listdir(frame_dir)
+        if name.lower().endswith(".png")
+    )
+
+
+def estimate_displayed_musetalk_frames(state, now=None):
+    state = state or {}
+    frame_count = int(state.get("frame_count", 0) or 0)
+    if frame_count <= 0:
+        return 0
+    if state.get("loop", False):
+        return frame_count
+    now = time.time() if now is None else now
+    sync_time = float(state.get("sync_time", 0.0) or 0.0)
+    elapsed = max(0.0, now - sync_time)
+    duration_seconds = float(state.get("duration_seconds", 0.0) or 0.0)
+    if duration_seconds > 0:
+        progress = min(elapsed / duration_seconds, 1.0)
+        frame_span = max(frame_count - 1, 1)
+        frame_index = min(int(progress * frame_span), frame_count - 1)
+    else:
+        fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+        frame_index = min(int(elapsed * max(fps, 1)), frame_count - 1)
+    return frame_index + 1
+
+
+def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
+    state = state or getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    start_index = int(state.get("start_index", 0) or 0)
+    source_indices = list(state.get("source_indices", []) or [])
+    frame_count = int(state.get("frame_count", 0) or len(state.get("frame_paths", []) or []))
+    if frame_count <= 0:
+        return start_index
+    sync_time = float(state.get("sync_time", 0.0) or 0.0)
+    now = time.time()
+    elapsed = max(0.0, now - sync_time) if sync_time else 0.0
+    if state.get("loop", False):
+        fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+        frame_index = int(elapsed * max(fps, 1)) % frame_count
+    else:
+        duration_seconds = float(state.get("duration_seconds", 0.0) or 0.0)
+        if duration_seconds > 0:
+            progress = min(elapsed / duration_seconds, 1.0)
+            frame_span = max(frame_count - 1, 1)
+            frame_index = min(int(progress * frame_span), frame_count - 1)
+        else:
+            fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+            frame_index = min(int(elapsed * max(fps, 1)), frame_count - 1)
+    if source_indices and 0 <= frame_index < len(source_indices):
+        current_index = int(source_indices[frame_index])
+    else:
+        current_index = start_index + frame_index
+    if advance_to_next_frame:
+        current_index += 1
+    return current_index
+
+
+def cleanup_musetalk_runtime(keep_frame_dirs=None, max_keep=64):
+    runtime_root = os.path.abspath(os.path.join("MuseTalk", "runtime", "rendered_chunks"))
+    if not os.path.isdir(runtime_root):
+        return
+
+    def _safe_rmtree(path):
+        def _onerror(func, target_path, exc_info):
+            exception = exc_info[1]
+            if isinstance(exception, FileNotFoundError):
+                return
+            raise exception
+
+        try:
+            shutil.rmtree(path, onerror=_onerror)
+        except FileNotFoundError:
+            pass
+
+    with _musetalk_cleanup_lock:
+        keep_dirs = {os.path.abspath(path) for path in (keep_frame_dirs or []) if path}
+        chunk_dirs = []
+        for name in os.listdir(runtime_root):
+            full_path = os.path.join(runtime_root, name)
+            if os.path.isdir(full_path):
+                chunk_dirs.append(full_path)
+
+        existing_dirs = []
+        for chunk_dir in chunk_dirs:
+            try:
+                mtime = os.path.getmtime(chunk_dir)
+            except FileNotFoundError:
+                continue
+            existing_dirs.append((chunk_dir, mtime))
+
+        existing_dirs.sort(key=lambda item: item[1], reverse=True)
+        ordered_dirs = [path for path, _ in existing_dirs]
+        protected_dirs = set(ordered_dirs[:max_keep]).union(keep_dirs)
+
+        for chunk_dir, mtime in existing_dirs:
+            if os.path.abspath(chunk_dir) in protected_dirs:
+                continue
+            chunk_age = time.time() - mtime
+            if chunk_age < 5.0:
+                continue
+            try:
+                _safe_rmtree(chunk_dir)
+            except Exception as e:
+                print(f"⚠️ [MuseTalk] Cleanup failed for {os.path.basename(chunk_dir)}: {e}")
+
+
+def save_musetalk_seam_debug_images(previous_state, current_state):
+    previous_chunk_id = previous_state.get("chunk_id")
+    current_chunk_id = current_state.get("chunk_id")
+    if not previous_chunk_id or not current_chunk_id:
+        return
+
+    previous_sequence = previous_state.get("sequence_index")
+    current_sequence = current_state.get("sequence_index")
+    if previous_sequence is None or current_sequence is None:
+        return
+
+    previous_frame_dir = previous_state.get("frame_dir", "")
+    current_frame_dir = current_state.get("frame_dir", "")
+    if not previous_frame_dir or not current_frame_dir:
+        return
+
+    previous_preview_index = int(previous_state.get("preview_frame_index", -1) or -1)
+    current_trim = int(current_state.get("trim_start_frames", 0) or 0)
+    previous_trim = int(previous_state.get("trim_start_frames", 0) or 0)
+    if previous_preview_index < 0:
+        return
+
+    previous_raw_index = previous_preview_index + previous_trim
+    current_raw_index = current_trim
+
+    previous_raw_path = os.path.join(previous_frame_dir, f"{previous_raw_index:08d}.png")
+    current_raw_path = os.path.join(current_frame_dir, f"{current_raw_index:08d}.png")
+    if not os.path.exists(previous_raw_path) or not os.path.exists(current_raw_path):
+        return
+
+    seam_debug_dir = os.path.abspath(os.path.join("MuseTalk", "runtime", "seam_debug"))
+    os.makedirs(seam_debug_dir, exist_ok=True)
+    try:
+        shutil.copy2(previous_raw_path, os.path.join(seam_debug_dir, f"chunk_{int(previous_sequence)}_out.png"))
+        shutil.copy2(current_raw_path, os.path.join(seam_debug_dir, f"chunk_{int(current_sequence)}_in.png"))
+    except Exception as e:
+        print(f"⚠️ [MuseTalk] Seam debug export failed: {e}")
+
+
+def schedule_musetalk_runtime_cleanup(keep_frame_dirs=None, max_keep=64, force=False):
+    if audio_playing.is_set() and not force:
+        return
+    threading.Thread(
+        target=cleanup_musetalk_runtime,
+        args=(keep_frame_dirs, max_keep),
+        daemon=True,
+    ).start()
+
+
+def set_seed(seed: int):
+    try:
+        seed = int(seed)
+        if not (0 <= seed <= 2 ** 32 - 1):
+            raise ValueError(f"Seed must be between 0 and 2**32 - 1, got {seed}")
+        torch.manual_seed(seed)
+        if torch.cuda.is_available():
+            torch.cuda.manual_seed(seed)
+            torch.cuda.manual_seed_all(seed)
+        random.seed(seed)
+        np.random.seed(seed)
+    except Exception as e:
+        raise
+
+
+def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
+    first_yield_logged = False
+    while True:
+        item = text_queue.get()
+        if item is None:
+            shared_state.append_musetalk_preview_log("🌊 [Stream] Text queue received sentinel")
+            break
+        if item and str(item).strip():
+            if not first_yield_logged:
+                shared_state.append_musetalk_preview_log(
+                    f"🌊 [Stream] First chunk dequeued for TTS: chars={len(str(item).strip())}"
+                )
+                dry_run.record_reply_event(dry_run_reply_id, "first_chunk_dequeued_at")
+                first_yield_logged = True
+            yield str(item)
+
+
+def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSController:
+    global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
+    ctrl = TTSController()
+    stop_playback.clear()
+    pause_after_chunk.clear()
+    playback_paused.clear()
+    if avatar_gui and hasattr(avatar_gui, "begin_reply"):
+        try:
+            avatar_gui.begin_reply()
+        except Exception:
+            pass
+    if tts_model is None:
+        print("⚠️ TTS Model not loaded, skipping audio.")
+        ctrl.done.set()
+        return ctrl
+
+    playback_queue = queue.Queue()
+    ready_for_playback = queue.Queue()
+    output_dir = tempfile.gettempdir()
+    sample_rate = getattr(tts_model, "sr", 24000)
+    chunk_target_chars, chunk_max_chars = get_text_chunk_limits()
+    avatar_mode = RUNTIME_CONFIG.get("avatar_mode", "vseeface").lower()
+    pipeline_telemetry_enabled = avatar_mode in {"musetalk", "vam"}
+    pipeline_reply_id = None
+    if pipeline_telemetry_enabled:
+        pipeline_reply_id = shared_state.begin_musetalk_pipeline_reply(
+            stream_mode=bool(text_iterable is not None or RUNTIME_CONFIG.get("stream_mode", False))
+        )
+        shared_state.update_musetalk_pipeline_flags(
+            reply_id=pipeline_reply_id,
+            engine_mode=avatar_mode,
+        )
+    else:
+        shared_state.reset_musetalk_pipeline_data()
+
+    def generator_worker():
+        cnt = 0
+        muse_chunk_index = 0
+        source_iterable = text_iterable if text_iterable is not None else [text]
+        first_piece_logged = False
+        first_subchunk_logged = False
+        first_wav_logged = False
+        for piece_text in source_iterable:
+            if stop_playback.is_set(): break
+            if not piece_text or not str(piece_text).strip():
+                continue
+            if text_iterable is not None and not first_piece_logged:
+                shared_state.append_musetalk_preview_log(
+                    f"🌊 [Stream] Generator received first text piece: chars={len(str(piece_text).strip())}"
+                )
+                first_piece_logged = True
+            segments = parse_text_segments(str(piece_text))
+            if avatar_mode == "musetalk":
+                segments = coalesce_musetalk_leading_segments(segments)
+            for emotion, seg_text in segments:
+                if stop_playback.is_set():
+                    break
+                if avatar_mode == "musetalk":
+                    sub_chunks = intelligent_chunk_text_progressive(seg_text, start_chunk_index=muse_chunk_index)
+                else:
+                    sub_chunks = intelligent_chunk_text(seg_text, chunk_target_chars, chunk_max_chars)
+                print(f"🧩 [{RUNTIME_CONFIG.get('avatar_mode', 'vseeface').upper()}] {len(sub_chunks)} chunk(s) for emotion '{emotion}'")
+                for sub in sub_chunks:
+                    if stop_playback.is_set(): break
+                    chunk_sequence = muse_chunk_index if avatar_mode == "musetalk" else cnt
+                    if pipeline_telemetry_enabled:
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="generating_audio",
+                            playback_state="pending",
+                            text=str(sub or ""),
+                            emotion=str(emotion or ""),
+                        )
+                    if text_iterable is not None and not first_subchunk_logged:
+                        shared_state.append_musetalk_preview_log(
+                            f"🌊 [Stream] First TTS subchunk prepared: chars={len(sub.strip())} emotion={emotion}"
+                        )
+                        dry_run.record_reply_event(dry_run_reply_id, "first_tts_subchunk_at")
+                        first_subchunk_logged = True
+                    kwargs = dict(
+                        temperature=float(0.8),
+                        top_p=float(0.9),
+                        top_k=int(40),
+                        repetition_penalty=float(1.2),
+                        norm_loudness=bool(False),
+                    )
+                    v_path = RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav")
+                    if not os.path.exists(v_path):
+                        print(f"⚠️ Voice file not found: {v_path}. Using default.")
+                        v_path = "voices/Hot_16.wav"
+                    kwargs["audio_prompt_path"] = v_path
+                    wav = tts_model.generate(sub, **kwargs)
+                    path = os.path.join(output_dir, f"speech_{cnt}_{int(time.time())}.wav")
+                    ta.save(path, wav.cpu(), sample_rate)
+                    estimated_duration_seconds = 0.0
+                    estimated_frame_count = 0
+                    if avatar_mode == "musetalk":
+                        try:
+                            estimated_duration_seconds = float(sf.info(path).duration or 0.0)
+                        except Exception:
+                            estimated_duration_seconds = 0.0
+                        fps = int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24)
+                        if estimated_duration_seconds > 0:
+                            estimated_frame_count = max(1, int(round(estimated_duration_seconds * max(fps, 1))))
+                    if text_iterable is not None and not first_wav_logged:
+                        shared_state.append_musetalk_preview_log(
+                            f"🌊 [Stream] First audio chunk generated: file={os.path.basename(path)} chars={len(sub.strip())}"
+                        )
+                        dry_run.record_reply_event(dry_run_reply_id, "first_audio_chunk_at")
+                        first_wav_logged = True
+                    if pipeline_telemetry_enabled:
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="queued_for_render",
+                            playback_state="pending",
+                            duration_seconds=estimated_duration_seconds,
+                            expected_frame_count=estimated_frame_count,
+                        )
+                    playback_queue.put((path, emotion, sub, chunk_sequence))
+                    cnt += 1
+                    if avatar_mode == "musetalk":
+                        muse_chunk_index += 1
+        playback_queue.put(None)
+        if pipeline_telemetry_enabled:
+            shared_state.update_musetalk_pipeline_flags(
+                reply_id=pipeline_reply_id,
+                stream_open=False,
+            )
+
+    def expression_preprocessor():
+        def isolate_vocals_simple(input_wav):
+            """
+            A lightning-fast alternative to Spleeter.
+            Strips the low-end rumble that confuses the AI.
+            """
+            try:
+                # Load the raw TTS audio
+                sound = AudioSegment.from_wav(input_wav)
+
+                # High-pass filter: removes everything below 200Hz.
+                # Human speech phonemes are mostly 300Hz-3000Hz.
+                # This kills the "hum" that causes the generic jaw flapping.
+                clean_sound = sound.high_pass_filter(300)
+
+                # Boost the volume slightly to make the 'peaks' clearer for the AI
+                clean_sound = clean_sound.apply_gain(+3)
+
+                output_path = input_wav.replace(".wav", "_filtered.wav")
+                clean_sound.export(output_path, format="wav")
+
+                return output_path
+            except Exception as e:
+                print(f"❌ [Filter] Fast-filter failed: {e}")
+                return input_wav
+        try:
+            while not stop_playback.is_set():
+                item = playback_queue.get()
+                if item is None:
+                    ready_for_playback.put(None)
+                    break
+
+                path, emotion, txt, chunk_sequence = item
+                vocal_only_path = path #isolate_vocals_simple(path)
+
+                unique_id = str(uuid.uuid4())[:8]
+                temp_json_name = f"bsData_{unique_id}.json"
+                predicted_chunk_id = os.path.splitext(temp_json_name)[0]
+                predicted_frame_dir = ""
+                if avatar_mode == "musetalk" and isinstance(avatar_gui, MuseTalkAdapter):
+                    try:
+                        predicted_frame_dir = os.path.abspath(
+                            os.path.join(
+                                avatar_gui.root_dir,
+                                "runtime",
+                                "rendered_chunks",
+                                predicted_chunk_id,
+                            )
+                        )
+                    except Exception:
+                        predicted_frame_dir = ""
+                chunk_result = {"ok": True, "kind": "audio"}
+
+                if avatar_gui:
+                    avatar_gui.set_emotion(emotion)
+                    if avatar_mode == "musetalk":
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="rendering",
+                            playback_state="pending",
+                            chunk_id=predicted_chunk_id,
+                            frame_dir=predicted_frame_dir,
+                        )
+                    result = avatar_gui.process_audio_chunk(
+                        vocal_only_path,
+                        txt,
+                        output_filename=temp_json_name,
+                        dry_run_reply_id=dry_run_reply_id,
+                    )
+                    chunk_result = normalize_chunk_result(result)
+
+                if chunk_result.get("ok"):
+                    if avatar_mode == "musetalk":
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="rendering",
+                            playback_state="pending",
+                            frame_dir=str(chunk_result.get("frame_dir", "") or ""),
+                            chunk_id=str(chunk_result.get("chunk_id", "") or ""),
+                            fps=int(chunk_result.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or RUNTIME_CONFIG.get("musetalk_fps", 24) or 24),
+                        )
+                    elif avatar_mode == "vam":
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="rendered",
+                            playback_state="pending",
+                            duration_seconds=float(chunk_result.get("playback_duration_seconds", 0.0) or 0.0),
+                            expected_frame_count=int(chunk_result.get("expected_frame_count", 0) or 0),
+                            chunk_id=str(chunk_result.get("chunk_id", "") or ""),
+                        )
+                    ready_for_playback.put((path, emotion, txt, chunk_sequence, chunk_result))
+                    if vocal_only_path != path:
+                        safe_delete_with_retry(vocal_only_path)
+                else:
+                    if pipeline_telemetry_enabled:
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="failed",
+                            playback_state="failed",
+                        )
+                    print(f"⚠️ [Preprocessor] Backend failed for chunk '{txt[:20]}...'")
+                    safe_delete_with_retry(path)
+        except Exception as e:
+            print(f"❌ [Preprocessor] Error: {e}")
+
+    def playback_worker():
+        global last_resumed_at, last_resume_requested_at
+        audio_playing.set()
+        if avatar_gui:
+            avatar_gui.set_speaking_state(True)
+        last_chunk_end_time = None
+
+        try:
+            while not stop_playback.is_set():
+                while playback_paused.is_set() and not stop_playback.is_set():
+                    time.sleep(0.05)
+
+                # Get the next chunk from the preprocessor
+                item = ready_for_playback.get()
+                if item is None:
+                    break
+
+                path, emotion, txt, chunk_sequence, chunk_result = item
+                kind = chunk_result.get("kind", "audio")
+
+                if kind == "musetalk":
+                    current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
+                    previous_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                    try:
+                        chunk_duration_seconds = float(sf.info(path).duration or 0.0)
+                    except Exception:
+                        chunk_duration_seconds = 0.0
+                    frame_dir = chunk_result.get("frame_dir", "")
+                    fps = int(chunk_result.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
+                    ready_event = chunk_result.get("ready_event")
+                    result_holder = chunk_result.get("result_holder", {})
+                    if result_holder.get("cancelled"):
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="cancelled",
+                            playback_state="cancelled",
+                        )
+                        safe_delete_with_retry(path)
+                        continue
+                    if isinstance(avatar_gui, MuseTalkAdapter):
+                        chunk_generation = int(result_holder.get("generation", -1))
+                        if chunk_generation != int(getattr(avatar_gui, "reply_generation", chunk_generation)):
+                            shared_state.update_musetalk_pipeline_chunk(
+                                current_sequence,
+                                reply_id=pipeline_reply_id,
+                                status="cancelled",
+                                playback_state="cancelled",
+                            )
+                            safe_delete_with_retry(path)
+                            continue
+                    trim_start_frames = int(result_holder.get("trim_start_frames", 0) or 0)
+                    is_first_reply_chunk = bool(chunk_result.get("sequence_index") == 0)
+                    stream_fast_start = bool(RUNTIME_CONFIG.get("stream_mode", False))
+                    if is_first_reply_chunk and stream_fast_start:
+                        min_buffer_frames = max(10, min(int(fps * 0.5), 16))
+                        shared_state.append_musetalk_preview_log(
+                            f"🌊 [Stream] First chunk fast-start gate {chunk_result.get('chunk_id')}: "
+                            f"min_buffer_frames={min_buffer_frames}"
+                        )
+                    elif is_first_reply_chunk:
+                        min_buffer_frames = max(24, min(int(fps * 2.5), 72))
+                    else:
+                        min_buffer_frames = max(24, min(int(fps * 2.5), 72))
+                    if is_first_reply_chunk:
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            startup_buffer_frames=min_buffer_frames,
+                        )
+                    wait_start = time.time()
+                    if is_first_reply_chunk:
+                        shared_state.append_musetalk_preview_log(
+                            f"🕒 [MuseTalkStartup] First chunk buffer wait start {chunk_result.get('chunk_id')}: "
+                            f"min_buffer_frames={min_buffer_frames}"
+                        )
+                        log_musetalk_memory_checkpoint(
+                            "first_chunk_buffer_wait_start",
+                            chunk_result.get("chunk_id"),
+                            {"min_buffer_frames": min_buffer_frames},
+                        )
+                    try:
+                        frame_paths = list_png_frames(frame_dir)
+                    except FileNotFoundError:
+                        frame_paths = []
+
+                    while (
+                        len(frame_paths) < min_buffer_frames
+                        and ready_event is not None
+                        and not ready_event.is_set()
+                        and not stop_playback.is_set()
+                        and time.time() - wait_start < 60
+                    ):
+                        time.sleep(0.1)
+                        try:
+                            frame_paths = list_png_frames(frame_dir)
+                        except FileNotFoundError:
+                            frame_paths = []
+                        if result_holder.get("cancelled"):
+                            break
+
+                    if result_holder.get("cancelled"):
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="cancelled",
+                            playback_state="cancelled",
+                        )
+                        safe_delete_with_retry(path)
+                        continue
+
+                    if is_first_reply_chunk:
+                        shared_state.append_musetalk_preview_log(
+                            f"🕒 [MuseTalkStartup] First chunk buffer wait done {chunk_result.get('chunk_id')}: "
+                            f"waited_ms={(time.time() - wait_start) * 1000.0:.1f} "
+                            f"buffered={len(frame_paths)} ready_event={bool(ready_event and ready_event.is_set())}"
+                        )
+                        log_musetalk_memory_checkpoint(
+                            "first_chunk_buffer_wait_done",
+                            chunk_result.get("chunk_id"),
+                            {
+                                "buffered": len(frame_paths),
+                                "ready_event": bool(ready_event and ready_event.is_set()),
+                            },
+                        )
+                        dry_run.record_reply_metric(
+                            dry_run_reply_id,
+                            "first_chunk_buffer_wait_ms",
+                            round((time.time() - wait_start) * 1000.0, 1),
+                        )
+
+                    if not frame_paths and ready_event is not None and ready_event.is_set():
+                        try:
+                            frame_paths = list_png_frames(frame_dir)
+                        except FileNotFoundError:
+                            frame_paths = []
+
+                    if trim_start_frames > 0 and frame_paths:
+                        trimmed_paths = frame_paths[min(trim_start_frames, len(frame_paths) - 1):]
+                        if trimmed_paths:
+                            frame_paths = trimmed_paths
+
+                    if not frame_paths and ready_event is not None and not ready_event.is_set() and not stop_playback.is_set():
+                        while (
+                            not frame_paths
+                            and ready_event is not None
+                            and not ready_event.is_set()
+                            and not stop_playback.is_set()
+                        ):
+                            time.sleep(0.1)
+                            try:
+                                frame_paths = list_png_frames(frame_dir)
+                            except FileNotFoundError:
+                                frame_paths = []
+                        if trim_start_frames > 0 and frame_paths:
+                            trimmed_paths = frame_paths[min(trim_start_frames, len(frame_paths) - 1):]
+                            if trimmed_paths:
+                                frame_paths = trimmed_paths
+
+                    if not frame_paths:
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="failed",
+                            playback_state="failed",
+                        )
+                        print(
+                            f"⚠️ [MuseTalk] No buffered frames for chunk {chunk_result.get('chunk_id')} "
+                            f"(dir={frame_dir}, result_frames={result_holder.get('frame_count')})"
+                        )
+                        safe_delete_with_retry(path)
+                        continue
+
+                    visible_start_index = int(result_holder.get("start_index", 0) or 0)
+                    live_previous_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                    previous_avatar_id = live_previous_state.get("avatar_id", previous_state.get("avatar_id"))
+                    current_avatar_id = chunk_result.get("avatar_id")
+                    previous_status = live_previous_state.get("status", previous_state.get("status"))
+                    previous_chunk_id = live_previous_state.get("chunk_id", previous_state.get("chunk_id"))
+                    previous_start_index = int(live_previous_state.get("start_index", previous_state.get("start_index", 0)) or 0)
+                    if (
+                        current_avatar_id == previous_avatar_id
+                        and previous_status == "ready"
+                        and previous_chunk_id
+                    ):
+                        preview_chunk_id = live_previous_state.get("preview_chunk_id")
+                        preview_source_index = live_previous_state.get("preview_source_index")
+                        if preview_chunk_id == previous_chunk_id and preview_source_index is not None:
+                            visible_start_index = int(preview_source_index) + 1
+                        else:
+                            previous_displayed_frames = estimate_displayed_musetalk_frames(live_previous_state)
+                            visible_start_index = previous_start_index + previous_displayed_frames
+                    elif (
+                        bool(chunk_result.get("sequence_index") == 0)
+                        and previous_status == "idle"
+                        and previous_chunk_id
+                        and str(previous_chunk_id).startswith("first_chunk_plan:")
+                    ):
+                        preview_chunk_id = live_previous_state.get("preview_chunk_id")
+                        preview_source_index = live_previous_state.get("preview_source_index")
+                        if preview_chunk_id == previous_chunk_id and preview_source_index is not None:
+                            try:
+                                target_entry_index = int(visible_start_index)
+                                wait_started_at = time.time()
+                                if bool(RUNTIME_CONFIG.get("stream_mode", False)):
+                                    max_wait_seconds = STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS
+                                else:
+                                    max_wait_seconds = max(0.75, min(2.5, MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS))
+                                while (
+                                    not stop_flag.is_set()
+                                    and (time.time() - wait_started_at) < max_wait_seconds
+                                ):
+                                    live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                                    if live_state.get("chunk_id") != previous_chunk_id:
+                                        break
+                                    live_preview_source = live_state.get("preview_source_index")
+                                    if live_preview_source is None:
+                                        time.sleep(0.01)
+                                        continue
+                                    live_preview_source = int(live_preview_source)
+                                    if live_preview_source == target_entry_index:
+                                        visible_start_index = target_entry_index
+                                        break
+                                    time.sleep(0.01)
+                                shared_state.append_musetalk_preview_log(
+                                    f"🕒 [MuseTalkStartup] First chunk plan sync {chunk_result.get('chunk_id')}: "
+                                    f"target={target_entry_index} final_preview={getattr(shared_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
+                                    f"waited_ms={(time.time() - wait_started_at) * 1000.0:.1f}"
+                                )
+                                log_musetalk_memory_checkpoint(
+                                    "first_chunk_plan_sync",
+                                    chunk_result.get("chunk_id"),
+                                    {
+                                        "target": target_entry_index,
+                                        "final_preview": getattr(shared_state, "current_musetalk_frame_data", {}).get("preview_source_index"),
+                                    },
+                                )
+                                dry_run.record_reply_metric(
+                                    dry_run_reply_id,
+                                    "first_chunk_plan_sync_ms",
+                                    round((time.time() - wait_started_at) * 1000.0, 1),
+                                )
+                            except Exception:
+                                pass
+                    elif (
+                        bool(chunk_result.get("sequence_index") == 0)
+                        and previous_status == "idle"
+                        and previous_chunk_id == "idle"
+                    ):
+                        preview_source_index = live_previous_state.get("preview_source_index")
+                        preview_chunk_id = live_previous_state.get("preview_chunk_id")
+                        if preview_chunk_id == "idle" and preview_source_index is not None:
+                            try:
+                                target_entry_index = int(visible_start_index)
+                                wait_started_at = time.time()
+                                if bool(RUNTIME_CONFIG.get("stream_mode", False)):
+                                    max_wait_seconds = STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS
+                                else:
+                                    max_wait_seconds = max(0.25, min(1.5, abs(target_entry_index - int(preview_source_index)) / max(fps, 1) + 0.25))
+                                while (
+                                    not stop_flag.is_set()
+                                    and (time.time() - wait_started_at) < max_wait_seconds
+                                ):
+                                    live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                                    if live_state.get("chunk_id") != "idle":
+                                        break
+                                    live_preview_source = live_state.get("preview_source_index")
+                                    if live_preview_source is None:
+                                        time.sleep(0.01)
+                                        continue
+                                    live_preview_source = int(live_preview_source)
+                                    if live_preview_source == target_entry_index:
+                                        visible_start_index = target_entry_index
+                                        break
+                                    time.sleep(0.01)
+                                shared_state.append_musetalk_preview_log(
+                                    f"🕒 [MuseTalkStartup] First chunk idle sync {chunk_result.get('chunk_id')}: "
+                                    f"target={target_entry_index} final_preview={getattr(shared_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
+                                    f"waited_ms={(time.time() - wait_started_at) * 1000.0:.1f}"
+                                )
+                                dry_run.record_reply_metric(
+                                    dry_run_reply_id,
+                                    "first_chunk_idle_sync_ms",
+                                    round((time.time() - wait_started_at) * 1000.0, 1),
+                                )
+                            except Exception:
+                                pass
+
+                    raw_expected_frame_count = max(
+                        len(frame_paths),
+                        int(round(chunk_duration_seconds * max(fps, 1))),
+                        int(result_holder.get("frame_count", 0) or 0),
+                    )
+                    expected_frame_count = max(
+                        len(frame_paths),
+                        max(raw_expected_frame_count - trim_start_frames, 0),
+                    )
+                    duration_seconds = max(
+                        chunk_duration_seconds,
+                        max(expected_frame_count - 1, 0) / max(fps, 1),
+                    )
+                    publish_time = time.time()
+                    if (
+                        dry_run_reply_id
+                        and int(chunk_result.get("sequence_index", 0) or 0) > 0
+                        and live_previous_state.get("chunk_id")
+                    ):
+                        previous_audio_started_at = live_previous_state.get("audio_started_at")
+                        previous_duration_seconds = float(live_previous_state.get("duration_seconds", 0.0) or 0.0)
+                        if previous_audio_started_at and previous_duration_seconds > 0:
+                            followup_headroom_ms = (
+                                (float(previous_audio_started_at) + previous_duration_seconds) - publish_time
+                            ) * 1000.0
+                            dry_run.accumulate_reply_metric(
+                                dry_run_reply_id,
+                                "followup_headroom_sum_ms",
+                                round(followup_headroom_ms, 1),
+                            )
+                            dry_run.accumulate_reply_metric(
+                                dry_run_reply_id,
+                                "followup_headroom_count",
+                                1,
+                            )
+                            dry_run.update_reply_min_metric(
+                                dry_run_reply_id,
+                                "min_followup_headroom_ms",
+                                round(followup_headroom_ms, 1),
+                            )
+
+                    shared_state.set_current_musetalk_frame_data({
+                        "frame_paths": frame_paths,
+                        "frame_dir": frame_dir,
+                        "fps": fps,
+                        "sync_time": publish_time,
+                        "duration_seconds": duration_seconds,
+                        "expected_frame_count": expected_frame_count,
+                        "trim_start_frames": trim_start_frames,
+                        "chunk_id": chunk_result.get("chunk_id"),
+                        "text": txt,
+                        "status": "ready",
+                        "loop": False,
+                        "start_index": visible_start_index,
+                        "frame_count": expected_frame_count,
+                        "avatar_id": chunk_result.get("avatar_id"),
+                        "sequence_index": chunk_result.get("sequence_index"),
+                        "is_first_reply_chunk": bool(chunk_result.get("sequence_index") == 0),
+                        "published_at": publish_time,
+                        "preview_chunk_id": None,
+                        "preview_frame_index": -1,
+                        "preview_source_index": None,
+                    })
+                    shared_state.update_musetalk_pipeline_chunk(
+                        current_sequence,
+                        reply_id=pipeline_reply_id,
+                        playback_state="buffered",
+                        duration_seconds=duration_seconds,
+                        expected_frame_count=expected_frame_count,
+                        chunk_id=chunk_result.get("chunk_id"),
+                    )
+                    dry_run.record_reply_event(dry_run_reply_id, "first_chunk_published_at")
+                    dry_run.record_reply_metric(dry_run_reply_id, "first_chunk_start_index", visible_start_index)
+                    dry_run.record_reply_metric(dry_run_reply_id, "first_chunk_expected_frames", expected_frame_count)
+                    startup_resume_ms = None
+                    if last_resumed_at and (time.time() - last_resumed_at) < 30.0:
+                        startup_resume_ms = (time.time() - last_resumed_at) * 1000.0
+                    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+                    save_musetalk_seam_debug_images(previous_state, shared_state.current_musetalk_frame_data)
+                    schedule_musetalk_runtime_cleanup(keep_frame_dirs=[frame_dir])
+                    print(
+                        f"✅ [MuseTalk] Initial buffer {len(frame_paths)} frame(s): {txt[:20]}... "
+                        f"(chunk={chunk_result.get('chunk_id')}, start_index={visible_start_index}, trim={trim_start_frames})"
+                    )
+                    if startup_resume_ms is not None:
+                        message = (
+                            f"🕒 [MuseTalkStartup] Resume -> initial buffer {chunk_result.get('chunk_id')}: "
+                            f"{startup_resume_ms:.1f} ms"
+                        )
+                        print(message)
+                        shared_state.append_musetalk_preview_log(message)
+                    if is_first_reply_chunk:
+                        shared_state.append_musetalk_preview_log(
+                            f"🕒 [MuseTalkStartup] First chunk published {chunk_result.get('chunk_id')}: "
+                            f"buffered={len(frame_paths)} expected={expected_frame_count} "
+                            f"start_index={visible_start_index}"
+                        )
+                        log_musetalk_memory_checkpoint(
+                            "first_chunk_published",
+                            chunk_result.get("chunk_id"),
+                            {
+                                "buffered": len(frame_paths),
+                                "expected": expected_frame_count,
+                                "start_index": visible_start_index,
+                            },
+                        )
+                    print(
+                        f"▶️ [MuseTalk] Playing chunk {chunk_result.get('chunk_id')} "
+                        f"(initial buffer {len(frame_paths)} frame(s), ~{len(frame_paths) / max(fps, 1):.2f}s ready)"
+                    )
+                    time.sleep(0.01)
+                elif kind == "vam":
+                    current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
+                    delegated_duration_seconds = max(
+                        0.0,
+                        float(chunk_result.get("playback_duration_seconds", 0.0) or 0.0),
+                    )
+                    expected_frame_count = max(
+                        2,
+                        int(chunk_result.get("expected_frame_count", 0) or 0),
+                        int(round(delegated_duration_seconds * 50.0)) if delegated_duration_seconds > 0 else 2,
+                    )
+                    shared_state.set_current_musetalk_frame_data({
+                        "frame_paths": [],
+                        "frame_dir": "",
+                        "fps": 50,
+                        "sync_time": 0.0,
+                        "duration_seconds": delegated_duration_seconds,
+                        "expected_frame_count": expected_frame_count,
+                        "trim_start_frames": 0,
+                        "chunk_id": chunk_result.get("chunk_id"),
+                        "text": txt,
+                        "status": "ready",
+                        "loop": False,
+                        "start_index": 0,
+                        "frame_count": expected_frame_count,
+                        "sequence_index": current_sequence,
+                        "preview_chunk_id": chunk_result.get("chunk_id"),
+                        "preview_frame_index": 0,
+                        "preview_source_index": 0,
+                        "avatar_id": "vam",
+                    })
+                    shared_state.update_musetalk_pipeline_chunk(
+                        current_sequence,
+                        reply_id=pipeline_reply_id,
+                        playback_state="buffered",
+                        duration_seconds=delegated_duration_seconds,
+                        expected_frame_count=expected_frame_count,
+                        chunk_id=chunk_result.get("chunk_id"),
+                    )
+                    print(
+                        f"✅ [VaM] Chunk buffered for delegated playback "
+                        f"({delegated_duration_seconds:.2f}s, chunk={chunk_result.get('chunk_id')})"
+                    )
+
+                if not stop_playback.is_set():
+                    preview_stream_stop = threading.Event()
+                    preview_stream_thread = None
+                    skip_local_playback = bool(chunk_result.get("skip_local_playback", False))
+                    delegated_playback_duration = max(
+                        0.0,
+                        float(chunk_result.get("playback_duration_seconds", 0.0) or 0.0),
+                    )
+                    if kind == "musetalk":
+                        audio_start_time = time.time()
+                        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                        if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
+                            current_state["sync_time"] = audio_start_time
+                            current_state["audio_started_at"] = audio_start_time
+                            shared_state.write_musetalk_preview_snapshot(current_state)
+                            preview_stream_thread = threading.Thread(
+                                target=stream_musetalk_preview_frames,
+                                args=(current_state, preview_stream_stop),
+                                daemon=True,
+                            )
+                            preview_stream_thread.start()
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            playback_state="playing",
+                            audio_started_at=audio_start_time,
+                        )
+                        startup_audio_ms = None
+                        if last_resumed_at and (audio_start_time - last_resumed_at) < 30.0:
+                            startup_audio_ms = (audio_start_time - last_resumed_at) * 1000.0
+                        print(
+                            f"⏱️ [MuseTalk] Audio start {chunk_result.get('chunk_id')}: "
+                            f"audio={chunk_duration_seconds:.2f}s preview={float(shared_state.current_musetalk_frame_data.get('duration_seconds', 0.0) or 0.0):.2f}s"
+                        )
+                        if startup_audio_ms is not None:
+                            message = (
+                                f"🕒 [MuseTalkStartup] Resume -> audio start {chunk_result.get('chunk_id')}: "
+                                f"{startup_audio_ms:.1f} ms"
+                            )
+                            print(message)
+                            shared_state.append_musetalk_preview_log(message)
+                        if is_first_reply_chunk:
+                            shared_state.append_musetalk_preview_log(
+                                f"🕒 [MuseTalkStartup] First chunk audio start {chunk_result.get('chunk_id')}: "
+                                f"buffered={len(current_state.get('frame_paths', []) or [])} "
+                                f"preview_duration={float(current_state.get('duration_seconds', 0.0) or 0.0):.2f}s"
+                            )
+                            log_musetalk_memory_checkpoint(
+                                "first_chunk_audio_start",
+                                chunk_result.get("chunk_id"),
+                                {
+                                    "buffered": len(current_state.get("frame_paths", []) or []),
+                                    "preview_duration_s": round(float(current_state.get("duration_seconds", 0.0) or 0.0), 3),
+                                },
+                            )
+                            dry_run.record_reply_event(dry_run_reply_id, "first_chunk_audio_start_at")
+                            dry_run.record_reply_metric(
+                                dry_run_reply_id,
+                                "first_chunk_preview_duration_s",
+                                round(float(current_state.get("duration_seconds", 0.0) or 0.0), 3),
+                            )
+                            dry_run.finalize_reply(dry_run_reply_id)
+                    elif kind == "vam":
+                        if isinstance(avatar_gui, VaMAdapter):
+                            skip_local_playback = bool(avatar_gui.begin_chunk_playback(chunk_result))
+                        audio_start_time = time.time()
+                        current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
+                        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                        if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
+                            current_state["sync_time"] = audio_start_time
+                            current_state["audio_started_at"] = audio_start_time
+                            shared_state.write_musetalk_preview_snapshot(current_state)
+                            preview_stream_thread = threading.Thread(
+                                target=stream_delegated_audio_progress,
+                                args=(current_state, preview_stream_stop),
+                                daemon=True,
+                            )
+                            preview_stream_thread.start()
+                        shared_state.update_musetalk_pipeline_chunk(
+                            current_sequence,
+                            reply_id=pipeline_reply_id,
+                            playback_state="playing",
+                            audio_started_at=audio_start_time,
+                        )
+                    else:
+                        audio_start_time = time.time()
+                    if skip_local_playback:
+                        wait_seconds = delegated_playback_duration
+                        if wait_seconds <= 0:
+                            try:
+                                wait_seconds = max(0.0, float(AudioSegment.from_file(path).duration_seconds or 0.0))
+                            except Exception:
+                                wait_seconds = 0.0
+                        if wait_seconds > 0:
+                            deadline = time.time() + wait_seconds
+                            while time.time() < deadline and not stop_playback.is_set():
+                                time.sleep(0.02)
+                        else:
+                            time.sleep(0.05)
+                    else:
+                        play_audio_file(path)
+                    preview_stream_stop.set()
+                    if preview_stream_thread is not None:
+                        preview_stream_thread.join(timeout=0.2)
+                    audio_elapsed = time.time() - audio_start_time
+                    if kind == "musetalk":
+                        print(
+                            f"⏱️ [MuseTalk] Audio end {chunk_result.get('chunk_id')}: "
+                            f"elapsed={audio_elapsed:.2f}s"
+                        )
+                    ctrl.add_spoken(txt)
+
+                if kind == "musetalk" and not stop_flag.is_set():
+                    if stop_playback.is_set():
+                        transition_musetalk_to_local_idle(advance_to_next_frame=True)
+                    elif ready_for_playback.empty():
+                        current_avatar_id = chunk_result.get("avatar_id")
+                        if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
+                            transition_musetalk_to_local_idle(advance_to_next_frame=True)
+                elif kind == "vam" and not stop_flag.is_set():
+                    pass
+                else:
+                    clear_avatar_stream_state()
+                safe_delete_with_retry(path)
+                if kind in {"musetalk", "vam"}:
+                    shared_state.update_musetalk_pipeline_chunk(
+                        int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
+                        reply_id=pipeline_reply_id,
+                        playback_state="completed",
+                        audio_finished_at=time.time(),
+                    )
+                    if kind == "musetalk":
+                        print(f"⏹️ [MuseTalk] Finished chunk {chunk_result.get('chunk_id')}")
+                    else:
+                        shared_state.update_current_musetalk_frame_data(
+                            preview_frame_index=max(
+                                0,
+                                int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
+                            ),
+                            preview_source_index=max(
+                                0,
+                                int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
+                            ),
+                        )
+                        print(f"⏹️ [VaM] Finished delegated chunk {chunk_result.get('chunk_id')}")
+                    last_chunk_end_time = time.time()
+
+                if pause_after_chunk.is_set() and not stop_playback.is_set():
+                    pause_after_chunk.clear()
+                    playback_paused.set()
+                    if avatar_gui:
+                        avatar_gui.set_speaking_state(False)
+                    if isinstance(avatar_gui, MuseTalkAdapter):
+                        current_avatar_id = chunk_result.get("avatar_id")
+                        if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
+                            transition_musetalk_to_local_idle(advance_to_next_frame=True)
+                    print("- - - PAUSED (after chunk) - - -")
+                    while playback_paused.is_set() and not stop_playback.is_set():
+                        time.sleep(0.05)
+                    if avatar_gui and not stop_playback.is_set():
+                        last_resumed_at = time.time()
+                        avatar_gui.set_speaking_state(True)
+                        if last_resume_requested_at:
+                            resume_ms = (last_resumed_at - last_resume_requested_at) * 1000.0
+                            message = f"- - - RESUMED - - - ({resume_ms:.1f} ms after request)"
+                            print(message)
+                            shared_state.append_musetalk_preview_log(message)
+                        else:
+                            message = "- - - RESUMED - - -"
+                            print(message)
+                            shared_state.append_musetalk_preview_log(message)
+
+        finally:
+            if pipeline_telemetry_enabled:
+                shared_state.update_musetalk_pipeline_flags(
+                    reply_id=pipeline_reply_id,
+                    active=False,
+                    stream_open=False,
+                )
+            for q in [playback_queue, ready_for_playback]:
+                while not q.empty():
+                    try:
+                        val = q.get_nowait()
+                        if val:
+                            safe_delete_with_retry(val[0])
+                    except:
+                        break
+
+            if isinstance(avatar_gui, MuseTalkAdapter) and not stop_flag.is_set():
+                if stop_playback.is_set():
+                    transition_musetalk_to_local_idle(advance_to_next_frame=True)
+                else:
+                    current_avatar_id = getattr(shared_state, "current_musetalk_frame_data", {}).get("avatar_id")
+                    if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
+                        transition_musetalk_to_local_idle(advance_to_next_frame=True)
+            elif avatar_mode == "vam" and not stop_flag.is_set():
+                pass
+            else:
+                clear_avatar_stream_state()
+            audio_playing.clear()
+            pause_after_chunk.clear()
+            playback_paused.clear()
+            schedule_musetalk_runtime_cleanup(max_keep=4)
+            if avatar_gui:
+                avatar_gui.set_speaking_state(False)
+            ctrl.done.set()
+
+
+    threading.Thread(target=generator_worker, daemon=True).start()
+    threading.Thread(target=expression_preprocessor, daemon=True).start()
+    threading.Thread(target=playback_worker, daemon=True).start()
+    return ctrl
+
+
+def speak_async_stream(text_queue, dry_run_reply_id=None) -> TTSController:
+    return speak_async("", text_iterable=_iter_queue_text_chunks(text_queue, dry_run_reply_id=dry_run_reply_id), dry_run_reply_id=dry_run_reply_id)
+
+def safe_delete(file_path):
+    """Helper to handle deletion without crashing on race conditions."""
+    try:
+        if os.path.exists(file_path):
+            os.remove(file_path)
+    except Exception as e:
+        print(f"⚠️ [Cleanup] Could not remove {file_path}: {e}")
+
+
+def safe_delete_with_retry(file_path, retries=5, delay=0.1):
+    """Attempts to delete a file, retrying if the file is locked by another process."""
+    if not file_path or not os.path.exists(file_path):
+        return
+
+    for i in range(retries):
+        try:
+            os.remove(file_path)
+            return  # Success
+        except OSError:
+            time.sleep(delay)  # Wait for the other process to finish
+
+    print(f"⚠️ [Cleanup] Final attempt failed for {os.path.basename(file_path)}")
+# ============================================================================
+# SPEECH RECOGNITION
+# ============================================================================
+
+def transcribe_audio_with_main_whisper(audio, language="en"):
+    global whisper_model
+    if whisper_model is None:
+        init_whisper()
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp.write(audio.get_wav_data())
+            temp_path = tmp.name
+        segments, _info = whisper_model.transcribe(temp_path, language=language)
+        text = " ".join((segment.text or "").strip() for segment in segments).strip()
+        return text or None
+    finally:
+        if temp_path:
+            safe_delete_with_retry(temp_path)
+
+def listen_for_speech(source, timeout=None):
+    global recognizer, whisper_model
+    recognizer.energy_threshold = ENERGY_THRESHOLD
+    recognizer.dynamic_energy_threshold = DYNAMIC_ENERGY_THRESHOLD
+    recognizer.pause_threshold = PAUSE_THRESHOLD
+    recognizer.non_speaking_duration = NON_SPEAKING_DURATION
+    recognizer.phrase_threshold = PHRASE_THRESHOLD
+    try:
+        microphone_active.set()
+        audio = recognizer.listen(source, timeout=timeout)
+        audio_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16).astype(np.float32) / 32768.0
+        text = transcribe_audio_with_main_whisper(audio, language="en")
+        if text and re.search(r'[a-zA-Z0-9]', text):
+            return text
+        return None
+    except sr.WaitTimeoutError:
+        return None
+    except sr.UnknownValueError:
+        return None
+    except Exception as e:
+        print(f"✗ Mic error: {e}")
+        return None
+    finally:
+        microphone_active.clear()
+
+
+def listen_for_speech_push_to_talk(source, chunk_size=1024, max_seconds=PUSH_TO_TALK_MAX_SECONDS, trailing_chunks=None):
+    global recognizer
+    sample_rate = getattr(source, "SAMPLE_RATE", 16000)
+    sample_width = getattr(source, "SAMPLE_WIDTH", 2)
+    if trailing_chunks is None:
+        chunk_seconds = float(chunk_size) / max(float(sample_rate), 1.0)
+        trailing_chunks = max(PUSH_TO_TALK_MIN_TAIL_CHUNKS, int(math.ceil(PUSH_TO_TALK_TAIL_SECONDS / max(chunk_seconds, 0.001))))
+    frames = []
+    deadline = (time.time() + float(max_seconds)) if max_seconds else None
+    trailing = 0
+    try:
+        microphone_active.set()
+        while deadline is None or time.time() < deadline:
+            if source.stream is None:
+                break
+            try:
+                data = source.stream.read(chunk_size)
+            except Exception:
+                break
+            if data:
+                frames.append(data)
+
+            if is_push_to_talk_held():
+                trailing = trailing_chunks
+                continue
+
+            if trailing > 0:
+                trailing -= 1
+                continue
+            break
+
+        if deadline is not None and time.time() >= deadline and is_push_to_talk_held():
+            print("⚠️ Push-to-talk reached the recording safety limit and stopped automatically.")
+
+        if not frames:
+            return None
+
+        audio = sr.AudioData(b"".join(frames), sample_rate, sample_width)
+        text = transcribe_audio_with_main_whisper(audio, language="en")
+        if text and re.search(r"[a-zA-Z0-9]", text):
+            return text
+        return None
+    except sr.UnknownValueError:
+        return None
+    except Exception as e:
+        print(f"✗ Push-to-talk mic error: {e}")
+        return None
+    finally:
+        microphone_active.clear()
+
+
+# ============================================================================
+# LLM INTERACTION
+# ============================================================================
+
+def _proactive_placeholder_role():
+    return "user"
+
+
+def _configured_input_message_role():
+    role = str(RUNTIME_CONFIG.get("input_message_role", "user") or "user").strip().lower()
+    if role not in {"user", "system", "assistant"}:
+        role = "user"
+    return role
+
+
+def _input_history_roles():
+    return {"user", "system", _configured_input_message_role()}
+
+
+def _chat_context_window_messages():
+    try:
+        return max(4, int(RUNTIME_CONFIG.get("chat_context_window_messages", 20) or 20))
+    except Exception:
+        return 20
+
+
+def _stored_chat_history_limit():
+    try:
+        return max(0, int(RUNTIME_CONFIG.get("stored_chat_history_limit", 0) or 0))
+    except Exception:
+        return 0
+
+
+def _request_chat_view_rebuild():
+    print(CHAT_REBUILD_SENTINEL)
+
+
+def _apply_stored_chat_history_limit():
+    global conversation_history
+    limit = _stored_chat_history_limit()
+    if limit <= 0:
+        return
+    if len(conversation_history) > limit:
+        conversation_history = conversation_history[-limit:]
+
+
+def _chat_context_overflow_policy():
+    policy = str(RUNTIME_CONFIG.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip().lower()
+    if policy not in {"rolling_window", "truncate_middle", "stop_at_limit"}:
+        policy = "rolling_window"
+    return policy
+
+
+class ChatContextLimitReached(RuntimeError):
+    pass
+
+
+def _apply_overflow_policy_to_history(history, limit, policy):
+    history = list(history or [])
+    limit = max(1, int(limit or 1))
+    if len(history) <= limit:
+        return history
+    if policy == "stop_at_limit":
+        raise ChatContextLimitReached(
+            f"Chat context window limit reached ({limit} messages). Increase the context window, switch overflow policy, quick-save the chat, or reset chat memory."
+        )
+    if policy == "truncate_middle":
+        head_count = max(1, min(4, limit // 3 if limit >= 3 else 1))
+        tail_count = max(0, limit - head_count)
+        indexed = list(enumerate(history))
+        kept = indexed[:head_count]
+        if tail_count > 0:
+            kept.extend(indexed[-tail_count:])
+        deduped = []
+        seen = set()
+        for index, item in kept:
+            if index in seen:
+                continue
+            seen.add(index)
+            deduped.append((index, item))
+        deduped.sort(key=lambda pair: pair[0])
+        return [item for _, item in deduped]
+    return history[-limit:]
+
+
+def _blank_user_anchor():
+    return {"role": "user", "content": "", "origin": "synthetic_anchor"}
+
+
+def _repair_model_history_window(history, policy=None):
+    repaired = [dict(item) for item in list(history or []) if isinstance(item, dict)]
+    if not repaired:
+        return repaired
+    policy = str(policy or _chat_context_overflow_policy()).strip().lower()
+    first_non_system_index = next(
+        (i for i, item in enumerate(repaired) if str(item.get("role", "") or "").strip().lower() != "system"),
+        None,
+    )
+    if first_non_system_index is None:
+        return [_blank_user_anchor()]
+    first_non_system_role = str(repaired[first_non_system_index].get("role", "") or "").strip().lower()
+    if first_non_system_role == "user":
+        return repaired
+    first_user_index = next(
+        (i for i, item in enumerate(repaired) if str(item.get("role", "") or "").strip().lower() == "user"),
+        None,
+    )
+    if first_user_index is None:
+        return repaired[:first_non_system_index] + [_blank_user_anchor()] + repaired[first_non_system_index:]
+    prefix_length = max(0, int(first_user_index - first_non_system_index))
+    if policy == "rolling_window" and prefix_length > ASSISTANT_PREFIX_ANCHOR_THRESHOLD:
+        return repaired[:first_non_system_index] + [_blank_user_anchor()] + repaired[first_non_system_index:]
+    return repaired[:first_non_system_index] + repaired[first_user_index:]
+
+
+def _build_model_history_window():
+    limit = _chat_context_window_messages()
+    policy = _chat_context_overflow_policy()
+    selected = _apply_overflow_policy_to_history(conversation_history, limit, policy)
+    repaired = _repair_model_history_window(selected, policy=policy)
+    return repaired
+
+
+def _build_chat_message_from_turn(turn):
+    if not isinstance(turn, dict):
+        return None
+    role = str(turn.get("role", "user") or "user").strip().lower() or "user"
+    if role not in {"user", "system", "assistant"}:
+        role = "user"
+    content_text = str(turn.get("content", "") or "").strip()
+    attachment_image_path = str(turn.get("attachment_image_path", "") or "").strip()
+    if attachment_image_path:
+        data_url = _data_url_for_local_image(attachment_image_path)
+        if data_url:
+            return {
+                "role": role,
+                "content": [
+                    {
+                        "type": "text",
+                        "text": content_text or "Please respond to the attached image.",
+                    },
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": data_url},
+                    },
+                ],
+            }
+    if not content_text:
+        return None
+    return {"role": role, "content": content_text}
+
+
+def _pop_last_proactive_placeholder(content):
+    if conversation_history:
+        last = conversation_history[-1]
+        if str(last.get("content", "") or "") == str(content or "") and str(last.get("role", "") or "") in {"user", "system"}:
+            conversation_history.pop()
+            return True
+    return False
+
+
+def build_llm_request():
+    full_system_prompt = f"{RUNTIME_CONFIG['emotional_instructions']}\n\n{RUNTIME_CONFIG['system_prompt']}"
+    model_history_window = _build_model_history_window()
+    messages = [{"role": "system", "content": full_system_prompt}]
+    active_preset_name = str(RUNTIME_CONFIG.get("active_preset_name", "") or "").strip().lower()
+    help_context = ""
+    help_debug = None
+    if active_preset_name == "tutorial persona":
+        help_debug = app_help.explain_help_lookup(model_history_window)
+        help_context = app_help.build_help_context(model_history_window)
+    else:
+        latest = app_help.explain_help_lookup(model_history_window)
+        print(
+            "🧭 [AppHelp] Skipped: active_preset_name="
+            f"{RUNTIME_CONFIG.get('active_preset_name', '')!r} "
+            f"query={latest.get('query', '')[:120]!r}"
+        )
+    if help_context:
+        topic_titles = ", ".join(help_debug.get("topic_titles", [])) if help_debug else ""
+        print(
+            "🧭 [AppHelp] Injected "
+            f"{help_debug.get('topic_count', 0) if help_debug else 0} topic(s): {topic_titles}"
+        )
+        messages.append({"role": "system", "content": help_context})
+    elif help_debug is not None:
+        print(
+            "🧭 [AppHelp] No context injected "
+            f"(looks_like_app_question={help_debug.get('looks_like_app_question')}, "
+            f"query={help_debug.get('query', '')[:120]!r})"
+        )
+    visual_instruction = _visual_reply_generation_instruction()
+    if visual_instruction:
+        messages.append({"role": "system", "content": visual_instruction})
+    sensory_instruction = _sensory_feedback_instruction()
+    if sensory_instruction:
+        messages.append({"role": "system", "content": sensory_instruction})
+    retained_sensory_context = _build_retained_sensory_context_text()
+    if retained_sensory_context:
+        messages.append({"role": "system", "content": retained_sensory_context})
+    active_hidden_proactive_context = _build_active_hidden_proactive_context_text()
+    hidden_proactive_active = bool(active_hidden_proactive_context)
+    if active_hidden_proactive_context:
+        messages.append({"role": "system", "content": active_hidden_proactive_context})
+    history_messages = [
+        message
+        for message in (_build_chat_message_from_turn(item) for item in model_history_window)
+        if message is not None
+    ]
+    hidden_proactive_prompt_message = _build_active_hidden_proactive_prompt_message() if hidden_proactive_active else None
+    sensory_messages = [] if hidden_proactive_active else _build_sensory_feedback_messages()
+    if hidden_proactive_active:
+        print("👁️ [Sensory] Skipping fresh sensory injection for hidden proactive reply; using queued hidden context instead.")
+    if sensory_messages and history_messages:
+        last_user_index = next(
+            (idx for idx in range(len(history_messages) - 1, -1, -1) if str(history_messages[idx].get("role", "") or "").strip().lower() == "user"),
+            None,
+        )
+        if last_user_index is None:
+            history_messages.extend(sensory_messages)
+        else:
+            for offset, message in enumerate(sensory_messages):
+                history_messages.insert(last_user_index + offset, message)
+    elif sensory_messages:
+        history_messages.extend(sensory_messages)
+    if hidden_proactive_prompt_message:
+        history_messages.append(hidden_proactive_prompt_message)
+    messages.extend(history_messages)
+    params = {
+        "model": RUNTIME_CONFIG["model_name"],
+        "messages": messages,
+        "temperature": float(RUNTIME_CONFIG["temperature"]),
+        "top_p": float(RUNTIME_CONFIG["top_p"]),
+    }
+    if bool(RUNTIME_CONFIG.get("limit_response_length")):
+        params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
+    additional_params = {
+        "top_k": int(RUNTIME_CONFIG["top_k"]),
+        "min_p": float(RUNTIME_CONFIG["min_p"]),
+        "repeat_penalty": float(RUNTIME_CONFIG["repeat_penalty"])
+    }
+    return params, additional_params
+
+
+def chat_with_llm():
+    global conversation_history, RUNTIME_CONFIG
+    _llm_request_active.set()
+    try:
+        params, additional_params = build_llm_request()
+        response = _chat_completion_create(params, additional_params)
+        return response.choices[0].message.content
+    except ChatContextLimitReached as e:
+        print(f"⚠️ Context limit reached: {e}")
+        return str(e)
+    except Exception as e:
+        print(f"✗ LLM Error: {e}")
+        return "I'm having trouble thinking right now."
+    finally:
+        _llm_request_active.clear()
+
+
+def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
+    state = StreamingReplyState()
+    stream_target_chars, stream_max_chars = get_stream_chunk_limits()
+    assembler = StreamingChunkAssembler(stream_target_chars, stream_max_chars)
+
+    def worker():
+        full_parts = []
+        first_token_at = None
+        shared_state.append_musetalk_preview_log(
+            f"🌊 [Stream] Reply stream started: target_chars={stream_target_chars} max_chars={stream_max_chars}"
+        )
+        dry_run.record_reply_event(dry_run_reply_id, "stream_reply_started_at")
+        _llm_request_active.set()
+        try:
+            params, additional_params = build_llm_request()
+            stream = _chat_completion_create(params, additional_params, stream=True)
+            for event in stream:
+                if state.cancel_requested.is_set() or stop_playback.is_set():
+                    break
+                choices = getattr(event, "choices", None) or []
+                if not choices:
+                    continue
+                delta = getattr(choices[0], "delta", None)
+                content = getattr(delta, "content", None) if delta is not None else None
+                if not content:
+                    continue
+                now = time.time()
+                if first_token_at is None:
+                    first_token_at = now
+                    shared_state.append_musetalk_preview_log(
+                        f"🌊 [Stream] First token received: len={len(content)}"
+                    )
+                    dry_run.record_reply_event(dry_run_reply_id, "first_token_at")
+                full_parts.append(content)
+
+                for chunk_info in assembler.feed(content):
+                    raw_chunk_text = str(chunk_info.get("text", "") or "")
+                    chunk_text = sanitize_assistant_text_for_speech(raw_chunk_text, preserve_emotion_tags=True)
+                    if not chunk_text:
+                        continue
+                    text_queue.put(chunk_text)
+                    state.first_chunk_emitted.set()
+                    dry_run.accumulate_reply_metric(
+                        dry_run_reply_id,
+                        "chunk_quality_sum",
+                        float(chunk_info.get("quality", 0.0) or 0.0),
+                    )
+                    dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_quality_count", 1)
+                    dry_run.accumulate_reply_metric(
+                        dry_run_reply_id,
+                        "chunk_chars_sum",
+                        int(chunk_info.get("chars", len(raw_chunk_text)) or len(raw_chunk_text)),
+                    )
+                    dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_chars_count", 1)
+                    shared_state.append_musetalk_preview_log(
+                        f"🌊 [Stream] Chunk emitted: chars={len(chunk_text.strip())} "
+                        f"quality={float(chunk_info.get('quality', 0.0) or 0.0):.2f} "
+                        f"reason={chunk_info.get('reason', 'unknown')} "
+                        f"text={raw_chunk_text[:240]!r}"
+                    )
+
+            for chunk_info in assembler.feed("", final=True):
+                raw_chunk_text = str(chunk_info.get("text", "") or "")
+                chunk_text = sanitize_assistant_text_for_speech(raw_chunk_text, preserve_emotion_tags=True)
+                if not chunk_text:
+                    continue
+                text_queue.put(chunk_text)
+                state.first_chunk_emitted.set()
+                dry_run.accumulate_reply_metric(
+                    dry_run_reply_id,
+                    "chunk_quality_sum",
+                    float(chunk_info.get("quality", 0.0) or 0.0),
+                )
+                dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_quality_count", 1)
+                dry_run.accumulate_reply_metric(
+                    dry_run_reply_id,
+                    "chunk_chars_sum",
+                    int(chunk_info.get("chars", len(raw_chunk_text)) or len(raw_chunk_text)),
+                )
+                dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_chars_count", 1)
+                shared_state.append_musetalk_preview_log(
+                    f"🌊 [Stream] Final chunk emitted: chars={len(chunk_text.strip())} "
+                    f"quality={float(chunk_info.get('quality', 0.0) or 0.0):.2f} "
+                    f"reason={chunk_info.get('reason', 'unknown')} "
+                    f"text={raw_chunk_text[:240]!r}"
+                )
+        except ChatContextLimitReached as e:
+            state.error = str(e)
+            text_queue.put(str(e))
+            print(f"⚠️ Streamed context limit reached: {e}")
+            shared_state.append_musetalk_preview_log(f"🌊 [Stream] Context limit: {e}")
+        except Exception as e:
+            error_text = str(e) or repr(e)
+            shared_state.append_musetalk_preview_log(f"🌊 [Stream] Error: {error_text}")
+            if first_token_at is None and not state.cancel_requested.is_set() and not stop_playback.is_set():
+                try:
+                    print(f"⚠️ LLM Stream startup failed, falling back to non-stream reply: {error_text}")
+                    fallback_text = chat_with_llm()
+                    if fallback_text:
+                        full_parts.append(fallback_text)
+                        chunk_text = sanitize_assistant_text_for_speech(fallback_text, preserve_emotion_tags=True)
+                        if chunk_text:
+                            text_queue.put(chunk_text)
+                            state.first_chunk_emitted.set()
+                    else:
+                        state.error = error_text
+                except Exception as fallback_exc:
+                    state.error = str(fallback_exc) or repr(fallback_exc)
+                    print(f"✗ LLM Stream Error: {error_text}")
+                    shared_state.append_musetalk_preview_log(f"🌊 [Stream] Fallback error: {state.error}")
+            else:
+                state.error = error_text
+                print(f"✗ LLM Stream Error: {error_text}")
+        finally:
+            _llm_request_active.clear()
+            state.full_text = "".join(full_parts).strip()
+            text_queue.put(None)
+            state.done.set()
+            shared_state.append_musetalk_preview_log(
+                f"🌊 [Stream] Reply stream done: total_chars={len(state.full_text)} emitted_any={state.first_chunk_emitted.is_set()}"
+            )
+
+    threading.Thread(target=worker, daemon=True).start()
+    return state
+
+
+def check_for_barge_in(source, energy_threshold=800, chunk_size=1024):
+    try:
+        if source.stream is None:
+            return False
+        data = source.stream.read(chunk_size)
+        if not data:
+            return False
+        audio_data = np.frombuffer(data, dtype=np.int16)
+        energy = np.sqrt(np.mean(audio_data.astype(np.int64) ** 2))
+        if energy > energy_threshold:
+            return True
+    except Exception as e:
+        pass
+    return False
+
+
+# ============================================================================
+# MAIN INTERACTION LOOP
+# ============================================================================
+
+def main_loop():
+    global stop_flag
+    print("\n" + "=" * 60)
+    print("🎙️  VOICE ASSISTANT READY")
+    print("=" * 60)
+    if whisper_model is None:
+        init_whisper()
+    with sr.Microphone(sample_rate=16000) as source:
+        try:
+            print(f"🎚️ Calibrating microphone noise floor ({AMBIENT_CALIBRATION_SECONDS:.1f}s)...")
+            recognizer.dynamic_energy_threshold = DYNAMIC_ENERGY_THRESHOLD
+            recognizer.adjust_for_ambient_noise(source, duration=AMBIENT_CALIBRATION_SECONDS)
+            print(f"✓ Mic calibrated (energy threshold {recognizer.energy_threshold:.0f})")
+        except Exception as e:
+            print(f"⚠️ Mic calibration skipped: {e}")
+        run_conversation_flow(source)
+
+def run_conversation_flow(source):
+    global stop_flag, conversation_history, RUNTIME_CONFIG, last_resume_requested_at, pending_loaded_input_turn
+
+    print(f"🧠 Brain Loaded: {RUNTIME_CONFIG['model_name']}")
+
+    last_assistant_text = "I haven't said anything yet."
+    user_text = None
+    resumed_loaded_turn = None
+    response_text = None
+    response_text_is_replay = False
+    response_text_replay_kind = ""
+    current_replay_position = 0
+    current_replay_total = 0
+    pending_replay_text = None
+    pending_replay_sequence = []
+    stream_state = None
+    active_ctrl = None
+    assistant_history_added = False
+    discard_assistant_history = False
+    silence_elapsed_seconds = 0.0
+    regenerating = False
+    conversation_controller = build_experimental_controller(
+        RUNTIME_CONFIG,
+        runtime=SystemClockRuntime(stop_requested=stop_flag.is_set, logger=print),
+    )
+    conversation_controller.start()
+    conversation_controller.state.has_real_user_turn = any(
+        str(item.get("role", "") or "") == "user" for item in list(conversation_history or [])
+    )
+    known_chat_session_state_generation = int(chat_session_state_generation or 0)
+
+    def _resolve_replay_session_start_index(status):
+        if status == "replay_chat_session":
+            return 1
+        return parse_replay_chat_session_start_index(status)
+
+    def _build_replay_sequence_from(start_index):
+        replay_messages = collect_replayable_assistant_messages()
+        total = len(replay_messages)
+        if total <= 0:
+            return [], 0, 0
+        try:
+            resolved_start = max(1, min(int(start_index or 1), total))
+        except Exception:
+            resolved_start = 1
+        remaining = list(replay_messages[resolved_start - 1:])
+        return remaining, resolved_start, total
+
+    def _start_replay_session_from(start_index):
+        nonlocal response_text, response_text_is_replay, response_text_replay_kind
+        nonlocal current_replay_position, current_replay_total, pending_replay_text, pending_replay_sequence
+        nonlocal silence_elapsed_seconds
+        remaining, resolved_start, total = _build_replay_sequence_from(start_index)
+        if not remaining:
+            print("\n⚠️ No assistant replies are available in the current chat context.")
+            return False
+        if resolved_start <= 1:
+            print(f"\n🔁 Replaying chat session ({total} assistant message(s))...")
+        else:
+            print(f"\n🔁 Replaying chat session from message {resolved_start}/{total} ({len(remaining)} assistant message(s))...")
+        response_text = remaining[0]
+        response_text_is_replay = True
+        response_text_replay_kind = "session"
+        current_replay_position = resolved_start
+        current_replay_total = total
+        pending_replay_text = None
+        pending_replay_sequence = [
+            {"text": item, "index": resolved_start + offset, "total": total}
+            for offset, item in enumerate(remaining[1:], start=1)
+        ]
+        silence_elapsed_seconds = 0.0
+        return True
+
+    def _queue_replay_session_from(start_index):
+        nonlocal pending_replay_text, pending_replay_sequence
+        remaining, resolved_start, total = _build_replay_sequence_from(start_index)
+        if not remaining:
+            print("\n⚠️ No assistant replies are available in the current chat context.")
+            return False
+        if resolved_start <= 1:
+            print(f"\n🔁 Replaying chat session ({total} assistant message(s)) after current playback stops...")
+        else:
+            print(f"\n🔁 Replaying chat session from message {resolved_start}/{total} after current playback stops...")
+        pending_replay_text = None
+        pending_replay_sequence = [
+            {"text": item, "index": resolved_start + offset, "total": total}
+            for offset, item in enumerate(remaining, start=0)
+        ]
+        return True
+
+    def _plan_phase2_actions(current_user_text):
+        conversation_controller.policy = conversation_controller.machine.policy = ConversationPolicy.from_runtime_config(RUNTIME_CONFIG)
+        if str(current_user_text or "") == CONTINUE_ASSISTANT_SENTINEL:
+            actions = conversation_controller.on_interaction_status("skip_user_reply")
+        elif str(current_user_text or "") == "You continue speaking.":
+            actions = conversation_controller.on_interaction_status("skip_speech")
+        else:
+            actions = conversation_controller.on_user_text(current_user_text)
+        actions.extend(conversation_controller.on_thinking_started())
+        return actions
+
+    if isinstance(pending_loaded_input_turn, dict):
+        loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
+        loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
+        if loaded_content and loaded_role == "user":
+            user_text = loaded_content
+            resumed_loaded_turn = {
+                "role": loaded_role,
+                "content": loaded_content,
+                "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
+            }
+            attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
+            if attachment_image_path:
+                resumed_loaded_turn["attachment_image_path"] = attachment_image_path
+                resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
+            print("📚 [Session] Resuming loaded user turn immediately...")
+        pending_loaded_input_turn = None
+
+    def _hidden_sensory_loop_worker():
+        while not stop_flag.is_set():
+            try:
+                if not _sensory_pingpong_enabled():
+                    time.sleep(0.5)
+                    continue
+                if bool(RUNTIME_CONFIG.get("offline_replay_only", False)):
+                    time.sleep(0.5)
+                    continue
+                if not listening_active.is_set():
+                    time.sleep(0.25)
+                    continue
+                if microphone_active.is_set() or audio_playing.is_set() or _llm_request_active.is_set():
+                    time.sleep(0.25)
+                    continue
+                interval_seconds = _sensory_feedback_interval_seconds()
+                now = time.time()
+                with sensory_pingpong_lock:
+                    last_cycle_at = float(sensory_pingpong_state.get("last_cycle_at", 0.0) or 0.0)
+                if last_cycle_at > 0 and (now - last_cycle_at) < interval_seconds:
+                    time.sleep(0.25)
+                    continue
+                run_hidden_sensory_pingpong_cycle(force=False)
+            except Exception as exc:
+                print(f"⚠️ [Sensory] Hidden PING/PONG loop error: {exc}")
+                time.sleep(1.0)
+            else:
+                time.sleep(0.25)
+
+    threading.Thread(target=_hidden_sensory_loop_worker, daemon=True, name="nc-sensory-loop").start()
+
+    while not stop_flag.is_set():
+        current_chat_session_state_generation = int(chat_session_state_generation or 0)
+        if current_chat_session_state_generation != known_chat_session_state_generation:
+            conversation_controller = build_experimental_controller(
+                RUNTIME_CONFIG,
+                runtime=SystemClockRuntime(stop_requested=stop_flag.is_set, logger=print),
+            )
+            conversation_controller.start()
+            conversation_controller.state.has_real_user_turn = any(
+                str(item.get("role", "") or "") == "user" for item in list(conversation_history or [])
+            )
+            known_chat_session_state_generation = current_chat_session_state_generation
+            regenerating = False
+            user_text = None
+            response_text = None
+            response_text_is_replay = False
+            response_text_replay_kind = ""
+            current_replay_position = 0
+            current_replay_total = 0
+            pending_replay_text = None
+            pending_replay_sequence = []
+            stream_state = None
+            active_ctrl = None
+            assistant_history_added = False
+            discard_assistant_history = False
+            if isinstance(pending_loaded_input_turn, dict):
+                loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
+                loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
+                if loaded_content and loaded_role == "user":
+                    user_text = loaded_content
+                    resumed_loaded_turn = {
+                        "role": loaded_role,
+                        "content": loaded_content,
+                        "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
+                    }
+                    attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
+                    if attachment_image_path:
+                        resumed_loaded_turn["attachment_image_path"] = attachment_image_path
+                        resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
+                    print("📚 [Session] Resuming loaded user turn immediately...")
+                pending_loaded_input_turn = None
+        dry_run_reply_id = None
+
+        # =================================================================================
+        # PHASE 1: LISTENING
+        # =================================================================================
+        if pending_replay_text and not response_text:
+            response_text = pending_replay_text
+            response_text_is_replay = True
+            response_text_replay_kind = "single"
+            current_replay_position = 1
+            current_replay_total = 1
+            pending_replay_text = None
+        elif pending_replay_sequence and not response_text:
+            current_entry = dict(pending_replay_sequence.pop(0) or {})
+            response_text = str(current_entry.get("text", "") or "").strip()
+            response_text_is_replay = True
+            response_text_replay_kind = "session"
+            current_replay_position = int(current_entry.get("index", 1) or 1)
+            current_replay_total = int(current_entry.get("total", current_replay_position) or current_replay_position)
+
+        if not user_text and not regenerating and not response_text:
+            allow_proactive_replies = bool(RUNTIME_CONFIG.get("allow_proactive_replies", True))
+            require_first_user_before_proactive = bool(RUNTIME_CONFIG.get("require_first_user_before_proactive", False))
+            hidden_proactive_request = None
+            with sensory_pingpong_lock:
+                hidden_proactive_request = _sanitize_hidden_proactive_request(sensory_hidden_action_state.get("pending_proactive"))
+            if hidden_proactive_request and _hidden_sensory_proactive_speech_allowed():
+                if not require_first_user_before_proactive or any(item.get("role") == "user" for item in conversation_history):
+                    hidden_proactive_request = _consume_hidden_proactive_candidate()
+                    if hidden_proactive_request:
+                        print("\n📡 [Sensory] Hidden PONG requested a proactive reply...")
+                        user_text = "You continue speaking."
+                        silence_elapsed_seconds = 0.0
+                        listening_active.clear()
+                        continue
+            if dry_run.auto_replies_enabled():
+                generated_prompt = dry_run.next_auto_reply()
+                if generated_prompt:
+                    print(f"🧪 [DryRun] Auto prompt: {generated_prompt}")
+                    user_text = generated_prompt
+                    listening_active.clear()
+                    silence_elapsed_seconds = 0.0
+                    continue
+            listening_active.set()
+            print("👂 Waiting for voice...")
+            listen_idle_window_seconds = max(0.5, float(RUNTIME_CONFIG.get("listen_idle_window_seconds", 5.0) or 5.0))
+            proactive_delay_seconds = max(0.5, float(RUNTIME_CONFIG.get("proactive_delay_seconds", 10.0) or 10.0))
+            start_wait = time.time()
+            started_talking = False
+            force_proactive_reply = False
+            status = None
+
+            while time.time() - start_wait < listen_idle_window_seconds:
+                status = check_interaction_status(source)
+
+                if status == "regenerate_response":
+                    print("\n🎲 Regenerating last response...")
+                    regenerating = True
+                    break
+                elif status == "retry_user_input":
+                    print("\n↺ Retrying listening...")
+                    start_wait = time.time()
+                    continue
+                elif status in {"barge_in", "push_to_talk"}:
+                    started_talking = True
+                    break
+                elif status == "skip_speech":
+                    print("\n⏭️ Skipping wait (Force Proactive)...")
+                    force_proactive_reply = True
+                    break
+                elif status == "skip_user_reply":
+                    print("\n⏭️ Skipping user reply (Assistant continuation)...")
+                    user_text = CONTINUE_ASSISTANT_SENTINEL
+                    silence_elapsed_seconds = 0.0
+                    break
+                elif status == "replay_last_assistant":
+                    replay_source = str(last_assistant_text or "").strip()
+                    if replay_source and replay_source != "I haven't said anything yet.":
+                        print("\n🔁 Replaying latest assistant reply...")
+                        response_text = replay_source
+                        response_text_is_replay = True
+                        response_text_replay_kind = "single"
+                        current_replay_position = 1
+                        current_replay_total = 1
+                        pending_replay_sequence = []
+                        silence_elapsed_seconds = 0.0
+                        break
+                    print("\n⚠️ No assistant reply available to replay yet.")
+                    start_wait = time.time()
+                    continue
+                elif _resolve_replay_session_start_index(status) is not None:
+                    replay_start_index = _resolve_replay_session_start_index(status)
+                    if _start_replay_session_from(replay_start_index):
+                        break
+                    start_wait = time.time()
+                    continue
+                elif status == "pause_speech":
+                    listening_active.clear()
+                    print("- - - PAUSED - - -")
+                    while True:
+                        time.sleep(1.0)
+                        status = check_interaction_status(source)
+                        if status == "pause_speech":
+                            listening_active.set()
+                            start_wait = time.time() + 3
+                            print("- - - UNPAUSED - - -")
+                            break
+                        time.sleep(0.2)
+
+                time.sleep(0.05)
+
+            if regenerating:
+                listening_active.clear()
+                pass
+            elif started_talking:
+                listening_active.clear()
+                if status == "push_to_talk":
+                    print("\n🎙️ Push-to-talk active. Recording...")
+                    user_text = listen_for_speech_push_to_talk(source)
+                else:
+                    print("\n🎤 Voice detected! Recording...")
+                    user_text = listen_for_speech(source, timeout=0.6)
+                silence_elapsed_seconds = 0.0
+                if not user_text or not user_text.strip():
+                    print("... False alarm")
+                    user_text = None
+                    continue
+                _clear_pending_hidden_proactive_candidate()
+                _clear_active_hidden_proactive_candidate()
+            elif user_text == CONTINUE_ASSISTANT_SENTINEL or (response_text_is_replay and response_text):
+                listening_active.clear()
+            else:
+                listening_active.clear()
+                if force_proactive_reply:
+                    print("\n🤖 Forced proactive reply...")
+                    user_text = "You continue speaking."
+                    silence_elapsed_seconds = 0.0
+                else:
+                    silence_elapsed_seconds += listen_idle_window_seconds
+                    if not allow_proactive_replies:
+                        silence_elapsed_seconds = 0.0
+                        continue
+                    if require_first_user_before_proactive and not any(item.get("role") == "user" for item in conversation_history):
+                        silence_elapsed_seconds = 0.0
+                        continue
+                    if silence_elapsed_seconds >= proactive_delay_seconds:
+                        print("\n🤖 AI Decided to speak first...")
+                        user_text = "You continue speaking."
+                        silence_elapsed_seconds = 0.0
+                    else:
+                        continue
+
+        if regenerating:
+            print("   [Debug] Logic: Fetching history for regeneration...")
+            if conversation_history and conversation_history[-1]["role"] == "assistant":
+                conversation_history.pop()
+            if conversation_history and conversation_history[-1]["role"] in _input_history_roles():
+                existing_turn = dict(conversation_history[-1] or {})
+                user_text = str(existing_turn.get("content", "") or "")
+                resumed_loaded_turn = {
+                    "role": str(existing_turn.get("role", "user") or "user"),
+                    "content": user_text,
+                    "origin": str(existing_turn.get("origin", "input") or "input"),
+                }
+                attachment_image_path = str(existing_turn.get("attachment_image_path", "") or "").strip()
+                if attachment_image_path:
+                    resumed_loaded_turn["attachment_image_path"] = attachment_image_path
+                    resumed_loaded_turn["attachment_source"] = str(existing_turn.get("attachment_source", "image") or "image")
+            elif conversation_history and conversation_history[-1]["role"] == "assistant":
+                user_text = CONTINUE_ASSISTANT_SENTINEL
+                resumed_loaded_turn = None
+            else:
+                user_text = "You continue speaking."
+            _request_chat_view_rebuild()
+            regenerating = False
+
+        # =================================================================================
+        # PHASE 2: THINKING
+        # =================================================================================
+        if user_text:
+            response_text_is_replay = False
+            stream_state = None
+            active_ctrl = None
+            assistant_history_added = False
+            discard_assistant_history = False
+            thinking_actions = _plan_phase2_actions(user_text)
+            is_proactive = bool(conversation_controller.state.is_proactive_turn)
+            preserve_proactive_placeholder = bool(conversation_controller.state.preserve_proactive_placeholder)
+            dry_run_reply_id = dry_run.begin_reply(
+                RUNTIME_CONFIG,
+                streamed=bool(RUNTIME_CONFIG.get("stream_mode", False)),
+                proactive=is_proactive,
+            )
+
+            for action in thinking_actions:
+                if action.type == ConversationActionType.APPEND_HISTORY:
+                    role = str(action.payload.get("role", "user") or "user")
+                    content = str(action.payload.get("content", user_text) or user_text)
+                    is_placeholder = bool(action.payload.get("placeholder", False))
+                    if resumed_loaded_turn and not is_placeholder:
+                        resumed_role = str(resumed_loaded_turn.get("role", "") or "").strip().lower()
+                        resumed_content = str(resumed_loaded_turn.get("content", "") or "")
+                        if role == resumed_role and content == resumed_content:
+                            resumed_loaded_turn = None
+                            continue
+                    resumed_loaded_turn = None
+                    if is_placeholder:
+                        print(f"🧠 Regenerating proactive thought... ({role})")
+                    elif role == "system":
+                        print(f"💬 You (system): {content}")
+                    elif role == "assistant":
+                        print(f"💬 You (assistant): {content}")
+                    else:
+                        print(f"💬 You: {content}")
+                    input_turn = {"role": role, "content": content, "origin": "input"}
+                    if role == "user" and not is_placeholder and pending_next_user_attachment:
+                        attachment_image_path = str(pending_next_user_attachment.get("attachment_image_path", "") or "").strip()
+                        if attachment_image_path:
+                            input_turn["attachment_image_path"] = attachment_image_path
+                            input_turn["attachment_source"] = str(pending_next_user_attachment.get("attachment_source", "image") or "image")
+                            print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
+                        clear_pending_user_image_attachment()
+                    conversation_history.append(input_turn)
+
+                elif action.type == ConversationActionType.START_LLM_STREAM:
+                    print("⚡ Stream mode enabled...")
+                    stream_text_queue = queue.Queue()
+                    stream_state = start_streamed_llm_reply(stream_text_queue, dry_run_reply_id=dry_run_reply_id)
+                    active_ctrl = speak_async_stream(stream_text_queue, dry_run_reply_id=dry_run_reply_id)
+                    conversation_controller.on_stream_started()
+                    response_text = None
+
+                elif action.type == ConversationActionType.START_LLM_REQUEST:
+                    response_text = finalize_assistant_reply(chat_with_llm())
+                    reply_actions = conversation_controller.on_assistant_reply(response_text)
+                    for reply_action in reply_actions:
+                        if reply_action.type == ConversationActionType.POP_LAST_HISTORY:
+                            _pop_last_proactive_placeholder(user_text)
+
+                    if not response_text:
+                        _clear_active_hidden_proactive_candidate()
+                        dry_run.finalize_reply(dry_run_reply_id)
+                        user_text = None
+                        continue
+
+                    last_assistant_text = response_text
+                    conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                    assistant_history_added = True
+                    _apply_stored_chat_history_limit()
+                    _clear_active_hidden_proactive_candidate()
+
+                    if is_proactive:
+                        user_text = None
+
+        # =================================================================================
+        # PHASE 3: SPEAKING (TTS PLAYBACK)
+        # =================================================================================
+        if response_text or active_ctrl:
+            listening_active.set()
+            microphone_active.clear()
+            ctrl = active_ctrl
+            if response_text:
+                if response_text_is_replay:
+                    if response_text_replay_kind == "session":
+                        print(f"🔁 Replaying chat session message {current_replay_position}/{max(current_replay_total, 1)}...")
+                    else:
+                        print("🔁 Replaying latest assistant reply...")
+                else:
+                    print(f"🤖 Assistant: {response_text}")
+                    print("------------------------------------------------------------------------------------------------------")
+                    print("------------------------------------------------------------------------------------------------------")
+                stop_playback.clear()
+                set_seed(3918375115)
+                ctrl = speak_async(sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True), dry_run_reply_id=dry_run_reply_id)
+
+            was_barge_in = False
+
+            while (
+                (audio_playing.is_set() or not ctrl.done.is_set() or (stream_state is not None and not stream_state.done.is_set()))
+                and not stop_flag.is_set()
+            ):
+                if stream_state is not None and stream_state.done.is_set() and not assistant_history_added:
+                    response_text = finalize_assistant_reply((stream_state.full_text or "").strip())
+                    if stream_state.error and not response_text:
+                        response_text = "I'm having trouble thinking right now."
+                    reply_actions = conversation_controller.on_assistant_reply(response_text)
+                    for reply_action in reply_actions:
+                        if reply_action.type == ConversationActionType.POP_LAST_HISTORY:
+                            _pop_last_proactive_placeholder(user_text)
+                    if response_text:
+                        print(f"🤖 Assistant: {response_text}")
+                        print("------------------------------------------------------------------------------------------------------")
+                        print("------------------------------------------------------------------------------------------------------")
+                        last_assistant_text = response_text
+                        conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                        _apply_stored_chat_history_limit()
+                        assistant_history_added = True
+                    _clear_active_hidden_proactive_candidate()
+                    if is_proactive:
+                        user_text = None
+                status = check_interaction_status(source)
+
+                # --- ACTION: SKIP / STOP ---
+                if status == "skip_speech":
+                    print("\n⏭️ Skipping speech...")
+                    stop_playback.set()
+                    if stream_state is not None:
+                        stream_state.cancel_requested.set()
+                    # We don't mark as interrupted for history purposes on skip
+                    # (Usually you want the full text in history even if you skipped reading it)
+                    pending_replay_text = None
+                    pending_replay_sequence = []
+                    break
+
+                # --- ACTION: REGENERATE ---
+                elif status == "regenerate_response":
+                    print("\n🎲 Cutting speech to regenerate...")
+                    stop_playback.set()
+                    if stream_state is not None:
+                        stream_state.cancel_requested.set()
+                    discard_assistant_history = True
+                    regenerating = True
+                    pending_replay_text = None
+                    pending_replay_sequence = []
+                    break
+
+                    # --- ACTION: RETRY USER ---
+                elif status == "retry_user_input":
+                    print("\nscrapped last input, listening again...")
+                    stop_playback.set()
+                    if stream_state is not None:
+                        stream_state.cancel_requested.set()
+                    discard_assistant_history = True
+                    if conversation_history and conversation_history[-1]["role"] == "assistant":
+                        conversation_history.pop()
+                    if conversation_history and conversation_history[-1]["role"] in _input_history_roles():
+                        conversation_history.pop()
+                    _request_chat_view_rebuild()
+                    pending_replay_text = None
+                    pending_replay_sequence = []
+                    user_text = None
+                    response_text = None
+                    break
+
+                elif status == "replay_last_assistant":
+                    replay_source = str(last_assistant_text or "").strip()
+                    if replay_source and replay_source != "I haven't said anything yet.":
+                        print("\n🔁 Replaying latest assistant reply after current playback stops...")
+                        stop_playback.set()
+                        if stream_state is not None:
+                            stream_state.cancel_requested.set()
+                        pending_replay_sequence = []
+                        pending_replay_text = replay_source
+                        break
+                    print("\n⚠️ No assistant reply available to replay yet.")
+
+                elif _resolve_replay_session_start_index(status) is not None:
+                    replay_start_index = _resolve_replay_session_start_index(status)
+                    if _queue_replay_session_from(replay_start_index):
+                        stop_playback.set()
+                        if stream_state is not None:
+                            stream_state.cancel_requested.set()
+                        break
+
+                # --- ACTION: BARGE-IN (Voice) ---
+                elif status in {"barge_in", "push_to_talk"}:
+                    if status == "push_to_talk":
+                        print("\n🎙️ Push-to-talk interruption...")
+                    else:
+                        print(f"\n🛑 Barge-in! Listening...")
+                    stop_playback.set()
+                    if stream_state is not None:
+                        stream_state.cancel_requested.set()
+
+                    # 1. Capture what was spoken BEFORE we process the new input
+                    # We grab this immediately so the controller state is fresh
+                    spoken_so_far = response_text or ""  # Fallback
+                    if hasattr(ctrl, "get_spoken_text"):
+                        spoken_so_far = ctrl.get_spoken_text()
+
+                    was_barge_in = True
+
+                    # 2. Listen for the interruption
+                    if status == "push_to_talk":
+                        potential_text = listen_for_speech_push_to_talk(source)
+                    else:
+                        potential_text = listen_for_speech(source, timeout=0.6)
+
+                    if potential_text:
+                        print(f"⚡ Interrupted with: '{potential_text}'")
+
+                        # 3. Update History using YOUR Logic
+                        final_assistant = spoken_so_far.strip() + " ... (user interrupted)"
+
+                        if conversation_history and conversation_history[-1]["role"] == "assistant":
+                            conversation_history[-1]["content"] = final_assistant
+                            print(f"   [History Update] Truncated to: \"{final_assistant}\"")
+                        elif final_assistant.strip():
+                            conversation_history.append({"role": "assistant", "content": final_assistant, "origin": "assistant_reply"})
+                            assistant_history_added = True
+
+                        discard_assistant_history = True
+                        pending_replay_text = None
+                        pending_replay_sequence = []
+                        conversation_controller.on_barge_in_text(potential_text)
+                        user_text = potential_text
+                        response_text = None
+                        break
+                    else:
+                        was_barge_in = False
+                        listening_active.set()
+                        break
+                elif status == "pause_speech":
+                    conversation_controller.on_pause_toggled()
+                    if playback_paused.is_set():
+                        playback_paused.clear()
+                        last_resume_requested_at = time.time()
+                        print("- - - RESUME REQUESTED - - -")
+                    elif pause_after_chunk.is_set():
+                        pause_after_chunk.clear()
+                        print("- - - PAUSE AFTER CHUNK CANCELED - - -")
+                    else:
+                        pause_after_chunk.set()
+                        print("- - - WILL PAUSE AFTER CURRENT CHUNK - - -")
+
+                time.sleep(0.02)
+
+            ctrl.done.wait(timeout=0.5)
+            stop_playback.set()
+            if stream_state is not None:
+                stream_state.cancel_requested.set()
+                stream_state.done.wait(timeout=1.0)
+                if not assistant_history_added and not discard_assistant_history:
+                    response_text = finalize_assistant_reply((stream_state.full_text or "").strip())
+                    spoken_text = ctrl.get_spoken_text().strip() if hasattr(ctrl, "get_spoken_text") else ""
+                    if not response_text and spoken_text:
+                        response_text = spoken_text
+                    if stream_state.error and not response_text:
+                        response_text = "I'm having trouble thinking right now."
+                    reply_actions = conversation_controller.on_assistant_reply(response_text)
+                    for reply_action in reply_actions:
+                        if reply_action.type == ConversationActionType.POP_LAST_HISTORY:
+                            _pop_last_proactive_placeholder(user_text)
+                    if response_text:
+                        last_assistant_text = response_text
+                        conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                        _apply_stored_chat_history_limit()
+                        assistant_history_added = True
+
+            conversation_controller.on_speaking_finished()
+            dry_run.finalize_reply(dry_run_reply_id)
+
+            # FINALLY: Clear state
+            if pending_replay_text or pending_replay_sequence:
+                user_text = None
+                response_text = None
+                response_text_is_replay = False
+                response_text_replay_kind = ""
+                listening_active.clear()
+                active_ctrl = None
+                stream_state = None
+                continue
+            if regenerating:
+                response_text = None
+                response_text_is_replay = False
+                response_text_replay_kind = ""
+            elif was_barge_in and user_text:
+                response_text = None
+                response_text_is_replay = False
+                response_text_replay_kind = ""
+            else:
+                user_text = None
+                response_text = None
+                response_text_is_replay = False
+                response_text_replay_kind = ""
+            listening_active.clear()
+            active_ctrl = None
+            stream_state = None
+
+
+# ============================================================================
+# AVATAR ADAPTER PATTERN
+# ============================================================================
+class AvatarAdapter(abc.ABC):
+    #Abstract base class ensuring all rendering engines share the same interface.
+
+    @abc.abstractmethod
+    def start(self):
+        pass
+
+    @abc.abstractmethod
+    def stop(self):
+        pass
+
+    @abc.abstractmethod
+    def set_emotion(self, emotion_name: str):
+        pass
+
+    @abc.abstractmethod
+    def set_speaking_state(self, is_speaking: bool):
+        pass
+
+    @abc.abstractmethod
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
+        pass
+
+
+# ============================================================================
+# VSEEFACE ADAPTER
+# ============================================================================
+class VSeeFaceAdapter(AvatarAdapter):
+    def __init__(self, ip="127.0.0.1", port=39539):
+        self.client = udp_client.SimpleUDPClient(ip, port)
+        self.current_emotion = "neutral"
+        self.is_speaking = False
+        self.running = False
+        self.start_time = time.time()
+
+        # Animation Timing
+        self.last_anim_time = time.time()
+        self.anim_phase = 0.0
+
+        # SAFETY: Track when we last received a "Speaking" signal
+        self.last_speaking_update = 0
+
+        # Queue
+        self.update_queue = queue.Queue()
+
+        # VRM BlendShape Names
+        self.EMOTION_MAP = {
+            "neutral": "Neutral",
+            "happy": "Fun",
+            "angry": "Angry",
+            "sad": "Sorrow",
+            "surprised": "Surprised",
+            "shy": "Joy"
+        }
+        self.FINGER_BONES = [
+            "IndexProximal", "IndexIntermediate",
+            "MiddleProximal", "MiddleIntermediate",
+            "RingProximal", "RingIntermediate",
+            "LittleProximal", "LittleIntermediate",
+            "ThumbProximal", "ThumbIntermediate"
+        ]
+
+        # Initialize thread object but do not start it yet
+        self.thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
+
+    def start(self):
+        self.running = True
+        self.thread.start()
+        print(f"🔌 Connected to VSeeFace on port {self.client._port}")
+
+    def stop(self):
+        self.running = False
+        if self.thread.is_alive():
+            self.thread.join()
+        print("🔌 Disconnected from VSeeFace.")
+
+    def set_emotion(self, emotion_name: str):
+        self.update_queue.put(("emotion", emotion_name))
+
+    def set_speaking_state(self, is_speaking: bool):
+        self.update_queue.put(("speaking", is_speaking))
+
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
+        # VSeeFace handles lip-sync via system audio loopback, so we do nothing here.
+        return {"ok": True, "kind": "audio"}
+        #pass
+
+    def _euler_to_quaternion(self, roll, pitch, yaw):
+        rx = math.radians(roll) / 2
+        ry = math.radians(pitch) / 2
+        rz = math.radians(yaw) / 2
+
+        cx = math.cos(rx)
+        sx = math.sin(rx)
+        cy = math.cos(ry)
+        sy = math.sin(ry)
+        cz = math.cos(rz)
+        sz = math.sin(rz)
+
+        return [
+            sx * cy * cz - cx * sy * sz,
+            cx * sy * cz + sx * cy * sz,
+            cx * cy * sz - sx * sy * cz,
+            cx * cy * cz + sx * sy * sz
+        ]
+
+    def _heartbeat_loop(self):
+        while self.running:
+            # 1. Process Queue
+            try:
+                while not self.update_queue.empty():
+                    cmd, val = self.update_queue.get_nowait()
+                    if cmd == "emotion":
+                        self._update_internal_state(val)
+                    elif cmd == "speaking":
+                        self.is_speaking = val
+                        if val: self.last_speaking_update = time.time()
+            except queue.Empty:
+                pass
+
+            # 2. Send Face
+            self._send_current_emotion()
+
+            # 3. Send Body
+            self._animate_body()
+
+            # 4. Apply
+            self.client.send_message("/VMC/Ext/Blend/Apply", "")
+
+            time.sleep(0.033)
+
+    def _update_internal_state(self, emotion_name):
+        clean_name = emotion_name.lower().strip()
+        if clean_name in self.EMOTION_MAP:
+            self.current_emotion = clean_name
+
+    def _send_current_emotion(self):
+        target_key = self.EMOTION_MAP.get(self.current_emotion, "Neutral")
+        for tag, key in self.EMOTION_MAP.items():
+            value = 1.0 if key == target_key else 0.0
+            self.client.send_message("/VMC/Ext/Blend/Val", [key, value])
+
+    def _animate_body(self):
+        """
+        Generates 'Idol' style gestures + SYNCED HANDS + HEAD STABILIZATION
+        + SHOULDER BREATHING + EYE SACCADES (The "Micro-Dart" System).
+        """
+        global AVATAR_PROFILE, CURRENT_BODY_STATE, EDIT_EMOTION, FORCE_EDIT_MODE, HAND_DEBUG, HAND_CALIBRATION
+
+        now = time.time()
+        dt = now - self.last_anim_time
+        self.last_anim_time = now
+
+        # --- 0. SAFETY INIT (Run once) ---
+        if not hasattr(self, "breath_phase"):
+            self.breath_phase = 0.0
+
+        # Initialize Eye Logic Variables
+        if not hasattr(self, "eye_target_x"):
+            self.eye_target_x = 0.0
+            self.eye_target_y = 0.0
+            self.eye_current_x = 0.0
+            self.eye_current_y = 0.0
+            self.next_saccade_time = now + 1.0
+
+        # --- 1. DETERMINE TARGET POSE ---
+        if FORCE_EDIT_MODE:
+            target_key = EDIT_EMOTION
+        else:
+            target_key = self.current_emotion if self.current_emotion in AVATAR_PROFILE else "neutral"
+
+        target_pose = AVATAR_PROFILE.get(target_key, AVATAR_PROFILE["neutral"])
+
+        # --- 2. INTERPOLATION ---
+        lerp_speed = 0.1
+        for key in AVATAR_PROFILE["neutral"]:
+            target_val = target_pose.get(key, AVATAR_PROFILE["neutral"][key])
+            if key not in CURRENT_BODY_STATE:
+                CURRENT_BODY_STATE[key] = target_val
+            CURRENT_BODY_STATE[key] += (target_val - CURRENT_BODY_STATE[key]) * lerp_speed
+
+        # --- 3. DYNAMIC PARAMETERS ---
+        base_speed = CURRENT_BODY_STATE.get("idle_speed", 1.0)
+        base_intensity = CURRENT_BODY_STATE.get("idle_intensity", 2.0)
+
+        s_sway_mult = CURRENT_BODY_STATE.get("spine_sway_mult", 1.0)
+        s_twist_mult = CURRENT_BODY_STATE.get("spine_twist_mult", 0.7)
+        n_stabilize = CURRENT_BODY_STATE.get("neck_stabilize", 1.0)
+
+        sh_lift_amp = CURRENT_BODY_STATE.get("shoulder_lift", 1.5)
+        b_speed = CURRENT_BODY_STATE.get("breath_speed", 1.2)
+        sh_manual_back = CURRENT_BODY_STATE.get("idle_shoulder_back", 0.0)
+
+        # Eye Control
+        eye_amp = CURRENT_BODY_STATE.get("eye_activity", 1.0)
+
+        current_speed = base_speed
+        sway_z = base_intensity
+        sway_x = base_intensity * 0.5
+        sway_twist = base_intensity * 1.5
+        sway_bend = 2.0
+
+        # --- 4. SPEAKING MODIFIERS ---
+        is_talking = self.is_speaking
+        if is_talking:
+            current_speed = base_speed * 2.5
+            sway_twist += 20.0
+            sway_z *= 1.5
+            sway_x += 1.0
+            sway_bend = 8.0
+
+        # --- 5. PHASE & BREATH ---
+        self.anim_phase += dt * current_speed
+        self.breath_phase += dt * b_speed
+
+        gravity_phase = self.anim_phase - 0.5 * math.sin(self.anim_phase)
+        noise_x = math.cos(self.anim_phase * 0.8)
+        noise_z = math.sin(gravity_phase)
+        noise_bend = math.sin(self.anim_phase * 1.1 + 1.5)
+        noise_twist = math.sin(self.anim_phase * 0.7 + 2.0)
+        wave_grip = 0.5 - 0.5 * noise_x
+
+        # =================================================================================
+        # 6. EYE SACCADE LAYER (Micro-Darts)
+        # =================================================================================
+        if eye_amp > 0.1:
+            if now > self.next_saccade_time:
+                range_mult = 3.0 if is_talking else 1.0
+                tgt_yaw = random.uniform(-3, 3) * eye_amp * range_mult
+                tgt_pitch = random.uniform(-1.5, 1.5) * eye_amp * range_mult
+
+                self.eye_target_x = tgt_pitch
+                self.eye_target_y = tgt_yaw
+
+                min_wait = 0.2 if is_talking else 0.5
+                max_wait = 1.0 if is_talking else 2.5
+                self.next_saccade_time = now + random.uniform(min_wait, max_wait)
+
+            snap_speed = 0.3
+            self.eye_current_x += (self.eye_target_x - self.eye_current_x) * snap_speed
+            self.eye_current_y += (self.eye_target_y - self.eye_current_y) * snap_speed
+        else:
+            self.eye_current_x *= 0.9
+            self.eye_current_y *= 0.9
+
+        q_eyes = self._euler_to_quaternion(self.eye_current_x, self.eye_current_y, 0)
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftEye", 0.0, 0.0, 0.0] + q_eyes)
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightEye", 0.0, 0.0, 0.0] + q_eyes)
+
+        # =================================================================================
+        # 7. SHOULDER LAYER (3D Breath)
+        # =================================================================================
+        amplified_lift = sh_lift_amp * 6.0
+        breath_wave = (math.sin(self.breath_phase) + 0.2) * amplified_lift
+        speech_shrug = (10.0 * wave_grip) if is_talking else 0.0
+        total_lift_z = breath_wave + speech_shrug
+
+        auto_roll = total_lift_z * -0.5
+        total_roll_y = auto_roll - sh_manual_back
+
+        q_sh_l = self._euler_to_quaternion(0, total_roll_y, total_lift_z)
+        q_sh_r = self._euler_to_quaternion(0, -total_roll_y, -total_lift_z)
+
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftShoulder", 0.0, 0.0, 0.0] + q_sh_l)
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightShoulder", 0.0, 0.0, 0.0] + q_sh_r)
+
+        # =================================================================================
+        # 8. SPINE & NECK
+        # =================================================================================
+        spine_z = noise_z * (sway_z * s_sway_mult)
+        spine_x = noise_x * (sway_x * s_sway_mult)
+        spine_y = noise_twist * (sway_twist * s_twist_mult)
+
+        neck_z = -1 * spine_z * n_stabilize
+        neck_x = -1 * spine_x * n_stabilize
+        neck_y = -1 * spine_y * n_stabilize
+
+        if is_talking:
+            neck_x += 5.0 * wave_grip
+
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["Spine", 0.0, 0.0, 0.0] + self._euler_to_quaternion(spine_x, spine_y, spine_z))
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["Neck", 0.0, 0.0, 0.0] + self._euler_to_quaternion(neck_x, neck_y, neck_z))
+
+        # --- 9. ARMS & HANDS ---
+        l_z = CURRENT_BODY_STATE["idle_arm_down"] + (noise_z * sway_z)
+        l_x = CURRENT_BODY_STATE["idle_fwd_left"] + (noise_x * sway_x)
+        l_bend = CURRENT_BODY_STATE["idle_elbow_bend"] + (noise_bend * sway_bend)
+        l_y = CURRENT_BODY_STATE["idle_arm_twist"] + (noise_twist * sway_twist)
+
+        r_z = -1 * (CURRENT_BODY_STATE["idle_arm_down"] + (math.sin(gravity_phase + 2.0) * sway_z))
+        r_x = -1 * (CURRENT_BODY_STATE["idle_fwd_right"] + (math.cos(self.anim_phase * 0.9 + 1.0) * sway_x))
+        r_bend = -1 * (CURRENT_BODY_STATE["idle_elbow_bend"] + (math.sin(self.anim_phase * 1.2 + 0.5) * sway_bend))
+        r_y = -1 * (CURRENT_BODY_STATE["idle_arm_twist"] + (noise_twist * sway_twist))
+
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftUpperArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(l_x, l_y, l_z))
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightUpperArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(r_x, r_y, r_z))
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftLowerArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(0, 0, l_bend))
+        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightLowerArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(0, 0, r_bend))
+
+        # --- 10. FINGER LOGIC ---
+        if HAND_DEBUG["active"]:
+            t_x, t_y, t_z = HAND_DEBUG["thumb_x"], HAND_DEBUG["thumb_y"], HAND_DEBUG["thumb_z"]
+            f_x, f_y, f_z = HAND_DEBUG["finger_x"], HAND_DEBUG["finger_y"], HAND_DEBUG["finger_z"]
+        else:
+            target_grip = 0.0
+            if is_talking:
+                target_grip = 0.2 + (0.5 * wave_grip) if target_key not in ["angry", "shy"] else (0.5 + 0.4 * wave_grip)
+            else:
+                target_grip = {"angry": 0.8, "shy": 0.5}.get(target_key, 0.05)
+
+            target_grip = max(0.0, min(1.0, target_grip))
+
+            def lerp_h(key):
+                return HAND_CALIBRATION["relaxed"][key] + (HAND_CALIBRATION["fist"][key] - HAND_CALIBRATION["relaxed"][key]) * target_grip
+
+            f_x, f_y, f_z = lerp_h("finger_x"), lerp_h("finger_y"), lerp_h("finger_z")
+            t_x, t_y, t_z = lerp_h("thumb_x"), lerp_h("thumb_y"), lerp_h("thumb_z")
+
+        ql, qr = self._euler_to_quaternion(t_x, t_y, t_z), self._euler_to_quaternion(t_x, -t_y, -t_z)
+        fl, fr = self._euler_to_quaternion(f_x, f_y, f_z), self._euler_to_quaternion(f_x, -f_y, -f_z)
+
+        for bone in self.FINGER_BONES:
+            self.client.send_message(f"/VMC/Ext/Bone/Pos", [f"Left{bone}", 0.0, 0.0, 0.0] + (ql if "Thumb" in bone else fl))
+            self.client.send_message(f"/VMC/Ext/Bone/Pos", [f"Right{bone}", 0.0, 0.0, 0.0] + (qr if "Thumb" in bone else fr))
+
+
+class VaMAdapter(VSeeFaceAdapter):
+    def __init__(self):
+        vmc_host = str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1").strip() or "127.0.0.1"
+        vmc_port = int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)
+        super().__init__(ip=vmc_host, port=vmc_port)
+        self.vmc_enabled = bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True))
+        self.bridge_enabled = bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True))
+        self.bridge_root = os.path.abspath(str(RUNTIME_CONFIG.get("vam_bridge_root", DEFAULT_VAM_BRIDGE_ROOT) or DEFAULT_VAM_BRIDGE_ROOT))
+        self.play_audio_in_vam = bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))
+        self.target_atom_uid = str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person").strip() or "Person"
+        self.target_storable_id = str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge").strip()
+        self.timeline_auto_resume = bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True))
+        self.emotion_preset_map = self._coerce_mapping_dict(
+            RUNTIME_CONFIG.get("vam_emotion_preset_map"),
+            DEFAULT_VAM_EMOTION_PRESET_MAP,
+        )
+        self.timeline_clip_map = self._coerce_mapping_dict(
+            RUNTIME_CONFIG.get("vam_timeline_clip_map"),
+            DEFAULT_VAM_TIMELINE_CLIP_MAP,
+        )
+        self.session_id = uuid.uuid4().hex[:12]
+        self._vmc_started = False
+        self._bridge_inbox_dir = os.path.join(self.bridge_root, "inbox")
+        self._bridge_outbox_dir = os.path.join(self.bridge_root, "outbox")
+        self._bridge_audio_dir = os.path.join(self.bridge_root, "audio")
+
+    def _coerce_mapping_dict(self, value, default):
+        if isinstance(value, dict):
+            return {str(key).strip().lower(): str(item or "").strip() for key, item in value.items() if str(key).strip()}
+        return {str(key).strip().lower(): str(item or "").strip() for key, item in dict(default).items()}
+
+    def _ensure_bridge_dirs(self):
+        os.makedirs(self._bridge_inbox_dir, exist_ok=True)
+        os.makedirs(self._bridge_outbox_dir, exist_ok=True)
+        os.makedirs(self._bridge_audio_dir, exist_ok=True)
+
+    def _emotion_key(self, emotion_name):
+        clean = str(emotion_name or "").strip().lower()
+        return clean or "neutral"
+
+    def _mapped_value(self, mapping, emotion_name, fallback_key="default"):
+        clean = self._emotion_key(emotion_name)
+        if clean in mapping:
+            return str(mapping.get(clean) or "").strip()
+        for key, value in mapping.items():
+            if key and key in clean:
+                return str(value or "").strip()
+        return str(mapping.get(fallback_key, "") or "").strip()
+
+    def _build_payload(self, **overrides):
+        emotion_name = overrides.get("emotion", self.current_emotion)
+        payload = {
+            "target_atom_uid": self.target_atom_uid,
+            "target_storable_id": self.target_storable_id,
+            "emotion": self._emotion_key(emotion_name),
+            "speaking": bool(overrides.get("speaking", self.is_speaking)),
+            "timeline_auto_resume": bool(overrides.get("timeline_auto_resume", self.timeline_auto_resume)),
+            "expression_preset": overrides.get("expression_preset", self._mapped_value(self.emotion_preset_map, emotion_name)),
+            "timeline_clip": overrides.get("timeline_clip", self._mapped_value(self.timeline_clip_map, emotion_name)),
+            "audio_path": str(overrides.get("audio_path", "") or ""),
+            "audio_duration_seconds": float(overrides.get("audio_duration_seconds", 0.0) or 0.0),
+            "text": str(overrides.get("text", "") or ""),
+            "play_audio_in_vam": bool(overrides.get("play_audio_in_vam", self.play_audio_in_vam)),
+            "enabled": bool(overrides.get("enabled", True)),
+        }
+        return payload
+
+    def _send_bridge_command(self, action, payload=None):
+        if not self.bridge_enabled:
+            return None
+        self._ensure_bridge_dirs()
+        command_id = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
+        final_path = os.path.join(self._bridge_inbox_dir, f"{command_id}_{action}.json")
+        tmp_path = f"{final_path}.tmp"
+        body = {
+            "session_id": self.session_id,
+            "command_id": command_id,
+            "sent_at": time.time(),
+            "action": str(action or "").strip(),
+            "payload": payload or {},
+        }
+        Path(tmp_path).write_text(json.dumps(body, indent=2), encoding="utf-8")
+        os.replace(tmp_path, final_path)
+        return final_path
+
+    def start(self):
+        if not self.vmc_enabled and not self.bridge_enabled:
+            raise RuntimeError("VaM mode is enabled, but both VMC relay and file bridge are disabled.")
+        if self.vmc_enabled:
+            self.running = True
+            if not self.thread.is_alive():
+                self.thread.start()
+            self._vmc_started = True
+            print(f"🔌 Connected to VaM VMC relay on {self.client._address}:{self.client._port}")
+        else:
+            print("🔌 VaM VMC relay disabled; using file bridge only.")
+        if self.bridge_enabled:
+            self._ensure_bridge_dirs()
+            self._send_bridge_command("session_start", self._build_payload(speaking=False, play_audio_in_vam=False))
+            print(f"🪄 [VaM] Bridge root: {self.bridge_root}")
+
+    def stop(self):
+        if self.bridge_enabled:
+            try:
+                self._send_bridge_command("session_stop", self._build_payload(speaking=False, play_audio_in_vam=False))
+            except Exception as exc:
+                print(f"⚠️ [VaM] Could not send session_stop: {exc}")
+        if self._vmc_started:
+            self.running = False
+            if self.thread.is_alive():
+                self.thread.join()
+            print("🔌 Disconnected from VaM VMC relay.")
+
+    def set_emotion(self, emotion_name: str):
+        self.current_emotion = self._emotion_key(emotion_name)
+        if self.vmc_enabled:
+            super().set_emotion(self.current_emotion)
+        if self.bridge_enabled:
+            try:
+                self._send_bridge_command("set_emotion", self._build_payload(emotion=self.current_emotion, speaking=self.is_speaking, play_audio_in_vam=False))
+            except Exception as exc:
+                print(f"⚠️ [VaM] Could not send set_emotion: {exc}")
+
+    def set_speaking_state(self, is_speaking: bool):
+        self.is_speaking = bool(is_speaking)
+        if self.vmc_enabled:
+            super().set_speaking_state(self.is_speaking)
+        if self.bridge_enabled:
+            try:
+                self._send_bridge_command("set_speaking", self._build_payload(speaking=self.is_speaking, play_audio_in_vam=False))
+            except Exception as exc:
+                print(f"⚠️ [VaM] Could not send set_speaking: {exc}")
+
+    def _stage_bridge_audio(self, audio_path, output_filename):
+        self._ensure_bridge_dirs()
+        chunk_id = os.path.splitext(os.path.basename(output_filename or ""))[0] or f"speech_{uuid.uuid4().hex[:8]}"
+        staged_audio_path = os.path.join(self._bridge_audio_dir, f"{chunk_id}.wav")
+        shutil.copy2(audio_path, staged_audio_path)
+        return staged_audio_path
+
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
+        duration_seconds = 0.0
+        try:
+            duration_seconds = max(0.0, float(AudioSegment.from_file(audio_path).duration_seconds or 0.0))
+        except Exception:
+            duration_seconds = 0.0
+
+        if not self.bridge_enabled:
+            return {"ok": True, "kind": "audio"}
+
+        staged_audio_path = ""
+        play_audio_in_vam = self.play_audio_in_vam
+        if play_audio_in_vam:
+            try:
+                staged_audio_path = self._stage_bridge_audio(audio_path, output_filename)
+            except Exception as exc:
+                print(f"⚠️ [VaM] Audio staging failed; falling back to local playback: {exc}")
+                play_audio_in_vam = False
+
+        payload = self._build_payload(
+            emotion=self.current_emotion,
+            speaking=True,
+            text=text,
+            audio_path=staged_audio_path,
+            audio_duration_seconds=duration_seconds,
+            play_audio_in_vam=play_audio_in_vam,
+        )
+
+        result = {
+            "ok": True,
+            "kind": "vam",
+            "skip_local_playback": play_audio_in_vam,
+            "playback_duration_seconds": duration_seconds,
+            "payload_path": staged_audio_path or audio_path,
+            "bridge_payload": payload,
+            "expected_frame_count": max(2, int(round(duration_seconds * 50.0))) if duration_seconds > 0 else 2,
+            "chunk_id": os.path.splitext(os.path.basename(staged_audio_path or output_filename or audio_path))[0],
+        }
+        if play_audio_in_vam:
+            print(
+                f"🎧 [VaM] Prepared speech chunk for VaM head audio "
+                f"({duration_seconds:.2f}s, {os.path.basename(staged_audio_path)})"
+            )
+        return result
+
+    def begin_chunk_playback(self, chunk_result):
+        if not self.bridge_enabled:
+            return False
+        payload = dict((chunk_result or {}).get("bridge_payload", {}) or {})
+        if not payload:
+            return False
+        try:
+            self._send_bridge_command("speech_chunk", payload)
+            if bool(payload.get("play_audio_in_vam")):
+                print(
+                    f"🎧 [VaM] Delegating speech chunk to VaM head audio "
+                    f"({float(payload.get('audio_duration_seconds', 0.0) or 0.0):.2f}s, "
+                    f"{os.path.basename(str(payload.get('audio_path', '') or ''))})"
+                )
+            return bool(payload.get("play_audio_in_vam"))
+        except Exception as exc:
+            print(f"⚠️ [VaM] Could not send speech_chunk: {exc}")
+            return False
+
+
+import abc
+import os
+import subprocess
+import shutil
+
+
+# ============================================================================
+# AVATAR ADAPTER PATTERN
+# ============================================================================
+"""class AvatarAdapter(abc.ABC):
+    #Abstract base class ensuring all rendering engines share the same interface.
+
+    @abc.abstractmethod
+    def start(self):
+        pass
+
+    @abc.abstractmethod
+    def stop(self):
+        pass
+
+    @abc.abstractmethod
+    def set_emotion(self, emotion_name: str):
+        pass
+
+    @abc.abstractmethod
+    def set_speaking_state(self, is_speaking: bool):
+        pass
+
+    @abc.abstractmethod
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str):
+        pass"""
+
+
+class MuseTalkAdapter(AvatarAdapter):
+    def __init__(self, root_dir="./MuseTalk"):
+        self.root_dir = root_dir
+        self.vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
+        self.bridge = MuseTalkBridge(root_dir=self.root_dir, worker_options={"vram_mode": self.vram_mode})
+        self.current_emotion = "neutral"
+        self.is_speaking = False
+        self.avatar_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+        self.avatar_pack = None
+        self.available_avatar_packs = {}
+        self.avatar_path_overrides = {}
+        self.default_avatar_id = RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar")
+        self.video_path = RUNTIME_CONFIG.get("musetalk_video_path", os.path.join("data", "video", "ani.mp4"))
+        self.fps = int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24)
+        self.avatar_id = self.default_avatar_id
+        self.avatar_path = None
+        self.prepared_avatars = {}
+        self.emotion_avatar_map = {}
+        self.last_queued_avatar_id = self.default_avatar_id
+        self.previous_audio_tail = None
+        self.reply_chunk_index = 0
+        self.reply_generation = 0
+        self.first_chunk_ready_samples = []
+        self.first_chunk_seconds_per_frame_samples = []
+        self.render_slots = threading.BoundedSemaphore(MUSE_MAX_INFLIGHT_RENDERS)
+        self.render_order_condition = threading.Condition()
+        self.next_render_order = 0
+        self.active_render_order = 0
+        self._last_logged_emotion_registry_signature = None
+
+    def start(self):
+        print(f"🎬 [MuseTalk] Starting worker ({self.vram_mode})...")
+        self.bridge.start()
+        self.previous_audio_tail = None
+        self._reload_avatar_pose_connections()
+        self.last_queued_avatar_id = self.default_avatar_id
+        self._ensure_avatar_prepared(self.default_avatar_id, allow_missing=False)
+        self.avatar_id = self.default_avatar_id
+        self.avatar_path = self.prepared_avatars.get(self.default_avatar_id)
+        for avatar_id in sorted(set(self.emotion_avatar_map.values())):
+            self._ensure_avatar_prepared(avatar_id, allow_missing=True)
+        print(f"✅ [MuseTalk] Avatar pack ready: {self.avatar_pack_id} -> {self.default_avatar_id}")
+
+    def warm_up(self):
+        warmup_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "warmup"))
+        os.makedirs(warmup_dir, exist_ok=True)
+        warmup_audio_path = os.path.join(warmup_dir, "musetalk_warmup.wav")
+        warmup_chunk_id = f"warmup_{uuid.uuid4().hex[:8]}"
+        warmup_frame_dir = os.path.join(warmup_dir, warmup_chunk_id)
+        try:
+            print("🔥 [MuseTalk] Running early warmup render before LLM reload...")
+            AudioSegment.silent(duration=900).export(warmup_audio_path, format="wav")
+            started_at = time.time()
+            result = self.bridge.request(
+                {
+                    "action": "render_audio",
+                    "avatar_id": self.default_avatar_id,
+                    "avatar_path_override": self._avatar_path_override_for_id(self.default_avatar_id),
+                    "audio_path": warmup_audio_path,
+                    "chunk_id": warmup_chunk_id,
+                    "fps": self.fps,
+                    "output_root": os.path.join("runtime", "warmup"),
+                    "reset_timeline": True,
+                    "start_timeline_idx": 0,
+                },
+                timeout=180,
+            )
+            elapsed = time.time() - started_at
+            print(
+                f"✓ [MuseTalk] Early warmup complete: "
+                f"{int(result.get('frame_count', 0) or 0)} frame(s) in {elapsed:.2f}s"
+            )
+            return True
+        except Exception as e:
+            print(f"⚠️ [MuseTalk] Early warmup failed: {e}")
+            return False
+        finally:
+            safe_delete_with_retry(warmup_audio_path)
+            shutil.rmtree(warmup_frame_dir, ignore_errors=True)
+
+    def stop(self):
+        print("🛑 [MuseTalk] Stopping worker...")
+        self.previous_audio_tail = None
+        self.bridge.stop()
+        print("🔌 [MuseTalk] Disconnected.")
+
+    def set_emotion(self, emotion_name: str):
+        self.current_emotion = emotion_name
+
+    def _avatar_path_override_for_id(self, avatar_id):
+        return str((self.avatar_path_overrides or {}).get(avatar_id) or "").strip()
+
+    def _prepared_avatar_root(self, avatar_id):
+        override = self._avatar_path_override_for_id(avatar_id)
+        if override:
+            return os.path.abspath(override)
+        return os.path.abspath(os.path.join(self.root_dir, "results", "v15", "avatars", avatar_id))
+
+    def _reload_avatar_pose_connections(self):
+        requested_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", self.avatar_pack_id or "") or self.avatar_pack_id or "").strip()
+        packs = discover_avatar_packs(
+            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+            legacy_map=MUSE_EMOTION_AVATAR_MAP,
+            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+            avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
+            packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
+            include_legacy=False,
+            include_standalone=False,
+        )
+        self.available_avatar_packs = dict(packs)
+        if not self.available_avatar_packs:
+            raise LookupError("No MuseTalk avatar packs found under MuseTalk/results/v15/avatar_packs.")
+        selected = packs.get(requested_pack_id)
+        if selected is None:
+            try:
+                selected = get_avatar_pack(
+                    default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+                    requested_pack_id=requested_pack_id,
+                    legacy_map=MUSE_EMOTION_AVATAR_MAP,
+                    legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+                    avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
+                    packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
+                    include_legacy=False,
+                    include_standalone=False,
+                )
+            except LookupError:
+                selected = next(iter(self.available_avatar_packs.values()))
+            self.available_avatar_packs[selected.pack_id] = selected
+        self.avatar_pack = selected
+        self.avatar_pack_id = selected.pack_id
+        self.default_avatar_id = selected.default_avatar_id
+        self.emotion_avatar_map = selected.emotion_avatar_map()
+        invalidate_available_emotion_names()
+        registered_tags = sorted(
+            {
+                str(tag or '').strip().lower()
+                for tag in (self.emotion_avatar_map or {}).keys()
+                if str(tag or '').strip()
+            }
+        )
+        registry_signature = (str(self.avatar_pack_id or ''), tuple(registered_tags))
+        if registry_signature != self._last_logged_emotion_registry_signature:
+            self._last_logged_emotion_registry_signature = registry_signature
+            if registered_tags:
+                print(f"🧩 [MuseTalk] Registered emotion tags for pack '{self.avatar_pack_id}': {', '.join(registered_tags)}")
+            else:
+                print(f"🧩 [MuseTalk] No emotion tags registered for pack '{self.avatar_pack_id}'.")
+        self.avatar_path_overrides = {
+            str(variant.avatar_id or '').strip(): str(getattr(variant, 'avatar_path', '') or '').strip()
+            for variant in (selected.variants or {}).values()
+            if str(getattr(variant, 'avatar_path', '') or '').strip()
+        }
+        return dict(self.emotion_avatar_map)
+
+    def select_avatar_pack(self, pack_id, reset_avatar=True):
+        requested_pack_id = str(pack_id or "").strip()
+        pack_changed = requested_pack_id != str(self.avatar_pack_id or "").strip()
+        self.avatar_pack_id = requested_pack_id
+        if pack_changed:
+            self.prepared_avatars = {}
+            self.avatar_path = None
+        self._reload_avatar_pose_connections()
+        self._ensure_avatar_prepared(self.default_avatar_id, allow_missing=False)
+        if reset_avatar:
+            self.current_emotion = "neutral"
+            self.avatar_id = self.default_avatar_id
+            self.avatar_path = self.prepared_avatars.get(self.default_avatar_id, self.avatar_path)
+            self.last_queued_avatar_id = self.default_avatar_id
+        return self.avatar_pack
+
+    def get_transition_rule(self, from_avatar_id, to_avatar_id):
+        if getattr(self, "avatar_pack", None) is None:
+            self._reload_avatar_pose_connections()
+        if self.avatar_pack is None:
+            return None
+        return self.avatar_pack.transition_rule_for_avatar_ids(from_avatar_id, to_avatar_id)
+
+    def _resolve_avatar_id_for_emotion(self, emotion_name):
+        clean_emotion = str(emotion_name or "").strip().lower()
+        if not getattr(self, "emotion_avatar_map", None):
+            self._reload_avatar_pose_connections()
+        if clean_emotion:
+            exact_avatar_id = self.emotion_avatar_map.get(clean_emotion)
+            if exact_avatar_id:
+                return exact_avatar_id
+        for emotion_key, avatar_id in self.emotion_avatar_map.items():
+            if str(emotion_key or "").strip().lower() in clean_emotion:
+                return avatar_id
+        return self.default_avatar_id
+
+    def _prepared_avatar_bbox_shift(self, avatar_id):
+        avatar_root = self._prepared_avatar_root(avatar_id)
+        info_path = os.path.join(avatar_root, "avator_info.json")
+        try:
+            if os.path.isfile(info_path):
+                payload = json.loads(Path(info_path).read_text(encoding="utf-8"))
+                return int(payload.get("bbox_shift", 0) or 0)
+        except Exception:
+            pass
+        return 0
+
+    def _ensure_avatar_prepared(self, avatar_id, allow_missing=False):
+        if avatar_id in self.prepared_avatars:
+            return avatar_id
+
+        avatar_root = self._prepared_avatar_root(avatar_id)
+        if allow_missing and not os.path.isdir(avatar_root):
+            return None
+
+        bbox_shift = self._prepared_avatar_bbox_shift(avatar_id)
+
+        result = self.bridge.request(
+            {
+                "action": "prepare_avatar",
+                "avatar_id": avatar_id,
+                "avatar_path_override": self._avatar_path_override_for_id(avatar_id),
+                "video_path": self.video_path,
+                "bbox_shift": bbox_shift,
+                "recreate": False,
+            },
+            timeout=600,
+        )
+        avatar_path = result.get("avatar_path")
+        if avatar_path:
+            self.prepared_avatars[avatar_id] = avatar_path
+            self._reload_avatar_pose_connections()
+            print(f"🎭 [MuseTalk] Prepared avatar variant: {avatar_id}")
+            return avatar_id
+        return None
+
+    def _set_active_avatar(self, avatar_id):
+        self.avatar_id = avatar_id
+        self.avatar_path = self.prepared_avatars.get(avatar_id, self.avatar_path)
+
+    def set_speaking_state(self, is_speaking: bool):
+        self.is_speaking = is_speaking
+
+    def begin_reply(self):
+        self.reply_generation += 1
+        self.reply_chunk_index = 0
+        self.previous_audio_tail = None
+        self.last_queued_avatar_id = self.avatar_id or self.default_avatar_id
+        with self.render_order_condition:
+            self.next_render_order = 0
+            self.active_render_order = 0
+
+    def _estimate_first_chunk_delay(self):
+        if bool(RUNTIME_CONFIG.get("stream_mode", False)):
+            startup_buffer_frames = max(10, min(int(self.fps * 0.5), 16))
+        else:
+            startup_buffer_frames = max(24, min(int(self.fps * 2.5), 72))
+        if self.first_chunk_seconds_per_frame_samples:
+            avg_seconds_per_frame = (
+                sum(self.first_chunk_seconds_per_frame_samples)
+                / len(self.first_chunk_seconds_per_frame_samples)
+            )
+            estimated = avg_seconds_per_frame * startup_buffer_frames
+            return max(0.25, estimated)
+        if not self.first_chunk_ready_samples:
+            return MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS
+        return sum(self.first_chunk_ready_samples) / len(self.first_chunk_ready_samples)
+
+    def _record_first_chunk_delay(self, delay_seconds):
+        try:
+            delay_seconds = float(delay_seconds)
+        except Exception:
+            return
+        if delay_seconds <= 0:
+            return
+        self.first_chunk_ready_samples.append(delay_seconds)
+        if len(self.first_chunk_ready_samples) > MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:
+            self.first_chunk_ready_samples = self.first_chunk_ready_samples[-MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:]
+
+    def _record_first_chunk_seconds_per_frame(self, delay_seconds, frame_count):
+        try:
+            delay_seconds = float(delay_seconds)
+            frame_count = int(frame_count)
+        except Exception:
+            return
+        if delay_seconds <= 0 or frame_count <= 0:
+            return
+        seconds_per_frame = delay_seconds / max(frame_count, 1)
+        self.first_chunk_seconds_per_frame_samples.append(seconds_per_frame)
+        if len(self.first_chunk_seconds_per_frame_samples) > MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:
+            self.first_chunk_seconds_per_frame_samples = self.first_chunk_seconds_per_frame_samples[-MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:]
+
+    def _build_loop_frame_paths(self, full_frame_paths, start_index, count):
+        if not full_frame_paths:
+            return []
+        frame_total = len(full_frame_paths)
+        start_index = int(start_index) % frame_total
+        count = max(1, int(count))
+        return [
+            full_frame_paths[(start_index + offset) % frame_total]
+            for offset in range(count)
+        ]
+
+    def _build_pingpong_frame_paths(self, full_frame_paths, start_index, count):
+        forward_paths = self._build_loop_frame_paths(full_frame_paths, start_index, count)
+        if len(forward_paths) <= 1:
+            return forward_paths
+        backward_paths = forward_paths[-2:0:-1]
+        return forward_paths + backward_paths
+
+    def _plan_first_chunk_idle_window(self, avatar_id):
+        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+        if current_state.get("status") != "idle":
+            return None
+        if current_state.get("avatar_id") != avatar_id:
+            return None
+
+        avatar_path = self.prepared_avatars.get(avatar_id)
+        if not avatar_path:
+            return None
+
+        full_frame_paths = list_png_frames(os.path.join(avatar_path, "full_imgs"))
+        if not full_frame_paths:
+            return None
+
+        fps = int(current_state.get("fps", self.fps) or self.fps)
+        current_visible_index = get_current_musetalk_source_index(current_state, advance_to_next_frame=False) % len(full_frame_paths)
+        predicted_delay = self._estimate_first_chunk_delay()
+        predicted_offset_frames = max(1, int(round(predicted_delay * max(fps, 1))))
+        predicted_entry_index = (current_visible_index + predicted_offset_frames) % len(full_frame_paths)
+        # In normal mode we keep the longer anticipation runway. In stream mode
+        # we shorten it so startup stays responsive.
+        if bool(RUNTIME_CONFIG.get("stream_mode", False)):
+            desired_pingpong_frames = max(18, int(round(fps * STREAM_FIRST_CHUNK_PLAN_SECONDS)))
+        else:
+            desired_pingpong_frames = max(24, int(round(fps * 3.0)))
+        window_size = min(
+            max(13, desired_pingpong_frames + 1),
+            max(len(full_frame_paths) - 1, 13),
+        )
+        window_start = predicted_entry_index % len(full_frame_paths)
+        plan_id = f"first_chunk_plan:{time.time()}:{uuid.uuid4().hex[:8]}"
+
+        def _orbit_predicted_entry():
+            wait_frames = max(predicted_offset_frames - 1, 0)
+            if wait_frames > 0:
+                time.sleep(wait_frames / max(fps, 1))
+            while not stop_flag.is_set():
+                current_plan_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                if current_plan_state.get("status") != "idle" or current_plan_state.get("avatar_id") != avatar_id:
+                    return
+                active_chunk_id = current_plan_state.get("chunk_id")
+                if active_chunk_id and str(active_chunk_id).startswith("first_chunk_plan:"):
+                    return
+                current_source_index = get_current_musetalk_source_index(
+                    current_plan_state,
+                    advance_to_next_frame=False,
+                ) % len(full_frame_paths)
+                passed_predicted_index = (current_source_index - predicted_entry_index) % len(full_frame_paths)
+                if 0 < passed_predicted_index < (len(full_frame_paths) // 2):
+                    break
+                time.sleep(0.01)
+
+            window_paths = self._build_pingpong_frame_paths(full_frame_paths, window_start, window_size)
+            forward_indices = [
+                (window_start + offset) % len(full_frame_paths)
+                for offset in range(window_size)
+            ]
+            backward_indices = forward_indices[-2:0:-1] if len(forward_indices) > 1 else []
+            window_source_indices = forward_indices + backward_indices
+            shared_state.append_musetalk_preview_log(
+                f"🕒 [MuseTalkStartup] First chunk plan armed {plan_id}: "
+                f"predicted_entry={predicted_entry_index} current_source={current_source_index} "
+                f"window_end={(predicted_entry_index + desired_pingpong_frames) % len(full_frame_paths)}"
+            )
+            log_musetalk_memory_checkpoint(
+                "first_chunk_plan_armed",
+                plan_id,
+                {
+                    "predicted_entry": predicted_entry_index,
+                    "current_source": current_source_index,
+                    "window_size": len(window_paths),
+                },
+            )
+            shared_state.current_expression_data = {"names": [], "frames": []}
+            shared_state.set_current_musetalk_frame_data({
+                "frame_paths": window_paths,
+                "source_indices": window_source_indices,
+                "frame_dir": "",
+                "fps": fps,
+                "sync_time": time.time(),
+                "duration_seconds": 0.0,
+                "trim_start_frames": 0,
+                "chunk_id": plan_id,
+                "text": "",
+                "status": "idle",
+                "loop": True,
+                "start_index": window_start,
+                "frame_count": len(window_paths),
+                "avatar_id": avatar_id,
+            })
+            prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+
+        threading.Thread(target=_orbit_predicted_entry, daemon=True).start()
+        return predicted_entry_index
+
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None):
+        requested_avatar_id = self._resolve_avatar_id_for_emotion(self.current_emotion)
+        active_avatar_id = self._ensure_avatar_prepared(requested_avatar_id, allow_missing=True) or self.default_avatar_id
+        print(f"🎭 [MuseTalk] Emotion '{self.current_emotion}' -> requested avatar '{requested_avatar_id}' -> active avatar '{active_avatar_id}'")
+        self._ensure_avatar_prepared(active_avatar_id, allow_missing=False)
+        previous_avatar_id = self.last_queued_avatar_id
+        is_first_reply_chunk = self.reply_chunk_index == 0
+        sequence_index = self.reply_chunk_index
+        self.reply_chunk_index += 1
+        reset_timeline = active_avatar_id == "angry_avatar" and previous_avatar_id != active_avatar_id
+        self.last_queued_avatar_id = active_avatar_id
+        self._set_active_avatar(active_avatar_id)
+        with self.render_order_condition:
+            render_order = self.next_render_order
+            self.next_render_order += 1
+
+        chunk_id = os.path.splitext(os.path.basename(output_filename))[0]
+        frame_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "rendered_chunks", chunk_id))
+        os.makedirs(frame_dir, exist_ok=True)
+        staged_audio_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "staged_audio"))
+        os.makedirs(staged_audio_dir, exist_ok=True)
+        render_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}.wav")
+        result_holder = {
+            "frame_dir": frame_dir,
+            "fps": self.fps,
+            "start_index": 0,
+            "trim_start_frames": 0,
+            "avatar_id": active_avatar_id,
+            "sequence_index": sequence_index,
+            "generation": self.reply_generation,
+            "cancelled": False,
+            "dry_run_reply_id": dry_run_reply_id,
+        }
+        try:
+            shutil.copy2(audio_path, render_audio_path)
+        except Exception as e:
+            print(f"⚠️ [MuseTalk] Audio staging failed: {e}")
+            return {"ok": False, "kind": "musetalk"}
+        ready_event = threading.Event()
+
+        def render_job():
+            temp_audio_paths = []
+            trim_start_frames = 0
+            job_generation = self.reply_generation
+            has_render_turn = False
+
+            def _request_render(
+                avatar_id,
+                request_chunk_id,
+                request_audio_path,
+                reset=False,
+                timeline_indices=None,
+                overlap_prefix_frames=0,
+                start_timeline_idx=None,
+            ):
+                return self.bridge.request(
+                    {
+                        "action": "render_audio",
+                        "avatar_id": avatar_id,
+                        "avatar_path_override": self._avatar_path_override_for_id(avatar_id),
+                        "audio_path": request_audio_path,
+                        "chunk_id": request_chunk_id,
+                        "fps": self.fps,
+                        "output_root": os.path.join("runtime", "rendered_chunks"),
+                        "reset_timeline": reset,
+                        "timeline_indices": timeline_indices,
+                        "overlap_prefix_frames": overlap_prefix_frames,
+                        "start_timeline_idx": start_timeline_idx,
+                    },
+                    timeout=180,
+                )
+
+            def _merge_frame_dirs(source_dirs, target_dir):
+                if os.path.exists(target_dir):
+                    shutil.rmtree(target_dir, ignore_errors=True)
+                os.makedirs(target_dir, exist_ok=True)
+                frame_index = 0
+                for source_dir in source_dirs:
+                    for source_path in list_png_frames(source_dir):
+                        shutil.copy2(source_path, os.path.join(target_dir, f"{frame_index:08d}.png"))
+                        frame_index += 1
+                return frame_index
+
+            try:
+                if job_generation != self.reply_generation or stop_playback.is_set():
+                    result_holder["cancelled"] = True
+                    return
+                self.render_slots.acquire()
+                if job_generation != self.reply_generation or stop_playback.is_set():
+                    result_holder["cancelled"] = True
+                    return
+                with self.render_order_condition:
+                    while (
+                        render_order != self.active_render_order
+                        and job_generation == self.reply_generation
+                        and not stop_playback.is_set()
+                    ):
+                        self.render_order_condition.wait(timeout=0.1)
+                    if job_generation != self.reply_generation or stop_playback.is_set():
+                        result_holder["cancelled"] = True
+                        return
+                    has_render_turn = True
+                transition_rule = self.get_transition_rule(previous_avatar_id, active_avatar_id)
+                use_transition_render = bool(
+                    transition_rule
+                    and previous_avatar_id != active_avatar_id
+                )
+                overlap_source = self.previous_audio_tail
+                if use_transition_render:
+                    overlap_source = None
+                requested_start_timeline_idx = None
+                render_started_at = time.time()
+                if is_first_reply_chunk:
+                    shared_state.append_musetalk_preview_log(
+                        f"🕒 [MuseTalkStartup] First chunk render start {chunk_id}: "
+                        f"avatar={active_avatar_id} emotion={self.current_emotion} "
+                        f"audio_path={os.path.basename(render_audio_path)}"
+                    )
+                    log_musetalk_memory_checkpoint(
+                        "first_chunk_render_start",
+                        chunk_id,
+                        {
+                            "avatar": active_avatar_id,
+                            "emotion": self.current_emotion,
+                            "audio_path": os.path.basename(render_audio_path),
+                        },
+                    )
+                if is_first_reply_chunk and not use_transition_render:
+                    requested_start_timeline_idx = self._plan_first_chunk_idle_window(active_avatar_id)
+                    if requested_start_timeline_idx is not None:
+                        result_holder["start_index"] = int(requested_start_timeline_idx)
+
+                if use_transition_render:
+                    audio_segment = AudioSegment.from_wav(render_audio_path)
+                    transition_indices_full = list(
+                        range(
+                            int(transition_rule["start_frame"]),
+                            int(transition_rule["end_frame"]) - 1,
+                            -1,
+                        )
+                    )
+                    max_transition_frames = max(1, int((len(audio_segment) / 1000.0) * self.fps))
+                    transition_indices = transition_indices_full[:max_transition_frames]
+                    transition_ms = int(round((len(transition_indices) / max(self.fps, 1)) * 1000))
+
+                    frame_dirs_to_merge = []
+                    total_render_seconds = 0.0
+
+                    if transition_indices:
+                        transition_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_transition.wav")
+                        temp_audio_paths.append(transition_audio_path)
+                        audio_segment[:transition_ms].export(transition_audio_path, format="wav")
+                        transition_chunk_id = f"{chunk_id}_transition"
+                        transition_result = _request_render(
+                            previous_avatar_id,
+                            transition_chunk_id,
+                            transition_audio_path,
+                            reset=False,
+                            timeline_indices=transition_indices,
+                        )
+                        frame_dirs_to_merge.append(transition_result.get("frame_dir"))
+                        total_render_seconds += float(transition_result.get("render_seconds", 0.0) or 0.0)
+
+                    remainder_audio = audio_segment[transition_ms:]
+                    if len(remainder_audio) > 0:
+                        default_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_default.wav")
+                        temp_audio_paths.append(default_audio_path)
+                        remainder_audio.export(default_audio_path, format="wav")
+                        default_chunk_id = f"{chunk_id}_default"
+                        default_result = _request_render(
+                            active_avatar_id,
+                            default_chunk_id,
+                            default_audio_path,
+                            reset=True,
+                        )
+                        frame_dirs_to_merge.append(default_result.get("frame_dir"))
+                        total_render_seconds += float(default_result.get("render_seconds", 0.0) or 0.0)
+
+                    merged_frame_count = _merge_frame_dirs(frame_dirs_to_merge, frame_dir)
+                    result = {
+                        "frame_dir": frame_dir,
+                        "frame_count": merged_frame_count,
+                        "fps": self.fps,
+                        "render_seconds": total_render_seconds,
+                        "start_index": 0,
+                    }
+                else:
+                    request_audio_path = render_audio_path
+                    if overlap_source is not None and len(overlap_source) > 0:
+                        current_audio = AudioSegment.from_wav(render_audio_path)
+                        combined_audio = overlap_source + current_audio
+                        overlap_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_overlap.wav")
+                        temp_audio_paths.append(overlap_audio_path)
+                        combined_audio.export(overlap_audio_path, format="wav")
+                        request_audio_path = overlap_audio_path
+                        combined_count_result = self.bridge.request(
+                            {
+                                "action": "estimate_frame_count",
+                                "avatar_id": active_avatar_id,
+                                "avatar_path_override": self._avatar_path_override_for_id(active_avatar_id),
+                                "audio_path": overlap_audio_path,
+                                "fps": self.fps,
+                            },
+                            timeout=120,
+                        )
+                        current_count_result = self.bridge.request(
+                            {
+                                "action": "estimate_frame_count",
+                                "avatar_id": active_avatar_id,
+                                "avatar_path_override": self._avatar_path_override_for_id(active_avatar_id),
+                                "audio_path": render_audio_path,
+                                "fps": self.fps,
+                            },
+                            timeout=120,
+                        )
+                        trim_start_frames = max(
+                            0,
+                            int(combined_count_result.get("frame_count", 0) or 0)
+                            - int(current_count_result.get("frame_count", 0) or 0),
+                        )
+                        print(
+                            f"🪡 [MuseTalk] Applying {len(overlap_source)} ms overlap "
+                            f"({trim_start_frames} frame(s)) to {chunk_id}"
+                        )
+                        result_holder["trim_start_frames"] = trim_start_frames
+                    result = _request_render(
+                        active_avatar_id,
+                        chunk_id,
+                        request_audio_path,
+                        reset=reset_timeline,
+                        overlap_prefix_frames=trim_start_frames,
+                        start_timeline_idx=requested_start_timeline_idx,
+                    )
+                result_holder.update(result)
+                result_holder["trim_start_frames"] = trim_start_frames
+                result_holder["avatar_id"] = active_avatar_id
+                result_holder["sequence_index"] = sequence_index
+                result_holder["generation"] = job_generation
+                shared_state.update_musetalk_pipeline_chunk(
+                    sequence_index,
+                    status="rendered",
+                    expected_frame_count=int(result.get("frame_count", 0) or 0),
+                    chunk_id=chunk_id,
+                )
+                if is_first_reply_chunk:
+                    measured_ready_delay = time.time() - render_started_at
+                    self._record_first_chunk_delay(measured_ready_delay)
+                    self._record_first_chunk_seconds_per_frame(
+                        measured_ready_delay,
+                        int(result.get("frame_count", 0) or 0),
+                    )
+                    seconds_per_frame = 0.0
+                    frame_count = int(result.get("frame_count", 0) or 0)
+                    if frame_count > 0:
+                        seconds_per_frame = measured_ready_delay / frame_count
+                    shared_state.append_musetalk_preview_log(
+                        f"🕒 [MuseTalkStartup] First chunk render ready {chunk_id}: "
+                        f"ready_in={measured_ready_delay * 1000.0:.1f} ms "
+                        f"frames={int(result.get('frame_count', 0) or 0)} "
+                        f"spf_ms={seconds_per_frame * 1000.0:.2f} "
+                        f"start_index={int(result.get('start_index', 0) or 0)} "
+                        f"trim={trim_start_frames}"
+                    )
+                    log_musetalk_memory_checkpoint(
+                        "first_chunk_render_ready",
+                        chunk_id,
+                        {
+                            "ready_ms": round(measured_ready_delay * 1000.0, 1),
+                            "frames": int(result.get("frame_count", 0) or 0),
+                            "spf_ms": round(seconds_per_frame * 1000.0, 2),
+                            "start_index": int(result.get("start_index", 0) or 0),
+                            "trim": trim_start_frames,
+                        },
+                    )
+                    dry_run.record_reply_metric(
+                        dry_run_reply_id,
+                        "first_chunk_render_ready_ms",
+                        round(measured_ready_delay * 1000.0, 1),
+                    )
+                    dry_run.record_reply_metric(
+                        dry_run_reply_id,
+                        "first_chunk_spf_ms",
+                        round(seconds_per_frame * 1000.0, 2),
+                    )
+                    dry_run.record_reply_metric(
+                        dry_run_reply_id,
+                        "first_chunk_frame_count",
+                        int(result.get("frame_count", 0) or 0),
+                    )
+                current_audio = AudioSegment.from_wav(render_audio_path)
+                self.previous_audio_tail = current_audio[-MUSE_RENDER_OVERLAP_MS:] if len(current_audio) > 0 else None
+                print(
+                    f"🎞️ [MuseTalk] Chunk {chunk_id}: "
+                    f"{result.get('frame_count', 0)} frame(s) at {result.get('fps', self.fps)} fps "
+                    f"in {result.get('render_seconds', 0):.2f}s "
+                    f"[avatar={active_avatar_id}, emotion={self.current_emotion}]"
+                )
+            except Exception as e:
+                print(f"⚠️ [MuseTalk] Render failed: {e}")
+            finally:
+                if has_render_turn:
+                    with self.render_order_condition:
+                        if render_order == self.active_render_order:
+                            self.active_render_order += 1
+                        self.render_order_condition.notify_all()
+                try:
+                    self.render_slots.release()
+                except Exception:
+                    pass
+                safe_delete_with_retry(render_audio_path)
+                for temp_audio_path in temp_audio_paths:
+                    safe_delete_with_retry(temp_audio_path)
+                ready_event.set()
+
+        try:
+            threading.Thread(target=render_job, daemon=True).start()
+            return {
+                "ok": True,
+                "kind": "musetalk",
+                "frame_paths": [],
+                "frame_dir": frame_dir,
+                "fps": self.fps,
+                "chunk_id": chunk_id,
+                "ready_event": ready_event,
+                "result_holder": result_holder,
+                "avatar_id": active_avatar_id,
+                "sequence_index": sequence_index,
+            }
+        except Exception as e:
+            print(f"⚠️ [MuseTalk] Render failed: {e}")
+            return {"ok": False, "kind": "musetalk"}
+
+    def get_idle_payload(self, avatar_id=None):
+        target_avatar_id = avatar_id or self.avatar_id or self.default_avatar_id
+        self._ensure_avatar_prepared(target_avatar_id, allow_missing=False)
+        avatar_path = self.prepared_avatars.get(target_avatar_id)
+        if not avatar_path:
+            return None
+
+        try:
+            result = self.bridge.request(
+                {
+                    "action": "get_idle_payload",
+                    "avatar_id": target_avatar_id,
+                    "avatar_path_override": self._avatar_path_override_for_id(target_avatar_id),
+                    "fps": self.fps,
+                },
+                timeout=30,
+            )
+        except Exception as e:
+            print(f"⚠️ [MuseTalk] Idle payload failed: {e}")
+            return None
+
+        self._set_active_avatar(target_avatar_id)
+        return {
+            "frame_paths": result.get("ordered_frame_paths", result.get("frame_paths", [])),
+            "frame_dir": result.get("frame_dir", ""),
+            "fps": result.get("fps", self.fps),
+            "sync_time": time.time(),
+            "chunk_id": "idle",
+            "text": "",
+            "status": "idle",
+            "loop": True,
+            "avatar_id": target_avatar_id,
+            "start_index": int(result.get("start_index", 0) or 0),
+            "frame_count": int(result.get("frame_count", 0) or len(result.get("ordered_frame_paths", result.get("frame_paths", [])))),
+        }
+
+# ============================================================================
+# ENTRY POINT (Refactored for GUI)
+# ============================================================================
+def run_companion(config_override=None):
+    global avatar_gui, stop_flag, RUNTIME_CONFIG
+    if config_override:
+        RUNTIME_CONFIG.update(config_override)
+
+    print("🚀 Starting Companion Engine...")
+    stop_flag.clear()
+    clear_avatar_stream_state()
+    schedule_musetalk_runtime_cleanup(max_keep=0)
+    seam_debug_dir = os.path.abspath(os.path.join("MuseTalk", "runtime", "seam_debug"))
+    shutil.rmtree(seam_debug_dir, ignore_errors=True)
+    os.makedirs(seam_debug_dir, exist_ok=True)
+
+    setup_nltk()
+    offline_replay_only = bool(RUNTIME_CONFIG.get("offline_replay_only", False))
+    if offline_replay_only:
+        print("🔁 Offline replay mode: skipping chat-provider startup check.")
+    else:
+        if not _chat_provider_connection_check():
+            return
+
+    avatar_mode = str(RUNTIME_CONFIG.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
+    selected_model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    chat_provider = _chat_provider()
+
+    if avatar_mode == "musetalk" and not offline_replay_only and chat_provider == "lmstudio":
+        unload_lmstudio_models()
+
+    print(f"🔌 Connecting to Avatar Engine: {avatar_mode.upper()}...")
+    try:
+        if avatar_mode == "musetalk":
+            avatar_gui = MuseTalkAdapter()
+        elif avatar_mode == "vam":
+            avatar_gui = VaMAdapter()
+        else:
+            avatar_gui = VSeeFaceAdapter()
+
+        avatar_gui.start()
+        if avatar_mode == "musetalk":
+            try:
+                avatar_gui.warm_up()
+            except Exception as e:
+                print(f"⚠️ [MuseTalk] Warmup exception: {e}")
+            set_musetalk_idle_state()
+    except Exception as e:
+        print(f"⚠️ Could not connect to Avatar Engine: {e}")
+        avatar_gui = None
+
+    if avatar_mode == "musetalk" and selected_model_name and not offline_replay_only and chat_provider == "lmstudio":
+        load_lmstudio_model(selected_model_name)
+
+    if not init_tts():
+        print("✗ Failed to initialize TTS. Exiting.")
+        return
+
+    try:
+        if offline_replay_only:
+            print("🔁 Replay runtime ready (no microphone or Whisper initialization needed).")
+            run_conversation_flow(None)
+        else:
+            print("Testing microphone...")
+            try:
+                with sr.Microphone() as source:
+                    print("✓ Microphone ready")
+            except Exception as e:
+                print(f"✗ Microphone error: {e}")
+                return
+            main_loop()
+    except Exception as e:
+        print(f"CRITICAL ERROR IN LOOP: {e}")
+    finally:
+        listening_active.clear()
+        microphone_active.clear()
+        push_to_talk_gui_held.clear()
+        print("🛑 Engine stopping...")
+        shutdown_avatar_engine()
+        print("👋 Engine Shutdown Complete.")
+
+
+if __name__ == "__main__":
+    try:
+        run_companion()
+    except KeyboardInterrupt:
+        stop_flag.set()
+
+
+
+
+
+
+
+
+
+
+
+

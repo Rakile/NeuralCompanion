@@ -1,0 +1,243 @@
+{
+  "id": "dry_run_optimization",
+  "title": "Dry Run Optimization",
+  "description": "A reactive tutorial that guides the user through the intended Dry Run workflow: choose the target configuration, load the Dry Run preset, arm Dry Run, initialize the system, then review and apply the recommendation.",
+  "steps": [
+    {
+      "id": "entry",
+      "title": "Dry Run Optimization",
+      "body": "This tutorial follows the intended Dry Run workflow: choose the target configuration first, load the Dry Run preset, arm Dry Run, initialize the system into that run, then review and apply the recommendation.",
+      "target": "main_window",
+      "transitions": [
+        {
+          "condition": {
+            "type": "dry_run_active",
+            "value": true
+          },
+          "goto": "wait_for_completion"
+        },
+        {
+          "condition": {
+            "type": "dry_run_complete",
+            "value": true
+          },
+          "goto": "review_results"
+        },
+        {
+          "condition": {
+            "type": "engine_running",
+            "value": true
+          },
+          "goto": "restart_from_clean_state"
+        },
+        {
+          "goto": "choose_musetalk"
+        }
+      ],
+      "auto_route": true
+    },
+    {
+      "id": "restart_from_clean_state",
+      "title": "Start From a Clean State",
+      "body": "This workflow is designed to arm Dry Run before initialization. Terminate the current session first so the app can measure startup and reply behavior cleanly. This step will continue automatically when the engine stops.",
+      "target": "btn_stop_engine",
+      "listen": [
+        {
+          "event": "engine_stopped",
+          "action": "goto",
+          "goto": "choose_musetalk"
+        }
+      ],
+      "manual_next": false
+    },
+    {
+      "id": "choose_musetalk",
+      "title": "Choose MuseTalk",
+      "body": "Dry Run is mainly useful for the MuseTalk pipeline, so start by choosing MuseTalk as the Avatar Engine.",
+      "target": "engine_combo",
+      "actions": [
+        {
+          "type": "set_combo_text",
+          "target": "engine_combo",
+          "value": "VSeeFace"
+        }
+      ],
+      "condition": {
+        "type": "combo_text",
+        "target": "engine_combo",
+        "value": "MuseTalk",
+        "auto_advance": true
+      }
+    },
+    {
+      "id": "choose_stream_mode",
+      "title": "Choose Stream Mode",
+      "body": "Decide whether this Dry Run is for Stream Mode on or off. Dry Run only measures the setup you actually choose here.",
+      "target": "stream_mode_combo",
+      "hint_only": true,
+      "next": "choose_tts_backend"
+    },
+    {
+      "id": "choose_tts_backend",
+      "title": "Choose the TTS Backend to Optimize",
+      "body": "Decide which TTS backend this Dry Run should optimize. Dry Run recommendations are specific to the current pipeline, so PocketTTS and Chatterbox should be tested separately if you care about both.",
+      "target": "tts_backend_combo",
+      "hint_only": true,
+      "next": "choose_vram_mode"
+    },
+    {
+      "id": "choose_vram_mode",
+      "title": "Start With Very Low VRAM",
+      "body": "For a first Dry Run, start with Very Low VRAM. Each MuseTalk VRAM mode should get its own Dry Run, so after this one you can work upward toward Low, Balanced, or Quality if your hardware allows it.",
+      "target": "musetalk_vram_combo",
+      "actions": [
+        {
+          "type": "set_combo_text",
+          "target": "musetalk_vram_combo",
+          "value": "Quality"
+        }
+      ],
+      "condition": {
+        "type": "combo_text",
+        "target": "musetalk_vram_combo",
+        "value": "Very Low VRAM",
+        "auto_advance": true
+      }
+    },
+    {
+      "id": "choose_model",
+      "title": "Choose the Model",
+      "body": "Choose the LM Studio model you want this Dry Run to measure. Ideally, choose a model that can survive across all the MuseTalk VRAM modes you plan to test, so your comparisons stay meaningful.",
+      "target": "model_combo",
+      "hint_only": true,
+      "next": "load_dry_run_preset"
+    },
+    {
+      "id": "load_dry_run_preset",
+      "title": "Load the Dry Run Preset",
+      "body": "Optionally load the bundled DryRun preset if you want a more standardized persona and brain setup for comparisons. The most important Dry Run control, the 600-token response cap, is enforced automatically when Dry Run is armed, so this preset is helpful but not strictly required.",
+      "tab": "Persona",
+      "target": "btn_preset_load",
+      "actions": [
+        {
+          "type": "set_combo_text",
+          "target": "preset_combo",
+          "value": "DryRun"
+        }
+      ],
+      "condition": {
+        "type": "button_click",
+        "target": "btn_preset_load",
+        "auto_advance": true
+      }
+    },
+    {
+      "id": "open_dry_run_tab",
+      "title": "Open the Dry Run Tab",
+      "body": "Now open the Dry Run tab. This is where you arm the run, watch its status, and later review the recommendation.",
+      "tab": "Dry Run",
+      "target": "dry_run_tab",
+      "actions": [
+        {
+          "type": "open_tab",
+          "target": "Dry Run"
+        }
+      ],
+      "hint_only": true,
+      "next": "arm_dry_run"
+    },
+    {
+      "id": "arm_dry_run",
+      "title": "Arm Dry Run",
+      "body": "Click Arm Dry Run. Leave Hands-Free enabled if you want the app to generate follow-up user responses by itself. That lets Dry Run continue without you needing to stay at the keyboard.",
+      "tab": "Dry Run",
+      "target": "btn_dry_run_start",
+      "actions": [
+        {
+          "type": "set_checkbox",
+          "target": "dry_run_auto_replies_checkbox",
+          "value": true
+        }
+      ],
+      "condition": {
+        "type": "button_click",
+        "target": "btn_dry_run_start",
+        "auto_advance": true
+      }
+    },
+    {
+      "id": "initialize_system",
+      "title": "Initialize the System",
+      "body": "Now click INITIALIZE SYSTEM. That starts the Dry Run under the exact configuration you just chose. The tutorial will continue automatically when the app reports that the engine is ready.",
+      "target": "btn_start_engine",
+      "condition": {
+        "type": "button_click",
+        "target": "btn_start_engine"
+      },
+      "listen": [
+        {
+          "event": "engine_initialized",
+          "action": "goto",
+          "goto": "wait_for_completion"
+        },
+        {
+          "event": "error_detected",
+          "action": "goto",
+          "goto": "startup_problem"
+        }
+      ],
+      "manual_next": false
+    },
+    {
+      "id": "startup_problem",
+      "title": "Startup Reported a Problem",
+      "body": "The app reported an error during initialization, so this Dry Run cannot measure a healthy startup yet. Fix the startup issue first, then restart this tutorial and Dry Run from a clean state.",
+      "target": "main_window",
+      "hint_only": true
+    },
+    {
+      "id": "wait_for_completion",
+      "title": "Let Dry Run Measure the Session",
+      "body": "Dry Run is active now. Let it collect reply samples. If Hands-Free is on, it can keep itself moving. Otherwise, you can answer manually between replies. This tutorial will advance when Dry Run completes.",
+      "tab": "Dry Run",
+      "target": "dry_run_status_label",
+      "listen": [
+        {
+          "event": "dry_run_completed",
+          "action": "goto",
+          "goto": "review_results"
+        }
+      ],
+      "manual_next": false
+    },
+    {
+      "id": "review_results",
+      "title": "Review the Recommendation",
+      "body": "Dry Run has completed. Review the summary and recommendation here. This is where the app explains what it measured and which startup or chunking values it thinks are better for this exact setup.",
+      "tab": "Dry Run",
+      "target": "dry_run_summary",
+      "hint_only": true,
+      "next": "apply_recommendation"
+    },
+    {
+      "id": "apply_recommendation",
+      "title": "Apply the Recommendation",
+      "body": "If the recommendation looks sensible, click Apply Recommendation. That loads the suggested runtime settings into the app so you can test them immediately.",
+      "tab": "Dry Run",
+      "target": "btn_dry_run_apply",
+      "condition": {
+        "type": "button_click",
+        "target": "btn_dry_run_apply",
+        "auto_advance": true
+      }
+    },
+    {
+      "id": "profiles",
+      "title": "Save and Compare",
+      "body": "If you like the result, save it as a Performance Profile. Then repeat Dry Run for other VRAM modes, TTS backends, or stream settings so you can compare profiles instead of guessing.",
+      "tab": "Dry Run",
+      "target": "performance_profile_combo",
+      "hint_only": true
+    }
+  ]
+}

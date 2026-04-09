@@ -1,0 +1,80 @@
+{
+  "id": "vision_supervisors_overview",
+  "title": "Vision Supervisors Overview",
+  "description": "A guided tour of the Vision system: foundational sources, hidden PING/PONG, and the supervisor-style behavior addons attached to Screen, Clipboard, Webcam, and Heart Rate.",
+  "steps": [
+    {
+      "title": "Welcome",
+      "body": "This tutorial explains the newer Vision architecture. The pattern is: foundational source first, then one or more child behavior addons that react in persona.",
+      "target": "main_window"
+    },
+    {
+      "title": "Open the Vision Host Tab",
+      "body": "The Vision system lives inside Host -> Vision. This is where hidden sensory input, hidden PING/PONG, and source-specific tabs come together.",
+      "target": "host_settings_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
+      ]
+    },
+    {
+      "title": "Included Sources",
+      "body": "This control decides which sensory sources are active enough to get their own Vision sub-tabs. If a source tab is missing later in this tutorial, check here first.",
+      "target": "sensory_feedback_source_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
+      ]
+    },
+    {
+      "title": "Hidden PING/PONG",
+      "body": "This enables the background hidden loop. When NC is idle, it can observe selected sensory sources, retain meaningful events, and use those events as ambient internal context later.",
+      "target": "sensory_pingpong_checkbox"
+    },
+    {
+      "title": "Automatic Speech",
+      "body": "This controls whether hidden PONG results are allowed to proactively speak. It affects background interruptions, not ordinary visible user turns.",
+      "target": "sensory_allow_hidden_proactive_checkbox"
+    },
+    {
+      "title": "Automatic Visual Replies",
+      "body": "This is the master auto-image switch. When it is off, NC should not spontaneously generate images from hidden PONG visual requests or from assistant [visualize: ...] tags.",
+      "target": "sensory_allow_hidden_visual_checkbox"
+    },
+    {
+      "title": "Screen as a Source",
+      "body": "The Screen tab is for ambient desktop context. Its child Supervisor addon is best for reacting to what the user is doing on-screen, not to deliberate uploads.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Screen" }
+      ]
+    },
+    {
+      "title": "Clipboard as a Source",
+      "body": "Clipboard is more deliberate than Screen. It watches newly copied images, so its Supervisor tends to be more confident and more directly tied to the user's chosen reference image.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Clipboard" }
+      ]
+    },
+    {
+      "title": "Webcam as a Source",
+      "body": "Webcam is for posture, gaze, expression, props, and visible energy. Its Supervisor behaves like the others, but its evidence comes from the user's current appearance instead of the desktop.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Webcam" }
+      ]
+    },
+    {
+      "title": "Heart Rate as a Source",
+      "body": "Heart Rate uses the same supervisor pattern, but the trigger field is named Signal Trigger instead of Visual Trigger. It reacts to BPM states rather than images.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Heart Rate" }
+      ]
+    },
+    {
+      "title": "The Shared Pattern",
+      "body": "Across all of these, the mental model is now consistent: source tab, child behavior tab, persona, trigger, action, and optional Advanced controls. That consistency is the real feature.",
+      "target": "main_window"
+    }
+  ]
+}

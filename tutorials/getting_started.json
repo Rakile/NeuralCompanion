@@ -1,0 +1,67 @@
+{
+  "id": "getting_started",
+  "title": "Getting Started",
+  "description": "A quick walkthrough of the core controls, tabs, and startup flow.",
+  "steps": [
+    {
+      "title": "Welcome",
+      "body": "This quick tour shows the main controls you need to get the app running. You can revisit this tutorial later from the Tutorials tab.",
+      "target": "main_window"
+    },
+    {
+      "title": "Choose Avatar Engine",
+      "body": "Start here. Choose between VSeeFace and MuseTalk. MuseTalk is the advanced lip-sync avatar pipeline and the one most of the performance tuning is built around.",
+      "target": "engine_combo"
+    },
+    {
+      "title": "Pick a Model",
+      "body": "Choose the LM Studio model here. Be sure LM Studio is running and serving a model before you initialize the system.",
+      "target": "model_combo"
+    },
+    {
+      "title": "Streaming and TTS",
+      "body": "These controls decide whether replies stream live and which text-to-speech backend is used. If you turn Stream Mode on, the app defaults to PocketTTS. If you turn Stream Mode off, it defaults back to the more expressive Chatterbox / TurboTTS path.",
+      "target": "stream_mode_combo"
+    },
+    {
+      "title": "MuseTalk VRAM Mode",
+      "body": "This chooses how demanding MuseTalk is on the GPU. Low VRAM modes make the system more accessible on smaller cards.",
+      "target": "musetalk_vram_combo"
+    },
+    {
+      "title": "Persona Tab",
+      "body": "The Persona tab controls voice, expressive tags, and the main system prompt. PocketTTS is bundled with the app and is used automatically when selected.",
+      "tab": "Persona",
+      "target": "persona_tab"
+    },
+    {
+      "title": "Brain Tab",
+      "body": "The Brain tab controls model sampling behavior such as temperature and top-p. These shape how the assistant responds, but they are separate from performance tuning.",
+      "tab": "Brain",
+      "target": "brain_tab"
+    },
+    {
+      "title": "Chunking Tab",
+      "body": "The Chunking tab controls how text is split for speech and avatar rendering. Most users should start with a profile or Dry Run before adjusting these manually.",
+      "tab": "Chunking",
+      "target": "chunking_tab"
+    },
+    {
+      "title": "Dry Run and Profiles",
+      "body": "Dry Run measures your hardware and recommends better startup and chunking values. Performance Profiles let you save and reload good configurations later.",
+      "tab": "Dry Run",
+      "target": "dry_run_tab"
+    },
+    {
+      "title": "Tutorials Tab",
+      "body": "This tab is where tutorials live. Over time, more walkthroughs can be added here without changing the app code because tutorials are loaded from JSON files.",
+      "tab": "Tutorials",
+      "target": "tutorials_tab"
+    },
+    {
+      "title": "Initialize the System",
+      "body": "When LM Studio is ready and your settings look good, use this button to initialize the engine and start the companion system.",
+      "target": "btn_start_engine"
+    }
+  ]
+}

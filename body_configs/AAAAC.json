@@ -1,0 +1,113 @@
+{
+    "profile": {
+        "neutral": {
+            "idle_arm_down": 68.0,
+            "idle_elbow_bend": 75.0,
+            "idle_arm_twist": 44.0,
+            "idle_fwd_left": -40.0,
+            "idle_fwd_right": 54.0,
+            "idle_speed": 1.91,
+            "idle_intensity": 0.79,
+            "spine_sway_mult": 0.87,
+            "spine_twist_mult": 0.33,
+            "neck_stabilize": 1.17,
+            "breath_speed": 1.15,
+            "shoulder_lift": 1.0,
+            "idle_shoulder_back": 12.0,
+            "eye_activity": 0.81
+        },
+        "happy": {
+            "idle_arm_down": 71.0,
+            "idle_elbow_bend": 66.66666666666663,
+            "idle_arm_twist": 30.0,
+            "idle_fwd_left": -75.0,
+            "idle_fwd_right": 80.0,
+            "idle_speed": 1.1,
+            "idle_intensity": 2.97,
+            "spine_sway_mult": 1.23,
+            "spine_twist_mult": 0.78,
+            "neck_stabilize": 1.41,
+            "breath_speed": 0.65,
+            "shoulder_lift": 2.0,
+            "idle_shoulder_back": 14.0,
+            "eye_activity": 0.51
+        },
+        "sad": {
+            "idle_arm_down": 69.33333333333334,
+            "idle_elbow_bend": 0.0,
+            "idle_arm_twist": -4.666666666666657,
+            "idle_fwd_left": -113.33333333333333,
+            "idle_fwd_right": 100.0,
+            "idle_speed": 0.8253333333333333,
+            "idle_intensity": 1.1016666666666666,
+            "spine_sway_mult": 0.33,
+            "spine_twist_mult": 0.71,
+            "neck_stabilize": 0.39,
+            "breath_speed": 0.57,
+            "shoulder_lift": 0.45,
+            "eye_activity": 0.18
+        },
+        "angry": {
+            "idle_arm_down": 64.0,
+            "idle_elbow_bend": 60.0,
+            "idle_arm_twist": 28.0,
+            "idle_fwd_left": -40.0,
+            "idle_fwd_right": 34.0,
+            "idle_speed": 0.7506666666666666,
+            "idle_intensity": 1.07,
+            "spine_sway_mult": 1.26,
+            "spine_twist_mult": 0.39,
+            "neck_stabilize": 0.8,
+            "idle_shoulder_back": 2.0,
+            "breath_speed": 0.61,
+            "shoulder_lift": 0.65,
+            "eye_activity": 1.26
+        },
+        "surprised": {
+            "idle_arm_down": 71.0,
+            "idle_elbow_bend": 124.0,
+            "idle_arm_twist": 50.66666666666666,
+            "idle_fwd_left": -75.0,
+            "idle_fwd_right": 80.0,
+            "breath_speed": 0.41,
+            "shoulder_lift": 0.3,
+            "idle_intensity": 0.88,
+            "idle_speed": 0.37,
+            "eye_activity": 0.81
+        },
+        "shy": {
+            "idle_arm_down": 56.0,
+            "idle_elbow_bend": 124.0,
+            "idle_arm_twist": 58.66666666666666,
+            "idle_fwd_left": -81.33333333333333,
+            "idle_fwd_right": 80.0,
+            "spine_sway_mult": 0.31,
+            "spine_twist_mult": 0.26,
+            "neck_stabilize": 0.73,
+            "idle_speed": 0.27466666666666667,
+            "idle_intensity": 3.54,
+            "breath_speed": 0.41,
+            "shoulder_lift": 0.65,
+            "idle_shoulder_back": -20.0,
+            "eye_activity": 1.23
+        }
+    },
+    "hands": {
+        "relaxed": {
+            "finger_x": -180.0,
+            "finger_y": -180.0,
+            "finger_z": -180.0,
+            "thumb_x": -180.0,
+            "thumb_y": -180.0,
+            "thumb_z": -180.0
+        },
+        "fist": {
+            "finger_x": -180.0,
+            "finger_y": -170.0,
+            "finger_z": -82.0,
+            "thumb_x": -167.0,
+            "thumb_y": -121.0,
+            "thumb_z": -160.0
+        }
+    }
+}

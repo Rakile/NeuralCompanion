@@ -1,0 +1,12 @@
+default_avatar:
+ preparation: True # your can set it to False if you want to use the existing avator, it will save time
+ bbox_shift: 5
+ video_path: "data/video/ani_refined.mov"
+ audio_clips:
+     audio_default: "data/audio/Hot_17.wav"
+ 
+  
+
+
+  
+

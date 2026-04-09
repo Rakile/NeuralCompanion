@@ -1,0 +1,10 @@
+{
+  "id": "nc.heart_rate_behavior",
+  "name": "Heart Rate Behavior",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "enabled": true,
+  "permissions": [
+    "ui.tabs"
+  ]
+}

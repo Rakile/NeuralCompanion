@@ -1,0 +1,47 @@
+{
+  "id": "clipboard_supervisor",
+  "title": "Clipboard Supervisor",
+  "description": "A walkthrough of the Clipboard source and the supervisor model for newly copied images.",
+  "steps": [
+    {
+      "title": "Open Vision -> Clipboard",
+      "body": "Clipboard is a deliberate image source. If its tab is missing, include Clipboard in the Vision source selector on the Core page first.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Clipboard" }
+      ]
+    },
+    {
+      "title": "Clipboard Source",
+      "body": "The Source tab controls how copied images enter NC: attach to the next turn, send immediately, or feed the hidden Vision loop. For supervisor-style behavior, hidden Vision loop is usually the interesting route.",
+      "target": "vision_source_tabs_clipboard",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "vision_source_tabs_clipboard", "value": "Source" }
+      ]
+    },
+    {
+      "title": "Deliberate vs Ambient",
+      "body": "Clipboard differs from Screen because copied images are deliberate user choices. That makes clipboard-triggered reactions feel more confident and less like ambient background commentary.",
+      "target": "vision_source_tabs_clipboard"
+    },
+    {
+      "title": "Supervisor Tab",
+      "body": "Switch to the Supervisor child tab. This is where you define persona-driven reactions to newly copied images, broad clipboard-image patterns, or a very specific kind of reference image.",
+      "target": "vision_source_tabs_clipboard",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "vision_source_tabs_clipboard", "value": "Supervisor" }
+      ]
+    },
+    {
+      "title": "NEW Clipboard Images",
+      "body": "Clipboard Supervisor distinguishes between a genuinely NEW clipboard image and one that is unchanged from the last cycle. That helps it comment once without nagging forever.",
+      "target": "vision_source_tabs_clipboard"
+    },
+    {
+      "title": "Recommended Use",
+      "body": "This addon is a strong fit for copied inspiration images, screenshots, artwork, articles, memes, and anything the user intentionally places on the clipboard for NC to notice.",
+      "target": "main_window"
+    }
+  ]
+}

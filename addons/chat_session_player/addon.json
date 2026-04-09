@@ -1,0 +1,11 @@
+{
+  "id": "nc.chat_session_player",
+  "name": "Chat Session Player",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Dedicated chat session replay and context loading tools.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

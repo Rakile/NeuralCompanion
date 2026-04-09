@@ -1,0 +1,11 @@
+{
+  "id": "nc.clipboard_supervisor",
+  "name": "Clipboard Supervisor",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Persona-driven clipboard image reactions for newly copied reference images.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

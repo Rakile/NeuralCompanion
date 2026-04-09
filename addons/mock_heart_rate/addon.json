@@ -1,0 +1,13 @@
+{
+  "id": "nc.mock_heart_rate",
+  "name": "Mock Heart Rate",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Floating mock BPM window plus a reusable heart-rate service and sensory provider for addon experiments.",
+  "permissions": [
+    "ui.tabs",
+    "events.publish",
+    "services.register"
+  ],
+  "enabled": true
+}

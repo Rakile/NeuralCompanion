@@ -1,0 +1,11 @@
+{
+  "id": "nc.webcam_supervisor",
+  "name": "Webcam Supervisor",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Persona-driven webcam behavior rules that can react to posture, expression, and attention cues.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

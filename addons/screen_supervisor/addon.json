@@ -1,0 +1,11 @@
+{
+  "id": "nc.screen_supervisor",
+  "name": "Screen Supervisor",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Playful screen-based behavior rules that can interrupt when noteworthy on-screen content appears.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

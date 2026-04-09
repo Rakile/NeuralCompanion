@@ -1,0 +1,258 @@
+{
+  "topics": [
+    {
+      "title": "Getting Started",
+      "keywords": [
+        "getting started",
+        "first run",
+        "initialize system",
+        "start the app",
+        "how do i start",
+        "setup"
+      ],
+      "summary": "A safe starting path is to use MuseTalk, turn Stream Mode on, keep PocketTTS as the backend, choose a low-VRAM MuseTalk mode, make sure LM Studio is running, then initialize the system.",
+      "bullets": [
+        "Choose Avatar Engine = MuseTalk for the built-in lip-sync avatar pipeline.",
+        "Turn Stream Mode on if you want replies to begin speaking sooner.",
+        "When Stream Mode is on, the app defaults the TTS backend to PocketTTS.",
+        "Choose a MuseTalk VRAM mode based on your hardware. Low VRAM and Very Low VRAM are safer starting points on smaller GPUs.",
+        "Make sure LM Studio is running and that a model is visible in the LLM Model list.",
+        "Click INITIALIZE SYSTEM to launch the engine."
+      ]
+    },
+    {
+      "title": "LM Studio",
+      "keywords": [
+        "lm studio",
+        "model",
+        "llm model",
+        "why no models",
+        "open lm studio"
+      ],
+      "summary": "LM Studio provides the language model used by the app. The app expects LM Studio to be running and serving a model locally.",
+      "bullets": [
+        "If the model list is empty or says Scanning / No Models, make sure LM Studio is open.",
+        "Load a model in LM Studio so the app can select it.",
+        "The selected LLM model affects the assistant's behavior and can also influence streaming feel."
+      ]
+    },
+    {
+      "title": "Streaming and TTS",
+      "keywords": [
+        "stream mode",
+        "tts backend",
+        "pockettts",
+        "chatterbox",
+        "turbotts",
+        "streaming"
+      ],
+      "summary": "Stream Mode and the TTS backend work together to shape responsiveness and expressiveness.",
+      "bullets": [
+        "When Stream Mode is turned on, the app defaults the TTS backend to PocketTTS.",
+        "When Stream Mode is turned off, the app defaults back to Chatterbox / TurboTTS.",
+        "PocketTTS is usually the faster streaming option.",
+        "Chatterbox is usually the more expressive option and may better handle emotional tags like laughs or other expressive sounds."
+      ]
+    },
+    {
+      "title": "MuseTalk VRAM Modes",
+      "keywords": [
+        "musetalk vram",
+        "vram mode",
+        "quality",
+        "balanced",
+        "low vram",
+        "very low vram"
+      ],
+      "summary": "MuseTalk VRAM modes trade memory use, GPU workload, and startup/render behavior.",
+      "bullets": [
+        "Quality keeps more work on GPU and is the heaviest mode.",
+        "Balanced is a middle-ground mode.",
+        "Low VRAM and Very Low VRAM reduce GPU pressure and are safer on smaller cards.",
+        "Very Low VRAM is a good first-run compatibility choice.",
+        "Different machines can prefer different modes, which is why Dry Run exists."
+      ]
+    },
+    {
+      "title": "Dry Run",
+      "keywords": [
+        "dry run",
+        "profile hardware",
+        "tune chunking",
+        "optimize",
+        "autotune"
+      ],
+      "summary": "Dry Run profiles the current setup and recommends chunking and startup settings based on measured performance.",
+      "bullets": [
+        "Dry Run is most useful for streaming setups.",
+        "During Dry Run, the app can auto-generate follow-up prompts to keep collecting samples.",
+        "Dry Run uses a fixed 600-token cap internally so runs stay comparable.",
+        "The result can be saved as a Performance Profile.",
+        "Dry Run settings are meant to optimize the pipeline, not your persona behavior."
+      ]
+    },
+    {
+      "title": "Performance Profiles",
+      "keywords": [
+        "performance profile",
+        "profiles",
+        "save latest",
+        "load profile",
+        "starter profile"
+      ],
+      "summary": "Performance Profiles store pipeline and chunking settings that can be loaded independently of persona presets.",
+      "bullets": [
+        "Profiles can store stream mode, TTS backend, MuseTalk VRAM mode, and chunking values.",
+        "Performance Profiles do not override the normal Brain sampling sliders on load, except model_name remains part of the profile.",
+        "The app ships with starter profiles like Recommended Stream, Very Low VRAM Stream, and Expressive Stream."
+      ]
+    },
+    {
+      "title": "Persona and Brain",
+      "keywords": [
+        "persona",
+        "brain",
+        "temperature",
+        "top p",
+        "system prompt",
+        "voice clone"
+      ],
+      "summary": "Persona and Brain settings shape how the assistant behaves and speaks rather than how the render pipeline performs.",
+      "bullets": [
+        "Persona contains voice selection, expressive tags, and the main system prompt.",
+        "PocketTTS is bundled with the app and is used automatically when selected. A PocketTTS interpreter path exists only as an advanced override.",
+        "Brain contains sampling settings like temperature, top-p, top-k, repeat penalty, min-p, and optional response length limit.",
+        "These are usually persona-style settings rather than performance-tuning settings."
+      ]
+    },
+    {
+      "title": "Emotional Tags and Voice Tags",
+      "keywords": [
+        "tags",
+        "emotional tags",
+        "voice tags",
+        "visual moods",
+        "laugh",
+        "chuckle",
+        "sigh",
+        "groan",
+        "gasp",
+        "clear throat",
+        "sniff",
+        "neutral",
+        "happy",
+        "sad",
+        "angry",
+        "shy",
+        "surprised"
+      ],
+      "summary": "The app supports two main kinds of expressive tags: facial-expression tags for the avatar and vocal-action tags for speech.",
+      "bullets": [
+        "Visual mood tags set the avatar expression state: [neutral], [happy], [sad], [angry], [shy], [surprised].",
+        "Voice sound tags trigger vocal actions: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff].",
+        "Visual mood tags are state-like. They can stay active until another visual mood tag changes the expression.",
+        "Voice sound tags are action-like. They are brief expressive events inside speech.",
+        "Chatterbox / TurboTTS is usually the better backend for expressive vocal tags and sounds.",
+        "PocketTTS is usually the faster streaming backend, but it may not express vocal-action tags as richly as Chatterbox.",
+        "Example: [surprised] You did what? [laugh] [surprised] Oh my god, are you okay? [happy] Or just clumsy?",
+        "Do not use emojis in spoken output."
+      ]
+    },
+    {
+      "title": "Avatar Engines",
+      "keywords": [
+        "avatar engine",
+        "avatar engines",
+        "musetalk",
+        "vseeface",
+        "which avatar engine",
+        "difference between musetalk and vseeface"
+      ],
+      "summary": "The app supports different avatar engines with different strengths.",
+      "bullets": [
+        "MuseTalk is the built-in lip-sync avatar pipeline and the main target for Dry Run and VRAM tuning.",
+        "VSeeFace is the other avatar engine option exposed in the app.",
+        "If you want the app's built-in streaming avatar rendering and MuseTalk VRAM modes, choose MuseTalk."
+      ]
+    },
+    {
+      "title": "Body Tab and Hand Doctor",
+      "keywords": [
+        "body tab",
+        "hand doctor",
+        "hands",
+        "body settings",
+        "what is hand doctor"
+      ],
+      "summary": "The Body area is for avatar pose/body shaping and hand calibration tools.",
+      "bullets": [
+        "The Body tab contains sliders for body and pose-related behavior.",
+        "Hand Doctor is a utility for adjusting and inspecting hand rotation/calibration behavior.",
+        "These controls are separate from LLM behavior and chunking."
+      ]
+    },
+    {
+      "title": "Dynamics Tab",
+      "keywords": [
+        "dynamics tab",
+        "dynamics",
+        "body sway",
+        "breath speed",
+        "eye activity"
+      ],
+      "summary": "The Dynamics tab adjusts motion-style parameters such as sway, breath, and other expressive movement controls.",
+      "bullets": [
+        "Use it to change how active or calm the avatar feels.",
+        "These are movement/animation controls rather than pipeline performance controls."
+      ]
+    },
+    {
+      "title": "Chunking",
+      "keywords": [
+        "chunking",
+        "chunks",
+        "target chars",
+        "flush",
+        "quickstart",
+        "first chunk"
+      ],
+      "summary": "Chunking controls how text is split for speech and avatar rendering, especially in streaming mode.",
+      "bullets": [
+        "Streaming chunking tries to balance early startup with more natural punctuation-aware chunk boundaries.",
+        "Dry Run can tune chunking automatically for the current machine.",
+        "The Chunking tab is global pipeline tuning, not persona tuning."
+      ]
+    },
+    {
+      "title": "Tutorials",
+      "keywords": [
+        "tutorial",
+        "getting started",
+        "first run tutorial",
+        "how do i learn the app"
+      ],
+      "summary": "The app includes a Tutorials tab and can show a first-run tutorial prompt once.",
+      "bullets": [
+        "Getting Started is a guided walkthrough.",
+        "First Run is an interactive onboarding tutorial.",
+        "Tutorials are loaded from JSON, so more can be added later without hardcoding them into the UI."
+      ]
+    },
+    {
+      "title": "Presets and Tutorial Persona",
+      "keywords": [
+        "preset",
+        "presets",
+        "tutorial persona",
+        "load preset",
+        "persona preset"
+      ],
+      "summary": "Presets store persona-style configuration like prompts, voice settings, and sampling values.",
+      "bullets": [
+        "Tutorial Persona is a bundled preset used by the tutorial flow.",
+        "Loading a preset changes persona and brain-related settings rather than performance-profile chunking settings.",
+        "Performance Profiles are separate from persona presets."
+      ]
+    }
+  ]
+}
