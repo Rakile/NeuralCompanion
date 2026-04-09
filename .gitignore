@@ -31,3 +31,5 @@ addons/**/__pycache__/
 core/**/__pycache__/
 VaMtest/__pycache__/
 VaMtest/last_sent_*.json
+body_configs/*.json
+!body_configs/.gitkeep
