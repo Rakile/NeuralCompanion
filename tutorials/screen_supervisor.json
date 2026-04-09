@@ -35,7 +35,7 @@
     },
     {
       "title": "Behavior Cards",
-      "body": "Each behavior card follows the same structure: enabled state, Visual Trigger, Action, and optional Advanced controls. Newly added behavior cards start disabled so blank cards do not go live immediately.",
+      "body": "Each behavior card follows the same structure: enabled state, Visual Trigger, Action, and optional Advanced controls. Advanced now includes strictness, emotion override, and an Allow recurring commentary toggle for behaviors that should keep bantering instead of firing only once. Newly added behavior cards start disabled so blank cards do not go live immediately.",
       "target": "vision_source_tabs_screen"
     },
     {

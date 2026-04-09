@@ -32,7 +32,8 @@ When no configured behavior clearly matches:
 - set should_speak=false for this behavior
 - do not invent a supervisor-style interruption
 
-If recent retained hidden PONG context already contains a very similar warning for the same screen pattern, prefer should_speak=false to avoid repetitive nagging.
+If the matching behavior says to avoid repeats, and recent retained hidden PONG context already contains a very similar interruption for the same ongoing screen pattern, prefer should_speak=false to avoid repetitive nagging.
+If the matching behavior allows recurring commentary, you may speak again about the same ongoing screen pattern when you have a fresh, playful variation to say, but still avoid near-duplicate spam.
 Keep interruptions concise, playful, and in-character."""
 
 PERSONA_STYLE_HINTS = {
@@ -60,6 +61,7 @@ EMOTION_OPTIONS = [
     "surprised",
 ]
 DEFAULT_EMOTION = EMOTION_OPTIONS[0]
+DEFAULT_ALLOW_REPEAT = False
 
 
 def _new_id(prefix):
@@ -229,6 +231,15 @@ class Addon(BaseAddon):
             "Treat the Action as creative guidance only. Keep the intent, but freely improvise wording, phrasing, and joke construction in persona."
         )
 
+    def _repeat_policy_instruction(self, value):
+        if bool(value):
+            return (
+                "Allow recurring commentary. If the same screen pattern keeps happening, you may interrupt again with a fresh variation instead of treating it as one-and-done."
+            )
+        return (
+            "Avoid repeats. If a very similar interruption was already given for the same ongoing screen pattern, prefer should_speak=false."
+        )
+
     def _normalize_personas(self, personas):
         items = []
         raw_list = list(personas or [])
@@ -254,6 +265,7 @@ class Addon(BaseAddon):
                         "action": action,
                         "strictness": self._normalize_strictness(raw_behavior.get("strictness")),
                         "emotion": self._normalize_emotion(raw_behavior.get("emotion")),
+                        "allow_repeat": bool(raw_behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)),
                     }
                 )
             items.append(
@@ -314,11 +326,13 @@ class Addon(BaseAddon):
             strictness_line = self._strictness_instruction(behavior.get("strictness"))
             emotion_value = self._normalize_emotion(behavior.get("emotion"))
             emotion_line = "Auto." if emotion_value == DEFAULT_EMOTION else f"Prefer emotion={emotion_value}."
+            repeat_line = self._repeat_policy_instruction(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT))
             behavior_lines.append(
                 f"{active_index}. Visual Trigger: {trigger}\n"
                 f"   Action: {action}\n"
                 f"   Strictness: {strictness_line}\n"
-                f"   Emotion override: {emotion_line}"
+                f"   Emotion override: {emotion_line}\n"
+                f"   Repeat policy: {repeat_line}"
             )
         if not behavior_lines:
             return "No behaviors are configured for this persona yet. Set should_speak=false for this behavior."
@@ -549,7 +563,7 @@ class Addon(BaseAddon):
             else:
                 refresh_preview()
 
-        def commit_behavior_change(persona_id, behavior_id, *, trigger=None, action=None, enabled=None, strictness=None, emotion=None):
+        def commit_behavior_change(persona_id, behavior_id, *, trigger=None, action=None, enabled=None, strictness=None, emotion=None, allow_repeat=None):
             persona = self._find_persona(persona_id)
             behavior = self._find_behavior(persona, behavior_id)
             if persona is None or behavior is None:
@@ -574,6 +588,9 @@ class Addon(BaseAddon):
                 if emotion_value != str(behavior.get("emotion") or DEFAULT_EMOTION):
                     behavior["emotion"] = emotion_value
                     changed = True
+            if allow_repeat is not None and bool(allow_repeat) != bool(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)):
+                behavior["allow_repeat"] = bool(allow_repeat)
+                changed = True
             if changed:
                 self._publish_prompt_only()
             refresh_preview()
@@ -643,6 +660,11 @@ class Addon(BaseAddon):
                 emotion_combo.setCurrentText(self._normalize_emotion(behavior.get("emotion")))
                 advanced_layout.addRow("Emotion override", emotion_combo)
 
+                repeat_checkbox = QtWidgets.QCheckBox("Allow recurring commentary")
+                repeat_checkbox.setChecked(bool(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)))
+                repeat_checkbox.setToolTip("Let this behavior keep commenting on the same ongoing pattern instead of treating it as a one-off interruption.")
+                advanced_layout.addRow("Repeat policy", repeat_checkbox)
+
                 advanced_panel.setVisible(advanced_button.isChecked())
                 box_layout.addWidget(advanced_panel)
 
@@ -660,6 +682,9 @@ class Addon(BaseAddon):
                 )
                 emotion_combo.currentTextChanged.connect(
                     lambda value, pid=persona["id"], bid=behavior["id"]: commit_behavior_change(pid, bid, emotion=value)
+                )
+                repeat_checkbox.toggled.connect(
+                    lambda checked, pid=persona["id"], bid=behavior["id"]: commit_behavior_change(pid, bid, allow_repeat=checked)
                 )
                 advanced_button.toggled.connect(
                     lambda checked, panel=advanced_panel, bid=behavior["id"]: (panel.setVisible(bool(checked)), self._set_behavior_expanded(bid, bool(checked)))
