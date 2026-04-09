@@ -76,9 +76,76 @@ from engine import (
 
 APP_TITLE = "Neural Interface Qt (Experimental)"
 SESSION_PATH = Path("qt_session.json")
+DEFAULT_LOCAL_VAM_ROOT = r"I:\wam\VaM 1.20.0.6"
+DEFAULT_LOCAL_VAM_EXECUTABLE = "VaM.exe"
+DEFAULT_LOCAL_VAM_DESKTOP_LAUNCHER = "VaM (Desktop Mode).bat"
+DEFAULT_LOCAL_VAM_VR_LAUNCHER = "VaM (OpenVR).bat"
 QT_PREVIEW_CACHE_LIMIT = 384
 QT_PREVIEW_INITIAL_PRELOAD = 96
 QT_PREVIEW_AHEAD_PRELOAD = 72
+
+
+def build_vam_launch_icon(size=28):
+    size = max(18, int(size or 28))
+    pixmap = QtGui.QPixmap(size, size)
+    pixmap.fill(QtCore.Qt.transparent)
+
+    painter = QtGui.QPainter(pixmap)
+    painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+
+    top_gradient = QtGui.QLinearGradient(0, 0, size, size * 0.55)
+    top_gradient.setColorAt(0.0, QtGui.QColor("#4d8dff"))
+    top_gradient.setColorAt(1.0, QtGui.QColor("#6d6bff"))
+    bottom_gradient = QtGui.QLinearGradient(0, size * 0.45, size, size)
+    bottom_gradient.setColorAt(0.0, QtGui.QColor("#7d6cff"))
+    bottom_gradient.setColorAt(1.0, QtGui.QColor("#ff56c5"))
+
+    stroke = max(2.2, size * 0.11)
+    top_pen = QtGui.QPen(QtGui.QBrush(top_gradient), stroke, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+    bottom_pen = QtGui.QPen(QtGui.QBrush(bottom_gradient), stroke, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+
+    w = float(size)
+    # Stylized "V"
+    painter.setPen(top_pen)
+    painter.drawPolyline(
+        QtGui.QPolygonF(
+            [
+                QtCore.QPointF(w * 0.12, w * 0.18),
+                QtCore.QPointF(w * 0.22, w * 0.42),
+                QtCore.QPointF(w * 0.32, w * 0.18),
+            ]
+        )
+    )
+    # Stylized "A"
+    painter.drawPolyline(
+        QtGui.QPolygonF(
+            [
+                QtCore.QPointF(w * 0.46, w * 0.42),
+                QtCore.QPointF(w * 0.56, w * 0.18),
+                QtCore.QPointF(w * 0.66, w * 0.42),
+            ]
+        )
+    )
+    painter.drawLine(
+        QtCore.QPointF(w * 0.50, w * 0.31),
+        QtCore.QPointF(w * 0.62, w * 0.31),
+    )
+
+    # Stylized "M"
+    painter.setPen(bottom_pen)
+    painter.drawPolyline(
+        QtGui.QPolygonF(
+            [
+                QtCore.QPointF(w * 0.17, w * 0.82),
+                QtCore.QPointF(w * 0.17, w * 0.54),
+                QtCore.QPointF(w * 0.33, w * 0.72),
+                QtCore.QPointF(w * 0.50, w * 0.54),
+                QtCore.QPointF(w * 0.50, w * 0.82),
+            ]
+        )
+    )
+    painter.end()
+    return QtGui.QIcon(pixmap)
 QT_MUSETALK_LOOP_FADE_MS = 180
 DEFAULT_CHUNKING_VALUES = {
     "chunk_target_chars": 100,
@@ -3078,6 +3145,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.vam_root_edit = QtWidgets.QLineEdit()
         self.vam_root_edit.setObjectName("vam_root_edit")
         self.vam_root_edit.setText(engine.normalize_vam_root(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
+        if not self.vam_root_edit.text().strip():
+            self.vam_root_edit.setText(engine.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT))
         self.vam_root_edit.setToolTip("Path to the VaM installation root. NC derives the bridge folder from this.")
         self.vam_root_edit.editingFinished.connect(self.on_vam_root_changed)
 
@@ -4728,6 +4797,25 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         bridge_layout.addWidget(self.vam_play_audio_in_vam_checkbox)
         bridge_layout.addWidget(self.vam_timeline_auto_resume_checkbox)
 
+        vam_actions = QtWidgets.QHBoxLayout()
+        vam_launch_icon = build_vam_launch_icon()
+        self.btn_start_vam_desktop = QtWidgets.QPushButton("Start VaM Desktop")
+        self.btn_start_vam_desktop.setObjectName("btn_start_vam_desktop")
+        self.btn_start_vam_desktop.setToolTip(f"Launch {DEFAULT_LOCAL_VAM_DESKTOP_LAUNCHER} from the configured VaM Root.")
+        self.btn_start_vam_desktop.setIcon(vam_launch_icon)
+        self.btn_start_vam_desktop.setIconSize(QtCore.QSize(24, 24))
+        self.btn_start_vam_desktop.clicked.connect(self.on_start_vam_desktop_clicked)
+        vam_actions.addWidget(self.btn_start_vam_desktop)
+        self.btn_start_vam_vr = QtWidgets.QPushButton("Start VaM VR")
+        self.btn_start_vam_vr.setObjectName("btn_start_vam_vr")
+        self.btn_start_vam_vr.setToolTip(f"Launch {DEFAULT_LOCAL_VAM_VR_LAUNCHER} from the configured VaM Root.")
+        self.btn_start_vam_vr.setIcon(vam_launch_icon)
+        self.btn_start_vam_vr.setIconSize(QtCore.QSize(24, 24))
+        self.btn_start_vam_vr.clicked.connect(self.on_start_vam_vr_clicked)
+        vam_actions.addWidget(self.btn_start_vam_vr)
+        vam_actions.addStretch(1)
+        bridge_layout.addLayout(vam_actions)
+
         hint = QtWidgets.QLabel(
             "Recommended VaM setup: point NC at the VaM install root, keep VMC and bridge on, and let VaM head audio handle speech so the avatar remains the real speaker."
         )
@@ -5436,6 +5524,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if hasattr(self, "vam_bridge_root_edit"):
             self.vam_bridge_root_edit.setText(self._current_vam_bridge_root_value())
 
+    def _ensure_vam_root_for_launch(self):
+        current_root = self._current_vam_root_value()
+        if str(current_root or "").strip():
+            return current_root
+        fallback_root = engine.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT)
+        if hasattr(self, "vam_root_edit"):
+            self.vam_root_edit.setText(fallback_root)
+        self.on_vam_root_changed()
+        return fallback_root
+
     def on_vam_root_changed(self):
         normalized_root = self._current_vam_root_value()
         derived_bridge_root = engine.derive_vam_bridge_root(normalized_root)
@@ -5449,6 +5547,34 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def on_vam_bridge_root_changed(self):
         self.on_vam_root_changed()
+
+    def _launch_vam_target(self, launch_name, title):
+        vam_root = self._ensure_vam_root_for_launch()
+        target_path = Path(vam_root) / str(launch_name or "").strip()
+        if not target_path.exists():
+            QtWidgets.QMessageBox.warning(
+                self,
+                title,
+                f"Could not find {launch_name} at:\n{target_path}",
+            )
+            return
+        try:
+            if target_path.suffix.lower() == ".bat":
+                subprocess.Popen(["cmd", "/c", str(target_path)], cwd=str(target_path.parent))
+            else:
+                subprocess.Popen([str(target_path)], cwd=str(target_path.parent))
+        except Exception as exc:
+            QtWidgets.QMessageBox.critical(
+                self,
+                title,
+                f"Failed to launch {launch_name}.\n\n{exc}",
+            )
+
+    def on_start_vam_desktop_clicked(self):
+        self._launch_vam_target(DEFAULT_LOCAL_VAM_DESKTOP_LAUNCHER, "Start VaM Desktop")
+
+    def on_start_vam_vr_clicked(self):
+        self._launch_vam_target(DEFAULT_LOCAL_VAM_VR_LAUNCHER, "Start VaM VR")
 
     def on_vam_target_atom_uid_changed(self):
         update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() or "Person")
@@ -10726,10 +10852,6 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
 
 
 
