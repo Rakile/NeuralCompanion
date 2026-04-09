@@ -343,16 +343,29 @@ def _env_json_dict(name, default):
     return {str(key): value for key, value in parsed.items()} if isinstance(parsed, dict) else dict(default)
 
 
-def _detect_default_vam_bridge_root():
-    env_root = str(os.environ.get("NC_VAM_BRIDGE_ROOT", "") or "").strip()
+def _normalized_abs_path(raw_path):
+    return os.path.abspath(os.path.expanduser(str(raw_path or "").strip()))
+
+
+def _path_endswith_parts(path_value, *parts):
+    try:
+        normalized = Path(_normalized_abs_path(path_value))
+    except Exception:
+        return False
+    expected = tuple(str(part).lower() for part in parts)
+    actual = tuple(part.lower() for part in normalized.parts[-len(expected):])
+    return bool(expected) and actual == expected
+
+
+def _detect_default_vam_root():
+    env_root = str(os.environ.get("NC_VAM_ROOT", "") or "").strip()
     if env_root:
-        return os.path.abspath(env_root)
+        return _normalized_abs_path(env_root)
 
     candidates = [
-        Path(__file__).resolve().parent / "runtime" / "vam_bridge",
-        Path("D:/tools/python_scripts/VaM 1.20.0.6/Custom/PluginData/NeuralCompanionBridge"),
-        Path(__file__).resolve().parent.parent / "VaM 1.20.0.6" / "Custom" / "PluginData" / "NeuralCompanionBridge",
-        Path(__file__).resolve().parent.parent / "VaM" / "Custom" / "PluginData" / "NeuralCompanionBridge",
+        Path("D:/tools/python_scripts/VaM 1.20.0.6"),
+        Path(__file__).resolve().parent.parent / "VaM 1.20.0.6",
+        Path(__file__).resolve().parent.parent / "VaM",
     ]
     for candidate in candidates:
         try:
@@ -360,7 +373,54 @@ def _detect_default_vam_bridge_root():
                 return str(candidate.resolve())
         except Exception:
             continue
-    return str(candidates[0].resolve())
+    return ""
+
+
+def derive_vam_bridge_root(vam_root):
+    normalized_root = _normalized_abs_path(vam_root) if str(vam_root or "").strip() else ""
+    if not normalized_root:
+        return _normalized_abs_path(Path(__file__).resolve().parent / "runtime" / "vam_bridge")
+    return _normalized_abs_path(Path(normalized_root) / "Custom" / "PluginData" / "NeuralCompanionBridge")
+
+
+def derive_vam_plugin_dir(vam_root):
+    normalized_root = _normalized_abs_path(vam_root) if str(vam_root or "").strip() else ""
+    if not normalized_root:
+        return ""
+    return _normalized_abs_path(Path(normalized_root) / "Custom" / "Scripts" / "NeuralCompanionBridge")
+
+
+DEFAULT_VAM_ROOT = _detect_default_vam_root()
+
+
+LEGACY_VAM_BRIDGE_ROOTS = tuple(
+    dict.fromkeys(
+        [
+            _normalized_abs_path("D:/tools/python_scripts/VaM 1.20.0.6/Custom/PluginData/NeuralCompanionBridge"),
+            _normalized_abs_path(Path(__file__).resolve().parent.parent / "VaM 1.20.0.6" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
+            _normalized_abs_path(Path(__file__).resolve().parent.parent / "VaM" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
+            _normalized_abs_path(Path(__file__).resolve().parent / "runtime" / "vam_bridge"),
+        ]
+    )
+)
+
+
+def normalize_vam_root(raw_value=None, migrate_legacy=True):
+    value = str(raw_value or "").strip()
+    if not value:
+        return DEFAULT_VAM_ROOT
+    normalized = _normalized_abs_path(value)
+    if _path_endswith_parts(normalized, "Custom", "PluginData", "NeuralCompanionBridge"):
+        return _normalized_abs_path(Path(normalized).parent.parent.parent)
+    if _path_endswith_parts(normalized, "Custom", "Scripts", "NeuralCompanionBridge"):
+        return _normalized_abs_path(Path(normalized).parent.parent.parent)
+    if migrate_legacy and normalized in LEGACY_VAM_BRIDGE_ROOTS:
+        return DEFAULT_VAM_ROOT
+    return normalized
+
+
+def normalize_vam_bridge_root(raw_value=None, migrate_legacy=True):
+    return derive_vam_bridge_root(normalize_vam_root(raw_value, migrate_legacy=migrate_legacy))
 
 
 DEFAULT_VAM_EMOTION_PRESET_MAP = {
@@ -382,7 +442,7 @@ DEFAULT_VAM_TIMELINE_CLIP_MAP = {
     "default": "talk_default",
 }
 
-DEFAULT_VAM_BRIDGE_ROOT = _detect_default_vam_bridge_root()
+DEFAULT_VAM_BRIDGE_ROOT = derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 
 RUNTIME_CONFIG = {
     "active_preset_name": "",
@@ -398,6 +458,7 @@ RUNTIME_CONFIG = {
     "vam_vmc_host": str(os.environ.get("NC_VAM_VMC_HOST", "127.0.0.1") or "127.0.0.1"),
     "vam_vmc_port": int(os.environ.get("NC_VAM_VMC_PORT", "39539") or 39539),
     "vam_bridge_enabled": _env_flag("NC_VAM_BRIDGE_ENABLED", True),
+    "vam_root": DEFAULT_VAM_ROOT,
     "vam_bridge_root": DEFAULT_VAM_BRIDGE_ROOT,
     "vam_play_audio_in_vam": _env_flag("NC_VAM_PLAY_AUDIO_IN_VAM", True),
     "vam_target_atom_uid": str(os.environ.get("NC_VAM_TARGET_ATOM_UID", "Person") or "Person"),
@@ -6735,7 +6796,13 @@ class VaMAdapter(VSeeFaceAdapter):
         super().__init__(ip=vmc_host, port=vmc_port)
         self.vmc_enabled = bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True))
         self.bridge_enabled = bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True))
-        self.bridge_root = os.path.abspath(str(RUNTIME_CONFIG.get("vam_bridge_root", DEFAULT_VAM_BRIDGE_ROOT) or DEFAULT_VAM_BRIDGE_ROOT))
+        self.vam_root = normalize_vam_root(
+            RUNTIME_CONFIG.get(
+                "vam_root",
+                RUNTIME_CONFIG.get("vam_bridge_root", DEFAULT_VAM_ROOT),
+            )
+        )
+        self.bridge_root = derive_vam_bridge_root(self.vam_root)
         self.play_audio_in_vam = bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))
         self.target_atom_uid = str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person").strip() or "Person"
         self.target_storable_id = str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge").strip()

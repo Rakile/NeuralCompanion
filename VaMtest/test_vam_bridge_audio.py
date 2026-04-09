@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 
-DEFAULT_BRIDGE_ROOT = r"D:\tools\python_scripts\VaM 1.20.0.6\Custom\PluginData\NeuralCompanionBridge"
+DEFAULT_VAM_ROOT = r"D:\tools\python_scripts\VaM 1.20.0.6"
 DEFAULT_TARGET_ATOM_UID = "Person"
 DEFAULT_TARGET_STORABLE_ID = "plugin#0_NeuralCompanionBridge"
 
@@ -70,6 +70,10 @@ def read_status(status_path: Path) -> dict | None:
         return None
 
 
+def derive_bridge_root(vam_root: str) -> Path:
+    return (Path(vam_root).expanduser().resolve() / "Custom" / "PluginData" / "NeuralCompanionBridge").resolve()
+
+
 def build_payload(
     *,
     target_atom_uid: str,
@@ -113,7 +117,8 @@ def send_command(inbox_dir: Path, session_id: str, action: str, payload: dict) -
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Standalone VaM bridge audio tester.")
-    parser.add_argument("--bridge-root", default=DEFAULT_BRIDGE_ROOT, help="VaM NeuralCompanionBridge root")
+    parser.add_argument("--vam-root", default=DEFAULT_VAM_ROOT, help="VaM installation root")
+    parser.add_argument("--bridge-root", default="", help="Optional explicit bridge root override")
     parser.add_argument("--wav", default=str(Path(__file__).with_name("input.wav")), help="Input WAV to stage")
     parser.add_argument("--text", default="VaM bridge audio test", help="Text note to include in the speech chunk")
     parser.add_argument("--emotion", default="neutral", help="Emotion field to send")
@@ -124,7 +129,8 @@ def main() -> int:
     parser.add_argument("--snapshot-dir", default=str(Path(__file__).resolve().parent), help="Where to save sent command snapshots")
     args = parser.parse_args()
 
-    bridge_root = Path(args.bridge_root).expanduser().resolve()
+    vam_root = Path(args.vam_root).expanduser().resolve()
+    bridge_root = Path(args.bridge_root).expanduser().resolve() if str(args.bridge_root or "").strip() else derive_bridge_root(str(vam_root))
     inbox_dir = bridge_root / "inbox"
     outbox_dir = bridge_root / "outbox"
     audio_dir = bridge_root / "audio"
@@ -148,6 +154,7 @@ def main() -> int:
     shutil.copy2(input_wav, staged_wav)
 
     print(f"Bridge root: {bridge_root}")
+    print(f"VaM root:    {vam_root}")
     print(f"Input WAV:   {input_wav}")
     print(f"Staged WAV:  {staged_wav}")
     print(f"Duration:    {duration_seconds:.2f}s")

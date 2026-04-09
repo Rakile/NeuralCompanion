@@ -3075,10 +3075,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.vam_vmc_port_spin.setValue(int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539))
         self.vam_vmc_port_spin.valueChanged.connect(self.on_vam_vmc_port_changed)
 
+        self.vam_root_edit = QtWidgets.QLineEdit()
+        self.vam_root_edit.setObjectName("vam_root_edit")
+        self.vam_root_edit.setText(engine.normalize_vam_root(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
+        self.vam_root_edit.setToolTip("Path to the VaM installation root. NC derives the bridge folder from this.")
+        self.vam_root_edit.editingFinished.connect(self.on_vam_root_changed)
+
         self.vam_bridge_root_edit = QtWidgets.QLineEdit()
         self.vam_bridge_root_edit.setObjectName("vam_bridge_root_edit")
-        self.vam_bridge_root_edit.setText(str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
-        self.vam_bridge_root_edit.editingFinished.connect(self.on_vam_bridge_root_changed)
+        self.vam_bridge_root_edit.setReadOnly(True)
+        self.vam_bridge_root_edit.setText(engine.derive_vam_bridge_root(self.vam_root_edit.text().strip()))
+        self.vam_bridge_root_edit.setToolTip("Derived from the VaM Root. The plugin's default Bridge Root already matches this location inside VaM.")
 
         self.vam_target_atom_uid_edit = QtWidgets.QLineEdit()
         self.vam_target_atom_uid_edit.setObjectName("vam_target_atom_uid_edit")
@@ -4709,7 +4716,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         bridge_form = QtWidgets.QFormLayout()
         bridge_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        bridge_form.addRow("Bridge Root", self.vam_bridge_root_edit)
+        bridge_form.addRow("VaM Root", self.vam_root_edit)
+        bridge_form.addRow("Bridge Path", self.vam_bridge_root_edit)
         bridge_form.addRow("Target Atom UID", self.vam_target_atom_uid_edit)
         bridge_form.addRow("Target Storable ID", self.vam_target_storable_id_edit)
         bridge_form.addRow("VMC Host", self.vam_vmc_host_edit)
@@ -4721,7 +4729,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         bridge_layout.addWidget(self.vam_timeline_auto_resume_checkbox)
 
         hint = QtWidgets.QLabel(
-            "Recommended VaM setup: keep VMC and bridge on, and let VaM head audio handle speech so the avatar remains the real speaker."
+            "Recommended VaM setup: point NC at the VaM install root, keep VMC and bridge on, and let VaM head audio handle speech so the avatar remains the real speaker."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -5415,9 +5423,32 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("vam_vmc_port", int(value))
         self.save_session()
 
-    def on_vam_bridge_root_changed(self):
-        update_runtime_config("vam_bridge_root", self.vam_bridge_root_edit.text().strip())
+    def _current_vam_root_value(self):
+        raw = self.vam_root_edit.text().strip() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", ""))
+        return engine.normalize_vam_root(raw)
+
+    def _current_vam_bridge_root_value(self):
+        return engine.derive_vam_bridge_root(self._current_vam_root_value())
+
+    def _refresh_vam_path_widgets(self):
+        if hasattr(self, "vam_root_edit"):
+            self.vam_root_edit.setText(self._current_vam_root_value())
+        if hasattr(self, "vam_bridge_root_edit"):
+            self.vam_bridge_root_edit.setText(self._current_vam_bridge_root_value())
+
+    def on_vam_root_changed(self):
+        normalized_root = self._current_vam_root_value()
+        derived_bridge_root = engine.derive_vam_bridge_root(normalized_root)
+        if hasattr(self, "vam_root_edit"):
+            self.vam_root_edit.setText(normalized_root)
+        if hasattr(self, "vam_bridge_root_edit"):
+            self.vam_bridge_root_edit.setText(derived_bridge_root)
+        update_runtime_config("vam_root", normalized_root)
+        update_runtime_config("vam_bridge_root", derived_bridge_root)
         self.save_session()
+
+    def on_vam_bridge_root_changed(self):
+        self.on_vam_root_changed()
 
     def on_vam_target_atom_uid_changed(self):
         update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() or "Person")
@@ -6320,7 +6351,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("vam_timeline_auto_resume", self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else True)
         update_runtime_config("vam_vmc_host", self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
         update_runtime_config("vam_vmc_port", int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539))
-        update_runtime_config("vam_bridge_root", self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
+        update_runtime_config("vam_root", self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
+        update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
         update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"))
         update_runtime_config("vam_target_storable_id", self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
         update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
@@ -7693,7 +7725,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
             "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
             "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_bridge_root": self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
+            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
+            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
             "vam_play_audio_in_vam": True if mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))),
             "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
             "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
@@ -8050,7 +8083,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
             "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
             "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_bridge_root": self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
+            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
+            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
             "vam_play_audio_in_vam": self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
             "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
             "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
@@ -8195,10 +8229,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if vam_vmc_port is not None and hasattr(self, "vam_vmc_port_spin"):
             self.vam_vmc_port_spin.setValue(int(vam_vmc_port))
             self.on_vam_vmc_port_changed(int(vam_vmc_port))
-        vam_bridge_root = session.get("vam_bridge_root")
-        if vam_bridge_root and hasattr(self, "vam_bridge_root_edit"):
-            self.vam_bridge_root_edit.setText(str(vam_bridge_root))
-            self.on_vam_bridge_root_changed()
+        vam_root = session.get("vam_root") or session.get("vam_bridge_root")
+        if vam_root and hasattr(self, "vam_root_edit"):
+            self.vam_root_edit.setText(engine.normalize_vam_root(vam_root))
+            self.on_vam_root_changed()
         vam_target_atom_uid = session.get("vam_target_atom_uid")
         if vam_target_atom_uid and hasattr(self, "vam_target_atom_uid_edit"):
             self.vam_target_atom_uid_edit.setText(str(vam_target_atom_uid))
@@ -8593,7 +8627,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("vam_timeline_auto_resume", self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else True)
         update_runtime_config("vam_vmc_host", self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
         update_runtime_config("vam_vmc_port", int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539))
-        update_runtime_config("vam_bridge_root", self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
+        update_runtime_config("vam_root", self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
+        update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
         update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"))
         update_runtime_config("vam_target_storable_id", self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
         update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
@@ -9902,7 +9937,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
             "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
             "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_bridge_root": self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
+            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
+            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
             "vam_play_audio_in_vam": True if mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))),
             "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
             "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
@@ -10292,7 +10328,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
             "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
             "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_bridge_root": self.vam_bridge_root_edit.text().strip() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
+            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
+            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
             "vam_play_audio_in_vam": self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
             "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
             "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
@@ -10440,10 +10477,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if vam_vmc_port is not None and hasattr(self, "vam_vmc_port_spin"):
                 self.vam_vmc_port_spin.setValue(int(vam_vmc_port))
                 self.on_vam_vmc_port_changed(int(vam_vmc_port))
-            vam_bridge_root = session.get("vam_bridge_root")
-            if vam_bridge_root and hasattr(self, "vam_bridge_root_edit"):
-                self.vam_bridge_root_edit.setText(str(vam_bridge_root))
-                self.on_vam_bridge_root_changed()
+            vam_root = session.get("vam_root") or session.get("vam_bridge_root")
+            if vam_root and hasattr(self, "vam_root_edit"):
+                self.vam_root_edit.setText(engine.normalize_vam_root(vam_root))
+                self.on_vam_root_changed()
             vam_target_atom_uid = session.get("vam_target_atom_uid")
             if vam_target_atom_uid and hasattr(self, "vam_target_atom_uid_edit"):
                 self.vam_target_atom_uid_edit.setText(str(vam_target_atom_uid))
