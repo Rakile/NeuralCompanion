@@ -6383,6 +6383,18 @@ def run_conversation_flow(source):
                     loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
                     if loaded_content and loaded_role == "user":
                         print("\n📋 [Session] Immediate queued user turn detected. Processing now...")
+                        user_text = loaded_content
+                        resumed_loaded_turn = {
+                            "role": loaded_role,
+                            "content": loaded_content,
+                            "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
+                        }
+                        attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
+                        if attachment_image_path:
+                            resumed_loaded_turn["attachment_image_path"] = attachment_image_path
+                            resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
+                        pending_loaded_input_turn = None
+                        listening_active.clear()
                         break
                 status = check_interaction_status(source)
 
