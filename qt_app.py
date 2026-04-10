@@ -3011,6 +3011,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._chat_edit_snapshot_text = ""
         self._chat_provider_field_widgets = {}
         self._chat_provider_field_meta = {}
+        self._preset_reference_name = ""
+        self._preset_reference_signature = ""
+        self._preset_dirty_state = None
+        self._chat_runtime_border_paused = None
         self._console_bridge = QtConsoleBridge()
         self._console_redirect = QtTextRedirector(self._console_bridge, mirror_stream=sys.__stdout__)
         self._previous_stdout = sys.stdout
@@ -3485,7 +3489,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.engine_combo = NoWheelComboBox()
         self.engine_combo.setObjectName("engine_combo")
-        self.engine_combo.addItems(["VSeeFace", "MuseTalk", "VaM"])
+        self.engine_combo.addItems(["VSeeFace", "MuseTalk", "VaM", "None"])
         self.engine_combo.currentTextChanged.connect(self.on_engine_change)
 
         self.input_mode_combo = NoWheelComboBox()
@@ -3716,6 +3720,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.preset_combo = NoWheelComboBox()
         self.preset_combo.setObjectName("preset_combo")
         self.preset_combo.addItem("Select Preset...")
+        self.preset_combo.currentTextChanged.connect(self.on_preset_selection_changed)
 
         self.allow_proactive_checkbox = QtWidgets.QCheckBox("Allow proactive replies after silence")
         self.allow_proactive_checkbox.setObjectName("allow_proactive_checkbox")
@@ -3855,6 +3860,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             button = QtWidgets.QPushButton(label)
             button.setObjectName(object_name)
             button.clicked.connect(handler)
+            if object_name == "btn_preset_save":
+                self.btn_preset_save = button
+            elif object_name == "btn_preset_save_as":
+                self.btn_preset_save_as = button
             preset_buttons.addWidget(button)
         layout.addLayout(preset_buttons)
 
@@ -5221,6 +5230,99 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             )
         return "background: #4b5563; border: 1px solid #6b7280; border-radius: 8px;"
 
+    def _build_preset_payload(self, ensure_pocket_tts_path=False):
+        pocket_tts_python = self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else ""
+        if ensure_pocket_tts_path and hasattr(self, "tts_backend_combo") and self.tts_backend_combo.currentText() == "PocketTTS":
+            pocket_tts_python = self._ensure_pocket_tts_python_path()
+        return {
+            "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
+            "model_name": self.model_combo.currentText(),
+            "voice_file": self.voice_combo.currentText(),
+            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
+            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
+            "stream_mode": self.stream_mode_combo.currentText() == "On",
+            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
+            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
+            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
+            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
+            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
+            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
+            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
+            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
+            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
+            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
+            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
+            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
+            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
+            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
+            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
+            "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
+            "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
+            "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
+            "proactive_delay_seconds": float(self.proactive_delay_spin.value()) if hasattr(self, "proactive_delay_spin") else 10.0,
+            "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
+            "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
+            "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
+            "pocket_tts_python": pocket_tts_python,
+            "emotional_instructions": self.emotional_text.toPlainText().strip(),
+            "system_prompt": self.system_prompt_text.toPlainText().strip(),
+            "temperature": self.brain_sliders["temperature"].value(),
+            "top_p": self.brain_sliders["top_p"].value(),
+            "top_k": self.brain_sliders["top_k"].value(),
+            "repeat_penalty": self.brain_sliders["repeat_penalty"].value(),
+            "min_p": self.brain_sliders["min_p"].value(),
+            "limit_response_length": self.limit_response_checkbox.isChecked(),
+            "max_response_tokens": int(self.max_response_tokens_spin.value()),
+        }
+
+    def _preset_payload_signature(self, payload):
+        return json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+
+    def _refresh_preset_dirty_state(self):
+        if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
+            return
+        current_signature = self._preset_payload_signature(self._build_preset_payload())
+        dirty = self._preset_dirty_state
+        if self._preset_reference_signature:
+            dirty = current_signature != self._preset_reference_signature
+        else:
+            dirty = False
+            self._preset_reference_signature = current_signature
+            self._preset_reference_name = str(self.preset_combo.currentText() or "")
+        if dirty != self._preset_dirty_state:
+            self._preset_dirty_state = dirty
+            style = "border: 2px solid #d84a4a; border-radius: 10px;" if dirty else ""
+            self.btn_preset_save.setStyleSheet(style)
+            self.btn_preset_save_as.setStyleSheet(style)
+
+    def _update_preset_reference_from_selection(self, preset_name=None):
+        name = str(preset_name or self.preset_combo.currentText() or "").strip()
+        if name in {"", "Select Preset...", "No Presets"}:
+            self._preset_reference_name = ""
+            self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        else:
+            path = Path("presets") / f"{name}.json"
+            self._preset_reference_name = name
+            if path.exists():
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    self._preset_reference_signature = self._preset_payload_signature(data)
+                except Exception:
+                    self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+            else:
+                self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        self._refresh_preset_dirty_state()
+
+    def on_preset_selection_changed(self, text):
+        selected = str(text or "").strip()
+        if selected in {"", "Select Preset...", "No Presets"}:
+            update_runtime_config("active_preset_name", "")
+        else:
+            update_runtime_config("active_preset_name", selected)
+        self._update_preset_reference_from_selection(selected)
+
     def _poll_runtime_status(self):
         listening = bool(getattr(engine, "listening_active", None) and engine.listening_active.is_set())
         recording = bool(getattr(engine, "microphone_active", None) and engine.microphone_active.is_set())
@@ -5244,6 +5346,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 pipeline_snapshot,
                 getattr(shared_state, "current_musetalk_frame_data", {}) or {},
             )
+        paused = bool(getattr(engine, "playback_paused", None) and engine.playback_paused.is_set())
+        paused = paused or bool(getattr(engine, "pause_after_chunk", None) and engine.pause_after_chunk.is_set())
+        if paused != self._chat_runtime_border_paused:
+            self._chat_runtime_border_paused = paused
+            border_style = "border: 2px solid #d84a4a; border-radius: 10px;" if paused else "border: 2px solid #38c172; border-radius: 10px;"
+            for widget in (getattr(self, "system_console_tab", None), getattr(self, "chat_tab", None)):
+                if widget is not None:
+                    widget.setStyleSheet(border_style)
+        self._refresh_preset_dirty_state()
         self.refresh_dry_run_status()
 
     def _count_rendered_chunk_frames(self, frame_dir, use_cache=True):
@@ -5916,6 +6027,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.right_tabs, 1)
 
         system_tab = QtWidgets.QWidget()
+        system_tab.setObjectName("system_console_tab")
+        system_tab.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         system_layout = QtWidgets.QVBoxLayout(system_tab)
         console_header = QtWidgets.QHBoxLayout()
         self.console_status = QtWidgets.QLabel("0 lines | autoscroll on")
@@ -5934,9 +6047,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.console_edit.setMinimumHeight(90)
         system_layout.addLayout(console_header)
         system_layout.addWidget(self.console_edit, 1)
+        self.system_console_tab = system_tab
         self.right_tabs.addTab(system_tab, "System Console")
 
         chat_tab = QtWidgets.QWidget()
+        chat_tab.setObjectName("chat_runtime_tab")
+        chat_tab.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         chat_layout = QtWidgets.QVBoxLayout(chat_tab)
         chat_header = QtWidgets.QHBoxLayout()
         self.chat_status = QtWidgets.QLabel("0 lines | autoscroll on")
@@ -5975,6 +6091,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_edit.customContextMenuRequested.connect(self._show_chat_context_menu)
         chat_layout.addLayout(chat_header)
         chat_layout.addWidget(self.chat_edit, 1)
+        self.chat_tab = chat_tab
         self.right_tabs.addTab(chat_tab, "Chat")
 
         controls = QtWidgets.QGridLayout()
@@ -8501,6 +8618,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.on_max_response_tokens_changed(tokens)
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
+        self._update_preset_reference_from_selection(name)
         self.save_session()
 
     def save_preset_dialog(self):
@@ -8516,54 +8634,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_preset(name)
 
     def save_preset(self, name):
-        data = {
-            "chat_provider": self._current_chat_provider_value(),
-            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
-            "model_name": self.model_combo.currentText(),
-            "voice_file": self.voice_combo.currentText(),
-            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
-            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
-            "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
-            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
-            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
-            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
-            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
-            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
-            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
-            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
-            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
-            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
-            "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
-            "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
-            "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
-            "proactive_delay_seconds": float(self.proactive_delay_spin.value()) if hasattr(self, "proactive_delay_spin") else 10.0,
-            "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
-            "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
-            "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
-            "pocket_tts_python": self.pocket_tts_python_edit.text().strip(),
-            "emotional_instructions": self.emotional_text.toPlainText().strip(),
-            "system_prompt": self.system_prompt_text.toPlainText().strip(),
-            "temperature": self.brain_sliders["temperature"].value(),
-            "top_p": self.brain_sliders["top_p"].value(),
-            "top_k": self.brain_sliders["top_k"].value(),
-            "repeat_penalty": self.brain_sliders["repeat_penalty"].value(),
-            "min_p": self.brain_sliders["min_p"].value(),
-            "limit_response_length": self.limit_response_checkbox.isChecked(),
-            "max_response_tokens": int(self.max_response_tokens_spin.value()),
-        }
+        data = self._build_preset_payload(ensure_pocket_tts_path=True)
         path = Path("presets") / f"{name}.json"
         path.write_text(json.dumps(data, indent=4), encoding="utf-8")
         self.refresh_preset_list()
         index = self.preset_combo.findText(name)
         if index >= 0:
             self.preset_combo.setCurrentIndex(index)
+        self._update_preset_reference_from_selection(name)
         print(f"[QtGUI] Saved preset: {path}")
         self.save_session()
 
@@ -9285,6 +9363,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if self._addon_manager is not None:
             session.update(self._addon_manager.export_session_state())
         SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
+        self._refresh_preset_dirty_state()
 
     def _ensure_window_on_screen(self):
         screen = self.screen() or QtWidgets.QApplication.primaryScreen()
@@ -10823,54 +10902,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_preset(name)
 
     def save_preset(self, name):
-        data = {
-            "chat_provider": self._current_chat_provider_value(),
-            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
-            "model_name": self.model_combo.currentText(),
-            "voice_file": self.voice_combo.currentText(),
-            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
-            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
-            "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
-            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
-            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
-            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
-            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
-            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
-            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
-            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
-            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
-            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
-            "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
-            "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
-            "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
-            "proactive_delay_seconds": float(self.proactive_delay_spin.value()) if hasattr(self, "proactive_delay_spin") else 10.0,
-            "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
-            "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
-            "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
-            "pocket_tts_python": self.pocket_tts_python_edit.text().strip(),
-            "emotional_instructions": self.emotional_text.toPlainText().strip(),
-            "system_prompt": self.system_prompt_text.toPlainText().strip(),
-            "temperature": self.brain_sliders["temperature"].value(),
-            "top_p": self.brain_sliders["top_p"].value(),
-            "top_k": self.brain_sliders["top_k"].value(),
-            "repeat_penalty": self.brain_sliders["repeat_penalty"].value(),
-            "min_p": self.brain_sliders["min_p"].value(),
-            "limit_response_length": self.limit_response_checkbox.isChecked(),
-            "max_response_tokens": int(self.max_response_tokens_spin.value()),
-        }
+        data = self._build_preset_payload(ensure_pocket_tts_path=True)
         path = Path("presets") / f"{name}.json"
         path.write_text(json.dumps(data, indent=4), encoding="utf-8")
         self.refresh_preset_list()
         index = self.preset_combo.findText(name)
         if index >= 0:
             self.preset_combo.setCurrentIndex(index)
+        self._update_preset_reference_from_selection(name)
         print(f"[QtGUI] Saved preset: {path}")
         self.save_session()
 
@@ -11958,6 +11997,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if hasattr(self, "performance_guidance_toggle"):
                 self.performance_guidance_toggle.setChecked(performance_guidance_visible)
                 self._toggle_performance_guidance(performance_guidance_visible)
+            self._update_preset_reference_from_selection(self.preset_combo.currentText() if hasattr(self, "preset_combo") else "")
             self._refresh_hotkey_shortcuts()
             self._refresh_hotkey_labels()
             self._update_restart_sensitive_controls()

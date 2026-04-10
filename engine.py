@@ -4660,7 +4660,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
     sample_rate = getattr(tts_model, "sr", 24000)
     chunk_target_chars, chunk_max_chars = get_text_chunk_limits()
     avatar_mode = RUNTIME_CONFIG.get("avatar_mode", "vseeface").lower()
-    pipeline_telemetry_enabled = avatar_mode in {"musetalk", "vam"}
+    pipeline_telemetry_enabled = avatar_mode in {"musetalk", "vam", "none"}
     pipeline_reply_id = None
     if pipeline_telemetry_enabled:
         pipeline_reply_id = shared_state.begin_musetalk_pipeline_reply(
@@ -4735,7 +4735,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     ta.save(path, wav.cpu(), sample_rate)
                     estimated_duration_seconds = 0.0
                     estimated_frame_count = 0
-                    if avatar_mode == "musetalk":
+                    if avatar_mode in {"musetalk", "none"}:
                         try:
                             estimated_duration_seconds = float(sf.info(path).duration or 0.0)
                         except Exception:
@@ -4758,6 +4758,15 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             duration_seconds=estimated_duration_seconds,
                             expected_frame_count=estimated_frame_count,
                         )
+                    if avatar_mode == "none":
+                        chunk_result = {
+                            "ok": True,
+                            "kind": "none",
+                            "sequence_index": chunk_sequence,
+                            "chunk_id": os.path.splitext(os.path.basename(path))[0],
+                            "playback_duration_seconds": estimated_duration_seconds,
+                            "expected_frame_count": max(2, estimated_frame_count or 0),
+                        }
                     playback_queue.put((path, emotion, sub, chunk_sequence))
                     cnt += 1
                     if avatar_mode == "musetalk":
@@ -4840,6 +4849,43 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         dry_run_reply_id=dry_run_reply_id,
                     )
                     chunk_result = normalize_chunk_result(result)
+                elif avatar_mode == "none":
+                    try:
+                        delegated_duration_seconds = float(sf.info(vocal_only_path).duration or 0.0)
+                    except Exception:
+                        delegated_duration_seconds = 0.0
+                    delegated_frame_count = max(
+                        2,
+                        int(round(delegated_duration_seconds * 50.0)) if delegated_duration_seconds > 0 else 2,
+                    )
+                    shared_state.set_current_musetalk_frame_data({
+                        "frame_paths": [],
+                        "frame_dir": "",
+                        "fps": 50,
+                        "sync_time": 0.0,
+                        "duration_seconds": delegated_duration_seconds,
+                        "expected_frame_count": delegated_frame_count,
+                        "trim_start_frames": 0,
+                        "chunk_id": os.path.splitext(temp_json_name)[0],
+                        "text": txt,
+                        "status": "ready",
+                        "loop": False,
+                        "start_index": 0,
+                        "frame_count": delegated_frame_count,
+                        "sequence_index": chunk_sequence,
+                        "preview_chunk_id": os.path.splitext(temp_json_name)[0],
+                        "preview_frame_index": 0,
+                        "preview_source_index": 0,
+                        "avatar_id": "none",
+                    })
+                    chunk_result = {
+                        "ok": True,
+                        "kind": "none",
+                        "sequence_index": chunk_sequence,
+                        "chunk_id": os.path.splitext(temp_json_name)[0],
+                        "playback_duration_seconds": delegated_duration_seconds,
+                        "expected_frame_count": delegated_frame_count,
+                    }
 
                 if chunk_result.get("ok"):
                     if avatar_mode == "musetalk":
@@ -4853,6 +4899,16 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             fps=int(chunk_result.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or RUNTIME_CONFIG.get("musetalk_fps", 24) or 24),
                         )
                     elif avatar_mode == "vam":
+                        shared_state.update_musetalk_pipeline_chunk(
+                            chunk_sequence,
+                            reply_id=pipeline_reply_id,
+                            status="rendered",
+                            playback_state="pending",
+                            duration_seconds=float(chunk_result.get("playback_duration_seconds", 0.0) or 0.0),
+                            expected_frame_count=int(chunk_result.get("expected_frame_count", 0) or 0),
+                            chunk_id=str(chunk_result.get("chunk_id", "") or ""),
+                        )
+                    elif avatar_mode == "none":
                         shared_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
@@ -5277,7 +5333,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         f"(initial buffer {len(frame_paths)} frame(s), ~{len(frame_paths) / max(fps, 1):.2f}s ready)"
                     )
                     time.sleep(0.01)
-                elif kind == "vam":
+                elif kind in {"vam", "none"}:
                     current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
                     delegated_duration_seconds = max(
                         0.0,
@@ -5383,8 +5439,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                 round(float(current_state.get("duration_seconds", 0.0) or 0.0), 3),
                             )
                             dry_run.finalize_reply(dry_run_reply_id)
-                    elif kind == "vam":
-                        if isinstance(avatar_gui, VaMAdapter):
+                    elif kind in {"vam", "none"}:
+                        if kind == "vam" and isinstance(avatar_gui, VaMAdapter):
                             skip_local_playback = bool(avatar_gui.begin_chunk_playback(chunk_result))
                         audio_start_time = time.time()
                         current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
@@ -5440,12 +5496,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         current_avatar_id = chunk_result.get("avatar_id")
                         if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
                             transition_musetalk_to_local_idle(advance_to_next_frame=True)
-                elif kind == "vam" and not stop_flag.is_set():
+                elif kind in {"vam", "none"} and not stop_flag.is_set():
                     pass
                 else:
                     clear_avatar_stream_state()
                 safe_delete_with_retry(path)
-                if kind in {"musetalk", "vam"}:
+                if kind in {"musetalk", "vam", "none"}:
                     shared_state.update_musetalk_pipeline_chunk(
                         int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
                         reply_id=pipeline_reply_id,
@@ -5465,7 +5521,10 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                 int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
                             ),
                         )
-                        print(f"⏹️ [VaM] Finished delegated chunk {chunk_result.get('chunk_id')}")
+                        if kind == "vam":
+                            print(f"⏹️ [VaM] Finished delegated chunk {chunk_result.get('chunk_id')}")
+                        else:
+                            print(f"⏹️ [None] Finished audio-only chunk {chunk_result.get('chunk_id')}")
                     last_chunk_end_time = time.time()
 
                 if pause_after_chunk.is_set() and not stop_playback.is_set():
@@ -8120,20 +8179,23 @@ def run_companion(config_override=None):
 
     print(f"🔌 Connecting to Avatar Engine: {avatar_mode.upper()}...")
     try:
-        if avatar_mode == "musetalk":
+        if avatar_mode == "none":
+            avatar_gui = None
+        elif avatar_mode == "musetalk":
             avatar_gui = MuseTalkAdapter()
         elif avatar_mode == "vam":
             avatar_gui = VaMAdapter()
         else:
             avatar_gui = VSeeFaceAdapter()
 
-        avatar_gui.start()
-        if avatar_mode == "musetalk":
-            try:
-                avatar_gui.warm_up()
-            except Exception as e:
-                print(f"⚠️ [MuseTalk] Warmup exception: {e}")
-            set_musetalk_idle_state()
+        if avatar_gui is not None:
+            avatar_gui.start()
+            if avatar_mode == "musetalk":
+                try:
+                    avatar_gui.warm_up()
+                except Exception as e:
+                    print(f"⚠️ [MuseTalk] Warmup exception: {e}")
+                set_musetalk_idle_state()
     except Exception as e:
         print(f"⚠️ Could not connect to Avatar Engine: {e}")
         avatar_gui = None
