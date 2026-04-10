@@ -36,6 +36,10 @@ import random
 import math
 from pythonosc import udp_client
 import keyboard
+try:
+    from pynput import keyboard as pynput_keyboard
+except Exception:
+    pynput_keyboard = None
 import abc
 import shutil
 import json
@@ -46,7 +50,7 @@ from dataclasses import dataclass, field
 import dry_run
 import app_help
 import shared_state
-from core import sensory
+from core import sensory, chat_providers
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
 from pydub import AudioSegment
@@ -210,7 +214,380 @@ NON_SPEAKING_DURATION = 0.35
 PHRASE_THRESHOLD = 0.2
 AMBIENT_CALIBRATION_SECONDS = 0.6
 BARGE_IN_THRESHOLD = 500
-PUSH_TO_TALK_KEYS = ("right ctrl", "ctrl right", "right control", "ctrl")
+DEFAULT_PUSH_TO_TALK_HOTKEY = "Right Ctrl"
+DEFAULT_MANUAL_ACTION_HOTKEYS = {
+    "regenerate_response": "Alt+R",
+    "retry_user_input": "Alt+Y",
+    "pause_speech": "Alt+P",
+    "skip_speech": "Alt+Enter",
+    "skip_user_reply": "Alt+U",
+    "replay_last_assistant": "Alt+L",
+    "replay_chat_session": "Alt+J",
+}
+DEFAULT_UI_ACTION_HOTKEYS = {
+    "start_engine": "",
+    "stop_engine": "",
+    "reset_chat_session": "",
+    "clear_console": "",
+    "clear_chat": "",
+    "show_musetalk_preview": "",
+    "toggle_musetalk_avatar_focus": "",
+    "show_visual_reply": "",
+    "start_vam_desktop": "",
+    "start_vam_vr": "",
+}
+HOTKEY_ACTION_LABELS = {
+    "push_to_talk": "Push-to-Talk",
+    "regenerate_response": "Regenerate Response",
+    "retry_user_input": "Retry Input",
+    "pause_speech": "Pause / Resume Speech",
+    "skip_speech": "Skip Speech",
+    "skip_user_reply": "Skip User Reply",
+    "replay_last_assistant": "Replay Last Assistant Reply",
+    "replay_chat_session": "Replay Chat Session",
+    "start_engine": "Start Engine",
+    "stop_engine": "Stop Engine",
+    "reset_chat_session": "Reset Chat Memory",
+    "clear_console": "Clear Console",
+    "clear_chat": "Clear Chat",
+    "show_musetalk_preview": "Show MuseTalk Preview",
+    "toggle_musetalk_avatar_focus": "Toggle MuseTalk Avatar Focus",
+    "show_visual_reply": "Show Visual Reply",
+    "start_vam_desktop": "Start VaM Desktop",
+    "start_vam_vr": "Start VaM VR",
+}
+PYNPUT_HOTKEY_AVAILABLE = pynput_keyboard is not None
+EXACT_HOTKEY_SCAN_CODES = {
+    "left ctrl": (29,),
+    "right ctrl": (3613,),
+    "left alt": (56,),
+    "right alt": (3640,),
+    "left shift": (42,),
+    "right shift": (54,),
+    "left enter": (28,),
+    "right enter": (3612,),
+    "enter": (28, 3612),
+    "left windows": (3675,),
+    "right windows": (3676,),
+}
+_pynput_hotkey_state_tracker = None
+
+
+if PYNPUT_HOTKEY_AVAILABLE:
+    PYNPUT_EXACT_KEY_NAMES = {
+        pynput_keyboard.Key.ctrl_l: "left ctrl",
+        pynput_keyboard.Key.ctrl_r: "right ctrl",
+        pynput_keyboard.Key.alt_l: "left alt",
+        pynput_keyboard.Key.alt_r: "right alt",
+        pynput_keyboard.Key.shift_l: "left shift",
+        pynput_keyboard.Key.shift_r: "right shift",
+        pynput_keyboard.Key.cmd_l: "left windows",
+        pynput_keyboard.Key.cmd_r: "right windows",
+        pynput_keyboard.Key.enter: "enter",
+    }
+else:
+    PYNPUT_EXACT_KEY_NAMES = {}
+
+
+def normalize_hotkey_text(value):
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = re.sub(r"\s*\+\s*", "+", text)
+    text = re.sub(r"\s+", " ", text)
+    return text
+
+
+def _hotkey_variants(binding_text):
+    text = normalize_hotkey_text(binding_text).lower()
+    if not text:
+        return ()
+    alias_groups = {
+        "right ctrl": ("right ctrl", "ctrl right", "right control", "control right"),
+        "ctrl right": ("right ctrl", "ctrl right", "right control", "control right"),
+        "right control": ("right ctrl", "ctrl right", "right control", "control right"),
+        "control right": ("right ctrl", "ctrl right", "right control", "control right"),
+        "left ctrl": ("left ctrl", "ctrl left", "left control", "control left"),
+        "ctrl left": ("left ctrl", "ctrl left", "left control", "control left"),
+        "left control": ("left ctrl", "ctrl left", "left control", "control left"),
+        "control left": ("left ctrl", "ctrl left", "left control", "control left"),
+        "ctrl": ("ctrl", "control"),
+        "control": ("ctrl", "control"),
+        "enter": ("enter", "return"),
+        "return": ("return", "enter"),
+    }
+    parts = [part.strip() for part in text.split("+") if str(part or "").strip()]
+    if not parts:
+        return ()
+    variants = [""]
+    for part in parts:
+        part_variants = alias_groups.get(part, (part,))
+        expanded = []
+        for prefix in variants:
+            for option in part_variants:
+                expanded.append(f"{prefix}+{option}" if prefix else option)
+        variants = expanded
+    return tuple(dict.fromkeys(item for item in variants if item))
+
+
+def _binding_parts(binding_text):
+    return [part.strip() for part in normalize_hotkey_text(binding_text).split("+") if str(part or "").strip()]
+
+
+def _scan_code_groups_for_binding(binding_text):
+    groups = []
+    for part in _binding_parts(binding_text):
+        lowered = normalize_hotkey_text(part).lower()
+        scan_codes = list(EXACT_HOTKEY_SCAN_CODES.get(lowered, ()))
+        if not scan_codes:
+            try:
+                scan_codes = list(keyboard.key_to_scan_codes(part))
+            except Exception:
+                scan_codes = []
+        normalized_codes = []
+        seen = set()
+        for code in scan_codes:
+            try:
+                value = int(code)
+            except Exception:
+                continue
+            if value in seen:
+                continue
+            seen.add(value)
+            normalized_codes.append(value)
+        groups.append(tuple(normalized_codes))
+    return tuple(groups)
+
+
+def canonicalize_pynput_key(key):
+    if not PYNPUT_HOTKEY_AVAILABLE:
+        return ""
+    try:
+        explicit = PYNPUT_EXACT_KEY_NAMES.get(key, "")
+        if explicit:
+            return explicit
+    except Exception:
+        pass
+    try:
+        if key == pynput_keyboard.Key.ctrl:
+            return "ctrl"
+        if key == pynput_keyboard.Key.alt:
+            return "alt"
+        if key == pynput_keyboard.Key.shift:
+            return "shift"
+        if key == pynput_keyboard.Key.cmd:
+            return "windows"
+    except Exception:
+        pass
+    try:
+        char = getattr(key, "char", None)
+        if char:
+            if len(char) == 1:
+                codepoint = ord(char)
+                if 1 <= codepoint <= 26:
+                    return chr(codepoint + 96)
+            return normalize_hotkey_text(char).lower()
+    except Exception:
+        pass
+    try:
+        vk = getattr(key, "vk", None)
+        if isinstance(vk, int):
+            if 65 <= vk <= 90:
+                return chr(vk + 32)
+            if 48 <= vk <= 57:
+                return chr(vk)
+    except Exception:
+        pass
+    try:
+        name = getattr(key, "name", None)
+        if name:
+            return normalize_hotkey_text(name).lower()
+    except Exception:
+        pass
+    return ""
+
+
+def _required_binding_part_matches(required, pressed_names):
+    required_name = normalize_hotkey_text(required).lower()
+    if not required_name:
+        return False
+    pressed = {normalize_hotkey_text(item).lower() for item in set(pressed_names or set()) if str(item or "").strip()}
+    alias_groups = {
+        "ctrl": {"ctrl", "control", "left ctrl", "right ctrl"},
+        "control": {"ctrl", "control", "left ctrl", "right ctrl"},
+        "alt": {"alt", "left alt", "right alt"},
+        "shift": {"shift", "left shift", "right shift"},
+        "windows": {"windows", "win", "left windows", "right windows"},
+        "win": {"windows", "win", "left windows", "right windows"},
+        "enter": {"enter", "left enter", "right enter", "return"},
+        "return": {"enter", "left enter", "right enter", "return"},
+    }
+    valid = alias_groups.get(required_name, {required_name})
+    return any(item in pressed for item in valid)
+
+
+def _binding_matches_pressed_names(binding_text, pressed_names):
+    parts = _binding_parts(binding_text)
+    if not parts:
+        return False
+    return all(_required_binding_part_matches(part, pressed_names) for part in parts)
+
+
+class _PynputHotkeyStateTracker:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._pressed = set()
+        self._listener = None
+
+    def start(self):
+        if not PYNPUT_HOTKEY_AVAILABLE:
+            return False
+        if self._listener is not None:
+            return True
+
+        def on_press(key):
+            name = canonicalize_pynput_key(key)
+            if not name:
+                return
+            with self._lock:
+                self._pressed.add(name)
+
+        def on_release(key):
+            name = canonicalize_pynput_key(key)
+            if not name:
+                return
+            with self._lock:
+                self._pressed.discard(name)
+
+        listener = pynput_keyboard.Listener(on_press=on_press, on_release=on_release)
+        listener.daemon = True
+        listener.start()
+        self._listener = listener
+        return True
+
+    def snapshot_pressed(self):
+        with self._lock:
+            return set(self._pressed)
+
+
+def _ensure_pynput_hotkey_state_tracker():
+    global _pynput_hotkey_state_tracker
+    if not PYNPUT_HOTKEY_AVAILABLE:
+        return None
+    if _pynput_hotkey_state_tracker is None:
+        tracker = _PynputHotkeyStateTracker()
+        if tracker.start():
+            _pynput_hotkey_state_tracker = tracker
+        else:
+            return None
+    return _pynput_hotkey_state_tracker
+
+
+def is_hotkey_binding_pressed(binding_text):
+    text = normalize_hotkey_text(binding_text)
+    if not text:
+        return False
+    tracker = _ensure_pynput_hotkey_state_tracker()
+    if tracker is not None:
+        pressed_names = tracker.snapshot_pressed()
+        if _binding_matches_pressed_names(text, pressed_names):
+            return True
+    scan_code_groups = _scan_code_groups_for_binding(text)
+    if scan_code_groups and all(group for group in scan_code_groups):
+        for group in scan_code_groups:
+            pressed = False
+            for scan_code in group:
+                try:
+                    if keyboard.is_pressed(scan_code):
+                        pressed = True
+                        break
+                except Exception:
+                    continue
+            if not pressed:
+                return False
+        return True
+    for key_name in _hotkey_variants(text):
+        try:
+            if keyboard.is_pressed(key_name):
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _normalize_manual_action_hotkeys(raw):
+    result = dict(DEFAULT_MANUAL_ACTION_HOTKEYS)
+    if isinstance(raw, dict):
+        for action, binding in raw.items():
+            key = str(action or "").strip()
+            if key not in DEFAULT_MANUAL_ACTION_HOTKEYS:
+                continue
+            normalized = normalize_hotkey_text(binding)
+            result[key] = normalized
+    return result
+
+
+def _normalize_ui_action_hotkeys(raw):
+    result = dict(DEFAULT_UI_ACTION_HOTKEYS)
+    if isinstance(raw, dict):
+        for action, binding in raw.items():
+            key = str(action or "").strip()
+            if key not in DEFAULT_UI_ACTION_HOTKEYS:
+                continue
+            result[key] = normalize_hotkey_text(binding)
+    return result
+
+
+def get_push_to_talk_hotkey():
+    configured = normalize_hotkey_text(RUNTIME_CONFIG.get("push_to_talk_hotkey", DEFAULT_PUSH_TO_TALK_HOTKEY))
+    return configured or DEFAULT_PUSH_TO_TALK_HOTKEY
+
+
+def get_manual_action_hotkeys():
+    return _normalize_manual_action_hotkeys(RUNTIME_CONFIG.get("manual_action_hotkeys", DEFAULT_MANUAL_ACTION_HOTKEYS))
+
+
+def get_ui_action_hotkeys():
+    return _normalize_ui_action_hotkeys(RUNTIME_CONFIG.get("ui_action_hotkeys", DEFAULT_UI_ACTION_HOTKEYS))
+
+
+def get_hotkey_bindings():
+    bindings = {"push_to_talk": get_push_to_talk_hotkey()}
+    bindings.update(get_manual_action_hotkeys())
+    bindings.update(get_ui_action_hotkeys())
+    return bindings
+
+
+def set_push_to_talk_hotkey(binding):
+    update_runtime_config("push_to_talk_hotkey", binding)
+    return get_push_to_talk_hotkey()
+
+
+def set_manual_action_hotkey(action, binding):
+    action_key = str(action or "").strip()
+    if action_key not in DEFAULT_MANUAL_ACTION_HOTKEYS:
+        raise KeyError(f"Unknown hotkey action: {action_key}")
+    current = get_manual_action_hotkeys()
+    current[action_key] = normalize_hotkey_text(binding)
+    update_runtime_config("manual_action_hotkeys", current)
+    return get_manual_action_hotkeys().get(action_key, "")
+
+
+def set_ui_action_hotkey(action, binding):
+    action_key = str(action or "").strip()
+    if action_key not in DEFAULT_UI_ACTION_HOTKEYS:
+        raise KeyError(f"Unknown UI hotkey action: {action_key}")
+    current = get_ui_action_hotkeys()
+    current[action_key] = normalize_hotkey_text(binding)
+    update_runtime_config("ui_action_hotkeys", current)
+    return get_ui_action_hotkeys().get(action_key, "")
+
+
+def reset_hotkeys_to_defaults():
+    update_runtime_config("push_to_talk_hotkey", DEFAULT_PUSH_TO_TALK_HOTKEY)
+    update_runtime_config("manual_action_hotkeys", dict(DEFAULT_MANUAL_ACTION_HOTKEYS))
+    update_runtime_config("ui_action_hotkeys", dict(DEFAULT_UI_ACTION_HOTKEYS))
+    return get_hotkey_bindings()
 PUSH_TO_TALK_MAX_SECONDS = 300.0
 PUSH_TO_TALK_TAIL_SECONDS = 0.55
 PUSH_TO_TALK_MIN_TAIL_CHUNKS = 8
@@ -447,7 +824,8 @@ DEFAULT_VAM_BRIDGE_ROOT = derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 RUNTIME_CONFIG = {
     "active_preset_name": "",
     "model_name": "",
-    "chat_provider": os.environ.get("NC_CHAT_PROVIDER", "lmstudio"),
+    "chat_provider": os.environ.get("NC_CHAT_PROVIDER", chat_providers.DEFAULT_PROVIDER_ID),
+    "chat_provider_settings": {},
     "emotional_instructions": DEFAULT_EMOTIONAL_INSTRUCTIONS,
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
     "voice_path": "voices/Hot_16.wav",
@@ -467,6 +845,9 @@ RUNTIME_CONFIG = {
     "vam_emotion_preset_map": _env_json_dict("NC_VAM_EMOTION_PRESET_MAP", DEFAULT_VAM_EMOTION_PRESET_MAP),
     "vam_timeline_clip_map": _env_json_dict("NC_VAM_TIMELINE_CLIP_MAP", DEFAULT_VAM_TIMELINE_CLIP_MAP),
     "input_mode": "voice_activation",
+    "push_to_talk_hotkey": DEFAULT_PUSH_TO_TALK_HOTKEY,
+    "manual_action_hotkeys": dict(DEFAULT_MANUAL_ACTION_HOTKEYS),
+    "ui_action_hotkeys": dict(DEFAULT_UI_ACTION_HOTKEYS),
     "input_message_role": "user",
     "stream_mode": False,
     "offline_replay_only": False,
@@ -589,7 +970,19 @@ def update_runtime_config(key, value):
     """Called by GUI to update settings in real-time"""
     global RUNTIME_CONFIG
     if key in RUNTIME_CONFIG:
+        if key == "push_to_talk_hotkey":
+            value = normalize_hotkey_text(value) or DEFAULT_PUSH_TO_TALK_HOTKEY
+        elif key == "manual_action_hotkeys":
+            value = _normalize_manual_action_hotkeys(value)
+        elif key == "ui_action_hotkeys":
+            value = _normalize_ui_action_hotkeys(value)
+        elif key == "chat_provider":
+            value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        elif key == "chat_provider_settings":
+            value = dict(value or {})
         RUNTIME_CONFIG[key] = value
+        if key == "chat_provider_settings":
+            chat_providers.set_provider_settings(value)
         #print(f"⚙️ Config Update: {key} -> {value}")
 
 
@@ -598,6 +991,7 @@ def update_runtime_config(key, value):
 # ============================================================================
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_API_KEY = "lm-studio"
+chat_providers.set_provider_settings(RUNTIME_CONFIG.get("chat_provider_settings", {}))
 WHISPER_MODEL_SIZE = "tiny.en"
 WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
@@ -667,52 +1061,30 @@ def _publish_addon_runtime_event(event_name, payload=None):
 # HELPER: Fetch Models
 # ============================================================================
 def _chat_provider():
-    provider = str(RUNTIME_CONFIG.get("chat_provider", "lmstudio") or "lmstudio").strip().lower()
-    if provider not in {"lmstudio", "openai", "xai"}:
-        provider = "lmstudio"
-    return provider
+    return chat_providers.normalize_provider_id(
+        RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+        fallback=chat_providers.DEFAULT_PROVIDER_ID,
+    )
 
 
 def _chat_provider_label(provider=None):
-    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
-    if value == "openai":
-        return "OpenAI"
-    if value == "xai":
-        return "xAI / Grok"
-    return "LM Studio"
+    return chat_providers.provider_label(provider or _chat_provider())
 
 
 def _chat_provider_api_key(provider=None):
-    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
-    if value == "openai":
-        return str(os.environ.get("NC_CHAT_OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
-    if value == "xai":
-        return str(os.environ.get("NC_CHAT_XAI_API_KEY") or os.environ.get("XAI_API_KEY") or os.environ.get("NC_VISUAL_REPLY_XAI_API_KEY") or "").strip()
-    return LMSTUDIO_API_KEY
+    return chat_providers.provider_api_key(provider or _chat_provider())
 
 
 def _chat_provider_base_url(provider=None):
-    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
-    if value == "openai":
-        return str(os.environ.get("NC_CHAT_OPENAI_BASE_URL") or "").strip()
-    if value == "xai":
-        return str(os.environ.get("NC_CHAT_XAI_BASE_URL") or "https://api.x.ai/v1").strip()
-    return LMSTUDIO_BASE_URL
+    return chat_providers.provider_base_url(provider or _chat_provider())
 
 
 def _chat_provider_model_error(provider=None):
-    return f"Error: Check {_chat_provider_label(provider)}"
+    return chat_providers.provider_model_error(provider or _chat_provider())
 
 
 def _chat_client(provider=None):
-    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
-    api_key = _chat_provider_api_key(value)
-    base_url = _chat_provider_base_url(value)
-    if value == "openai":
-        if base_url:
-            return OpenAI(api_key=api_key, base_url=base_url)
-        return OpenAI(api_key=api_key)
-    return OpenAI(base_url=base_url, api_key=api_key)
+    return chat_providers.create_client(provider or _chat_provider())
 
 
 def _fetch_json_with_bearer(url, api_key, *, timeout=10.0):
@@ -734,65 +1106,9 @@ def _fetch_json_with_bearer(url, api_key, *, timeout=10.0):
         return json.loads(raw_payload.decode(encoding, errors="replace"))
 
 
-def _xai_language_model_catalog():
-    base_url = str(_chat_provider_base_url("xai") or "").strip().rstrip("/")
-    if not base_url:
-        return []
-    api_key = _chat_provider_api_key("xai")
-    payload = _fetch_json_with_bearer(f"{base_url}/language-models", api_key, timeout=15.0)
-    entries = []
-    if isinstance(payload, dict):
-        entries = list(payload.get("data") or payload.get("models") or payload.get("items") or [])
-    elif isinstance(payload, list):
-        entries = list(payload)
-    catalog = []
-    for item in entries:
-        if not isinstance(item, dict):
-            continue
-        model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
-        if not model_id:
-            continue
-        input_modalities = [
-            str(modality or "").strip().lower()
-            for modality in list(item.get("input_modalities") or [])
-            if str(modality or "").strip()
-        ]
-        output_modalities = [
-            str(modality or "").strip().lower()
-            for modality in list(item.get("output_modalities") or [])
-            if str(modality or "").strip()
-        ]
-        supports_images = "image" in input_modalities
-        catalog.append(
-            {
-                "id": model_id,
-                "supports_images": bool(supports_images),
-                "source": "xai_language_models",
-                "input_modalities": list(input_modalities),
-                "output_modalities": list(output_modalities),
-            }
-        )
-    return catalog
-
-
 def get_chat_models(provider=None, quiet=False):
-    value = str(provider or _chat_provider() or "lmstudio").strip().lower()
-    try:
-        if value == "xai":
-            catalog = _xai_language_model_catalog()
-            if catalog:
-                return catalog
-        client = _chat_client(value)
-        models = client.models.list()
-        ids = sorted({str(getattr(model, "id", "") or "").strip() for model in list(getattr(models, "data", []) or []) if str(getattr(model, "id", "") or "").strip()})
-        if value == "xai":
-            # xAI exposes image-generation models in the general catalog too; keep the chat picker focused on language/chat models.
-            ids = [model_id for model_id in ids if not str(model_id or "").strip().lower().startswith("grok-imagine")]
-        return ids or [_chat_provider_model_error(value)]
-    except Exception as e:
-        if not quiet:
-            print(f"Error fetching {_chat_provider_label(value)} models: {e}")
-        return [_chat_provider_model_error(value)]
+    value = str(provider or _chat_provider() or chat_providers.DEFAULT_PROVIDER_ID).strip().lower()
+    return chat_providers.list_models(value, quiet=quiet)
 
 
 def get_lmstudio_models(quiet=False):
@@ -800,15 +1116,16 @@ def get_lmstudio_models(quiet=False):
     return get_chat_models(provider="lmstudio", quiet=quiet)
 
 
+def _is_model_catalog_placeholder(model_name):
+    value = str(model_name or "").strip()
+    lowered = value.lower()
+    return (not value) or lowered in {"scanning...", "no models", "no vision models"} or lowered.startswith("error: check ")
+
+
 def _chat_completion_create(params, additional_params=None, *, stream=False):
-    client = _chat_client()
-    request_kwargs = dict(params or {})
-    value = _chat_provider()
-    if value == "lmstudio" and additional_params:
-        request_kwargs["extra_body"] = dict(additional_params or {})
     if stream:
-        request_kwargs["stream"] = True
-    return client.chat.completions.create(**request_kwargs)
+        return chat_providers.stream_chat(_chat_provider(), params, additional_params)
+    return chat_providers.complete_chat(_chat_provider(), params, additional_params)
 
 
 def _chat_provider_connection_check():
@@ -819,10 +1136,14 @@ def _chat_provider_connection_check():
     else:
         print(f"Checking {label} connectivity...")
     try:
-        client = _chat_client(provider)
-        models = client.models.list()
-        print(f"✓ Connected to {label} ({len(getattr(models, 'data', []) or [])} model(s) available)")
-        return True
+        result = dict(chat_providers.check_connection(provider) or {})
+        if bool(result.get("ok")):
+            detail = str(result.get("detail") or f"Connected to {label}").strip()
+            print(f"✓ {detail}")
+            return True
+        detail = str(result.get("detail") or f"Could not connect to {label}").strip()
+        print(f"✗ {detail}")
+        return False
     except Exception as e:
         print(f"✗ Could not connect to {label}: {e}")
         return False
@@ -926,7 +1247,7 @@ def unload_lmstudio_models():
 
 def load_lmstudio_model(model_name):
     model_name = str(model_name or "").strip()
-    if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+    if _is_model_catalog_placeholder(model_name):
         return False
     print(f"🧠 [LM Studio] Reloading selected model: {model_name}")
     sdk = _get_lmstudio_sdk()
@@ -997,33 +1318,10 @@ def check_interaction_status(source):
         return action
 
     # --- KEYBOARD SHORTCUTS ---
-    if keyboard.is_pressed('alt+r'):
-        LAST_INPUT_TIME = now
-        return "regenerate_response"  # <--- CHANGED NAME
-
-    if keyboard.is_pressed('alt+y'):
-        LAST_INPUT_TIME = now
-        return "retry_user_input"  # Means: "Let me say that again"
-
-    if keyboard.is_pressed('alt+return'):
-        LAST_INPUT_TIME = now
-        return "skip_speech"
-
-    if keyboard.is_pressed('alt+u'):
-        LAST_INPUT_TIME = now
-        return "skip_user_reply"
-
-    if keyboard.is_pressed('alt+l'):
-        LAST_INPUT_TIME = now
-        return "replay_last_assistant"
-
-    if keyboard.is_pressed('alt+j'):
-        LAST_INPUT_TIME = now
-        return "replay_chat_session"
-
-    if keyboard.is_pressed('alt+p'):
-        LAST_INPUT_TIME = now
-        return "pause_speech"
+    for action, binding in get_manual_action_hotkeys().items():
+        if is_hotkey_binding_pressed(binding):
+            LAST_INPUT_TIME = now
+            return action
 
     input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
     if input_mode == "push_to_talk" and is_push_to_talk_pressed():
@@ -1040,13 +1338,7 @@ def check_interaction_status(source):
 def is_push_to_talk_pressed():
     if dry_run.auto_replies_enabled():
         return False
-    for key_name in PUSH_TO_TALK_KEYS:
-        try:
-            if keyboard.is_pressed(key_name):
-                return True
-        except Exception:
-            continue
-    return False
+    return is_hotkey_binding_pressed(get_push_to_talk_hotkey())
 
 
 def is_push_to_talk_held():
@@ -2940,7 +3232,7 @@ def run_hidden_sensory_pingpong_cycle(force=False):
     print(f"📡 [Sensory] Hidden PING from {source_text}...")
     _llm_request_active.set()
     try:
-        response = _chat_completion_create(
+        payload_text = _chat_completion_create(
             {
                 "model": RUNTIME_CONFIG["model_name"],
                 "messages": messages,
@@ -2954,7 +3246,6 @@ def run_hidden_sensory_pingpong_cycle(force=False):
                 "repeat_penalty": float(RUNTIME_CONFIG.get("repeat_penalty", 1.1) or 1.1),
             },
         )
-        payload_text = str(getattr(response.choices[0].message, "content", "") or "")
     except Exception as exc:
         print(f"⚠️ [Sensory] Hidden PONG failed: {exc}")
         return False
@@ -5616,7 +5907,7 @@ def chat_with_llm():
     try:
         params, additional_params = build_llm_request()
         response = _chat_completion_create(params, additional_params)
-        return response.choices[0].message.content
+        return str(response or "")
     except ChatContextLimitReached as e:
         print(f"⚠️ Context limit reached: {e}")
         return str(e)
@@ -5643,14 +5934,9 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
         try:
             params, additional_params = build_llm_request()
             stream = _chat_completion_create(params, additional_params, stream=True)
-            for event in stream:
+            for content in stream:
                 if state.cancel_requested.is_set() or stop_playback.is_set():
                     break
-                choices = getattr(event, "choices", None) or []
-                if not choices:
-                    continue
-                delta = getattr(choices[0], "delta", None)
-                content = getattr(delta, "content", None) if delta is not None else None
                 if not content:
                     continue
                 now = time.time()

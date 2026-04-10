@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import sensory
+from core import sensory, chat_providers
 import shared_state
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -63,6 +63,20 @@ class QtDialogService:
 class QtShellService:
     def open_local_path(self, path) -> bool:
         return QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
+
+
+class QtHotkeyService:
+    def __init__(self, window):
+        self._window = window
+
+    def list_bindings(self):
+        return list(self._window.hotkey_catalog())
+
+    def set_binding(self, action: str, binding: str):
+        return self._window.set_hotkey_binding(str(action or "").strip(), str(binding or ""))
+
+    def reset_defaults(self):
+        return dict(self._window.reset_hotkey_bindings() or {})
 
 
 class QtVisualReplyService:
@@ -164,6 +178,58 @@ class QtSensoryService:
 
     def list_prompt_contributors(self, source_id: str | None = None):
         return [item.to_summary() for item in sensory.list_prompt_contributors(source_id)]
+
+
+class QtChatProviderService:
+    def __init__(self, window):
+        self._window = window
+
+    def _refresh_ui(self, selected_provider_id: str | None = None):
+        if hasattr(self._window, "_populate_chat_provider_combo"):
+            self._window._populate_chat_provider_combo(selected_provider_id)
+
+    def register_provider(
+        self,
+        *,
+        provider_id: str,
+        label: str,
+        description: str = "",
+        order: int = 1000,
+        client_factory=None,
+        model_list_handler=None,
+        completion_handler=None,
+        stream_handler=None,
+        connection_check_handler=None,
+        api_key_getter=None,
+        base_url_getter=None,
+        metadata: dict | None = None,
+    ):
+        provider = chat_providers.register_provider(
+            provider_id=provider_id,
+            label=label,
+            description=description,
+            order=order,
+            client_factory=client_factory,
+            model_list_handler=model_list_handler,
+            completion_handler=completion_handler,
+            stream_handler=stream_handler,
+            connection_check_handler=connection_check_handler,
+            api_key_getter=api_key_getter,
+            base_url_getter=base_url_getter,
+            metadata=metadata,
+        )
+        self._refresh_ui(getattr(provider, "id", ""))
+        return provider.to_summary()
+
+    def unregister_provider(self, provider_id: str) -> bool:
+        removed = bool(chat_providers.unregister_provider(provider_id))
+        if removed:
+            self._refresh_ui()
+        return removed
+
+    def list_providers(self):
+        return [provider.to_summary() for provider in chat_providers.list_providers()]
+
 class QtChatReplayService:
     def __init__(self, window):
         self._window = window

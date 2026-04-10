@@ -52,9 +52,9 @@ except Exception:
 
 import engine
 import shared_state
-from core import sensory
+from core import sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -3009,6 +3009,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_auto_scroll = True
         self.chat_edit_mode = False
         self._chat_edit_snapshot_text = ""
+        self._chat_provider_field_widgets = {}
+        self._chat_provider_field_meta = {}
         self._console_bridge = QtConsoleBridge()
         self._console_redirect = QtTextRedirector(self._console_bridge, mirror_stream=sys.__stdout__)
         self._previous_stdout = sys.stdout
@@ -3683,7 +3685,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.chat_provider_combo = NoWheelComboBox()
         self.chat_provider_combo.setObjectName("chat_provider_combo")
-        self.chat_provider_combo.addItems(["LM Studio", "OpenAI", "xAI / Grok"])
+        self._populate_chat_provider_combo(RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID))
         self.chat_provider_combo.currentTextChanged.connect(self.on_chat_provider_changed)
 
         self.model_combo = NoWheelComboBox()
@@ -3839,10 +3841,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         form.addRow("MuseTalk VRAM", self.musetalk_vram_combo)
         form.addRow("Loop Fade (ms)", self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
         form.addRow("MuseTalk Avatar", self.musetalk_avatar_pack_row_widget)
-        form.addRow("Chat Provider", self.chat_provider_combo)
-        form.addRow("LLM Model", self.model_row_widget)
         form.addRow("Preset", self.preset_combo)
         layout.addLayout(form)
+        layout.addWidget(self._build_chat_runtime_card())
 
         preset_buttons = QtWidgets.QHBoxLayout()
         for label, object_name, handler in [
@@ -3973,6 +3974,36 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         layout.addStretch(1)
         return tab
 
+    def _build_chat_runtime_card(self):
+        self.chat_runtime_box = QtWidgets.QGroupBox("Chat Runtime")
+        layout = QtWidgets.QVBoxLayout(self.chat_runtime_box)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(8)
+
+        form = QtWidgets.QFormLayout()
+        form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        form.addRow("Chat Provider", self.chat_provider_combo)
+
+        self.chat_provider_fields_widget = QtWidgets.QWidget()
+        self.chat_provider_fields_layout = QtWidgets.QFormLayout(self.chat_provider_fields_widget)
+        self.chat_provider_fields_layout.setContentsMargins(0, 0, 0, 0)
+        self.chat_provider_fields_layout.setSpacing(8)
+        self.chat_provider_fields_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
+        self.chat_provider_fields_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        form.addRow("Provider Settings", self.chat_provider_fields_widget)
+        form.addRow("LLM Model", self.model_row_widget)
+        layout.addLayout(form)
+
+        self.chat_provider_hint_label = QtWidgets.QLabel()
+        self.chat_provider_hint_label.setWordWrap(True)
+        self.chat_provider_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        layout.addWidget(self.chat_provider_hint_label)
+
+        self._refresh_chat_provider_card()
+        return self.chat_runtime_box
+
     def _build_sensory_feedback_tab(self):
         tab = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(tab)
@@ -4101,25 +4132,173 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
 
     def _chat_provider_label_from_value(self, value):
-        provider = str(value or "lmstudio").strip().lower()
-        if provider == "openai":
-            return "OpenAI"
-        if provider == "xai":
-            return "xAI / Grok"
-        return "LM Studio"
+        return chat_providers.provider_label(value or chat_providers.DEFAULT_PROVIDER_ID)
 
     def _chat_provider_value_from_label(self, label):
-        text = str(label or "").strip().lower()
-        if "grok" in text or "xai" in text:
-            return "xai"
-        if "openai" in text:
-            return "openai"
-        return "lmstudio"
+        text = str(label or "").strip()
+        if hasattr(self, "chat_provider_combo"):
+            for index in range(self.chat_provider_combo.count()):
+                if str(self.chat_provider_combo.itemText(index) or "").strip() == text:
+                    data = self.chat_provider_combo.itemData(index)
+                    return chat_providers.normalize_provider_id(data, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        return chat_providers.normalize_provider_id(text, fallback=chat_providers.DEFAULT_PROVIDER_ID)
 
     def _current_chat_provider_value(self):
         if hasattr(self, "chat_provider_combo"):
+            provider_value = self.chat_provider_combo.currentData()
+            if provider_value:
+                return chat_providers.normalize_provider_id(provider_value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
             return self._chat_provider_value_from_label(self.chat_provider_combo.currentText())
-        return str(RUNTIME_CONFIG.get("chat_provider", "lmstudio") or "lmstudio")
+        return chat_providers.normalize_provider_id(
+            RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+
+    def _chat_provider_summaries(self):
+        return [provider.to_summary() for provider in chat_providers.list_providers()]
+
+    def _populate_chat_provider_combo(self, selected_value=None):
+        if not hasattr(self, "chat_provider_combo"):
+            return
+        current_value = chat_providers.normalize_provider_id(
+            selected_value if selected_value is not None else RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        summaries = list(self._chat_provider_summaries())
+        self.chat_provider_combo.blockSignals(True)
+        self.chat_provider_combo.clear()
+        for summary in summaries:
+            label = str(summary.get("label") or summary.get("id") or "").strip()
+            provider_id = str(summary.get("id") or "").strip()
+            if label and provider_id:
+                self.chat_provider_combo.addItem(label, provider_id)
+        target_index = self.chat_provider_combo.findData(current_value)
+        if target_index < 0 and self.chat_provider_combo.count():
+            target_index = 0
+        if target_index >= 0:
+            self.chat_provider_combo.setCurrentIndex(target_index)
+        self.chat_provider_combo.blockSignals(False)
+
+    def _set_chat_provider_selection(self, provider_value):
+        if not hasattr(self, "chat_provider_combo"):
+            return chat_providers.normalize_provider_id(provider_value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        normalized = chat_providers.normalize_provider_id(provider_value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        index = self.chat_provider_combo.findData(normalized)
+        if index < 0:
+            self._populate_chat_provider_combo(normalized)
+            index = self.chat_provider_combo.findData(normalized)
+        if index >= 0:
+            self.chat_provider_combo.setCurrentIndex(index)
+        return normalized
+
+    def _chat_provider_error_placeholder(self, provider_value=None):
+        target = provider_value if provider_value is not None else self._current_chat_provider_value()
+        return chat_providers.provider_model_error(target)
+
+    def _is_model_catalog_placeholder(self, model_name):
+        value = str(model_name or "").strip()
+        lowered = value.lower()
+        return (not value) or lowered in {"scanning...", "no models", "no vision models"} or lowered.startswith("error: check ")
+
+    def _current_chat_provider_settings_map(self):
+        raw = RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}
+        return {str(key or "").strip().lower(): dict(value or {}) for key, value in raw.items() if str(key or "").strip()}
+
+    def _current_chat_provider_settings_for(self, provider_id=None):
+        provider_key = self._current_chat_provider_value() if provider_id is None else chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        return dict(self._current_chat_provider_settings_map().get(provider_key, {}))
+
+    def _set_current_chat_provider_settings_for(self, provider_id, updates):
+        provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        settings_map = self._current_chat_provider_settings_map()
+        next_values = {
+            str(field_id or "").strip(): str(value or "").strip()
+            for field_id, value in dict(updates or {}).items()
+            if str(field_id or "").strip()
+        }
+        if next_values:
+            settings_map[provider_key] = next_values
+        elif provider_key in settings_map:
+            settings_map.pop(provider_key, None)
+        update_runtime_config("chat_provider_settings", settings_map)
+
+    def _chat_provider_metadata(self, provider_id=None):
+        target = provider_id if provider_id is not None else self._current_chat_provider_value()
+        return chat_providers.provider_metadata(target)
+
+    def _chat_provider_config_fields(self, provider_id=None):
+        metadata = self._chat_provider_metadata(provider_id)
+        fields = list(metadata.get("config_fields") or [])
+        return [dict(item) for item in fields if isinstance(item, dict)]
+
+    def _refresh_chat_provider_card(self):
+        if not hasattr(self, "chat_provider_fields_layout"):
+            return
+        while self.chat_provider_fields_layout.rowCount():
+            self.chat_provider_fields_layout.removeRow(0)
+        self._chat_provider_field_widgets = {}
+        self._chat_provider_field_meta = {}
+
+        provider_id = self._current_chat_provider_value()
+        current_settings = self._current_chat_provider_settings_for(provider_id)
+        fields = list(self._chat_provider_config_fields(provider_id))
+
+        if fields:
+            for field in fields:
+                field_id = str(field.get("id") or "").strip()
+                if not field_id:
+                    continue
+                label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
+                kind = str(field.get("kind") or "").strip().lower()
+                if not kind:
+                    kind = "password" if "key" in field_id.lower() or "token" in field_id.lower() else "text"
+                editor = QtWidgets.QLineEdit()
+                editor.setObjectName(f"chat_provider_field_{field_id}")
+                if kind == "password":
+                    editor.setEchoMode(QtWidgets.QLineEdit.Password)
+                default_value = str(current_settings.get(field_id) or field.get("default") or "").strip()
+                editor.setText(default_value)
+                placeholder = field.get("placeholder")
+                if placeholder:
+                    editor.setPlaceholderText(str(placeholder))
+                env_names = list(field.get("env") or [])
+                tooltip_parts = []
+                if env_names:
+                    tooltip_parts.append("Env: " + ", ".join(str(name) for name in env_names if str(name or "").strip()))
+                if field.get("default"):
+                    tooltip_parts.append(f"Default: {field.get('default')}")
+                if tooltip_parts:
+                    editor.setToolTip("\n".join(tooltip_parts))
+                editor.editingFinished.connect(lambda fid=field_id, widget=editor, pid=provider_id: self._on_chat_provider_field_changed(pid, fid, widget))
+                self.chat_provider_fields_layout.addRow(label, editor)
+                self._chat_provider_field_widgets[field_id] = editor
+                self._chat_provider_field_meta[field_id] = dict(field)
+        else:
+            hint = QtWidgets.QLabel("This provider does not expose extra runtime fields yet.")
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            hint.setWordWrap(True)
+            self.chat_provider_fields_layout.addRow("", hint)
+
+        if hasattr(self, "chat_provider_hint_label"):
+            metadata = self._chat_provider_metadata(provider_id)
+            description = str(metadata.get("hint") or metadata.get("description") or "").strip()
+            if not description:
+                provider_label = self._chat_provider_label_from_value(provider_id)
+                description = f"{provider_label} is selected."
+            self.chat_provider_hint_label.setText(description)
+
+    def _on_chat_provider_field_changed(self, provider_id, field_id, widget):
+        if widget is None:
+            return
+        settings = self._current_chat_provider_settings_for(provider_id)
+        value = widget.text().strip()
+        if value:
+            settings[str(field_id or "").strip()] = value
+        else:
+            settings.pop(str(field_id or "").strip(), None)
+        self._set_current_chat_provider_settings_for(provider_id, settings)
+        self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
+        self.save_session()
 
     def _visual_reply_mode_label_from_value(self, value):
         return "Off" if str(value or "auto").strip().lower() == "off" else "Auto"
@@ -4794,6 +4973,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
                     "qt.sensory": QtSensoryService(self),
+                    "qt.chat_providers": QtChatProviderService(self),
                     "qt.chat_replay": QtChatReplayService(self),
                     "addons.capabilities": AddonCapabilityBridgeService(lambda: self._addon_manager),
                 },
@@ -6495,8 +6675,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_session()
 
     def on_chat_provider_changed(self, choice):
-        provider_value = self._chat_provider_value_from_label(choice)
+        provider_value = self._current_chat_provider_value()
         update_runtime_config("chat_provider", provider_value)
+        self._refresh_chat_provider_card()
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
         self.update_model_budget_hint()
         self.save_session()
@@ -7328,6 +7509,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.refresh_preset_list()
         self.refresh_body_list()
+        self._populate_chat_provider_combo(RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID))
+        self._refresh_chat_provider_card()
 
         self.emotional_text.setPlainText(RUNTIME_CONFIG.get("emotional_instructions", ""))
         self.system_prompt_text.setPlainText(RUNTIME_CONFIG.get("system_prompt", ""))
@@ -7379,7 +7562,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _infer_model_supports_images(self, model_name):
         value = str(model_name or "").strip().lower()
-        if not value or value in {"scanning...", "no models", "no vision models", "error: check lm studio", "error: check openai", "error: check xai / grok"}:
+        if self._is_model_catalog_placeholder(model_name):
             return False
         positive_fragments = (
             "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
@@ -7432,11 +7615,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         def worker():
             provider = self._current_chat_provider_value()
-            models = [f"Error: Check {self._chat_provider_label_from_value(provider)}"]
+            models = [self._chat_provider_error_placeholder(provider)]
             first_attempt = True
             while True:
                 models = get_chat_models(provider=provider, quiet=quiet if first_attempt else True)
-                error_placeholder = f"Error: Check {self._chat_provider_label_from_value(provider)}"
+                error_placeholder = self._chat_provider_error_placeholder(provider)
                 valid_models = [item for item in list(models or []) if item and item != error_placeholder]
                 if valid_models or not wait_for_reachable:
                     break
@@ -7474,10 +7657,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if raw_models and not filtered_models and hasattr(self, "model_requires_vision_checkbox") and self.model_requires_vision_checkbox.isChecked():
             new_items = ["No Vision Models"]
         else:
-            error_placeholder = f"Error: Check {self._chat_provider_label_from_value(provider)}"
+            error_placeholder = self._chat_provider_error_placeholder(provider)
             new_items = filtered_models or (raw_models if any(str(item or "").strip() == error_placeholder for item in raw_models) else ["No Models"])
 
-        if previous_items == new_items:
+        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
+        if previous_items == new_items and (not pending_wanted or current == pending_wanted):
             self.emit_tutorial_event(
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
@@ -7491,11 +7675,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if filtered_models and current in filtered_models:
             target_index = filtered_models.index(current)
         elif filtered_models:
-            wanted = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+            wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
             if wanted in filtered_models:
                 target_index = filtered_models.index(wanted)
         self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
         self.model_combo.blockSignals(False)
+        selected_model = str(self.model_combo.currentText() or "").strip()
+        if selected_model:
+            update_runtime_config("model_name", selected_model)
+        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
+        if pending_wanted and selected_model == pending_wanted:
+            self._pending_restored_model_name = ""
 
         self.emit_tutorial_event(
             "model_list_refreshed",
@@ -7525,8 +7715,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if not hasattr(self, "model_combo"):
             return False
         current = str(self.model_combo.currentText() or "").strip()
-        blocked = {"", "Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}
-        return current not in blocked
+        return not self._is_model_catalog_placeholder(current)
 
     def _tutorial_last_error_text(self):
         if not hasattr(self, "console_edit"):
@@ -7717,7 +7906,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def request_model_estimate(self, model_name):
         model_name = str(model_name or "").strip()
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         if model_name in self._model_estimate_cache or self._model_estimate_in_flight:
             return
@@ -7749,7 +7938,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def request_model_context_estimates(self, model_name):
         model_name = str(model_name or "").strip()
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         if model_name in self._model_context_estimate_cache or self._model_context_estimate_in_flight:
             return
@@ -7787,7 +7976,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             context_length = int(context_length)
         except Exception:
             return
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         cache_key = (model_name, context_length)
         if cache_key in self._model_single_context_estimate_cache or self._single_context_estimate_in_flight:
@@ -8167,9 +8356,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
         if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
-            provider_text = self._chat_provider_label_from_value(data["chat_provider"])
-            self.chat_provider_combo.setCurrentText(provider_text)
-            self.on_chat_provider_changed(provider_text)
+            self._set_chat_provider_selection(data["chat_provider"])
+            self.on_chat_provider_changed(self.chat_provider_combo.currentText())
+        if "chat_provider_settings" in data:
+            update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
+            self._refresh_chat_provider_card()
         if "model_name" in data:
             self._apply_saved_model_name(data["model_name"])
         if "voice_file" in data:
@@ -8323,6 +8514,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def save_preset(self, name):
         data = {
             "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
             "voice_file": self.voice_combo.currentText(),
             "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
@@ -9021,6 +9213,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self.tts_backend_combo.currentText(),
             "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
@@ -9129,7 +9322,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             index = self.preset_combo.findText(preset)
             if index >= 0:
                 self.preset_combo.setCurrentIndex(index)
-                self.load_preset()
+                update_runtime_config("active_preset_name", preset)
 
         engine_choice = session.get("avatar_mode")
         if isinstance(engine_choice, str) and engine_choice.strip().lower() == "lam":
@@ -9726,11 +9919,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         def worker():
             provider = self._current_chat_provider_value()
-            models = [f"Error: Check {self._chat_provider_label_from_value(provider)}"]
+            models = [self._chat_provider_error_placeholder(provider)]
             first_attempt = True
             while True:
                 models = get_chat_models(provider=provider, quiet=quiet if first_attempt else True)
-                error_placeholder = f"Error: Check {self._chat_provider_label_from_value(provider)}"
+                error_placeholder = self._chat_provider_error_placeholder(provider)
                 valid_models = [item for item in list(models or []) if item and item != error_placeholder]
                 if valid_models or not wait_for_reachable:
                     break
@@ -9764,14 +9957,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         current = str(self.model_combo.currentText() or "").strip()
         previous_items = [self.model_combo.itemText(i) for i in range(self.model_combo.count())]
+        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
         filtered_models = [str(entry.get("id") or "") for entry in available_catalog if str(entry.get("id") or "")]
         if raw_models and not filtered_models and hasattr(self, "model_requires_vision_checkbox") and self.model_requires_vision_checkbox.isChecked():
             new_items = ["No Vision Models"]
         else:
-            error_placeholder = f"Error: Check {self._chat_provider_label_from_value(provider)}"
+            error_placeholder = self._chat_provider_error_placeholder(provider)
             new_items = filtered_models or (raw_models if any(str(item or "").strip() == error_placeholder for item in raw_models) else ["No Models"])
 
-        if previous_items == new_items:
+        if previous_items == new_items and (not pending_wanted or current == pending_wanted):
             self.emit_tutorial_event(
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
@@ -9785,11 +9979,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if filtered_models and current in filtered_models:
             target_index = filtered_models.index(current)
         elif filtered_models:
-            wanted = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+            wanted = pending_wanted or str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
             if wanted in filtered_models:
                 target_index = filtered_models.index(wanted)
         self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
         self.model_combo.blockSignals(False)
+        selected_model = str(self.model_combo.currentText() or "").strip()
+        if selected_model:
+            update_runtime_config("model_name", selected_model)
+        if pending_wanted and selected_model == pending_wanted:
+            self._pending_restored_model_name = ""
 
         self.emit_tutorial_event(
             "model_list_refreshed",
@@ -9819,8 +10018,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if not hasattr(self, "model_combo"):
             return False
         current = str(self.model_combo.currentText() or "").strip()
-        blocked = {"", "Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}
-        return current not in blocked
+        return not self._is_model_catalog_placeholder(current)
 
     def _tutorial_last_error_text(self):
         if not hasattr(self, "console_edit"):
@@ -10011,7 +10209,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def request_model_estimate(self, model_name):
         model_name = str(model_name or "").strip()
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         if model_name in self._model_estimate_cache or self._model_estimate_in_flight:
             return
@@ -10043,7 +10241,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def request_model_context_estimates(self, model_name):
         model_name = str(model_name or "").strip()
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         if model_name in self._model_context_estimate_cache or self._model_context_estimate_in_flight:
             return
@@ -10081,7 +10279,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             context_length = int(context_length)
         except Exception:
             return
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             return
         cache_key = (model_name, context_length)
         if cache_key in self._model_single_context_estimate_cache or self._single_context_estimate_in_flight:
@@ -10180,7 +10378,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             stats_lines.append("Total VRAM: unavailable")
             stats_lines.append("In use VRAM: unavailable")
 
-        if not model_name or model_name in {"Scanning...", "No Models", "Error: Check LM Studio", "Error: Check OpenAI", "Error: Check xAI / Grok", "No Vision Models"}:
+        if self._is_model_catalog_placeholder(model_name):
             summary = self._format_model_advisor_bubbles(stats_lines, [], high_baseline_warning)
             if high_baseline_warning:
                 summary += ""
@@ -10461,9 +10659,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
         if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
-            provider_text = self._chat_provider_label_from_value(data["chat_provider"])
-            self.chat_provider_combo.setCurrentText(provider_text)
-            self.on_chat_provider_changed(provider_text)
+            self._set_chat_provider_selection(data["chat_provider"])
+            self.on_chat_provider_changed(self.chat_provider_combo.currentText())
+        if "chat_provider_settings" in data:
+            update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
+            self._refresh_chat_provider_card()
         if "model_name" in data:
             self._apply_saved_model_name(data["model_name"])
         if "voice_file" in data:
@@ -10617,6 +10817,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def save_preset(self, name):
         data = {
             "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
             "voice_file": self.voice_combo.currentText(),
             "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
@@ -11458,7 +11659,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 index = self.preset_combo.findText(preset)
                 if index >= 0:
                     self.preset_combo.setCurrentIndex(index)
-                    self.load_preset()
+                    update_runtime_config("active_preset_name", preset)
 
             engine_choice = session.get("avatar_mode")
             if isinstance(engine_choice, str) and engine_choice.strip().lower() == "lam":
@@ -11540,10 +11741,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 self.on_vam_target_storable_id_changed()
             chat_provider = session.get("chat_provider")
             if chat_provider is not None and hasattr(self, "chat_provider_combo"):
-                provider_text = self._chat_provider_label_from_value(chat_provider)
-                self.chat_provider_combo.setCurrentText(provider_text)
-                update_runtime_config("chat_provider", self._chat_provider_value_from_label(provider_text))
-                self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
+                normalized_provider = self._set_chat_provider_selection(chat_provider)
+                update_runtime_config("chat_provider", normalized_provider)
+            chat_provider_settings = session.get("chat_provider_settings")
+            if chat_provider_settings is not None:
+                update_runtime_config("chat_provider_settings", chat_provider_settings)
+                self._refresh_chat_provider_card()
+            saved_model_name = str(session.get("model_name") or "").strip()
+            if saved_model_name:
+                self._pending_restored_model_name = saved_model_name
+                update_runtime_config("model_name", saved_model_name)
+            self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
             model_requires_vision = session.get("model_requires_vision")
             if model_requires_vision is not None and hasattr(self, "model_requires_vision_checkbox"):
                 self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
