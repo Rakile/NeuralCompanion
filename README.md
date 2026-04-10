@@ -2,10 +2,18 @@
 
 Neural Interface Qt is a local desktop avatar companion application built around:
 
-- `LM Studio` for the local language model
-- `PocketTTS` and `Chatterbox / TurboTTS` for speech
-- `MuseTalk` and `VSeeFace` as avatar-engine options
-- a `PySide6 / Qt` desktop UI for setup, tuning, preview, tutorials, and runtime control
+- selectable chat providers:
+  - `LM Studio`
+  - `OpenAI`
+  - `xAI / Grok`
+- selectable speech backends:
+  - `PocketTTS`
+  - `Chatterbox / TurboTTS`
+- selectable avatar engines:
+  - `MuseTalk`
+  - `VSeeFace`
+  - `VaM`
+- a `PySide6 / Qt` desktop UI for setup, tutorials, runtime control, and a now much more configurable workspace
 
 The project is especially focused on streamed avatar replies, where text generation, TTS, and avatar rendering overlap in real time.
 
@@ -65,10 +73,23 @@ The current top-level tabs are:
 - `Persona`
 - `VSeeFace`
 - `MuseTalk`
+- `VaM`
 - `Brain`
 - `Chunking`
 - `Dry Run`
 - `Tutorials`
+- `Hotkeys`
+- `Chat Player`
+
+The main shell is no longer a single rigid left column. The app now uses a more configurable dock-based workspace built around:
+
+- `System Shaping`
+- `Workspace Tabs`
+- `Operational View`
+- `MuseTalk Preview`
+- `Visual Reply`
+
+These panels can be moved, floated, hidden, shown again, and reset from the `Workspace` menu.
 
 ### VSeeFace
 
@@ -91,23 +112,52 @@ This split is deliberate:
 - `Preprocess` is for building and tuning MuseTalk avatars
 - `Loop Authoring` is for creating or importing source loops, currently with experimental Wan2GP-oriented tooling
 
+### VaM
+
+The `VaM` tab is for the `VaM` avatar-engine bridge.
+
+It includes:
+
+- `VaM Root` selection
+- VMC relay settings
+- file-bridge settings
+- `Start VaM Desktop`
+- `Start VaM VR`
+- `Hide NC Interface`
+
+### Hotkeys
+
+The `Hotkeys` tab is addon-driven and lets you:
+
+- inspect available actions
+- record exact bindings
+- change `Push-to-Talk`
+- assign side-specific keys like `Left Ctrl` or `Right Ctrl`
+
 ## What The App Does
 
 At a high level, the app can:
 
 - listen to the microphone or use push-to-talk
-- send user input to a local LM Studio model
+- send user input to a selected chat provider
 - generate spoken replies with TTS
-- drive either `MuseTalk` or `VSeeFace`
+- drive `MuseTalk`, `VSeeFace`, or `VaM`
 - stream speech and avatar output progressively
 - tune startup/chunking behavior with `Dry Run`
 - save and load `Performance Profiles`
 - author MuseTalk source loops through an experimental local workflow
+- drive optional visual replies
+- run hidden sensory/supervisor behaviors for sources like screen, webcam, clipboard, and heart rate
+- let the user reshape the workspace instead of forcing one fixed layout
 
 ## Main Features
 
 - Streaming and non-streaming conversation modes
 - `PocketTTS` and `Chatterbox / TurboTTS`
+- selectable chat providers:
+  - `LM Studio`
+  - `OpenAI`
+  - `xAI / Grok`
 - `MuseTalk` VRAM modes:
   - `Quality`
   - `Balanced`
@@ -119,9 +169,15 @@ At a high level, the app can:
 - MuseTalk one-frame audio test using a scratch avatar
 - metadata-driven MuseTalk emotion tags via `avatar_pose.json`
 - experimental `Loop Authoring` flow for local emotion-loop creation
+- true `Avatar Focus` mode for MuseTalk
+- `Hide NC Interface` mode for external avatar engines
+- `VaM` bridge with VMC relay, file-bridge control, optional in-VaM audio, and delegated playback telemetry
 - `Dry Run` hardware tuning
 - `Performance Profiles`
 - persona presets
+- configurable workspace docks with layout reset
+- addon-driven `Hotkeys` tab with rebindable `Push-to-Talk`
+- built-in supervisor/tutorial workflows for screen, webcam, clipboard, heart rate, and visual replies
 - built-in tutorials
 
 ## Requirements
@@ -130,10 +186,18 @@ Before using the app, make sure you have:
 
 - Windows
 - Python 3.11
-- `LM Studio` installed and running when you want live inference
-- a local LM Studio model available
+- at least one chat path prepared:
+  - `LM Studio` with a loaded local model
+  - or `OpenAI`
+  - or `xAI / Grok`
 - `FFmpeg` available for MuseTalk and loop-authoring video handling
-- the required MuseTalk model/runtime files if you want the MuseTalk engine
+- the required runtime/model files for whichever avatar engine you want to use
+
+Optional but commonly useful:
+
+- `VSeeFace` if you want the VSeeFace engine
+- `VaM` plus the `NeuralCompanionBridge` plugin if you want the VaM engine
+- MuseTalk runtime/model files if you want the MuseTalk engine
 
 For MuseTalk, a CUDA-capable NVIDIA GPU is strongly recommended.
 
@@ -144,6 +208,7 @@ The current top-level [requirements.txt](/E:/Tools/Python_Scripts/NeuralInterfac
 - `chatterbox-tts`
 - `gradio`
 - `nltk`
+- `pynput`
 
 The actual application also depends on the packages imported by:
 
@@ -155,7 +220,11 @@ That includes Qt / PySide6 and the runtime dependencies used by the local TTS an
 
 ## Installation
 
-The project does not yet ship with a fully locked, one-command installer, so the current installation flow is still practical rather than polished.
+This repository is still best treated as the active source tree, not the most curated end-user package.
+
+The current installation flow is therefore still practical rather than perfectly locked down.
+
+If you are working from the separate curated release repo, use the unified installer there.
 
 ### 1. Create or activate a Python environment
 
@@ -190,7 +259,16 @@ So if you are setting up from scratch, you may still need to install missing run
 
 - install `LM Studio`
 - load at least one local model
-- make sure LM Studio is running before you initialize the app
+- make sure LM Studio is running before you initialize the app if `LM Studio` is your selected chat provider
+
+### 3b. Or configure a hosted chat provider
+
+Instead of `LM Studio`, the app can also talk to:
+
+- `OpenAI`
+- `xAI / Grok`
+
+Configure the needed keys / base URLs through your environment or existing NC runtime settings before launch.
 
 ### 4. Make sure FFmpeg is available
 
@@ -213,6 +291,23 @@ Main MuseTalk worker/runtime entry points:
 
 - [MuseTalk/musetalk_worker.py](/E:/Tools/Python_Scripts/NeuralInterface/MuseTalk/musetalk_worker.py)
 - [MuseTalk/musetalk_engine.py](/E:/Tools/Python_Scripts/NeuralInterface/MuseTalk/musetalk_engine.py)
+
+### 5b. Optional: prepare VSeeFace
+
+If you want to use `VSeeFace`:
+
+- install `VSeeFace`
+- point NC at the needed runtime/body settings
+
+### 5c. Optional: prepare VaM
+
+If you want to use `VaM`:
+
+- install `VaM`
+- place the `NeuralCompanionBridge` plugin in VaM's `Custom/Scripts`
+- in NC, point the `VaM Root` field at the VaM install folder
+
+With that setup, NC derives the bridge path automatically inside the VaM install.
 
 ### 6. Optional: prepare Wan2GP for Loop Authoring
 
@@ -258,6 +353,11 @@ Current tutorial files include:
 - [dry_run_optimization.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/dry_run_optimization.json)
 - [startup_self_check.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/startup_self_check.json)
 - [vision_supervisors_overview.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/vision_supervisors_overview.json)
+- [screen_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/screen_supervisor.json)
+- [webcam_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/webcam_supervisor.json)
+- [clipboard_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/clipboard_supervisor.json)
+- [heart_rate_threshold_rules.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/heart_rate_threshold_rules.json)
+- [visual_reply_controls.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/visual_reply_controls.json)
 - [screen_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/screen_supervisor.json)
 - [clipboard_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/clipboard_supervisor.json)
 - [webcam_supervisor.json](/E:/Tools/Python_Scripts/NeuralInterface/tutorials/webcam_supervisor.json)
