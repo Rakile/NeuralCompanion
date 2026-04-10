@@ -1,3 +1,4 @@
 chatterbox-tts
 gradio
 nltk
+pynput
