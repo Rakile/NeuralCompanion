@@ -2759,18 +2759,21 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.next_button.setToolTip("Show the next stored visual reply.")
         self.load_button = QtWidgets.QPushButton("Load Image")
         self.caption_button = QtWidgets.QPushButton("Caption")
+        self.delete_button = QtWidgets.QPushButton("Delete Image")
         self.clear_button = QtWidgets.QPushButton("Clear")
         self.delete_all_button = QtWidgets.QPushButton("Delete All")
         self.prev_button.clicked.connect(self.show_previous_stored_image)
         self.next_button.clicked.connect(self.show_next_stored_image)
         self.load_button.clicked.connect(self.loadRequested.emit)
         self.caption_button.clicked.connect(self.captionRequested.emit)
+        self.delete_button.clicked.connect(self.delete_current_image)
         self.clear_button.clicked.connect(self.clearRequested.emit)
         self.delete_all_button.clicked.connect(self.delete_all_stored_images)
         controls.addWidget(self.prev_button, 0)
         controls.addWidget(self.load_button, 0)
         controls.addWidget(self.next_button, 0)
         controls.addWidget(self.caption_button, 0)
+        controls.addWidget(self.delete_button, 0)
         controls.addWidget(self.clear_button, 0)
         controls.addWidget(self.delete_all_button, 0)
         controls.addStretch(1)
@@ -2815,6 +2818,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
 
         self.current_pixmap = None
         self.current_image_path = ""
+        self.current_caption = ""
         self.preview_zoom_factor = 1.0
         self._last_visual_reply_updated_at = 0.0
 
@@ -2894,6 +2898,39 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
                 pass
         return entries, total_bytes
 
+    def _visual_reply_caption_from_image(self, image_path):
+        path = str(image_path or "").strip()
+        if not path or not os.path.isfile(path):
+            return ""
+        try:
+            with Image.open(path) as image:
+                candidates = []
+                info = dict(getattr(image, "info", {}) or {})
+                for key in ("Comment", "comment", "Description", "description", "Prompt", "prompt"):
+                    value = info.get(key)
+                    if value:
+                        candidates.append(value)
+                text_map = getattr(image, "text", None)
+                if isinstance(text_map, dict):
+                    for key in ("Comment", "comment", "Description", "description", "Prompt", "prompt"):
+                        value = text_map.get(key)
+                        if value:
+                            candidates.append(value)
+                for value in candidates:
+                    if isinstance(value, bytes):
+                        for encoding in ("utf-8", "utf-16", "latin-1"):
+                            try:
+                                value = value.decode(encoding, errors="ignore")
+                                break
+                            except Exception:
+                                continue
+                    caption_text = str(value or "").strip()
+                    if caption_text:
+                        return caption_text
+        except Exception:
+            return ""
+        return ""
+
     def _format_storage_bytes(self, value):
         try:
             amount = float(value or 0.0)
@@ -2949,10 +2986,11 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
             current_index = len(entries) - 1 if offset < 0 else 0
         target_index = max(0, min(len(entries) - 1, current_index + int(offset)))
         target_path = entries[target_index]
+        caption_text = self._visual_reply_caption_from_image(target_path)
         loaded = self.show_image(
             str(target_path),
             status_text="Visual Reply history",
-            caption="",
+            caption=caption_text,
         )
         if loaded:
             shared_state.set_current_visual_reply_data(
@@ -2961,7 +2999,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
                     "status_text": "Visual Reply history",
                     "detail_text": "",
                     "image_path": str(target_path),
-                    "caption": "",
+                    "caption": caption_text,
                     "request_id": "",
                     "updated_at": time.time(),
                 }
@@ -3012,6 +3050,90 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self._refresh_storage_summary()
         return bool(removed)
 
+    def delete_current_image(self):
+        current_path = str(getattr(self, "current_image_path", "") or "").strip()
+        if not current_path or not os.path.isfile(current_path):
+            return False
+        storage_dir = os.path.abspath(str(self._visual_reply_storage_dir()))
+        current_abs = os.path.abspath(current_path)
+        try:
+            within_storage = os.path.commonpath([current_abs, storage_dir]) == storage_dir
+        except Exception:
+            within_storage = False
+        label = "Delete current image"
+        if within_storage:
+            entries, _ = self._visual_reply_storage_stats()
+            current_index = self._current_storage_index(entries)
+            if current_index < 0:
+                current_index = 0
+            prompt = f"Delete the currently displayed visual reply image?\n\n{current_path}"
+            if len(entries) > 1:
+                prompt += "\n\nThe browser will move to the next available image."
+        else:
+            prompt = f"Delete the currently displayed image file?\n\n{current_path}"
+        answer = QtWidgets.QMessageBox.question(self, label, prompt)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        try:
+            os.remove(current_path)
+        except Exception:
+            return False
+        if within_storage:
+            remaining = [item for item in self._visual_reply_image_paths() if os.path.abspath(str(item)) != current_abs]
+            if remaining:
+                entries = remaining
+                if "current_index" not in locals():
+                    current_index = 0
+                target_index = min(current_index, len(entries) - 1)
+                target_path = entries[target_index]
+                caption_text = self._visual_reply_caption_from_image(target_path)
+                self.show_image(str(target_path), status_text="Visual Reply history", caption=caption_text)
+                shared_state.set_current_visual_reply_data(
+                    {
+                        "status": "ready",
+                        "status_text": "Visual Reply history",
+                        "detail_text": "",
+                        "image_path": str(target_path),
+                        "caption": caption_text,
+                        "request_id": "",
+                        "updated_at": time.time(),
+                    }
+                )
+            else:
+                self.clear_visual_reply(
+                    status_text="Visual Reply image deleted",
+                    detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                )
+                shared_state.set_current_visual_reply_data(
+                    {
+                        "status": "idle",
+                        "status_text": "Visual Reply image deleted",
+                        "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                        "image_path": "",
+                        "caption": "",
+                        "request_id": "",
+                        "updated_at": time.time(),
+                    }
+                )
+            self._refresh_storage_summary()
+        else:
+            self.clear_visual_reply(
+                status_text="Visual Reply image deleted",
+                detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+            )
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "idle",
+                    "status_text": "Visual Reply image deleted",
+                    "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                    "image_path": "",
+                    "caption": "",
+                    "request_id": "",
+                    "updated_at": time.time(),
+                }
+            )
+        return True
+
     def adjust_zoom(self, delta):
         updated = max(0.25, min(4.0, float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0) + float(delta)))
         if abs(updated - float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0)) < 0.001:
@@ -3028,6 +3150,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
     def clear_visual_reply(self, status_text="Visual Reply idle", detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here."):
         self.current_pixmap = None
         self.current_image_path = ""
+        self.current_caption = ""
         self.preview_zoom_factor = 1.0
         self.image_label.clear()
         self.placeholder.setText(str(detail_text or "No visual reply yet."))
@@ -3039,6 +3162,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
 
     def set_caption(self, caption=""):
         caption_text = str(caption or "").strip()
+        self.current_caption = caption_text
         if caption_text:
             self.caption_label.setText(caption_text)
             self.caption_label.show()
@@ -3050,6 +3174,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
     def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image..."):
         self.current_pixmap = None
         self.current_image_path = ""
+        self.current_caption = ""
         self.preview_zoom_factor = 1.0
         self.image_label.clear()
         self.placeholder.setText(str(detail_text or "Preparing image..."))
@@ -3070,7 +3195,9 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.current_pixmap = QtGui.QPixmap.fromImage(image)
         self.preview_zoom_factor = 1.0
         self.status_label.setText(str(status_text or "Visual Reply"))
-        self.set_caption(caption)
+        resolved_caption = str(caption or "").strip() or self._visual_reply_caption_from_image(path)
+        self.current_caption = resolved_caption
+        self.set_caption(resolved_caption)
         self.content_stack.setCurrentWidget(self.image_scroll)
         self._refresh_displayed_pixmap()
         self._refresh_storage_summary()
@@ -9038,13 +9165,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return False
         loaded = bool(panel.show_image(image_path, status_text=status_text, caption=caption))
         if loaded:
+            resolved_caption = str(getattr(panel, "current_caption", "") or "").strip()
             shared_state.set_current_visual_reply_data(
                 {
                     "status": "ready",
                     "status_text": str(status_text or "Visual Reply"),
                     "detail_text": "",
                     "image_path": str(image_path or ""),
-                    "caption": str(caption or ""),
+                    "caption": resolved_caption,
                     "request_id": "",
                     "updated_at": time.time(),
                 }
@@ -11306,13 +11434,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return False
         loaded = bool(panel.show_image(image_path, status_text=status_text, caption=caption))
         if loaded:
+            resolved_caption = str(getattr(panel, "current_caption", "") or "").strip()
             shared_state.set_current_visual_reply_data(
                 {
                     "status": "ready",
                     "status_text": str(status_text or "Visual Reply"),
                     "detail_text": "",
                     "image_path": str(image_path or ""),
-                    "caption": str(caption or ""),
+                    "caption": resolved_caption,
                     "request_id": "",
                     "updated_at": time.time(),
                 }
