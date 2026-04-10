@@ -87,8 +87,10 @@ class Addon(BaseAddon):
         self.hidden_loop_enabled = bool(payload.get("clipboard_source_hidden_loop_enabled", self.hidden_loop_enabled))
         if self.auto_send_immediately and self.hidden_loop_enabled:
             self.hidden_loop_enabled = False
-        if self.auto_attach_next_user_turn and self._has_latest_image():
+        if self.auto_attach_next_user_turn and self._source_is_enabled() and self._has_latest_image():
             self._arm_latest_for_next_user_turn(silent_missing=True)
+        elif not self._source_is_enabled():
+            self._clear_pending_next_user_turn()
         self._notify_tab_refreshers()
         return None
 
@@ -225,6 +227,11 @@ class Addon(BaseAddon):
         return True
 
     def _apply_new_image_delivery_rules(self):
+        if not self._source_is_enabled():
+            self._clear_pending_next_user_turn()
+            self.last_delivery_status = "Clipboard source is disabled, so copied images will not auto-send or arm."
+            self._notify_tab_refreshers()
+            return
         delivered = False
         if self.auto_send_immediately:
             delivered = self._send_latest_now(silent_missing=True, update_status=False)
@@ -251,6 +258,17 @@ class Addon(BaseAddon):
     def _engine_module(self):
         import engine
         return engine
+
+    def _source_is_enabled(self) -> bool:
+        try:
+            raw_value = self._engine_module().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
+        except Exception:
+            return True
+        if isinstance(raw_value, (list, tuple, set)):
+            tokens = [str(item or "").strip().lower() for item in list(raw_value or [])]
+        else:
+            tokens = [part.strip().lower() for part in str(raw_value or "off").split(",")]
+        return "clipboard" in {token for token in tokens if token and token != "off"}
 
     def _is_engine_running(self) -> bool:
         replay = self.context.get_service("qt.chat_replay") if getattr(self, "context", None) is not None else None
@@ -320,7 +338,12 @@ class Addon(BaseAddon):
     def _on_auto_attach_toggled(self, checked):
         self.auto_attach_next_user_turn = bool(checked)
         if self.auto_attach_next_user_turn:
-            self._arm_latest_for_next_user_turn(silent_missing=True)
+            if self._source_is_enabled():
+                self._arm_latest_for_next_user_turn(silent_missing=True)
+            else:
+                self._clear_pending_next_user_turn()
+                self.last_delivery_status = "Next-turn clipboard attach is configured, but Clipboard source is currently disabled."
+                self._notify_tab_refreshers()
         else:
             self._clear_pending_next_user_turn()
             self.last_delivery_status = "Next-turn clipboard attachment disabled."
@@ -354,6 +377,7 @@ class Addon(BaseAddon):
         return "\n".join(
             [
                 latest_line,
+                f"Clipboard source include: {'on' if self._source_is_enabled() else 'off'}",
                 f"Next user turn attach: {'armed when possible' if self.auto_attach_next_user_turn else 'off'}",
                 f"Immediate auto-send: {'on' if self.auto_send_immediately else 'off'}",
                 f"Hidden Vision loop feed: {'on' if self.hidden_loop_enabled else 'off'}",
@@ -370,7 +394,7 @@ class Addon(BaseAddon):
             return "n/a"
 
     def _capture_sensory_snapshot(self, capture_context=None):
-        if not self.hidden_loop_enabled or not self._has_latest_image():
+        if not self._source_is_enabled() or not self.hidden_loop_enabled or not self._has_latest_image():
             return None
         is_new = bool(self.latest_image_is_new)
         snapshot = {

@@ -6378,6 +6378,12 @@ def run_conversation_flow(source):
             status = None
 
             while time.time() - start_wait < listen_idle_window_seconds:
+                if isinstance(pending_loaded_input_turn, dict):
+                    loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
+                    loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
+                    if loaded_content and loaded_role == "user":
+                        print("\n📋 [Session] Immediate queued user turn detected. Processing now...")
+                        break
                 status = check_interaction_status(source)
 
                 if status == "regenerate_response":
@@ -6542,9 +6548,13 @@ def run_conversation_flow(source):
                     input_turn = {"role": role, "content": content, "origin": "input"}
                     if role == "user" and not is_placeholder and pending_next_user_attachment:
                         attachment_image_path = str(pending_next_user_attachment.get("attachment_image_path", "") or "").strip()
-                        if attachment_image_path:
+                        attachment_source = str(pending_next_user_attachment.get("attachment_source", "image") or "image")
+                        clipboard_source_enabled = "clipboard" in _sensory_feedback_sources()
+                        if attachment_source == "clipboard" and not clipboard_source_enabled:
+                            print("📋 [Clipboard] Skipped pending clipboard image because Clipboard source is disabled.")
+                        elif attachment_image_path:
                             input_turn["attachment_image_path"] = attachment_image_path
-                            input_turn["attachment_source"] = str(pending_next_user_attachment.get("attachment_source", "image") or "image")
+                            input_turn["attachment_source"] = attachment_source
                             print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
                         clear_pending_user_image_attachment()
                     conversation_history.append(input_turn)
