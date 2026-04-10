@@ -8355,14 +8355,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
+        preset_model_name = str(data.get("model_name") or "").strip()
+        if preset_model_name:
+            self._pending_restored_model_name = preset_model_name
+            update_runtime_config("model_name", preset_model_name)
         if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
             self._set_chat_provider_selection(data["chat_provider"])
             self.on_chat_provider_changed(self.chat_provider_combo.currentText())
         if "chat_provider_settings" in data:
             update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
             self._refresh_chat_provider_card()
-        if "model_name" in data:
-            self._apply_saved_model_name(data["model_name"])
+        if preset_model_name:
+            self._apply_saved_model_name(preset_model_name)
         if "voice_file" in data:
             index = self.voice_combo.findText(data["voice_file"])
             if index >= 0:
@@ -10658,14 +10662,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
+        preset_model_name = str(data.get("model_name") or "").strip()
+        if preset_model_name:
+            self._pending_restored_model_name = preset_model_name
+            update_runtime_config("model_name", preset_model_name)
         if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
             self._set_chat_provider_selection(data["chat_provider"])
             self.on_chat_provider_changed(self.chat_provider_combo.currentText())
         if "chat_provider_settings" in data:
             update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
             self._refresh_chat_provider_card()
-        if "model_name" in data:
-            self._apply_saved_model_name(data["model_name"])
+        if preset_model_name:
+            self._apply_saved_model_name(preset_model_name)
         if "voice_file" in data:
             index = self.voice_combo.findText(data["voice_file"])
             if index >= 0:
