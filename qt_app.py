@@ -84,6 +84,22 @@ QT_PREVIEW_CACHE_LIMIT = 384
 QT_PREVIEW_INITIAL_PRELOAD = 96
 QT_PREVIEW_AHEAD_PRELOAD = 72
 
+_WIN32_DOCK_OWNER_SUPPORTED = False
+_WIN32_GWLP_HWNDPARENT = -8
+try:
+    if os.name == "nt":
+        _win32_user32 = ctypes.windll.user32
+        _win32_get_window_owner = getattr(_win32_user32, "GetWindowLongPtrW", None) or getattr(_win32_user32, "GetWindowLongW", None)
+        _win32_set_window_owner = getattr(_win32_user32, "SetWindowLongPtrW", None) or getattr(_win32_user32, "SetWindowLongW", None)
+        if _win32_get_window_owner is not None and _win32_set_window_owner is not None:
+            _win32_get_window_owner.argtypes = [ctypes.c_void_p, ctypes.c_int]
+            _win32_get_window_owner.restype = ctypes.c_void_p
+            _win32_set_window_owner.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+            _win32_set_window_owner.restype = ctypes.c_void_p
+            _WIN32_DOCK_OWNER_SUPPORTED = True
+except Exception:
+    _WIN32_DOCK_OWNER_SUPPORTED = False
+
 
 def build_vam_launch_icon(size=28):
     size = max(18, int(size or 28))
@@ -2999,6 +3015,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._previous_stderr = sys.stderr
         sys.stdout = self._console_redirect
         sys.stderr = self._console_redirect
+        self._floating_panels_preserved = []
+        self._restore_floating_panels_timer = QtCore.QTimer(self)
+        self._restore_floating_panels_timer.setSingleShot(True)
+        self._restore_floating_panels_timer.timeout.connect(self._restore_floating_panels_after_minimize)
 
         self._build_ui()
         self._build_preview_dock()
@@ -3043,6 +3063,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         )
         self.system_shaping_dock.setMinimumSize(0, 0)
         self.system_shaping_dock.setWidget(self.system_shaping_panel)
+        self._register_workspace_dock(self.system_shaping_dock)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
 
         self.workspace_tabs_dock = QtWidgets.QDockWidget("Workspace Tabs", self)
@@ -3055,6 +3076,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         )
         self.workspace_tabs_dock.setMinimumSize(0, 0)
         self.workspace_tabs_dock.setWidget(self.workspace_tabs_panel)
+        self._register_workspace_dock(self.workspace_tabs_dock)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.workspace_tabs_dock)
         try:
             self.tabifyDockWidget(self.system_shaping_dock, self.workspace_tabs_dock)
@@ -3072,6 +3094,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         )
         self.operational_dock.setMinimumSize(0, 0)
         self.operational_dock.setWidget(self.right_panel)
+        self._register_workspace_dock(self.operational_dock)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.operational_dock)
         try:
             self.resizeDocks(
@@ -3082,6 +3105,80 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
         self._build_workspace_menu()
+
+    def _register_workspace_dock(self, dock):
+        if dock is None:
+            return
+        try:
+            dock.topLevelChanged.connect(lambda _floating, d=dock: self._schedule_dock_owner_refresh(d))
+        except Exception:
+            pass
+        self._schedule_dock_owner_refresh(dock)
+
+    def _schedule_dock_owner_refresh(self, dock):
+        if dock is None or not _WIN32_DOCK_OWNER_SUPPORTED:
+            return
+        QtCore.QTimer.singleShot(0, lambda d=dock: self._refresh_native_dock_owner(d))
+
+    def _refresh_native_dock_owner(self, dock):
+        if dock is None or not _WIN32_DOCK_OWNER_SUPPORTED:
+            return
+        try:
+            hwnd = int(dock.winId())
+            owner = 0 if dock.isFloating() else int(self.winId())
+            _win32_set_window_owner(hwnd, _WIN32_GWLP_HWNDPARENT, ctypes.c_void_p(owner))
+        except Exception:
+            pass
+
+    def changeEvent(self, event):
+        try:
+            if event.type() == QtCore.QEvent.WindowStateChange:
+                if bool(self.windowState() & QtCore.Qt.WindowMinimized):
+                    self._capture_floating_panels_for_minimize()
+                    self._restore_floating_panels_timer.start(0)
+        except Exception:
+            pass
+        super().changeEvent(event)
+
+    def _collect_preservable_floating_panels(self):
+        panels = []
+        seen = set()
+        for dock in self.findChildren(QtWidgets.QDockWidget):
+            if not dock.isFloating() or not dock.isVisible():
+                continue
+            key = id(dock)
+            if key in seen:
+                continue
+            seen.add(key)
+            panels.append(dock)
+        stage = getattr(self, "_musetalk_stage_window", None)
+        if stage is not None and stage.isVisible():
+            panels.append(stage)
+        external_return = getattr(self, "_external_avatar_return_window", None)
+        if external_return is not None and external_return.isVisible():
+            panels.append(external_return)
+        return panels
+
+    def _capture_floating_panels_for_minimize(self):
+        self._floating_panels_preserved = self._collect_preservable_floating_panels()
+
+    def _restore_floating_panels_after_minimize(self):
+        preserved = list(getattr(self, "_floating_panels_preserved", []) or [])
+        if not preserved:
+            return
+        for panel in preserved:
+            try:
+                if panel is None:
+                    continue
+                if isinstance(panel, QtWidgets.QDockWidget) and not panel.isFloating():
+                    continue
+                panel.setWindowState(panel.windowState() & ~QtCore.Qt.WindowMinimized)
+                panel.showNormal()
+                panel.show()
+                panel.raise_()
+                panel.activateWindow()
+            except Exception:
+                continue
 
     def _build_workspace_menu(self):
         menu_bar = self.menuBar()
@@ -3176,6 +3273,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.embedded_musetalk_preview.showInterfaceRequested.connect(self.show_main_interface_from_musetalk_focus)
         self.preview_dock_layout.addWidget(self.embedded_musetalk_preview)
         self.preview_dock.setWidget(self.preview_dock_container)
+        self._register_workspace_dock(self.preview_dock)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
         self.preview_dock.hide()
         self._ensure_musetalk_stage_window()
@@ -3194,6 +3292,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.visual_reply_panel.captionRequested.connect(self.prompt_visual_reply_caption)
         self.visual_reply_panel.clearRequested.connect(lambda: self.clear_visual_reply(auto_show=False))
         self.visual_reply_dock.setWidget(self.visual_reply_panel)
+        self._register_workspace_dock(self.visual_reply_dock)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
         self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
         self.visual_reply_dock.hide()
