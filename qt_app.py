@@ -2746,18 +2746,33 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.status_label = QtWidgets.QLabel("Visual Reply idle")
         self.status_label.setStyleSheet("font-weight: 600; color: #d8dee9;")
 
+        self.storage_label = QtWidgets.QLabel("Storage: empty")
+        self.storage_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self.storage_label.setWordWrap(True)
+
         controls = QtWidgets.QHBoxLayout()
         controls.setContentsMargins(0, 0, 0, 0)
         controls.setSpacing(8)
+        self.prev_button = QtWidgets.QPushButton("Previous")
+        self.prev_button.setToolTip("Show the previous stored visual reply.")
+        self.next_button = QtWidgets.QPushButton("Next")
+        self.next_button.setToolTip("Show the next stored visual reply.")
         self.load_button = QtWidgets.QPushButton("Load Image")
         self.caption_button = QtWidgets.QPushButton("Caption")
         self.clear_button = QtWidgets.QPushButton("Clear")
+        self.delete_all_button = QtWidgets.QPushButton("Delete All")
+        self.prev_button.clicked.connect(self.show_previous_stored_image)
+        self.next_button.clicked.connect(self.show_next_stored_image)
         self.load_button.clicked.connect(self.loadRequested.emit)
         self.caption_button.clicked.connect(self.captionRequested.emit)
         self.clear_button.clicked.connect(self.clearRequested.emit)
+        self.delete_all_button.clicked.connect(self.delete_all_stored_images)
+        controls.addWidget(self.prev_button, 0)
         controls.addWidget(self.load_button, 0)
+        controls.addWidget(self.next_button, 0)
         controls.addWidget(self.caption_button, 0)
         controls.addWidget(self.clear_button, 0)
+        controls.addWidget(self.delete_all_button, 0)
         controls.addStretch(1)
 
         self.content_stack = QtWidgets.QStackedWidget()
@@ -2793,6 +2808,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.caption_label.hide()
 
         layout.addWidget(self.status_label)
+        layout.addWidget(self.storage_label)
         layout.addLayout(controls)
         layout.addWidget(self.content_stack, 1)
         layout.addWidget(self.caption_label)
@@ -2806,6 +2822,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.image_scroll.installEventFilter(self)
         self.image_scroll.viewport().installEventFilter(self)
         self.clear_visual_reply()
+        self._refresh_storage_summary()
 
         self.poll_timer = QtCore.QTimer(self)
         self.poll_timer.timeout.connect(self.poll_state)
@@ -2847,6 +2864,154 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         step = 0.1 if delta > 0 else -0.1
         return self.adjust_zoom(step)
 
+    def _visual_reply_storage_dir(self):
+        target = Path(__file__).resolve().parent / "runtime" / "visual_replies"
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _visual_reply_image_paths(self):
+        storage_dir = self._visual_reply_storage_dir()
+        if not storage_dir.exists():
+            return []
+        allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        entries = []
+        try:
+            for item in storage_dir.iterdir():
+                if item.is_file() and item.suffix.lower() in allowed:
+                    entries.append(item)
+        except Exception:
+            return []
+        entries.sort(key=lambda item: (item.stat().st_mtime, item.name.lower()))
+        return entries
+
+    def _visual_reply_storage_stats(self):
+        entries = self._visual_reply_image_paths()
+        total_bytes = 0
+        for item in entries:
+            try:
+                total_bytes += int(item.stat().st_size)
+            except Exception:
+                pass
+        return entries, total_bytes
+
+    def _format_storage_bytes(self, value):
+        try:
+            amount = float(value or 0.0)
+        except Exception:
+            amount = 0.0
+        units = ["B", "KiB", "MiB", "GiB", "TiB"]
+        unit_index = 0
+        while amount >= 1024.0 and unit_index < len(units) - 1:
+            amount /= 1024.0
+            unit_index += 1
+        if unit_index == 0:
+            return f"{int(amount)} {units[unit_index]}"
+        return f"{amount:.1f} {units[unit_index]}"
+
+    def _current_storage_index(self, entries):
+        if not entries:
+            return -1
+        current_path = str(getattr(self, "current_image_path", "") or "").strip()
+        if current_path:
+            current_abspath = os.path.abspath(current_path)
+            for index, item in enumerate(entries):
+                try:
+                    if os.path.abspath(str(item)) == current_abspath:
+                        return index
+                except Exception:
+                    continue
+        return len(entries) - 1
+
+    def _refresh_storage_summary(self):
+        entries, total_bytes = self._visual_reply_storage_stats()
+        if not entries:
+            summary = "Storage: empty"
+        else:
+            current_index = self._current_storage_index(entries)
+            if current_index >= 0:
+                summary = (
+                    f"Storage: {len(entries)} image(s), {self._format_storage_bytes(total_bytes)} total"
+                    f" | Current: {current_index + 1}/{len(entries)}"
+                )
+            else:
+                summary = f"Storage: {len(entries)} image(s), {self._format_storage_bytes(total_bytes)} total"
+        self.storage_label.setText(summary)
+        self.storage_label.update()
+        return summary
+
+    def _show_storage_image_by_offset(self, offset):
+        entries, _ = self._visual_reply_storage_stats()
+        if not entries:
+            self._refresh_storage_summary()
+            return False
+        current_index = self._current_storage_index(entries)
+        if current_index < 0:
+            current_index = len(entries) - 1 if offset < 0 else 0
+        target_index = max(0, min(len(entries) - 1, current_index + int(offset)))
+        target_path = entries[target_index]
+        loaded = self.show_image(
+            str(target_path),
+            status_text="Visual Reply history",
+            caption="",
+        )
+        if loaded:
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "ready",
+                    "status_text": "Visual Reply history",
+                    "detail_text": "",
+                    "image_path": str(target_path),
+                    "caption": "",
+                    "request_id": "",
+                    "updated_at": time.time(),
+                }
+            )
+        self._refresh_storage_summary()
+        return loaded
+
+    def show_previous_stored_image(self):
+        return self._show_storage_image_by_offset(-1)
+
+    def show_next_stored_image(self):
+        return self._show_storage_image_by_offset(1)
+
+    def delete_all_stored_images(self):
+        entries, _ = self._visual_reply_storage_stats()
+        if not entries:
+            self._refresh_storage_summary()
+            return False
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Visual Reply Images",
+            f"Delete all {len(entries)} stored visual reply image(s)?",
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        removed = 0
+        for item in entries:
+            try:
+                item.unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                pass
+        self.clear_visual_reply(
+            status_text="Visual Reply storage cleared",
+            detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+        )
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "idle",
+                "status_text": "Visual Reply storage cleared",
+                "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                "image_path": "",
+                "caption": "",
+                "request_id": "",
+                "updated_at": time.time(),
+            }
+        )
+        self._refresh_storage_summary()
+        return bool(removed)
+
     def adjust_zoom(self, delta):
         updated = max(0.25, min(4.0, float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0) + float(delta)))
         if abs(updated - float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0)) < 0.001:
@@ -2870,6 +3035,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.caption_label.clear()
         self.caption_label.hide()
         self.content_stack.setCurrentWidget(self.placeholder)
+        self._refresh_storage_summary()
 
     def set_caption(self, caption=""):
         caption_text = str(caption or "").strip()
@@ -2891,6 +3057,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.caption_label.clear()
         self.caption_label.hide()
         self.content_stack.setCurrentWidget(self.placeholder)
+        self._refresh_storage_summary()
 
     def show_image(self, image_path, status_text="Visual Reply", caption=""):
         path = str(image_path or "").strip()
@@ -2906,6 +3073,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.set_caption(caption)
         self.content_stack.setCurrentWidget(self.image_scroll)
         self._refresh_displayed_pixmap()
+        self._refresh_storage_summary()
         return True
 
     def poll_state(self):
@@ -5350,7 +5518,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         paused = paused or bool(getattr(engine, "pause_after_chunk", None) and engine.pause_after_chunk.is_set())
         if paused != self._chat_runtime_border_paused:
             self._chat_runtime_border_paused = paused
-            border_style = "border: 2px solid #d84a4a; border-radius: 10px;" if paused else "border: 2px solid #38c172; border-radius: 10px;"
+            border_style = "border: 2px solid #d84a4a; border-radius: 10px;" if paused else ""
             for widget in (getattr(self, "system_console_tab", None), getattr(self, "chat_tab", None)):
                 if widget is not None:
                     widget.setStyleSheet(border_style)
