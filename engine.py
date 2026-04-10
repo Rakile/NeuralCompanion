@@ -3267,7 +3267,22 @@ def _visual_reply_item_value(item, key):
     return getattr(item, key, None)
 
 
-def _write_visual_reply_image_from_response(response, output_path: Path):
+def _visual_reply_extension_for_bytes(raw_bytes: bytes) -> str:
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            fmt = str(image.format or "").strip().lower()
+    except Exception:
+        fmt = ""
+    return {
+        "jpeg": "jpg",
+        "jpg": "jpg",
+        "png": "png",
+        "webp": "webp",
+        "bmp": "bmp",
+    }.get(fmt, "png")
+
+
+def _write_visual_reply_image_from_response(response, output_base_path: Path):
     data_items = getattr(response, "data", None)
     if data_items is None and isinstance(response, dict):
         data_items = response.get("data")
@@ -3276,13 +3291,17 @@ def _write_visual_reply_image_from_response(response, output_path: Path):
     first_item = data_items[0]
     b64_payload = _visual_reply_item_value(first_item, "b64_json") or _visual_reply_item_value(first_item, "base64")
     image_url = _visual_reply_item_value(first_item, "url")
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_base_path.parent.mkdir(parents=True, exist_ok=True)
     if b64_payload:
-        output_path.write_bytes(base64.b64decode(b64_payload))
+        raw_bytes = base64.b64decode(b64_payload)
+        output_path = output_base_path.with_suffix(f".{_visual_reply_extension_for_bytes(raw_bytes)}")
+        output_path.write_bytes(raw_bytes)
         return output_path
     if image_url:
         with urllib.request.urlopen(str(image_url)) as response_stream:
-            output_path.write_bytes(response_stream.read())
+            raw_bytes = response_stream.read()
+        output_path = output_base_path.with_suffix(f".{_visual_reply_extension_for_bytes(raw_bytes)}")
+        output_path.write_bytes(raw_bytes)
         return output_path
     raise RuntimeError("Image API response did not include b64_json or url.")
 
@@ -3344,8 +3363,8 @@ def request_visual_reply_generation(prompt: str, *, source_text: str = ""):
             else:
                 request_kwargs["size"] = _visual_reply_image_size()
             response = client.images.generate(**request_kwargs)
-            output_path = VISUAL_REPLY_OUTPUT_DIR / f"{request_id}.png"
-            _write_visual_reply_image_from_response(response, output_path)
+            output_path = VISUAL_REPLY_OUTPUT_DIR / request_id
+            output_path = _write_visual_reply_image_from_response(response, output_path)
             current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
             if current_request_id and current_request_id != request_id:
                 return
