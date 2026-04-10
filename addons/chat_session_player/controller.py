@@ -19,7 +19,14 @@ class ChatSessionPlayerController(QtCore.QObject):
         if existing is not None:
             return existing
 
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setMinimumSize(0, 0)
+
         widget = QtWidgets.QWidget()
+        scroll.setWidget(widget)
+
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
@@ -79,6 +86,7 @@ class ChatSessionPlayerController(QtCore.QObject):
         messages_layout.addWidget(messages_title)
 
         self.chat_player_message_list = QtWidgets.QListWidget()
+        self.chat_player_message_list.setMinimumHeight(120)
         self.chat_player_message_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
         self.chat_player_message_list.itemSelectionChanged.connect(self._on_message_selection_changed)
         self.chat_player_message_list.itemDoubleClicked.connect(lambda _item: self._replay_selected())
@@ -130,14 +138,15 @@ class ChatSessionPlayerController(QtCore.QObject):
         self.chat_player_status_label.setWordWrap(True)
         self.chat_player_status_label.setStyleSheet("color: #9fb3c8;")
         layout.addWidget(self.chat_player_status_label)
+        layout.addStretch(1)
 
-        self.chat_player_tab_widget = widget
-        self._refresh_timer = QtCore.QTimer(widget)
+        self.chat_player_tab_widget = scroll
+        self._refresh_timer = QtCore.QTimer(scroll)
         self._refresh_timer.setInterval(1000)
         self._refresh_timer.timeout.connect(self.refresh_state)
         self._refresh_timer.start()
         self.refresh_state()
-        return widget
+        return scroll
 
     def _snapshot(self):
         if self.replay_service is None:

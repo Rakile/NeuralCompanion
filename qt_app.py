@@ -54,7 +54,7 @@ import engine
 import shared_state
 from core import sensory
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtChatReplayService, QtDialogService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -1525,14 +1525,31 @@ class HandDoctorDialog(QtWidgets.QDialog):
 
 
 class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
+    focusModeRequested = QtCore.Signal()
+    showInterfaceRequested = QtCore.Signal()
+
     def __init__(self, parent=None):
         super().__init__(parent)
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
+        self._root_layout = QtWidgets.QVBoxLayout(self)
+        self._root_layout.setContentsMargins(10, 10, 10, 10)
+        self._root_layout.setSpacing(8)
+        self.focus_mode_active = False
 
         self.preview_label = QtWidgets.QLabel("MuseTalk preview idle")
         self.preview_label.setStyleSheet("font-weight: 600; color: #d8dee9;")
+        self.show_interface_button = QtWidgets.QPushButton("Show Interface")
+        self.show_interface_button.clicked.connect(self.showInterfaceRequested.emit)
+        self.focus_mode_button = QtWidgets.QPushButton("Avatar Focus")
+        self.focus_mode_button.clicked.connect(self.focusModeRequested.emit)
+        self.reset_zoom_button = QtWidgets.QPushButton("Reset Zoom")
+        self.reset_zoom_button.clicked.connect(self.reset_zoom)
+        top_row = QtWidgets.QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.setSpacing(8)
+        top_row.addWidget(self.preview_label, 1)
+        top_row.addWidget(self.reset_zoom_button, 0)
+        top_row.addWidget(self.show_interface_button, 0)
+        top_row.addWidget(self.focus_mode_button, 0)
         self.image_label = QtWidgets.QLabel()
         self.image_label.setAlignment(QtCore.Qt.AlignCenter)
         self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
@@ -1545,8 +1562,8 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.image_scroll.setStyleSheet("QScrollArea { background: #0f141b; border: 1px solid #273342; border-radius: 10px; }")
         self.image_scroll.setWidget(self.image_label)
         self.image_scroll.zoomRequested.connect(self._handle_scroll_zoom_request)
-        layout.addWidget(self.preview_label)
-        layout.addWidget(self.image_scroll, 1)
+        self._root_layout.addLayout(top_row)
+        self._root_layout.addWidget(self.image_scroll, 1)
 
         self.current_sync_time = 0.0
         self.frame_paths = []
@@ -1616,6 +1633,19 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.poll_timer = QtCore.QTimer(self)
         self.poll_timer.timeout.connect(self.poll_state)
         self.poll_timer.start(16)
+
+    def set_focus_mode(self, enabled):
+        self.focus_mode_active = bool(enabled)
+        self.focus_mode_button.setText("Exit Avatar Focus" if self.focus_mode_active else "Avatar Focus")
+        self.preview_label.setVisible(not self.focus_mode_active)
+        if self.focus_mode_active:
+            self._root_layout.setContentsMargins(4, 4, 4, 4)
+            self.image_scroll.setStyleSheet("QScrollArea { background: #05070a; border: 0; border-radius: 0; }")
+        else:
+            self._root_layout.setContentsMargins(10, 10, 10, 10)
+            self.image_scroll.setStyleSheet("QScrollArea { background: #0f141b; border: 1px solid #273342; border-radius: 10px; }")
+        self._refresh_displayed_pixmap()
+        return True
 
     def _publish_preview_position(self):
         state = getattr(shared_state, "current_musetalk_frame_data", None)
@@ -2558,6 +2588,134 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             pass
 
 
+class QtMuseTalkStageWindow(QtWidgets.QMainWindow):
+    closeRequested = QtCore.Signal()
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowTitle("Neural Companion - MuseTalk Avatar")
+        self.resize(1280, 920)
+        self._allow_internal_close = False
+        container = QtWidgets.QWidget()
+        self._layout = QtWidgets.QVBoxLayout(container)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(0)
+        self.setCentralWidget(container)
+
+    def attach_preview_widget(self, widget):
+        if widget is None:
+            return
+        old_parent = widget.parentWidget()
+        if old_parent is not None and old_parent.layout() is not None:
+            old_parent.layout().removeWidget(widget)
+        widget.setParent(None)
+        self._layout.addWidget(widget)
+        widget.show()
+
+    def allow_internal_close(self, allowed):
+        self._allow_internal_close = bool(allowed)
+
+    def closeEvent(self, event):
+        if self._allow_internal_close:
+            super().closeEvent(event)
+            return
+        self.closeRequested.emit()
+        event.ignore()
+
+
+class QtExternalAvatarReturnWindow(QtWidgets.QWidget):
+    showInterfaceRequested = QtCore.Signal()
+
+    def __init__(self):
+        super().__init__(None)
+        self.setWindowTitle("Neural Companion")
+        self.setWindowFlag(QtCore.Qt.Tool, True)
+        self.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint, True)
+        self.setWindowFlag(QtCore.Qt.FramelessWindowHint, True)
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+        self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+        self._drag_offset = None
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.surface = QtWidgets.QFrame()
+        self.surface.setObjectName("external_avatar_return_surface")
+        self.surface.setStyleSheet(
+            "QFrame#external_avatar_return_surface {"
+            "background: rgba(12, 18, 26, 232);"
+            "border: 1px solid #314154;"
+            "border-radius: 14px;"
+            "}"
+        )
+        surface_layout = QtWidgets.QHBoxLayout(self.surface)
+        surface_layout.setContentsMargins(10, 10, 10, 10)
+        surface_layout.setSpacing(8)
+        self.mode_badge = QtWidgets.QLabel("Avatar")
+        self.mode_badge.setCursor(QtCore.Qt.OpenHandCursor)
+        self.mode_badge.setStyleSheet(
+            "color: #8ea3b8; font-size: 11px; font-weight: 600; padding: 0 2px;"
+        )
+        self.show_button = QtWidgets.QPushButton("Show NC")
+        self.show_button.setMinimumHeight(30)
+        self.show_button.setMinimumWidth(92)
+        self.show_button.setCursor(QtCore.Qt.PointingHandCursor)
+        self.show_button.setStyleSheet(
+            "QPushButton {"
+            "padding: 4px 12px;"
+            "border-radius: 10px;"
+            "font-weight: 600;"
+            "color: #ecf3fb;"
+            "background: #223043;"
+            "border: 1px solid #3a516d;"
+            "}"
+            "QPushButton:hover {"
+            "background: #2b3d55;"
+            "border-color: #4a6687;"
+            "}"
+            "QPushButton:pressed {"
+            "background: #1b2635;"
+            "}"
+        )
+        self.show_button.clicked.connect(self.showInterfaceRequested.emit)
+        surface_layout.addWidget(self.mode_badge, 0)
+        surface_layout.addWidget(self.show_button, 0)
+        layout.addWidget(self.surface)
+        self.surface.installEventFilter(self)
+        self.mode_badge.installEventFilter(self)
+        self.configure_for_mode("Avatar")
+
+    def configure_for_mode(self, mode_label):
+        label = str(mode_label or "avatar").strip() or "avatar"
+        self.mode_badge.setText(label)
+        tooltip = f"NC interface is hidden while {label} stays in focus. Click to bring Neural Companion back."
+        self.setToolTip(tooltip)
+        self.show_button.setToolTip(tooltip)
+        self.mode_badge.setToolTip(tooltip)
+        self.adjustSize()
+
+    def closeEvent(self, event):
+        self.showInterfaceRequested.emit()
+        event.ignore()
+
+    def eventFilter(self, watched, event):
+        if watched in {self.surface, self.mode_badge}:
+            if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == QtCore.Qt.LeftButton:
+                global_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
+                self._drag_offset = global_pos - self.frameGeometry().topLeft()
+                if watched is self.mode_badge:
+                    self.mode_badge.setCursor(QtCore.Qt.ClosedHandCursor)
+                return True
+            if event.type() == QtCore.QEvent.MouseMove and self._drag_offset is not None:
+                global_pos = event.globalPosition().toPoint() if hasattr(event, "globalPosition") else event.globalPos()
+                self.move(global_pos - self._drag_offset)
+                return True
+            if event.type() == QtCore.QEvent.MouseButtonRelease and self._drag_offset is not None:
+                self._drag_offset = None
+                self.mode_badge.setCursor(QtCore.Qt.OpenHandCursor)
+                return True
+        return super().eventFilter(watched, event)
+
+
 class QtVisualReplyPanel(QtWidgets.QWidget):
     loadRequested = QtCore.Signal()
     captionRequested = QtCore.Signal()
@@ -2789,6 +2947,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.thread = None
         self._closing = False
         self.musetalk_preview_process = None
+        self._musetalk_avatar_focus_active = False
+        self._musetalk_stage_window = None
+        self._musetalk_main_window_was_maximized = False
+        self._musetalk_main_window_was_fullscreen = False
+        self._external_avatar_focus_active = False
+        self._external_avatar_focus_mode = ""
+        self._external_avatar_return_window = None
+        self._external_avatar_main_window_was_maximized = False
+        self._external_avatar_main_window_was_fullscreen = False
         self.pose_sliders = {}
         self.brain_sliders = {}
         self.chunking_sliders = {}
@@ -2837,6 +3004,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._build_preview_dock()
         self._connect_console_bridge()
         self._build_status_timer()
+        self._build_ui_hotkey_timer()
         self._initialize_addons()
 
         os.makedirs("presets", exist_ok=True)
@@ -2856,24 +3024,140 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.setStyleSheet(APP_STYLESHEET)
 
         central = QtWidgets.QWidget()
+        central.setObjectName("workspace_central")
+        central.setMinimumSize(0, 0)
+        central.setMaximumSize(0, 0)
+        central.hide()
         self.setCentralWidget(central)
-        root = QtWidgets.QHBoxLayout(central)
-        root.setContentsMargins(14, 14, 14, 14)
-        root.setSpacing(14)
 
-        self.left_panel = self._build_left_panel()
+        self.system_shaping_panel, self.workspace_tabs_panel = self._build_left_panel()
         self.right_panel = self._build_right_panel()
-        root.addWidget(self.left_panel, 1)
+
+        self.system_shaping_dock = QtWidgets.QDockWidget("System Shaping", self)
+        self.system_shaping_dock.setObjectName("SystemShapingDock")
+        self.system_shaping_dock.setAllowedAreas(
+            QtCore.Qt.LeftDockWidgetArea
+            | QtCore.Qt.RightDockWidgetArea
+            | QtCore.Qt.TopDockWidgetArea
+            | QtCore.Qt.BottomDockWidgetArea
+        )
+        self.system_shaping_dock.setMinimumSize(0, 0)
+        self.system_shaping_dock.setWidget(self.system_shaping_panel)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
+
+        self.workspace_tabs_dock = QtWidgets.QDockWidget("Workspace Tabs", self)
+        self.workspace_tabs_dock.setObjectName("WorkspaceTabsDock")
+        self.workspace_tabs_dock.setAllowedAreas(
+            QtCore.Qt.LeftDockWidgetArea
+            | QtCore.Qt.RightDockWidgetArea
+            | QtCore.Qt.TopDockWidgetArea
+            | QtCore.Qt.BottomDockWidgetArea
+        )
+        self.workspace_tabs_dock.setMinimumSize(0, 0)
+        self.workspace_tabs_dock.setWidget(self.workspace_tabs_panel)
+        self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.workspace_tabs_dock)
+        try:
+            self.tabifyDockWidget(self.system_shaping_dock, self.workspace_tabs_dock)
+        except Exception:
+            pass
+        self.workspace_tabs_dock.raise_()
 
         self.operational_dock = QtWidgets.QDockWidget("Operational View", self)
         self.operational_dock.setObjectName("OperationalViewDock")
-        self.operational_dock.setAllowedAreas(QtCore.Qt.RightDockWidgetArea)
-        self.operational_dock.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        self.operational_dock.setAllowedAreas(
+            QtCore.Qt.LeftDockWidgetArea
+            | QtCore.Qt.RightDockWidgetArea
+            | QtCore.Qt.TopDockWidgetArea
+            | QtCore.Qt.BottomDockWidgetArea
+        )
+        self.operational_dock.setMinimumSize(0, 0)
         self.operational_dock.setWidget(self.right_panel)
-        hidden_title = QtWidgets.QWidget()
-        hidden_title.setFixedHeight(1)
-        self.operational_dock.setTitleBarWidget(hidden_title)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.operational_dock)
+        try:
+            self.resizeDocks(
+                [self.system_shaping_dock, self.operational_dock],
+                [520, 720],
+                QtCore.Qt.Horizontal,
+            )
+        except Exception:
+            pass
+        self._build_workspace_menu()
+
+    def _build_workspace_menu(self):
+        menu_bar = self.menuBar()
+        self.workspace_menu = menu_bar.addMenu("Workspace")
+        if hasattr(self, "system_shaping_dock"):
+            self.workspace_menu.addAction(self.system_shaping_dock.toggleViewAction())
+        if hasattr(self, "workspace_tabs_dock"):
+            self.workspace_menu.addAction(self.workspace_tabs_dock.toggleViewAction())
+        if hasattr(self, "operational_dock"):
+            self.workspace_menu.addAction(self.operational_dock.toggleViewAction())
+        self.workspace_menu.addSeparator()
+        reset_action = self.workspace_menu.addAction("Reset Workspace Layout")
+        reset_action.triggered.connect(self.reset_workspace_layout)
+        show_all_action = self.workspace_menu.addAction("Show All Panels")
+        show_all_action.triggered.connect(self.show_all_workspace_panels)
+
+    def show_all_workspace_panels(self):
+        if hasattr(self, "system_shaping_dock"):
+            self.system_shaping_dock.show()
+            self.system_shaping_dock.raise_()
+        if hasattr(self, "workspace_tabs_dock"):
+            self.workspace_tabs_dock.show()
+            self.workspace_tabs_dock.raise_()
+        if hasattr(self, "operational_dock"):
+            self.operational_dock.show()
+            self.operational_dock.raise_()
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.show()
+        if hasattr(self, "visual_reply_dock"):
+            self.visual_reply_dock.show()
+        print("[QtGUI] Workspace panels shown.")
+
+    def reset_workspace_layout(self):
+        if getattr(self, "_musetalk_avatar_focus_active", False):
+            self.exit_musetalk_avatar_focus(raise_main=False)
+        if getattr(self, "_external_avatar_focus_active", False):
+            self.exit_external_avatar_focus(raise_main=False)
+        if hasattr(self, "system_shaping_dock"):
+            self.system_shaping_dock.setFloating(False)
+            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
+            self.system_shaping_dock.show()
+        if hasattr(self, "workspace_tabs_dock"):
+            self.workspace_tabs_dock.setFloating(False)
+            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.workspace_tabs_dock)
+            self.workspace_tabs_dock.show()
+            if hasattr(self, "system_shaping_dock"):
+                try:
+                    self.tabifyDockWidget(self.system_shaping_dock, self.workspace_tabs_dock)
+                except Exception:
+                    pass
+        if hasattr(self, "operational_dock"):
+            self.operational_dock.setFloating(False)
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.operational_dock)
+            self.operational_dock.show()
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.setFloating(False)
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
+            self.preview_dock.hide()
+        if hasattr(self, "visual_reply_dock"):
+            self.visual_reply_dock.setFloating(False)
+            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
+            self.visual_reply_dock.hide()
+        if hasattr(self, "preview_dock") and hasattr(self, "visual_reply_dock"):
+            try:
+                self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
+            except Exception:
+                pass
+        try:
+            self.resizeDocks(
+                [self.system_shaping_dock, self.operational_dock],
+                [520, 720],
+                QtCore.Qt.Horizontal,
+            )
+        except Exception:
+            pass
+        print("[QtGUI] Workspace layout reset.")
 
     def _build_preview_dock(self):
         self.preview_dock = QtWidgets.QDockWidget("MuseTalk Preview", self)
@@ -2883,10 +3167,20 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             | QtCore.Qt.BottomDockWidgetArea
             | QtCore.Qt.LeftDockWidgetArea
         )
+        self.preview_dock_container = QtWidgets.QWidget()
+        self.preview_dock_layout = QtWidgets.QVBoxLayout(self.preview_dock_container)
+        self.preview_dock_layout.setContentsMargins(0, 0, 0, 0)
+        self.preview_dock_layout.setSpacing(0)
         self.embedded_musetalk_preview = QtMuseTalkPreviewPanel()
-        self.preview_dock.setWidget(self.embedded_musetalk_preview)
+        self.embedded_musetalk_preview.focusModeRequested.connect(self.toggle_musetalk_avatar_focus)
+        self.embedded_musetalk_preview.showInterfaceRequested.connect(self.show_main_interface_from_musetalk_focus)
+        self.preview_dock_layout.addWidget(self.embedded_musetalk_preview)
+        self.preview_dock.setWidget(self.preview_dock_container)
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
         self.preview_dock.hide()
+        self._ensure_musetalk_stage_window()
+        if hasattr(self, "workspace_menu"):
+            self.workspace_menu.insertAction(self.workspace_menu.actions()[-2], self.preview_dock.toggleViewAction())
 
         self.visual_reply_dock = QtWidgets.QDockWidget("Visual Reply", self)
         self.visual_reply_dock.setObjectName("VisualReplyDock")
@@ -2903,6 +3197,123 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
         self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
         self.visual_reply_dock.hide()
+        if hasattr(self, "workspace_menu"):
+            self.workspace_menu.insertAction(self.workspace_menu.actions()[-2], self.visual_reply_dock.toggleViewAction())
+
+    def _ensure_musetalk_stage_window(self):
+        if self._musetalk_stage_window is None:
+            self._musetalk_stage_window = QtMuseTalkStageWindow()
+            self._musetalk_stage_window.closeRequested.connect(self.show_main_interface_from_musetalk_focus)
+        return self._musetalk_stage_window
+
+    def _ensure_external_avatar_return_window(self):
+        if self._external_avatar_return_window is None:
+            self._external_avatar_return_window = QtExternalAvatarReturnWindow()
+            self._external_avatar_return_window.showInterfaceRequested.connect(self.show_main_interface_from_external_avatar_focus)
+        return self._external_avatar_return_window
+
+    def _position_external_avatar_return_window(self):
+        window = self._ensure_external_avatar_return_window()
+        main_geometry = self.frameGeometry()
+        anchor = main_geometry.topLeft() + QtCore.QPoint(40, 40)
+        rect = QtCore.QRect(anchor, window.size())
+        available = QtWidgets.QApplication.primaryScreen().availableGeometry() if QtWidgets.QApplication.primaryScreen() else None
+        if available is not None:
+            if rect.right() > available.right():
+                rect.moveRight(available.right() - 16)
+            if rect.bottom() > available.bottom():
+                rect.moveBottom(available.bottom() - 16)
+            if rect.left() < available.left():
+                rect.moveLeft(available.left() + 16)
+            if rect.top() < available.top():
+                rect.moveTop(available.top() + 16)
+        window.setGeometry(rect)
+        return window
+
+    def _attach_musetalk_preview_to_host(self, host):
+        panel = getattr(self, "embedded_musetalk_preview", None)
+        if panel is None:
+            return False
+        target_layout = getattr(self, "preview_dock_layout", None)
+        if host == "stage":
+            stage_window = self._ensure_musetalk_stage_window()
+            stage_window.attach_preview_widget(panel)
+            return True
+        if target_layout is None:
+            return False
+        old_parent = panel.parentWidget()
+        if old_parent is not None and old_parent.layout() is not None:
+            old_parent.layout().removeWidget(panel)
+        panel.setParent(None)
+        target_layout.addWidget(panel)
+        panel.show()
+        return True
+
+    def _sync_musetalk_stage_window_geometry_from_preview(self):
+        stage_window = self._ensure_musetalk_stage_window()
+        source_rect = None
+        preview_dock = getattr(self, "preview_dock", None)
+        if preview_dock is not None:
+            try:
+                dock_rect = preview_dock.frameGeometry()
+                if dock_rect.isValid() and dock_rect.width() > 120 and dock_rect.height() > 120:
+                    source_rect = QtCore.QRect(dock_rect)
+            except Exception:
+                source_rect = None
+        if source_rect is None:
+            panel = getattr(self, "embedded_musetalk_preview", None)
+            if panel is not None:
+                try:
+                    panel_size = panel.size()
+                    if panel_size.width() <= 32 or panel_size.height() <= 32:
+                        panel_size = panel.sizeHint()
+                    top_left = panel.mapToGlobal(QtCore.QPoint(0, 0))
+                    source_rect = QtCore.QRect(top_left, panel_size)
+                except Exception:
+                    source_rect = None
+        if source_rect is None or source_rect.width() <= 32 or source_rect.height() <= 32:
+            return False
+        try:
+            stage_window.showNormal()
+        except Exception:
+            pass
+        stage_window.setGeometry(source_rect)
+        return True
+
+    def enter_external_avatar_focus(self, mode_label=None):
+        mode_label = str(mode_label or self.engine_combo.currentText() or "Avatar").strip() or "Avatar"
+        self._external_avatar_focus_active = True
+        self._external_avatar_focus_mode = mode_label
+        self._external_avatar_main_window_was_maximized = bool(self.isMaximized())
+        self._external_avatar_main_window_was_fullscreen = bool(self.isFullScreen())
+        window = self._position_external_avatar_return_window()
+        window.configure_for_mode(mode_label)
+        window.show()
+        window.raise_()
+        window.activateWindow()
+        self.hide()
+        print(f"[QtGUI] External avatar focus entered for {mode_label}.")
+
+    def exit_external_avatar_focus(self, *, raise_main=True):
+        was_active = bool(self._external_avatar_focus_active)
+        self._external_avatar_focus_active = False
+        self._external_avatar_focus_mode = ""
+        if self._external_avatar_return_window is not None:
+            self._external_avatar_return_window.hide()
+        if raise_main or was_active or not self.isVisible():
+            if self._external_avatar_main_window_was_fullscreen:
+                self.showFullScreen()
+            elif self._external_avatar_main_window_was_maximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        if was_active:
+            print("[QtGUI] External avatar focus exited.")
+
+    def show_main_interface_from_external_avatar_focus(self):
+        self.exit_external_avatar_focus(raise_main=True)
 
     def _wrap_panel(self):
         panel = QtWidgets.QFrame()
@@ -2932,20 +3343,25 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         return frame
 
     def _build_left_panel(self):
-        panel = self._wrap_panel()
-        outer_layout = QtWidgets.QVBoxLayout(panel)
-        outer_layout.setContentsMargins(0, 0, 0, 0)
-        outer_layout.setSpacing(0)
+        shaping_panel = self._wrap_panel()
+        shaping_panel.setMinimumSize(0, 0)
+        shaping_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        shaping_outer_layout = QtWidgets.QVBoxLayout(shaping_panel)
+        shaping_outer_layout.setContentsMargins(0, 0, 0, 0)
+        shaping_outer_layout.setSpacing(0)
 
-        scroll = QtWidgets.QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        outer_layout.addWidget(scroll)
+        shaping_scroll = QtWidgets.QScrollArea()
+        shaping_scroll.setWidgetResizable(True)
+        shaping_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        shaping_scroll.setMinimumSize(0, 0)
+        shaping_scroll.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        shaping_outer_layout.addWidget(shaping_scroll)
 
-        content = QtWidgets.QWidget()
-        scroll.setWidget(content)
+        shaping_content = QtWidgets.QWidget()
+        shaping_content.setMinimumSize(0, 0)
+        shaping_scroll.setWidget(shaping_content)
 
-        layout = QtWidgets.QVBoxLayout(content)
+        layout = QtWidgets.QVBoxLayout(shaping_content)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
@@ -3089,7 +3505,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.sensory_pingpong_prompt_text.setObjectName("sensory_pingpong_prompt_text")
         self.sensory_pingpong_prompt_text.setPlainText(str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")))
         self.sensory_pingpong_prompt_text.setPlaceholderText("Hidden PING/PONG prompt")
-        self.sensory_pingpong_prompt_text.setMinimumHeight(150)
+        self.sensory_pingpong_prompt_text.setMinimumHeight(0)
         self.sensory_pingpong_prompt_text.textChanged.connect(self.on_sensory_pingpong_prompt_changed)
         self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Use Recommended")
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
@@ -3275,7 +3691,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.host_settings_tabs = NoWheelTabWidget()
         self.host_settings_tabs.setObjectName("host_settings_tabs")
-        self.host_settings_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        self.host_settings_tabs.setMinimumSize(0, 0)
+        self.host_settings_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.host_settings_tabs.currentChanged.connect(lambda _index, tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
         self.host_settings_tabs.addTab(self._build_runtime_shell_tab(), "Host")
         self.host_settings_tabs.addTab(self._build_visual_reply_settings_tab(), "Visuals")
@@ -3286,6 +3703,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.tabs = NoWheelTabWidget()
         self.tabs.setObjectName("left_tabs")
+        self.tabs.setMinimumSize(0, 0)
         self.tabs.currentChanged.connect(self._on_left_tab_changed)
         self.tabs.addTab(self._build_persona_tab(), "Persona")
         self.tabs.addTab(self._build_vseeface_tab(), "VSeeFace")
@@ -3295,10 +3713,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self._build_chunking_tab(), "Chunking")
         self.tabs.addTab(self._build_dry_run_tab(), "Dry Run")
         self.tabs.addTab(self._build_tutorials_tab(), "Tutorials")
-        self.tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        layout.addWidget(self.tabs, 1)
+        self.tabs.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        workspace_panel = self._wrap_panel()
+        workspace_panel.setMinimumSize(0, 0)
+        workspace_panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        workspace_outer_layout = QtWidgets.QVBoxLayout(workspace_panel)
+        workspace_outer_layout.setContentsMargins(0, 0, 0, 0)
+        workspace_outer_layout.setSpacing(0)
+        workspace_outer_layout.addWidget(self.tabs, 1)
 
-        return panel
+        return shaping_panel, workspace_panel
 
     def _build_runtime_shell_tab(self):
         tab = QtWidgets.QWidget()
@@ -3344,6 +3768,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.btn_musetalk_preview.setObjectName("btn_musetalk_preview")
         self.btn_musetalk_preview.clicked.connect(self.show_musetalk_preview)
         self.btn_musetalk_preview.setEnabled(False)
+        self.btn_musetalk_avatar_focus = QtWidgets.QPushButton("Avatar Focus")
+        self.btn_musetalk_avatar_focus.setObjectName("btn_musetalk_avatar_focus")
+        self.btn_musetalk_avatar_focus.clicked.connect(self.toggle_musetalk_avatar_focus)
+        self.btn_musetalk_avatar_focus.setEnabled(False)
         self.btn_visual_reply = QtWidgets.QPushButton("Show Visual Reply")
         self.btn_visual_reply.setObjectName("btn_visual_reply")
         self.btn_visual_reply.clicked.connect(self.show_visual_reply_dock)
@@ -3353,6 +3781,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.btn_push_to_talk.released.connect(lambda: engine.set_push_to_talk_hold(False))
         self.btn_push_to_talk.setEnabled(False)
         utility_row.addWidget(self.btn_musetalk_preview)
+        utility_row.addWidget(self.btn_musetalk_avatar_focus)
         utility_row.addWidget(self.btn_visual_reply)
         utility_row.addWidget(self.btn_push_to_talk)
         layout.addLayout(utility_row)
@@ -3453,7 +3882,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.sensory_feedback_tabs = NoWheelTabWidget()
         self.sensory_feedback_tabs.setObjectName("sensory_feedback_tabs")
-        self.sensory_feedback_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        self.sensory_feedback_tabs.setMinimumSize(0, 0)
+        self.sensory_feedback_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.sensory_feedback_tabs.currentChanged.connect(lambda _index, tabs=self.sensory_feedback_tabs: self._sync_tab_widget_height(tabs))
 
         core_tab = QtWidgets.QWidget()
@@ -3884,7 +4314,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             row.addWidget(reset_button, 0)
             layout.addLayout(row)
             editor = QtWidgets.QPlainTextEdit()
-            editor.setMinimumHeight(170)
+            editor.setMinimumHeight(0)
             editor.setPlaceholderText(f"Prompt fragment for {label}")
             editor.setPlainText(str(prompt_text or "").strip())
             editor.textChanged.connect(lambda pid=provider_key: self._on_sensory_source_prompt_changed(pid))
@@ -4012,7 +4442,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 layout.addLayout(include_row)
             nested_tabs = NoWheelTabWidget()
             nested_tabs.setObjectName(f"vision_source_tabs_{provider_key}")
-            nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            nested_tabs.setMinimumSize(0, 0)
+            nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
             nested_tabs.currentChanged.connect(lambda _index, tabs=nested_tabs: self._sync_tab_widget_height(tabs))
             if use_nested_source_tab:
                 source_widget, editor = self._build_sensory_source_foundation_widget(
@@ -4259,6 +4690,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 avatar_snapshot_getter=self._build_addon_avatar_snapshot,
                 host_services={
                     "qt.dialogs": QtDialogService(self),
+                    "qt.hotkeys": QtHotkeyService(self),
                     "qt.shell": QtShellService(),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
@@ -4587,8 +5019,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         return snapshot
 
     def _build_persona_tab(self):
+        scroll = QtWidgets.QScrollArea()
+        scroll.setObjectName("persona_tab")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setMinimumSize(0, 0)
+
         widget = QtWidgets.QWidget()
-        widget.setObjectName("persona_tab")
+        widget.setMinimumSize(0, 0)
+        scroll.setWidget(widget)
+
         layout = QtWidgets.QVBoxLayout(widget)
 
         self.voice_combo = NoWheelComboBox()
@@ -4641,14 +5081,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.emotional_text = QtWidgets.QPlainTextEdit()
         self.emotional_text.setObjectName("emotional_text")
         self.emotional_text.setPlaceholderText("Technical rules / expressive tags")
-        self.emotional_text.setMinimumHeight(120)
+        self.emotional_text.setMinimumHeight(0)
+        self.emotional_text.setMinimumSize(0, 90)
         self.system_prompt_text = QtWidgets.QPlainTextEdit()
         self.system_prompt_text.setObjectName("system_prompt_text")
         self.system_prompt_text.setPlaceholderText("System prompt")
-        self.system_prompt_text.setMinimumHeight(120)
+        self.system_prompt_text.setMinimumHeight(0)
+        self.system_prompt_text.setMinimumSize(0, 90)
 
         text_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical)
         text_splitter.setChildrenCollapsible(False)
+        text_splitter.setMinimumHeight(230)
 
         technical_group = QtWidgets.QGroupBox("Technical Rules (Tags)")
         technical_layout = QtWidgets.QVBoxLayout(technical_group)
@@ -4670,7 +5113,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         apply_button.setObjectName("btn_apply_text_config")
         apply_button.clicked.connect(self.apply_text_config)
         layout.addWidget(apply_button)
-        return widget
+        return scroll
 
     def _build_body_tab(self):
         scroll = QtWidgets.QScrollArea()
@@ -4746,12 +5189,36 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         return scroll
 
     def _build_vseeface_tab(self):
+        container = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
+
         nested_tabs = NoWheelTabWidget()
         nested_tabs.setObjectName("vseeface_tabs")
         nested_tabs.addTab(self._build_body_tab(), "Body")
         nested_tabs.addTab(self._build_dynamics_tab(), "Dynamics")
         nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        return nested_tabs
+        layout.addWidget(nested_tabs, 1)
+
+        controls_box = QtWidgets.QGroupBox("VSeeFace View")
+        controls_layout = QtWidgets.QVBoxLayout(controls_box)
+        controls_layout.setContentsMargins(12, 14, 12, 12)
+        controls_layout.setSpacing(8)
+        hint = QtWidgets.QLabel(
+            "Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        controls_layout.addWidget(hint)
+        actions = QtWidgets.QHBoxLayout()
+        self.btn_vseeface_hide_interface = QtWidgets.QPushButton("Hide NC Interface")
+        self.btn_vseeface_hide_interface.clicked.connect(lambda: self.enter_external_avatar_focus("VSeeFace"))
+        actions.addWidget(self.btn_vseeface_hide_interface)
+        actions.addStretch(1)
+        controls_layout.addLayout(actions)
+        layout.addWidget(controls_box, 0)
+        return container
 
     def _build_musetalk_parent_tab(self):
         nested_tabs = NoWheelTabWidget()
@@ -4813,6 +5280,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.btn_start_vam_vr.setIconSize(QtCore.QSize(24, 24))
         self.btn_start_vam_vr.clicked.connect(self.on_start_vam_vr_clicked)
         vam_actions.addWidget(self.btn_start_vam_vr)
+        self.btn_vam_hide_interface = QtWidgets.QPushButton("Hide NC Interface")
+        self.btn_vam_hide_interface.clicked.connect(lambda: self.enter_external_avatar_focus("VaM"))
+        vam_actions.addWidget(self.btn_vam_hide_interface)
         vam_actions.addStretch(1)
         bridge_layout.addLayout(vam_actions)
 
@@ -5125,13 +5595,32 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _build_right_panel(self):
         panel = self._wrap_panel()
-        layout = QtWidgets.QVBoxLayout(panel)
+        panel.setMinimumSize(0, 0)
+        panel.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        outer_layout = QtWidgets.QVBoxLayout(panel)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setMinimumSize(0, 0)
+        scroll.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        outer_layout.addWidget(scroll)
+
+        content = QtWidgets.QWidget()
+        content.setMinimumSize(0, 0)
+        scroll.setWidget(content)
+
+        layout = QtWidgets.QVBoxLayout(content)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(12)
 
         layout.addWidget(self._make_header("Operational View", "Conversation + Telemetry"))
 
         self.pipeline_telemetry_box = QtWidgets.QGroupBox("Buffer Race")
+        self.pipeline_telemetry_box.setMinimumSize(0, 0)
+        self.pipeline_telemetry_box.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
         telemetry_layout = QtWidgets.QVBoxLayout(self.pipeline_telemetry_box)
         telemetry_layout.setContentsMargins(10, 12, 10, 10)
         telemetry_layout.setSpacing(8)
@@ -5141,6 +5630,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.right_tabs = NoWheelTabWidget()
         self.right_tabs.setObjectName("right_tabs")
+        self.right_tabs.setMinimumSize(0, 0)
+        self.right_tabs.setMinimumHeight(230)
+        self.right_tabs.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
         self.right_tabs.currentChanged.connect(self._on_right_tab_changed)
         layout.addWidget(self.right_tabs, 1)
 
@@ -5159,6 +5651,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.console_edit = QtWidgets.QPlainTextEdit()
         self.console_edit.setObjectName("console_edit")
         self.console_edit.setReadOnly(True)
+        self.console_edit.setMinimumSize(0, 0)
+        self.console_edit.setMinimumHeight(90)
         system_layout.addLayout(console_header)
         system_layout.addWidget(self.console_edit, 1)
         self.right_tabs.addTab(system_tab, "System Console")
@@ -5195,6 +5689,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_edit = QtWidgets.QTextEdit()
         self.chat_edit.setObjectName("chat_edit")
         self.chat_edit.setReadOnly(True)
+        self.chat_edit.setMinimumSize(0, 0)
+        self.chat_edit.setMinimumHeight(90)
         self.chat_edit.setFont(QtGui.QFont("Segoe UI", 11))
         self.chat_edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.chat_edit.customContextMenuRequested.connect(self._show_chat_context_menu)
@@ -5203,11 +5699,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.right_tabs.addTab(chat_tab, "Chat")
 
         controls = QtWidgets.QGridLayout()
-        self.btn_regenerate = self._make_action_button("Regenerate\nAlt+R", lambda: self.trigger_control_action("regenerate_response"))
-        self.btn_retry = self._make_action_button("Retry Input\nAlt+Y", lambda: self.trigger_control_action("retry_user_input"))
-        self.btn_pause = self._make_action_button("Pause / Resume\nAlt+P", lambda: self.trigger_control_action("pause_speech"))
-        self.btn_skip = self._make_action_button("Skip Speech\nAlt+Enter", lambda: self.trigger_control_action("skip_speech"))
-        self.btn_skip_user = self._make_action_button("Skip User Reply\nAlt+U", lambda: self.trigger_control_action("skip_user_reply"))
+        self.btn_regenerate = self._make_action_button("Regenerate", lambda: self.trigger_control_action("regenerate_response"))
+        self.btn_retry = self._make_action_button("Retry Input", lambda: self.trigger_control_action("retry_user_input"))
+        self.btn_pause = self._make_action_button("Pause / Resume", lambda: self.trigger_control_action("pause_speech"))
+        self.btn_skip = self._make_action_button("Skip Speech", lambda: self.trigger_control_action("skip_speech"))
+        self.btn_skip_user = self._make_action_button("Skip User Reply", lambda: self.trigger_control_action("skip_user_reply"))
+        self._control_action_buttons = {
+            "regenerate_response": self.btn_regenerate,
+            "retry_user_input": self.btn_retry,
+            "pause_speech": self.btn_pause,
+            "skip_speech": self.btn_skip,
+            "skip_user_reply": self.btn_skip_user,
+        }
         for index, button in enumerate([self.btn_regenerate, self.btn_retry, self.btn_pause, self.btn_skip, self.btn_skip_user]):
             controls.addWidget(button, 0, index)
         layout.addLayout(controls)
@@ -5228,11 +5731,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         layout.addWidget(self.btn_stop)
         layout.addWidget(self.btn_reset)
 
-        QtGui.QShortcut(QtGui.QKeySequence("Alt+R"), self, activated=lambda: self.trigger_control_action("regenerate_response"))
-        QtGui.QShortcut(QtGui.QKeySequence("Alt+Y"), self, activated=lambda: self.trigger_control_action("retry_user_input"))
-        QtGui.QShortcut(QtGui.QKeySequence("Alt+P"), self, activated=lambda: self.trigger_control_action("pause_speech"))
-        QtGui.QShortcut(QtGui.QKeySequence("Alt+Return"), self, activated=lambda: self.trigger_control_action("skip_speech"))
-        QtGui.QShortcut(QtGui.QKeySequence("Alt+U"), self, activated=lambda: self.trigger_control_action("skip_user_reply"))
+        self._qt_hotkey_shortcuts = {}
+        self._refresh_hotkey_shortcuts()
+        self._refresh_hotkey_labels()
 
         return panel
 
@@ -5242,6 +5743,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         button.setEnabled(False)
         button.setMinimumHeight(50)
         return button
+
+    def _build_ui_hotkey_timer(self):
+        self._ui_hotkey_last_triggered_at = {}
+        self._ui_hotkey_poll_timer = QtCore.QTimer(self)
+        self._ui_hotkey_poll_timer.setInterval(45)
+        self._ui_hotkey_poll_timer.timeout.connect(self._poll_exact_ui_hotkeys)
+        self._ui_hotkey_poll_timer.start()
 
     def _connect_console_bridge(self):
         self._console_bridge.text_ready.connect(self._append_console_text)
@@ -5642,11 +6150,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def on_input_mode_change(self, choice):
         mode = "push_to_talk" if choice == "Push-to-Talk" else "voice_activation"
         update_runtime_config("input_mode", mode)
-        if hasattr(self, "input_mode_hint"):
-            if mode == "push_to_talk":
-                self.input_mode_hint.setText("Push-to-Talk hotkey: Right Ctrl (fallback button below)")
-            else:
-                self.input_mode_hint.setText("Voice activation listens for speech automatically")
+        self._refresh_hotkey_labels()
         self._update_push_to_talk_button()
         self.save_session()
 
@@ -5953,6 +6457,153 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             button = getattr(self, name, None)
             if button is not None:
                 button.setEnabled((running and not dry_run_active and not offline_replay_only) or replay_runtime_enabled)
+
+    def _hotkey_button_titles(self):
+        return {
+            "regenerate_response": "Regenerate",
+            "retry_user_input": "Retry Input",
+            "pause_speech": "Pause / Resume",
+            "skip_speech": "Skip Speech",
+            "skip_user_reply": "Skip User Reply",
+        }
+
+    def _supported_ui_hotkey_actions(self):
+        return OrderedDict(
+            [
+                ("start_engine", lambda: self.start_engine()),
+                ("stop_engine", lambda: self.stop_engine()),
+                ("reset_chat_session", lambda: self.reset_chat_session()),
+                ("clear_console", lambda: self.clear_console()),
+                ("clear_chat", lambda: self.clear_chat()),
+                ("show_musetalk_preview", lambda: self.show_musetalk_preview()),
+                ("toggle_musetalk_avatar_focus", lambda: self.toggle_musetalk_avatar_focus()),
+                ("show_visual_reply", lambda: self.show_visual_reply_dock()),
+                ("start_vam_desktop", lambda: self.on_start_vam_desktop_clicked()),
+                ("start_vam_vr", lambda: self.on_start_vam_vr_clicked()),
+            ]
+        )
+
+    def _dispatch_hotkey_action(self, action):
+        action_key = str(action or "").strip()
+        if action_key in engine.DEFAULT_MANUAL_ACTION_HOTKEYS:
+            self.trigger_control_action(action_key)
+            return
+        handler = self._supported_ui_hotkey_actions().get(action_key)
+        if callable(handler):
+            handler()
+
+    def _refresh_hotkey_shortcuts(self):
+        shortcuts = getattr(self, "_qt_hotkey_shortcuts", None)
+        if shortcuts is None:
+            self._qt_hotkey_shortcuts = {}
+            return
+        for shortcut in shortcuts.values():
+            try:
+                shortcut.setEnabled(False)
+                shortcut.setKey(QtGui.QKeySequence())
+            except Exception:
+                pass
+
+    def _poll_exact_ui_hotkeys(self):
+        if not self.isVisible() or not self.isActiveWindow():
+            return
+        if self._closing:
+            return
+        actions = self._supported_ui_hotkey_actions()
+        bindings = engine.get_ui_action_hotkeys()
+        now = time.time()
+        debounce_seconds = 0.35
+        for action, handler in actions.items():
+            binding = str(bindings.get(action, "") or "").strip()
+            if not binding:
+                continue
+            if not engine.is_hotkey_binding_pressed(binding):
+                continue
+            last_triggered = float(self._ui_hotkey_last_triggered_at.get(action, 0.0) or 0.0)
+            if now - last_triggered < debounce_seconds:
+                continue
+            self._ui_hotkey_last_triggered_at[action] = now
+            if callable(handler):
+                handler()
+
+    def _refresh_hotkey_labels(self):
+        if hasattr(self, "input_mode_hint"):
+            mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
+            if mode == "push_to_talk":
+                binding = engine.get_push_to_talk_hotkey()
+                self.input_mode_hint.setText(f"Push-to-Talk hotkey: {binding} (fallback button below)")
+            else:
+                self.input_mode_hint.setText("Voice activation listens for speech automatically")
+        button_titles = self._hotkey_button_titles()
+        button_map = getattr(self, "_control_action_buttons", {}) or {}
+        configured = engine.get_manual_action_hotkeys()
+        for action, button in button_map.items():
+            title = str(button_titles.get(action, engine.HOTKEY_ACTION_LABELS.get(action, action)) or action)
+            binding = str(configured.get(action, "") or "").strip()
+            button.setText(f"{title}\n{binding}" if binding else title)
+
+    def hotkey_catalog(self):
+        entries = [
+            {
+                "action": "push_to_talk",
+                "label": str(engine.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
+                "binding": engine.get_push_to_talk_hotkey(),
+                "default_binding": str(engine.DEFAULT_PUSH_TO_TALK_HOTKEY),
+                "category": "input",
+                "scope": "global",
+                "description": "Hold this key to talk while input mode is Push-to-Talk.",
+            }
+        ]
+        manual_bindings = engine.get_manual_action_hotkeys()
+        for action, default_binding in engine.DEFAULT_MANUAL_ACTION_HOTKEYS.items():
+            entries.append(
+                {
+                    "action": action,
+                    "label": str(engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                    "binding": str(manual_bindings.get(action, "") or ""),
+                    "default_binding": str(default_binding or ""),
+                    "category": "manual_controls",
+                    "scope": "global_and_window",
+                    "description": "Manual runtime control handled by the core hotkey spine.",
+                }
+            )
+        ui_bindings = engine.get_ui_action_hotkeys()
+        for action, default_binding in engine.DEFAULT_UI_ACTION_HOTKEYS.items():
+            entries.append(
+                {
+                    "action": action,
+                    "label": str(engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                    "binding": str(ui_bindings.get(action, "") or ""),
+                    "default_binding": str(default_binding or ""),
+                    "category": "ui_actions",
+                    "scope": "window",
+                    "description": "Qt window shortcut active while NC is focused.",
+                }
+            )
+        return entries
+
+    def set_hotkey_binding(self, action, binding):
+        action_key = str(action or "").strip()
+        binding_text = engine.normalize_hotkey_text(binding)
+        if action_key == "push_to_talk":
+            value = engine.set_push_to_talk_hotkey(binding_text or engine.DEFAULT_PUSH_TO_TALK_HOTKEY)
+        elif action_key in engine.DEFAULT_MANUAL_ACTION_HOTKEYS:
+            value = engine.set_manual_action_hotkey(action_key, binding_text)
+        elif action_key in engine.DEFAULT_UI_ACTION_HOTKEYS:
+            value = engine.set_ui_action_hotkey(action_key, binding_text)
+        else:
+            raise KeyError(f"Unknown hotkey action: {action_key}")
+        self._refresh_hotkey_shortcuts()
+        self._refresh_hotkey_labels()
+        self.save_session()
+        return value
+
+    def reset_hotkey_bindings(self):
+        bindings = engine.reset_hotkeys_to_defaults()
+        self._refresh_hotkey_shortcuts()
+        self._refresh_hotkey_labels()
+        self.save_session()
+        return bindings
 
     def update_pose_value(self, key, value):
         value = round(float(value), 2)
@@ -6544,6 +7195,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         for slider in self.pose_sliders.values():
             slider.setEnabled(controls_enabled)
         self.btn_musetalk_preview.setEnabled(mode == "musetalk")
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setEnabled(mode == "musetalk")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()
@@ -6598,6 +7251,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
         for key, slider in self.chunking_sliders.items():
             slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
+        self._refresh_hotkey_shortcuts()
+        self._refresh_hotkey_labels()
         self.on_emotion_change(self.emotion_combo.currentText())
         self.refresh_performance_profile_list()
         self.refresh_tutorial_list()
@@ -7695,9 +8350,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def show_musetalk_preview(self):
         if self.engine_combo.currentText() != "MuseTalk":
             return
-        self.preview_dock.show()
-        self.preview_dock.raise_()
+        if self._musetalk_avatar_focus_active:
+            stage_window = self._ensure_musetalk_stage_window()
+            self._attach_musetalk_preview_to_host("stage")
+            stage_window.show()
+            stage_window.raise_()
+            stage_window.activateWindow()
+        else:
+            self._attach_musetalk_preview_to_host("dock")
+            self.preview_dock.show()
+            self.preview_dock.raise_()
         self.embedded_musetalk_preview.show()
+        if hasattr(self.embedded_musetalk_preview, "set_focus_mode"):
+            self.embedded_musetalk_preview.set_focus_mode(bool(self._musetalk_avatar_focus_active))
         if self.active_tutorial_overlay is not None:
             try:
                 self.active_tutorial_overlay.raise_()
@@ -7706,9 +8371,75 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 pass
         print("[QtGUI] MuseTalk preview dock shown.")
 
-    def stop_musetalk_preview(self):
+    def enter_musetalk_avatar_focus(self):
+        if self.engine_combo.currentText() != "MuseTalk":
+            return
+        self._musetalk_avatar_focus_active = True
+        self._musetalk_main_window_was_maximized = bool(self.isMaximized())
+        self._musetalk_main_window_was_fullscreen = bool(self.isFullScreen())
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setText("Exit Avatar Focus")
+        if hasattr(self, "embedded_musetalk_preview"):
+            self.embedded_musetalk_preview.set_focus_mode(True)
+        self._attach_musetalk_preview_to_host("stage")
         if hasattr(self, "preview_dock"):
             self.preview_dock.hide()
+        stage_window = self._ensure_musetalk_stage_window()
+        self._sync_musetalk_stage_window_geometry_from_preview()
+        stage_window.show()
+        stage_window.raise_()
+        stage_window.activateWindow()
+        self.hide()
+        print("[QtGUI] MuseTalk avatar focus entered.")
+
+    def exit_musetalk_avatar_focus(self, *, raise_main=False):
+        was_active = bool(self._musetalk_avatar_focus_active)
+        self._musetalk_avatar_focus_active = False
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setText("Avatar Focus")
+        if hasattr(self, "embedded_musetalk_preview"):
+            self.embedded_musetalk_preview.set_focus_mode(False)
+        self._attach_musetalk_preview_to_host("dock")
+        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
+            self._musetalk_stage_window.allow_internal_close(True)
+            self._musetalk_stage_window.hide()
+            self._musetalk_stage_window.allow_internal_close(False)
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.show()
+        if hasattr(self, "visual_reply_dock"):
+            try:
+                self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
+            except Exception:
+                pass
+        if raise_main or was_active or not self.isVisible():
+            if self._musetalk_main_window_was_fullscreen:
+                self.showFullScreen()
+            elif self._musetalk_main_window_was_maximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        if was_active:
+            print("[QtGUI] MuseTalk avatar focus exited.")
+
+    def toggle_musetalk_avatar_focus(self):
+        if self._musetalk_avatar_focus_active:
+            self.exit_musetalk_avatar_focus(raise_main=True)
+        else:
+            self.enter_musetalk_avatar_focus()
+
+    def show_main_interface_from_musetalk_focus(self):
+        self.exit_musetalk_avatar_focus(raise_main=True)
+
+    def stop_musetalk_preview(self):
+        self.exit_musetalk_avatar_focus(raise_main=False)
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.hide()
+        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
+            self._musetalk_stage_window.allow_internal_close(True)
+            self._musetalk_stage_window.hide()
+            self._musetalk_stage_window.allow_internal_close(False)
         if hasattr(self, "embedded_musetalk_preview"):
             self.embedded_musetalk_preview.reset_preview()
 
@@ -8185,6 +8916,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "avatar_mode": self.engine_combo.currentText(),
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
+            "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
+            "manual_action_hotkeys": dict(engine.get_manual_action_hotkeys()),
+            "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self.tts_backend_combo.currentText(),
             "chat_provider": self._current_chat_provider_value(),
@@ -8820,6 +9554,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         for slider in self.pose_sliders.values():
             slider.setEnabled(controls_enabled)
         self.btn_musetalk_preview.setEnabled(mode == "musetalk")
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setEnabled(mode == "musetalk")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()
@@ -9908,9 +10644,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def show_musetalk_preview(self):
         if self.engine_combo.currentText() != "MuseTalk":
             return
-        self.preview_dock.show()
-        self.preview_dock.raise_()
+        if self._musetalk_avatar_focus_active:
+            stage_window = self._ensure_musetalk_stage_window()
+            self._attach_musetalk_preview_to_host("stage")
+            stage_window.show()
+            stage_window.raise_()
+            stage_window.activateWindow()
+        else:
+            self._attach_musetalk_preview_to_host("dock")
+            self.preview_dock.show()
+            self.preview_dock.raise_()
         self.embedded_musetalk_preview.show()
+        if hasattr(self.embedded_musetalk_preview, "set_focus_mode"):
+            self.embedded_musetalk_preview.set_focus_mode(bool(self._musetalk_avatar_focus_active))
         if self.active_tutorial_overlay is not None:
             try:
                 self.active_tutorial_overlay.raise_()
@@ -9919,9 +10665,75 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 pass
         print("[QtGUI] MuseTalk preview dock shown.")
 
-    def stop_musetalk_preview(self):
+    def enter_musetalk_avatar_focus(self):
+        if self.engine_combo.currentText() != "MuseTalk":
+            return
+        self._musetalk_avatar_focus_active = True
+        self._musetalk_main_window_was_maximized = bool(self.isMaximized())
+        self._musetalk_main_window_was_fullscreen = bool(self.isFullScreen())
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setText("Exit Avatar Focus")
+        if hasattr(self, "embedded_musetalk_preview"):
+            self.embedded_musetalk_preview.set_focus_mode(True)
+        self._attach_musetalk_preview_to_host("stage")
         if hasattr(self, "preview_dock"):
             self.preview_dock.hide()
+        stage_window = self._ensure_musetalk_stage_window()
+        self._sync_musetalk_stage_window_geometry_from_preview()
+        stage_window.show()
+        stage_window.raise_()
+        stage_window.activateWindow()
+        self.hide()
+        print("[QtGUI] MuseTalk avatar focus entered.")
+
+    def exit_musetalk_avatar_focus(self, *, raise_main=False):
+        was_active = bool(self._musetalk_avatar_focus_active)
+        self._musetalk_avatar_focus_active = False
+        if hasattr(self, "btn_musetalk_avatar_focus"):
+            self.btn_musetalk_avatar_focus.setText("Avatar Focus")
+        if hasattr(self, "embedded_musetalk_preview"):
+            self.embedded_musetalk_preview.set_focus_mode(False)
+        self._attach_musetalk_preview_to_host("dock")
+        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
+            self._musetalk_stage_window.allow_internal_close(True)
+            self._musetalk_stage_window.hide()
+            self._musetalk_stage_window.allow_internal_close(False)
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.show()
+        if hasattr(self, "visual_reply_dock"):
+            try:
+                self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
+            except Exception:
+                pass
+        if raise_main or was_active or not self.isVisible():
+            if self._musetalk_main_window_was_fullscreen:
+                self.showFullScreen()
+            elif self._musetalk_main_window_was_maximized:
+                self.showMaximized()
+            else:
+                self.showNormal()
+            self.raise_()
+            self.activateWindow()
+        if was_active:
+            print("[QtGUI] MuseTalk avatar focus exited.")
+
+    def toggle_musetalk_avatar_focus(self):
+        if self._musetalk_avatar_focus_active:
+            self.exit_musetalk_avatar_focus(raise_main=True)
+        else:
+            self.enter_musetalk_avatar_focus()
+
+    def show_main_interface_from_musetalk_focus(self):
+        self.exit_musetalk_avatar_focus(raise_main=True)
+
+    def stop_musetalk_preview(self):
+        self.exit_musetalk_avatar_focus(raise_main=False)
+        if hasattr(self, "preview_dock"):
+            self.preview_dock.hide()
+        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
+            self._musetalk_stage_window.allow_internal_close(True)
+            self._musetalk_stage_window.hide()
+            self._musetalk_stage_window.allow_internal_close(False)
         if hasattr(self, "embedded_musetalk_preview"):
             self.embedded_musetalk_preview.reset_preview()
 
@@ -10430,6 +11242,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "avatar_mode": self.engine_combo.currentText(),
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
+            "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
+            "manual_action_hotkeys": dict(engine.get_manual_action_hotkeys()),
+            "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self.tts_backend_combo.currentText(),
             "chat_provider": self._current_chat_provider_value(),
@@ -10561,6 +11376,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 index = self.input_mode_combo.findText(input_mode)
                 if index >= 0:
                     self.input_mode_combo.setCurrentIndex(index)
+            push_to_talk_hotkey = session.get("push_to_talk_hotkey")
+            if push_to_talk_hotkey is not None:
+                engine.set_push_to_talk_hotkey(push_to_talk_hotkey)
+            manual_action_hotkeys = session.get("manual_action_hotkeys")
+            if manual_action_hotkeys is not None:
+                update_runtime_config("manual_action_hotkeys", manual_action_hotkeys)
+            ui_action_hotkeys = session.get("ui_action_hotkeys")
+            if ui_action_hotkeys is not None:
+                update_runtime_config("ui_action_hotkeys", ui_action_hotkeys)
             input_role = session.get("input_message_role")
             if input_role:
                 index = self.input_role_combo.findText(input_role)
@@ -10819,6 +11643,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if hasattr(self, "performance_guidance_toggle"):
                 self.performance_guidance_toggle.setChecked(performance_guidance_visible)
                 self._toggle_performance_guidance(performance_guidance_visible)
+            self._refresh_hotkey_shortcuts()
+            self._refresh_hotkey_labels()
             self._update_restart_sensitive_controls()
             self.refresh_dry_run_status()
             QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)
@@ -10852,18 +11678,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
