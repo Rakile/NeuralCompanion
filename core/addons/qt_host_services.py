@@ -61,8 +61,17 @@ class QtDialogService:
 
 
 class QtShellService:
+    def __init__(self, window):
+        self._window = window
+
     def open_local_path(self, path) -> bool:
         return QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
+
+    def notify_settings_changed(self) -> None:
+        if hasattr(self._window, "_refresh_preset_dirty_state"):
+            self._window._refresh_preset_dirty_state()
+        if hasattr(self._window, "save_session"):
+            self._window.save_session()
 
 
 class QtHotkeyService:
@@ -82,6 +91,106 @@ class QtHotkeyService:
 class QtVisualReplyService:
     def __init__(self, window):
         self._window = window
+
+    def settings_snapshot(self):
+        import engine
+
+        runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+        return {
+            "mode_value": str(runtime.get("visual_reply_mode", "auto") or "auto"),
+            "provider_value": str(runtime.get("visual_reply_provider", "openai") or "openai"),
+            "size_value": str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024"),
+            "model_name": str(runtime.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "auto_show": bool(runtime.get("visual_reply_auto_show_dock", True)),
+        }
+
+    def mode_labels(self):
+        return ["Off", "Auto"]
+
+    def provider_labels(self):
+        return ["OpenAI", "xAI / Grok"]
+
+    def size_labels(self):
+        return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def mode_label_from_value(self, value: str):
+        return self._window._visual_reply_mode_label_from_value(value)
+
+    def provider_label_from_value(self, value: str):
+        return self._window._visual_reply_provider_label_from_value(value)
+
+    def size_label_from_value(self, value: str):
+        return self._window._visual_reply_size_label_from_value(value)
+
+    def normalize_size(self, value: str):
+        return self._window._normalize_visual_reply_size(value)
+
+    def attach_settings_widgets(
+        self,
+        *,
+        mode_combo,
+        provider_combo,
+        size_combo,
+        model_edit,
+        auto_show_checkbox,
+        hint_label,
+    ) -> None:
+        self._window.visual_reply_mode_combo = mode_combo
+        self._window.visual_reply_provider_combo = provider_combo
+        self._window.visual_reply_size_combo = size_combo
+        self._window.visual_reply_model_edit = model_edit
+        self._window.visual_reply_auto_show_checkbox = auto_show_checkbox
+        self._window.visual_reply_hint = hint_label
+
+    def apply_mode(self, choice: str) -> None:
+        self._window.on_visual_reply_mode_changed(choice)
+
+    def apply_provider(self, choice: str) -> None:
+        self._window.on_visual_reply_provider_changed(choice)
+
+    def apply_size(self, choice: str) -> None:
+        self._window.on_visual_reply_size_changed(choice)
+
+    def apply_model(self) -> None:
+        self._window.on_visual_reply_model_changed()
+
+    def apply_auto_show(self, checked: bool) -> None:
+        self._window.on_visual_reply_auto_show_changed(bool(checked))
+
+    def refresh_hint(self) -> None:
+        self._window._refresh_visual_reply_hint()
+
+    def replace_panel(self, panel) -> bool:
+        dock = getattr(self._window, "visual_reply_dock", None)
+        if dock is None or panel is None:
+            return False
+        old_widget = dock.widget()
+        try:
+            load_signal = getattr(panel, "loadRequested", None)
+            if load_signal is not None:
+                load_signal.connect(self._window.prompt_visual_reply_image)
+        except Exception:
+            pass
+        try:
+            caption_signal = getattr(panel, "captionRequested", None)
+            if caption_signal is not None:
+                caption_signal.connect(self._window.prompt_visual_reply_caption)
+        except Exception:
+            pass
+        try:
+            clear_signal = getattr(panel, "clearRequested", None)
+            if clear_signal is not None:
+                clear_signal.connect(lambda: self._window.clear_visual_reply(auto_show=False))
+        except Exception:
+            pass
+        dock.setWidget(panel)
+        self._window.visual_reply_panel = panel
+        if old_widget is not None and old_widget is not panel:
+            try:
+                old_widget.deleteLater()
+            except Exception:
+                pass
+        return True
 
     def show(self) -> None:
         self._window.show_visual_reply_dock()

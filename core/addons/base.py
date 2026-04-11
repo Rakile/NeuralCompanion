@@ -16,6 +16,12 @@ class BaseAddon:
     def import_session_state(self, session):
         return None
 
+    def export_preset_state(self):
+        return {}
+
+    def import_preset_state(self, preset):
+        return None
+
     def shutdown(self):
         return None
 

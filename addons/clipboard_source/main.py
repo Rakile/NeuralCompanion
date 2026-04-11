@@ -80,6 +80,9 @@ class Addon(BaseAddon):
             "clipboard_source_hidden_loop_enabled": bool(self.hidden_loop_enabled),
         }
 
+    def export_preset_state(self):
+        return self.export_session_state()
+
     def import_session_state(self, session):
         payload = dict(session or {})
         self.auto_attach_next_user_turn = bool(payload.get("clipboard_source_auto_attach_next_user_turn", self.auto_attach_next_user_turn))
@@ -93,6 +96,9 @@ class Addon(BaseAddon):
             self._clear_pending_next_user_turn()
         self._notify_tab_refreshers()
         return None
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
 
     def _build_tab(self, _context):
         widget = QtWidgets.QWidget()
@@ -181,6 +187,15 @@ class Addon(BaseAddon):
             except Exception:
                 pass
         self._tab_refreshers = keep
+
+    def _notify_settings_changed(self):
+        shell = self.context.get_service("qt.shell") if getattr(self, "context", None) is not None else None
+        notifier = getattr(shell, "notify_settings_changed", None)
+        if callable(notifier):
+            try:
+                notifier()
+            except Exception:
+                pass
 
     def _clipboard_image_dir(self) -> Path:
         target = Path("runtime") / "clipboard_inputs"
@@ -348,6 +363,7 @@ class Addon(BaseAddon):
             self._clear_pending_next_user_turn()
             self.last_delivery_status = "Next-turn clipboard attachment disabled."
             self._notify_tab_refreshers()
+        self._notify_settings_changed()
 
     def _on_auto_send_toggled(self, checked):
         self.auto_send_immediately = bool(checked)
@@ -355,6 +371,7 @@ class Addon(BaseAddon):
             self.hidden_loop_enabled = False
         self.last_delivery_status = "Immediate clipboard auto-send enabled." if self.auto_send_immediately else "Immediate clipboard auto-send disabled."
         self._notify_tab_refreshers()
+        self._notify_settings_changed()
 
     def _on_hidden_loop_toggled(self, checked):
         self.hidden_loop_enabled = bool(checked)
@@ -366,6 +383,7 @@ class Addon(BaseAddon):
             else "Clipboard source hidden-loop feed disabled."
         )
         self._notify_tab_refreshers()
+        self._notify_settings_changed()
 
     def _status_text(self) -> str:
         latest_line = "Latest clipboard image: none captured yet."

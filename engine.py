@@ -24,13 +24,14 @@ import torchaudio as ta
 import sounddevice as sd
 import numpy as np
 from openai import OpenAI
+from PIL import Image, PngImagePlugin
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 import tkinter as tk
-from PIL import Image, ImageTk
+from PIL import ImageTk
 import re
 import random
 import math
@@ -872,6 +873,13 @@ RUNTIME_CONFIG = {
     "top_k": 40,
     "min_p": 0.05,
     "repeat_penalty": 1.15,
+    "tts_seed": 0,
+    "tts_temperature": 0.8,
+    "tts_top_p": 0.9,
+    "tts_top_k": 40,
+    "tts_repeat_penalty": 1.2,
+    "tts_min_p": 0.0,
+    "tts_normalize_loudness": False,
     "limit_response_length": False,
     "max_response_tokens": 600,
     "allow_proactive_replies": True,
@@ -1945,6 +1953,7 @@ def sanitize_assistant_text_for_speech(text: str, *, preserve_emotion_tags: bool
         return ""
 
     protected_bracket_tokens: dict[str, str] = {}
+    value, _ignored_visual_prompt = _strip_visual_reply_tail(value)
     value = VISUAL_REPLY_TAG_RE.sub("", value)
 
     def _protect_bracket_token(match):
@@ -2121,6 +2130,7 @@ def _looks_like_visual_reply_tag_prefix(fragment):
 
 
 VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGNORECASE)
+VISUAL_REPLY_TAG_START_RE = re.compile(r"\[(visualize|image):", re.IGNORECASE)
 VISUAL_REPLY_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "visual_replies"
 SENSORY_FEEDBACK_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "sensory_feedback"
 VISUAL_REPLY_XAI_BASE_URL = "https://api.x.ai/v1"
@@ -2214,13 +2224,37 @@ def _next_visual_reply_request_id():
         return f"visual_{int(time.time())}_{_visual_reply_request_counter}"
 
 
+def _normalize_visual_reply_prompt_text(prompt_text: str) -> str:
+    prompt = str(prompt_text or "")
+    if not prompt:
+        return ""
+    prompt = re.sub(r"\[[^\]]+\]", " ", prompt)
+    prompt = prompt.replace("]", " ")
+    prompt = re.sub(r"\s+", " ", prompt).strip()
+    prompt = prompt.strip(" \t\r\n'\"`.,;:()[]{}")
+    return prompt
+
+
+def _strip_visual_reply_tail(text: str):
+    value = str(text or "")
+    if not value:
+        return "", None
+    matches = list(VISUAL_REPLY_TAG_START_RE.finditer(value))
+    if not matches:
+        return value, None
+    last_match = matches[-1]
+    start_index = int(last_match.start())
+    cleaned = value[:start_index]
+    raw_tail = value[start_index:]
+    colon_index = raw_tail.find(":")
+    prompt_text = raw_tail[colon_index + 1:] if colon_index >= 0 else ""
+    prompt_text = _normalize_visual_reply_prompt_text(prompt_text)
+    return cleaned, (prompt_text or None)
+
+
 def extract_visual_reply_prompt(text: str):
     value = str(text or "")
-    matches = list(VISUAL_REPLY_TAG_RE.finditer(value))
-    if not matches:
-        return value.strip(), None
-    prompt = str(matches[-1].group(1) or "").strip()
-    cleaned = VISUAL_REPLY_TAG_RE.sub("", value)
+    cleaned, prompt = _strip_visual_reply_tail(value)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
@@ -3267,19 +3301,55 @@ def _visual_reply_item_value(item, key):
     return getattr(item, key, None)
 
 
-def _visual_reply_extension_for_bytes(raw_bytes: bytes) -> str:
+def _visual_reply_image_format_and_extension(raw_bytes: bytes):
     try:
         with Image.open(io.BytesIO(raw_bytes)) as image:
             fmt = str(image.format or "").strip().lower()
     except Exception:
         fmt = ""
-    return {
+    extension = {
         "jpeg": "jpg",
         "jpg": "jpg",
         "png": "png",
         "webp": "webp",
         "bmp": "bmp",
     }.get(fmt, "png")
+    return fmt, extension
+
+
+def _visual_reply_extension_for_bytes(raw_bytes: bytes) -> str:
+    _, extension = _visual_reply_image_format_and_extension(raw_bytes)
+    return extension
+
+
+def _write_visual_reply_caption_comment(image: Image.Image, output_path: Path, prompt_text: str, fmt: str):
+    prompt = str(prompt_text or "").strip()
+    save_kwargs = {}
+    normalized_fmt = str(fmt or "").strip().lower()
+    if normalized_fmt == "png":
+        pnginfo = PngImagePlugin.PngInfo()
+        if prompt:
+            pnginfo.add_text("Comment", prompt)
+        save_kwargs["pnginfo"] = pnginfo
+        save_kwargs["format"] = "PNG"
+    elif normalized_fmt in {"jpeg", "jpg"}:
+        if image.mode not in {"RGB", "L"}:
+            image = image.convert("RGB")
+        if prompt:
+            save_kwargs["comment"] = prompt.encode("utf-8", "replace")
+        save_kwargs["format"] = "JPEG"
+        save_kwargs["quality"] = 95
+        save_kwargs["optimize"] = True
+    elif normalized_fmt == "webp":
+        save_kwargs["format"] = "WEBP"
+        if prompt:
+            save_kwargs["comment"] = prompt.encode("utf-8", "replace")
+    elif normalized_fmt == "bmp":
+        save_kwargs["format"] = "BMP"
+    else:
+        save_kwargs["format"] = image.format or "PNG"
+    image.save(output_path, **save_kwargs)
+    return output_path
 
 
 def _write_visual_reply_image_from_response(response, output_base_path: Path):
@@ -3291,17 +3361,28 @@ def _write_visual_reply_image_from_response(response, output_base_path: Path):
     first_item = data_items[0]
     b64_payload = _visual_reply_item_value(first_item, "b64_json") or _visual_reply_item_value(first_item, "base64")
     image_url = _visual_reply_item_value(first_item, "url")
+    prompt_text = ""
+    try:
+        prompt_text = str(getattr(shared_state, "current_visual_reply_data", {}).get("caption", "") or "").strip()
+    except Exception:
+        prompt_text = ""
     output_base_path.parent.mkdir(parents=True, exist_ok=True)
     if b64_payload:
         raw_bytes = base64.b64decode(b64_payload)
-        output_path = output_base_path.with_suffix(f".{_visual_reply_extension_for_bytes(raw_bytes)}")
-        output_path.write_bytes(raw_bytes)
+        fmt, extension = _visual_reply_image_format_and_extension(raw_bytes)
+        output_path = output_base_path.with_suffix(f".{extension}")
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            image.load()
+            _write_visual_reply_caption_comment(image, output_path, prompt_text, fmt)
         return output_path
     if image_url:
         with urllib.request.urlopen(str(image_url)) as response_stream:
             raw_bytes = response_stream.read()
-        output_path = output_base_path.with_suffix(f".{_visual_reply_extension_for_bytes(raw_bytes)}")
-        output_path.write_bytes(raw_bytes)
+        fmt, extension = _visual_reply_image_format_and_extension(raw_bytes)
+        output_path = output_base_path.with_suffix(f".{extension}")
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            image.load()
+            _write_visual_reply_caption_comment(image, output_path, prompt_text, fmt)
         return output_path
     raise RuntimeError("Image API response did not include b64_json or url.")
 
@@ -4737,12 +4818,16 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         )
                         dry_run.record_reply_event(dry_run_reply_id, "first_tts_subchunk_at")
                         first_subchunk_logged = True
+                    configured_seed = int(RUNTIME_CONFIG.get("tts_seed", 0) or 0)
+                    if configured_seed > 0:
+                        set_seed(configured_seed)
                     kwargs = dict(
-                        temperature=float(0.8),
-                        top_p=float(0.9),
-                        top_k=int(40),
-                        repetition_penalty=float(1.2),
-                        norm_loudness=bool(False),
+                        temperature=float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+                        top_p=float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+                        top_k=int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+                        repetition_penalty=float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+                        min_p=float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+                        norm_loudness=bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
                     )
                     v_path = RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav")
                     if not os.path.exists(v_path):
@@ -5971,6 +6056,10 @@ def build_llm_request():
     }
     if bool(RUNTIME_CONFIG.get("limit_response_length")):
         params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
+    elif _chat_provider() == "lmstudio":
+        # LM Studio applies its own generation cap when max_tokens is omitted.
+        # Sending -1 matches LM Studio's documented "no explicit response cap" behavior.
+        params["max_tokens"] = -1
     additional_params = {
         "top_k": int(RUNTIME_CONFIG["top_k"]),
         "min_p": float(RUNTIME_CONFIG["min_p"]),
@@ -6004,6 +6093,29 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
     def worker():
         full_parts = []
         first_token_at = None
+        visual_tail_open = False
+
+        def _strip_visual_tail_from_stream_chunk(raw_text: str) -> str:
+            nonlocal visual_tail_open
+            text = str(raw_text or "")
+            if not text:
+                return ""
+            if visual_tail_open:
+                close_index = text.rfind("]")
+                if close_index < 0:
+                    return ""
+                visual_tail_open = False
+                return ""
+            match = VISUAL_REPLY_TAG_START_RE.search(text)
+            if not match:
+                return text
+            cleaned = text[:match.start()]
+            tail = text[match.end():]
+            close_index = tail.rfind("]")
+            if close_index < 0:
+                visual_tail_open = True
+            return cleaned
+
         shared_state.append_musetalk_preview_log(
             f"🌊 [Stream] Reply stream started: target_chars={stream_target_chars} max_chars={stream_max_chars}"
         )
@@ -6028,7 +6140,8 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
 
                 for chunk_info in assembler.feed(content):
                     raw_chunk_text = str(chunk_info.get("text", "") or "")
-                    chunk_text = sanitize_assistant_text_for_speech(raw_chunk_text, preserve_emotion_tags=True)
+                    speech_source_text = _strip_visual_tail_from_stream_chunk(raw_chunk_text)
+                    chunk_text = sanitize_assistant_text_for_speech(speech_source_text, preserve_emotion_tags=True)
                     if not chunk_text:
                         continue
                     text_queue.put(chunk_text)
@@ -6054,7 +6167,8 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
 
             for chunk_info in assembler.feed("", final=True):
                 raw_chunk_text = str(chunk_info.get("text", "") or "")
-                chunk_text = sanitize_assistant_text_for_speech(raw_chunk_text, preserve_emotion_tags=True)
+                speech_source_text = _strip_visual_tail_from_stream_chunk(raw_chunk_text)
+                chunk_text = sanitize_assistant_text_for_speech(speech_source_text, preserve_emotion_tags=True)
                 if not chunk_text:
                     continue
                 text_queue.put(chunk_text)

@@ -37,8 +37,11 @@ When no configured behavior clearly matches the NEW clipboard image:
 - set should_speak=false for this behavior
 - do not invent a clipboard-supervisor interruption
 
-If the matching behavior says to avoid repeats, and recent retained hidden PONG context already contains a very similar interruption for the same clipboard image or same ongoing clipboard pattern, prefer should_speak=false to avoid repetition.
-If the matching behavior allows recurring commentary, you may speak again about the same ongoing clipboard pattern when you have a fresh, playful variation to say, but still avoid near-duplicate spam.
+Follow the matching behavior's Repeat policy.
+- For One-off, if recent retained hidden PONG context already contains a very similar interruption for the same clipboard image or same ongoing clipboard pattern, prefer should_speak=false.
+- For Every Nth match, only speak again when the same ongoing clipboard pattern has kept matching long enough to satisfy the configured cadence.
+- For Meaningful change only, only speak again when the same overall trigger still applies but the clipboard scene changed in a clearly meaningful way.
+Even in recurring modes, avoid near-duplicate spam.
 Keep interruptions concise, playful, and in-character."""
 
 PERSONA_STYLE_HINTS = {
@@ -67,7 +70,13 @@ EMOTION_OPTIONS = [
     "surprised",
 ]
 DEFAULT_EMOTION = EMOTION_OPTIONS[0]
-DEFAULT_ALLOW_REPEAT = False
+REPEAT_MODE_OPTIONS = [
+    "One-off",
+    "Every Nth match",
+    "Meaningful change only",
+]
+DEFAULT_REPEAT_MODE = REPEAT_MODE_OPTIONS[0]
+DEFAULT_REPEAT_INTERVAL = 3
 
 
 def _new_id(prefix):
@@ -101,6 +110,7 @@ class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
         self.enabled = True
+        self._suppress_shell_notify = False
         self.personas = self._normalize_personas(_default_personas())
         self.selected_persona_id = self.personas[0]["id"] if self.personas else ""
         self._tab_refreshers = []
@@ -148,19 +158,30 @@ class Addon(BaseAddon):
             "clipboard_supervisor_selected_persona_id": str(self.selected_persona_id or ""),
         }
 
+    def export_preset_state(self):
+        return self.export_session_state()
+
     def import_session_state(self, session):
         payload = dict(session or {})
-        if "clipboard_supervisor_enabled" in payload:
-            self.enabled = bool(payload.get("clipboard_supervisor_enabled"))
-        elif "clipboard_source_auto_comment_new_images" in payload:
-            self.enabled = bool(payload.get("clipboard_source_auto_comment_new_images"))
-        if "clipboard_supervisor_personas" in payload:
-            self.personas = self._normalize_personas(payload.get("clipboard_supervisor_personas"))
-            self.selected_persona_id = str(payload.get("clipboard_supervisor_selected_persona_id") or "").strip()
-        else:
-            self._import_legacy_state(payload)
-        self._ensure_selected_persona()
-        self._publish_state()
+        previous = bool(getattr(self, "_suppress_shell_notify", False))
+        self._suppress_shell_notify = True
+        try:
+            if "clipboard_supervisor_enabled" in payload:
+                self.enabled = bool(payload.get("clipboard_supervisor_enabled"))
+            elif "clipboard_source_auto_comment_new_images" in payload:
+                self.enabled = bool(payload.get("clipboard_source_auto_comment_new_images"))
+            if "clipboard_supervisor_personas" in payload:
+                self.personas = self._normalize_personas(payload.get("clipboard_supervisor_personas"))
+                self.selected_persona_id = str(payload.get("clipboard_supervisor_selected_persona_id") or "").strip()
+            else:
+                self._import_legacy_state(payload)
+            self._ensure_selected_persona()
+            self._publish_state()
+        finally:
+            self._suppress_shell_notify = previous
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
 
     def _import_legacy_state(self, payload):
         mode_label = str(payload.get("clipboard_supervisor_mode_label") or "Supervisor").strip() or "Supervisor"
@@ -231,13 +252,33 @@ class Addon(BaseAddon):
             "Treat the Action as creative guidance only. Keep the intent, but freely improvise wording, phrasing, and joke construction in persona."
         )
 
-    def _repeat_policy_instruction(self, value):
-        if bool(value):
+    def _normalize_repeat_mode(self, value):
+        text = str(value or "").strip()
+        return text if text in REPEAT_MODE_OPTIONS else DEFAULT_REPEAT_MODE
+
+    def _normalize_repeat_interval(self, value):
+        try:
+            return max(1, min(999, int(value)))
+        except Exception:
+            return DEFAULT_REPEAT_INTERVAL
+
+    def _repeat_policy_instruction(self, mode, interval):
+        repeat_mode = self._normalize_repeat_mode(mode)
+        repeat_interval = self._normalize_repeat_interval(interval)
+        if repeat_mode == "Every Nth match":
+            if repeat_interval <= 1:
+                return (
+                    "Repeat on every matching refresh. If the same clipboard pattern keeps happening, you may comment again each time, but vary the wording and avoid near-duplicate spam."
+                )
             return (
-                "Allow recurring commentary. If the same clipboard pattern keeps happening, you may interrupt again with a fresh variation instead of treating it as one-and-done."
+                f"Repeat on every {repeat_interval}th matching refresh for the same ongoing clipboard pattern. Estimate the cadence from repeated similar retained context and visible continuity, and stay silent between those beats."
+            )
+        if repeat_mode == "Meaningful change only":
+            return (
+                "Repeat only when the same overall clipboard trigger still applies but the scene changed in a clearly meaningful way. Do not comment again for tiny or purely cosmetic changes."
             )
         return (
-            "Avoid repeats. If a very similar interruption was already given for the same ongoing clipboard pattern, prefer should_speak=false."
+            "One-off only. If a very similar interruption was already given for the same ongoing clipboard pattern, prefer should_speak=false."
         )
 
     def _normalize_personas(self, personas):
@@ -265,7 +306,14 @@ class Addon(BaseAddon):
                         "action": action,
                         "strictness": self._normalize_strictness(raw_behavior.get("strictness")),
                         "emotion": self._normalize_emotion(raw_behavior.get("emotion")),
-                        "allow_repeat": bool(raw_behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)),
+                        "repeat_mode": self._normalize_repeat_mode(
+                            raw_behavior.get("repeat_mode")
+                            if raw_behavior.get("repeat_mode") is not None
+                            else ("Every Nth match" if bool(raw_behavior.get("allow_repeat", False)) else DEFAULT_REPEAT_MODE)
+                        ),
+                        "repeat_interval": self._normalize_repeat_interval(
+                            raw_behavior.get("repeat_interval", 1 if bool(raw_behavior.get("allow_repeat", False)) else DEFAULT_REPEAT_INTERVAL)
+                        ),
                     }
                 )
             items.append(
@@ -326,7 +374,7 @@ class Addon(BaseAddon):
             strictness_line = self._strictness_instruction(behavior.get("strictness"))
             emotion_value = self._normalize_emotion(behavior.get("emotion"))
             emotion_line = "Auto." if emotion_value == DEFAULT_EMOTION else f"Prefer emotion={emotion_value}."
-            repeat_line = self._repeat_policy_instruction(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT))
+            repeat_line = self._repeat_policy_instruction(behavior.get("repeat_mode"), behavior.get("repeat_interval"))
             behavior_lines.append(
                 f"{active_index}. Visual Trigger: {trigger}\n"
                 f"   Action: {action}\n"
@@ -348,6 +396,9 @@ class Addon(BaseAddon):
 
     def _sensory_service(self):
         return self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
+
+    def _shell_service(self):
+        return self.context.get_service("qt.shell") if getattr(self, "context", None) is not None else None
 
     def _register_prompt_contributor(self):
         sensory_service = self._sensory_service()
@@ -399,6 +450,14 @@ class Addon(BaseAddon):
         self._ensure_selected_persona()
         self._register_prompt_contributor()
         self._notify_tab_refreshers()
+        if not bool(getattr(self, "_suppress_shell_notify", False)):
+            shell = self._shell_service()
+            notifier = getattr(shell, "notify_settings_changed", None)
+            if callable(notifier):
+                try:
+                    notifier()
+                except Exception:
+                    pass
 
     def _publish_prompt_only(self):
         self._ensure_selected_persona()
@@ -446,6 +505,8 @@ class Addon(BaseAddon):
             "action": "",
             "strictness": DEFAULT_STRICTNESS,
             "emotion": DEFAULT_EMOTION,
+            "repeat_mode": DEFAULT_REPEAT_MODE,
+            "repeat_interval": DEFAULT_REPEAT_INTERVAL,
         }
         persona.setdefault("behaviors", []).append(behavior)
         self._expanded_behavior_ids.add(behavior["id"])
@@ -563,7 +624,7 @@ class Addon(BaseAddon):
             else:
                 refresh_preview()
 
-        def commit_behavior_change(persona_id, behavior_id, *, trigger=None, action=None, enabled=None, strictness=None, emotion=None, allow_repeat=None):
+        def commit_behavior_change(persona_id, behavior_id, *, trigger=None, action=None, enabled=None, strictness=None, emotion=None, repeat_mode=None, repeat_interval=None):
             persona = self._find_persona(persona_id)
             behavior = self._find_behavior(persona, behavior_id)
             if persona is None or behavior is None:
@@ -588,9 +649,16 @@ class Addon(BaseAddon):
                 if emotion_value != str(behavior.get("emotion") or DEFAULT_EMOTION):
                     behavior["emotion"] = emotion_value
                     changed = True
-            if allow_repeat is not None and bool(allow_repeat) != bool(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)):
-                behavior["allow_repeat"] = bool(allow_repeat)
-                changed = True
+            if repeat_mode is not None:
+                repeat_mode_value = self._normalize_repeat_mode(repeat_mode)
+                if repeat_mode_value != str(behavior.get("repeat_mode") or DEFAULT_REPEAT_MODE):
+                    behavior["repeat_mode"] = repeat_mode_value
+                    changed = True
+            if repeat_interval is not None:
+                repeat_interval_value = self._normalize_repeat_interval(repeat_interval)
+                if repeat_interval_value != int(behavior.get("repeat_interval") or DEFAULT_REPEAT_INTERVAL):
+                    behavior["repeat_interval"] = repeat_interval_value
+                    changed = True
             if changed:
                 self._publish_prompt_only()
             refresh_preview()
@@ -660,10 +728,22 @@ class Addon(BaseAddon):
                 emotion_combo.setCurrentText(self._normalize_emotion(behavior.get("emotion")))
                 advanced_layout.addRow("Emotion override", emotion_combo)
 
-                repeat_checkbox = QtWidgets.QCheckBox("Allow recurring commentary")
-                repeat_checkbox.setChecked(bool(behavior.get("allow_repeat", DEFAULT_ALLOW_REPEAT)))
-                repeat_checkbox.setToolTip("Let this behavior keep commenting on the same ongoing clipboard pattern instead of treating it as a one-off interruption.")
-                advanced_layout.addRow("Repeat policy", repeat_checkbox)
+                repeat_mode_combo = NoWheelComboBox()
+                repeat_mode_combo.addItems(REPEAT_MODE_OPTIONS)
+                repeat_mode_combo.setCurrentText(self._normalize_repeat_mode(behavior.get("repeat_mode")))
+                repeat_mode_combo.setToolTip("Choose whether this behavior fires once, on a cadence, or only after a meaningful scene change.")
+                advanced_layout.addRow("Repeat mode", repeat_mode_combo)
+
+                repeat_interval_spin = QtWidgets.QSpinBox()
+                repeat_interval_spin.setRange(1, 999)
+                repeat_interval_spin.setValue(self._normalize_repeat_interval(behavior.get("repeat_interval")))
+                repeat_interval_spin.setToolTip("Only used for Every Nth match. Set to 1 to comment on every matching refresh.")
+                advanced_layout.addRow("Nth match interval", repeat_interval_spin)
+
+                def sync_repeat_interval_control(mode_text, spin=repeat_interval_spin):
+                    spin.setEnabled(str(mode_text or "") == "Every Nth match")
+
+                sync_repeat_interval_control(repeat_mode_combo.currentText())
 
                 advanced_panel.setVisible(advanced_button.isChecked())
                 box_layout.addWidget(advanced_panel)
@@ -683,8 +763,11 @@ class Addon(BaseAddon):
                 emotion_combo.currentTextChanged.connect(
                     lambda value, pid=persona["id"], bid=behavior["id"]: commit_behavior_change(pid, bid, emotion=value)
                 )
-                repeat_checkbox.toggled.connect(
-                    lambda checked, pid=persona["id"], bid=behavior["id"]: commit_behavior_change(pid, bid, allow_repeat=checked)
+                repeat_mode_combo.currentTextChanged.connect(
+                    lambda value, pid=persona["id"], bid=behavior["id"], spin=repeat_interval_spin: (sync_repeat_interval_control(value, spin), commit_behavior_change(pid, bid, repeat_mode=value))
+                )
+                repeat_interval_spin.valueChanged.connect(
+                    lambda value, pid=persona["id"], bid=behavior["id"]: commit_behavior_change(pid, bid, repeat_interval=value)
                 )
                 advanced_button.toggled.connect(
                     lambda checked, panel=advanced_panel, bid=behavior["id"]: (panel.setVisible(bool(checked)), self._set_behavior_expanded(bid, bool(checked)))

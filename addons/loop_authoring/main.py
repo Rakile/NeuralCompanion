@@ -56,8 +56,14 @@ class Addon(BaseAddon):
             return {}
         return controller.export_session_state() or {}
 
+    def export_preset_state(self):
+        return self.export_session_state()
+
     def import_session_state(self, session):
         controller = self._peek_controller()
         if controller is None:
             return None
         return controller.import_session_state(session)
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)

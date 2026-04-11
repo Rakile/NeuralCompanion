@@ -3299,6 +3299,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._addon_manager = None
         self._mounted_addon_tab_ids = set()
         self._mounted_musetalk_addon_tab_ids = set()
+        self._mounted_host_settings_addon_tab_ids = set()
         self._addon_host_tab_groups = {}
         self.console_auto_scroll = True
         self.chat_auto_scroll = True
@@ -3740,6 +3741,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         title_label.setStyleSheet("font-size: 18px; font-weight: 700; color: #f2f5f9;")
         layout.addWidget(eyebrow_label)
         layout.addWidget(title_label)
+        frame.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        frame.adjustSize()
+        frame.setFixedHeight(frame.sizeHint().height())
         return frame
 
     def _build_left_panel(self):
@@ -4016,6 +4020,67 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.preset_combo.setObjectName("preset_combo")
         self.preset_combo.addItem("Select Preset...")
         self.preset_combo.currentTextChanged.connect(self.on_preset_selection_changed)
+        self.btn_preset_refresh = QtWidgets.QPushButton("Refresh")
+        self.btn_preset_refresh.setObjectName("btn_preset_refresh")
+        self.btn_preset_refresh.clicked.connect(self.refresh_preset_list)
+        preset_row = QtWidgets.QHBoxLayout()
+        preset_row.setContentsMargins(0, 0, 0, 0)
+        preset_row.setSpacing(8)
+        preset_row.addWidget(self.preset_combo, 1)
+        preset_row.addWidget(self.btn_preset_refresh, 0)
+        preset_row_widget = QtWidgets.QWidget()
+        preset_row_widget.setLayout(preset_row)
+        self.preset_row_widget = preset_row_widget
+
+        self.tts_seed_spin = NoWheelSpinBox()
+        self.tts_seed_spin.setObjectName("tts_seed_spin")
+        self.tts_seed_spin.setRange(0, 2 ** 31 - 1)
+        self.tts_seed_spin.setValue(int(RUNTIME_CONFIG.get("tts_seed", 0) or 0))
+        self.tts_seed_spin.valueChanged.connect(self.on_tts_seed_changed)
+
+        self.tts_temperature_spin = DecimalStepper()
+        self.tts_temperature_spin.setObjectName("tts_temperature_spin")
+        self.tts_temperature_spin.setRange(0.05, 2.0)
+        self.tts_temperature_spin.setSingleStep(0.05)
+        self.tts_temperature_spin.setDecimals(2)
+        self.tts_temperature_spin.setValue(float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8))
+        self.tts_temperature_spin.valueChanged.connect(self.on_tts_temperature_changed)
+
+        self.tts_top_p_spin = DecimalStepper()
+        self.tts_top_p_spin.setObjectName("tts_top_p_spin")
+        self.tts_top_p_spin.setRange(0.0, 1.0)
+        self.tts_top_p_spin.setSingleStep(0.01)
+        self.tts_top_p_spin.setDecimals(2)
+        self.tts_top_p_spin.setValue(float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9))
+        self.tts_top_p_spin.valueChanged.connect(self.on_tts_top_p_changed)
+
+        self.tts_top_k_spin = NoWheelSpinBox()
+        self.tts_top_k_spin.setObjectName("tts_top_k_spin")
+        self.tts_top_k_spin.setRange(0, 1000)
+        self.tts_top_k_spin.setSingleStep(1)
+        self.tts_top_k_spin.setValue(int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40))
+        self.tts_top_k_spin.valueChanged.connect(self.on_tts_top_k_changed)
+
+        self.tts_repeat_penalty_spin = DecimalStepper()
+        self.tts_repeat_penalty_spin.setObjectName("tts_repeat_penalty_spin")
+        self.tts_repeat_penalty_spin.setRange(1.0, 2.0)
+        self.tts_repeat_penalty_spin.setSingleStep(0.01)
+        self.tts_repeat_penalty_spin.setDecimals(2)
+        self.tts_repeat_penalty_spin.setValue(float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2))
+        self.tts_repeat_penalty_spin.valueChanged.connect(self.on_tts_repeat_penalty_changed)
+
+        self.tts_min_p_spin = DecimalStepper()
+        self.tts_min_p_spin.setObjectName("tts_min_p_spin")
+        self.tts_min_p_spin.setRange(0.0, 1.0)
+        self.tts_min_p_spin.setSingleStep(0.01)
+        self.tts_min_p_spin.setDecimals(2)
+        self.tts_min_p_spin.setValue(float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0))
+        self.tts_min_p_spin.valueChanged.connect(self.on_tts_min_p_changed)
+
+        self.tts_normalize_loudness_checkbox = QtWidgets.QCheckBox("Normalize Loudness (-27 LUFS)")
+        self.tts_normalize_loudness_checkbox.setObjectName("tts_normalize_loudness_checkbox")
+        self.tts_normalize_loudness_checkbox.setChecked(bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)))
+        self.tts_normalize_loudness_checkbox.toggled.connect(self.on_tts_normalize_loudness_changed)
 
         self.allow_proactive_checkbox = QtWidgets.QCheckBox("Allow proactive replies after silence")
         self.allow_proactive_checkbox.setObjectName("allow_proactive_checkbox")
@@ -4096,7 +4161,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.host_settings_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.host_settings_tabs.currentChanged.connect(lambda _index, tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
         self.host_settings_tabs.addTab(self._build_runtime_shell_tab(), "Host")
-        self.host_settings_tabs.addTab(self._build_visual_reply_settings_tab(), "Visuals")
         self.host_settings_tabs.addTab(self._build_sensory_feedback_tab(), "Vision")
         self.host_settings_tabs.addTab(self._build_chat_session_tab(), "Chat")
         layout.addWidget(self.host_settings_tabs, 0, QtCore.Qt.AlignTop)
@@ -4141,9 +4205,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         form.addRow("MuseTalk VRAM", self.musetalk_vram_combo)
         form.addRow("Loop Fade (ms)", self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
         form.addRow("MuseTalk Avatar", self.musetalk_avatar_pack_row_widget)
-        form.addRow("Preset", self.preset_combo)
+        form.addRow("Preset", self.preset_row_widget if hasattr(self, "preset_row_widget") else self.preset_combo)
         layout.addLayout(form)
         layout.addWidget(self._build_chat_runtime_card())
+        layout.addWidget(self._build_tts_runtime_card())
 
         preset_buttons = QtWidgets.QHBoxLayout()
         for label, object_name, handler in [
@@ -4307,6 +4372,50 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self._refresh_chat_provider_card()
         return self.chat_runtime_box
+
+    def _build_tts_runtime_card(self):
+        self.tts_runtime_box = QtWidgets.QGroupBox("TTS Runtime")
+        layout = QtWidgets.QVBoxLayout(self.tts_runtime_box)
+        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setSpacing(8)
+
+        self.tts_runtime_stack = QtWidgets.QStackedWidget()
+
+        chatterbox_page = QtWidgets.QWidget()
+        chatterbox_form = QtWidgets.QFormLayout(chatterbox_page)
+        chatterbox_form.setContentsMargins(0, 0, 0, 0)
+        chatterbox_form.setSpacing(8)
+        chatterbox_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        chatterbox_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        chatterbox_form.addRow("Random seed (0 = random)", self.tts_seed_spin)
+        chatterbox_form.addRow("Temperature", self.tts_temperature_spin)
+        chatterbox_form.addRow("Top P", self.tts_top_p_spin)
+        chatterbox_form.addRow("Top K", self.tts_top_k_spin)
+        chatterbox_form.addRow("Repetition Penalty", self.tts_repeat_penalty_spin)
+        chatterbox_form.addRow("Min P", self.tts_min_p_spin)
+        chatterbox_form.addRow("", self.tts_normalize_loudness_checkbox)
+
+        pockettts_page = QtWidgets.QWidget()
+        pockettts_layout = QtWidgets.QVBoxLayout(pockettts_page)
+        pockettts_layout.setContentsMargins(0, 0, 0, 0)
+        pockettts_layout.setSpacing(0)
+        pockettts_hint = QtWidgets.QLabel("PocketTTS does not expose extra runtime synthesis controls here yet.")
+        pockettts_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        pockettts_hint.setWordWrap(True)
+        pockettts_layout.addWidget(pockettts_hint)
+        pockettts_layout.addStretch(1)
+
+        self.tts_runtime_stack.addWidget(chatterbox_page)
+        self.tts_runtime_stack.addWidget(pockettts_page)
+        layout.addWidget(self.tts_runtime_stack)
+
+        self.tts_runtime_hint_label = QtWidgets.QLabel()
+        self.tts_runtime_hint_label.setWordWrap(True)
+        self.tts_runtime_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        layout.addWidget(self.tts_runtime_hint_label)
+
+        self._refresh_tts_runtime_card()
+        return self.tts_runtime_box
 
     def _build_sensory_feedback_tab(self):
         tab = QtWidgets.QWidget()
@@ -4590,6 +4699,49 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 provider_label = self._chat_provider_label_from_value(provider_id)
                 description = f"{provider_label} is selected."
             self.chat_provider_hint_label.setText(description)
+
+    def _refresh_tts_runtime_card(self):
+        if not hasattr(self, "tts_runtime_stack"):
+            return
+
+        backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").strip().lower()
+        if backend == "chatterbox":
+            self.tts_runtime_stack.setCurrentIndex(0)
+            hint = "ChatterboxTurboTTS sampling controls for local speech generation."
+        else:
+            self.tts_runtime_stack.setCurrentIndex(1)
+            hint = "PocketTTS uses the external interpreter path configured in Persona."
+
+        if hasattr(self, "tts_runtime_hint_label"):
+            self.tts_runtime_hint_label.setText(hint)
+
+    def on_tts_seed_changed(self, value):
+        update_runtime_config("tts_seed", max(0, int(value or 0)))
+        self.save_session()
+
+    def on_tts_temperature_changed(self, value):
+        update_runtime_config("tts_temperature", max(0.05, float(value or 0.8)))
+        self.save_session()
+
+    def on_tts_top_p_changed(self, value):
+        update_runtime_config("tts_top_p", max(0.0, min(1.0, float(value or 0.9))))
+        self.save_session()
+
+    def on_tts_top_k_changed(self, value):
+        update_runtime_config("tts_top_k", max(0, int(value or 0)))
+        self.save_session()
+
+    def on_tts_repeat_penalty_changed(self, value):
+        update_runtime_config("tts_repeat_penalty", max(1.0, float(value or 1.2)))
+        self.save_session()
+
+    def on_tts_min_p_changed(self, value):
+        update_runtime_config("tts_min_p", max(0.0, min(1.0, float(value or 0.0))))
+        self.save_session()
+
+    def on_tts_normalize_loudness_changed(self, checked):
+        update_runtime_config("tts_normalize_loudness", bool(checked))
+        self.save_session()
 
     def _on_chat_provider_field_changed(self, provider_id, field_id, widget):
         if widget is None:
@@ -5273,7 +5425,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 host_services={
                     "qt.dialogs": QtDialogService(self),
                     "qt.hotkeys": QtHotkeyService(self),
-                    "qt.shell": QtShellService(),
+                    "qt.shell": QtShellService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
                     "qt.sensory": QtSensoryService(self),
@@ -5290,6 +5442,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 engine.set_addon_event_publisher(manager.publish_event)
             self.refresh_sensory_feedback_source_options(selected_value=str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"))
             self._mount_addon_tabs()
+            self._mount_host_settings_addon_tabs()
             self._mount_musetalk_addon_tabs()
             loaded = [record.manifest.id for record in manager.get_loaded_addons() if record.state == "initialized"]
             if loaded:
@@ -5518,6 +5671,40 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             except Exception as exc:
                 print(f"⚠️ [Addons] Failed to mount MuseTalk tab '{contribution.id}': {exc}")
 
+    def _mount_host_settings_addon_tabs(self):
+        if self._addon_manager is None or not hasattr(self, "host_settings_tabs"):
+            return
+        contributions = list(self._addon_manager.get_tab_contributions(area="host_settings"))
+        child_contributions = {}
+        top_level_contributions = []
+        for contribution in contributions:
+            parent_tab_id = str(getattr(contribution, "parent_tab_id", "") or "").strip()
+            if parent_tab_id:
+                child_contributions.setdefault(parent_tab_id, []).append(contribution)
+            else:
+                top_level_contributions.append(contribution)
+        for contribution in top_level_contributions:
+            if contribution.id in self._mounted_host_settings_addon_tab_ids:
+                continue
+            try:
+                children = list(child_contributions.get(contribution.id, []))
+                widget = self._build_addon_host_tab_widget(contribution, children) if children or getattr(contribution, "metadata", None) else contribution.factory(None)
+                if widget is None:
+                    continue
+                insert_index = min(1 + len(self._mounted_host_settings_addon_tab_ids), self.host_settings_tabs.count())
+                tab_index = self.host_settings_tabs.insertTab(insert_index, widget, contribution.title)
+                if contribution.tooltip:
+                    self.host_settings_tabs.setTabToolTip(tab_index, contribution.tooltip)
+                self._mounted_host_settings_addon_tab_ids.add(contribution.id)
+            except Exception as exc:
+                print(f"⚠️ [Addons] Failed to mount host settings tab '{contribution.id}': {exc}")
+        for parent_tab_id, children in child_contributions.items():
+            if parent_tab_id in self._mounted_host_settings_addon_tab_ids:
+                continue
+            child_ids = ", ".join(str(child.id or "") for child in children)
+            print(f"⚠️ [Addons] Host settings child tabs {child_ids} declared missing parent '{parent_tab_id}'.")
+        QtCore.QTimer.singleShot(0, lambda tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
+
     def _status_diode_style(self, active, active_fill, active_border):
         if active:
             return (
@@ -5529,7 +5716,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         pocket_tts_python = self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else ""
         if ensure_pocket_tts_path and hasattr(self, "tts_backend_combo") and self.tts_backend_combo.currentText() == "PocketTTS":
             pocket_tts_python = self._ensure_pocket_tts_python_path()
-        return {
+        payload = {
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
@@ -5538,6 +5725,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
+            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
+            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
             "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
             "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
@@ -5571,6 +5765,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
         }
+        if self._addon_manager is not None:
+            try:
+                payload.update(self._addon_manager.export_preset_state())
+            except Exception:
+                pass
+        return payload
 
     def _preset_payload_signature(self, payload):
         return json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -5608,6 +5808,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
             else:
                 self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        self._refresh_preset_dirty_state()
+
+    def _update_preset_reference_from_current_state(self, preset_name=None):
+        name = str(preset_name or self.preset_combo.currentText() or "").strip()
+        if name in {"", "Select Preset...", "No Presets"}:
+            self._preset_reference_name = ""
+        else:
+            self._preset_reference_name = name
+        self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
         self._refresh_preset_dirty_state()
 
     def on_preset_selection_changed(self, text):
@@ -6881,6 +7090,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("tts_backend", backend)
         if backend == "pockettts":
             self._ensure_pocket_tts_python_path()
+        self._refresh_tts_runtime_card()
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": choice})
         self.update_model_budget_hint()
@@ -8106,9 +8316,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.update_model_budget_hint()
 
     def refresh_preset_list(self):
+        current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
         presets = [Path(path).stem for path in glob.glob("presets/*.json")]
         self.preset_combo.clear()
         self.preset_combo.addItems(presets or ["No Presets"])
+        if current and current in presets:
+            self.preset_combo.setCurrentText(current)
 
     def refresh_body_list(self):
         bodies = [Path(path).stem for path in glob.glob("body_configs/*.json")]
@@ -8849,6 +9062,28 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if "tts_backend" in data:
             backend_text = "PocketTTS" if str(data["tts_backend"]).lower() == "pockettts" else "Chatterbox"
             self.tts_backend_combo.setCurrentText(backend_text)
+            self.on_tts_backend_change(backend_text)
+        if "tts_seed" in data and hasattr(self, "tts_seed_spin"):
+            self.tts_seed_spin.setValue(max(0, int(data["tts_seed"] or 0)))
+            self.on_tts_seed_changed(self.tts_seed_spin.value())
+        if "tts_temperature" in data and hasattr(self, "tts_temperature_spin"):
+            self.tts_temperature_spin.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
+            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
+        if "tts_top_p" in data and hasattr(self, "tts_top_p_spin"):
+            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
+            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
+        if "tts_top_k" in data and hasattr(self, "tts_top_k_spin"):
+            self.tts_top_k_spin.setValue(max(0, int(data["tts_top_k"] or 0)))
+            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
+        if "tts_repeat_penalty" in data and hasattr(self, "tts_repeat_penalty_spin"):
+            self.tts_repeat_penalty_spin.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
+            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
+        if "tts_min_p" in data and hasattr(self, "tts_min_p_spin"):
+            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
+            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
+        if "tts_normalize_loudness" in data and hasattr(self, "tts_normalize_loudness_checkbox"):
+            self.tts_normalize_loudness_checkbox.setChecked(bool(data["tts_normalize_loudness"]))
+            self.on_tts_normalize_loudness_changed(bool(data["tts_normalize_loudness"]))
         if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
             self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
             self.on_allow_proactive_replies_changed(bool(data["allow_proactive_replies"]))
@@ -8911,9 +9146,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             tokens = max(32, int(data["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
+        if self._addon_manager is not None:
+            try:
+                self._addon_manager.import_preset_state(data)
+            except Exception:
+                pass
+        self._refresh_sensory_feedback_source_tabs()
+        self._refresh_addon_group_tabs()
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
-        self._update_preset_reference_from_selection(name)
+        self._update_preset_reference_from_current_state(name)
         self.save_session()
 
     def save_preset_dialog(self):
@@ -9583,6 +9825,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         session = {
             "first_run": bool(self.first_run),
             "avatar_mode": self.engine_combo.currentText(),
+            "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
             "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
@@ -9590,6 +9833,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self.tts_backend_combo.currentText(),
+            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
+            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
@@ -9736,6 +9986,35 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             index = self.tts_backend_combo.findText(tts_backend)
             if index >= 0:
                 self.tts_backend_combo.setCurrentIndex(index)
+                self.on_tts_backend_change(self.tts_backend_combo.currentText())
+        tts_seed = session.get("tts_seed")
+        if tts_seed is not None and hasattr(self, "tts_seed_spin"):
+            self.tts_seed_spin.setValue(max(0, int(tts_seed)))
+            self.on_tts_seed_changed(self.tts_seed_spin.value())
+        tts_temperature = session.get("tts_temperature")
+        if tts_temperature is not None and hasattr(self, "tts_temperature_spin"):
+            self.tts_temperature_spin.setValue(max(0.05, float(tts_temperature)))
+            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
+        tts_top_p = session.get("tts_top_p")
+        if tts_top_p is not None and hasattr(self, "tts_top_p_spin"):
+            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(tts_top_p))))
+            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
+        tts_top_k = session.get("tts_top_k")
+        if tts_top_k is not None and hasattr(self, "tts_top_k_spin"):
+            self.tts_top_k_spin.setValue(max(0, int(tts_top_k)))
+            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
+        tts_repeat_penalty = session.get("tts_repeat_penalty")
+        if tts_repeat_penalty is not None and hasattr(self, "tts_repeat_penalty_spin"):
+            self.tts_repeat_penalty_spin.setValue(max(1.0, float(tts_repeat_penalty)))
+            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
+        tts_min_p = session.get("tts_min_p")
+        if tts_min_p is not None and hasattr(self, "tts_min_p_spin"):
+            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(tts_min_p))))
+            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
+        tts_normalize_loudness = session.get("tts_normalize_loudness")
+        if tts_normalize_loudness is not None and hasattr(self, "tts_normalize_loudness_checkbox"):
+            self.tts_normalize_loudness_checkbox.setChecked(bool(tts_normalize_loudness))
+            self.on_tts_normalize_loudness_changed(bool(tts_normalize_loudness))
         vam_vmc_enabled = session.get("vam_vmc_enabled")
         if vam_vmc_enabled is not None and hasattr(self, "vam_vmc_enabled_checkbox"):
             self.vam_vmc_enabled_checkbox.setChecked(bool(vam_vmc_enabled))
@@ -10376,9 +10655,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.update_model_budget_hint()
 
     def refresh_preset_list(self):
+        current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
         presets = [Path(path).stem for path in glob.glob("presets/*.json")]
         self.preset_combo.clear()
         self.preset_combo.addItems(presets or ["No Presets"])
+        if current and current in presets:
+            self.preset_combo.setCurrentText(current)
 
     def refresh_body_list(self):
         bodies = [Path(path).stem for path in glob.glob("body_configs/*.json")]
@@ -11119,6 +11401,28 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if "tts_backend" in data:
             backend_text = "PocketTTS" if str(data["tts_backend"]).lower() == "pockettts" else "Chatterbox"
             self.tts_backend_combo.setCurrentText(backend_text)
+            self.on_tts_backend_change(backend_text)
+        if "tts_seed" in data and hasattr(self, "tts_seed_spin"):
+            self.tts_seed_spin.setValue(max(0, int(data["tts_seed"] or 0)))
+            self.on_tts_seed_changed(self.tts_seed_spin.value())
+        if "tts_temperature" in data and hasattr(self, "tts_temperature_spin"):
+            self.tts_temperature_spin.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
+            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
+        if "tts_top_p" in data and hasattr(self, "tts_top_p_spin"):
+            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
+            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
+        if "tts_top_k" in data and hasattr(self, "tts_top_k_spin"):
+            self.tts_top_k_spin.setValue(max(0, int(data["tts_top_k"] or 0)))
+            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
+        if "tts_repeat_penalty" in data and hasattr(self, "tts_repeat_penalty_spin"):
+            self.tts_repeat_penalty_spin.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
+            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
+        if "tts_min_p" in data and hasattr(self, "tts_min_p_spin"):
+            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
+            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
+        if "tts_normalize_loudness" in data and hasattr(self, "tts_normalize_loudness_checkbox"):
+            self.tts_normalize_loudness_checkbox.setChecked(bool(data["tts_normalize_loudness"]))
+            self.on_tts_normalize_loudness_changed(bool(data["tts_normalize_loudness"]))
         if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
             self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
             self.on_allow_proactive_replies_changed(bool(data["allow_proactive_replies"]))
@@ -11181,8 +11485,24 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             tokens = max(32, int(data["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
+        if self._addon_manager is not None:
+            try:
+                self._addon_manager.import_preset_state(data)
+            except Exception as exc:
+                print(f"⚠️ [Addons] Failed to import preset addon state: {exc}")
+        if hasattr(self, "_refresh_sensory_feedback_source_tabs"):
+            try:
+                self._refresh_sensory_feedback_source_tabs()
+            except Exception:
+                pass
+        if hasattr(self, "_refresh_addon_group_tabs"):
+            try:
+                self._refresh_addon_group_tabs()
+            except Exception:
+                pass
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
+        self._update_preset_reference_from_current_state(name)
         self.save_session()
 
     def save_preset_dialog(self):
@@ -11881,9 +12201,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
 
     def save_session(self):
+        if bool(getattr(self, "_suspend_session_save", False)):
+            return
         session = {
             "first_run": bool(self.first_run),
             "avatar_mode": self.engine_combo.currentText(),
+            "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
             "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
@@ -11891,7 +12214,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self.tts_backend_combo.currentText(),
+            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
+            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
@@ -11938,6 +12269,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 if self.tts_backend_combo.currentText() == "PocketTTS"
                 else self.pocket_tts_python_edit.text().strip()
             ),
+            "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
+            "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
+            "temperature": self.brain_sliders["temperature"].value() if "temperature" in getattr(self, "brain_sliders", {}) else float(RUNTIME_CONFIG.get("temperature", 1.22) or 1.22),
+            "top_p": self.brain_sliders["top_p"].value() if "top_p" in getattr(self, "brain_sliders", {}) else float(RUNTIME_CONFIG.get("top_p", 0.9) or 0.9),
+            "top_k": int(self.brain_sliders["top_k"].value()) if "top_k" in getattr(self, "brain_sliders", {}) else int(RUNTIME_CONFIG.get("top_k", 40) or 40),
+            "repeat_penalty": self.brain_sliders["repeat_penalty"].value() if "repeat_penalty" in getattr(self, "brain_sliders", {}) else float(RUNTIME_CONFIG.get("repeat_penalty", 1.15) or 1.15),
+            "min_p": self.brain_sliders["min_p"].value() if "min_p" in getattr(self, "brain_sliders", {}) else float(RUNTIME_CONFIG.get("min_p", 0.05) or 0.05),
             "chunking": {key: slider.value() for key, slider in self.chunking_sliders.items()},
             "dry_run_target_samples": self.dry_run_target_spin.value(),
             "dry_run_auto_replies": self.dry_run_auto_replies_checkbox.isChecked(),
@@ -12020,6 +12358,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 index = self.input_mode_combo.findText(input_mode)
                 if index >= 0:
                     self.input_mode_combo.setCurrentIndex(index)
+            voice_file = str(session.get("voice_file", "") or "").strip()
+            if voice_file and hasattr(self, "voice_combo"):
+                index = self.voice_combo.findText(voice_file)
+                if index >= 0:
+                    self.voice_combo.blockSignals(True)
+                    try:
+                        self.voice_combo.setCurrentIndex(index)
+                    finally:
+                        self.voice_combo.blockSignals(False)
+                    update_runtime_config("voice_path", os.path.join("voices", voice_file))
             push_to_talk_hotkey = session.get("push_to_talk_hotkey")
             if push_to_talk_hotkey is not None:
                 engine.set_push_to_talk_hotkey(push_to_talk_hotkey)
@@ -12047,6 +12395,35 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 index = self.tts_backend_combo.findText(tts_backend)
                 if index >= 0:
                     self.tts_backend_combo.setCurrentIndex(index)
+                    self.on_tts_backend_change(self.tts_backend_combo.currentText())
+            tts_seed = session.get("tts_seed")
+            if tts_seed is not None and hasattr(self, "tts_seed_spin"):
+                self.tts_seed_spin.setValue(max(0, int(tts_seed)))
+                self.on_tts_seed_changed(self.tts_seed_spin.value())
+            tts_temperature = session.get("tts_temperature")
+            if tts_temperature is not None and hasattr(self, "tts_temperature_spin"):
+                self.tts_temperature_spin.setValue(max(0.05, float(tts_temperature)))
+                self.on_tts_temperature_changed(self.tts_temperature_spin.value())
+            tts_top_p = session.get("tts_top_p")
+            if tts_top_p is not None and hasattr(self, "tts_top_p_spin"):
+                self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(tts_top_p))))
+                self.on_tts_top_p_changed(self.tts_top_p_spin.value())
+            tts_top_k = session.get("tts_top_k")
+            if tts_top_k is not None and hasattr(self, "tts_top_k_spin"):
+                self.tts_top_k_spin.setValue(max(0, int(tts_top_k)))
+                self.on_tts_top_k_changed(self.tts_top_k_spin.value())
+            tts_repeat_penalty = session.get("tts_repeat_penalty")
+            if tts_repeat_penalty is not None and hasattr(self, "tts_repeat_penalty_spin"):
+                self.tts_repeat_penalty_spin.setValue(max(1.0, float(tts_repeat_penalty)))
+                self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
+            tts_min_p = session.get("tts_min_p")
+            if tts_min_p is not None and hasattr(self, "tts_min_p_spin"):
+                self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(tts_min_p))))
+                self.on_tts_min_p_changed(self.tts_min_p_spin.value())
+            tts_normalize_loudness = session.get("tts_normalize_loudness")
+            if tts_normalize_loudness is not None and hasattr(self, "tts_normalize_loudness_checkbox"):
+                self.tts_normalize_loudness_checkbox.setChecked(bool(tts_normalize_loudness))
+                self.on_tts_normalize_loudness_changed(bool(tts_normalize_loudness))
             vam_vmc_enabled = session.get("vam_vmc_enabled")
             if vam_vmc_enabled is not None and hasattr(self, "vam_vmc_enabled_checkbox"):
                 self.vam_vmc_enabled_checkbox.setChecked(bool(vam_vmc_enabled))
@@ -12242,6 +12619,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 self.pocket_tts_python_edit.setText(str(pocket_tts_python))
             if self.tts_backend_combo.currentText() == "PocketTTS":
                 self._ensure_pocket_tts_python_path()
+            emotional_instructions = session.get("emotional_instructions")
+            if emotional_instructions is not None and hasattr(self, "emotional_text"):
+                self.emotional_text.setPlainText(str(emotional_instructions or ""))
+                update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
+            system_prompt = session.get("system_prompt")
+            if system_prompt is not None and hasattr(self, "system_prompt_text"):
+                self.system_prompt_text.setPlainText(str(system_prompt or ""))
+                update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
+            for key in ("temperature", "top_p", "top_k", "repeat_penalty", "min_p"):
+                if key in session and key in getattr(self, "brain_sliders", {}):
+                    self.brain_sliders[key].set_value(session[key])
+                    self.update_brain_value(key, session[key], key == "top_k")
             chunking = session.get("chunking")
             if isinstance(chunking, dict):
                 for key, value in chunking.items():

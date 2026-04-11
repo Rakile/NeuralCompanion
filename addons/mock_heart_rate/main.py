@@ -367,6 +367,9 @@ class Addon(BaseAddon):
             "mock_heart_rate_window_visible": bool(self.is_window_visible()),
         }
 
+    def export_preset_state(self):
+        return self.export_session_state()
+
     def import_session_state(self, session):
         state = dict(session or {})
         bpm = int(state.get("mock_heart_rate_bpm", self.current_bpm) or self.current_bpm)
@@ -377,6 +380,9 @@ class Addon(BaseAddon):
         else:
             self.hide_window()
         return None
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
 
     def shutdown(self):
         timer = getattr(self, "_tick_timer", None)

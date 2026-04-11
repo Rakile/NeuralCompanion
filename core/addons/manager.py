@@ -207,6 +207,31 @@ class AddonManager:
             except Exception:
                 self.logger.exception("Addon session import failed for '%s'", record.manifest.id)
 
+    def export_preset_state(self) -> dict[str, Any]:
+        preset: dict[str, Any] = {}
+        for record in self._records:
+            if record.state != "initialized" or record.instance is None:
+                continue
+            try:
+                if hasattr(record.instance, "export_preset_state"):
+                    payload = record.instance.export_preset_state() or {}
+                    if isinstance(payload, dict):
+                        preset.update(payload)
+            except Exception:
+                self.logger.exception("Addon preset export failed for '%s'", record.manifest.id)
+        return preset
+
+    def import_preset_state(self, preset: dict[str, Any] | None) -> None:
+        payload = dict(preset or {})
+        for record in self._records:
+            if record.state != "initialized" or record.instance is None:
+                continue
+            try:
+                if hasattr(record.instance, "import_preset_state"):
+                    record.instance.import_preset_state(payload)
+            except Exception:
+                self.logger.exception("Addon preset import failed for '%s'", record.manifest.id)
+
     def get_loaded_addons(self) -> list[LoadedAddon]:
         return list(self._records)
 
