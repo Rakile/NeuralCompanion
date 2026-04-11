@@ -533,11 +533,9 @@ class NoWheelTabWidget(QtWidgets.QTabWidget):
             return 0
         if isinstance(page, QtWidgets.QScrollArea):
             try:
-                base = int(page.sizeHint().height() or page.minimumSizeHint().height() or 0)
+                return int(page.sizeHint().height() or page.minimumSizeHint().height() or 0)
             except Exception:
-                base = 0
-            if base > 0:
-                return base
+                pass
             page = page.widget()
             if page is None:
                 return 0
@@ -4158,13 +4156,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.host_settings_tabs = NoWheelTabWidget()
         self.host_settings_tabs.setObjectName("host_settings_tabs")
         self.host_settings_tabs.setMinimumSize(0, 0)
-        self.host_settings_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self.host_settings_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
         self.host_settings_tabs.currentChanged.connect(lambda _index, tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
         self.host_settings_tabs.addTab(self._build_runtime_shell_tab(), "Host")
         self.host_settings_tabs.addTab(self._build_sensory_feedback_tab(), "Vision")
         self.host_settings_tabs.addTab(self._build_chat_session_tab(), "Chat")
         layout.addWidget(self.host_settings_tabs, 0, QtCore.Qt.AlignTop)
         QtCore.QTimer.singleShot(0, lambda tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
+        layout.addStretch(1)
 
         self.tabs = NoWheelTabWidget()
         self.tabs.setObjectName("left_tabs")
