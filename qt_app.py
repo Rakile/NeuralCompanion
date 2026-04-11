@@ -3308,6 +3308,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._preset_reference_name = ""
         self._preset_reference_signature = ""
         self._preset_dirty_state = None
+        self._restoring_session = False
         self._chat_runtime_border_paused = None
         self._console_bridge = QtConsoleBridge()
         self._console_redirect = QtTextRedirector(self._console_bridge, mirror_stream=sys.__stdout__)
@@ -5777,6 +5778,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def _refresh_preset_dirty_state(self):
         if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
             return
+        if bool(getattr(self, "_restoring_session", False)):
+            return
         current_signature = self._preset_payload_signature(self._build_preset_payload())
         dirty = self._preset_dirty_state
         if self._preset_reference_signature:
@@ -5816,6 +5819,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         else:
             self._preset_reference_name = name
         self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        self._refresh_preset_dirty_state()
+
+    def _finalize_session_restore_dirty_state(self):
+        self._restoring_session = False
+        self._update_preset_reference_from_selection(self.preset_combo.currentText() if hasattr(self, "preset_combo") else "")
         self._refresh_preset_dirty_state()
 
     def on_preset_selection_changed(self, text):
@@ -12329,6 +12337,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return
         previous_suspend = bool(getattr(self, "_suspend_session_save", False))
         self._suspend_session_save = True
+        self._restoring_session = True
         try:
             self.first_run = bool(session.get("first_run", True))
             geometry = session.get("geometry")
@@ -12682,7 +12691,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if hasattr(self, "performance_guidance_toggle"):
                 self.performance_guidance_toggle.setChecked(performance_guidance_visible)
                 self._toggle_performance_guidance(performance_guidance_visible)
-            self._update_preset_reference_from_selection(self.preset_combo.currentText() if hasattr(self, "preset_combo") else "")
             self._refresh_hotkey_shortcuts()
             self._refresh_hotkey_labels()
             self._update_restart_sensitive_controls()
@@ -12691,6 +12699,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         finally:
             self._suspend_session_save = previous_suspend
         self.save_session()
+        QtCore.QTimer.singleShot(700, self._finalize_session_restore_dirty_state)
 
     def showEvent(self, event):
         super().showEvent(event)
