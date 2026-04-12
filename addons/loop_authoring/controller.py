@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import shutil
 import subprocess
 import threading
 import time
@@ -40,6 +41,31 @@ class LoopAuthoringController(QtCore.QObject):
         self._pending_loop_author_generation_result = None
         self._loop_author_wan2gp_root = loop_authoring.detect_wan2gp_root()
         self.loop_author_tab_widget = None
+
+    def _detect_default_conda_command(self):
+        env_candidates = [
+            os.environ.get("CONDA_EXE", ""),
+            os.environ.get("MAMBA_EXE", ""),
+        ]
+        path_candidates = [
+            r"E:\miniconda3\condabin\conda.bat",
+            r"E:\miniconda3\Scripts\conda.exe",
+            r"C:\ProgramData\miniconda3\condabin\conda.bat",
+            r"C:\ProgramData\miniconda3\Scripts\conda.exe",
+            r"C:\ProgramData\Anaconda3\condabin\conda.bat",
+            r"C:\ProgramData\Anaconda3\Scripts\conda.exe",
+            str(Path.home() / "miniconda3" / "condabin" / "conda.bat"),
+            str(Path.home() / "miniconda3" / "Scripts" / "conda.exe"),
+            str(Path.home() / "anaconda3" / "condabin" / "conda.bat"),
+            str(Path.home() / "anaconda3" / "Scripts" / "conda.exe"),
+        ]
+        for raw in env_candidates + path_candidates:
+            candidate = str(raw or "").strip()
+            if candidate and Path(candidate).exists():
+                return candidate
+        if shutil.which("conda"):
+            return "conda"
+        return "conda"
 
 
     def _warn(self, title, message):
@@ -164,6 +190,59 @@ class LoopAuthoringController(QtCore.QObject):
         wan2gp_root_row.addWidget(self.btn_loop_author_wan2gp_root)
         loop_layout.addWidget(QtWidgets.QLabel("Wan2GP Root"))
         loop_layout.addLayout(wan2gp_root_row)
+
+        runtime_mode_row = QtWidgets.QHBoxLayout()
+
+        runtime_mode_column = QtWidgets.QVBoxLayout()
+        runtime_mode_column.addWidget(QtWidgets.QLabel("Wan2GP Runtime"))
+        self.loop_author_wan2gp_runtime_combo = NoWheelComboBox()
+        self.loop_author_wan2gp_runtime_combo.setObjectName("loop_author_wan2gp_runtime_combo")
+        self.loop_author_wan2gp_runtime_combo.addItem("Python Executable", "python")
+        self.loop_author_wan2gp_runtime_combo.addItem("Conda Environment", "conda")
+        self.loop_author_wan2gp_runtime_combo.currentIndexChanged.connect(self._refresh_loop_authoring_runtime_mode_ui)
+        self.loop_author_wan2gp_runtime_combo.currentIndexChanged.connect(self._update_loop_authoring_destination_hint)
+        runtime_mode_column.addWidget(self.loop_author_wan2gp_runtime_combo)
+        runtime_mode_row.addLayout(runtime_mode_column, 1)
+
+        conda_env_column = QtWidgets.QVBoxLayout()
+        conda_env_column.addWidget(QtWidgets.QLabel("Conda Env"))
+        conda_env_row = QtWidgets.QHBoxLayout()
+        self.loop_author_conda_env_combo = NoWheelComboBox()
+        self.loop_author_conda_env_combo.setObjectName("loop_author_conda_env_combo")
+        self.loop_author_conda_env_combo.setEditable(True)
+        self.loop_author_conda_env_combo.setInsertPolicy(QtWidgets.QComboBox.NoInsert)
+        self.loop_author_conda_env_combo.setMinimumContentsLength(18)
+        line_edit = self.loop_author_conda_env_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.setPlaceholderText("wan2gp")
+            line_edit.textChanged.connect(self._update_loop_authoring_destination_hint)
+        self.loop_author_conda_env_combo.currentTextChanged.connect(self._update_loop_authoring_destination_hint)
+        conda_env_row.addWidget(self.loop_author_conda_env_combo, 1)
+        self.btn_loop_author_conda_env_refresh = QtWidgets.QPushButton("Refresh")
+        self.btn_loop_author_conda_env_refresh.setObjectName("btn_loop_author_conda_env_refresh")
+        self.btn_loop_author_conda_env_refresh.clicked.connect(self.refresh_loop_authoring_conda_env_list)
+        conda_env_row.addWidget(self.btn_loop_author_conda_env_refresh)
+        conda_env_column.addLayout(conda_env_row)
+        runtime_mode_row.addLayout(conda_env_column, 1)
+
+        conda_command_column = QtWidgets.QVBoxLayout()
+        conda_command_column.addWidget(QtWidgets.QLabel("Path to Conda"))
+        conda_command_row = QtWidgets.QHBoxLayout()
+        self.loop_author_conda_command_edit = QtWidgets.QLineEdit()
+        self.loop_author_conda_command_edit.setObjectName("loop_author_conda_command_edit")
+        self.loop_author_conda_command_edit.setPlaceholderText("Path to conda.bat / conda.exe")
+        self.loop_author_conda_command_edit.setText(self._detect_default_conda_command())
+        self.loop_author_conda_command_edit.textChanged.connect(self._update_loop_authoring_destination_hint)
+        self.loop_author_conda_command_edit.textChanged.connect(lambda *_: self.refresh_loop_authoring_conda_env_list())
+        conda_command_row.addWidget(self.loop_author_conda_command_edit, 1)
+        self.btn_loop_author_conda_command = QtWidgets.QPushButton("Conda")
+        self.btn_loop_author_conda_command.setObjectName("btn_loop_author_conda_command")
+        self.btn_loop_author_conda_command.clicked.connect(self.browse_loop_authoring_conda_command)
+        conda_command_row.addWidget(self.btn_loop_author_conda_command)
+        conda_command_column.addLayout(conda_command_row)
+        runtime_mode_row.addLayout(conda_command_column, 1)
+
+        loop_layout.addLayout(runtime_mode_row)
 
         wan2gp_python_row = QtWidgets.QHBoxLayout()
         self.loop_author_wan2gp_python_edit = QtWidgets.QLineEdit()
@@ -452,6 +531,7 @@ class LoopAuthoringController(QtCore.QObject):
         scroll.setWidget(content)
         self.loop_author_tab_widget = scroll
         self._sync_loop_author_output_id_from_preset(force=True)
+        self._refresh_loop_authoring_runtime_mode_ui()
         self._refresh_loop_authoring_recommendation()
         if not self.loop_author_prompt_edit.toPlainText().strip():
             self.apply_loop_authoring_template()
@@ -463,6 +543,211 @@ class LoopAuthoringController(QtCore.QObject):
             return "neutral_idle"
         key = self.loop_author_preset_combo.currentData()
         return str(key or "neutral_idle")
+
+    def _get_loop_authoring_runtime_mode(self):
+        if not hasattr(self, "loop_author_wan2gp_runtime_combo"):
+            return "python"
+        value = self.loop_author_wan2gp_runtime_combo.currentData()
+        return str(value or "python")
+
+    def _get_loop_authoring_conda_env(self):
+        combo = getattr(self, "loop_author_conda_env_combo", None)
+        if combo is None:
+            return ""
+        current_index = int(combo.currentIndex())
+        if current_index >= 0:
+            data = combo.itemData(current_index, QtCore.Qt.UserRole)
+            if isinstance(data, dict):
+                return str(data.get("value", "") or "").strip()
+        return str(combo.currentText() or "").strip()
+
+    def _get_loop_authoring_conda_env_mode(self):
+        combo = getattr(self, "loop_author_conda_env_combo", None)
+        if combo is None:
+            return "name"
+        current_index = int(combo.currentIndex())
+        if current_index >= 0:
+            data = combo.itemData(current_index, QtCore.Qt.UserRole)
+            if isinstance(data, dict):
+                return str(data.get("mode", "name") or "name")
+        return "name"
+
+    def _build_conda_invocation(self, conda_command, *args):
+        command_text = str(conda_command or "").strip()
+        if not command_text:
+            raise RuntimeError("Set a valid conda command first.")
+        lowered = command_text.lower()
+        if lowered.endswith(".bat") or lowered.endswith(".cmd"):
+            return ["cmd", "/c", command_text, *list(args)]
+        return [command_text, *list(args)]
+
+    def _set_loop_authoring_conda_env(self, env_name):
+        combo = getattr(self, "loop_author_conda_env_combo", None)
+        if combo is None:
+            return
+        wanted = str(env_name or "").strip()
+        combo.blockSignals(True)
+        try:
+            matched_index = -1
+            for index in range(combo.count()):
+                item_text = str(combo.itemText(index) or "").strip()
+                item_data = combo.itemData(index, QtCore.Qt.UserRole)
+                item_value = str(item_data.get("value", "") or "").strip() if isinstance(item_data, dict) else ""
+                if wanted and (wanted == item_text or wanted == item_value):
+                    matched_index = index
+                    break
+            if matched_index >= 0:
+                combo.setCurrentIndex(matched_index)
+            else:
+                combo.setEditText(wanted)
+        finally:
+            combo.blockSignals(False)
+
+    def _collect_loop_authoring_conda_env_entries(self, payload):
+        entries = []
+        root_prefix = str(payload.get("root_prefix", "") or "").strip().rstrip("\\/")
+        seen = set()
+        for raw_path in list(payload.get("envs") or []):
+            env_path_text = str(raw_path or "").strip()
+            if not env_path_text:
+                continue
+            normalized_key = env_path_text.rstrip("\\/").lower()
+            if normalized_key in seen:
+                continue
+            seen.add(normalized_key)
+            env_path = Path(env_path_text)
+            if normalized_key == root_prefix.lower():
+                entries.append(("base", {"mode": "name", "value": "base"}))
+                continue
+            if env_path.parent.name.lower() == "envs":
+                label = env_path.name.strip()
+                value = label
+                mode = "name"
+            else:
+                label = f"{env_path.name} ({env_path_text})"
+                value = env_path_text
+                mode = "prefix"
+            if label:
+                entries.append((label, {"mode": mode, "value": value}))
+        return entries
+
+    def refresh_loop_authoring_conda_env_list(self):
+        combo = getattr(self, "loop_author_conda_env_combo", None)
+        if combo is None:
+            return
+        current_text = self._get_loop_authoring_conda_env()
+        current_mode = self._get_loop_authoring_conda_env_mode()
+        conda_command = str(self.loop_author_conda_command_edit.text() or "").strip() if hasattr(self, "loop_author_conda_command_edit") else "conda"
+        env_entries = []
+        if conda_command and (Path(conda_command).exists() or shutil.which(conda_command)):
+            try:
+                commands_to_try = [
+                    self._build_conda_invocation(conda_command, "env", "list", "--json"),
+                    self._build_conda_invocation(conda_command, "info", "--envs", "--json"),
+                    self._build_conda_invocation(conda_command, "env", "list"),
+                ]
+                for command in commands_to_try:
+                    completed = subprocess.run(
+                        command,
+                        capture_output=True,
+                        text=True,
+                        encoding="utf-8",
+                        errors="replace",
+                        timeout=20,
+                    )
+                    if completed.returncode != 0:
+                        continue
+                    stdout = str(completed.stdout or "").strip()
+                    if not stdout:
+                        continue
+                    if "--json" in command:
+                        try:
+                            payload = json.loads(stdout or "{}")
+                        except Exception:
+                            payload = {}
+                        env_entries = self._collect_loop_authoring_conda_env_entries(payload)
+                    else:
+                        seen = set()
+                        for raw_line in stdout.splitlines():
+                            line = str(raw_line or "").strip()
+                            if not line or line.startswith("#"):
+                                continue
+                            parts = line.replace("*", " ").split()
+                            if len(parts) >= 2:
+                                name = parts[0].strip()
+                                path_text = parts[-1].strip()
+                                if name.endswith(":") or "\\" in name or "/" in name:
+                                    name = ""
+                                if name == "base":
+                                    entry = ("base", {"mode": "name", "value": "base"})
+                                elif name:
+                                    entry = (name, {"mode": "name", "value": name})
+                                elif path_text:
+                                    env_path = Path(path_text)
+                                    entry = (f"{env_path.name} ({path_text})", {"mode": "prefix", "value": path_text})
+                                else:
+                                    entry = None
+                                if entry is not None:
+                                    key = (entry[0], entry[1]["mode"], entry[1]["value"])
+                                    if key not in seen:
+                                        env_entries.append(entry)
+                                        seen.add(key)
+                    if env_entries:
+                        break
+            except Exception:
+                pass
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            matched_index = -1
+            for index, (label, data) in enumerate(env_entries):
+                combo.addItem(label, data)
+                if current_text and current_mode == str(data.get("mode", "name") or "name") and current_text == str(data.get("value", "") or ""):
+                    matched_index = index
+                elif current_text and current_text == label:
+                    matched_index = index
+            if matched_index >= 0:
+                combo.setCurrentIndex(matched_index)
+            elif combo.count() > 0 and current_text.lower() not in {"", "wan2gp"}:
+                combo.setEditText(current_text)
+            elif combo.count() > 0:
+                combo.setCurrentIndex(0)
+            elif current_text:
+                combo.setEditText(current_text)
+        finally:
+            combo.blockSignals(False)
+        self._update_loop_authoring_destination_hint()
+
+    def _refresh_loop_authoring_runtime_mode_ui(self, *_args):
+        use_python = self._get_loop_authoring_runtime_mode() != "conda"
+        for widget_name in ("loop_author_wan2gp_python_edit", "btn_loop_author_wan2gp_python"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(use_python)
+        for widget_name in ("loop_author_conda_env_combo", "btn_loop_author_conda_env_refresh", "loop_author_conda_command_edit", "btn_loop_author_conda_command"):
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(not use_python)
+        if not use_python:
+            self.refresh_loop_authoring_conda_env_list()
+
+    def _build_loop_authoring_wan2gp_command_prefix(self):
+        if self._get_loop_authoring_runtime_mode() == "conda":
+            conda_env = self._get_loop_authoring_conda_env()
+            conda_env_mode = self._get_loop_authoring_conda_env_mode()
+            conda_command = str(self.loop_author_conda_command_edit.text() or "").strip() if hasattr(self, "loop_author_conda_command_edit") else "conda"
+            if not conda_env:
+                raise RuntimeError("Set a Wan2GP conda environment first.")
+            if not conda_command:
+                raise RuntimeError("Set a valid conda command first.")
+            if not (Path(conda_command).exists() or shutil.which(conda_command)):
+                raise RuntimeError(f"Could not find conda command: {conda_command}")
+            flag = "-p" if conda_env_mode == "prefix" else "-n"
+            return self._build_conda_invocation(conda_command, "run", flag, conda_env, "python")
+        python_path = str(self.loop_author_wan2gp_python_edit.text() or "").strip() if hasattr(self, "loop_author_wan2gp_python_edit") else ""
+        if not python_path or not Path(python_path).exists():
+            raise RuntimeError("Set a valid Wan2GP Python path first.")
+        return [python_path]
 
     def _get_loop_authoring_source_image_name(self):
         if not hasattr(self, "loop_author_source_image_edit"):
@@ -856,6 +1141,15 @@ class LoopAuthoringController(QtCore.QObject):
         wan2gp_root = self._get_loop_authoring_wan2gp_root()
         if wan2gp_root is not None:
             lines.append(f"Wan2GP Root: {wan2gp_root}")
+        if self._get_loop_authoring_runtime_mode() == "conda":
+            conda_env = self._get_loop_authoring_conda_env()
+            conda_command = str(self.loop_author_conda_command_edit.text() or "").strip() if hasattr(self, "loop_author_conda_command_edit") else "conda"
+            lines.append(f"Wan2GP Runtime: Conda ({conda_env or 'env not set'})")
+            lines.append(f"Conda Command: {conda_command or 'conda'}")
+        else:
+            python_path = str(self.loop_author_wan2gp_python_edit.text() or "").strip() if hasattr(self, "loop_author_wan2gp_python_edit") else ""
+            if python_path:
+                lines.append(f"Wan2GP Python: {python_path}")
         if hasattr(self, "loop_author_wan2gp_memory_combo"):
             selected_memory_profile = str(self.loop_author_wan2gp_memory_combo.currentData() or "auto")
             effective_memory_profile = self._get_loop_authoring_wan2gp_memory_profile()
@@ -885,7 +1179,11 @@ class LoopAuthoringController(QtCore.QObject):
             "loop_author_disable_profile_loras": bool(self.loop_author_disable_profile_loras_checkbox.isChecked()) if hasattr(self, "loop_author_disable_profile_loras_checkbox") else True,
             "loop_author_preset": self.loop_author_preset_combo.currentData() if hasattr(self, "loop_author_preset_combo") else "neutral_idle",
             "loop_author_wan2gp_root": self.loop_author_wan2gp_root_edit.text() if hasattr(self, "loop_author_wan2gp_root_edit") else "",
+            "loop_author_wan2gp_runtime": self.loop_author_wan2gp_runtime_combo.currentData() if hasattr(self, "loop_author_wan2gp_runtime_combo") else "python",
             "loop_author_wan2gp_python": self.loop_author_wan2gp_python_edit.text() if hasattr(self, "loop_author_wan2gp_python_edit") else "",
+            "loop_author_conda_env": self._get_loop_authoring_conda_env(),
+            "loop_author_conda_env_mode": self._get_loop_authoring_conda_env_mode(),
+            "loop_author_conda_command": self.loop_author_conda_command_edit.text() if hasattr(self, "loop_author_conda_command_edit") else "conda",
             "loop_author_source_image": self.loop_author_source_image_edit.text() if hasattr(self, "loop_author_source_image_edit") else "",
             "loop_author_reference_video": self.loop_author_reference_video_edit.text() if hasattr(self, "loop_author_reference_video_edit") else "",
             "loop_author_output_id": self.loop_author_output_id_edit.text() if hasattr(self, "loop_author_output_id_edit") else "",
@@ -954,6 +1252,12 @@ class LoopAuthoringController(QtCore.QObject):
             if not root_value and self._loop_author_wan2gp_root is not None:
                 root_value = str(self._loop_author_wan2gp_root)
             self.loop_author_wan2gp_root_edit.setText(root_value)
+        if hasattr(self, "loop_author_wan2gp_runtime_combo"):
+            runtime_value = str(session.get("loop_author_wan2gp_runtime", "python") or "python")
+            for index in range(self.loop_author_wan2gp_runtime_combo.count()):
+                if self.loop_author_wan2gp_runtime_combo.itemData(index) == runtime_value:
+                    self.loop_author_wan2gp_runtime_combo.setCurrentIndex(index)
+                    break
         if hasattr(self, "loop_author_wan2gp_python_edit"):
             python_value = str(session.get("loop_author_wan2gp_python", "") or "")
             if not python_value:
@@ -961,6 +1265,11 @@ class LoopAuthoringController(QtCore.QObject):
                 if detected_python is not None:
                     python_value = str(detected_python)
             self.loop_author_wan2gp_python_edit.setText(python_value)
+        if hasattr(self, "loop_author_conda_command_edit"):
+            self.loop_author_conda_command_edit.setText(str(session.get("loop_author_conda_command", "conda") or "conda"))
+        if hasattr(self, "loop_author_conda_env_combo"):
+            self.refresh_loop_authoring_conda_env_list()
+            self._set_loop_authoring_conda_env(str(session.get("loop_author_conda_env", "") or ""))
         if hasattr(self, "loop_author_source_image_edit"):
             self.loop_author_source_image_edit.setText(str(session.get("loop_author_source_image", "") or ""))
         if hasattr(self, "loop_author_reference_video_edit"):
@@ -1004,6 +1313,7 @@ class LoopAuthoringController(QtCore.QObject):
         if hasattr(self, "loop_author_negative_prompt_edit"):
             expected_negative = loop_authoring.build_negative_prompt(self._get_loop_authoring_preset_key()).strip()
             self._loop_author_negative_prompt_manual_override = self.loop_author_negative_prompt_edit.toPlainText().strip() not in {"", expected_negative}
+        self._refresh_loop_authoring_runtime_mode_ui()
         self._refresh_loop_authoring_recommendation()
         if hasattr(self, "loop_author_prompt_edit") and not self.loop_author_prompt_edit.toPlainText().strip():
             self.apply_loop_authoring_template()
@@ -1111,6 +1421,24 @@ class LoopAuthoringController(QtCore.QObject):
         if path:
             self.loop_author_wan2gp_python_edit.setText(path)
 
+    def browse_loop_authoring_conda_command(self):
+        start_path = str(Path(self.loop_author_conda_command_edit.text() or "").parent) if hasattr(self, "loop_author_conda_command_edit") and str(self.loop_author_conda_command_edit.text() or "").strip() else str(Path.cwd())
+        if self.dialogs is not None:
+            path, _ = self.dialogs.open_file(
+                "Select Conda Command",
+                start_path,
+                "Conda Executable (conda.bat;conda.exe);;Batch Files (*.bat);;Executables (*.exe);;All Files (*)",
+            )
+        else:
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                None,
+                "Select Conda Command",
+                start_path,
+                "Conda Executable (conda.bat;conda.exe);;Batch Files (*.bat);;Executables (*.exe);;All Files (*)",
+            )
+        if path and hasattr(self, "loop_author_conda_command_edit"):
+            self.loop_author_conda_command_edit.setText(path)
+
     def _on_loop_author_wan2gp_root_changed(self, _text):
         root = self._get_loop_authoring_wan2gp_root()
         if hasattr(self, "loop_author_wan2gp_python_edit") and root is not None:
@@ -1157,7 +1485,10 @@ class LoopAuthoringController(QtCore.QObject):
             "backend": self.loop_author_backend_combo.currentText() if hasattr(self, "loop_author_backend_combo") else "Wan2GP",
             "sequence_strategy": self._get_loop_authoring_sequence_strategy(),
             "wan2gp_root": str(self._get_loop_authoring_wan2gp_root() or ""),
+            "wan2gp_runtime": self._get_loop_authoring_runtime_mode(),
             "wan2gp_python": self.loop_author_wan2gp_python_edit.text().strip() if hasattr(self, "loop_author_wan2gp_python_edit") else "",
+            "wan2gp_conda_env": self._get_loop_authoring_conda_env(),
+            "wan2gp_conda_command": self.loop_author_conda_command_edit.text().strip() if hasattr(self, "loop_author_conda_command_edit") else "conda",
             "preset_key": preset.key,
             "preset_label": preset.label,
             "emotion_tag": preset.emotion_tag,
@@ -1256,9 +1587,10 @@ class LoopAuthoringController(QtCore.QObject):
         if root is None or not (root / "wgp.py").exists():
             self._warn("Loop Authoring", "Set a valid Wan2GP root first.")
             return
-        python_path = str(self.loop_author_wan2gp_python_edit.text() or "").strip() if hasattr(self, "loop_author_wan2gp_python_edit") else ""
-        if not python_path or not Path(python_path).exists():
-            self._warn("Loop Authoring", "Set a valid Wan2GP Python path first.")
+        try:
+            command_prefix = self._build_loop_authoring_wan2gp_command_prefix()
+        except RuntimeError as exc:
+            self._warn("Loop Authoring", str(exc))
             return
         if self._loop_author_generation_thread is not None and self._loop_author_generation_thread.is_alive():
             self._info("Loop Authoring", "A Wan2GP generation is already in progress.")
@@ -1404,8 +1736,7 @@ class LoopAuthoringController(QtCore.QObject):
         def worker():
             result = {"ok": False, "error": "", "output_dir": str(draft_dir), "settings_json": str(settings_json_path)}
             try:
-                base_command = [
-                    python_path,
+                base_command = list(command_prefix) + [
                     str((root / "wgp.py").resolve()),
                     "--process",
                 ]
