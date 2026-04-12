@@ -12,6 +12,7 @@ import cv2
 import engine
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from core.musetalk_avatar_packs import discover_avatar_packs
 from musetalk_bridge import MuseTalkBridge
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
 
@@ -37,6 +38,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
     def set_context(self, context):
         super().__setattr__("context", context)
         super().__setattr__("dialogs", context.get_service("qt.dialogs") if context is not None else None)
+        super().__setattr__("shell", context.get_service("qt.shell") if context is not None else None)
         super().__setattr__("musetalk_ui", context.get_service("qt.musetalk_ui") if context is not None else None)
 
 
@@ -53,6 +55,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._musetalk_source_frame_count = None
         self._musetalk_source_frame_count_signature = ""
         self.musetalk_preprocess_tab_widget = None
+        self._musetalk_pack_emotion_checkboxes = {}
 
 
     def _warn(self, title, message):
@@ -66,6 +69,212 @@ class MuseTalkPreprocessController(QtCore.QObject):
             self.dialogs.information(title, message)
         else:
             QtWidgets.QMessageBox.information(None, str(title), str(message))
+
+    def _notify_settings_changed(self):
+        notifier = getattr(self.shell, "notify_settings_changed", None) if self.shell is not None else None
+        if callable(notifier):
+            notifier()
+
+    def _normalize_musetalk_enabled_pack_emotions(self, raw_value):
+        mapping = {}
+        if not isinstance(raw_value, dict):
+            return mapping
+        for raw_pack_id, raw_tags in raw_value.items():
+            pack_id = str(raw_pack_id or "").strip()
+            if not pack_id:
+                continue
+            if isinstance(raw_tags, (list, tuple, set)):
+                iterable = list(raw_tags)
+            else:
+                iterable = str(raw_tags or "").split(",")
+            tags = []
+            for raw_tag in iterable:
+                clean_tag = str(raw_tag or "").strip().strip("[]").strip().lower()
+                if clean_tag and clean_tag not in tags:
+                    tags.append(clean_tag)
+            mapping[pack_id] = tags
+        return mapping
+
+    def _get_musetalk_enabled_pack_emotions(self):
+        return self._normalize_musetalk_enabled_pack_emotions(engine.RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
+
+    def _set_musetalk_enabled_pack_emotions(self, mapping, notify=True):
+        normalized = self._normalize_musetalk_enabled_pack_emotions(mapping)
+        engine.update_runtime_config("musetalk_enabled_pack_emotions", normalized)
+        if notify:
+            self._notify_settings_changed()
+
+    def _discover_musetalk_pack_catalog(self):
+        try:
+            return discover_avatar_packs(
+                default_avatar_id=str(engine.RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+                legacy_map=engine.MUSE_EMOTION_AVATAR_MAP,
+                legacy_transitions=engine.MUSE_AVATAR_TRANSITIONS,
+                avatars_dir=MUSE_AVATAR_RESULTS_DIR,
+                packs_dir=MUSE_AVATAR_PACKS_DIR,
+                include_legacy=False,
+                include_standalone=False,
+            )
+        except Exception:
+            return {}
+
+    def _refresh_musetalk_pack_emotion_editor(self):
+        layout = getattr(self, "musetalk_pack_emotions_layout", None)
+        summary_label = getattr(self, "musetalk_pack_emotions_summary_label", None)
+        if layout is None or summary_label is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                widget.deleteLater()
+            elif child_layout is not None:
+                while child_layout.count():
+                    child_item = child_layout.takeAt(0)
+                    child_widget = child_item.widget()
+                    if child_widget is not None:
+                        child_widget.deleteLater()
+        self._musetalk_pack_emotion_checkboxes = {}
+
+        selected_pack_id = str(self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip() or MUSE_STANDALONE_TARGET_PACK_ID
+        if selected_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
+            summary_label.setText("Standalone avatars do not expose pack-level emotion toggles. The selected avatar itself remains usable as the base/default state.")
+            note = QtWidgets.QLabel("No pack-scoped emotion variants available for Standalone Avatars.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #8ea3b8;")
+            layout.addWidget(note)
+            layout.addStretch(1)
+            return
+
+        pack_catalog = self._discover_musetalk_pack_catalog()
+        pack = pack_catalog.get(selected_pack_id)
+        if pack is None:
+            summary_label.setText(f"Avatar pack '{selected_pack_id}' could not be loaded.")
+            note = QtWidgets.QLabel("Refresh the Avatar Pack list or create/preprocess the pack first.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #8ea3b8;")
+            layout.addWidget(note)
+            layout.addStretch(1)
+            return
+
+        full_map = {
+            str(tag or "").strip().lower(): str(avatar_id or "").strip()
+            for tag, avatar_id in (pack.emotion_avatar_map() or {}).items()
+            if str(tag or "").strip()
+        }
+        locked_tags = {
+            tag
+            for tag, avatar_id in full_map.items()
+            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+        }
+        stored_map = self._get_musetalk_enabled_pack_emotions()
+        selected_tags = set(stored_map.get(selected_pack_id, [])) if selected_pack_id in stored_map else set(full_map.keys())
+        selected_tags |= locked_tags
+
+        summary_label.setText(
+            f"Pack '{pack.display_name or pack.pack_id}' uses '{pack.default_avatar_id}' as its locked base avatar. "
+            f"Enabled optional emotion tags: {max(len(selected_tags - locked_tags), 0)} / {max(len(full_map) - len(locked_tags), 0)}."
+        )
+
+        base_checkbox = QtWidgets.QCheckBox(f"Base / Default ({pack.default_avatar_id})")
+        base_checkbox.setChecked(True)
+        base_checkbox.setEnabled(False)
+        layout.addWidget(base_checkbox)
+
+        if not full_map:
+            note = QtWidgets.QLabel("This pack does not currently expose any emotion-tagged variants.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #8ea3b8;")
+            layout.addWidget(note)
+            layout.addStretch(1)
+            return
+
+        for tag in sorted(full_map.keys()):
+            avatar_id = full_map[tag]
+            checkbox = QtWidgets.QCheckBox(f"{tag} ({avatar_id})")
+            checkbox.setChecked(tag in selected_tags)
+            if tag in locked_tags:
+                checkbox.setEnabled(False)
+            else:
+                checkbox.toggled.connect(lambda checked, pack_id=selected_pack_id, emotion_tag=tag: self._on_musetalk_pack_emotion_toggled(pack_id, emotion_tag, checked))
+            self._musetalk_pack_emotion_checkboxes[(selected_pack_id, tag)] = checkbox
+            layout.addWidget(checkbox)
+        layout.addStretch(1)
+
+    def _set_all_musetalk_pack_emotions(self, enabled):
+        selected_pack_id = str(self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip() or MUSE_STANDALONE_TARGET_PACK_ID
+        if selected_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
+            return
+        pack_catalog = self._discover_musetalk_pack_catalog()
+        pack = pack_catalog.get(selected_pack_id)
+        if pack is None:
+            return
+        full_map = {
+            str(tag or "").strip().lower(): str(avatar_id or "").strip()
+            for tag, avatar_id in (pack.emotion_avatar_map() or {}).items()
+            if str(tag or "").strip()
+        }
+        locked_tags = {
+            tag
+            for tag, avatar_id in full_map.items()
+            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+        }
+        mapping = self._get_musetalk_enabled_pack_emotions()
+        optional_tags = sorted(tag for tag in full_map.keys() if tag not in locked_tags)
+        if enabled:
+            mapping.pop(selected_pack_id, None)
+        else:
+            mapping[selected_pack_id] = []
+        self._set_musetalk_enabled_pack_emotions(mapping, notify=True)
+        live_adapter = getattr(engine, "avatar_gui", None)
+        if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
+            try:
+                live_adapter._reload_avatar_pose_connections()
+            except Exception:
+                pass
+        self._refresh_musetalk_pack_emotion_editor()
+
+    def _on_musetalk_pack_emotion_toggled(self, pack_id, emotion_tag, checked):
+        clean_pack_id = str(pack_id or "").strip()
+        clean_tag = str(emotion_tag or "").strip().lower()
+        if not clean_pack_id or not clean_tag:
+            return
+        pack_catalog = self._discover_musetalk_pack_catalog()
+        pack = pack_catalog.get(clean_pack_id)
+        if pack is None:
+            return
+        full_map = {
+            str(tag or "").strip().lower(): str(avatar_id or "").strip()
+            for tag, avatar_id in (pack.emotion_avatar_map() or {}).items()
+            if str(tag or "").strip()
+        }
+        locked_tags = {
+            tag
+            for tag, avatar_id in full_map.items()
+            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+        }
+        current = self._get_musetalk_enabled_pack_emotions()
+        selected_tags = set(current.get(clean_pack_id, [])) if clean_pack_id in current else set(full_map.keys())
+        selected_tags |= locked_tags
+        if checked:
+            selected_tags.add(clean_tag)
+        else:
+            selected_tags.discard(clean_tag)
+        optional_tags = {tag for tag in full_map.keys() if tag not in locked_tags}
+        normalized_optional_selection = sorted(tag for tag in selected_tags if tag in optional_tags)
+        if set(normalized_optional_selection) == optional_tags:
+            current.pop(clean_pack_id, None)
+        else:
+            current[clean_pack_id] = normalized_optional_selection
+        self._set_musetalk_enabled_pack_emotions(current, notify=True)
+        live_adapter = getattr(engine, "avatar_gui", None)
+        if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
+            try:
+                live_adapter._reload_avatar_pose_connections()
+            except Exception:
+                pass
+        self._refresh_musetalk_pack_emotion_editor()
 
     def _current_musetalk_vram_mode_key(self):
         if self.context is not None:
@@ -241,6 +450,37 @@ class MuseTalkPreprocessController(QtCore.QObject):
         source_footer.addLayout(tags_column)
         source_card_layout.addLayout(source_footer)
         musetalk_layout.addWidget(source_card)
+
+        emotion_card, emotion_card_layout = build_musetalk_card(
+            "Enabled Emotions For Selected Pack",
+            "Use the Avatar Pack dropdown above to choose which pack you are editing. Disabled emotion tags are ignored at runtime and MuseTalk keeps the current visual state. The default/base avatar always stays enabled.",
+        )
+        self.musetalk_pack_emotions_summary_label = QtWidgets.QLabel("")
+        self.musetalk_pack_emotions_summary_label.setWordWrap(True)
+        self.musetalk_pack_emotions_summary_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+        emotion_card_layout.addWidget(self.musetalk_pack_emotions_summary_label)
+
+        emotion_actions = QtWidgets.QHBoxLayout()
+        self.btn_musetalk_pack_emotions_all = QtWidgets.QPushButton("Enable All")
+        self.btn_musetalk_pack_emotions_all.clicked.connect(lambda: self._set_all_musetalk_pack_emotions(True))
+        emotion_actions.addWidget(self.btn_musetalk_pack_emotions_all)
+        self.btn_musetalk_pack_emotions_none = QtWidgets.QPushButton("Disable All Optional")
+        self.btn_musetalk_pack_emotions_none.clicked.connect(lambda: self._set_all_musetalk_pack_emotions(False))
+        emotion_actions.addWidget(self.btn_musetalk_pack_emotions_none)
+        emotion_actions.addStretch(1)
+        emotion_card_layout.addLayout(emotion_actions)
+
+        self.musetalk_pack_emotions_scroll = QtWidgets.QScrollArea()
+        self.musetalk_pack_emotions_scroll.setWidgetResizable(True)
+        self.musetalk_pack_emotions_scroll.setMinimumHeight(120)
+        self.musetalk_pack_emotions_scroll.setMaximumHeight(220)
+        self.musetalk_pack_emotions_widget = QtWidgets.QWidget()
+        self.musetalk_pack_emotions_layout = QtWidgets.QVBoxLayout(self.musetalk_pack_emotions_widget)
+        self.musetalk_pack_emotions_layout.setContentsMargins(0, 0, 0, 0)
+        self.musetalk_pack_emotions_layout.setSpacing(8)
+        self.musetalk_pack_emotions_scroll.setWidget(self.musetalk_pack_emotions_widget)
+        emotion_card_layout.addWidget(self.musetalk_pack_emotions_scroll)
+        musetalk_layout.addWidget(emotion_card)
 
         mask_card, mask_card_layout = build_musetalk_card(
             "Mask Settings",
@@ -576,6 +816,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.musetalk_preprocess_tab_widget = scroll
         self.refresh_musetalk_target_pack_list()
         self.refresh_musetalk_avatar_list()
+        self._refresh_musetalk_pack_emotion_editor()
         self._update_musetalk_avatar_destination_hint()
         self._reset_musetalk_source_frame_info()
         return scroll
@@ -599,6 +840,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "musetalk_mask_overrides": self._get_musetalk_mask_overrides(),
             "musetalk_recreate": bool(self.musetalk_recreate_checkbox.isChecked()) if hasattr(self, "musetalk_recreate_checkbox") else False,
             "musetalk_emotion_tags": self.musetalk_emotion_tags_edit.text() if hasattr(self, "musetalk_emotion_tags_edit") else "",
+            "musetalk_enabled_pack_emotions": self._get_musetalk_enabled_pack_emotions(),
             "musetalk_test_audio": self.musetalk_test_audio_edit.text() if hasattr(self, "musetalk_test_audio_edit") else "",
         }
 
@@ -652,10 +894,14 @@ class MuseTalkPreprocessController(QtCore.QObject):
         musetalk_emotion_tags = session.get("musetalk_emotion_tags")
         if musetalk_emotion_tags is not None and hasattr(self, "musetalk_emotion_tags_edit"):
             self.musetalk_emotion_tags_edit.setText(str(musetalk_emotion_tags))
+        musetalk_enabled_pack_emotions = session.get("musetalk_enabled_pack_emotions")
+        if musetalk_enabled_pack_emotions is not None:
+            self._set_musetalk_enabled_pack_emotions(musetalk_enabled_pack_emotions, notify=False)
         musetalk_test_audio = session.get("musetalk_test_audio")
         if musetalk_test_audio is not None and hasattr(self, "musetalk_test_audio_edit"):
             self.musetalk_test_audio_edit.setText(str(musetalk_test_audio))
         self._update_musetalk_avatar_destination_hint()
+        self._refresh_musetalk_pack_emotion_editor()
 
     def refresh_musetalk_target_pack_list(self, selected_pack_id=None):
         combo = getattr(self, "musetalk_target_pack_combo", None)
@@ -679,10 +925,12 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 break
         combo.setCurrentIndex(target_index)
         combo.blockSignals(False)
+        self._refresh_musetalk_pack_emotion_editor()
 
     def _on_musetalk_target_pack_changed(self, _choice):
         self.refresh_musetalk_avatar_list()
         self._update_musetalk_avatar_destination_hint()
+        self._refresh_musetalk_pack_emotion_editor()
 
     def create_musetalk_target_pack(self):
         MUSE_AVATAR_PACKS_DIR.mkdir(parents=True, exist_ok=True)
@@ -1903,6 +2151,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             engine.get_available_emotion_names(force_refresh=True)
         except Exception:
             pass
+        self._refresh_musetalk_pack_emotion_editor()
         self.musetalk_avatar_status_label.setText(f"Saved tag mapping for '{avatar_id}'.")
         print(f"[QtGUI] MuseTalk avatar metadata saved: {pose_path}")
 
@@ -1939,6 +2188,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 engine.get_available_emotion_names(force_refresh=True)
             except Exception:
                 pass
+            self._refresh_musetalk_pack_emotion_editor()
             if hasattr(self, "musetalk_avatar_status_label"):
                 status_text = f"Prepared '{avatar_id}' successfully."
                 tags = self._parse_musetalk_emotion_tags(
