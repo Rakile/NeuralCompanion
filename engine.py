@@ -888,6 +888,7 @@ RUNTIME_CONFIG = {
     "proactive_delay_seconds": 10.0,
     "musetalk_avatar_id": "default_avatar",
     "musetalk_avatar_pack_id": "",
+    "musetalk_enabled_pack_emotions": {},
     "musetalk_video_path": os.path.join("data", "video", "ani.mp4"),
     "musetalk_fps": 24,
     "musetalk_vram_mode": "quality",
@@ -988,10 +989,42 @@ def update_runtime_config(key, value):
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":
             value = dict(value or {})
+        elif key == "musetalk_enabled_pack_emotions":
+            value = _normalize_musetalk_enabled_pack_emotions(value)
         RUNTIME_CONFIG[key] = value
         if key == "chat_provider_settings":
             chat_providers.set_provider_settings(value)
-        #print(f"⚙️ Config Update: {key} -> {value}")
+        if key in {"musetalk_avatar_pack_id", "musetalk_enabled_pack_emotions"}:
+            invalidate_available_emotion_names()
+
+
+def _normalize_musetalk_enabled_pack_emotions(value):
+    mapping = {}
+    if not isinstance(value, dict):
+        return mapping
+    for raw_pack_id, raw_tags in value.items():
+        pack_id = str(raw_pack_id or "").strip()
+        if not pack_id:
+            continue
+        if isinstance(raw_tags, (list, tuple, set)):
+            iterable = list(raw_tags)
+        else:
+            iterable = str(raw_tags or "").split(",")
+        tags = []
+        for raw_tag in iterable:
+            clean_tag = str(raw_tag or "").strip().strip("[]").strip().lower()
+            if clean_tag and clean_tag not in tags:
+                tags.append(clean_tag)
+        mapping[pack_id] = tags
+    return mapping
+
+
+def get_musetalk_enabled_pack_emotions(pack_id):
+    mapping = _normalize_musetalk_enabled_pack_emotions(RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
+    clean_pack_id = str(pack_id or "").strip()
+    if not clean_pack_id or clean_pack_id not in mapping:
+        return None
+    return set(mapping.get(clean_pack_id) or [])
 
 
 # ============================================================================
@@ -2052,13 +2085,34 @@ def get_available_emotion_names(force_refresh=False):
             include_legacy=False,
             include_standalone=False,
         )
-        for pack in packs.values():
+        selected_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+        pack_iterable = [packs[selected_pack_id]] if selected_pack_id in packs else list(packs.values())
+        for pack in pack_iterable:
             try:
-                names.update(
-                    str(tag or "").strip().lower()
-                    for tag in pack.emotion_avatar_map().keys()
-                    if str(tag or "").strip()
-                )
+                full_map = pack.emotion_avatar_map()
+                enabled_tags = get_musetalk_enabled_pack_emotions(pack.pack_id)
+                if enabled_tags is None:
+                    names.update(
+                        str(tag or "").strip().lower()
+                        for tag in full_map.keys()
+                        if str(tag or "").strip()
+                    )
+                else:
+                    locked_tags = {
+                        str(tag or "").strip().lower()
+                        for tag, avatar_id in full_map.items()
+                        if str(tag or "").strip()
+                        and (
+                            str(avatar_id or "").strip() == str(pack.default_avatar_id or "").strip()
+                            or str(tag or "").strip().lower() in {"neutral", "default", "idle", "base"}
+                        )
+                    }
+                    names.update(
+                        str(tag or "").strip().lower()
+                        for tag in full_map.keys()
+                        if str(tag or "").strip()
+                        and str(tag or "").strip().lower() in (enabled_tags | locked_tags)
+                    )
             except Exception:
                 continue
     except Exception:
@@ -7664,7 +7718,26 @@ class MuseTalkAdapter(AvatarAdapter):
         self.avatar_pack = selected
         self.avatar_pack_id = selected.pack_id
         self.default_avatar_id = selected.default_avatar_id
-        self.emotion_avatar_map = selected.emotion_avatar_map()
+        full_emotion_avatar_map = selected.emotion_avatar_map()
+        enabled_tags = get_musetalk_enabled_pack_emotions(selected.pack_id)
+        if enabled_tags is None:
+            self.emotion_avatar_map = dict(full_emotion_avatar_map)
+        else:
+            locked_tags = {
+                str(tag or "").strip().lower()
+                for tag, avatar_id in full_emotion_avatar_map.items()
+                if str(tag or "").strip()
+                and (
+                    str(avatar_id or "").strip() == str(selected.default_avatar_id or "").strip()
+                    or str(tag or "").strip().lower() in {"neutral", "default", "idle", "base"}
+                )
+            }
+            allowed_tags = enabled_tags | locked_tags
+            self.emotion_avatar_map = {
+                tag: avatar_id
+                for tag, avatar_id in full_emotion_avatar_map.items()
+                if str(tag or "").strip().lower() in allowed_tags
+            }
         invalidate_available_emotion_names()
         registered_tags = sorted(
             {
@@ -7714,6 +7787,8 @@ class MuseTalkAdapter(AvatarAdapter):
         clean_emotion = str(emotion_name or "").strip().lower()
         if not getattr(self, "emotion_avatar_map", None):
             self._reload_avatar_pose_connections()
+        if not clean_emotion or clean_emotion in {"neutral", "default", "idle", "base"}:
+            return self.default_avatar_id
         if clean_emotion:
             exact_avatar_id = self.emotion_avatar_map.get(clean_emotion)
             if exact_avatar_id:
@@ -7721,7 +7796,7 @@ class MuseTalkAdapter(AvatarAdapter):
         for emotion_key, avatar_id in self.emotion_avatar_map.items():
             if str(emotion_key or "").strip().lower() in clean_emotion:
                 return avatar_id
-        return self.default_avatar_id
+        return None
 
     def _prepared_avatar_bbox_shift(self, avatar_id):
         avatar_root = self._prepared_avatar_root(avatar_id)
@@ -7935,7 +8010,10 @@ class MuseTalkAdapter(AvatarAdapter):
 
     def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None):
         requested_avatar_id = self._resolve_avatar_id_for_emotion(self.current_emotion)
-        active_avatar_id = self._ensure_avatar_prepared(requested_avatar_id, allow_missing=True) or self.default_avatar_id
+        if requested_avatar_id:
+            active_avatar_id = self._ensure_avatar_prepared(requested_avatar_id, allow_missing=True) or self.default_avatar_id
+        else:
+            active_avatar_id = self.avatar_id or self.last_queued_avatar_id or self.default_avatar_id
         print(f"🎭 [MuseTalk] Emotion '{self.current_emotion}' -> requested avatar '{requested_avatar_id}' -> active avatar '{active_avatar_id}'")
         self._ensure_avatar_prepared(active_avatar_id, allow_missing=False)
         previous_avatar_id = self.last_queued_avatar_id
