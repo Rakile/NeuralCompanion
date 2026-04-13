@@ -1,6 +1,7 @@
 {
   "id": "nc.clipboard_source",
   "name": "Clipboard Source",
+  "category": "vision",
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "Clipboard-backed Vision source for manually or automatically attaching copied images to chat turns or the hidden loop.",

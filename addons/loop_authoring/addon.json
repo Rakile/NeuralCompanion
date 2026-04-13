@@ -1,6 +1,7 @@
 {
   "id": "nc.loop_authoring",
   "name": "Loop Authoring",
+  "category": "musetalk",
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "First-party Loop Authoring tab migrated under the addon framework.",

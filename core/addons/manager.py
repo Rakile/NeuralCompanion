@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib.util
 import logging
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from types import ModuleType
@@ -23,6 +24,15 @@ class LoadedAddon:
 
 
 class AddonManager:
+    CATEGORY_LABELS = {
+        "vision": "Vision",
+        "musetalk": "MuseTalk",
+        "visuals": "Visuals",
+        "chat": "Chat",
+        "global": "Global",
+        "other": "Other",
+    }
+
     def __init__(
         self,
         *,
@@ -36,6 +46,7 @@ class AddonManager:
         self.addons_dir = self.app_root / "addons"
         self.storage_root = self.app_root / "runtime" / "addons"
         self.storage_root.mkdir(parents=True, exist_ok=True)
+        self.registry_path = self.storage_root / "addon_registry.json"
         self.logger = logging.getLogger("nc.addons")
         self.event_bus = AddonEventBus()
         self.service_registry = AddonServiceRegistry()
@@ -44,9 +55,104 @@ class AddonManager:
         self._avatar_snapshot_getter = avatar_snapshot_getter
         self._host_services = dict(host_services or {})
         self._records: list[LoadedAddon] = []
+        self._registry_state = self._load_registry_state()
+
+    def _load_registry_state(self) -> dict[str, Any]:
+        try:
+            if self.registry_path.exists():
+                payload = json.loads(self.registry_path.read_text(encoding="utf-8"))
+                if isinstance(payload, dict):
+                    return payload
+        except Exception as exc:
+            self.logger.warning("Failed to read addon registry state: %s", exc)
+        return {"version": 1, "categories": {}, "addons": {}}
+
+    def _save_registry_state(self) -> None:
+        payload = {
+            "version": 1,
+            "categories": dict(self._registry_state.get("categories", {}) or {}),
+            "addons": dict(self._registry_state.get("addons", {}) or {}),
+        }
+        self.registry_path.write_text(json.dumps(payload, indent=2, ensure_ascii=True), encoding="utf-8")
+
+    def _normalize_category(self, value: str | None) -> str:
+        category = str(value or "").strip().lower()
+        if category:
+            return category
+        return "other"
+
+    def _default_category_for_id(self, addon_id: str) -> str:
+        addon_id = str(addon_id or "").strip().lower()
+        mapping = {
+            "nc.clipboard_source": "vision",
+            "nc.clipboard_supervisor": "vision",
+            "nc.screen_supervisor": "vision",
+            "nc.webcam_supervisor": "vision",
+            "nc.mock_heart_rate": "vision",
+            "nc.heart_rate_behavior": "vision",
+            "nc.musetalk_preprocess": "musetalk",
+            "nc.loop_authoring": "musetalk",
+            "nc.visual_reply": "visuals",
+            "nc.chat_session_player": "chat",
+            "nc.hotkeys": "global",
+        }
+        return mapping.get(addon_id, "other")
+
+    def _category_for_manifest(self, manifest: AddonManifest) -> str:
+        category = self._normalize_category(getattr(manifest, "category", "") or "")
+        if category == "other":
+            return self._default_category_for_id(manifest.id)
+        return category
+
+    def _category_enabled(self, category: str) -> bool:
+        normalized = self._normalize_category(category)
+        override = dict(self._registry_state.get("categories", {}) or {}).get(normalized)
+        if override is None:
+            return True
+        return bool(override)
+
+    def _addon_enabled_override(self, addon_id: str) -> bool | None:
+        addon_id = str(addon_id or "").strip()
+        if not addon_id:
+            return None
+        raw = dict(self._registry_state.get("addons", {}) or {}).get(addon_id)
+        if raw is None:
+            return None
+        return bool(raw)
+
+    def _manifest_effectively_enabled(self, manifest: AddonManifest) -> bool:
+        category = self._category_for_manifest(manifest)
+        category_enabled = self._category_enabled(category)
+        addon_override = self._addon_enabled_override(manifest.id)
+        addon_enabled = manifest.enabled if addon_override is None else bool(addon_override)
+        return bool(category_enabled and addon_enabled)
+
+    def _addon_change_summary(self) -> dict[str, int]:
+        category_changes = 0
+        addon_changes = 0
+        for category, value in dict(self._registry_state.get("categories", {}) or {}).items():
+            if self._normalize_category(category) and bool(value) is False:
+                category_changes += 1
+        for addon_id, value in dict(self._registry_state.get("addons", {}) or {}).items():
+            addon_id = str(addon_id or "").strip()
+            if not addon_id:
+                continue
+            default_enabled = True
+            for record in self._records:
+                if record.manifest.id == addon_id:
+                    default_enabled = bool(record.manifest.enabled)
+                    break
+            if bool(value) != default_enabled:
+                addon_changes += 1
+        return {
+            "category_changes": int(category_changes),
+            "addon_changes": int(addon_changes),
+            "total_changes": int(category_changes + addon_changes),
+        }
 
     def discover(self) -> list[LoadedAddon]:
         self._records = []
+        self._registry_state = self._load_registry_state()
         seen_ids: set[str] = set()
         if not self.addons_dir.exists():
             return []
@@ -58,13 +164,17 @@ class AddonManager:
                 continue
             try:
                 manifest = AddonManifest.from_file(manifest_path)
-                if not manifest.enabled:
-                    self.logger.info("Skipping disabled addon: %s", manifest.id)
-                    continue
                 if manifest.id in seen_ids:
                     raise ValueError(f"Duplicate addon id '{manifest.id}'")
                 seen_ids.add(manifest.id)
-                self._records.append(LoadedAddon(manifest=manifest, root_dir=child))
+                record = LoadedAddon(manifest=manifest, root_dir=child)
+                if self._manifest_effectively_enabled(manifest):
+                    record.state = "discovered"
+                else:
+                    record.state = "disabled"
+                    record.error = "Disabled in addon registry"
+                    self.logger.info("Skipping disabled addon: %s", manifest.id)
+                self._records.append(record)
             except Exception as exc:
                 self.logger.warning("Failed to discover addon in %s: %s", child, exc)
         return list(self._records)
@@ -92,6 +202,8 @@ class AddonManager:
 
     def load_all(self) -> list[LoadedAddon]:
         for record in self._records:
+            if record.state == "disabled":
+                continue
             try:
                 record.module = self._load_module(record.manifest)
                 record.instance = self._instantiate_addon(record.module, record.manifest)
@@ -184,6 +296,11 @@ class AddonManager:
 
     def export_session_state(self) -> dict[str, Any]:
         session: dict[str, Any] = {}
+        session["addon_registry_state"] = {
+            "version": 1,
+            "categories": dict(self._registry_state.get("categories", {}) or {}),
+            "addons": dict(self._registry_state.get("addons", {}) or {}),
+        }
         for record in self._records:
             if record.state != "initialized" or record.instance is None:
                 continue
@@ -198,6 +315,20 @@ class AddonManager:
 
     def import_session_state(self, session: dict[str, Any] | None) -> None:
         payload = dict(session or {})
+        registry_payload = payload.get("addon_registry_state")
+        if isinstance(registry_payload, dict):
+            categories = registry_payload.get("categories", {})
+            addons = registry_payload.get("addons", {})
+            if isinstance(categories, dict) or isinstance(addons, dict):
+                self._registry_state = {
+                    "version": int(registry_payload.get("version", 1) or 1),
+                    "categories": dict(categories or {}),
+                    "addons": dict(addons or {}),
+                }
+                try:
+                    self._save_registry_state()
+                except Exception:
+                    self.logger.exception("Addon registry state save failed during session import")
         for record in self._records:
             if record.state != "initialized" or record.instance is None:
                 continue
@@ -208,29 +339,10 @@ class AddonManager:
                 self.logger.exception("Addon session import failed for '%s'", record.manifest.id)
 
     def export_preset_state(self) -> dict[str, Any]:
-        preset: dict[str, Any] = {}
-        for record in self._records:
-            if record.state != "initialized" or record.instance is None:
-                continue
-            try:
-                if hasattr(record.instance, "export_preset_state"):
-                    payload = record.instance.export_preset_state() or {}
-                    if isinstance(payload, dict):
-                        preset.update(payload)
-            except Exception:
-                self.logger.exception("Addon preset export failed for '%s'", record.manifest.id)
-        return preset
+        return {}
 
     def import_preset_state(self, preset: dict[str, Any] | None) -> None:
-        payload = dict(preset or {})
-        for record in self._records:
-            if record.state != "initialized" or record.instance is None:
-                continue
-            try:
-                if hasattr(record.instance, "import_preset_state"):
-                    record.instance.import_preset_state(payload)
-            except Exception:
-                self.logger.exception("Addon preset import failed for '%s'", record.manifest.id)
+        return None
 
     def get_loaded_addons(self) -> list[LoadedAddon]:
         return list(self._records)
@@ -244,4 +356,59 @@ class AddonManager:
     def get_addon_instance(self, addon_id: str):
         record = self.get_addon_record(addon_id)
         return None if record is None else record.instance
+
+    def get_addon_registry_snapshot(self) -> list[dict[str, Any]]:
+        categories: dict[str, dict[str, Any]] = {}
+        for record in self._records:
+            category = self._category_for_manifest(record.manifest)
+            group = categories.setdefault(
+                category,
+                {
+                    "id": category,
+                    "label": self.CATEGORY_LABELS.get(category, category.replace("_", " ").title()),
+                    "enabled": self._category_enabled(category),
+                    "addons": [],
+                },
+            )
+            addon_override = self._addon_enabled_override(record.manifest.id)
+            addon_enabled = record.manifest.enabled if addon_override is None else bool(addon_override)
+            group["addons"].append(
+                {
+                    "id": record.manifest.id,
+                    "name": record.manifest.name,
+                    "description": record.manifest.description,
+                    "category": category,
+                    "manifest_enabled": bool(record.manifest.enabled),
+                    "enabled": bool(addon_enabled),
+                    "effective_enabled": bool(self._manifest_effectively_enabled(record.manifest)),
+                    "state": str(record.state or ""),
+                    "permissions": list(record.manifest.permissions or []),
+                    "version": str(record.manifest.version or ""),
+                }
+            )
+        ordered = sorted(categories.values(), key=lambda item: item["label"].lower())
+        for item in ordered:
+            item["addons"] = sorted(item["addons"], key=lambda addon: addon["name"].lower())
+        return ordered
+
+    def set_category_enabled(self, category: str, enabled: bool) -> bool:
+        category = self._normalize_category(category)
+        self._registry_state.setdefault("categories", {})[category] = bool(enabled)
+        self._save_registry_state()
+        return bool(enabled)
+
+    def set_addon_enabled(self, addon_id: str, enabled: bool) -> bool:
+        addon_id = str(addon_id or "").strip()
+        if not addon_id:
+            return False
+        self._registry_state.setdefault("addons", {})[addon_id] = bool(enabled)
+        self._save_registry_state()
+        return bool(enabled)
+
+    def has_pending_restart_changes(self) -> bool:
+        summary = self._addon_change_summary()
+        return bool(summary.get("total_changes", 0))
+
+    def get_pending_restart_changes_summary(self) -> dict[str, int]:
+        return self._addon_change_summary()
 

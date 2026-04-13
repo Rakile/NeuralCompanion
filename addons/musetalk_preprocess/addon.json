@@ -1,6 +1,7 @@
 {
   "id": "nc.musetalk_preprocess",
   "name": "MuseTalk Preprocess",
+  "category": "musetalk",
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "First-party MuseTalk preprocess/debug tab provided through the addon framework.",

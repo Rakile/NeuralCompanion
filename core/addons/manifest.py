@@ -12,6 +12,7 @@ class AddonManifest:
     version: str
     entry_point: str
     description: str = ""
+    category: str = ""
     permissions: list[str] = field(default_factory=list)
     enabled: bool = True
     manifest_path: Path | None = None
@@ -32,6 +33,7 @@ class AddonManifest:
             version=str(payload.get("version", "") or "").strip(),
             entry_point=str(payload.get("entry_point", "") or "").strip(),
             description=str(payload.get("description", "") or "").strip(),
+            category=str(payload.get("category", "") or "").strip().lower(),
             permissions=[str(item).strip() for item in list(payload.get("permissions", []) or []) if str(item).strip()],
             enabled=bool(payload.get("enabled", True)),
             manifest_path=path,
@@ -51,4 +53,3 @@ class AddonManifest:
             missing.append("entry_point")
         if missing:
             raise ValueError(f"Invalid addon manifest, missing field(s): {', '.join(missing)}")
-

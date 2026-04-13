@@ -1,6 +1,7 @@
 {
   "id": "nc.hotkeys",
   "name": "Hotkeys",
+  "category": "global",
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "Configurable hotkeys for push-to-talk, control actions, and focused-window UI actions.",
