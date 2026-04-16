@@ -19,6 +19,7 @@ class Addon(BaseAddon):
         self.latest_image_hash = ""
         self.latest_captured_at = 0.0
         self.latest_image_is_new = False
+        self.last_auto_attached_image_hash = ""
         self.last_delivery_status = "No clipboard image captured yet."
         self._tab_refreshers = []
 
@@ -91,7 +92,7 @@ class Addon(BaseAddon):
         if self.auto_send_immediately and self.hidden_loop_enabled:
             self.hidden_loop_enabled = False
         if self.auto_attach_next_user_turn and self._source_is_enabled() and self._has_latest_image():
-            self._arm_latest_for_next_user_turn(silent_missing=True)
+            self._arm_latest_for_next_user_turn(silent_missing=True, require_new_image=True, mark_auto_attach=True)
         elif not self._source_is_enabled():
             self._clear_pending_next_user_turn()
         self._notify_tab_refreshers()
@@ -253,7 +254,12 @@ class Addon(BaseAddon):
             if not delivered and not self._is_engine_running():
                 self.last_delivery_status = "New clipboard image captured, but auto-send is waiting for the engine to run."
         if self.auto_attach_next_user_turn and not delivered:
-            armed = self._arm_latest_for_next_user_turn(silent_missing=True, update_status=False)
+            armed = self._arm_latest_for_next_user_turn(
+                silent_missing=True,
+                update_status=False,
+                require_new_image=True,
+                mark_auto_attach=True,
+            )
             if armed:
                 self.last_delivery_status = "New clipboard image armed for the next user turn."
         self._notify_tab_refreshers()
@@ -303,16 +309,32 @@ class Addon(BaseAddon):
         except Exception:
             pass
 
-    def _arm_latest_for_next_user_turn(self, *, print_if_missing: bool = False, silent_missing: bool = False, update_status: bool = True) -> bool:
+    def _arm_latest_for_next_user_turn(
+        self,
+        *,
+        print_if_missing: bool = False,
+        silent_missing: bool = False,
+        update_status: bool = True,
+        require_new_image: bool = False,
+        mark_auto_attach: bool = False,
+    ) -> bool:
         if not self._ensure_latest_image():
             if print_if_missing and not silent_missing:
                 print("[Clipboard] No clipboard image is available to arm for the next user turn.")
+            return False
+        latest_hash = str(self.latest_image_hash or "").strip()
+        if require_new_image and latest_hash and latest_hash == str(self.last_auto_attached_image_hash or "").strip():
+            self.last_delivery_status = "Latest clipboard image was already armed once; waiting for a new clipboard image."
+            if update_status:
+                self._notify_tab_refreshers()
             return False
         try:
             self._engine_module().set_pending_user_image_attachment(self.latest_image_path, source="clipboard")
         except Exception as exc:
             print(f"[Clipboard] Could not arm the clipboard image for the next user turn: {exc}")
             return False
+        if mark_auto_attach:
+            self.last_auto_attached_image_hash = latest_hash
         if update_status:
             self.last_delivery_status = f"Armed for the next user turn at {self._format_timestamp(time.time())}."
             self._notify_tab_refreshers()
@@ -346,6 +368,7 @@ class Addon(BaseAddon):
         self.latest_image_hash = ""
         self.latest_captured_at = 0.0
         self.latest_image_is_new = False
+        self.last_auto_attached_image_hash = ""
         self.last_delivery_status = "Cleared the latest clipboard image."
         self._clear_pending_next_user_turn()
         self._notify_tab_refreshers()
@@ -354,7 +377,7 @@ class Addon(BaseAddon):
         self.auto_attach_next_user_turn = bool(checked)
         if self.auto_attach_next_user_turn:
             if self._source_is_enabled():
-                self._arm_latest_for_next_user_turn(silent_missing=True)
+                self._arm_latest_for_next_user_turn(silent_missing=True, mark_auto_attach=True)
             else:
                 self._clear_pending_next_user_turn()
                 self.last_delivery_status = "Next-turn clipboard attach is configured, but Clipboard source is currently disabled."

@@ -1,0 +1,10 @@
+{
+  "id": "nc.claude_provider",
+  "name": "Claude Chat Provider",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Anthropic Claude provider addon for NC's dynamic chat-provider registry.",
+  "permissions": [],
+  "enabled": true
+}

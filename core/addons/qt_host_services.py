@@ -339,6 +339,12 @@ class QtChatProviderService:
     def list_providers(self):
         return [provider.to_summary() for provider in chat_providers.list_providers()]
 
+    def get_provider_settings(self, provider_id: str | None = None):
+        return chat_providers.get_provider_settings(provider_id)
+
+    def get_provider_setting(self, provider_id: str, field_id: str):
+        return chat_providers.get_provider_setting(provider_id, field_id)
+
 class QtChatReplayService:
     def __init__(self, window):
         self._window = window
