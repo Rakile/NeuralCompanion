@@ -11,8 +11,6 @@ from openai import OpenAI
 
 
 DEFAULT_PROVIDER_ID = "lmstudio"
-LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
-LMSTUDIO_API_KEY = "lm-studio"
 
 ChatModelListHandler = Callable[[bool], list[Any]]
 ChatClientFactory = Callable[[], Any]
@@ -251,9 +249,8 @@ def create_client(provider_id: str | None):
 
 
 def _request_kwargs(provider_id: str | None, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None, *, stream: bool = False) -> dict[str, Any]:
-    normalized = normalize_provider_id(provider_id)
     request_kwargs = dict(params or {})
-    if normalized == "lmstudio" and additional_params:
+    if additional_params:
         request_kwargs["extra_body"] = dict(additional_params or {})
     if stream:
         request_kwargs["stream"] = True
@@ -342,8 +339,6 @@ def _default_model_catalog(provider_id: str | None) -> list[str]:
             if str(getattr(model, "id", "") or "").strip()
         }
     )
-    if normalized == "xai":
-        ids = [model_id for model_id in ids if not str(model_id or "").strip().lower().startswith("grok-imagine")]
     return ids
 
 
@@ -400,163 +395,3 @@ def check_connection(provider_id: str | None) -> dict[str, Any]:
         if isinstance(result, bool):
             return {"ok": bool(result), "detail": ""}
     return _default_connection_check(normalized)
-
-
-def _lmstudio_api_key() -> str:
-    return get_provider_setting("lmstudio", "api_key") or LMSTUDIO_API_KEY
-
-
-def _lmstudio_base_url() -> str:
-    return get_provider_setting("lmstudio", "base_url") or LMSTUDIO_BASE_URL
-
-
-def _openai_api_key() -> str:
-    return get_provider_setting("openai", "api_key") or _env_value("NC_CHAT_OPENAI_API_KEY", "OPENAI_API_KEY")
-
-
-def _openai_base_url() -> str:
-    return get_provider_setting("openai", "base_url") or _env_value("NC_CHAT_OPENAI_BASE_URL")
-
-
-def _xai_api_key() -> str:
-    return get_provider_setting("xai", "api_key") or _env_value("NC_CHAT_XAI_API_KEY", "XAI_API_KEY", "NC_VISUAL_REPLY_XAI_API_KEY")
-
-
-def _xai_base_url() -> str:
-    return get_provider_setting("xai", "base_url") or _env_value("NC_CHAT_XAI_BASE_URL", fallback="https://api.x.ai/v1")
-
-
-def _lmstudio_client():
-    return OpenAI(base_url=_lmstudio_base_url(), api_key=_lmstudio_api_key())
-
-
-def _openai_client():
-    base_url = _openai_base_url()
-    api_key = _openai_api_key()
-    if base_url:
-        return OpenAI(api_key=api_key, base_url=base_url)
-    return OpenAI(api_key=api_key)
-
-
-def _xai_client():
-    return OpenAI(api_key=_xai_api_key(), base_url=_xai_base_url())
-
-
-def _xai_language_model_catalog():
-    base_url = str(_xai_base_url() or "").strip().rstrip("/")
-    if not base_url:
-        return []
-    payload = _fetch_json_with_bearer(f"{base_url}/language-models", _xai_api_key(), timeout=15.0)
-    entries = []
-    if isinstance(payload, dict):
-        entries = list(payload.get("data") or payload.get("models") or payload.get("items") or [])
-    elif isinstance(payload, list):
-        entries = list(payload)
-    catalog = []
-    for item in entries:
-        if not isinstance(item, dict):
-            continue
-        model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
-        if not model_id:
-            continue
-        input_modalities = [
-            str(modality or "").strip().lower()
-            for modality in list(item.get("input_modalities") or [])
-            if str(modality or "").strip()
-        ]
-        output_modalities = [
-            str(modality or "").strip().lower()
-            for modality in list(item.get("output_modalities") or [])
-            if str(modality or "").strip()
-        ]
-        supports_images = "image" in input_modalities
-        catalog.append(
-            {
-                "id": model_id,
-                "supports_images": bool(supports_images),
-                "source": "xai_language_models",
-                "input_modalities": list(input_modalities),
-                "output_modalities": list(output_modalities),
-            }
-        )
-    return catalog
-
-
-def _xai_models(quiet: bool = False) -> list[Any]:
-    catalog = _xai_language_model_catalog()
-    if catalog:
-        return catalog
-    return _default_model_catalog("xai")
-
-
-def _register_builtin_providers():
-    register_provider(
-        provider_id="lmstudio",
-        label="LM Studio",
-        description="Local LM Studio models exposed through the OpenAI-compatible API.",
-        order=100,
-        client_factory=_lmstudio_client,
-        api_key_getter=_lmstudio_api_key,
-        base_url_getter=_lmstudio_base_url,
-        metadata={
-            "config_fields": [
-                {"id": "base_url", "label": "Base URL", "source": "builtin", "default": LMSTUDIO_BASE_URL},
-            ],
-            "generation_fields": [
-                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.22, "request_location": "params"},
-                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
-                {"id": "top_k", "label": "Top K", "kind": "int", "min": 0, "max": 1000, "step": 1, "default": 40, "request_location": "additional_params"},
-                {"id": "repeat_penalty", "label": "Repetition Penalty", "kind": "float", "min": 1.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.15, "request_location": "additional_params"},
-                {"id": "min_p", "label": "Min P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.05, "request_location": "additional_params"},
-                {"id": "max_tokens", "label": "Max Tokens (-1 = no cap)", "kind": "int", "min": -1, "max": 131072, "step": 1, "default": -1, "request_location": "params"},
-            ],
-            "hint": "Uses LM Studio's local OpenAI-compatible endpoint.",
-            "supports_local_runtime": True,
-        },
-    )
-    register_provider(
-        provider_id="openai",
-        label="OpenAI",
-        description="Hosted OpenAI models.",
-        order=200,
-        client_factory=_openai_client,
-        api_key_getter=_openai_api_key,
-        base_url_getter=_openai_base_url,
-        metadata={
-            "config_fields": [
-                {"id": "api_key", "label": "API Key", "env": ["NC_CHAT_OPENAI_API_KEY", "OPENAI_API_KEY"]},
-                {"id": "base_url", "label": "Base URL", "env": ["NC_CHAT_OPENAI_BASE_URL"]},
-            ],
-            "generation_fields": [
-                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
-                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
-            ],
-            "hint": "Hosted OpenAI provider. API key is required.",
-            "supports_hosted_runtime": True,
-        },
-    )
-    register_provider(
-        provider_id="xai",
-        label="xAI / Grok",
-        description="Hosted xAI Grok models through the xAI API.",
-        order=300,
-        client_factory=_xai_client,
-        model_list_handler=_xai_models,
-        api_key_getter=_xai_api_key,
-        base_url_getter=_xai_base_url,
-        metadata={
-            "config_fields": [
-                {"id": "api_key", "label": "API Key", "env": ["NC_CHAT_XAI_API_KEY", "XAI_API_KEY"]},
-                {"id": "base_url", "label": "Base URL", "env": ["NC_CHAT_XAI_BASE_URL"], "default": "https://api.x.ai/v1"},
-            ],
-            "generation_fields": [
-                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
-                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
-            ],
-            "hint": "Hosted xAI / Grok provider. API key is required.",
-            "supports_hosted_runtime": True,
-        },
-    )
-
-
-_register_builtin_providers()

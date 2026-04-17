@@ -1,6 +1,8 @@
 # Chat Provider Addons
 
-Chat providers can be added without editing `qt_app.py` or the core runtime. Built-in providers stay in `core/chat_providers.py`; third-party providers register themselves through the addon service `qt.chat_providers`.
+Chat providers can be added without editing `qt_app.py` or the core runtime. NC ships its release providers as addons, and third-party providers register themselves through the addon service `qt.chat_providers`.
+
+This guide describes the currently supported provider-addon contract. Treat the field names and handler expectations below as the interface NC expects third-party providers to follow.
 
 ## Where to put an addon
 
@@ -35,6 +37,64 @@ Then call `register_provider(...)` with:
 - `metadata["config_fields"]`: Host-card fields to render for this provider.
 - `metadata["generation_fields"]`: provider-specific generation controls rendered in the Chat Runtime card.
 
+### Handler expectations
+
+The provider registry currently accepts these handlers:
+
+- `model_list_handler(quiet: bool) -> list[Any]`
+- `completion_handler(params: dict[str, Any], additional_params: dict[str, Any] | None) -> str`
+- `stream_handler(params: dict[str, Any], additional_params: dict[str, Any] | None) -> Iterable[str]`
+- `connection_check_handler() -> dict[str, Any]`
+
+If a handler is omitted, NC may fall back to shared defaults where possible, but a real provider addon should implement the full set if it wants normal model refresh, completion, streaming, and connection reporting.
+
+Recommended return conventions:
+
+- `model_list_handler` may return plain model ids or dicts with at least `id`.
+- `completion_handler` should return one complete assistant text string.
+- `stream_handler` should yield assistant text chunks in order.
+- `connection_check_handler` should return `{"ok": bool, "detail": str}` and may include extra diagnostics.
+
+### Lifecycle
+
+Register providers in `Addon.initialize(context)` and unregister them in `shutdown()`.
+
+The reference pattern is:
+
+```python
+def initialize(self, context):
+    super().initialize(context)
+    self._chat_service = context.get_service("qt.chat_providers")
+    if self._chat_service is None:
+        return None
+    self._chat_service.register_provider(...)
+    return None
+
+def shutdown(self):
+    if getattr(self, "_chat_service", None) is not None:
+        self._chat_service.unregister_provider(PROVIDER_ID)
+    return None
+```
+
+When an addon is disabled in the Addons tab, it will not register on the next launch. If the disabled provider was selected, NC falls back to the default available provider.
+
+### What belongs to the addon
+
+The addon should own provider-specific concerns such as:
+
+- API key lookup and base URL selection.
+- Translating NC payloads into the provider API shape.
+- Provider-specific request fields such as `max_tokens`, `top_k`, or API version headers.
+- Streaming protocol differences.
+- Connection checks and provider-specific error reporting.
+
+The core should remain responsible for:
+
+- listing registered providers,
+- rendering provider metadata,
+- choosing the current provider and model,
+- and routing chat requests to the selected provider handlers.
+
 Provider settings saved by the Host card can be read with:
 
 ```python
@@ -67,8 +127,39 @@ Each `generation_fields` entry can include:
 - `omit_if`: optional value or list of values that should not be sent.
 - `description`: tooltip/help text.
 
+### Metadata shape
+
+`config_fields` are rendered in the Host card under `Provider Settings`.
+`generation_fields` are rendered in the Chat Runtime card under `Generation Settings`.
+
+Common field kinds:
+
+- `float`
+- `int`
+- `bool`
+- `text`
+- `select`
+- `note`
+
+For `select` fields, the addon should provide stable option ids and user-facing labels. For `note`, NC should treat the field as informational only.
+
+Useful metadata conventions:
+
+- `request_key` lets a field map to a different request field name than its `id`.
+- `request_location` controls whether the value goes into `params`, `additional_params`, or stays UI-only.
+- `omit_if` can suppress a value when it is a default or disabled sentinel.
+
+### Model list shape
+
+NC accepts either:
+
+- a list of model ids, or
+- a list of model dicts with at least `id`.
+
+If a model dict includes capability flags such as `supports_images`, the UI may use them for filtering and capability summaries.
+
 If a provider uses another API shape, translate inside the addon. The Claude addon is the reference example: it converts system messages into the Anthropic `system` field, converts chat turns to `messages`, maps `stop` to `stop_sequences`, and parses server-sent streaming text deltas.
 
-## Disable behavior
+### Contract stability
 
-When an addon is disabled in the Addons tab, it will not register on the next launch. Built-in providers continue to work. If the disabled provider was selected, NC falls back to the default available provider.
+The goal is for this provider contract to stay stable for third-party addons. Prefer additive metadata keys and optional handlers over changing existing meanings.

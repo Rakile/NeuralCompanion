@@ -4892,8 +4892,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 return provider_settings.get("max_tokens")
             if bool(RUNTIME_CONFIG.get("limit_response_length", False)):
                 return int(RUNTIME_CONFIG.get("max_response_tokens", field.get("default", DEFAULT_MAX_RESPONSE_TOKENS)) or DEFAULT_MAX_RESPONSE_TOKENS)
-            if provider_id == "lmstudio":
-                return -1
         return field.get("default", "")
 
     def _generation_field_display_value(self, provider_id, field, current_settings):
