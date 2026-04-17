@@ -2393,7 +2393,6 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             return
         render_started_at = time.time()
         load_ms = 0.0
-        set_ms = 0.0
         cache_hit = False
         cached = self._get_cached_preview_image(self.current_frame_path)
         if cached is None:
@@ -4246,7 +4245,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.tabs.addTab(self._build_vseeface_tab(), "VSeeFace")
         self.tabs.addTab(self._build_musetalk_parent_tab(), "MuseTalk")
         self.tabs.addTab(self._build_vam_tab(), "VaM")
-        self.tabs.addTab(self._build_brain_tab(), "Brain")
+        self._legacy_brain_tab = self._build_brain_tab()
+        self._legacy_brain_tab.setVisible(False)
         self.tabs.addTab(self._build_chunking_tab(), "Chunking")
         self.tabs.addTab(self._build_dry_run_tab(), "Dry Run")
         self.tabs.addTab(self._build_tutorials_tab(), "Tutorials")
@@ -4274,7 +4274,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         form.addRow("Input Mode", self.input_mode_combo)
         form.addRow("Input Role", self.input_role_combo)
         form.addRow("Stream Mode", self.stream_mode_combo)
-        form.addRow("TTS Backend", self.tts_backend_combo)
         form.addRow("MuseTalk VRAM", self.musetalk_vram_combo)
         form.addRow("Loop Fade (ms)", self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
         form.addRow("MuseTalk Avatar", self.musetalk_avatar_pack_row_widget)
@@ -4417,10 +4416,38 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         return tab
 
     def _build_chat_runtime_card(self):
-        self.chat_runtime_box = QtWidgets.QGroupBox("Chat Runtime")
+        self.chat_runtime_box = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.chat_runtime_box)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
+
+        def _make_inner_card(object_name):
+            card = QtWidgets.QFrame()
+            card.setObjectName(object_name)
+            card.setStyleSheet(
+                f"QFrame#{object_name} {{"
+                "  background: rgba(12, 18, 26, 0.35);"
+                "  border: 1px solid #273342;"
+                "  border-radius: 10px;"
+                "}"
+            )
+            card_layout = QtWidgets.QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 10, 10, 10)
+            card_layout.setSpacing(8)
+            return card, card_layout
+
+        self.chat_runtime_inner_card = QtWidgets.QFrame()
+        self.chat_runtime_inner_card.setObjectName("chat_runtime_inner_card")
+        self.chat_runtime_inner_card.setStyleSheet(
+            "QFrame#chat_runtime_inner_card {"
+            "  background: rgba(12, 18, 26, 0.55);"
+            "  border: 1px solid #273342;"
+            "  border-radius: 12px;"
+            "}"
+        )
+        inner_layout = QtWidgets.QVBoxLayout(self.chat_runtime_inner_card)
+        inner_layout.setContentsMargins(12, 12, 12, 12)
+        inner_layout.setSpacing(10)
 
         form = QtWidgets.QFormLayout()
         form.setLabelAlignment(QtCore.Qt.AlignLeft)
@@ -4428,7 +4455,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         form.addRow("Chat Provider", self.chat_provider_combo)
         form.addRow("LLM Model", self.model_row_widget)
-        layout.addLayout(form)
+        inner_layout.addLayout(form)
 
         self.chat_provider_fields_widget = QtWidgets.QWidget()
         self.chat_provider_fields_layout = QtWidgets.QFormLayout(self.chat_provider_fields_widget)
@@ -4436,12 +4463,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_provider_fields_layout.setSpacing(8)
         self.chat_provider_fields_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
         self.chat_provider_fields_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        self.chat_provider_settings_card, self.chat_provider_settings_card_layout = _make_inner_card(
+            "chat_provider_settings_card"
+        )
+        self.chat_provider_settings_card_layout.addWidget(self.chat_provider_fields_widget)
         self.chat_provider_settings_section = CollapsibleSection(
             "Provider Settings",
-            self.chat_provider_fields_widget,
+            self.chat_provider_settings_card,
             expanded=True,
         )
-        layout.addWidget(self.chat_provider_settings_section)
+        inner_layout.addWidget(self.chat_provider_settings_section)
 
         self.chat_provider_generation_fields_widget = QtWidgets.QWidget()
         self.chat_provider_generation_fields_layout = QtWidgets.QFormLayout(self.chat_provider_generation_fields_widget)
@@ -4449,26 +4480,58 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_provider_generation_fields_layout.setSpacing(8)
         self.chat_provider_generation_fields_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
         self.chat_provider_generation_fields_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        self.chat_provider_generation_card, self.chat_provider_generation_card_layout = _make_inner_card(
+            "chat_provider_generation_card"
+        )
+        self.chat_provider_generation_card_layout.addWidget(self.chat_provider_generation_fields_widget)
         self.chat_provider_generation_section = CollapsibleSection(
             "Generation Settings",
-            self.chat_provider_generation_fields_widget,
+            self.chat_provider_generation_card,
             expanded=False,
         )
-        layout.addWidget(self.chat_provider_generation_section)
+        inner_layout.addWidget(self.chat_provider_generation_section)
 
         self.chat_provider_hint_label = QtWidgets.QLabel()
         self.chat_provider_hint_label.setWordWrap(True)
         self.chat_provider_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(self.chat_provider_hint_label)
+        inner_layout.addWidget(self.chat_provider_hint_label)
+
+        layout.addWidget(self.chat_runtime_inner_card)
 
         self._refresh_chat_provider_card()
-        return self.chat_runtime_box
+        self.chat_runtime_section = CollapsibleSection("Chat Runtime", self.chat_runtime_box, expanded=True)
+        self.chat_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
+        self._refresh_chat_runtime_summary()
+        return self.chat_runtime_section
 
     def _build_tts_runtime_card(self):
-        self.tts_runtime_box = QtWidgets.QGroupBox("TTS Runtime")
+        self.tts_runtime_box = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.tts_runtime_box)
-        layout.setContentsMargins(12, 14, 12, 12)
+        layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(8)
+
+        self.tts_runtime_inner_card = QtWidgets.QFrame()
+        self.tts_runtime_inner_card.setObjectName("tts_runtime_inner_card")
+        self.tts_runtime_inner_card.setStyleSheet(
+            "QFrame#tts_runtime_inner_card {"
+            "  background: rgba(12, 18, 26, 0.35);"
+            "  border: 1px solid #273342;"
+            "  border-radius: 10px;"
+            "}"
+        )
+        inner_layout = QtWidgets.QVBoxLayout(self.tts_runtime_inner_card)
+        inner_layout.setContentsMargins(10, 10, 10, 10)
+        inner_layout.setSpacing(12)
+
+        backend_block = QtWidgets.QWidget()
+        backend_form = QtWidgets.QFormLayout(backend_block)
+        backend_form.setContentsMargins(0, 0, 0, 0)
+        backend_form.setSpacing(8)
+        backend_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        backend_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        backend_form.addRow("TTS Backend", self.tts_backend_combo)
+        inner_layout.addWidget(backend_block)
+        inner_layout.addSpacing(2)
 
         self.tts_runtime_stack = QtWidgets.QStackedWidget()
 
@@ -4498,15 +4561,20 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.tts_runtime_stack.addWidget(chatterbox_page)
         self.tts_runtime_stack.addWidget(pockettts_page)
-        layout.addWidget(self.tts_runtime_stack)
+        inner_layout.addWidget(self.tts_runtime_stack)
 
         self.tts_runtime_hint_label = QtWidgets.QLabel()
         self.tts_runtime_hint_label.setWordWrap(True)
         self.tts_runtime_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(self.tts_runtime_hint_label)
+        inner_layout.addWidget(self.tts_runtime_hint_label)
+
+        layout.addWidget(self.tts_runtime_inner_card)
 
         self._refresh_tts_runtime_card()
-        return self.tts_runtime_box
+        self.tts_runtime_section = CollapsibleSection("TTS Runtime", self.tts_runtime_box, expanded=True)
+        self.tts_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
+        self._refresh_tts_runtime_summary()
+        return self.tts_runtime_section
 
     def _build_sensory_feedback_tab(self):
         tab = QtWidgets.QWidget()
@@ -4633,6 +4701,49 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if policy == "stop_at_limit":
             return "Stop At Limit"
         return "Rolling Window"
+
+    def _chat_font_size_choices(self):
+        return [8, 10, 12, 14, 16, 18, 20]
+
+    def _current_chat_font_size(self):
+        if hasattr(self, "chat_font_size_combo"):
+            data = self.chat_font_size_combo.currentData()
+            if data is not None:
+                try:
+                    return max(8, min(20, int(data)))
+                except Exception:
+                    pass
+        if hasattr(self, "chat_edit"):
+            size = int(self.chat_edit.font().pointSize() or 0)
+            if size > 0:
+                return size
+        return 12
+
+    def _apply_chat_font_size(self, size, *, update_combo=True):
+        font_size = max(8, min(20, int(size)))
+        font = QtGui.QFont("Segoe UI", font_size)
+        if hasattr(self, "chat_edit"):
+            self.chat_edit.setFont(font)
+            if hasattr(self.chat_edit, "document"):
+                self.chat_edit.document().setDefaultFont(font)
+        if update_combo and hasattr(self, "chat_font_size_combo"):
+            index = self.chat_font_size_combo.findData(font_size)
+            if index >= 0 and self.chat_font_size_combo.currentIndex() != index:
+                previous = self.chat_font_size_combo.blockSignals(True)
+                try:
+                    self.chat_font_size_combo.setCurrentIndex(index)
+                finally:
+                    self.chat_font_size_combo.blockSignals(previous)
+
+    def _chat_context_usage_label(self):
+        used = len(list(getattr(engine, "conversation_history", []) or []))
+        limit = int(RUNTIME_CONFIG.get("chat_context_window_messages", 20) or 20)
+        capped = used > limit
+        text = f"context {used}/{limit}"
+        if capped:
+            policy = self._chat_overflow_policy_label_from_value(RUNTIME_CONFIG.get("chat_context_overflow_policy", "rolling_window"))
+            text = f"{text} ({policy})"
+        return text, capped
 
 
     def _chat_provider_label_from_value(self, value):
@@ -4852,12 +4963,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         fields = list(self._chat_provider_generation_fields(provider_id))
 
         if not fields:
-            hint = QtWidgets.QLabel("This provider uses the legacy Brain tab generation controls.")
+            hint = QtWidgets.QLabel("This provider uses legacy generation controls internally.")
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             hint.setWordWrap(True)
             self.chat_provider_generation_fields_layout.addRow("", hint)
             if hasattr(self, "chat_provider_generation_section"):
-                self.chat_provider_generation_section.setSummary("legacy Brain controls")
+                self.chat_provider_generation_section.setSummary("legacy fallback controls")
             return
 
         active_labels = []
@@ -4992,6 +5103,31 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 description = f"{provider_label} is selected."
             self.chat_provider_hint_label.setText(description)
         self._refresh_chat_provider_generation_card()
+        self._refresh_chat_runtime_summary()
+
+    def _refresh_chat_runtime_summary(self):
+        if not hasattr(self, "chat_runtime_section"):
+            return
+        provider_label = self._chat_provider_label_from_value(self._current_chat_provider_value())
+        model_name = str(self.model_combo.currentText() if hasattr(self, "model_combo") else RUNTIME_CONFIG.get("model_name", "") or "").strip()
+        summary = provider_label
+        if model_name and not self._is_model_catalog_placeholder(model_name):
+            summary = f"{provider_label} / {model_name}"
+        self.chat_runtime_section.setSummary(summary)
+
+    def _refresh_tts_runtime_summary(self):
+        if not hasattr(self, "tts_runtime_section"):
+            return
+        backend = str(self.tts_backend_combo.currentText() if hasattr(self, "tts_backend_combo") else RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "Chatterbox").strip()
+        if backend.lower() == "chatterbox":
+            voice_name = str(self.voice_combo.currentText() if hasattr(self, "voice_combo") else "" or "").strip()
+            self.tts_runtime_section.setSummary(f"{backend} / {voice_name}" if voice_name else backend)
+        else:
+            self.tts_runtime_section.setSummary(backend)
+
+    def _on_runtime_section_toggled(self):
+        self._sync_host_settings_tabs_height()
+        self.save_session()
 
     def _refresh_tts_runtime_card(self):
         if not hasattr(self, "tts_runtime_stack"):
@@ -5007,6 +5143,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         if hasattr(self, "tts_runtime_hint_label"):
             self.tts_runtime_hint_label.setText(hint)
+        self._refresh_tts_runtime_summary()
 
     def on_tts_seed_changed(self, value):
         update_runtime_config("tts_seed", max(0, int(value or 0)))
@@ -5181,7 +5318,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         selected = self._parse_sensory_feedback_source_values(label)
         return ",".join(selected) if selected else "off"
 
-    def _on_sensory_feedback_source_checkbox_toggled(self, checked):
+    def _on_sensory_feedback_source_checkbox_toggled(self, _checked):
         selected = self._selected_sensory_feedback_sources()
         config_value = self._sensory_feedback_config_value(selected)
         self._sync_sensory_feedback_source_summary(selected)
@@ -6095,7 +6232,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if bool(getattr(self, "_restoring_session", False)):
             return
         current_signature = self._preset_payload_signature(self._build_preset_payload())
-        dirty = self._preset_dirty_state
         if self._preset_reference_signature:
             dirty = current_signature != self._preset_reference_signature
         else:
@@ -7080,9 +7216,25 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         chat_tab.setAttribute(QtCore.Qt.WA_StyledBackground, True)
         chat_layout = QtWidgets.QVBoxLayout(chat_tab)
         chat_header = QtWidgets.QHBoxLayout()
-        self.chat_status = QtWidgets.QLabel("0 lines | autoscroll on")
+        self.chat_status = QtWidgets.QLabel("autoscroll on | context 0/20")
         chat_header.addWidget(self.chat_status)
         chat_header.addStretch(1)
+        chat_font_label = QtWidgets.QLabel("Font Size")
+        chat_header.addWidget(chat_font_label)
+        self.chat_font_size_combo = NoWheelComboBox()
+        self.chat_font_size_combo.setObjectName("chat_font_size_combo")
+        self.chat_font_size_combo.setMinimumWidth(74)
+        for size in self._chat_font_size_choices():
+            self.chat_font_size_combo.addItem(str(size), size)
+        self.chat_font_size_combo.blockSignals(True)
+        try:
+            default_index = self.chat_font_size_combo.findData(12)
+            if default_index >= 0:
+                self.chat_font_size_combo.setCurrentIndex(default_index)
+        finally:
+            self.chat_font_size_combo.blockSignals(False)
+        self.chat_font_size_combo.currentIndexChanged.connect(self.on_chat_font_size_changed)
+        chat_header.addWidget(self.chat_font_size_combo)
         self.chat_quick_save_button = QtWidgets.QPushButton("Quick Save")
         self.chat_quick_save_button.clicked.connect(self.quick_save_chat_context)
         chat_header.addWidget(self.chat_quick_save_button)
@@ -7111,7 +7263,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_edit.setReadOnly(True)
         self.chat_edit.setMinimumSize(0, 0)
         self.chat_edit.setMinimumHeight(90)
-        self.chat_edit.setFont(QtGui.QFont("Segoe UI", 11))
+        self._apply_chat_font_size(12, update_combo=False)
         self.chat_edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.chat_edit.customContextMenuRequested.connect(self._show_chat_context_menu)
         chat_layout.addLayout(chat_header)
@@ -7177,7 +7329,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._console_bridge.chat_ready.connect(self._append_chat_text)
         self._console_bridge.status_ready.connect(self._update_console_status)
         self._console_bridge.chat_status_ready.connect(self._update_chat_status)
-        self._console_bridge.rebuild_chat_ready.connect(self._rebuild_chat_view_from_history)
+        self._console_bridge.rebuild_chat_ready.connect(self._on_chat_rebuild_requested)
+
+    def _on_chat_rebuild_requested(self):
+        scroll_state = self._capture_vertical_scroll_state(self.chat_edit) if hasattr(self, "chat_edit") else None
+        self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
 
     def _update_readonly_text_safely(self, widget, text):
         current_text = widget.toPlainText()
@@ -7266,10 +7422,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         cursor.movePosition(QtGui.QTextCursor.End)
         default_format = QtGui.QTextCharFormat()
         default_format.setForeground(QtGui.QColor("#e5e9f0"))
+        default_format.setFont(QtGui.QFont("Segoe UI", self._current_chat_font_size()))
         speaker_format = QtGui.QTextCharFormat()
         speaker_format.setForeground(QtGui.QColor("#f2f5f9"))
+        speaker_format.setFont(QtGui.QFont("Segoe UI", self._current_chat_font_size()))
         speaker_format.setFontWeight(QtGui.QFont.Bold)
-        speaker_format.setFontPointSize(13)
 
         for chunk in re.split(r"(\n)", text):
             if chunk == "":
@@ -7297,15 +7454,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.chat_edit.ensureCursorVisible()
             QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
 
-    def _update_console_status(self, lines, auto_scroll):
+    def _update_console_status(self, lines, _auto_scroll):
         state = "on" if self.console_auto_scroll else "off"
         self.console_status.setText(f"{lines} lines | autoscroll {state}")
         self.console_autoscroll_button.setText(f"Autoscroll: {'On' if self.console_auto_scroll else 'Off'}")
 
-    def _update_chat_status(self, lines, auto_scroll):
+    def _update_chat_status(self, lines, _auto_scroll):
         state = "on" if self.chat_auto_scroll else "off"
         edit_suffix = " | edit mode" if getattr(self, "chat_edit_mode", False) else ""
-        self.chat_status.setText(f"{lines} lines | autoscroll {state}{edit_suffix}")
+        context_text, capped = self._chat_context_usage_label() if hasattr(self, "chat_status") else ("", False)
+        context_suffix = f" | {context_text}" if context_text else ""
+        self.chat_status.setText(f"autoscroll {state}{context_suffix}{edit_suffix}")
+        self.chat_status.setStyleSheet("color: #ff6b6b;" if capped else "")
         self.chat_autoscroll_button.setText(f"Autoscroll: {'On' if self.chat_auto_scroll else 'Off'}")
 
     def toggle_console_autoscroll(self):
@@ -7405,6 +7565,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def on_voice_changed(self, voice_name):
         if voice_name and voice_name != "No .wav found":
             update_runtime_config("voice_path", os.path.join("voices", voice_name))
+        self._refresh_tts_runtime_summary()
 
     def browse_pocket_tts_python(self):
         path, _ = QtDialogService(self).open_file(
@@ -7617,6 +7778,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if backend == "pockettts":
             self._ensure_pocket_tts_python_path()
         self._refresh_tts_runtime_card()
+        self._refresh_tts_runtime_summary()
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": choice})
         self.update_model_budget_hint()
@@ -7810,11 +7972,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def on_chat_context_window_changed(self, value):
         update_runtime_config("chat_context_window_messages", max(4, int(value)))
         self._refresh_chat_session_hint()
+        self._update_chat_status(self._console_redirect.chat_line_count, int(self.chat_auto_scroll))
         self.save_session()
 
     def on_stored_chat_history_limit_changed(self, value):
         update_runtime_config("stored_chat_history_limit", max(0, int(value)))
         self._refresh_chat_session_hint()
+        self._update_chat_status(self._console_redirect.chat_line_count, int(self.chat_auto_scroll))
         self.save_session()
 
     def on_chat_overflow_policy_changed(self, choice):
@@ -7822,18 +7986,29 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._refresh_chat_session_hint()
         self.save_session()
 
-    def on_chat_provider_changed(self, choice):
+    def on_chat_provider_changed(self, _choice):
         provider_value = self._current_chat_provider_value()
         update_runtime_config("chat_provider", provider_value)
         self._refresh_chat_provider_card()
+        self._refresh_chat_runtime_summary()
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
         self.update_model_budget_hint()
+        self.save_session()
+
+    def on_chat_font_size_changed(self, _index):
+        if not hasattr(self, "chat_font_size_combo"):
+            return
+        size = self.chat_font_size_combo.currentData()
+        if size is None:
+            return
+        self._apply_chat_font_size(size, update_combo=False)
         self.save_session()
 
     def on_model_selection_changed(self, choice):
         update_runtime_config("model_name", str(choice or "").strip())
         self._advisor_context_manual_override = False
         self.update_model_budget_hint()
+        self._refresh_chat_runtime_summary()
         self.save_session()
 
     def on_model_context_input_changed(self, _value):
@@ -8177,7 +8352,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.btn_chunking_profile_delete.setEnabled(has_profiles)
 
     def _get_selected_performance_profile_name(self, source="dry_run"):
-        combo = None
         if source == "chunking":
             combo = getattr(self, "chunking_profile_combo", None)
         else:
@@ -8749,7 +8923,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return [str(entry.get("id") or "") for entry in catalog if str(entry.get("id") or "").strip()]
         return []
 
-    def on_model_requires_vision_changed(self, checked):
+    def on_model_requires_vision_changed(self, _checked):
         self.refresh_model_list_quietly(quiet=True, preloaded_models=list(getattr(self, "_all_model_catalog", []) or []))
         self.save_session()
 
@@ -8766,18 +8940,22 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.btn_model_refresh.setText("Waiting..." if wait_for_reachable else "Refreshing...")
 
         def worker():
-            models = [self._chat_provider_error_placeholder(provider)]
+            error_placeholder = self._chat_provider_error_placeholder(provider)
+            models = None
             first_attempt = True
             while True:
-                models = get_chat_models(provider=provider, quiet=quiet if first_attempt else True)
-                error_placeholder = self._chat_provider_error_placeholder(provider)
+                try:
+                    models = get_chat_models(provider=provider, quiet=quiet if first_attempt else True)
+                except Exception:
+                    models = [error_placeholder]
+                    break
                 valid_models = [item for item in list(models or []) if item and item != error_placeholder]
                 if valid_models or not wait_for_reachable:
                     break
                 first_attempt = False
                 time.sleep(1.0)
             with self._model_refresh_lock:
-                self._pending_model_refresh = list(models or [])
+                self._pending_model_refresh = list(models or [error_placeholder])
                 self._pending_model_refresh_provider = provider
                 self._pending_model_refresh_generation = refresh_generation
             QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_refresh", QtCore.Qt.QueuedConnection)
@@ -8801,6 +8979,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.btn_model_refresh.setEnabled(True)
             self.btn_model_refresh.setText("Refresh")
         self.refresh_model_list_quietly(quiet=True, preloaded_models=models)
+        self._refresh_chat_runtime_summary()
 
     def refresh_model_list_quietly(self, quiet=True, preloaded_models=None):
         if not hasattr(self, "model_combo"):
@@ -9047,7 +9226,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return None, None, None, None, None
         total = float(snapshot.get("total_gib") or 0.0)
         used_now = snapshot.get("used_gib")
-        free_now = snapshot.get("free_gib")
         setup_increment = self._estimate_setup_increment_gib()
         safety_margin = MODEL_ADVISOR_SAFETY_MARGIN_GIB
         projected_pre_llm_total = None
@@ -9334,7 +9512,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 self.request_single_context_estimate(model_name, chosen_context)
 
         exact_context_pending = exact_context_estimate is None
-        estimated_total_for_context = None
         if exact_context_estimate is not None:
             estimated_total_for_context = (
                 float(projected_pre_llm_total or 0.0) + float(exact_context_estimate)
@@ -10310,7 +10487,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
         print(f"[QtGUI] Chat context edited in place ({int(result.get('conversation_turns', 0))} turn(s)).")
 
-    def _rebuild_chat_view_from_history(self, force=False):
+    def _rebuild_chat_view_from_history(self, force=False, preserve_scroll_state=None):
         if getattr(self, "chat_edit_mode", False) and not force:
             return
         entries = list(getattr(engine, "conversation_history", []) or [])
@@ -10329,6 +10506,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._console_redirect.chat_line_count = len(lines)
         self._update_chat_status(len(lines), int(self.chat_auto_scroll))
         self._update_control_action_buttons()
+        if preserve_scroll_state is not None:
+            QtCore.QTimer.singleShot(0, lambda state=preserve_scroll_state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
         if self.chat_auto_scroll:
             QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
 
@@ -10404,2423 +10583,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
-            "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
-            "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
-            "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
-            "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
-            "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
-            "proactive_delay_seconds": float(self.proactive_delay_spin.value()) if hasattr(self, "proactive_delay_spin") else 10.0,
-            "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
-            "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
-            "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
-            "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
-            "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
-            "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
-                "quality",
-            ),
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
-            "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
-            "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
-            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
-            "vam_play_audio_in_vam": self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
-            "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
-            "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
-            "vam_timeline_auto_resume": self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
-            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
-            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
-            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
-            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
-            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
-            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
-            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
-            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
-            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
-            "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
-            "pocket_tts_python": (
-                self._ensure_pocket_tts_python_path()
-                if self.tts_backend_combo.currentText() == "PocketTTS"
-                else self.pocket_tts_python_edit.text().strip()
-            ),
-            "chunking": {key: slider.value() for key, slider in self.chunking_sliders.items()},
-            "dry_run_target_samples": self.dry_run_target_spin.value(),
-            "dry_run_auto_replies": self.dry_run_auto_replies_checkbox.isChecked(),
-            "last_preset": self.preset_combo.currentText(),
-            "last_body": self.body_combo.currentText(),
-            "live_sync": self.live_sync_checkbox.isChecked(),
-            "geometry": [self.x(), self.y(), self.width(), self.height()],
-            "main_splitter_sizes": self.main_splitter.sizes() if hasattr(self, "main_splitter") else [400, 980],
-            "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "visual_reply_visible": bool(hasattr(self, "visual_reply_dock") and self.visual_reply_dock.isVisible()),
-            "performance_guidance_visible": bool(hasattr(self, "guidance_box") and self.guidance_box.isVisible()),
-            "window_state": base64.b64encode(self.saveState().data()).decode("ascii"),
-            "right_dock_state": (
-                base64.b64encode(self.right_dock_host.saveState().data()).decode("ascii")
-                if hasattr(self, "right_dock_host")
-                else ""
-            ),
-        }
-        if self._addon_manager is not None:
-            session.update(self._addon_manager.export_session_state())
-        SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
-        self._refresh_preset_dirty_state()
-
-    def _ensure_window_on_screen(self):
-        screen = self.screen() or QtWidgets.QApplication.primaryScreen()
-        if screen is None:
-            return
-        available = screen.availableGeometry()
-        frame = self.frameGeometry()
-        client = self.geometry()
-        width = min(max(client.width(), 200), max(available.width(), 200))
-        height = min(max(client.height(), 200), max(available.height(), 200))
-        x = frame.x()
-        y = frame.y()
-        if x < available.left():
-            x = available.left()
-        if y < available.top():
-            y = available.top()
-        if x + width > available.right() + 1:
-            x = max(available.left(), available.right() - width + 1)
-        if y + height > available.bottom() + 1:
-            y = max(available.top(), available.bottom() - height + 1)
-        self.setGeometry(x, y, width, height)
-        self.move(x, y)
-
-    def restore_session(self):
-        if not SESSION_PATH.exists():
-            return
-        try:
-            session = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
-        except Exception as exc:
-            print(f"[QtGUI] Session Restore Failed: {exc}")
-            return
-        self.first_run = bool(session.get("first_run", True))
-        geometry = session.get("geometry")
-        if geometry and len(geometry) == 4:
-            self.setGeometry(*geometry)
-            self._ensure_window_on_screen()
-        preset = session.get("last_preset")
-        if preset:
-            index = self.preset_combo.findText(preset)
-            if index >= 0:
-                self.preset_combo.setCurrentIndex(index)
-                update_runtime_config("active_preset_name", preset)
-
-        engine_choice = session.get("avatar_mode")
-        if isinstance(engine_choice, str) and engine_choice.strip().lower() == "lam":
-            engine_choice = "MuseTalk"
-        if engine_choice:
-            index = self.engine_combo.findText(engine_choice)
-            if index >= 0:
-                self.engine_combo.setCurrentIndex(index)
-        if str(engine_choice or "").strip().lower() == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox"):
-            self.vam_play_audio_in_vam_checkbox.setChecked(True)
-            self.on_vam_play_audio_in_vam_changed(True)
-        input_mode = session.get("input_mode")
-        if input_mode:
-            index = self.input_mode_combo.findText(input_mode)
-            if index >= 0:
-                self.input_mode_combo.setCurrentIndex(index)
-        input_role = session.get("input_message_role")
-        if input_role:
-            index = self.input_role_combo.findText(input_role)
-            if index >= 0:
-                self.input_role_combo.setCurrentIndex(index)
-        stream_mode = session.get("stream_mode")
-        if stream_mode is not None:
-            if isinstance(stream_mode, str):
-                index = self.stream_mode_combo.findText(stream_mode)
-                if index >= 0:
-                    self.stream_mode_combo.setCurrentIndex(index)
-            else:
-                self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
-        tts_backend = session.get("tts_backend")
-        if tts_backend:
-            index = self.tts_backend_combo.findText(tts_backend)
-            if index >= 0:
-                self.tts_backend_combo.setCurrentIndex(index)
-                self.on_tts_backend_change(self.tts_backend_combo.currentText())
-        tts_seed = session.get("tts_seed")
-        if tts_seed is not None and hasattr(self, "tts_seed_spin"):
-            self.tts_seed_spin.setValue(max(0, int(tts_seed)))
-            self.on_tts_seed_changed(self.tts_seed_spin.value())
-        tts_temperature = session.get("tts_temperature")
-        if tts_temperature is not None and hasattr(self, "tts_temperature_spin"):
-            self.tts_temperature_spin.setValue(max(0.05, float(tts_temperature)))
-            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
-        tts_top_p = session.get("tts_top_p")
-        if tts_top_p is not None and hasattr(self, "tts_top_p_spin"):
-            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(tts_top_p))))
-            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
-        tts_top_k = session.get("tts_top_k")
-        if tts_top_k is not None and hasattr(self, "tts_top_k_spin"):
-            self.tts_top_k_spin.setValue(max(0, int(tts_top_k)))
-            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
-        tts_repeat_penalty = session.get("tts_repeat_penalty")
-        if tts_repeat_penalty is not None and hasattr(self, "tts_repeat_penalty_spin"):
-            self.tts_repeat_penalty_spin.setValue(max(1.0, float(tts_repeat_penalty)))
-            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
-        tts_min_p = session.get("tts_min_p")
-        if tts_min_p is not None and hasattr(self, "tts_min_p_spin"):
-            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(tts_min_p))))
-            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
-        tts_normalize_loudness = session.get("tts_normalize_loudness")
-        if tts_normalize_loudness is not None and hasattr(self, "tts_normalize_loudness_checkbox"):
-            self.tts_normalize_loudness_checkbox.setChecked(bool(tts_normalize_loudness))
-            self.on_tts_normalize_loudness_changed(bool(tts_normalize_loudness))
-        vam_vmc_enabled = session.get("vam_vmc_enabled")
-        if vam_vmc_enabled is not None and hasattr(self, "vam_vmc_enabled_checkbox"):
-            self.vam_vmc_enabled_checkbox.setChecked(bool(vam_vmc_enabled))
-            self.on_vam_vmc_enabled_changed(bool(vam_vmc_enabled))
-        vam_bridge_enabled = session.get("vam_bridge_enabled")
-        if vam_bridge_enabled is not None and hasattr(self, "vam_bridge_enabled_checkbox"):
-            self.vam_bridge_enabled_checkbox.setChecked(bool(vam_bridge_enabled))
-            self.on_vam_bridge_enabled_changed(bool(vam_bridge_enabled))
-        vam_play_audio_in_vam = session.get("vam_play_audio_in_vam")
-        if vam_play_audio_in_vam is not None and hasattr(self, "vam_play_audio_in_vam_checkbox"):
-            self.vam_play_audio_in_vam_checkbox.setChecked(bool(vam_play_audio_in_vam))
-            self.on_vam_play_audio_in_vam_changed(bool(vam_play_audio_in_vam))
-        vam_timeline_auto_resume = session.get("vam_timeline_auto_resume")
-        if vam_timeline_auto_resume is not None and hasattr(self, "vam_timeline_auto_resume_checkbox"):
-            self.vam_timeline_auto_resume_checkbox.setChecked(bool(vam_timeline_auto_resume))
-            self.on_vam_timeline_auto_resume_changed(bool(vam_timeline_auto_resume))
-        vam_vmc_host = session.get("vam_vmc_host")
-        if vam_vmc_host and hasattr(self, "vam_vmc_host_edit"):
-            self.vam_vmc_host_edit.setText(str(vam_vmc_host))
-            self.on_vam_vmc_host_changed()
-        vam_vmc_port = session.get("vam_vmc_port")
-        if vam_vmc_port is not None and hasattr(self, "vam_vmc_port_spin"):
-            self.vam_vmc_port_spin.setValue(int(vam_vmc_port))
-            self.on_vam_vmc_port_changed(int(vam_vmc_port))
-        vam_root = session.get("vam_root") or session.get("vam_bridge_root")
-        if vam_root and hasattr(self, "vam_root_edit"):
-            self.vam_root_edit.setText(engine.normalize_vam_root(vam_root))
-            self.on_vam_root_changed()
-        vam_target_atom_uid = session.get("vam_target_atom_uid")
-        if vam_target_atom_uid and hasattr(self, "vam_target_atom_uid_edit"):
-            self.vam_target_atom_uid_edit.setText(str(vam_target_atom_uid))
-            self.on_vam_target_atom_uid_changed()
-        vam_target_storable_id = session.get("vam_target_storable_id")
-        if vam_target_storable_id and hasattr(self, "vam_target_storable_id_edit"):
-            self.vam_target_storable_id_edit.setText(str(vam_target_storable_id))
-            self.on_vam_target_storable_id_changed()
-        allow_proactive_replies = session.get("allow_proactive_replies")
-        if allow_proactive_replies is not None and hasattr(self, "allow_proactive_checkbox"):
-            self.allow_proactive_checkbox.setChecked(bool(allow_proactive_replies))
-            self.on_allow_proactive_replies_changed(bool(allow_proactive_replies))
-        require_first_user_before_proactive = session.get("require_first_user_before_proactive")
-        if require_first_user_before_proactive is not None and hasattr(self, "require_first_user_checkbox"):
-            self.require_first_user_checkbox.setChecked(bool(require_first_user_before_proactive))
-            self.on_require_first_user_before_proactive_changed(bool(require_first_user_before_proactive))
-        listen_idle_window_seconds = session.get("listen_idle_window_seconds")
-        if listen_idle_window_seconds is not None and hasattr(self, "listen_idle_window_spin"):
-            listen_seconds = max(0.5, float(listen_idle_window_seconds))
-            self.listen_idle_window_spin.setValue(listen_seconds)
-            self.on_listen_idle_window_changed(listen_seconds)
-        proactive_delay_seconds = session.get("proactive_delay_seconds")
-        if proactive_delay_seconds is not None and hasattr(self, "proactive_delay_spin"):
-            proactive_seconds = max(0.5, float(proactive_delay_seconds))
-            self.proactive_delay_spin.setValue(proactive_seconds)
-            self.on_proactive_delay_changed(proactive_seconds)
-        chat_context_window_messages = session.get("chat_context_window_messages")
-        if chat_context_window_messages is not None and hasattr(self, "chat_context_window_spin"):
-            context_messages = max(4, int(chat_context_window_messages))
-            self.chat_context_window_spin.setValue(context_messages)
-            self.on_chat_context_window_changed(context_messages)
-        stored_chat_history_limit = session.get("stored_chat_history_limit")
-        if stored_chat_history_limit is not None and hasattr(self, "stored_chat_history_limit_spin"):
-            stored_limit = max(0, int(stored_chat_history_limit))
-            self.stored_chat_history_limit_spin.setValue(stored_limit)
-            self.on_stored_chat_history_limit_changed(stored_limit)
-        chat_context_overflow_policy = session.get("chat_context_overflow_policy")
-        if chat_context_overflow_policy is not None and hasattr(self, "chat_overflow_policy_combo"):
-            policy_text = self._chat_overflow_policy_label_from_value(chat_context_overflow_policy)
-            self.chat_overflow_policy_combo.setCurrentText(policy_text)
-            self.on_chat_overflow_policy_changed(policy_text)
-        limit_response_length = session.get("limit_response_length")
-        if limit_response_length is not None:
-            self.limit_response_checkbox.setChecked(bool(limit_response_length))
-            self.on_limit_response_length_changed(bool(limit_response_length))
-        max_response_tokens = session.get("max_response_tokens")
-        if max_response_tokens is not None:
-            tokens = max(32, int(max_response_tokens))
-            self.max_response_tokens_spin.setValue(tokens)
-            self.on_max_response_tokens_changed(tokens)
-        self.refresh_performance_profile_list()
-        performance_profile = session.get("performance_profile")
-        if performance_profile and hasattr(self, "performance_profile_combo"):
-            for index in range(self.performance_profile_combo.count()):
-                if self.performance_profile_combo.itemData(index) == performance_profile:
-                    self.performance_profile_combo.setCurrentIndex(index)
-                    break
-        musetalk_vram_mode = session.get("musetalk_vram_mode")
-        if musetalk_vram_mode:
-            label = MUSE_VRAM_MODE_LABELS.get(str(musetalk_vram_mode).strip().lower(), None)
-            if label:
-                index = self.musetalk_vram_combo.findText(label)
-                if index >= 0:
-                    self.musetalk_vram_combo.setCurrentIndex(index)
-        musetalk_loop_fade_ms = session.get("musetalk_loop_fade_ms")
-        if musetalk_loop_fade_ms is not None and hasattr(self, "musetalk_loop_fade_spin"):
-            fade_ms = max(0, int(musetalk_loop_fade_ms))
-            self.musetalk_loop_fade_spin.setValue(fade_ms)
-            self.on_musetalk_loop_fade_changed(fade_ms)
-        visual_reply_mode = session.get("visual_reply_mode")
-        if visual_reply_mode is not None and hasattr(self, "visual_reply_mode_combo"):
-            mode_text = self._visual_reply_mode_label_from_value(visual_reply_mode)
-            self.visual_reply_mode_combo.setCurrentText(mode_text)
-            self.on_visual_reply_mode_changed(mode_text)
-        visual_reply_provider = session.get("visual_reply_provider")
-        if visual_reply_provider is not None and hasattr(self, "visual_reply_provider_combo"):
-            provider_text = self._visual_reply_provider_label_from_value(visual_reply_provider)
-            self.visual_reply_provider_combo.setCurrentText(provider_text)
-            self.on_visual_reply_provider_changed(provider_text)
-        visual_reply_size = session.get("visual_reply_size")
-        if visual_reply_size is not None and hasattr(self, "visual_reply_size_combo"):
-            size_text = self._normalize_visual_reply_size(visual_reply_size)
-            self.visual_reply_size_combo.setCurrentText(self._visual_reply_size_label_from_value(size_text))
-            self.on_visual_reply_size_changed(size_text)
-        visual_reply_model = session.get("visual_reply_model")
-        if visual_reply_model is not None and hasattr(self, "visual_reply_model_edit"):
-            self.visual_reply_model_edit.setText(str(visual_reply_model or "gpt-image-1"))
-            self.on_visual_reply_model_changed()
-        visual_reply_auto_show = session.get("visual_reply_auto_show_dock")
-        if visual_reply_auto_show is not None and hasattr(self, "visual_reply_auto_show_checkbox"):
-            auto_show = bool(visual_reply_auto_show)
-            self.visual_reply_auto_show_checkbox.setChecked(auto_show)
-            self.on_visual_reply_auto_show_changed(auto_show)
-        sensory_feedback_source = session.get("sensory_feedback_source")
-        if sensory_feedback_source is not None and hasattr(self, "sensory_feedback_source_combo"):
-            source_value = str(sensory_feedback_source or "off")
-            self.refresh_sensory_feedback_source_options(selected_value=source_value)
-            self.on_sensory_feedback_source_changed(source_value)
-        sensory_feedback_interval_seconds = session.get("sensory_feedback_interval_seconds")
-        if sensory_feedback_interval_seconds is not None and hasattr(self, "sensory_feedback_interval_spin"):
-            interval_seconds = max(2.0, float(sensory_feedback_interval_seconds))
-            self.sensory_feedback_interval_spin.setValue(interval_seconds)
-            self.on_sensory_feedback_interval_changed(interval_seconds)
-        sensory_pingpong_enabled = session.get("sensory_pingpong_enabled")
-        if sensory_pingpong_enabled is not None and hasattr(self, "sensory_pingpong_checkbox"):
-            pingpong_enabled = bool(sensory_pingpong_enabled)
-            self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)
-            self.on_sensory_pingpong_enabled_changed(pingpong_enabled)
-        sensory_allow_hidden_proactive_speech = session.get("sensory_allow_hidden_proactive_speech")
-        if sensory_allow_hidden_proactive_speech is not None and hasattr(self, "sensory_allow_hidden_proactive_checkbox"):
-            proactive_enabled = bool(sensory_allow_hidden_proactive_speech)
-            self.sensory_allow_hidden_proactive_checkbox.setChecked(proactive_enabled)
-            self.on_sensory_allow_hidden_proactive_changed(proactive_enabled)
-        sensory_allow_hidden_visual_generation = session.get("sensory_allow_hidden_visual_generation")
-        if sensory_allow_hidden_visual_generation is not None and hasattr(self, "sensory_allow_hidden_visual_checkbox"):
-            visual_enabled = bool(sensory_allow_hidden_visual_generation)
-            self.sensory_allow_hidden_visual_checkbox.setChecked(visual_enabled)
-            self.on_sensory_allow_hidden_visual_changed(visual_enabled)
-        sensory_pingpong_history_depth = session.get("sensory_pingpong_history_depth")
-        if sensory_pingpong_history_depth is not None and hasattr(self, "sensory_pingpong_history_spin"):
-            pingpong_depth = max(0, int(sensory_pingpong_history_depth))
-            self.sensory_pingpong_history_spin.setValue(pingpong_depth)
-            self.on_sensory_pingpong_history_depth_changed(pingpong_depth)
-        sensory_pingpong_prompt = session.get("sensory_pingpong_prompt")
-        if sensory_pingpong_prompt is not None and hasattr(self, "sensory_pingpong_prompt_text"):
-            prompt_text = str(sensory_pingpong_prompt or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")).strip() or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")
-            self.sensory_pingpong_prompt_text.setPlainText(prompt_text)
-            update_runtime_config("sensory_pingpong_prompt", prompt_text)
-        if "sensory_pingpong_enabled" in settings and hasattr(self, "sensory_pingpong_checkbox"):
-            pingpong_enabled = bool(settings["sensory_pingpong_enabled"])
-            self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)
-            self.on_sensory_pingpong_enabled_changed(pingpong_enabled)
-        if "sensory_allow_hidden_proactive_speech" in settings and hasattr(self, "sensory_allow_hidden_proactive_checkbox"):
-            proactive_enabled = bool(settings["sensory_allow_hidden_proactive_speech"])
-            self.sensory_allow_hidden_proactive_checkbox.setChecked(proactive_enabled)
-            self.on_sensory_allow_hidden_proactive_changed(proactive_enabled)
-        if "sensory_allow_hidden_visual_generation" in settings and hasattr(self, "sensory_allow_hidden_visual_checkbox"):
-            visual_enabled = bool(settings["sensory_allow_hidden_visual_generation"])
-            self.sensory_allow_hidden_visual_checkbox.setChecked(visual_enabled)
-            self.on_sensory_allow_hidden_visual_changed(visual_enabled)
-        if "sensory_pingpong_history_depth" in settings and hasattr(self, "sensory_pingpong_history_spin"):
-            pingpong_depth = max(0, int(settings["sensory_pingpong_history_depth"] or 0))
-            self.sensory_pingpong_history_spin.setValue(pingpong_depth)
-            self.on_sensory_pingpong_history_depth_changed(pingpong_depth)
-        if "sensory_pingpong_prompt" in settings and hasattr(self, "sensory_pingpong_prompt_text"):
-            prompt_text = str(settings["sensory_pingpong_prompt"] or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")).strip() or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")
-            self.sensory_pingpong_prompt_text.setPlainText(prompt_text)
-            update_runtime_config("sensory_pingpong_prompt", prompt_text)
-        if "sensory_pingpong_source_prompts" in settings:
-            prompt_map = self._normalize_sensory_pingpong_source_prompt_map(settings.get("sensory_pingpong_source_prompts", {})) if hasattr(self, "_normalize_sensory_pingpong_source_prompt_map") else dict(settings.get("sensory_pingpong_source_prompts", {}) or {})
-            update_runtime_config("sensory_pingpong_source_prompts", prompt_map)
-            self._refresh_sensory_feedback_source_tabs()
-        if "model_name" in settings and hasattr(self, "model_combo"):
-            self._apply_saved_model_name(settings["model_name"])
-        for key in ("temperature", "top_p", "top_k", "repeat_penalty", "min_p"):
-            if key in settings and key in getattr(self, "brain_sliders", {}):
-                self.brain_sliders[key].set_value(settings[key])
-                self.update_brain_value(key, settings[key], key == "top_k")
-        if "limit_response_length" in settings and hasattr(self, "limit_response_checkbox"):
-            self.limit_response_checkbox.setChecked(bool(settings["limit_response_length"]))
-            self.on_limit_response_length_changed(bool(settings["limit_response_length"]))
-        if "max_response_tokens" in settings and hasattr(self, "max_response_tokens_spin"):
-            tokens = max(32, int(settings["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
-            self.max_response_tokens_spin.setValue(tokens)
-            self.on_max_response_tokens_changed(tokens)
-
-    def _apply_saved_model_name(self, model_name):
-        wanted = str(model_name or "").strip()
-        if not wanted or not hasattr(self, "model_combo"):
-            return False
-        index = self.model_combo.findText(wanted)
-        if index >= 0:
-            self.model_combo.setCurrentIndex(index)
-            return True
-        current = self.model_combo.currentText().strip() if self.model_combo.currentText() else "<none>"
-        print(f"[QtGUI] Saved model not available: {wanted}. Keeping current model: {current}")
-        return False
-
-    def _apply_dry_run_candidate_settings(self):
-        candidate = dry_run.get_current_candidate_settings()
-        if not candidate:
-            return
-        candidate_index = candidate.get("index")
-        if candidate_index == self.dry_run_last_applied_candidate_index:
-            return
-        settings = candidate.get("settings") or {}
-        self._apply_runtime_settings_dict(settings)
-        self.dry_run_last_applied_candidate_index = candidate_index
-        self.save_session()
-        dry_run.log_event(
-            "[DryRun] Applying candidate "
-            f"label={candidate.get('label')} "
-            f"stream_target={settings.get('stream_chunk_target_chars')} "
-            f"stream_max={settings.get('stream_chunk_max_chars')} "
-            f"first_min={settings.get('stream_first_chunk_min_chars')} "
-            f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"muse_target={settings.get('musetalk_chunk_target_chars')} "
-            f"muse_max={settings.get('musetalk_chunk_max_chars')} "
-            f"qs1={settings.get('musetalk_quickstart_1_target_chars')}/{settings.get('musetalk_quickstart_1_max_chars')} "
-            f"qs2={settings.get('musetalk_quickstart_2_target_chars')}/{settings.get('musetalk_quickstart_2_max_chars')}"
-        )
-        shared_state.append_musetalk_preview_log(
-            f"🧪 [DryRun] Applying {candidate.get('label')}: "
-            f"stream_target={settings.get('stream_chunk_target_chars')} "
-            f"stream_max={settings.get('stream_chunk_max_chars')} "
-            f"first_min={settings.get('stream_first_chunk_min_chars')} "
-            f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"muse_target={settings.get('musetalk_chunk_target_chars')} "
-            f"muse_max={settings.get('musetalk_chunk_max_chars')} "
-            f"qs1={settings.get('musetalk_quickstart_1_target_chars')}/{settings.get('musetalk_quickstart_1_max_chars')} "
-            f"qs2={settings.get('musetalk_quickstart_2_target_chars')}/{settings.get('musetalk_quickstart_2_max_chars')}"
-        )
-
-    def refresh_dry_run_status(self):
-        if not hasattr(self, "dry_run_status_label"):
-            return
-        status = dry_run.get_status()
-        self.dry_run_recommended_settings = {}
-        if not status:
-            self.dry_run_last_applied_candidate_index = None
-            latest = dry_run.get_latest_profile()
-            self.btn_dry_run_start.setEnabled(True)
-            self.btn_dry_run_stop.setEnabled(False)
-            self.btn_dry_run_apply.setEnabled(bool(latest and (latest.get("recommendation") or {}).get("settings")))
-            self._update_control_action_buttons()
-            if latest:
-                recommendation = latest.get("recommendation", {}) or {}
-                self.dry_run_recommended_settings = dict(recommendation.get("settings") or {})
-                summary = latest.get("summary", {}) or {}
-                self.dry_run_status_label.setText(
-                    f"Dry Run idle. Last profile confidence {float(latest.get('confidence', 0.0) or 0.0):.2f}, stability {float(latest.get('stability', 0.0) or 0.0):.2f}."
-                )
-                self._update_readonly_text_safely(
-                    self.dry_run_summary,
-                    self._format_dry_run_summary(summary, recommendation, latest.get("completion_reason", ""), latest.get("stability"))
-                )
-            else:
-                self.dry_run_status_label.setText("Dry Run idle.")
-                self._update_readonly_text_safely(
-                    self.dry_run_summary,
-                    "Arm a Dry Run to collect reply samples and generate machine-specific recommendations.",
-                )
-            return
-
-        recommendation = status.get("recommendation", {}) or {}
-        self.dry_run_recommended_settings = dict(recommendation.get("settings") or {})
-        observations = status.get("observations", []) or []
-        sample_count = len(observations)
-        target = int(status.get("target_samples", self.dry_run_target_spin.value()) or self.dry_run_target_spin.value())
-        auto_mode = bool(status.get("auto_mode"))
-        auto_replies = bool(status.get("auto_replies"))
-        confidence = float(status.get("confidence", 0.0) or 0.0)
-        stability = float(status.get("stability", 0.0) or 0.0)
-        candidate_plan = status.get("candidate_plan", []) or []
-        active_candidate_index = int(status.get("active_candidate_index", 0) or 0)
-        candidate_label = ""
-        if candidate_plan:
-            candidate_index = max(0, min(active_candidate_index, len(candidate_plan) - 1))
-            candidate_label = str((candidate_plan[candidate_index] or {}).get("label") or f"Candidate {candidate_index + 1}")
-        state_text = "complete" if status.get("complete") else ("running" if status.get("active") else "idle")
-        sample_text = f"{sample_count} samples" if auto_mode else f"{sample_count}/{target} samples"
-        self.dry_run_status_label.setText(
-            f"Dry Run {state_text}: {sample_text}, confidence {confidence:.2f}, stability {stability:.2f}"
-            + (f" ({candidate_label})" if candidate_label and not status.get("complete") else "")
-            + (" | hands-free" if auto_replies else "")
-        )
-        self.btn_dry_run_start.setEnabled(not status.get("active"))
-        self.btn_dry_run_stop.setEnabled(bool(status.get("active")))
-        self.btn_dry_run_apply.setEnabled(bool(self.dry_run_recommended_settings))
-        self._update_control_action_buttons()
-        self._update_readonly_text_safely(
-            self.dry_run_summary,
-            self._format_dry_run_summary(
-                dry_run.summarize_observations(observations),
-                recommendation,
-                status.get("completion_reason", ""),
-                stability,
-            )
-        )
-        if status.get("active") and not status.get("complete"):
-            self._apply_dry_run_candidate_settings()
-        elif status.get("complete") and status.get("active"):
-            final_status = dry_run.stop_session(reason="complete")
-            if final_status:
-                self.dry_run_last_applied_candidate_index = None
-                self._apply_runtime_settings_dict(final_status.get("config_snapshot", {}) or {})
-                self.save_session()
-                self.emit_tutorial_event(
-                    "dry_run_completed",
-                    {
-                        "session_id": final_status.get("session_id"),
-                        "confidence": final_status.get("confidence"),
-                        "stability": final_status.get("stability"),
-                        "reason": final_status.get("completion_reason", ""),
-                    },
-                )
-                if self.thread and self.thread.is_alive():
-                    print("[QtGUI] Dry Run complete. Terminating active session...")
-                    self.stop_engine()
-            self.refresh_dry_run_status()
-
-    def _format_dry_run_summary(self, summary, recommendation, completion_reason="", stability=None):
-        summary = summary or {}
-        recommendation = recommendation or {}
-        settings = recommendation.get("settings", {}) or {}
-        lines = [
-            "Measured startup profile:",
-            f"- Avg first audio chunk: {self._fmt_ms(summary.get('avg_first_audio_chunk_ms'))}",
-            f"- Avg first visual buffer wait: {self._fmt_ms(summary.get('avg_buffer_wait_ms'))}",
-            f"- Avg first chunk audio start: {self._fmt_ms(summary.get('avg_audio_start_ms'))}",
-            f"- Avg first chunk render ready: {self._fmt_ms(summary.get('avg_render_ready_ms'))}",
-            f"- Avg first chunk ms/frame: {self._fmt_ms(summary.get('avg_spf_ms'))}",
-            f"- Avg plan sync wait: {self._fmt_ms(summary.get('avg_plan_sync_ms'))}",
-            f"- Avg idle sync wait: {self._fmt_ms(summary.get('avg_idle_sync_ms'))}",
-            f"- Avg chunk quality: {self._fmt_ratio(summary.get('avg_chunk_quality'))}",
-            f"- Avg emitted chunk chars: {self._fmt_num(summary.get('avg_chunk_chars'))}",
-        ]
-        if stability is not None:
-            lines.append(f"- Stability: {float(stability):.2f}")
-        lines.extend([
-            "",
-            "Recommended settings:",
-        ])
-        for key in [
-            "tts_backend",
-            "stream_chunk_target_chars",
-            "stream_chunk_max_chars",
-            "stream_first_chunk_min_chars",
-            "stream_force_flush_seconds",
-            "stream_force_flush_later_seconds",
-            "musetalk_chunk_target_chars",
-            "musetalk_chunk_max_chars",
-            "musetalk_quickstart_1_target_chars",
-            "musetalk_quickstart_1_max_chars",
-            "musetalk_quickstart_2_target_chars",
-            "musetalk_quickstart_2_max_chars",
-        ]:
-            if key in settings:
-                lines.append(f"- {key}: {settings[key]}")
-        notes = recommendation.get("notes", []) or []
-        if notes:
-            lines.append("")
-            lines.append("Notes:")
-            for note in notes:
-                lines.append(f"- {note}")
-        if completion_reason:
-            lines.append(f"- Completion reason: {completion_reason}")
-        return "\n".join(lines)
-
-    def _fmt_ms(self, value):
-        if value is None:
-            return "n/a"
-        return f"{float(value):.1f} ms"
-
-    def _fmt_ratio(self, value):
-        if value is None:
-            return "n/a"
-        return f"{float(value):.2f}"
-
-    def _fmt_num(self, value):
-        if value is None:
-            return "n/a"
-        return f"{float(value):.1f}"
-
-    def apply_text_config(self):
-        avatar_mode = self.engine_combo.currentText().lower() if hasattr(self, "engine_combo") else str(RUNTIME_CONFIG.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
-        mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
-        role = self._input_role_value_from_label(self.input_role_combo.currentText())
-        stream_mode = self.stream_mode_combo.currentText() == "On"
-        tts_backend = "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox"
-        musetalk_vram_mode = next(
-            (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
-            "quality",
-        )
-        update_runtime_config("input_mode", mode)
-        update_runtime_config("input_message_role", role)
-        update_runtime_config("stream_mode", stream_mode)
-        update_runtime_config("tts_backend", tts_backend)
-        update_runtime_config("musetalk_vram_mode", musetalk_vram_mode)
-        update_runtime_config("musetalk_avatar_pack_id", str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""))
-        update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
-        update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
-        update_runtime_config("listen_idle_window_seconds", round(float(self.listen_idle_window_spin.value()), 1) if hasattr(self, "listen_idle_window_spin") else 5.0)
-        update_runtime_config("proactive_delay_seconds", round(float(self.proactive_delay_spin.value()), 1) if hasattr(self, "proactive_delay_spin") else 10.0)
-        update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
-        update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
-        update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
-        update_runtime_config("pocket_tts_python", self.pocket_tts_python_edit.text().strip())
-        update_runtime_config("vam_vmc_enabled", self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else True)
-        update_runtime_config("vam_bridge_enabled", self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else True)
-        update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else False))
-        update_runtime_config("vam_timeline_auto_resume", self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else True)
-        update_runtime_config("vam_vmc_host", self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
-        update_runtime_config("vam_vmc_port", int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539))
-        update_runtime_config("vam_root", self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
-        update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
-        update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"))
-        update_runtime_config("vam_target_storable_id", self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
-        update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
-        update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
-        print("[QtGUI] Text Config Updated.")
-
-    def _is_replay_control_action(self, action):
-        raw = str(action or "").strip()
-        return raw in {"replay_last_assistant", "replay_chat_session"} or engine.parse_replay_chat_session_start_index(raw) is not None
-
-    def trigger_replay_from_assistant_index(self, replay_index):
-        replayable_entries = list(engine.collect_replayable_assistant_entries() or [])
-        if not replayable_entries:
-            print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
-            return
-        try:
-            resolved_index = int(replay_index)
-        except Exception:
-            resolved_index = 1
-        resolved_index = max(1, min(resolved_index, len(replayable_entries)))
-        self.trigger_control_action(engine.build_replay_chat_session_from_action(resolved_index))
-
-    def trigger_control_action(self, action):
-        if self._dry_run_is_active():
-            print(f"[QtGUI] Control action '{action}' ignored while Dry Run is active.")
-            return
-        if not self.thread or not self.thread.is_alive():
-            if self._is_replay_control_action(action):
-                replayable = collect_replayable_assistant_messages()
-                if not replayable:
-                    print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
-                    return
-                trigger_manual_action(action)
-                print(f"[QtGUI] Control action: {action} (offline replay bootstrap)")
-                self.start_engine(offline_replay_only=True)
-                return
-            print("[QtGUI] Control panel ignored: engine not running.")
-            return
-        if self._engine_is_offline_replay_only() and action not in {"pause_speech", "skip_speech"} and not self._is_replay_control_action(action):
-            print(f"[QtGUI] Control action '{action}' is unavailable during offline replay mode.")
-            return
-        trigger_manual_action(action)
-        print(f"[QtGUI] Control action: {action}")
-
-    def on_engine_change(self, choice):
-        mode = choice.lower()
-        update_runtime_config("avatar_mode", mode)
-        if mode == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox") and not self.vam_play_audio_in_vam_checkbox.isChecked():
-            self.vam_play_audio_in_vam_checkbox.setChecked(True)
-            update_runtime_config("vam_play_audio_in_vam", True)
-        controls_enabled = mode == "vseeface"
-        for widget in [
-            self.body_combo,
-            self.btn_body_load,
-            self.btn_body_save,
-            self.btn_body_save_as,
-            self.btn_body_delete,
-            self.btn_hand_doctor,
-            self.emotion_combo,
-            self.live_sync_checkbox,
-        ]:
-            widget.setEnabled(controls_enabled)
-        for slider in self.pose_sliders.values():
-            slider.setEnabled(controls_enabled)
-        self.btn_musetalk_preview.setEnabled(mode == "musetalk")
-        if hasattr(self, "btn_musetalk_avatar_focus"):
-            self.btn_musetalk_avatar_focus.setEnabled(mode == "musetalk")
-        self._advisor_context_manual_override = False
-        self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
-        self.update_model_budget_hint()
-        print(f"[QtGUI] Avatar Engine set to {choice}.")
-        self.save_session()
-
-    def toggle_live_sync(self, checked):
-        if self.engine_combo.currentText() != "VSeeFace":
-            return
-        engine.FORCE_EDIT_MODE = not checked
-        status = "LIVE (Brain Controlled)" if checked else "EDITING (Manual)"
-        print(f"[QtGUI] Body Mode: {status}")
-
-    def on_emotion_change(self, choice):
-        engine.EDIT_EMOTION = choice.lower()
-        current_data = AVATAR_PROFILE.get(engine.EDIT_EMOTION, AVATAR_PROFILE["neutral"])
-        for key, slider in self.pose_sliders.items():
-            slider.set_value(current_data.get(key, 0.0))
-        print(f"[QtGUI] Editing Pose: {choice}")
-
-    def refresh_resources(self):
-        self.refresh_model_list_quietly(quiet=False)
-
-        voices = [os.path.basename(path) for path in glob.glob("voices/*.wav")]
-        self.voice_combo.clear()
-        self.voice_combo.addItems(voices or ["No .wav found"])
-        if voices:
-            self.voice_combo.setCurrentIndex(0)
-            update_runtime_config("voice_path", os.path.join("voices", voices[0]))
-
-        self.refresh_preset_list()
-        self.refresh_body_list()
-
-        self.emotional_text.setPlainText(RUNTIME_CONFIG.get("emotional_instructions", ""))
-        self.system_prompt_text.setPlainText(RUNTIME_CONFIG.get("system_prompt", ""))
-        self.pocket_tts_python_edit.setText(str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
-        input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
-        self.input_mode_combo.setCurrentText("Push-to-Talk" if input_mode == "push_to_talk" else "Voice Activation")
-        input_role = str(RUNTIME_CONFIG.get("input_message_role", "user") or "user").lower()
-        self.input_role_combo.setCurrentText(self._input_role_label_from_value(input_role))
-        if hasattr(self, "chat_context_window_spin"):
-            self.chat_context_window_spin.setValue(max(4, int(RUNTIME_CONFIG.get("chat_context_window_messages", 20) or 20)))
-        if hasattr(self, "chat_overflow_policy_combo"):
-            self.chat_overflow_policy_combo.setCurrentText(self._chat_overflow_policy_label_from_value(RUNTIME_CONFIG.get("chat_context_overflow_policy", "rolling_window")))
-        self.stream_mode_combo.setCurrentText("On" if bool(RUNTIME_CONFIG.get("stream_mode", False)) else "Off")
-        tts_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
-        self.tts_backend_combo.setCurrentText("PocketTTS" if tts_backend == "pockettts" else "Chatterbox")
-        vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
-        self.musetalk_vram_combo.setCurrentText(MUSE_VRAM_MODE_LABELS.get(vram_mode, "Quality"))
-        for key, slider in self.brain_sliders.items():
-            slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
-        for key, slider in self.chunking_sliders.items():
-            slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
-        self.on_emotion_change(self.emotion_combo.currentText())
-        self.refresh_performance_profile_list()
-        self.refresh_tutorial_list()
-        self._update_restart_sensitive_controls()
-        self.refresh_dry_run_status()
-        self.update_model_budget_hint()
-        self._publish_addon_event("app.resources_refreshed", {"source": "refresh_resources"})
-
-    def request_model_list_refresh(self, quiet=True, wait_for_reachable=False):
-        provider = self._current_chat_provider_value()
-        if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider:
-            return
-        self._model_refresh_generation = int(getattr(self, "_model_refresh_generation", 0) or 0) + 1
-        refresh_generation = self._model_refresh_generation
-        self._model_refresh_in_flight = True
-        self._model_refresh_provider = provider
-        if hasattr(self, "btn_model_refresh"):
-            self.btn_model_refresh.setEnabled(False)
-            self.btn_model_refresh.setText("Waiting..." if wait_for_reachable else "Refreshing...")
-
-        def worker():
-            models = [self._chat_provider_error_placeholder(provider)]
-            first_attempt = True
-            while True:
-                models = get_chat_models(provider=provider, quiet=quiet if first_attempt else True)
-                error_placeholder = self._chat_provider_error_placeholder(provider)
-                valid_models = [item for item in list(models or []) if item and item != error_placeholder]
-                if valid_models or not wait_for_reachable:
-                    break
-                first_attempt = False
-                time.sleep(1.0)
-            with self._model_refresh_lock:
-                self._pending_model_refresh = list(models or [])
-                self._pending_model_refresh_provider = provider
-                self._pending_model_refresh_generation = refresh_generation
-            QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_refresh", QtCore.Qt.QueuedConnection)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    @QtCore.Slot()
-    def _apply_pending_model_refresh(self):
-        with self._model_refresh_lock:
-            models = list(self._pending_model_refresh or [])
-            provider = str(getattr(self, "_pending_model_refresh_provider", "") or "")
-            refresh_generation = int(getattr(self, "_pending_model_refresh_generation", 0) or 0)
-            self._pending_model_refresh = None
-            self._pending_model_refresh_provider = ""
-            self._pending_model_refresh_generation = 0
-        if provider != self._current_chat_provider_value() or refresh_generation != int(getattr(self, "_model_refresh_generation", 0) or 0):
-            return
-        self._model_refresh_in_flight = False
-        self._model_refresh_provider = ""
-        if hasattr(self, "btn_model_refresh"):
-            self.btn_model_refresh.setEnabled(True)
-            self.btn_model_refresh.setText("Refresh")
-        self.refresh_model_list_quietly(quiet=True, preloaded_models=models)
-
-    def refresh_model_list_quietly(self, quiet=True, preloaded_models=None):
-        if not hasattr(self, "model_combo"):
-            return
-        provider = self._current_chat_provider_value()
-        raw_models = list(preloaded_models or get_chat_models(provider=provider, quiet=quiet))
-        available_catalog = self._set_model_catalog(raw_models)
-        valid_models = [str(entry.get("id") or "") for entry in list(getattr(self, "_all_model_catalog", []) or []) if str(entry.get("id") or "")]
-        self._tutorial_lm_studio_running = bool(valid_models)
-
-        current = str(self.model_combo.currentText() or "").strip()
-        previous_items = [self.model_combo.itemText(i) for i in range(self.model_combo.count())]
-        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
-        filtered_models = [str(entry.get("id") or "") for entry in available_catalog if str(entry.get("id") or "")]
-        if raw_models and not filtered_models and hasattr(self, "model_requires_vision_checkbox") and self.model_requires_vision_checkbox.isChecked():
-            new_items = ["No Vision Models"]
-        else:
-            error_placeholder = self._chat_provider_error_placeholder(provider)
-            new_items = filtered_models or (raw_models if any(str(item or "").strip() == error_placeholder for item in raw_models) else ["No Models"])
-
-        if previous_items == new_items and (not pending_wanted or current == pending_wanted):
-            self.emit_tutorial_event(
-                "model_list_refreshed",
-                {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
-            )
-            if not self._finalize_pending_preset_clean_if_ready():
-                self._refresh_preset_dirty_state()
-            return
-
-        self.model_combo.blockSignals(True)
-        self.model_combo.clear()
-        self.model_combo.addItems(new_items)
-        target_index = 0
-        if filtered_models and current in filtered_models:
-            target_index = filtered_models.index(current)
-        elif filtered_models:
-            wanted = pending_wanted or str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
-            if wanted in filtered_models:
-                target_index = filtered_models.index(wanted)
-        self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
-        self.model_combo.blockSignals(False)
-        selected_model = str(self.model_combo.currentText() or "").strip()
-        if selected_model:
-            update_runtime_config("model_name", selected_model)
-        if pending_wanted and selected_model == pending_wanted:
-            self._pending_restored_model_name = ""
-
-        self.emit_tutorial_event(
-            "model_list_refreshed",
-            {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
-        )
-        self.update_model_budget_hint()
-        if not self._finalize_pending_preset_clean_if_ready():
-            self._refresh_preset_dirty_state()
-
-    def refresh_preset_list(self):
-        current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
-        presets = [Path(path).stem for path in glob.glob("presets/*.json")]
-        self.preset_combo.clear()
-        self.preset_combo.addItems(presets or ["No Presets"])
-        if current and current in presets:
-            self.preset_combo.setCurrentText(current)
-
-    def refresh_body_list(self):
-        bodies = [Path(path).stem for path in glob.glob("body_configs/*.json")]
-        self.body_combo.clear()
-        self.body_combo.addItems(bodies or ["No Configs"])
-
-    def emit_tutorial_event(self, event_name, payload=None):
-        if not hasattr(self, "tutorial_event_bus") or self.tutorial_event_bus is None:
-            return
-        try:
-            self.tutorial_event_bus.emit_event(str(event_name or ""), payload or {})
-        except Exception:
-            pass
-
-    def _tutorial_model_loaded(self):
-        if not hasattr(self, "model_combo"):
-            return False
-        current = str(self.model_combo.currentText() or "").strip()
-        return not self._is_model_catalog_placeholder(current)
-
-    def _tutorial_last_error_text(self):
-        if not hasattr(self, "console_edit"):
-            return ""
-        lines = [line.strip() for line in self.console_edit.toPlainText().splitlines() if line.strip()]
-        error_lines = [
-            line for line in lines[-120:]
-            if any(marker in line for marker in ("ERROR", "Error", "Failed", "CRITICAL", "Traceback", "✗", "Exception"))
-        ]
-        return error_lines[-1] if error_lines else ""
-
-    def get_tutorial_runtime_state(self):
-        return {
-            "lm_studio_running": bool(getattr(self, "_tutorial_lm_studio_running", False)),
-            "model_loaded": self._tutorial_model_loaded(),
-            "engine_running": bool(self.thread and self.thread.is_alive()),
-            "avatar_mode": self.engine_combo.currentText() if hasattr(self, "engine_combo") else "",
-            "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
-            "tts_backend": self.tts_backend_combo.currentText() if hasattr(self, "tts_backend_combo") else "",
-            "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
-            "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
-            "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "dry_run_active": bool((dry_run.get_status() or {}).get("active")),
-            "dry_run_complete": bool((dry_run.get_status() or {}).get("complete")),
-            "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
-            "active_preset": self.preset_combo.currentText() if hasattr(self, "preset_combo") else "",
-            "last_error_text": self._tutorial_last_error_text(),
-        }
-
-    def _detected_gpu_vram_gib(self):
-        try:
-            if nvmlInit and nvmlDeviceGetHandleByIndex and nvmlDeviceGetMemoryInfo:
-                nvmlInit()
-                try:
-                    handle = nvmlDeviceGetHandleByIndex(0)
-                    info = nvmlDeviceGetMemoryInfo(handle)
-                    return float(info.total) / (1024 ** 3)
-                finally:
-                    if nvmlShutdown:
-                        nvmlShutdown()
-        except Exception:
-            pass
-        try:
-            result = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if result.returncode == 0:
-                lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-                if lines:
-                    return float(lines[0]) / 1024.0
-        except Exception:
-            pass
-        try:
-            if hasattr(engine, "torch") and engine.torch.cuda.is_available():
-                props = engine.torch.cuda.get_device_properties(0)
-                return float(props.total_memory) / (1024 ** 3)
-        except Exception:
-            pass
-        return None
-
-    def _current_gpu_memory_snapshot_gib(self):
-        try:
-            if nvmlInit and nvmlDeviceGetHandleByIndex and nvmlDeviceGetMemoryInfo:
-                nvmlInit()
-                try:
-                    handle = nvmlDeviceGetHandleByIndex(0)
-                    info = nvmlDeviceGetMemoryInfo(handle)
-                    return {
-                        "total_gib": float(info.total) / (1024 ** 3),
-                        "free_gib": float(info.free) / (1024 ** 3),
-                        "used_gib": float(info.used) / (1024 ** 3),
-                        "source": "nvml",
-                    }
-                finally:
-                    if nvmlShutdown:
-                        nvmlShutdown()
-        except Exception:
-            pass
-        try:
-            result = subprocess.run(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=memory.used,memory.free,memory.total",
-                    "--format=csv,noheader,nounits",
-                ],
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=5,
-                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-            )
-            if result.returncode == 0:
-                lines = [line.strip() for line in (result.stdout or "").splitlines() if line.strip()]
-                if lines:
-                    first = lines[0]
-                    parts = [part.strip() for part in first.split(",")]
-                    if len(parts) >= 3:
-                        used_mib = float(parts[0])
-                        free_mib = float(parts[1])
-                        total_mib = float(parts[2])
-                        return {
-                            "total_gib": total_mib / 1024.0,
-                            "free_gib": free_mib / 1024.0,
-                            "used_gib": used_mib / 1024.0,
-                            "source": "nvidia-smi",
-                        }
-        except Exception:
-            pass
-        try:
-            if hasattr(engine, "torch") and engine.torch.cuda.is_available():
-                free_bytes, total_bytes = engine.torch.cuda.mem_get_info()
-                free_gib = float(free_bytes) / (1024 ** 3)
-                total_gib = float(total_bytes) / (1024 ** 3)
-                used_gib = max(0.0, total_gib - free_gib)
-                return {
-                    "total_gib": total_gib,
-                    "free_gib": free_gib,
-                    "used_gib": used_gib,
-                    "source": "torch",
-                }
-        except Exception:
-            pass
-        total = self._detected_gpu_vram_gib()
-        if total is None:
-            return None
-        return {
-            "total_gib": total,
-            "free_gib": None,
-            "used_gib": None,
-            "source": "total_only",
-        }
-
-    def _estimate_setup_increment_gib(self):
-        avatar_mode = str(self.engine_combo.currentText() or "").strip().lower() if hasattr(self, "engine_combo") else "musetalk"
-        tts_backend = str(self.tts_backend_combo.currentText() or "").strip().lower() if hasattr(self, "tts_backend_combo") else "pockettts"
-        vram_mode_label = str(self.musetalk_vram_combo.currentText() or "").strip() if hasattr(self, "musetalk_vram_combo") else "Very Low VRAM"
-
-        if avatar_mode == "musetalk":
-            budget = MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB["musetalk"].get(vram_mode_label, 6.5)
-        else:
-            budget = float(MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB.get("vseeface", 0.8))
-        budget += float(MODEL_ADVISOR_TTS_OVERHEAD_GIB.get(tts_backend, 2.0))
-        if hasattr(self, "stream_mode_combo") and self.stream_mode_combo.currentText() == "On":
-            budget += MODEL_ADVISOR_STREAM_OVERHEAD_GIB
-        return budget
-
-    def _recommended_model_budget_gib(self):
-        snapshot = self._current_gpu_memory_snapshot_gib()
-        if not snapshot:
-            return None, None, None, None, None
-        total = float(snapshot.get("total_gib") or 0.0)
-        used_now = snapshot.get("used_gib")
-        free_now = snapshot.get("free_gib")
-        setup_increment = self._estimate_setup_increment_gib()
-        safety_margin = MODEL_ADVISOR_SAFETY_MARGIN_GIB
-        projected_pre_llm_total = None
-        if used_now is not None:
-            if bool(self.thread and self.thread.is_alive()):
-                projected_pre_llm_total = float(used_now)
-            else:
-                projected_pre_llm_total = float(used_now) + float(setup_increment)
-        if projected_pre_llm_total is not None:
-            remaining = max(0.5, total - projected_pre_llm_total - safety_margin)
-        else:
-            remaining = max(0.5, total - float(setup_increment) - safety_margin)
-        return snapshot, remaining, setup_increment, projected_pre_llm_total, safety_margin
-
-    def _parse_lms_estimate_output(self, output):
-        text = str(output or "")
-        gpu_match = re.search(r"Estimated GPU Memory:\s*([0-9.]+)\s*GiB", text, re.IGNORECASE)
-        total_match = re.search(r"Estimated Total Memory:\s*([0-9.]+)\s*GiB", text, re.IGNORECASE)
-        return {
-            "gpu_gib": float(gpu_match.group(1)) if gpu_match else None,
-            "total_gib": float(total_match.group(1)) if total_match else None,
-            "raw": text.strip(),
-        }
-
-    def request_model_estimate(self, model_name):
-        model_name = str(model_name or "").strip()
-        if self._is_model_catalog_placeholder(model_name):
-            return
-        if model_name in self._model_estimate_cache or self._model_estimate_in_flight:
-            return
-        self._model_estimate_in_flight = True
-
-        def worker():
-            payload = {"model": model_name, "estimate": None}
-            try:
-                result = subprocess.run(
-                    ["lms", "load", "--estimate-only", model_name],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=30,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                if result.returncode == 0:
-                    payload["estimate"] = self._parse_lms_estimate_output((result.stdout or "") + "\n" + (result.stderr or ""))
-                else:
-                    payload["estimate"] = {"gpu_gib": None, "total_gib": None, "raw": (result.stdout or "") + "\n" + (result.stderr or "")}
-            except Exception as exc:
-                payload["estimate"] = {"gpu_gib": None, "total_gib": None, "raw": str(exc)}
-            with self._model_estimate_lock:
-                self._pending_model_estimate = payload
-            QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_estimate", QtCore.Qt.QueuedConnection)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def request_model_context_estimates(self, model_name):
-        model_name = str(model_name or "").strip()
-        if self._is_model_catalog_placeholder(model_name):
-            return
-        if model_name in self._model_context_estimate_cache or self._model_context_estimate_in_flight:
-            return
-        self._model_context_estimate_in_flight = True
-
-        def worker():
-            context_lengths = [4096, 8192, 16384, 32768]
-            samples = []
-            for context_length in context_lengths:
-                try:
-                    result = subprocess.run(
-                        ["lms", "load", "--estimate-only", model_name, "--context-length", str(context_length)],
-                        capture_output=True,
-                        text=True,
-                        encoding="utf-8",
-                        errors="replace",
-                        timeout=30,
-                        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                    )
-                    combined = (result.stdout or "") + "\n" + (result.stderr or "")
-                    estimate = self._parse_lms_estimate_output(combined)
-                    if result.returncode == 0 and estimate.get("gpu_gib") is not None:
-                        samples.append({"context_length": context_length, "gpu_gib": float(estimate["gpu_gib"])})
-                except Exception:
-                    continue
-            with self._model_context_estimate_lock:
-                self._pending_model_context_estimate = {"model": model_name, "samples": samples}
-            QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_context_estimate", QtCore.Qt.QueuedConnection)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    def request_single_context_estimate(self, model_name, context_length):
-        model_name = str(model_name or "").strip()
-        try:
-            context_length = int(context_length)
-        except Exception:
-            return
-        if self._is_model_catalog_placeholder(model_name):
-            return
-        cache_key = (model_name, context_length)
-        if cache_key in self._model_single_context_estimate_cache or self._single_context_estimate_in_flight:
-            return
-        self._single_context_estimate_in_flight = True
-
-        def worker():
-            payload = {"model": model_name, "context_length": context_length, "estimate": None}
-            try:
-                result = subprocess.run(
-                    ["lms", "load", "--estimate-only", model_name, "--context-length", str(context_length)],
-                    capture_output=True,
-                    text=True,
-                    encoding="utf-8",
-                    errors="replace",
-                    timeout=30,
-                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-                )
-                combined = (result.stdout or "") + "\n" + (result.stderr or "")
-                estimate = self._parse_lms_estimate_output(combined)
-                payload["estimate"] = estimate if result.returncode == 0 else {"gpu_gib": None, "total_gib": None, "raw": combined}
-            except Exception as exc:
-                payload["estimate"] = {"gpu_gib": None, "total_gib": None, "raw": str(exc)}
-            with self._single_context_estimate_lock:
-                self._pending_single_context_estimate = payload
-            QtCore.QMetaObject.invokeMethod(self, "_apply_pending_single_context_estimate", QtCore.Qt.QueuedConnection)
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    @QtCore.Slot()
-    def _apply_pending_model_estimate(self):
-        with self._model_estimate_lock:
-            payload = dict(self._pending_model_estimate or {})
-            self._pending_model_estimate = None
-        self._model_estimate_in_flight = False
-        model_name = str(payload.get("model") or "").strip()
-        estimate = payload.get("estimate")
-        if model_name:
-            self._model_estimate_cache[model_name] = estimate
-        self.update_model_budget_hint()
-
-    @QtCore.Slot()
-    def _apply_pending_model_context_estimate(self):
-        with self._model_context_estimate_lock:
-            payload = dict(self._pending_model_context_estimate or {})
-            self._pending_model_context_estimate = None
-        self._model_context_estimate_in_flight = False
-        model_name = str(payload.get("model") or "").strip()
-        samples = list(payload.get("samples") or [])
-        if model_name:
-            self._model_context_estimate_cache[model_name] = samples
-        self.update_model_budget_hint()
-
-    @QtCore.Slot()
-    def _apply_pending_single_context_estimate(self):
-        with self._single_context_estimate_lock:
-            payload = dict(self._pending_single_context_estimate or {})
-            self._pending_single_context_estimate = None
-        self._single_context_estimate_in_flight = False
-        model_name = str(payload.get("model") or "").strip()
-        context_length = int(payload.get("context_length") or 0)
-        estimate = payload.get("estimate")
-        if model_name and context_length > 0:
-            self._model_single_context_estimate_cache[(model_name, context_length)] = estimate
-        self.update_model_budget_hint()
-
-    def update_model_budget_hint(self):
-        if not hasattr(self, "model_budget_label") or not hasattr(self, "model_combo"):
-            return
-        snapshot, suggested_budget, setup_increment, projected_pre_llm_total, safety_margin = self._recommended_model_budget_gib()
-        model_name = str(self.model_combo.currentText() or "").strip()
-        provider = self._current_chat_provider_value()
-        stats_lines = []
-        high_baseline_warning = ""
-        available_total_vram = None
-        if snapshot is not None:
-            total_vram = float(snapshot.get("total_gib") or 0.0)
-            available_total_vram = total_vram
-            free_now = snapshot.get("free_gib")
-            used_now = snapshot.get("used_gib")
-            stats_lines.append(f"Total VRAM: {total_vram:.1f} GiB")
-            if free_now is not None and used_now is not None:
-                used_text = f"{used_now:.1f} GiB"
-                if used_now >= 3.0:
-                    used_text = f"<span style=\"color:#ff8f8f; font-weight:700;\">{used_text}</span>"
-                    high_baseline_warning = (
-                        "<span style=\"color:#ff6b6b; font-weight:800;\">"
-                        "Baseline GPU usage is already quite high. "
-                        "For the most reliable estimate, close other GPU-heavy applications and unload any already loaded LM Studio models."
-                        "</span>"
-                    )
-                stats_lines.append(f"In use VRAM: {used_text}")
-            else:
-                stats_lines.append("In use VRAM: unavailable")
-        else:
-            stats_lines.append("Total VRAM: unavailable")
-            stats_lines.append("In use VRAM: unavailable")
-
-        if self._is_model_catalog_placeholder(model_name):
-            summary = self._format_model_advisor_bubbles(stats_lines, [], high_baseline_warning)
-            if high_baseline_warning:
-                summary += ""
-            self.model_budget_label.setText(summary)
-            return
-
-        if provider != "lmstudio":
-            remote_label = self._chat_provider_label_from_value(provider)
-            summary = self._format_model_advisor_bubbles(
-                stats_lines,
-                [
-                    f"Selected chat provider: {remote_label}.",
-                    f"Remote model: {model_name}",
-                    "Local LM Studio VRAM estimates do not apply to hosted providers.",
-                ],
-                "",
-            )
-            self.model_budget_label.setText(summary)
-            return
-
-        estimate = self._model_estimate_cache.get(model_name)
-        if estimate is None:
-            self.request_model_estimate(model_name)
-            self.request_model_context_estimates(model_name)
-            summary = self._format_model_advisor_bubbles(
-                stats_lines,
-                [f"Checking LM Studio estimate for '{model_name}'..."],
-                high_baseline_warning,
-            )
-            self.model_budget_label.setText(summary)
-            return
-
-        gpu_gib = estimate.get("gpu_gib") if isinstance(estimate, dict) else None
-        if gpu_gib is None:
-            summary = self._format_model_advisor_bubbles(
-                stats_lines,
-                [f"LM Studio estimate for '{model_name}' is unavailable."],
-                high_baseline_warning,
-            )
-            self.model_budget_label.setText(summary)
-            return
-
-        context_samples = self._model_context_estimate_cache.get(model_name)
-        if context_samples is None:
-            self.request_model_context_estimates(model_name)
-
-        recommended_context = None
-        estimate_lines = []
-        if suggested_budget is not None and context_samples:
-            for sample in sorted(context_samples, key=lambda item: int(item.get("context_length", 0) or 0)):
-                if float(sample.get("gpu_gib", 0.0) or 0.0) <= suggested_budget:
-                    recommended_context = int(sample.get("context_length", 0) or 0)
-        if recommended_context and hasattr(self, "model_context_input") and not self._advisor_context_manual_override:
-            current_context_value = int(self.model_context_input.value())
-            if current_context_value != int(recommended_context):
-                self._advisor_context_updating = True
-                try:
-                    self.model_context_input.setValue(int(recommended_context))
-                finally:
-                    self._advisor_context_updating = False
-
-        verdict = "Comfortable for the current setup."
-        if suggested_budget is not None:
-            delta = gpu_gib - suggested_budget
-            if delta > 0.75:
-                verdict = "Likely beyond the recommended budget."
-            elif delta > 0.15:
-                verdict = "Slightly above the recommended budget."
-            elif delta > -0.4:
-                verdict = "Tight but workable."
-            elif delta > -1.0:
-                verdict = "Should fit, but still high-pressure."
-
-        chosen_context = int(self.model_context_input.value()) if hasattr(self, "model_context_input") else int(recommended_context or 8192)
-        exact_context_estimate = None
-        if context_samples:
-            matching_sample = next(
-                (sample for sample in context_samples if int(sample.get("context_length", 0) or 0) == chosen_context),
-                None,
-            )
-            if matching_sample is not None:
-                exact_context_estimate = float(matching_sample.get("gpu_gib", 0.0) or 0.0)
-        if exact_context_estimate is None:
-            cached_exact = self._model_single_context_estimate_cache.get((model_name, chosen_context))
-            if isinstance(cached_exact, dict) and cached_exact.get("gpu_gib") is not None:
-                exact_context_estimate = float(cached_exact.get("gpu_gib") or 0.0)
-            elif chosen_context > 0:
-                self.request_single_context_estimate(model_name, chosen_context)
-
-        exact_context_pending = exact_context_estimate is None
-        estimated_total_for_context = None
-        if exact_context_estimate is not None:
-            estimated_total_for_context = (
-                float(projected_pre_llm_total or 0.0) + float(exact_context_estimate)
-                if projected_pre_llm_total is not None
-                else float(exact_context_estimate)
-            )
-        else:
-            estimated_total_for_context = (
-                float(projected_pre_llm_total or 0.0) + float(gpu_gib)
-                if projected_pre_llm_total is not None
-                else float(gpu_gib)
-            )
-
-        if exact_context_pending:
-            estimate_lines.append("Estimated VRAM usage with current settings: checking selected context window...")
-            if recommended_context:
-                estimate_lines.append(f"- Recommended max context window: {recommended_context:,} tokens")
-            else:
-                estimate_lines.append("- Recommended max context window: checking...")
-        elif available_total_vram is not None and estimated_total_for_context > available_total_vram:
-            estimate_lines.append(
-                f"Estimated VRAM usage with current settings: {estimated_total_for_context:.1f} GiB "
-                f"<span style=\"color:#ff8f8f; font-weight:700;\">(more than available)</span>"
-            )
-        else:
-            estimate_lines.append("Estimated VRAM usage with current settings:")
-            estimate_lines.append(
-                f"- {chosen_context:,} token context window: {estimated_total_for_context:.1f} GiB"
-            )
-            if recommended_context:
-                estimate_lines.append(f"- Recommended max context window: {recommended_context:,} tokens")
-            elif context_samples is None or exact_context_estimate is None:
-                estimate_lines.append("- Recommended max context window: checking...")
-        estimate_lines.append(f"Assessment: {verdict}")
-        summary = self._format_model_advisor_bubbles(stats_lines, estimate_lines, high_baseline_warning)
-        self.model_budget_label.setText(summary)
-
-    def _format_model_advisor_bubbles(self, stats_lines, estimate_lines, warning_html=""):
-        def bubble(lines, background, border):
-            if not lines:
-                return ""
-            return (
-                f"<div style=\"margin:0 0 8px 0; padding:8px 10px; "
-                f"background:{background}; border:1px solid {border}; border-radius:8px;\">"
-                + "<br>".join(lines)
-                + "</div>"
-            )
-
-        parts = [
-            bubble(stats_lines, "#111924", "#243243"),
-            bubble(estimate_lines, "#101722", "#2b3950"),
-        ]
-        if warning_html:
-            parts.append(
-                f"<div style=\"margin:0 0 8px 0; padding:8px 10px; "
-                f"background:#2a1214; border:1px solid #7a2f36; border-radius:8px;\">{warning_html}</div>"
-            )
-        return "".join(part for part in parts if part)
-
-    def load_performance_profile_by_id(self, name):
-        if not name:
-            return False
-        payload = dry_run.load_performance_profile(name)
-        if not payload:
-            print(f"[QtGUI] Could not load performance profile: {name}")
-            return False
-        for combo_name in ("performance_profile_combo", "chunking_profile_combo"):
-            combo = getattr(self, combo_name, None)
-            if combo is None:
-                continue
-            for index in range(combo.count()):
-                if combo.itemData(index) == name:
-                    combo.setCurrentIndex(index)
-                    break
-        raw_settings = dict(payload.get("settings_to_apply") or {})
-        settings = {key: value for key, value in raw_settings.items() if key in PERFORMANCE_PROFILE_APPLY_KEYS}
-        self._apply_runtime_settings_dict(settings)
-        self.save_session()
-        print(f"[QtGUI] Loaded performance profile: {name}")
-        self.emit_tutorial_event("performance_profile_loaded", {"name": name})
-        self.refresh_dry_run_status()
-        return True
-
-    def apply_safe_tutorial_defaults(self):
-        if hasattr(self, "engine_combo"):
-            self.engine_combo.setCurrentText("MuseTalk")
-        if hasattr(self, "stream_mode_combo"):
-            self.stream_mode_combo.setCurrentText("On")
-        if hasattr(self, "musetalk_vram_combo"):
-            self.musetalk_vram_combo.setCurrentText("Very Low VRAM")
-        if hasattr(self, "tts_backend_combo"):
-            self.tts_backend_combo.setCurrentText("PocketTTS")
-        self._ensure_pocket_tts_python_path()
-        self.save_session()
-        print("[QtGUI] Applied safe tutorial defaults.")
-        self.emit_tutorial_event("safe_defaults_applied", self.get_tutorial_runtime_state())
-
-    def refresh_tutorial_list(self):
-        if not hasattr(self, "tutorials_list"):
-            return
-        tutorials = tutorial_framework.list_tutorials()
-        self.tutorials_list.clear()
-        for item in tutorials:
-            label = f"{item['title']} ({item['step_count']} steps)"
-            list_item = QtWidgets.QListWidgetItem(label)
-            list_item.setData(QtCore.Qt.UserRole, item["id"])
-            list_item.setToolTip(item.get("description", ""))
-            self.tutorials_list.addItem(list_item)
-        if tutorials:
-            self.tutorials_list.setCurrentRow(0)
-            self.btn_tutorial_start.setEnabled(True)
-        else:
-            self.tutorial_description.setPlainText("No tutorials found in the tutorials folder.")
-            self.btn_tutorial_start.setEnabled(False)
-
-    def on_tutorial_selection_changed(self, row):
-        if row < 0 or not hasattr(self, "tutorials_list"):
-            if hasattr(self, "tutorial_description"):
-                self.tutorial_description.clear()
-            return
-        item = self.tutorials_list.item(row)
-        tutorial_id = item.data(QtCore.Qt.UserRole) if item else ""
-        payload = tutorial_framework.load_tutorial(tutorial_id)
-        if not payload:
-            self.tutorial_description.setPlainText("Could not load the selected tutorial.")
-            return
-        text = (
-            f"{payload.get('title', tutorial_id)}\n\n"
-            f"{payload.get('description', '')}\n\n"
-            f"Steps: {len(payload.get('steps') or [])}"
-        )
-        self.tutorial_description.setPlainText(text.strip())
-
-    def start_selected_tutorial(self):
-        if not hasattr(self, "tutorials_list") or self.tutorials_list.currentRow() < 0:
-            print("[QtGUI] No tutorial selected.")
-            return
-        item = self.tutorials_list.currentItem()
-        tutorial_id = item.data(QtCore.Qt.UserRole) if item else ""
-        self.start_tutorial(tutorial_id)
-
-    def start_tutorial(self, tutorial_id):
-        payload = tutorial_framework.load_tutorial(tutorial_id)
-        if not payload:
-            print(f"[QtGUI] Could not load tutorial: {tutorial_id}")
-            return
-        if self.active_tutorial_overlay is not None:
-            try:
-                self.active_tutorial_overlay.finish("restarted")
-            except Exception:
-                pass
-        self.active_tutorial_overlay = tutorial_framework.TutorialOverlay(self, payload, self)
-        self.active_tutorial_overlay.finished.connect(self.on_tutorial_finished)
-        self.active_tutorial_overlay.start()
-        self.emit_tutorial_event("tutorial_started", {"id": payload.get("id", tutorial_id), "title": payload.get("title", tutorial_id)})
-        print(f"[QtGUI] Tutorial started: {payload.get('title', tutorial_id)}")
-
-    def on_tutorial_finished(self, reason):
-        if self.active_tutorial_overlay is not None:
-            self.active_tutorial_overlay.deleteLater()
-            self.active_tutorial_overlay = None
-        self.emit_tutorial_event("tutorial_finished", {"reason": reason})
-        print(f"[QtGUI] Tutorial finished: {reason}")
-
-    def maybe_prompt_first_run_tutorial(self):
-        if not self.first_run:
-            return
-        self.first_run = False
-        self.save_session()
-        choice = QtWidgets.QMessageBox.question(
-            self,
-            "Quick Start Tutorial",
-            "Would you like to start the interactive First Run tutorial?",
-            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-            QtWidgets.QMessageBox.Yes,
-        )
-        if choice == QtWidgets.QMessageBox.Yes:
-            self.start_tutorial("first_run")
-
-    def load_preset(self):
-        name = self.preset_combo.currentText()
-        if not name or name in {"No Presets", "Select Preset..."}:
-            return
-        path = Path("presets") / f"{name}.json"
-        if not path.exists():
-            return
-        scroll_state = (
-            self._capture_vertical_scroll_state(self.system_shaping_scroll)
-            if hasattr(self, "system_shaping_scroll")
-            else None
-        )
-        update_runtime_config("active_preset_name", name)
-        data = json.loads(path.read_text(encoding="utf-8"))
-        preset_model_name = str(data.get("model_name") or "").strip()
-        preset_provider_name = chat_providers.normalize_provider_id(
-            data.get("chat_provider", self._current_chat_provider_value()),
-            fallback=chat_providers.DEFAULT_PROVIDER_ID,
-        )
-        self._queue_preset_clean_after_model_refresh(name, preset_provider_name, preset_model_name)
-        if preset_model_name:
-            self._pending_restored_model_name = preset_model_name
-            update_runtime_config("model_name", preset_model_name)
-        if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
-            self._set_chat_provider_selection(data["chat_provider"])
-            self.on_chat_provider_changed(self.chat_provider_combo.currentText())
-        if "chat_provider_settings" in data:
-            update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
-            self._refresh_chat_provider_card()
-        update_runtime_config("chat_provider_generation_settings", data.get("chat_provider_generation_settings", {}))
-        self._refresh_chat_provider_generation_card()
-        if preset_model_name:
-            self._apply_saved_model_name(preset_model_name)
-        if "voice_file" in data:
-            index = self.voice_combo.findText(data["voice_file"])
-            if index >= 0:
-                self.voice_combo.setCurrentIndex(index)
-        if "input_mode" in data:
-            mode_text = "Push-to-Talk" if str(data["input_mode"]).lower() == "push_to_talk" else "Voice Activation"
-            self.input_mode_combo.setCurrentText(mode_text)
-        if "input_message_role" in data:
-            role_text = self._input_role_label_from_value(data["input_message_role"])
-            self.input_role_combo.setCurrentText(role_text)
-        if "stream_mode" in data:
-            self.stream_mode_combo.setCurrentText("On" if bool(data["stream_mode"]) else "Off")
-        if "musetalk_loop_fade_ms" in data and hasattr(self, "musetalk_loop_fade_spin"):
-            fade_ms = max(0, int(data["musetalk_loop_fade_ms"] or 0))
-            self.musetalk_loop_fade_spin.setValue(fade_ms)
-            self.on_musetalk_loop_fade_changed(fade_ms)
-        if "visual_reply_mode" in data and hasattr(self, "visual_reply_mode_combo"):
-            mode_text = self._visual_reply_mode_label_from_value(data["visual_reply_mode"])
-            self.visual_reply_mode_combo.setCurrentText(mode_text)
-            self.on_visual_reply_mode_changed(mode_text)
-        if "visual_reply_provider" in data and hasattr(self, "visual_reply_provider_combo"):
-            provider_text = self._visual_reply_provider_label_from_value(data["visual_reply_provider"])
-            self.visual_reply_provider_combo.setCurrentText(provider_text)
-            self.on_visual_reply_provider_changed(provider_text)
-        if "visual_reply_size" in data and hasattr(self, "visual_reply_size_combo"):
-            size_text = self._normalize_visual_reply_size(data["visual_reply_size"])
-            self.visual_reply_size_combo.setCurrentText(self._visual_reply_size_label_from_value(size_text))
-            self.on_visual_reply_size_changed(size_text)
-        if "visual_reply_model" in data and hasattr(self, "visual_reply_model_edit"):
-            self.visual_reply_model_edit.setText(str(data["visual_reply_model"] or "gpt-image-1"))
-            self.on_visual_reply_model_changed()
-        if "visual_reply_auto_show_dock" in data and hasattr(self, "visual_reply_auto_show_checkbox"):
-            auto_show = bool(data["visual_reply_auto_show_dock"])
-            self.visual_reply_auto_show_checkbox.setChecked(auto_show)
-            self.on_visual_reply_auto_show_changed(auto_show)
-        if "sensory_pingpong_enabled" in data and hasattr(self, "sensory_pingpong_checkbox"):
-            pingpong_enabled = bool(data["sensory_pingpong_enabled"])
-            self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)
-            self.on_sensory_pingpong_enabled_changed(pingpong_enabled)
-        if "sensory_allow_hidden_proactive_speech" in data and hasattr(self, "sensory_allow_hidden_proactive_checkbox"):
-            proactive_enabled = bool(data["sensory_allow_hidden_proactive_speech"])
-            self.sensory_allow_hidden_proactive_checkbox.setChecked(proactive_enabled)
-            self.on_sensory_allow_hidden_proactive_changed(proactive_enabled)
-        if "sensory_allow_hidden_visual_generation" in data and hasattr(self, "sensory_allow_hidden_visual_checkbox"):
-            visual_enabled = bool(data["sensory_allow_hidden_visual_generation"])
-            self.sensory_allow_hidden_visual_checkbox.setChecked(visual_enabled)
-            self.on_sensory_allow_hidden_visual_changed(visual_enabled)
-        if "sensory_pingpong_history_depth" in data and hasattr(self, "sensory_pingpong_history_spin"):
-            pingpong_depth = max(0, int(data["sensory_pingpong_history_depth"] or 0))
-            self.sensory_pingpong_history_spin.setValue(pingpong_depth)
-            self.on_sensory_pingpong_history_depth_changed(pingpong_depth)
-        if "sensory_pingpong_prompt" in data and hasattr(self, "sensory_pingpong_prompt_text"):
-            prompt_text = str(data["sensory_pingpong_prompt"] or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")).strip() or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")
-            self.sensory_pingpong_prompt_text.setPlainText(prompt_text)
-            update_runtime_config("sensory_pingpong_prompt", prompt_text)
-        if "sensory_pingpong_source_prompts" in data:
-            prompt_map = self._normalize_sensory_pingpong_source_prompt_map(data.get("sensory_pingpong_source_prompts", {})) if hasattr(self, "_normalize_sensory_pingpong_source_prompt_map") else dict(data.get("sensory_pingpong_source_prompts", {}) or {})
-            update_runtime_config("sensory_pingpong_source_prompts", prompt_map)
-            self._refresh_sensory_feedback_source_tabs()
-        if "sensory_feedback_source" in data and hasattr(self, "sensory_feedback_source_combo"):
-            source_value = str(data["sensory_feedback_source"] or "off")
-            self.refresh_sensory_feedback_source_options(selected_value=source_value)
-            self.on_sensory_feedback_source_changed(source_value)
-        if "sensory_feedback_interval_seconds" in data and hasattr(self, "sensory_feedback_interval_spin"):
-            interval_seconds = max(2.0, float(data["sensory_feedback_interval_seconds"] or 7.0))
-            self.sensory_feedback_interval_spin.setValue(interval_seconds)
-            self.on_sensory_feedback_interval_changed(interval_seconds)
-        if "tts_backend" in data:
-            backend_text = "PocketTTS" if str(data["tts_backend"]).lower() == "pockettts" else "Chatterbox"
-            self.tts_backend_combo.setCurrentText(backend_text)
-            self.on_tts_backend_change(backend_text)
-        if "tts_seed" in data and hasattr(self, "tts_seed_spin"):
-            self.tts_seed_spin.setValue(max(0, int(data["tts_seed"] or 0)))
-            self.on_tts_seed_changed(self.tts_seed_spin.value())
-        if "tts_temperature" in data and hasattr(self, "tts_temperature_spin"):
-            self.tts_temperature_spin.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
-            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
-        if "tts_top_p" in data and hasattr(self, "tts_top_p_spin"):
-            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
-            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
-        if "tts_top_k" in data and hasattr(self, "tts_top_k_spin"):
-            self.tts_top_k_spin.setValue(max(0, int(data["tts_top_k"] or 0)))
-            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
-        if "tts_repeat_penalty" in data and hasattr(self, "tts_repeat_penalty_spin"):
-            self.tts_repeat_penalty_spin.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
-            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
-        if "tts_min_p" in data and hasattr(self, "tts_min_p_spin"):
-            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
-            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
-        if "tts_normalize_loudness" in data and hasattr(self, "tts_normalize_loudness_checkbox"):
-            self.tts_normalize_loudness_checkbox.setChecked(bool(data["tts_normalize_loudness"]))
-            self.on_tts_normalize_loudness_changed(bool(data["tts_normalize_loudness"]))
-        if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
-            self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
-            self.on_allow_proactive_replies_changed(bool(data["allow_proactive_replies"]))
-        if "require_first_user_before_proactive" in data and hasattr(self, "require_first_user_checkbox"):
-            self.require_first_user_checkbox.setChecked(bool(data["require_first_user_before_proactive"]))
-            self.on_require_first_user_before_proactive_changed(bool(data["require_first_user_before_proactive"]))
-        if "listen_idle_window_seconds" in data and hasattr(self, "listen_idle_window_spin"):
-            listen_seconds = max(0.5, float(data["listen_idle_window_seconds"] or 5.0))
-            self.listen_idle_window_spin.setValue(listen_seconds)
-            self.on_listen_idle_window_changed(listen_seconds)
-        if "proactive_delay_seconds" in data and hasattr(self, "proactive_delay_spin"):
-            proactive_seconds = max(0.5, float(data["proactive_delay_seconds"] or 10.0))
-            self.proactive_delay_spin.setValue(proactive_seconds)
-            self.on_proactive_delay_changed(proactive_seconds)
-        if "chat_context_window_messages" in data and hasattr(self, "chat_context_window_spin"):
-            context_messages = max(4, int(data["chat_context_window_messages"] or 20))
-            self.chat_context_window_spin.setValue(context_messages)
-            self.on_chat_context_window_changed(context_messages)
-        if "stored_chat_history_limit" in data and hasattr(self, "stored_chat_history_limit_spin"):
-            stored_limit = max(0, int(data["stored_chat_history_limit"] or 0))
-            self.stored_chat_history_limit_spin.setValue(stored_limit)
-            self.on_stored_chat_history_limit_changed(stored_limit)
-        if "chat_context_overflow_policy" in data and hasattr(self, "chat_overflow_policy_combo"):
-            policy_text = self._chat_overflow_policy_label_from_value(data["chat_context_overflow_policy"])
-            self.chat_overflow_policy_combo.setCurrentText(policy_text)
-            self.on_chat_overflow_policy_changed(policy_text)
-        if "musetalk_avatar_pack_id" in data and hasattr(self, "musetalk_avatar_pack_combo"):
-            self.refresh_musetalk_avatar_pack_list(selected_pack_id=data["musetalk_avatar_pack_id"])
-            for index in range(self.musetalk_avatar_pack_combo.count()):
-                if str(self.musetalk_avatar_pack_combo.itemData(index) or "") == str(data["musetalk_avatar_pack_id"] or ""):
-                    self.musetalk_avatar_pack_combo.setCurrentIndex(index)
-                    break
-            self.on_musetalk_avatar_pack_change(self.musetalk_avatar_pack_combo.currentText())
-        if "pocket_tts_python" in data:
-            preset_python = str(data["pocket_tts_python"] or "").strip()
-            if preset_python:
-                self.pocket_tts_python_edit.setText(preset_python)
-                self.on_pocket_tts_python_changed()
-            elif str(data.get("tts_backend", "")).lower() == "pockettts":
-                current_python = self.pocket_tts_python_edit.text().strip()
-                if current_python:
-                    print(
-                        "[QtGUI] Preset requested PocketTTS but did not include a PocketTTS Python path. "
-                        f"Keeping current path: {current_python}"
-                    )
-                else:
-                    self._ensure_pocket_tts_python_path()
-        elif str(data.get("tts_backend", "")).lower() == "pockettts":
-            self._ensure_pocket_tts_python_path()
-        self.emotional_text.setPlainText(data.get("emotional_instructions", ""))
-        self.system_prompt_text.setPlainText(data.get("system_prompt", ""))
-        for key, slider in self.brain_sliders.items():
-            if key in data:
-                slider.set_value(data[key])
-                self.update_brain_value(key, data[key], key == "top_k")
-        if "limit_response_length" in data:
-            self.limit_response_checkbox.setChecked(bool(data["limit_response_length"]))
-            self.on_limit_response_length_changed(bool(data["limit_response_length"]))
-        if "max_response_tokens" in data:
-            tokens = max(32, int(data["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
-            self.max_response_tokens_spin.setValue(tokens)
-            self.on_max_response_tokens_changed(tokens)
-        self._refresh_chat_provider_generation_card()
-        if self._addon_manager is not None:
-            try:
-                self._addon_manager.import_preset_state(data)
-            except Exception as exc:
-                print(f"⚠️ [Addons] Failed to import preset addon state: {exc}")
-        if hasattr(self, "_refresh_sensory_feedback_source_tabs"):
-            try:
-                self._refresh_sensory_feedback_source_tabs()
-            except Exception:
-                pass
-        if hasattr(self, "_refresh_addon_group_tabs"):
-            try:
-                self._refresh_addon_group_tabs()
-            except Exception:
-                pass
-        print(f"[QtGUI] Loading preset: {name}...")
-        self.emit_tutorial_event("preset_loaded", {"name": name})
-        self._finalize_pending_preset_clean_if_ready()
-        self.save_session()
-        self._restore_system_shaping_scroll_state(scroll_state)
-        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
-        QtCore.QTimer.singleShot(150, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
-
-    def save_preset_dialog(self):
-        name = QtInputDialog.get_text("Save Preset", "Enter Preset Name:", self)
-        if name:
-            self.save_preset(name)
-
-    def save_current_preset(self):
-        name = self.preset_combo.currentText()
-        if not name or name in {"No Presets", "Select Preset..."}:
-            self.save_preset_dialog()
-            return
-        self.save_preset(name)
-
-    def save_preset(self, name):
-        data = self._build_preset_payload(ensure_pocket_tts_path=True)
-        path = Path("presets") / f"{name}.json"
-        path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-        self.refresh_preset_list()
-        index = self.preset_combo.findText(name)
-        if index >= 0:
-            self.preset_combo.setCurrentIndex(index)
-        self._update_preset_reference_from_selection(name)
-        print(f"[QtGUI] Saved preset: {path}")
-        self.save_session()
-
-    def delete_current_preset(self):
-        name = self.preset_combo.currentText()
-        if not name or name in {"No Presets", "Select Preset..."}:
-            return
-        if QtWidgets.QMessageBox.question(self, "Delete Preset", f"Delete '{name}'?") != QtWidgets.QMessageBox.Yes:
-            return
-        path = Path("presets") / f"{name}.json"
-        if path.exists():
-            path.unlink()
-        self.refresh_preset_list()
-        print(f"[QtGUI] Deleted preset: {path}")
-
-    def save_body_dialog(self):
-        name = QtInputDialog.get_text("Save Body Config", "Enter Body Config Name:", self)
-        if name:
-            self.save_body_config(name)
-
-    def save_current_body(self):
-        name = self.body_combo.currentText()
-        if not name or name == "No Configs":
-            self.save_body_dialog()
-            return
-        self.save_body_config(name)
-
-    def save_body_config(self, name):
-        data = {
-            "profile": AVATAR_PROFILE,
-            "hands": HAND_CALIBRATION,
-        }
-        path = Path("body_configs") / f"{name}.json"
-        path.write_text(json.dumps(data, indent=4), encoding="utf-8")
-        self.refresh_body_list()
-        index = self.body_combo.findText(name)
-        if index >= 0:
-            self.body_combo.setCurrentIndex(index)
-        print(f"[QtGUI] Saved Full Body & Hands: {path}")
-        self.save_session()
-
-    def load_body_config_from_combo(self):
-        name = self.body_combo.currentText()
-        if not name or name == "No Configs":
-            return
-        path = Path("body_configs") / f"{name}.json"
-        if not path.exists():
-            return
-        data = json.loads(path.read_text(encoding="utf-8"))
-        if "profile" in data:
-            AVATAR_PROFILE.update(data["profile"])
-            if "hands" in data:
-                engine.HAND_CALIBRATION.update(data["hands"])
-        else:
-            AVATAR_PROFILE.update(data)
-        self.on_emotion_change(self.emotion_combo.currentText())
-        print(f"[QtGUI] Loading Config: {name}...")
-        self.save_session()
-
-    def delete_current_body(self):
-        name = self.body_combo.currentText()
-        if not name or name in {"No Configs", "Default"}:
-            return
-        if QtWidgets.QMessageBox.question(self, "Delete Body Config", f"Delete '{name}'?") != QtWidgets.QMessageBox.Yes:
-            return
-        path = Path("body_configs") / f"{name}.json"
-        if path.exists():
-            path.unlink()
-        self.refresh_body_list()
-        print(f"[QtGUI] Deleted body config: {path}")
-
-    def open_hand_debugger(self):
-        dialog = HandDoctorDialog(self, self)
-        dialog.show()
-        dialog.raise_()
-        dialog.activateWindow()
-        self.hand_doctor_dialog = dialog
-
-    def show_musetalk_preview(self):
-        if self.engine_combo.currentText() != "MuseTalk":
-            return
-        if self._musetalk_avatar_focus_active:
-            stage_window = self._ensure_musetalk_stage_window()
-            self._attach_musetalk_preview_to_host("stage")
-            stage_window.show()
-            stage_window.raise_()
-            stage_window.activateWindow()
-        else:
-            self._attach_musetalk_preview_to_host("dock")
-            self.preview_dock.show()
-            self.preview_dock.raise_()
-        self.embedded_musetalk_preview.show()
-        if hasattr(self.embedded_musetalk_preview, "set_focus_mode"):
-            self.embedded_musetalk_preview.set_focus_mode(bool(self._musetalk_avatar_focus_active))
-        if self.active_tutorial_overlay is not None:
-            try:
-                self.active_tutorial_overlay.raise_()
-                self.active_tutorial_overlay.panel.raise_()
-            except Exception:
-                pass
-        print("[QtGUI] MuseTalk preview dock shown.")
-
-    def enter_musetalk_avatar_focus(self):
-        if self.engine_combo.currentText() != "MuseTalk":
-            return
-        self._musetalk_avatar_focus_active = True
-        self._musetalk_main_window_was_maximized = bool(self.isMaximized())
-        self._musetalk_main_window_was_fullscreen = bool(self.isFullScreen())
-        if hasattr(self, "btn_musetalk_avatar_focus"):
-            self.btn_musetalk_avatar_focus.setText("Exit Avatar Focus")
-        if hasattr(self, "embedded_musetalk_preview"):
-            self.embedded_musetalk_preview.set_focus_mode(True)
-        self._attach_musetalk_preview_to_host("stage")
-        if hasattr(self, "preview_dock"):
-            self.preview_dock.hide()
-        stage_window = self._ensure_musetalk_stage_window()
-        self._sync_musetalk_stage_window_geometry_from_preview()
-        stage_window.show()
-        stage_window.raise_()
-        stage_window.activateWindow()
-        self.hide()
-        print("[QtGUI] MuseTalk avatar focus entered.")
-
-    def exit_musetalk_avatar_focus(self, *, raise_main=False):
-        was_active = bool(self._musetalk_avatar_focus_active)
-        self._musetalk_avatar_focus_active = False
-        if hasattr(self, "btn_musetalk_avatar_focus"):
-            self.btn_musetalk_avatar_focus.setText("Avatar Focus")
-        if hasattr(self, "embedded_musetalk_preview"):
-            self.embedded_musetalk_preview.set_focus_mode(False)
-        self._attach_musetalk_preview_to_host("dock")
-        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
-            self._musetalk_stage_window.allow_internal_close(True)
-            self._musetalk_stage_window.hide()
-            self._musetalk_stage_window.allow_internal_close(False)
-        if hasattr(self, "preview_dock"):
-            self.preview_dock.show()
-        if hasattr(self, "visual_reply_dock"):
-            try:
-                self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
-            except Exception:
-                pass
-        if raise_main or was_active or not self.isVisible():
-            if self._musetalk_main_window_was_fullscreen:
-                self.showFullScreen()
-            elif self._musetalk_main_window_was_maximized:
-                self.showMaximized()
-            else:
-                self.showNormal()
-            self.raise_()
-            self.activateWindow()
-        if was_active:
-            print("[QtGUI] MuseTalk avatar focus exited.")
-
-    def toggle_musetalk_avatar_focus(self):
-        if self._musetalk_avatar_focus_active:
-            self.exit_musetalk_avatar_focus(raise_main=True)
-        else:
-            self.enter_musetalk_avatar_focus()
-
-    def show_main_interface_from_musetalk_focus(self):
-        self.exit_musetalk_avatar_focus(raise_main=True)
-
-    def stop_musetalk_preview(self):
-        self.exit_musetalk_avatar_focus(raise_main=False)
-        if hasattr(self, "preview_dock"):
-            self.preview_dock.hide()
-        if hasattr(self, "_musetalk_stage_window") and self._musetalk_stage_window is not None:
-            self._musetalk_stage_window.allow_internal_close(True)
-            self._musetalk_stage_window.hide()
-            self._musetalk_stage_window.allow_internal_close(False)
-        if hasattr(self, "embedded_musetalk_preview"):
-            self.embedded_musetalk_preview.reset_preview()
-
-    def show_visual_reply_dock(self):
-        if hasattr(self, "visual_reply_dock"):
-            self.visual_reply_dock.show()
-            self.visual_reply_dock.raise_()
-        if hasattr(self, "visual_reply_panel"):
-            self.visual_reply_panel.show()
-        print("[QtGUI] Visual Reply dock shown.")
-
-    def clear_visual_reply(self, status_text="Visual Reply idle", detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.", *, auto_show=False):
-        panel = getattr(self, "visual_reply_panel", None)
-        if panel is None:
-            return False
-        panel.clear_visual_reply(status_text=status_text, detail_text=detail_text)
-        shared_state.set_current_visual_reply_data(
-            {
-                "status": "idle",
-                "status_text": str(status_text or "Visual Reply idle"),
-                "detail_text": str(detail_text or "No visual reply yet.\nWhen NC creates an image, it will appear here."),
-                "image_path": "",
-                "caption": "",
-                "request_id": "",
-                "updated_at": time.time(),
-            }
-        )
-        if auto_show:
-            self.show_visual_reply_dock()
-        return True
-
-    def set_visual_reply_loading(self, status_text="Visual Reply generating...", detail_text="Preparing image...", *, auto_show=True):
-        panel = getattr(self, "visual_reply_panel", None)
-        if panel is None:
-            return False
-        panel.set_loading_state(status_text=status_text, detail_text=detail_text)
-        shared_state.set_current_visual_reply_data(
-            {
-                "status": "loading",
-                "status_text": str(status_text or "Visual Reply generating..."),
-                "detail_text": str(detail_text or "Preparing image..."),
-                "image_path": "",
-                "caption": "",
-                "request_id": "",
-                "updated_at": time.time(),
-            }
-        )
-        if auto_show:
-            self.show_visual_reply_dock()
-        return True
-
-    def show_visual_reply_image(self, image_path, caption="", status_text="Visual Reply", *, auto_show=True):
-        panel = getattr(self, "visual_reply_panel", None)
-        if panel is None:
-            return False
-        loaded = bool(panel.show_image(image_path, status_text=status_text, caption=caption))
-        if loaded:
-            resolved_caption = str(getattr(panel, "current_caption", "") or "").strip()
-            shared_state.set_current_visual_reply_data(
-                {
-                    "status": "ready",
-                    "status_text": str(status_text or "Visual Reply"),
-                    "detail_text": "",
-                    "image_path": str(image_path or ""),
-                    "caption": resolved_caption,
-                    "request_id": "",
-                    "updated_at": time.time(),
-                }
-            )
-        if loaded and auto_show:
-            self.show_visual_reply_dock()
-        return loaded
-
-    def set_visual_reply_caption(self, caption=""):
-        panel = getattr(self, "visual_reply_panel", None)
-        if panel is None:
-            return False
-        updated = bool(panel.set_caption(caption))
-        if updated:
-            shared_state.update_current_visual_reply_data(caption=str(caption or ""))
-        return updated
-
-    def prompt_visual_reply_image(self):
-        panel = getattr(self, "visual_reply_panel", None)
-        current_image_path = str(getattr(panel, "current_image_path", "") or "").strip()
-        start_dir = str(Path(current_image_path).parent) if current_image_path else str(Path.cwd())
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(
-            self,
-            "Load Visual Reply Image",
-            start_dir,
-            "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)",
-        )
-        if not path:
-            return False
-        loaded = self.show_visual_reply_image(path, status_text="Visual Reply", auto_show=True)
-        if loaded:
-            print(f"[QtGUI] Visual Reply image loaded: {path}")
-        return loaded
-
-    def prompt_visual_reply_caption(self):
-        panel = getattr(self, "visual_reply_panel", None)
-        current = panel.caption_label.text().strip() if panel is not None and hasattr(panel, "caption_label") else ""
-        caption = QtInputDialog.get_text("Visual Reply Caption", "Enter Caption:", self, default_text=current)
-        if caption is None:
-            return False
-        self.set_visual_reply_caption(caption)
-        print("[QtGUI] Visual Reply caption updated.")
-        return True
-
-    def start_engine(self, offline_replay_only=False):
-        if self.thread and self.thread.is_alive():
-            return
-        self._publish_addon_event("runtime.heavy_task_starting", {"source": "engine_start"})
-        mode = self.engine_combo.currentText().lower()
-        update_runtime_config("avatar_mode", mode)
-        self.apply_text_config()
-        config = {
-            "active_preset_name": str(RUNTIME_CONFIG.get("active_preset_name", "") or ""),
-            "chat_provider": self._current_chat_provider_value(),
-            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
-            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
-            "model_name": self.model_combo.currentText(),
-            "system_prompt": self.system_prompt_text.toPlainText().strip(),
-            "temperature": self.brain_sliders["temperature"].value(),
-            "top_p": self.brain_sliders["top_p"].value(),
-            "top_k": int(self.brain_sliders["top_k"].value()),
-            "repeat_penalty": self.brain_sliders["repeat_penalty"].value(),
-            "min_p": self.brain_sliders["min_p"].value(),
-            "limit_response_length": self.limit_response_checkbox.isChecked(),
-            "max_response_tokens": int(self.max_response_tokens_spin.value()),
-            "avatar_mode": mode,
-            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
-            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
-            "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "offline_replay_only": bool(offline_replay_only),
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
-                "quality",
-            ),
-            "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
-            "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
-            "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
-            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
-            "vam_play_audio_in_vam": True if mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))),
-            "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
-            "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
-            "vam_timeline_auto_resume": self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
-            "pocket_tts_python": self._ensure_pocket_tts_python_path()
-            if self.tts_backend_combo.currentText() == "PocketTTS"
-            else self.pocket_tts_python_edit.text().strip(),
-            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
-            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
-            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
-            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
-            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
-            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
-            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
-            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
-        }
-        self.btn_start.setEnabled(False)
-        self.btn_stop.setEnabled(True)
-        if mode == "musetalk":
-            self.show_musetalk_preview()
-        self.thread = threading.Thread(target=self._run_engine_thread, args=(config,), daemon=True)
-        self.thread.start()
-        self.emit_tutorial_event("engine_start_requested", {"avatar_mode": mode, "tts_backend": config.get("tts_backend", "")})
-        self._update_restart_sensitive_controls()
-        self._update_control_action_buttons()
-        self._update_push_to_talk_button()
-
-    def _run_engine_thread(self, config):
-        try:
-            run_companion(config)
-        except Exception as exc:
-            print(f"CRITICAL ERROR: {exc}")
-        finally:
-            if self._closing:
-                return
-            try:
-                QtCore.QMetaObject.invokeMethod(self, "reset_ui", QtCore.Qt.QueuedConnection)
-            except RuntimeError:
-                pass
-
-    @QtCore.Slot()
-    def reset_ui(self):
-        if self._closing:
-            return
-        self.btn_start.setEnabled(True)
-        self.btn_stop.setEnabled(False)
-        self.emit_tutorial_event("engine_stopped", self.get_tutorial_runtime_state())
-        self._update_restart_sensitive_controls()
-        self._update_control_action_buttons()
-        self._update_push_to_talk_button()
-        print("[QtGUI] System Halted.")
-
-    def stop_engine(self):
-        print("[QtGUI] Stopping...")
-        stop_flag.set()
-        shutdown_avatar_engine()
-        self.btn_stop.setEnabled(False)
-        self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
-        self._update_restart_sensitive_controls()
-        self._update_control_action_buttons()
-        self._update_push_to_talk_button()
-
-    def reset_chat_session(self):
-        reset_session_state()
-        self.clear_chat()
-        print("[QtGUI] Chat memory reset.")
-
-    def _default_chat_context_path(self):
-        chat_dir = Path("runtime") / "chat_contexts"
-        chat_dir.mkdir(parents=True, exist_ok=True)
-        stamp = time.strftime("%Y-%m-%d-%Hh%Mm%Ss")
-        return chat_dir / f"chat_context_{stamp}.json"
-
-    def _quick_chat_context_path(self):
-        runtime_dir = Path("runtime")
-        runtime_dir.mkdir(parents=True, exist_ok=True)
-        return runtime_dir / "chat_context_quick_save.json"
-
-    def _chat_label_for_entry(self, entry):
-        role = str((entry or {}).get("role", "") or "").strip().lower()
-        origin = str((entry or {}).get("origin", "") or "").strip().lower()
-        if role == "assistant" and origin != "assistant_reply":
-            return "💬 You (assistant):"
-        if role == "assistant":
-            return "🤖 Assistant:"
-        if role == "system":
-            return "💬 You (system):"
-        return "💬 You:"
-
-    def _chat_entry_specs(self):
-        return [
-            ("💬 You (system):", {"role": "system", "origin": "input"}),
-            ("💬 You (assistant):", {"role": "assistant", "origin": "input"}),
-            ("🤖 Assistant:", {"role": "assistant", "origin": "assistant_reply"}),
-            ("💬 You:", {"role": "user", "origin": "input"}),
-        ]
-
-    def _parse_chat_display_entries_with_spans(self, raw_text):
-        entries = []
-        current_entry = None
-        current_lines = []
-        current_start = 0
-        raw = str(raw_text or "")
-        offset = 0
-
-        def _flush(end_offset):
-            nonlocal current_entry, current_lines, current_start
-            if current_entry is None:
-                return
-            content = "\n".join(current_lines).strip()
-            if content:
-                entry = dict(current_entry)
-                entry["content"] = content
-                entry["_start"] = int(current_start)
-                entry["_end"] = int(end_offset)
-                entries.append(entry)
-            current_entry = None
-            current_lines = []
-            current_start = 0
-
-        for segment in raw.splitlines(keepends=True):
-            line = segment.rstrip("\r\n")
-            matched = None
-            for label, template in self._chat_entry_specs():
-                if line.startswith(label):
-                    matched = (label, template)
-                    break
-            if matched is not None:
-                _flush(offset)
-                label, template = matched
-                current_entry = dict(template)
-                current_lines = [line[len(label):].lstrip()]
-                current_start = offset
-            elif current_entry is not None:
-                current_lines.append(line)
-            offset += len(segment)
-
-        _flush(len(raw))
-        return entries
-
-    def _assistant_replay_index_for_chat_position(self, position):
-        entries = self._parse_chat_display_entries_with_spans(self.chat_edit.toPlainText())
-        replay_index = 0
-        total_entries = len(entries)
-        for idx, entry in enumerate(entries):
-            is_replayable = (
-                str(entry.get("role", "") or "") == "assistant"
-                and str(entry.get("origin", "") or "") == "assistant_reply"
-            )
-            if is_replayable:
-                replay_index += 1
-            start = int(entry.get("_start", 0) or 0)
-            end = int(entry.get("_end", start) or start)
-            in_entry = start <= position < end
-            if not in_entry and idx == total_entries - 1:
-                in_entry = start <= position <= end
-            if in_entry:
-                return replay_index if is_replayable else None
-        return None
-
-    def _show_chat_context_menu(self, point):
-        menu = self.chat_edit.createStandardContextMenu()
-        if not getattr(self, "chat_edit_mode", False):
-            cursor = self.chat_edit.cursorForPosition(point)
-            replay_index = self._assistant_replay_index_for_chat_position(cursor.position())
-            if replay_index is not None:
-                menu.addSeparator()
-                replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
-                replay_action.triggered.connect(lambda _checked=False, idx=replay_index: self.trigger_replay_from_assistant_index(idx))
-        menu.exec(self.chat_edit.viewport().mapToGlobal(point))
-
-    def _set_chat_edit_mode(self, enabled):
-        self.chat_edit_mode = bool(enabled)
-        if hasattr(self, "chat_edit"):
-            self.chat_edit.setReadOnly(not self.chat_edit_mode)
-        if hasattr(self, "chat_edit_mode_button"):
-            self.chat_edit_mode_button.setVisible(not self.chat_edit_mode)
-        if hasattr(self, "chat_apply_edit_button"):
-            self.chat_apply_edit_button.setVisible(self.chat_edit_mode)
-        if hasattr(self, "chat_cancel_edit_button"):
-            self.chat_cancel_edit_button.setVisible(self.chat_edit_mode)
-        self._update_chat_status(self._console_redirect.chat_line_count, int(self.chat_auto_scroll))
-
-    def _build_chat_display_text(self, include_hidden=True):
-        entries = list(getattr(engine, "conversation_history", []) or [])
-        lines = []
-        for entry in entries:
-            content = str((entry or {}).get("content", "") or "").strip()
-            attachment_image_path = str((entry or {}).get("attachment_image_path", "") or "").strip()
-            if not content and not attachment_image_path:
-                continue
-            if attachment_image_path:
-                content = (content or "Please respond to the image I just sent you.") + " [Image attached]"
-            lines.append(f"{self._chat_label_for_entry(entry)} {content}")
-        if include_hidden:
-            hidden_entries = list(getattr(engine, "sensory_hidden_history", []) or [])
-            hidden_lines = []
-            for entry in hidden_entries:
-                if not isinstance(entry, dict):
-                    continue
-                created_at = float(entry.get("created_at", 0.0) or 0.0)
-                stamp = time.strftime("%H:%M:%S", time.localtime(created_at)) if created_at > 0 else "unknown"
-                source = str(entry.get("source", "sensory") or "sensory").strip()
-                summary = str(entry.get("summary", "") or "").strip()
-                emotion = str(entry.get("emotion", "") or "").strip()
-                attention = str(entry.get("attention", "") or "").strip()
-                proactive = str(entry.get("proactive_candidate", "") or "").strip()
-                visual = str(entry.get("visual_candidate", "") or "").strip()
-                parts = [f"[{stamp}] {source}"]
-                if summary:
-                    parts.append(summary)
-                if emotion:
-                    parts.append(f"emotion={emotion}")
-                if attention:
-                    parts.append(f"attention={attention}")
-                if proactive:
-                    parts.append(f"proactive={proactive}")
-                if visual:
-                    parts.append(f"visual={visual}")
-                hidden_lines.append("🫧 Hidden: " + " | ".join(parts))
-            if hidden_lines:
-                if lines:
-                    lines.append("")
-                lines.append("[Hidden Sensory Context]")
-                lines.extend(hidden_lines)
-        return "\n".join(lines), len(lines)
-
-    def enter_chat_edit_mode(self):
-        if getattr(self, "chat_edit_mode", False):
-            return
-        scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
-        current_font = QtGui.QFont(self.chat_edit.font())
-        self._chat_edit_snapshot_text, _ = self._build_chat_display_text(include_hidden=False)
-        self.chat_edit.setPlainText(self._chat_edit_snapshot_text)
-        self.chat_edit.setFont(current_font)
-        self.chat_edit.setCurrentFont(current_font)
-        self._set_chat_edit_mode(True)
-        self._restore_vertical_scroll_state(self.chat_edit, scroll_state)
-        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_vertical_scroll_state(self.chat_edit, state))
-        print("[QtGUI] Chat edit mode enabled.")
-
-    def cancel_chat_edit_mode(self):
-        if not getattr(self, "chat_edit_mode", False):
-            return
-        scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
-        self._set_chat_edit_mode(False)
-        self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
-        print("[QtGUI] Chat edit mode cancelled.")
-
-    def _parse_chat_edit_text(self, raw_text):
-        entries = []
-        current_entry = None
-        current_lines = []
-        specs = self._chat_entry_specs()
-        for line_no, line in enumerate(str(raw_text or "").splitlines(), start=1):
-            matched = None
-            for label, template in specs:
-                if line.startswith(label):
-                    matched = (label, template)
-                    break
-            if matched is not None:
-                if current_entry is not None:
-                    content = "\n".join(current_lines).strip()
-                    if content:
-                        entry = dict(current_entry)
-                        entry["content"] = content
-                        entries.append(entry)
-                label, template = matched
-                current_entry = dict(template)
-                current_lines = [line[len(label):].lstrip()]
-                continue
-            if current_entry is None:
-                if not line.strip():
-                    continue
-                raise ValueError(f"Line {line_no} must start with a chat speaker label.")
-            current_lines.append(line)
-        if current_entry is not None:
-            content = "\n".join(current_lines).strip()
-            if content:
-                entry = dict(current_entry)
-                entry["content"] = content
-                entries.append(entry)
-        return entries
-
-    def apply_chat_edit_mode(self):
-        if not getattr(self, "chat_edit_mode", False):
-            return
-        scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
-        try:
-            entries = self._parse_chat_edit_text(self.chat_edit.toPlainText())
-            result = replace_chat_conversation_history(entries, allow_pending_loaded_user=False)
-        except Exception as exc:
-            print(f"[QtGUI] Chat edit apply failed: {exc}")
-            return
-        self._set_chat_edit_mode(False)
-        self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
-        print(f"[QtGUI] Chat context edited in place ({int(result.get('conversation_turns', 0))} turn(s)).")
-
-    def _rebuild_chat_view_from_history(self, force=False):
-        if getattr(self, "chat_edit_mode", False) and not force:
-            return
-        display_text, line_count = self._build_chat_display_text(include_hidden=True)
-        self.chat_edit.clear()
-        if display_text:
-            self._append_chat_text(display_text)
-        self._console_redirect.chat_line_count = line_count
-        self._update_chat_status(line_count, int(self.chat_auto_scroll))
-        self._update_control_action_buttons()
-        if self.chat_auto_scroll:
-            QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
-
-    def save_chat_context(self):
-        default_path = self._default_chat_context_path()
-        path, _ = QtDialogService(self).save_file(
-            "Save Chat Context",
-            str(default_path),
-            "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
-        )
-        if not path:
-            return
-        target = Path(path)
-        if target.suffix.lower() != ".json":
-            target = target.with_suffix(".json")
-        payload = export_chat_session_state()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"[QtGUI] Chat context saved: {target}")
-
-    def quick_save_chat_context(self):
-        target = self._quick_chat_context_path()
-        payload = export_chat_session_state()
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"[QtGUI] Quick chat context saved: {target}")
-
-    def load_chat_context(self):
-        path, _ = QtDialogService(self).open_file(
-            "Load Chat Context",
-            str(Path("runtime") / "chat_contexts"),
-            "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
-        )
-        if not path:
-            return
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        result = import_chat_session_state(payload)
-        self._set_chat_edit_mode(False)
-        self._rebuild_chat_view_from_history(force=True)
-        print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
-
-    def quick_load_chat_context(self):
-        path = self._quick_chat_context_path()
-        if not path.exists():
-            print(f"[QtGUI] Quick chat context not found: {path}")
-            return
-        payload = json.loads(path.read_text(encoding="utf-8"))
-        result = import_chat_session_state(payload)
-        self._set_chat_edit_mode(False)
-        self._rebuild_chat_view_from_history(force=True)
-        print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
-
-    def save_session(self):
-        if bool(getattr(self, "_suspend_session_save", False)):
-            return
-        session = {
-            "first_run": bool(self.first_run),
-            "avatar_mode": self.engine_combo.currentText(),
-            "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
-            "input_mode": self.input_mode_combo.currentText(),
-            "input_message_role": self.input_role_combo.currentText(),
-            "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
-            "manual_action_hotkeys": dict(engine.get_manual_action_hotkeys()),
-            "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
-            "stream_mode": self.stream_mode_combo.currentText(),
-            "tts_backend": self.tts_backend_combo.currentText(),
-            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
-            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
-            "chat_provider": self._current_chat_provider_value(),
-            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
-            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
+            "chat_font_size": int(self.chat_font_size_combo.currentData() or 12) if hasattr(self, "chat_font_size_combo") else 12,
+            "chat_runtime_expanded": self.chat_runtime_section.isExpanded() if hasattr(self, "chat_runtime_section") else True,
+            "tts_runtime_expanded": self.tts_runtime_section.isExpanded() if hasattr(self, "tts_runtime_section") else True,
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
@@ -13080,6 +10845,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if chat_provider_generation_settings is not None:
                 update_runtime_config("chat_provider_generation_settings", chat_provider_generation_settings)
                 self._refresh_chat_provider_generation_card()
+            chat_font_size = session.get("chat_font_size")
+            if chat_font_size is not None and hasattr(self, "chat_font_size_combo"):
+                size = max(8, min(20, int(chat_font_size)))
+                index = self.chat_font_size_combo.findData(size)
+                if index >= 0:
+                    self.chat_font_size_combo.setCurrentIndex(index)
+                self._apply_chat_font_size(size, update_combo=False)
+            if "chat_runtime_expanded" in session and hasattr(self, "chat_runtime_section"):
+                self.chat_runtime_section.setExpanded(bool(session.get("chat_runtime_expanded", True)))
+            if "tts_runtime_expanded" in session and hasattr(self, "tts_runtime_section"):
+                self.tts_runtime_section.setExpanded(bool(session.get("tts_runtime_expanded", True)))
             saved_model_name = str(session.get("model_name") or "").strip()
             if saved_model_name:
                 self._pending_restored_model_name = saved_model_name
