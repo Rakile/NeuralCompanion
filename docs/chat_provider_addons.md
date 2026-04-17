@@ -33,6 +33,7 @@ Then call `register_provider(...)` with:
 - `connection_check_handler()`: returns `{"ok": bool, "detail": str}`.
 - `api_key_getter` and `base_url_getter`: optional helpers used by shared UI/runtime checks.
 - `metadata["config_fields"]`: Host-card fields to render for this provider.
+- `metadata["generation_fields"]`: provider-specific generation controls rendered in the Chat Runtime card.
 
 Provider settings saved by the Host card can be read with:
 
@@ -43,7 +44,7 @@ chat_service.get_provider_settings("my_provider")
 
 ## Runtime payload shape
 
-NC currently calls provider handlers with an OpenAI-style chat payload:
+NC calls provider handlers with a mostly OpenAI-style chat payload. The core always supplies `model` and `messages`; provider `generation_fields` decide which generation parameters are added.
 
 ```python
 {
@@ -54,6 +55,17 @@ NC currently calls provider handlers with an OpenAI-style chat payload:
     "max_tokens": 1024,
 }
 ```
+
+Each `generation_fields` entry can include:
+
+- `id`: stable setting id, for example `temperature`.
+- `label`: user-facing label.
+- `kind`: `float`, `int`, `bool`, `text`, `select`, or `note`.
+- `default`, `min`, `max`, `step`, `decimals`: renderer and fallback values.
+- `request_key`: optional request payload key if it differs from `id`.
+- `request_location`: `params`, `additional_params`, or `none`.
+- `omit_if`: optional value or list of values that should not be sent.
+- `description`: tooltip/help text.
 
 If a provider uses another API shape, translate inside the addon. The Claude addon is the reference example: it converts system messages into the Anthropic `system` field, converts chat turns to `messages`, maps `stop` to `stop_sequences`, and parses server-sent streaming text deltas.
 

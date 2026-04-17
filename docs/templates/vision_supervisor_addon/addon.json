@@ -1,0 +1,12 @@
+{
+  "id": "nc.my_vision_supervisor",
+  "name": "My Vision Supervisor",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Template Vision supervisor addon.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "enabled": true
+}

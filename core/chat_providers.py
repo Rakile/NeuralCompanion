@@ -502,6 +502,14 @@ def _register_builtin_providers():
             "config_fields": [
                 {"id": "base_url", "label": "Base URL", "source": "builtin", "default": LMSTUDIO_BASE_URL},
             ],
+            "generation_fields": [
+                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.22, "request_location": "params"},
+                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
+                {"id": "top_k", "label": "Top K", "kind": "int", "min": 0, "max": 1000, "step": 1, "default": 40, "request_location": "additional_params"},
+                {"id": "repeat_penalty", "label": "Repetition Penalty", "kind": "float", "min": 1.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.15, "request_location": "additional_params"},
+                {"id": "min_p", "label": "Min P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.05, "request_location": "additional_params"},
+                {"id": "max_tokens", "label": "Max Tokens (-1 = no cap)", "kind": "int", "min": -1, "max": 131072, "step": 1, "default": -1, "request_location": "params"},
+            ],
             "hint": "Uses LM Studio's local OpenAI-compatible endpoint.",
             "supports_local_runtime": True,
         },
@@ -518,6 +526,10 @@ def _register_builtin_providers():
             "config_fields": [
                 {"id": "api_key", "label": "API Key", "env": ["NC_CHAT_OPENAI_API_KEY", "OPENAI_API_KEY"]},
                 {"id": "base_url", "label": "Base URL", "env": ["NC_CHAT_OPENAI_BASE_URL"]},
+            ],
+            "generation_fields": [
+                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
+                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
             ],
             "hint": "Hosted OpenAI provider. API key is required.",
             "supports_hosted_runtime": True,
@@ -536,6 +548,10 @@ def _register_builtin_providers():
             "config_fields": [
                 {"id": "api_key", "label": "API Key", "env": ["NC_CHAT_XAI_API_KEY", "XAI_API_KEY"]},
                 {"id": "base_url", "label": "Base URL", "env": ["NC_CHAT_XAI_BASE_URL"], "default": "https://api.x.ai/v1"},
+            ],
+            "generation_fields": [
+                {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
+                {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
             ],
             "hint": "Hosted xAI / Grok provider. API key is required.",
             "supports_hosted_runtime": True,

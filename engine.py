@@ -827,6 +827,7 @@ RUNTIME_CONFIG = {
     "model_name": "",
     "chat_provider": os.environ.get("NC_CHAT_PROVIDER", chat_providers.DEFAULT_PROVIDER_ID),
     "chat_provider_settings": {},
+    "chat_provider_generation_settings": {},
     "emotional_instructions": DEFAULT_EMOTIONAL_INSTRUCTIONS,
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
     "voice_path": "voices/Hot_16.wav",
@@ -1118,6 +1119,126 @@ def _chat_provider_api_key(provider=None):
 
 def _chat_provider_base_url(provider=None):
     return chat_providers.provider_base_url(provider or _chat_provider())
+
+
+def _chat_provider_generation_settings(provider=None):
+    provider_key = chat_providers.normalize_provider_id(provider or _chat_provider(), fallback=chat_providers.DEFAULT_PROVIDER_ID)
+    raw_map = RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}
+    if not isinstance(raw_map, dict):
+        return {}
+    raw_settings = raw_map.get(provider_key, {})
+    return dict(raw_settings or {}) if isinstance(raw_settings, dict) else {}
+
+
+def _coerce_generation_value(field, value):
+    if value is None:
+        return None
+    kind = str((field or {}).get("kind") or "text").strip().lower()
+    if kind == "bool":
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on"}
+        return bool(value)
+    if kind == "int":
+        if value == "":
+            return None
+        parsed = int(float(value))
+        if "min" in (field or {}):
+            parsed = max(int((field or {}).get("min")), parsed)
+        if "max" in (field or {}):
+            parsed = min(int((field or {}).get("max")), parsed)
+        return parsed
+    if kind == "float":
+        if value == "":
+            return None
+        parsed = float(value)
+        if "min" in (field or {}):
+            parsed = max(float((field or {}).get("min")), parsed)
+        if "max" in (field or {}):
+            parsed = min(float((field or {}).get("max")), parsed)
+        return parsed
+    return value
+
+
+def _omit_generation_value(field, value):
+    if value is None:
+        return True
+    if value == "" and not bool((field or {}).get("required", False)):
+        return True
+    omit_values = (field or {}).get("omit_if", [])
+    if not isinstance(omit_values, list):
+        omit_values = [omit_values]
+    for omit_value in omit_values:
+        if value == omit_value or str(value) == str(omit_value):
+            return True
+    return False
+
+
+def _legacy_generation_value(field, provider):
+    field_id = str((field or {}).get("id") or "").strip()
+    if field_id in {"temperature", "top_p", "repeat_penalty", "min_p"}:
+        return RUNTIME_CONFIG.get(field_id, (field or {}).get("default"))
+    if field_id == "top_k":
+        return RUNTIME_CONFIG.get("top_k", (field or {}).get("default"))
+    if field_id in {"max_tokens", "max_completion_tokens"}:
+        provider_settings = chat_providers.get_provider_settings(provider)
+        if isinstance(provider_settings, dict) and provider_settings.get("max_tokens") not in {None, ""}:
+            return provider_settings.get("max_tokens")
+        if bool(RUNTIME_CONFIG.get("limit_response_length", False)):
+            return max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
+        if provider == "lmstudio":
+            return -1
+    return (field or {}).get("default")
+
+
+def _apply_chat_provider_generation_fields(params, additional_params):
+    provider = _chat_provider()
+    metadata = chat_providers.provider_metadata(provider)
+    fields = [dict(item) for item in list(metadata.get("generation_fields") or []) if isinstance(item, dict)]
+    if not fields:
+        params["temperature"] = float(RUNTIME_CONFIG["temperature"])
+        params["top_p"] = float(RUNTIME_CONFIG["top_p"])
+        if bool(RUNTIME_CONFIG.get("limit_response_length")):
+            params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
+        elif provider == "lmstudio":
+            # LM Studio applies its own generation cap when max_tokens is omitted.
+            # Sending -1 matches LM Studio's documented "no explicit response cap" behavior.
+            params["max_tokens"] = -1
+        additional_params.update({
+            "top_k": int(RUNTIME_CONFIG["top_k"]),
+            "min_p": float(RUNTIME_CONFIG["min_p"]),
+            "repeat_penalty": float(RUNTIME_CONFIG["repeat_penalty"]),
+        })
+        return
+
+    settings = _chat_provider_generation_settings(provider)
+    max_token_applied = False
+    for field in fields:
+        field_id = str(field.get("id") or "").strip()
+        if not field_id or str(field.get("kind") or "").strip().lower() == "note":
+            continue
+        raw_value = settings[field_id] if field_id in settings else _legacy_generation_value(field, provider)
+        try:
+            value = _coerce_generation_value(field, raw_value)
+        except Exception:
+            value = field.get("default")
+        if _omit_generation_value(field, value):
+            continue
+        request_key = str(field.get("request_key") or field_id).strip()
+        request_location = str(field.get("request_location") or "params").strip().lower()
+        if not request_key or request_location == "none":
+            continue
+        if request_location == "additional_params":
+            additional_params[request_key] = value
+        else:
+            params[request_key] = value
+        if request_key in {"max_tokens", "max_completion_tokens"}:
+            max_token_applied = True
+
+    if not max_token_applied:
+        if bool(RUNTIME_CONFIG.get("limit_response_length")):
+            params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
+        elif provider == "lmstudio":
+            params["max_tokens"] = -1
 
 
 def _chat_provider_model_error(provider=None):
@@ -6105,20 +6226,9 @@ def build_llm_request():
     params = {
         "model": RUNTIME_CONFIG["model_name"],
         "messages": messages,
-        "temperature": float(RUNTIME_CONFIG["temperature"]),
-        "top_p": float(RUNTIME_CONFIG["top_p"]),
     }
-    if bool(RUNTIME_CONFIG.get("limit_response_length")):
-        params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
-    elif _chat_provider() == "lmstudio":
-        # LM Studio applies its own generation cap when max_tokens is omitted.
-        # Sending -1 matches LM Studio's documented "no explicit response cap" behavior.
-        params["max_tokens"] = -1
-    additional_params = {
-        "top_k": int(RUNTIME_CONFIG["top_k"]),
-        "min_p": float(RUNTIME_CONFIG["min_p"]),
-        "repeat_penalty": float(RUNTIME_CONFIG["repeat_penalty"])
-    }
+    additional_params = {}
+    _apply_chat_provider_generation_fields(params, additional_params)
     return params, additional_params
 
 

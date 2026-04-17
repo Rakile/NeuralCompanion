@@ -515,6 +515,70 @@ class NoWheelComboBox(QtWidgets.QComboBox):
         event.ignore()
 
 
+class CollapsibleSection(QtWidgets.QWidget):
+    def __init__(self, title, content_widget=None, *, expanded=True, parent=None):
+        super().__init__(parent)
+        self._title = str(title or "").strip()
+        self._summary = ""
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        self.toggle_button = QtWidgets.QToolButton()
+        self.toggle_button.setObjectName("collapsible_section_toggle")
+        self.toggle_button.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        self.toggle_button.setCheckable(True)
+        self.toggle_button.setChecked(bool(expanded))
+        self.toggle_button.setAutoRaise(True)
+        self.toggle_button.clicked.connect(self._on_toggled)
+        self.toggle_button.setStyleSheet(
+            "QToolButton { color: #d8dee9; font-weight: 600; border: 1px solid #273342; "
+            "background: #111923; border-radius: 8px; padding: 6px 8px; text-align: left; }"
+            "QToolButton:hover { background: #182331; }"
+        )
+        layout.addWidget(self.toggle_button)
+
+        self.content_widget = content_widget or QtWidgets.QWidget()
+        layout.addWidget(self.content_widget)
+        self._refresh()
+
+    def setContentWidget(self, widget):
+        if widget is None or widget is self.content_widget:
+            return
+        layout = self.layout()
+        old_widget = self.content_widget
+        self.content_widget = widget
+        layout.insertWidget(1, self.content_widget)
+        if old_widget is not None:
+            old_widget.setParent(None)
+            old_widget.deleteLater()
+        self._refresh()
+
+    def setSummary(self, summary):
+        self._summary = str(summary or "").strip()
+        self._refresh()
+
+    def isExpanded(self):
+        return bool(self.toggle_button.isChecked())
+
+    def setExpanded(self, expanded):
+        self.toggle_button.setChecked(bool(expanded))
+        self._refresh()
+
+    def _on_toggled(self, _checked):
+        self._refresh()
+
+    def _refresh(self):
+        expanded = bool(self.toggle_button.isChecked())
+        self.toggle_button.setArrowType(QtCore.Qt.DownArrow if expanded else QtCore.Qt.RightArrow)
+        label = self._title
+        if self._summary:
+            label = f"{label}  -  {self._summary}"
+        self.toggle_button.setText(label)
+        self.content_widget.setVisible(expanded)
+
+
 class NoWheelTabWidget(QtWidgets.QTabWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -3275,7 +3339,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.tutorial_event_bus = tutorial_framework.TutorialEventBus(self)
         self._tutorial_lm_studio_running = False
         self._model_refresh_in_flight = False
+        self._model_refresh_provider = ""
+        self._model_refresh_generation = 0
         self._pending_model_refresh = None
+        self._pending_model_refresh_provider = ""
+        self._pending_model_refresh_generation = 0
         self._model_refresh_lock = threading.Lock()
         self._model_catalog = []
         self._all_model_catalog = []
@@ -3308,6 +3376,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._preset_reference_name = ""
         self._preset_reference_signature = ""
         self._preset_dirty_state = None
+        self._pending_preset_clean_name = ""
+        self._pending_preset_clean_provider = ""
+        self._pending_preset_clean_model = ""
         self._restoring_session = False
         self._chat_runtime_border_paused = None
         self._console_bridge = QtConsoleBridge()
@@ -3758,6 +3829,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         shaping_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         shaping_scroll.setMinimumSize(0, 0)
         shaping_scroll.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        self.system_shaping_scroll = shaping_scroll
         shaping_outer_layout.addWidget(shaping_scroll)
 
         shaping_content = QtWidgets.QWidget()
@@ -4355,6 +4427,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
         form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         form.addRow("Chat Provider", self.chat_provider_combo)
+        form.addRow("LLM Model", self.model_row_widget)
+        layout.addLayout(form)
 
         self.chat_provider_fields_widget = QtWidgets.QWidget()
         self.chat_provider_fields_layout = QtWidgets.QFormLayout(self.chat_provider_fields_widget)
@@ -4362,9 +4436,25 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.chat_provider_fields_layout.setSpacing(8)
         self.chat_provider_fields_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
         self.chat_provider_fields_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-        form.addRow("Provider Settings", self.chat_provider_fields_widget)
-        form.addRow("LLM Model", self.model_row_widget)
-        layout.addLayout(form)
+        self.chat_provider_settings_section = CollapsibleSection(
+            "Provider Settings",
+            self.chat_provider_fields_widget,
+            expanded=True,
+        )
+        layout.addWidget(self.chat_provider_settings_section)
+
+        self.chat_provider_generation_fields_widget = QtWidgets.QWidget()
+        self.chat_provider_generation_fields_layout = QtWidgets.QFormLayout(self.chat_provider_generation_fields_widget)
+        self.chat_provider_generation_fields_layout.setContentsMargins(0, 0, 0, 0)
+        self.chat_provider_generation_fields_layout.setSpacing(8)
+        self.chat_provider_generation_fields_layout.setLabelAlignment(QtCore.Qt.AlignLeft)
+        self.chat_provider_generation_fields_layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+        self.chat_provider_generation_section = CollapsibleSection(
+            "Generation Settings",
+            self.chat_provider_generation_fields_widget,
+            expanded=False,
+        )
+        layout.addWidget(self.chat_provider_generation_section)
 
         self.chat_provider_hint_label = QtWidgets.QLabel()
         self.chat_provider_hint_label.setWordWrap(True)
@@ -4645,6 +4735,203 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         fields = list(metadata.get("config_fields") or [])
         return [dict(item) for item in fields if isinstance(item, dict)]
 
+    def _current_chat_provider_generation_settings_map(self):
+        raw = RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}
+        return {
+            str(key or "").strip().lower(): dict(value or {})
+            for key, value in raw.items()
+            if str(key or "").strip() and isinstance(value, dict)
+        }
+
+    def _current_chat_provider_generation_settings_for(self, provider_id=None):
+        provider_key = self._current_chat_provider_value() if provider_id is None else chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        return dict(self._current_chat_provider_generation_settings_map().get(provider_key, {}))
+
+    def _set_current_chat_provider_generation_settings_for(self, provider_id, updates):
+        provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        settings_map = self._current_chat_provider_generation_settings_map()
+        next_values = {}
+        for field_id, value in dict(updates or {}).items():
+            key = str(field_id or "").strip()
+            if not key:
+                continue
+            if value is None or value == "":
+                continue
+            next_values[key] = value
+        if next_values:
+            settings_map[provider_key] = next_values
+        else:
+            settings_map.pop(provider_key, None)
+        update_runtime_config("chat_provider_generation_settings", settings_map)
+
+    def _chat_provider_generation_fields(self, provider_id=None):
+        metadata = self._chat_provider_metadata(provider_id)
+        fields = list(metadata.get("generation_fields") or [])
+        return [dict(item) for item in fields if isinstance(item, dict)]
+
+    def _legacy_generation_value_for_field(self, provider_id, field):
+        field_id = str(field.get("id") or "").strip()
+        if field_id in {"temperature", "top_p", "repeat_penalty", "min_p"}:
+            return float(RUNTIME_CONFIG.get(field_id, field.get("default", 0.0)) or 0.0)
+        if field_id == "top_k":
+            return int(RUNTIME_CONFIG.get("top_k", field.get("default", 0)) or 0)
+        if field_id in {"max_tokens", "max_completion_tokens"}:
+            provider_settings = self._current_chat_provider_settings_for(provider_id)
+            if "max_tokens" in provider_settings:
+                return provider_settings.get("max_tokens")
+            if bool(RUNTIME_CONFIG.get("limit_response_length", False)):
+                return int(RUNTIME_CONFIG.get("max_response_tokens", field.get("default", DEFAULT_MAX_RESPONSE_TOKENS)) or DEFAULT_MAX_RESPONSE_TOKENS)
+            if provider_id == "lmstudio":
+                return -1
+        return field.get("default", "")
+
+    def _generation_field_display_value(self, provider_id, field, current_settings):
+        field_id = str(field.get("id") or "").strip()
+        if field_id in current_settings:
+            return current_settings.get(field_id)
+        return self._legacy_generation_value_for_field(provider_id, field)
+
+    def _generation_field_widget_value(self, field, widget):
+        kind = str(field.get("kind") or "text").strip().lower()
+        if isinstance(widget, QtWidgets.QCheckBox):
+            return bool(widget.isChecked())
+        if isinstance(widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
+            return widget.value()
+        if isinstance(widget, QtWidgets.QComboBox):
+            data = widget.currentData()
+            return data if data is not None else widget.currentText()
+        if isinstance(widget, QtWidgets.QLineEdit):
+            value = widget.text().strip()
+            if kind == "int" and value:
+                try:
+                    return int(value)
+                except ValueError:
+                    return value
+            if kind == "float" and value:
+                try:
+                    return float(value)
+                except ValueError:
+                    return value
+            return value
+        return None
+
+    def _apply_legacy_generation_mirror(self, field_id, value):
+        try:
+            if field_id in {"temperature", "top_p", "repeat_penalty", "min_p"}:
+                update_runtime_config(field_id, float(value))
+                if field_id in getattr(self, "brain_sliders", {}):
+                    self.brain_sliders[field_id].set_value(float(value))
+            elif field_id == "top_k":
+                update_runtime_config("top_k", int(value))
+                if "top_k" in getattr(self, "brain_sliders", {}):
+                    self.brain_sliders["top_k"].set_value(int(value))
+            elif field_id in {"max_tokens", "max_completion_tokens"} and int(value) > 0:
+                update_runtime_config("limit_response_length", True)
+                update_runtime_config("max_response_tokens", int(value))
+                if hasattr(self, "limit_response_checkbox"):
+                    self.limit_response_checkbox.blockSignals(True)
+                    self.limit_response_checkbox.setChecked(True)
+                    self.limit_response_checkbox.blockSignals(False)
+                if hasattr(self, "max_response_tokens_spin"):
+                    self.max_response_tokens_spin.blockSignals(True)
+                    self.max_response_tokens_spin.setValue(int(value))
+                    self.max_response_tokens_spin.blockSignals(False)
+        except Exception:
+            pass
+
+    def _refresh_chat_provider_generation_card(self):
+        if not hasattr(self, "chat_provider_generation_fields_layout"):
+            return
+        while self.chat_provider_generation_fields_layout.rowCount():
+            self.chat_provider_generation_fields_layout.removeRow(0)
+        self._chat_provider_generation_field_widgets = {}
+        self._chat_provider_generation_field_meta = {}
+
+        provider_id = self._current_chat_provider_value()
+        current_settings = self._current_chat_provider_generation_settings_for(provider_id)
+        fields = list(self._chat_provider_generation_fields(provider_id))
+
+        if not fields:
+            hint = QtWidgets.QLabel("This provider uses the legacy Brain tab generation controls.")
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            hint.setWordWrap(True)
+            self.chat_provider_generation_fields_layout.addRow("", hint)
+            if hasattr(self, "chat_provider_generation_section"):
+                self.chat_provider_generation_section.setSummary("legacy Brain controls")
+            return
+
+        active_labels = []
+        for field in fields:
+            field_id = str(field.get("id") or "").strip()
+            if not field_id:
+                continue
+            label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
+            kind = str(field.get("kind") or "text").strip().lower()
+            value = self._generation_field_display_value(provider_id, field, current_settings)
+            if kind == "note":
+                editor = QtWidgets.QLabel(str(field.get("text") or field.get("description") or ""))
+                editor.setWordWrap(True)
+                editor.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            elif kind == "bool":
+                editor = QtWidgets.QCheckBox(label)
+                editor.setChecked(bool(value))
+                editor.toggled.connect(lambda _checked, fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
+                label = ""
+            elif kind == "select":
+                editor = NoWheelComboBox()
+                for option in list(field.get("options") or []):
+                    if isinstance(option, dict):
+                        editor.addItem(str(option.get("label") or option.get("value") or ""), option.get("value"))
+                    else:
+                        editor.addItem(str(option), option)
+                index = editor.findData(value)
+                if index < 0:
+                    index = editor.findText(str(value))
+                if index >= 0:
+                    editor.setCurrentIndex(index)
+                editor.currentIndexChanged.connect(lambda _index, fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
+            elif kind == "int":
+                editor = NoWheelSpinBox()
+                min_value = field.get("min", -999999)
+                max_value = field.get("max", 999999)
+                step_value = field.get("step", 1)
+                editor.setRange(int(min_value), int(max_value))
+                editor.setSingleStep(int(step_value or 1))
+                editor.setValue(int(value if value not in {None, ""} else field.get("default", 0)))
+                editor.valueChanged.connect(lambda _value, fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
+            elif kind == "float":
+                editor = NoWheelDoubleSpinBox()
+                min_value = field.get("min", -999999.0)
+                max_value = field.get("max", 999999.0)
+                step_value = field.get("step", 0.01)
+                editor.setRange(float(min_value), float(max_value))
+                editor.setDecimals(int(field.get("decimals", 2) or 2))
+                editor.setSingleStep(float(step_value or 0.01))
+                editor.setValue(float(value if value not in {None, ""} else field.get("default", 0.0)))
+                editor.valueChanged.connect(lambda _value, fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
+            else:
+                editor = QtWidgets.QLineEdit()
+                editor.setText(str(value if value is not None else ""))
+                placeholder = field.get("placeholder")
+                if placeholder:
+                    editor.setPlaceholderText(str(placeholder))
+                editor.editingFinished.connect(lambda fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
+
+            tooltip = str(field.get("description") or "").strip()
+            if tooltip:
+                editor.setToolTip(tooltip)
+            self.chat_provider_generation_fields_layout.addRow(label, editor)
+            if kind != "note":
+                self._chat_provider_generation_field_widgets[field_id] = editor
+                self._chat_provider_generation_field_meta[field_id] = dict(field)
+                active_labels.append(label or str(field.get("label") or field_id))
+
+        if hasattr(self, "chat_provider_generation_section"):
+            summary = ", ".join(active_labels[:3])
+            if len(active_labels) > 3:
+                summary += f", +{len(active_labels) - 3}"
+            self.chat_provider_generation_section.setSummary(summary)
+
     def _refresh_chat_provider_card(self):
         if not hasattr(self, "chat_provider_fields_layout"):
             return
@@ -4687,11 +4974,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 self.chat_provider_fields_layout.addRow(label, editor)
                 self._chat_provider_field_widgets[field_id] = editor
                 self._chat_provider_field_meta[field_id] = dict(field)
+            if hasattr(self, "chat_provider_settings_section"):
+                self.chat_provider_settings_section.setSummary(f"{len(fields)} field(s)")
         else:
             hint = QtWidgets.QLabel("This provider does not expose extra runtime fields yet.")
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             hint.setWordWrap(True)
             self.chat_provider_fields_layout.addRow("", hint)
+            if hasattr(self, "chat_provider_settings_section"):
+                self.chat_provider_settings_section.setSummary("no extra fields")
 
         if hasattr(self, "chat_provider_hint_label"):
             metadata = self._chat_provider_metadata(provider_id)
@@ -4700,6 +4991,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 provider_label = self._chat_provider_label_from_value(provider_id)
                 description = f"{provider_label} is selected."
             self.chat_provider_hint_label.setText(description)
+        self._refresh_chat_provider_generation_card()
 
     def _refresh_tts_runtime_card(self):
         if not hasattr(self, "tts_runtime_stack"):
@@ -4755,6 +5047,22 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             settings.pop(str(field_id or "").strip(), None)
         self._set_current_chat_provider_settings_for(provider_id, settings)
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
+        self.save_session()
+
+    def _on_chat_provider_generation_field_changed(self, provider_id, field_id, widget, field_meta=None):
+        if widget is None:
+            return
+        field_id = str(field_id or "").strip()
+        if not field_id:
+            return
+        settings = self._current_chat_provider_generation_settings_for(provider_id)
+        value = self._generation_field_widget_value(dict(field_meta or {}), widget)
+        if value is None or value == "":
+            settings.pop(field_id, None)
+        else:
+            settings[field_id] = value
+        self._set_current_chat_provider_generation_settings_for(provider_id, settings)
+        self._apply_legacy_generation_mirror(field_id, value)
         self.save_session()
 
     def _visual_reply_mode_label_from_value(self, value):
@@ -5719,6 +6027,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         pocket_tts_python = self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else ""
         if ensure_pocket_tts_path and hasattr(self, "tts_backend_combo") and self.tts_backend_combo.currentText() == "PocketTTS":
             pocket_tts_python = self._ensure_pocket_tts_python_path()
+        chat_provider_generation_settings = dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {})
         payload = {
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
@@ -5768,6 +6077,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
         }
+        if chat_provider_generation_settings:
+            payload["chat_provider_generation_settings"] = chat_provider_generation_settings
         if self._addon_manager is not None:
             try:
                 payload.update(self._addon_manager.export_preset_state())
@@ -5823,6 +6134,32 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self._preset_reference_name = name
         self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
         self._refresh_preset_dirty_state()
+
+    def _queue_preset_clean_after_model_refresh(self, preset_name, provider_id="", model_name=""):
+        self._pending_preset_clean_name = str(preset_name or "").strip()
+        self._pending_preset_clean_provider = chat_providers.normalize_provider_id(
+            provider_id or self._current_chat_provider_value(),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        self._pending_preset_clean_model = str(model_name or "").strip()
+
+    def _finalize_pending_preset_clean_if_ready(self, *, force=False):
+        name = str(getattr(self, "_pending_preset_clean_name", "") or "").strip()
+        if not name:
+            return False
+        provider_id = str(getattr(self, "_pending_preset_clean_provider", "") or "").strip()
+        model_name = str(getattr(self, "_pending_preset_clean_model", "") or "").strip()
+        if provider_id and self._current_chat_provider_value() != provider_id:
+            return False
+        if model_name and hasattr(self, "model_combo"):
+            current_model = str(self.model_combo.currentText() or "").strip()
+            if current_model != model_name and not force:
+                return False
+        self._pending_preset_clean_name = ""
+        self._pending_preset_clean_provider = ""
+        self._pending_preset_clean_model = ""
+        self._update_preset_reference_from_current_state(name)
+        return True
 
     def _finalize_session_restore_dirty_state(self):
         self._restoring_session = False
@@ -6913,6 +7250,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         scrollbar.setValue(target)
         if maximum > 0 and target == 0 and ratio > 0.0:
             scrollbar.setValue(int(round(maximum * ratio)))
+
+    def _restore_system_shaping_scroll_state(self, state):
+        if not state or not hasattr(self, "system_shaping_scroll"):
+            return
+        self._restore_vertical_scroll_state(self.system_shaping_scroll, state)
 
     def _append_chat_text(self, text):
         if getattr(self, "chat_edit_mode", False):
@@ -8412,15 +8754,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_session()
 
     def request_model_list_refresh(self, quiet=True, wait_for_reachable=False):
-        if self._model_refresh_in_flight:
+        provider = self._current_chat_provider_value()
+        if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider:
             return
+        self._model_refresh_generation = int(getattr(self, "_model_refresh_generation", 0) or 0) + 1
+        refresh_generation = self._model_refresh_generation
         self._model_refresh_in_flight = True
+        self._model_refresh_provider = provider
         if hasattr(self, "btn_model_refresh"):
             self.btn_model_refresh.setEnabled(False)
             self.btn_model_refresh.setText("Waiting..." if wait_for_reachable else "Refreshing...")
 
         def worker():
-            provider = self._current_chat_provider_value()
             models = [self._chat_provider_error_placeholder(provider)]
             first_attempt = True
             while True:
@@ -8433,6 +8778,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 time.sleep(1.0)
             with self._model_refresh_lock:
                 self._pending_model_refresh = list(models or [])
+                self._pending_model_refresh_provider = provider
+                self._pending_model_refresh_generation = refresh_generation
             QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_refresh", QtCore.Qt.QueuedConnection)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -8441,8 +8788,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def _apply_pending_model_refresh(self):
         with self._model_refresh_lock:
             models = list(self._pending_model_refresh or [])
+            provider = str(getattr(self, "_pending_model_refresh_provider", "") or "")
+            refresh_generation = int(getattr(self, "_pending_model_refresh_generation", 0) or 0)
             self._pending_model_refresh = None
+            self._pending_model_refresh_provider = ""
+            self._pending_model_refresh_generation = 0
+        if provider != self._current_chat_provider_value() or refresh_generation != int(getattr(self, "_model_refresh_generation", 0) or 0):
+            return
         self._model_refresh_in_flight = False
+        self._model_refresh_provider = ""
         if hasattr(self, "btn_model_refresh"):
             self.btn_model_refresh.setEnabled(True)
             self.btn_model_refresh.setText("Refresh")
@@ -8472,6 +8826,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
             )
+            if not self._finalize_pending_preset_clean_if_ready():
+                self._refresh_preset_dirty_state()
             return
 
         self.model_combo.blockSignals(True)
@@ -8498,6 +8854,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
         )
         self.update_model_budget_hint()
+        if not self._finalize_pending_preset_clean_if_ready():
+            self._refresh_preset_dirty_state()
+        self._refresh_preset_dirty_state()
 
     def refresh_preset_list(self):
         current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
@@ -9162,9 +9521,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         path = Path("presets") / f"{name}.json"
         if not path.exists():
             return
+        scroll_state = (
+            self._capture_vertical_scroll_state(self.system_shaping_scroll)
+            if hasattr(self, "system_shaping_scroll")
+            else None
+        )
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
         preset_model_name = str(data.get("model_name") or "").strip()
+        preset_provider_name = chat_providers.normalize_provider_id(
+            data.get("chat_provider", self._current_chat_provider_value()),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        self._queue_preset_clean_after_model_refresh(name, preset_provider_name, preset_model_name)
         if preset_model_name:
             self._pending_restored_model_name = preset_model_name
             update_runtime_config("model_name", preset_model_name)
@@ -9174,6 +9543,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if "chat_provider_settings" in data:
             update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
             self._refresh_chat_provider_card()
+        update_runtime_config("chat_provider_generation_settings", data.get("chat_provider_generation_settings", {}))
+        self._refresh_chat_provider_generation_card()
         if preset_model_name:
             self._apply_saved_model_name(preset_model_name)
         if "voice_file" in data:
@@ -9330,6 +9701,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             tokens = max(32, int(data["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
+        self._refresh_chat_provider_generation_card()
         if self._addon_manager is not None:
             try:
                 self._addon_manager.import_preset_state(data)
@@ -9339,8 +9711,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._refresh_addon_group_tabs()
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
-        self._update_preset_reference_from_current_state(name)
+        self._finalize_pending_preset_clean_if_ready()
         self.save_session()
+        self._restore_system_shaping_scroll_state(scroll_state)
+        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
+        QtCore.QTimer.singleShot(150, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
 
     def save_preset_dialog(self):
         name = QtInputDialog.get_text("Save Preset", "Enter Preset Name:", self)
@@ -9653,6 +10028,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         config = {
             "active_preset_name": str(RUNTIME_CONFIG.get("active_preset_name", "") or ""),
             "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
+            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
             "system_prompt": self.system_prompt_text.toPlainText().strip(),
             "temperature": self.brain_sliders["temperature"].value(),
@@ -10026,6 +10403,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
+            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
@@ -10752,15 +11130,18 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._publish_addon_event("app.resources_refreshed", {"source": "refresh_resources"})
 
     def request_model_list_refresh(self, quiet=True, wait_for_reachable=False):
-        if self._model_refresh_in_flight:
+        provider = self._current_chat_provider_value()
+        if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider:
             return
+        self._model_refresh_generation = int(getattr(self, "_model_refresh_generation", 0) or 0) + 1
+        refresh_generation = self._model_refresh_generation
         self._model_refresh_in_flight = True
+        self._model_refresh_provider = provider
         if hasattr(self, "btn_model_refresh"):
             self.btn_model_refresh.setEnabled(False)
             self.btn_model_refresh.setText("Waiting..." if wait_for_reachable else "Refreshing...")
 
         def worker():
-            provider = self._current_chat_provider_value()
             models = [self._chat_provider_error_placeholder(provider)]
             first_attempt = True
             while True:
@@ -10773,6 +11154,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 time.sleep(1.0)
             with self._model_refresh_lock:
                 self._pending_model_refresh = list(models or [])
+                self._pending_model_refresh_provider = provider
+                self._pending_model_refresh_generation = refresh_generation
             QtCore.QMetaObject.invokeMethod(self, "_apply_pending_model_refresh", QtCore.Qt.QueuedConnection)
 
         threading.Thread(target=worker, daemon=True).start()
@@ -10781,8 +11164,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def _apply_pending_model_refresh(self):
         with self._model_refresh_lock:
             models = list(self._pending_model_refresh or [])
+            provider = str(getattr(self, "_pending_model_refresh_provider", "") or "")
+            refresh_generation = int(getattr(self, "_pending_model_refresh_generation", 0) or 0)
             self._pending_model_refresh = None
+            self._pending_model_refresh_provider = ""
+            self._pending_model_refresh_generation = 0
+        if provider != self._current_chat_provider_value() or refresh_generation != int(getattr(self, "_model_refresh_generation", 0) or 0):
+            return
         self._model_refresh_in_flight = False
+        self._model_refresh_provider = ""
         if hasattr(self, "btn_model_refresh"):
             self.btn_model_refresh.setEnabled(True)
             self.btn_model_refresh.setText("Refresh")
@@ -10812,6 +11202,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
             )
+            if not self._finalize_pending_preset_clean_if_ready():
+                self._refresh_preset_dirty_state()
             return
 
         self.model_combo.blockSignals(True)
@@ -10837,6 +11229,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
         )
         self.update_model_budget_hint()
+        if not self._finalize_pending_preset_clean_if_ready():
+            self._refresh_preset_dirty_state()
 
     def refresh_preset_list(self):
         current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
@@ -11501,9 +11895,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         path = Path("presets") / f"{name}.json"
         if not path.exists():
             return
+        scroll_state = (
+            self._capture_vertical_scroll_state(self.system_shaping_scroll)
+            if hasattr(self, "system_shaping_scroll")
+            else None
+        )
         update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
         preset_model_name = str(data.get("model_name") or "").strip()
+        preset_provider_name = chat_providers.normalize_provider_id(
+            data.get("chat_provider", self._current_chat_provider_value()),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        self._queue_preset_clean_after_model_refresh(name, preset_provider_name, preset_model_name)
         if preset_model_name:
             self._pending_restored_model_name = preset_model_name
             update_runtime_config("model_name", preset_model_name)
@@ -11513,6 +11917,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if "chat_provider_settings" in data:
             update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
             self._refresh_chat_provider_card()
+        update_runtime_config("chat_provider_generation_settings", data.get("chat_provider_generation_settings", {}))
+        self._refresh_chat_provider_generation_card()
         if preset_model_name:
             self._apply_saved_model_name(preset_model_name)
         if "voice_file" in data:
@@ -11669,6 +12075,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             tokens = max(32, int(data["max_response_tokens"] or DEFAULT_MAX_RESPONSE_TOKENS))
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
+        self._refresh_chat_provider_generation_card()
         if self._addon_manager is not None:
             try:
                 self._addon_manager.import_preset_state(data)
@@ -11686,8 +12093,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 pass
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
-        self._update_preset_reference_from_current_state(name)
+        self._finalize_pending_preset_clean_if_ready()
         self.save_session()
+        self._restore_system_shaping_scroll_state(scroll_state)
+        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
+        QtCore.QTimer.singleShot(150, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
 
     def save_preset_dialog(self):
         name = QtInputDialog.get_text("Save Preset", "Enter Preset Name:", self)
@@ -11999,6 +12409,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.apply_text_config()
         config = {
             "active_preset_name": str(RUNTIME_CONFIG.get("active_preset_name", "") or ""),
+            "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
+            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
             "system_prompt": self.system_prompt_text.toPlainText().strip(),
             "temperature": self.brain_sliders["temperature"].value(),
@@ -12407,6 +12820,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
+            "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
@@ -12653,6 +13067,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if chat_provider_settings is not None:
                 update_runtime_config("chat_provider_settings", chat_provider_settings)
                 self._refresh_chat_provider_card()
+            chat_provider_generation_settings = session.get("chat_provider_generation_settings")
+            if chat_provider_generation_settings is None:
+                preset_name = str(session.get("last_preset") or "").strip()
+                preset_path = Path("presets") / f"{preset_name}.json" if preset_name else None
+                if preset_path is not None and preset_path.exists():
+                    try:
+                        preset_data = json.loads(preset_path.read_text(encoding="utf-8"))
+                        chat_provider_generation_settings = preset_data.get("chat_provider_generation_settings")
+                    except Exception:
+                        chat_provider_generation_settings = None
+            if chat_provider_generation_settings is not None:
+                update_runtime_config("chat_provider_generation_settings", chat_provider_generation_settings)
+                self._refresh_chat_provider_generation_card()
             saved_model_name = str(session.get("model_name") or "").strip()
             if saved_model_name:
                 self._pending_restored_model_name = saved_model_name
