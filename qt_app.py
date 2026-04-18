@@ -3232,17 +3232,26 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
             self.caption_label.hide()
         return True
 
-    def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image..."):
-        self.current_pixmap = None
-        self.current_image_path = ""
-        self.current_caption = ""
-        self.preview_zoom_factor = 1.0
-        self.image_label.clear()
+    def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image...", *, keep_current_image=False):
+        keep_current = bool(
+            (keep_current_image or self.current_image_path)
+            and self.current_pixmap is not None
+            and self.current_image_path
+        )
+        if not keep_current:
+            self.current_pixmap = None
+            self.current_image_path = ""
+            self.current_caption = ""
+            self.preview_zoom_factor = 1.0
+            self.image_label.clear()
         self.placeholder.setText(str(detail_text or "Preparing image..."))
         self.status_label.setText(str(status_text or "Visual Reply generating..."))
-        self.caption_label.clear()
-        self.caption_label.hide()
-        self.content_stack.setCurrentWidget(self.placeholder)
+        if keep_current:
+            self.content_stack.setCurrentWidget(self.image_scroll)
+        else:
+            self.caption_label.clear()
+            self.caption_label.hide()
+            self.content_stack.setCurrentWidget(self.placeholder)
         self._refresh_storage_summary()
 
     def show_image(self, image_path, status_text="Visual Reply", caption=""):
@@ -3293,9 +3302,19 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
                         detail_text=str(state.get("detail_text", "The requested image could not be loaded.") or "The requested image could not be loaded."),
                     )
             elif status == "loading":
+                keep_current_image = bool(state.get("keep_current_image", False))
+                retained_image_path = str(state.get("image_path", "") or "").strip()
+                if keep_current_image and retained_image_path and os.path.isfile(retained_image_path):
+                    if not self.current_image_path or self.current_image_path != retained_image_path or self.current_pixmap is None:
+                        self.show_image(
+                            retained_image_path,
+                            status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
+                            caption=str(state.get("caption", "") or ""),
+                        )
                 self.set_loading_state(
                     status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
                     detail_text=str(state.get("detail_text", "Preparing image...") or "Preparing image..."),
+                    keep_current_image=keep_current_image,
                 )
             elif status == "error":
                 self.clear_visual_reply(
@@ -3365,7 +3384,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._mounted_addon_tab_ids = set()
         self._mounted_musetalk_addon_tab_ids = set()
         self._mounted_host_settings_addon_tab_ids = set()
+        self._mounted_tts_runtime_addon_tab_ids = set()
+        self._mounted_operational_view_addon_tab_ids = set()
         self._addon_host_tab_groups = {}
+        self._tts_runtime_tab_index_by_backend = {}
         self.console_auto_scroll = True
         self.chat_auto_scroll = True
         self.chat_edit_mode = False
@@ -3878,8 +3900,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.tts_backend_combo = NoWheelComboBox()
         self.tts_backend_combo.setObjectName("tts_backend_combo")
-        self.tts_backend_combo.addItems(["Chatterbox", "PocketTTS"])
         self.tts_backend_combo.currentTextChanged.connect(self.on_tts_backend_change)
+        self._populate_tts_backend_combo()
 
         self.musetalk_vram_combo = NoWheelComboBox()
         self.musetalk_vram_combo.setObjectName("musetalk_vram_combo")
@@ -4101,56 +4123,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         preset_row_widget = QtWidgets.QWidget()
         preset_row_widget.setLayout(preset_row)
         self.preset_row_widget = preset_row_widget
-
-        self.tts_seed_spin = NoWheelSpinBox()
-        self.tts_seed_spin.setObjectName("tts_seed_spin")
-        self.tts_seed_spin.setRange(0, 2 ** 31 - 1)
-        self.tts_seed_spin.setValue(int(RUNTIME_CONFIG.get("tts_seed", 0) or 0))
-        self.tts_seed_spin.valueChanged.connect(self.on_tts_seed_changed)
-
-        self.tts_temperature_spin = DecimalStepper()
-        self.tts_temperature_spin.setObjectName("tts_temperature_spin")
-        self.tts_temperature_spin.setRange(0.05, 2.0)
-        self.tts_temperature_spin.setSingleStep(0.05)
-        self.tts_temperature_spin.setDecimals(2)
-        self.tts_temperature_spin.setValue(float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8))
-        self.tts_temperature_spin.valueChanged.connect(self.on_tts_temperature_changed)
-
-        self.tts_top_p_spin = DecimalStepper()
-        self.tts_top_p_spin.setObjectName("tts_top_p_spin")
-        self.tts_top_p_spin.setRange(0.0, 1.0)
-        self.tts_top_p_spin.setSingleStep(0.01)
-        self.tts_top_p_spin.setDecimals(2)
-        self.tts_top_p_spin.setValue(float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9))
-        self.tts_top_p_spin.valueChanged.connect(self.on_tts_top_p_changed)
-
-        self.tts_top_k_spin = NoWheelSpinBox()
-        self.tts_top_k_spin.setObjectName("tts_top_k_spin")
-        self.tts_top_k_spin.setRange(0, 1000)
-        self.tts_top_k_spin.setSingleStep(1)
-        self.tts_top_k_spin.setValue(int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40))
-        self.tts_top_k_spin.valueChanged.connect(self.on_tts_top_k_changed)
-
-        self.tts_repeat_penalty_spin = DecimalStepper()
-        self.tts_repeat_penalty_spin.setObjectName("tts_repeat_penalty_spin")
-        self.tts_repeat_penalty_spin.setRange(1.0, 2.0)
-        self.tts_repeat_penalty_spin.setSingleStep(0.01)
-        self.tts_repeat_penalty_spin.setDecimals(2)
-        self.tts_repeat_penalty_spin.setValue(float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2))
-        self.tts_repeat_penalty_spin.valueChanged.connect(self.on_tts_repeat_penalty_changed)
-
-        self.tts_min_p_spin = DecimalStepper()
-        self.tts_min_p_spin.setObjectName("tts_min_p_spin")
-        self.tts_min_p_spin.setRange(0.0, 1.0)
-        self.tts_min_p_spin.setSingleStep(0.01)
-        self.tts_min_p_spin.setDecimals(2)
-        self.tts_min_p_spin.setValue(float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0))
-        self.tts_min_p_spin.valueChanged.connect(self.on_tts_min_p_changed)
-
-        self.tts_normalize_loudness_checkbox = QtWidgets.QCheckBox("Normalize Loudness (-27 LUFS)")
-        self.tts_normalize_loudness_checkbox.setObjectName("tts_normalize_loudness_checkbox")
-        self.tts_normalize_loudness_checkbox.setChecked(bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)))
-        self.tts_normalize_loudness_checkbox.toggled.connect(self.on_tts_normalize_loudness_changed)
 
         self.allow_proactive_checkbox = QtWidgets.QCheckBox("Allow proactive replies after silence")
         self.allow_proactive_checkbox.setObjectName("allow_proactive_checkbox")
@@ -4533,37 +4505,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         inner_layout.addWidget(backend_block)
         inner_layout.addSpacing(2)
 
-        self.tts_runtime_stack = QtWidgets.QStackedWidget()
+        self.tts_runtime_addon_tabs = QtWidgets.QTabWidget()
+        self.tts_runtime_addon_tabs.setDocumentMode(True)
+        self.tts_runtime_addon_tabs.currentChanged.connect(self._on_tts_runtime_addon_tab_changed)
+        self.tts_runtime_addon_tabs.setVisible(False)
+        inner_layout.addWidget(self.tts_runtime_addon_tabs)
 
-        chatterbox_page = QtWidgets.QWidget()
-        chatterbox_form = QtWidgets.QFormLayout(chatterbox_page)
-        chatterbox_form.setContentsMargins(0, 0, 0, 0)
-        chatterbox_form.setSpacing(8)
-        chatterbox_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        chatterbox_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-        chatterbox_form.addRow("Random seed (0 = random)", self.tts_seed_spin)
-        chatterbox_form.addRow("Temperature", self.tts_temperature_spin)
-        chatterbox_form.addRow("Top P", self.tts_top_p_spin)
-        chatterbox_form.addRow("Top K", self.tts_top_k_spin)
-        chatterbox_form.addRow("Repetition Penalty", self.tts_repeat_penalty_spin)
-        chatterbox_form.addRow("Min P", self.tts_min_p_spin)
-        chatterbox_form.addRow("", self.tts_normalize_loudness_checkbox)
-
-        pockettts_page = QtWidgets.QWidget()
-        pockettts_layout = QtWidgets.QVBoxLayout(pockettts_page)
-        pockettts_layout.setContentsMargins(0, 0, 0, 0)
-        pockettts_layout.setSpacing(0)
-        pockettts_hint = QtWidgets.QLabel("PocketTTS does not expose extra runtime synthesis controls here yet.")
-        pockettts_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        pockettts_hint.setWordWrap(True)
-        pockettts_layout.addWidget(pockettts_hint)
-        pockettts_layout.addStretch(1)
-
-        self.tts_runtime_stack.addWidget(chatterbox_page)
-        self.tts_runtime_stack.addWidget(pockettts_page)
-        inner_layout.addWidget(self.tts_runtime_stack)
-
-        self.tts_runtime_hint_label = QtWidgets.QLabel()
+        self.tts_runtime_hint_label = QtWidgets.QLabel(
+            "TTS backend controls are now provided by addon tabs in this card."
+        )
         self.tts_runtime_hint_label.setWordWrap(True)
         self.tts_runtime_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         inner_layout.addWidget(self.tts_runtime_hint_label)
@@ -5116,32 +5066,132 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def _refresh_tts_runtime_summary(self):
         if not hasattr(self, "tts_runtime_section"):
             return
-        backend = str(self.tts_backend_combo.currentText() if hasattr(self, "tts_backend_combo") else RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "Chatterbox").strip()
-        if backend.lower() == "chatterbox":
+        backend_value = self._current_tts_backend_value()
+        backend_label = self._tts_backend_label_from_value(backend_value)
+        if backend_value == "chatterbox":
             voice_name = str(self.voice_combo.currentText() if hasattr(self, "voice_combo") else "" or "").strip()
-            self.tts_runtime_section.setSummary(f"{backend} / {voice_name}" if voice_name else backend)
+            self.tts_runtime_section.setSummary(f"{backend_label} / {voice_name}" if voice_name else backend_label)
         else:
-            self.tts_runtime_section.setSummary(backend)
+            self.tts_runtime_section.setSummary(backend_label)
 
     def _on_runtime_section_toggled(self):
         self._sync_host_settings_tabs_height()
         self.save_session()
 
-    def _refresh_tts_runtime_card(self):
-        if not hasattr(self, "tts_runtime_stack"):
+    def _refresh_tts_runtime_card(self, activate_tab=True):
+        if not hasattr(self, "tts_runtime_addon_tabs"):
             return
 
-        backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").strip().lower()
-        if backend == "chatterbox":
-            self.tts_runtime_stack.setCurrentIndex(0)
-            hint = "ChatterboxTurboTTS sampling controls for local speech generation."
-        else:
-            self.tts_runtime_stack.setCurrentIndex(1)
-            hint = "PocketTTS uses the external interpreter path configured in Persona."
-
+        backend = self._current_tts_backend_value()
+        backend_label = self._tts_backend_label_from_value(backend)
+        tab_index = self._tts_runtime_tab_index_by_backend.get(backend)
+        if tab_index is None:
+            for index in range(self.tts_runtime_addon_tabs.count()):
+                tab_widget = self.tts_runtime_addon_tabs.widget(index)
+                backend_id = ""
+                try:
+                    backend_id = str(tab_widget.property("backend_id") or "").strip().lower()
+                except Exception:
+                    backend_id = ""
+                candidates = {
+                    backend_id,
+                    str(tab_widget.objectName() or "").strip().lower(),
+                }
+                if backend in candidates:
+                    tab_index = index
+                    self._tts_runtime_tab_index_by_backend[backend] = index
+                    break
+        if activate_tab and tab_index is not None and 0 <= int(tab_index) < self.tts_runtime_addon_tabs.count():
+            self.tts_runtime_addon_tabs.blockSignals(True)
+            self.tts_runtime_addon_tabs.setCurrentIndex(int(tab_index))
+            self.tts_runtime_addon_tabs.blockSignals(False)
         if hasattr(self, "tts_runtime_hint_label"):
-            self.tts_runtime_hint_label.setText(hint)
+            if backend in self._tts_runtime_tab_index_by_backend:
+                self.tts_runtime_hint_label.setText(f"{backend_label} backend settings are shown in the addon tab below.")
+            else:
+                self.tts_runtime_hint_label.setText(
+                    f"Backend '{backend_label}' does not have a mounted addon tab right now; core fallback settings may be in use."
+                )
         self._refresh_tts_runtime_summary()
+
+    def _available_tts_backend_options(self):
+        options = []
+        try:
+            backend_specs = list(engine.list_available_tts_backends() or [])
+        except Exception:
+            backend_specs = []
+        if not backend_specs:
+            backend_specs = [
+                {"id": "chatterbox", "label": "Chatterbox"},
+                {"id": "pockettts", "label": "PocketTTS"},
+            ]
+        seen = set()
+        for spec in backend_specs:
+            backend_id = str(spec.get("id") or "").strip().lower()
+            if not backend_id or backend_id in seen:
+                continue
+            label = str(spec.get("label") or backend_id or "").strip() or backend_id
+            options.append((label, backend_id))
+            seen.add(backend_id)
+        return options
+
+    def _populate_tts_backend_combo(self, selected_value=None):
+        combo = getattr(self, "tts_backend_combo", None)
+        if combo is None:
+            return
+        desired = str(
+            selected_value
+            or self._current_tts_backend_value()
+            or RUNTIME_CONFIG.get("tts_backend", "chatterbox")
+            or "chatterbox"
+        ).strip().lower()
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for label, backend_id in self._available_tts_backend_options():
+                combo.addItem(label, backend_id)
+            index = combo.findData(desired)
+            if index < 0:
+                index = combo.findData("chatterbox")
+            if index < 0 and combo.count() > 0:
+                index = 0
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        finally:
+            combo.blockSignals(False)
+
+    def _current_tts_backend_value(self):
+        combo = getattr(self, "tts_backend_combo", None)
+        if combo is not None:
+            data = combo.currentData()
+            if data is not None and str(data).strip():
+                return str(data).strip().lower()
+            text = str(combo.currentText() or "").strip()
+            if text:
+                return self._tts_backend_value_from_label(text)
+        return str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").strip().lower()
+
+    def _tts_backend_value_from_label(self, label):
+        normalized = str(label or "").strip().lower()
+        for display_label, backend_id in self._available_tts_backend_options():
+            if normalized == str(display_label or "").strip().lower():
+                return str(backend_id or "").strip().lower()
+            if normalized == str(backend_id or "").strip().lower():
+                return str(backend_id or "").strip().lower()
+        if normalized in {"chatterbox", "pockettts"}:
+            return normalized
+        return normalized
+
+    def _tts_backend_label_from_value(self, value):
+        normalized = str(value or "").strip().lower()
+        for display_label, backend_id in self._available_tts_backend_options():
+            if normalized == str(backend_id or "").strip().lower():
+                return str(display_label or backend_id).strip()
+        if normalized == "chatterbox":
+            return "Chatterbox"
+        if normalized == "pockettts":
+            return "PocketTTS"
+        return str(value or "").strip() or "External TTS"
 
     def on_tts_seed_changed(self, value):
         update_runtime_config("tts_seed", max(0, int(value or 0)))
@@ -5830,7 +5880,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _build_addon_tts_snapshot(self):
         return {
-            "backend": self.tts_backend_combo.currentText() if hasattr(self, "tts_backend_combo") else "",
+            "backend": self._current_tts_backend_value(),
             "voice_path": str(RUNTIME_CONFIG.get("voice_path", "") or ""),
             "pocket_tts_python": str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""),
         }
@@ -5884,9 +5934,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self._addon_manager = manager
             if hasattr(engine, "set_addon_event_publisher"):
                 engine.set_addon_event_publisher(manager.publish_event)
+            if hasattr(engine, "set_addon_manager_getter"):
+                engine.set_addon_manager_getter(lambda: self._addon_manager)
+            self._mount_tts_runtime_addon_tabs()
+            self._populate_tts_backend_combo(selected_value=self._current_tts_backend_value())
             self.refresh_sensory_feedback_source_options(selected_value=str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"))
             self._mount_addon_tabs()
             self._mount_host_settings_addon_tabs()
+            self._mount_operational_view_addon_tabs()
             self._mount_musetalk_addon_tabs()
             self._refresh_addons_management_ui()
             loaded = [record.manifest.id for record in manager.get_loaded_addons() if record.state == "initialized"]
@@ -5895,6 +5950,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             if hasattr(engine, "set_addon_event_publisher"):
                 engine.set_addon_event_publisher(None)
+            if hasattr(engine, "set_addon_manager_getter"):
+                engine.set_addon_manager_getter(None)
             print(f"⚠️ [Addons] Initialization failed: {exc}")
             self._refresh_addons_management_ui()
     def _get_addon_instance(self, addon_id):
@@ -6146,10 +6203,111 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 print(f"⚠️ [Addons] Failed to mount host settings tab '{contribution.id}': {exc}")
         for parent_tab_id, children in child_contributions.items():
             if parent_tab_id in self._mounted_host_settings_addon_tab_ids:
+                self._sync_existing_host_settings_child_tabs(parent_tab_id, children)
                 continue
             child_ids = ", ".join(str(child.id or "") for child in children)
             print(f"⚠️ [Addons] Host settings child tabs {child_ids} declared missing parent '{parent_tab_id}'.")
         QtCore.QTimer.singleShot(0, lambda tabs=self.host_settings_tabs: self._sync_tab_widget_height(tabs))
+
+    def _mount_tts_runtime_addon_tabs(self):
+        if self._addon_manager is None or not hasattr(self, "tts_runtime_addon_tabs"):
+            return
+        contributions = list(self._addon_manager.get_tab_contributions(area="tts_runtime"))
+        for contribution in contributions:
+            if contribution.id in self._mounted_tts_runtime_addon_tab_ids:
+                continue
+            try:
+                widget = contribution.factory(None)
+                if widget is None:
+                    continue
+                backend_id = str(
+                    dict(getattr(contribution, "metadata", {}) or {}).get("backend_id")
+                    or contribution.id
+                    or contribution.title
+                    or ""
+                ).strip().lower()
+                if backend_id:
+                    try:
+                        widget.setProperty("backend_id", backend_id)
+                    except Exception:
+                        pass
+                tab_index = self.tts_runtime_addon_tabs.addTab(widget, contribution.title)
+                if contribution.tooltip:
+                    self.tts_runtime_addon_tabs.setTabToolTip(tab_index, contribution.tooltip)
+                if backend_id:
+                    self._tts_runtime_tab_index_by_backend[backend_id] = tab_index
+                self._mounted_tts_runtime_addon_tab_ids.add(contribution.id)
+            except Exception as exc:
+                print(f"⚠️ [Addons] Failed to mount TTS runtime tab '{contribution.id}': {exc}")
+                fallback = QtWidgets.QWidget()
+                fallback_layout = QtWidgets.QVBoxLayout(fallback)
+                fallback_layout.setContentsMargins(10, 10, 10, 10)
+                fallback_layout.setSpacing(8)
+                title = QtWidgets.QLabel(str(contribution.title or contribution.id or "TTS Addon"))
+                title.setStyleSheet("font-weight: 600; color: #d8dee9;")
+                message = QtWidgets.QLabel(
+                    f"Could not load the UI for '{contribution.title or contribution.id}'.\n\n{exc}"
+                )
+                message.setWordWrap(True)
+                message.setStyleSheet("color: #8ea3b8;")
+                fallback_layout.addWidget(title)
+                fallback_layout.addWidget(message)
+                fallback_layout.addStretch(1)
+                tab_index = self.tts_runtime_addon_tabs.addTab(fallback, contribution.title)
+                if contribution.tooltip:
+                    self.tts_runtime_addon_tabs.setTabToolTip(tab_index, contribution.tooltip)
+                self._mounted_tts_runtime_addon_tab_ids.add(contribution.id)
+        if hasattr(self, "tts_runtime_addon_tabs"):
+            self.tts_runtime_addon_tabs.setVisible(self.tts_runtime_addon_tabs.count() > 0)
+        self._refresh_tts_runtime_card()
+
+    def _on_tts_runtime_addon_tab_changed(self, index):
+        if not hasattr(self, "tts_runtime_addon_tabs"):
+            return
+        current = self.tts_runtime_addon_tabs.widget(index)
+        if current is None:
+            return
+        backend_id = str(current.property("backend_id") or current.objectName() or "").strip().lower()
+        if backend_id:
+            self._tts_runtime_tab_index_by_backend[backend_id] = index
+
+    def _sync_existing_host_settings_child_tabs(self, host_tab_id, children):
+        host_tab_id = str(host_tab_id or "").strip()
+        group = dict(self._addon_host_tab_groups.get(host_tab_id) or {})
+        if not group:
+            return
+        existing_by_id = dict(group.get("children_by_id", {}) or {})
+        changed = False
+        for child in list(children or []):
+            child_id = str(getattr(child, "id", "") or "").strip()
+            if not child_id or child_id in existing_by_id:
+                continue
+            group.setdefault("children", []).append(child)
+            existing_by_id[child_id] = child
+            changed = True
+        if not changed:
+            return
+        group["children_by_id"] = existing_by_id
+        self._addon_host_tab_groups[host_tab_id] = group
+        self._rebuild_addon_host_child_tabs(host_tab_id)
+
+    def _mount_operational_view_addon_tabs(self):
+        if self._addon_manager is None or not hasattr(self, "right_tabs"):
+            return
+        contributions = list(self._addon_manager.get_tab_contributions(area="operational_view"))
+        for contribution in contributions:
+            if contribution.id in self._mounted_operational_view_addon_tab_ids:
+                continue
+            try:
+                widget = contribution.factory(None)
+                if widget is None:
+                    continue
+                tab_index = self.right_tabs.addTab(widget, contribution.title)
+                if contribution.tooltip:
+                    self.right_tabs.setTabToolTip(tab_index, contribution.tooltip)
+                self._mounted_operational_view_addon_tab_ids.add(contribution.id)
+            except Exception as exc:
+                print(f"⚠️ [Addons] Failed to mount operational tab '{contribution.id}': {exc}")
 
     def _status_diode_style(self, active, active_fill, active_border):
         if active:
@@ -6160,7 +6318,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _build_preset_payload(self, ensure_pocket_tts_path=False):
         pocket_tts_python = self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else ""
-        if ensure_pocket_tts_path and hasattr(self, "tts_backend_combo") and self.tts_backend_combo.currentText() == "PocketTTS":
+        if ensure_pocket_tts_path and self._current_tts_backend_value() == "pockettts":
             pocket_tts_python = self._ensure_pocket_tts_python_path()
         chat_provider_generation_settings = dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {})
         payload = {
@@ -6171,7 +6329,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
+            "tts_backend": self._current_tts_backend_value(),
             "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
             "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
             "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
@@ -6411,47 +6569,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.voice_combo.currentTextChanged.connect(self.on_voice_changed)
         layout.addWidget(QtWidgets.QLabel("Voice Clone"))
         layout.addWidget(self.voice_combo)
-
-        bundled_pocket_tts = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
-        self.pocket_tts_info_label = QtWidgets.QLabel(
-            "PocketTTS is bundled with Neural Interface and is used automatically when selected."
-        )
-        self.pocket_tts_info_label.setWordWrap(True)
-        layout.addWidget(self.pocket_tts_info_label)
-
-        self.pocket_tts_advanced_toggle = QtWidgets.QPushButton("Show Advanced PocketTTS Override")
-        self.pocket_tts_advanced_toggle.setObjectName("btn_toggle_pocket_tts_advanced")
-        self.pocket_tts_advanced_toggle.setCheckable(True)
-        self.pocket_tts_advanced_toggle.toggled.connect(self._toggle_pocket_tts_advanced)
-        layout.addWidget(self.pocket_tts_advanced_toggle)
-
-        self.pocket_tts_advanced_group = QtWidgets.QGroupBox("Advanced PocketTTS Override")
-        self.pocket_tts_advanced_group.setObjectName("pocket_tts_advanced_group")
-        pocket_advanced_layout = QtWidgets.QVBoxLayout(self.pocket_tts_advanced_group)
-        bundled_text = bundled_pocket_tts if bundled_pocket_tts else "Bundled PocketTTS interpreter not found."
-        self.pocket_tts_bundled_label = QtWidgets.QLabel(f"Bundled interpreter: {bundled_text}")
-        self.pocket_tts_bundled_label.setWordWrap(True)
-        pocket_advanced_layout.addWidget(self.pocket_tts_bundled_label)
-
-        pocket_row = QtWidgets.QHBoxLayout()
-        self.pocket_tts_python_edit = QtWidgets.QLineEdit()
-        self.pocket_tts_python_edit.setObjectName("pocket_tts_python_edit")
-        self.pocket_tts_python_edit.setPlaceholderText("Optional override path to PocketTTS python.exe")
-        self.pocket_tts_python_edit.editingFinished.connect(self.on_pocket_tts_python_changed)
-        self.pocket_tts_browse_button = QtWidgets.QPushButton("Browse")
-        self.pocket_tts_browse_button.setObjectName("pocket_tts_browse_button")
-        self.pocket_tts_browse_button.clicked.connect(self.browse_pocket_tts_python)
-        pocket_row.addWidget(self.pocket_tts_python_edit, 1)
-        pocket_row.addWidget(self.pocket_tts_browse_button)
-        pocket_advanced_layout.addWidget(QtWidgets.QLabel("PocketTTS Python Override"))
-        pocket_advanced_layout.addLayout(pocket_row)
-
-        self.pocket_tts_use_bundled_button = QtWidgets.QPushButton("Use Bundled PocketTTS")
-        self.pocket_tts_use_bundled_button.setObjectName("btn_use_bundled_pocket_tts")
-        self.pocket_tts_use_bundled_button.clicked.connect(self.reset_pocket_tts_python_to_default)
-        pocket_advanced_layout.addWidget(self.pocket_tts_use_bundled_button)
-        self.pocket_tts_advanced_group.setVisible(False)
-        layout.addWidget(self.pocket_tts_advanced_group)
 
         self.emotional_text = QtWidgets.QPlainTextEdit()
         self.emotional_text.setObjectName("emotional_text")
@@ -7566,18 +7683,24 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._refresh_tts_runtime_summary()
 
     def browse_pocket_tts_python(self):
+        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+        start_dir = pocket_tts_python_edit.text().strip() if pocket_tts_python_edit is not None else ""
         path, _ = QtDialogService(self).open_file(
             "Select PocketTTS Python",
-            self.pocket_tts_python_edit.text().strip() or "",
+            start_dir or "",
             "Python (*.exe);;All Files (*.*)",
         )
         if not path:
             return
-        self.pocket_tts_python_edit.setText(path)
+        if pocket_tts_python_edit is not None:
+            pocket_tts_python_edit.setText(path)
         self.on_pocket_tts_python_changed()
 
     def on_pocket_tts_python_changed(self):
-        update_runtime_config("pocket_tts_python", self.pocket_tts_python_edit.text().strip())
+        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+        if pocket_tts_python_edit is None:
+            return
+        update_runtime_config("pocket_tts_python", pocket_tts_python_edit.text().strip())
         self.save_session()
 
     def on_vam_vmc_enabled_changed(self, enabled):
@@ -7712,12 +7835,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._sync_host_settings_tabs_height()
 
     def _ensure_pocket_tts_python_path(self):
-        current = self.pocket_tts_python_edit.text().strip()
+        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+        if pocket_tts_python_edit is None:
+            fallback = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+            if fallback and os.path.exists(fallback):
+                update_runtime_config("pocket_tts_python", fallback)
+                return fallback
+            return ""
+        current = pocket_tts_python_edit.text().strip()
         if current:
             return current
         fallback = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
         if fallback and os.path.exists(fallback):
-            self.pocket_tts_python_edit.setText(fallback)
+            pocket_tts_python_edit.setText(fallback)
             self.on_pocket_tts_python_changed()
             print(f"[QtGUI] PocketTTS Python was empty. Using default path: {fallback}")
             return fallback
@@ -7725,8 +7855,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def reset_pocket_tts_python_to_default(self):
         fallback = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
-        if fallback and os.path.exists(fallback):
-            self.pocket_tts_python_edit.setText(fallback)
+        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+        if fallback and os.path.exists(fallback) and pocket_tts_python_edit is not None:
+            pocket_tts_python_edit.setText(fallback)
             self.on_pocket_tts_python_changed()
             print(f"[QtGUI] PocketTTS Python reset to bundled interpreter: {fallback}")
         else:
@@ -7763,22 +7894,29 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def on_stream_mode_change(self, choice):
         enabled = choice == "On"
         update_runtime_config("stream_mode", enabled)
-        desired_backend = "PocketTTS" if enabled else "Chatterbox"
-        if self.tts_backend_combo.currentText() != desired_backend:
-            self.tts_backend_combo.setCurrentText(desired_backend)
+        current_backend = self._current_tts_backend_value()
+        if current_backend in {"chatterbox", "pockettts"}:
+            desired_backend = "pockettts" if enabled else "chatterbox"
+            if current_backend != desired_backend and hasattr(self, "tts_backend_combo"):
+                self.tts_backend_combo.setCurrentIndex(max(self.tts_backend_combo.findData(desired_backend), 0))
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "stream_mode", "value": choice})
         self.save_session()
 
     def on_tts_backend_change(self, choice):
-        backend = "pockettts" if choice == "PocketTTS" else "chatterbox"
+        backend = self._current_tts_backend_value()
         update_runtime_config("tts_backend", backend)
-        if backend == "pockettts":
+        if backend == "pockettts" and hasattr(self, "pocket_tts_python_edit"):
             self._ensure_pocket_tts_python_path()
-        self._refresh_tts_runtime_card()
+        try:
+            if hasattr(engine, "init_tts"):
+                engine.init_tts()
+        except Exception as exc:
+            print(f"⚠️ [TTS] Failed to reload backend '{backend}': {exc}")
+        self._refresh_tts_runtime_card(activate_tab=not bool(getattr(self, "_restoring_preset", False)))
         self._refresh_tts_runtime_summary()
         self._advisor_context_manual_override = False
-        self.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": choice})
+        self.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": backend})
         self.update_model_budget_hint()
         self.save_session()
 
@@ -8362,7 +8500,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         override = {
             "avatar_mode": self.engine_combo.currentText().lower(),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
+            "tts_backend": self._current_tts_backend_value(),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
             "musetalk_vram_mode": next(
                 (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
@@ -8463,8 +8601,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             update_runtime_config(key, value)
             if key in self.chunking_sliders:
                 self.chunking_sliders[key].set_value(value)
-        if "tts_backend" in settings:
-            self.tts_backend_combo.setCurrentText("PocketTTS" if str(settings["tts_backend"]).lower() == "pockettts" else "Chatterbox")
+        if "tts_backend" in settings and hasattr(self, "tts_backend_combo"):
+            desired_backend = str(settings["tts_backend"] or "").strip().lower()
+            self._populate_tts_backend_combo(selected_value=desired_backend)
+            index = self.tts_backend_combo.findData(desired_backend)
+            if index >= 0:
+                self.tts_backend_combo.setCurrentIndex(index)
+            self.on_tts_backend_change(self.tts_backend_combo.currentText())
         if "stream_mode" in settings:
             self.stream_mode_combo.setCurrentText("On" if bool(settings["stream_mode"]) else "Off")
         if "musetalk_vram_mode" in settings and hasattr(self, "musetalk_vram_combo"):
@@ -8703,7 +8846,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
         role = self._input_role_value_from_label(self.input_role_combo.currentText())
         stream_mode = self.stream_mode_combo.currentText() == "On"
-        tts_backend = "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox"
+        tts_backend = self._current_tts_backend_value()
         musetalk_vram_mode = next(
             (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
             "quality",
@@ -8721,7 +8864,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
-        update_runtime_config("pocket_tts_python", self.pocket_tts_python_edit.text().strip())
+        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+        update_runtime_config(
+            "pocket_tts_python",
+            pocket_tts_python_edit.text().strip() if pocket_tts_python_edit is not None else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""),
+        )
         update_runtime_config("vam_vmc_enabled", self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else True)
         update_runtime_config("vam_bridge_enabled", self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else True)
         update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else False))
@@ -8835,7 +8982,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.emotional_text.setPlainText(RUNTIME_CONFIG.get("emotional_instructions", ""))
         self.system_prompt_text.setPlainText(RUNTIME_CONFIG.get("system_prompt", ""))
         if hasattr(self, "sensory_pingpong_prompt_text"): self.sensory_pingpong_prompt_text.setPlainText(str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")))
-        self.pocket_tts_python_edit.setText(str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
+        if hasattr(self, "pocket_tts_python_edit"):
+            self.pocket_tts_python_edit.setText(str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
         input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
         self.input_mode_combo.setCurrentText("Push-to-Talk" if input_mode == "push_to_talk" else "Voice Activation")
         input_role = str(RUNTIME_CONFIG.get("input_message_role", "user") or "user").lower()
@@ -8846,7 +8994,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.chat_overflow_policy_combo.setCurrentText(self._chat_overflow_policy_label_from_value(RUNTIME_CONFIG.get("chat_context_overflow_policy", "rolling_window")))
         self.stream_mode_combo.setCurrentText("On" if bool(RUNTIME_CONFIG.get("stream_mode", False)) else "Off")
         tts_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
-        self.tts_backend_combo.setCurrentText("PocketTTS" if tts_backend == "pockettts" else "Chatterbox")
+        self._populate_tts_backend_combo(selected_value=tts_backend)
         vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
         self.musetalk_vram_combo.setCurrentText(MUSE_VRAM_MODE_LABELS.get(vram_mode, "Quality"))
         for key, slider in self.brain_sliders.items():
@@ -9079,7 +9227,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "engine_running": bool(self.thread and self.thread.is_alive()),
             "avatar_mode": self.engine_combo.currentText() if hasattr(self, "engine_combo") else "",
             "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
-            "tts_backend": self.tts_backend_combo.currentText() if hasattr(self, "tts_backend_combo") else "",
+            "tts_backend": self._current_tts_backend_value(),
             "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
             "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
@@ -9206,7 +9354,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _estimate_setup_increment_gib(self):
         avatar_mode = str(self.engine_combo.currentText() or "").strip().lower() if hasattr(self, "engine_combo") else "musetalk"
-        tts_backend = str(self.tts_backend_combo.currentText() or "").strip().lower() if hasattr(self, "tts_backend_combo") else "pockettts"
+        tts_backend = self._current_tts_backend_value()
         vram_mode_label = str(self.musetalk_vram_combo.currentText() or "").strip() if hasattr(self, "musetalk_vram_combo") else "Very Low VRAM"
 
         if avatar_mode == "musetalk":
@@ -9601,7 +9749,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if hasattr(self, "musetalk_vram_combo"):
             self.musetalk_vram_combo.setCurrentText("Very Low VRAM")
         if hasattr(self, "tts_backend_combo"):
-            self.tts_backend_combo.setCurrentText("PocketTTS")
+            self._populate_tts_backend_combo(selected_value="pockettts")
+            index = self.tts_backend_combo.findData("pockettts")
+            if index >= 0:
+                self.tts_backend_combo.setCurrentIndex(index)
         self._ensure_pocket_tts_python_path()
         self.save_session()
         print("[QtGUI] Applied safe tutorial defaults.")
@@ -9789,10 +9940,17 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             interval_seconds = max(2.0, float(data["sensory_feedback_interval_seconds"] or 7.0))
             self.sensory_feedback_interval_spin.setValue(interval_seconds)
             self.on_sensory_feedback_interval_changed(interval_seconds)
-        if "tts_backend" in data:
-            backend_text = "PocketTTS" if str(data["tts_backend"]).lower() == "pockettts" else "Chatterbox"
-            self.tts_backend_combo.setCurrentText(backend_text)
-            self.on_tts_backend_change(backend_text)
+        if "tts_backend" in data and hasattr(self, "tts_backend_combo"):
+            backend_value = str(data["tts_backend"]).strip().lower()
+            combo = self.tts_backend_combo
+            combo.blockSignals(True)
+            try:
+                self._populate_tts_backend_combo(selected_value=backend_value)
+                index = combo.findData(backend_value)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+            finally:
+                combo.blockSignals(False)
         if "tts_seed" in data and hasattr(self, "tts_seed_spin"):
             self.tts_seed_spin.setValue(max(0, int(data["tts_seed"] or 0)))
             self.on_tts_seed_changed(self.tts_seed_spin.value())
@@ -9849,11 +10007,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.on_musetalk_avatar_pack_change(self.musetalk_avatar_pack_combo.currentText())
         if "pocket_tts_python" in data:
             preset_python = str(data["pocket_tts_python"] or "").strip()
-            if preset_python:
-                self.pocket_tts_python_edit.setText(preset_python)
+            pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+            if preset_python and pocket_tts_python_edit is not None:
+                pocket_tts_python_edit.setText(preset_python)
                 self.on_pocket_tts_python_changed()
-            elif str(data.get("tts_backend", "")).lower() == "pockettts":
-                current_python = self.pocket_tts_python_edit.text().strip()
+            elif self._current_tts_backend_value() == "pockettts" and pocket_tts_python_edit is not None:
+                current_python = pocket_tts_python_edit.text().strip()
                 if current_python:
                     print(
                         "[QtGUI] Preset requested PocketTTS but did not include a PocketTTS Python path. "
@@ -9861,7 +10020,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     )
                 else:
                     self._ensure_pocket_tts_python_path()
-        elif str(data.get("tts_backend", "")).lower() == "pockettts":
+        elif self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit"):
             self._ensure_pocket_tts_python_path()
         self.emotional_text.setPlainText(data.get("emotional_instructions", ""))
         self.system_prompt_text.setPlainText(data.get("system_prompt", ""))
@@ -9877,13 +10036,19 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
         self._refresh_chat_provider_generation_card()
-        if self._addon_manager is not None:
-            try:
-                self._addon_manager.import_preset_state(data)
-            except Exception:
-                pass
-        self._refresh_sensory_feedback_source_tabs()
-        self._refresh_addon_group_tabs()
+        previous_restoring_preset = bool(getattr(self, "_restoring_preset", False))
+        self._restoring_preset = True
+        try:
+            if self._addon_manager is not None:
+                try:
+                    self._addon_manager.import_preset_state(data)
+                except Exception:
+                    pass
+            self._refresh_sensory_feedback_source_tabs()
+            self._refresh_addon_group_tabs()
+            self._refresh_tts_runtime_card(activate_tab=False)
+        finally:
+            self._restoring_preset = previous_restoring_preset
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
         self._finalize_pending_preset_clean_if_ready()
@@ -10219,7 +10384,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "offline_replay_only": bool(offline_replay_only),
-            "tts_backend": "pockettts" if self.tts_backend_combo.currentText() == "PocketTTS" else "chatterbox",
+            "tts_backend": self._current_tts_backend_value(),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
             "musetalk_vram_mode": next(
                 (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
@@ -10235,9 +10400,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
             "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
             "vam_timeline_auto_resume": self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
-            "pocket_tts_python": self._ensure_pocket_tts_python_path()
-            if self.tts_backend_combo.currentText() == "PocketTTS"
-            else self.pocket_tts_python_edit.text().strip(),
+            "pocket_tts_python": (
+                self._ensure_pocket_tts_python_path()
+                if self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit")
+                else (self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
+            ),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -10570,7 +10737,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "manual_action_hotkeys": dict(engine.get_manual_action_hotkeys()),
             "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
-            "tts_backend": self.tts_backend_combo.currentText(),
+            "tts_backend": self._current_tts_backend_value(),
             "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
             "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
             "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
@@ -10627,8 +10794,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
             "pocket_tts_python": (
                 self._ensure_pocket_tts_python_path()
-                if self.tts_backend_combo.currentText() == "PocketTTS"
-                else self.pocket_tts_python_edit.text().strip()
+                if self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit")
+                else (self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
             ),
             "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
             "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
@@ -10754,10 +10921,12 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
             tts_backend = session.get("tts_backend")
             if tts_backend:
-                index = self.tts_backend_combo.findText(tts_backend)
+                desired_backend = str(tts_backend or "").strip().lower()
+                self._populate_tts_backend_combo(selected_value=desired_backend)
+                index = self.tts_backend_combo.findData(desired_backend)
                 if index >= 0:
                     self.tts_backend_combo.setCurrentIndex(index)
-                    self.on_tts_backend_change(self.tts_backend_combo.currentText())
+                self.on_tts_backend_change(self.tts_backend_combo.currentText())
             tts_seed = session.get("tts_seed")
             if tts_seed is not None and hasattr(self, "tts_seed_spin"):
                 self.tts_seed_spin.setValue(max(0, int(tts_seed)))
@@ -11001,9 +11170,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                         break
                 self.on_musetalk_avatar_pack_change(self.musetalk_avatar_pack_combo.currentText())
             pocket_tts_python = session.get("pocket_tts_python")
-            if pocket_tts_python is not None:
-                self.pocket_tts_python_edit.setText(str(pocket_tts_python))
-            if self.tts_backend_combo.currentText() == "PocketTTS":
+            pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
+            if pocket_tts_python is not None and pocket_tts_python_edit is not None:
+                pocket_tts_python_edit.setText(str(pocket_tts_python))
+            if self._current_tts_backend_value() == "pockettts" and pocket_tts_python_edit is not None:
                 self._ensure_pocket_tts_python_path()
             emotional_instructions = session.get("emotional_instructions")
             if emotional_instructions is not None and hasattr(self, "emotional_text"):
@@ -11088,6 +11258,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_session()
         self.stop_musetalk_preview()
         self.stop_engine()
+        if hasattr(engine, "set_addon_event_publisher"):
+            engine.set_addon_event_publisher(None)
+        if hasattr(engine, "set_addon_manager_getter"):
+            engine.set_addon_manager_getter(None)
         if self._addon_manager is not None:
             self._addon_manager.unload_all()
         sys.stdout = self._previous_stdout

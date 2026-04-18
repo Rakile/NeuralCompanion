@@ -55,8 +55,9 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
     captionRequested = QtCore.Signal()
     clearRequested = QtCore.Signal()
 
-    def __init__(self, parent=None):
+    def __init__(self, capability_bridge=None, parent=None):
         super().__init__(parent)
+        self._capability_bridge = capability_bridge
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -74,6 +75,8 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
         self.prev_button = QtWidgets.QPushButton("Previous")
         self.load_button = QtWidgets.QPushButton("Load Image")
         self.next_button = QtWidgets.QPushButton("Next")
+        self.load_story_button = QtWidgets.QPushButton("Load Current Story Image")
+        self.use_style_button = QtWidgets.QPushButton("Use Current Image Style")
         self.caption_button = QtWidgets.QPushButton("Caption")
         self.delete_button = QtWidgets.QPushButton("Delete Image")
         self.clear_button = QtWidgets.QPushButton("Clear")
@@ -81,6 +84,8 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
         self.prev_button.clicked.connect(self.show_previous_stored_image)
         self.next_button.clicked.connect(self.show_next_stored_image)
         self.load_button.clicked.connect(self.loadRequested.emit)
+        self.load_story_button.clicked.connect(self.load_current_story_image)
+        self.use_style_button.clicked.connect(self.use_current_image_style)
         self.caption_button.clicked.connect(self.captionRequested.emit)
         self.delete_button.clicked.connect(self.delete_current_image)
         self.clear_button.clicked.connect(self.clearRequested.emit)
@@ -88,6 +93,8 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
         controls.addWidget(self.prev_button, 0)
         controls.addWidget(self.load_button, 0)
         controls.addWidget(self.next_button, 0)
+        controls.addWidget(self.load_story_button, 0)
+        controls.addWidget(self.use_style_button, 0)
         controls.addWidget(self.caption_button, 0)
         controls.addWidget(self.delete_button, 0)
         controls.addWidget(self.clear_button, 0)
@@ -325,6 +332,34 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
     def show_next_stored_image(self):
         return self._show_storage_image_by_offset(1)
 
+    def _invoke_addon_capability(self, capability, payload=None):
+        bridge = getattr(self, "_capability_bridge", None)
+        invoker = getattr(bridge, "invoke", None)
+        if not callable(invoker):
+            self.status_label.setText("Audio Story Mode unavailable")
+            return None
+        try:
+            return invoker(str(capability or ""), dict(payload or {}))
+        except Exception:
+            self.status_label.setText("Audio Story Mode request failed")
+            return None
+
+    def load_current_story_image(self):
+        result = self._invoke_addon_capability("audio_story_mode.load_current_image", {})
+        if isinstance(result, dict) and result.get("ok"):
+            self.status_label.setText("Story image loaded" if result.get("image_ready") else "Story image generation queued")
+            return True
+        self.status_label.setText("No audio story is loaded")
+        return False
+
+    def use_current_image_style(self):
+        result = self._invoke_addon_capability("audio_story_mode.refresh_master_style_anchor", {})
+        if isinstance(result, dict) and result.get("ok"):
+            self.status_label.setText("Current image style refresh queued")
+            return True
+        self.status_label.setText("No audio story is loaded")
+        return False
+
     def delete_all_stored_images(self):
         entries, _ = self._visual_reply_storage_stats()
         if not entries:
@@ -483,17 +518,26 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
             self.caption_label.hide()
         return True
 
-    def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image..."):
-        self.current_pixmap = None
-        self.current_image_path = ""
-        self.current_caption = ""
-        self.preview_zoom_factor = 1.0
-        self.image_label.clear()
+    def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image...", *, keep_current_image=False):
+        keep_current = bool(
+            (keep_current_image or self.current_image_path)
+            and self.current_pixmap is not None
+            and self.current_image_path
+        )
+        if not keep_current:
+            self.current_pixmap = None
+            self.current_image_path = ""
+            self.current_caption = ""
+            self.preview_zoom_factor = 1.0
+            self.image_label.clear()
         self.placeholder.setText(str(detail_text or "Preparing image..."))
         self.status_label.setText(str(status_text or "Visual Reply generating..."))
-        self.caption_label.clear()
-        self.caption_label.hide()
-        self.content_stack.setCurrentWidget(self.placeholder)
+        if keep_current:
+            self.content_stack.setCurrentWidget(self.image_scroll)
+        else:
+            self.caption_label.clear()
+            self.caption_label.hide()
+            self.content_stack.setCurrentWidget(self.placeholder)
         self._refresh_storage_summary()
 
     def show_image(self, image_path, status_text="Visual Reply", caption=""):
@@ -549,9 +593,19 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
                         detail_text=str(state.get("detail_text", "The requested image could not be loaded.") or "The requested image could not be loaded."),
                     )
             elif status == "loading":
+                keep_current_image = bool(state.get("keep_current_image", False))
+                retained_image_path = str(state.get("image_path", "") or "").strip()
+                if keep_current_image and retained_image_path and os.path.isfile(retained_image_path):
+                    if not self.current_image_path or self.current_image_path != retained_image_path or self.current_pixmap is None:
+                        self.show_image(
+                            retained_image_path,
+                            status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
+                            caption=str(state.get("caption", "") or ""),
+                        )
                 self.set_loading_state(
                     status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
                     detail_text=str(state.get("detail_text", "Preparing image...") or "Preparing image..."),
+                    keep_current_image=keep_current_image,
                 )
             elif status == "error":
                 self.clear_visual_reply(
@@ -573,10 +627,11 @@ class VisualReplyController:
         self._visual_reply_service = context.get_service("qt.visual_reply")
         if self._visual_reply_service is None:
             raise RuntimeError("Qt visual reply host service is unavailable.")
+        self._capability_bridge = context.get_service("addons.capabilities")
         self.panel = None
 
     def install_panel(self):
-        self.panel = AddonVisualReplyPanel()
+        self.panel = AddonVisualReplyPanel(capability_bridge=self._capability_bridge)
         self._visual_reply_service.replace_panel(self.panel)
 
     def build_core_tab(self):

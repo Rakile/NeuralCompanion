@@ -1,0 +1,4168 @@
+from __future__ import annotations
+
+import hashlib
+import json
+import re
+import threading
+import time
+import traceback
+import uuid
+from collections import Counter
+from contextlib import ExitStack
+from pathlib import Path
+
+from PySide6 import QtCore, QtWidgets
+
+try:
+    from PySide6 import QtMultimedia
+except Exception:
+    QtMultimedia = None
+
+from core import chat_providers
+import engine
+import shared_state
+
+
+class _AudioStoryNoWheelComboBox(QtWidgets.QComboBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class _AudioStoryNoWheelSlider(QtWidgets.QSlider):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+class _AudioStoryNoWheelSpinBox(QtWidgets.QSpinBox):
+    def wheelEvent(self, event):
+        event.ignore()
+
+
+_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
+    "characters": 420,
+    "location": 320,
+    "props": 220,
+    "style": 300,
+    "world": 240,
+    "continuity": 360,
+    "preserve": 260,
+    "avoid": 180,
+}
+
+
+def _audio_story_style_presets():
+    return [
+        {"id": "realistic", "label": "Realistic", "prompt": "realistic lighting, grounded detail"},
+        {"id": "cartoon", "label": "Cartoon", "prompt": "stylized shapes, clean outlines"},
+        {"id": "retro", "label": "Retro", "prompt": "retro print mood, halftone texture"},
+        {"id": "cyberpunk", "label": "Cyberpunk", "prompt": "neon atmosphere, vivid contrast"},
+    ]
+
+
+def _audio_story_master_prompt_modes():
+    return [
+        ("simple", "Simple"),
+        ("medium", "Medium"),
+        ("strong", "Strong"),
+        ("strongest", "Strongest"),
+    ]
+
+
+def _audio_story_slug(text: str, *, prefix: str) -> str:
+    value = re.sub(r"[^a-z0-9]+", "_", str(text or "").strip().lower()).strip("_")
+    if not value:
+        value = prefix
+    return f"{prefix}_{value[:36]}"
+
+
+def _audio_story_sentence_split(text: str) -> list[str]:
+    value = re.sub(r"\s+", " ", str(text or "").strip())
+    if not value:
+        return []
+    parts = re.split(r"(?<=[.!?])\s+", value)
+    return [part.strip() for part in parts if part and part.strip()]
+
+
+def _audio_story_truncate(text: str, limit: int) -> str:
+    value = re.sub(r"\s+", " ", str(text or "").strip())
+    if len(value) <= int(limit):
+        return value
+    return value[: max(0, int(limit))].rstrip(" \t\r\n,;:.-")
+
+
+def _audio_story_unique_keep_order(values) -> list[str]:
+    seen = set()
+    result = []
+    for value in list(values or []):
+        text = str(value or "").strip()
+        if not text or text in seen:
+            continue
+        result.append(text)
+        seen.add(text)
+    return result
+
+
+def _audio_story_keyword_tokens(text: str) -> list[str]:
+    value = re.sub(r"[^a-z0-9' -]+", " ", str(text or "").lower())
+    tokens = []
+    for token in re.findall(r"[a-z0-9']+", value):
+        if len(token) < 3 or token in _AUDIO_STORY_COMMON_WORDS:
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def _audio_story_sentence_matches(sentence: str, phrases) -> bool:
+    text = str(sentence or "")
+    for phrase in list(phrases or []):
+        value = str(phrase or "").strip()
+        if value and re.search(rf"(?<![A-Za-z0-9']){re.escape(value)}(?![A-Za-z0-9'])", text, flags=re.IGNORECASE):
+            return True
+    return False
+
+
+def _audio_story_is_character_candidate(text: str) -> bool:
+    value = re.sub(r"\s+", " ", str(text or "").strip(" ,;:.!?\"'"))
+    if not value:
+        return False
+    lowered = value.lower()
+    blocked = {
+        "he", "she", "it", "they", "them", "him", "her", "his", "hers", "their", "theirs",
+        "i", "me", "my", "mine", "we", "us", "our", "you", "your", "yours",
+        "yes", "ok", "okay", "that", "this", "there", "then", "now",
+        "for", "and", "but", "or", "because", "in", "at", "on", "after", "before",
+    }
+    if lowered in blocked or lowered in _AUDIO_STORY_COMMON_WORDS:
+        return False
+    words = re.findall(r"[A-Za-z0-9']+", value)
+    if not words or len(words) > 3:
+        return False
+    if any(word.lower() in blocked for word in words):
+        return False
+    title_tokens = {"mr", "mrs", "ms", "miss", "dr", "sir", "lady", "lord", "captain", "professor"}
+    if len(words) > 1 and words[0].lower() not in title_tokens and not all(word[:1].isupper() for word in words):
+        return False
+    return True
+
+
+def _audio_story_normalize_character_label(text: str) -> str:
+    value = re.sub(r"\s+", " ", str(text or "").strip(" ,;:.!?\"'"))
+    if not value:
+        return ""
+    title_match = re.search(r"\b(?:Mr|Mrs|Ms|Miss|Dr|Sir|Lady|Lord|Captain|Professor)\.?\s+[A-Z][a-z]+\b", value)
+    if title_match is not None:
+        value = title_match.group(0).strip()
+    return value if _audio_story_is_character_candidate(value) else ""
+
+
+def _audio_story_clean_location_candidate(text: str, *, prefix: str = "") -> str:
+    value = re.sub(r"\s+", " ", str(text or "").strip(" ,;:.!?\"'"))
+    if not value:
+        return ""
+    value = re.split(
+        r"\b(?:and|but|then|while|when|because|that|who|which|where|with|without|for|from|before|after)\b",
+        value,
+        maxsplit=1,
+        flags=re.IGNORECASE,
+    )[0].strip(" ,;:.!?\"'")
+    words = re.findall(r"[a-z0-9']+", value.lower())
+    if not words or len(words) > 5:
+        return ""
+    pronouns = {"he", "she", "they", "them", "his", "her", "their", "me", "you", "we", "i", "my", "your", "our"}
+    if any(word in pronouns for word in words):
+        return ""
+    if len(words) == 1 and words[0] in _AUDIO_STORY_COMMON_WORDS:
+        return ""
+    prefix_words = re.findall(r"[a-z']+", str(prefix or "").lower())
+    # "look at X" and similar clauses usually identify attention targets, not places.
+    attention_verbs = {"look", "looking", "looks", "see", "sees", "saw", "watch", "watching", "stare", "staring", "notice", "notices"}
+    if prefix_words and prefix_words[-1] in attention_verbs:
+        return ""
+    return value
+
+
+_AUDIO_STORY_COMMON_WORDS = {
+    "the", "and", "for", "with", "that", "this", "from", "they", "their", "there", "into", "onto", "about",
+    "would", "could", "should", "have", "has", "had", "were", "was", "been", "being", "then", "than", "when",
+    "while", "where", "what", "which", "who", "whom", "whose", "into", "over", "under", "after", "before",
+    "later", "meanwhile", "again", "some", "more", "most", "very", "just", "only", "also", "still", "back",
+    "around", "through", "because", "make", "makes", "made", "doing", "doing", "done", "like", "such",
+    "story", "audio", "visual", "image", "images", "scene", "scenes", "chunk", "chunks", "chapter", "chapters",
+    "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten",
+}
+
+_AUDIO_STORY_TRANSITION_MARKERS = (
+    "later",
+    "meanwhile",
+    "the next morning",
+    "the next day",
+    "moments later",
+    "suddenly",
+    "elsewhere",
+    "back at",
+    "cut to",
+    "afterward",
+    "afterwards",
+    "as they",
+    "a short while later",
+    "hours later",
+    "days later",
+    "soon after",
+)
+
+_AUDIO_STORY_LOCATION_KEYWORDS = (
+    "room",
+    "house",
+    "home",
+    "apartment",
+    "kitchen",
+    "bedroom",
+    "bathroom",
+    "hall",
+    "hallway",
+    "street",
+    "road",
+    "city",
+    "town",
+    "village",
+    "forest",
+    "woods",
+    "park",
+    "garden",
+    "school",
+    "classroom",
+    "office",
+    "lab",
+    "laboratory",
+    "castle",
+    "ship",
+    "spaceship",
+    "station",
+    "train",
+    "car",
+    "bridge",
+    "cafe",
+    "bar",
+    "diner",
+    "shop",
+    "market",
+    "beach",
+    "shore",
+    "harbor",
+    "harbour",
+    "harbour",
+    "hospital",
+    "clinic",
+    "warehouse",
+    "attic",
+    "basement",
+    "alley",
+    "park",
+    "plaza",
+    "tower",
+    "temple",
+    "church",
+    "cathedral",
+    "dungeon",
+    "throne room",
+    "control room",
+    "workshop",
+    "studio",
+)
+
+_AUDIO_STORY_TIME_OF_DAY_MARKERS = (
+    "dawn",
+    "sunrise",
+    "morning",
+    "noon",
+    "afternoon",
+    "sunset",
+    "dusk",
+    "evening",
+    "night",
+    "midnight",
+    "late night",
+)
+
+_AUDIO_STORY_MOOD_MARKERS = (
+    "joyful",
+    "happy",
+    "tense",
+    "calm",
+    "fearful",
+    "mysterious",
+    "melancholic",
+    "hopeful",
+    "somber",
+    "angry",
+    "romantic",
+    "playful",
+    "quiet",
+    "chaotic",
+)
+
+_AUDIO_STORY_CHARACTER_HINTS = (
+    "woman",
+    "man",
+    "girl",
+    "boy",
+    "person",
+    "detective",
+    "scientist",
+    "doctor",
+    "artist",
+    "student",
+    "pilot",
+    "engineer",
+    "soldier",
+    "wizard",
+    "witch",
+    "knight",
+    "prince",
+    "princess",
+    "queen",
+    "king",
+    "robot",
+    "android",
+    "child",
+    "teen",
+    "adult",
+    "goblin",
+    "elf",
+    "dragon",
+)
+
+_AUDIO_STORY_PROP_HINTS = (
+    "book",
+    "key",
+    "map",
+    "car",
+    "ship",
+    "sword",
+    "gun",
+    "phone",
+    "device",
+    "laptop",
+    "camera",
+    "lantern",
+    "ring",
+    "crown",
+    "mask",
+    "letter",
+    "photo",
+    "artifact",
+    "crystal",
+    "gadget",
+    "tablet",
+    "shield",
+)
+
+_AUDIO_STORY_WORLD_HINTS = {
+    "fantasy": "fantasy world",
+    "medieval": "medieval setting",
+    "kingdom": "kingdom setting",
+    "castle": "castle setting",
+    "sci-fi": "science fiction world",
+    "scifi": "science fiction world",
+    "space": "spacefaring world",
+    "cyberpunk": "cyberpunk world",
+    "noir": "noir mood",
+    "modern": "modern setting",
+    "contemporary": "contemporary setting",
+    "historical": "historical setting",
+    "post-apocalyptic": "post-apocalyptic world",
+    "post apocalyptic": "post-apocalyptic world",
+    "western": "western setting",
+    "victorian": "victorian era",
+    "steampunk": "steampunk world",
+    "urban": "urban environment",
+    "rural": "rural environment",
+}
+
+
+class AudioStoryModeController(QtCore.QObject):
+    transcriptionFinished = QtCore.Signal(object)
+    transcriptionFailed = QtCore.Signal(str)
+    ttsRenderFinished = QtCore.Signal(object)
+    ttsRenderFailed = QtCore.Signal(str)
+    imageReady = QtCore.Signal(object)
+    imageFailed = QtCore.Signal(object)
+
+    def __init__(self, context=None):
+        super().__init__()
+        self.context = context
+        self.dialogs = context.get_service("qt.dialogs") if context is not None else None
+        self.shell = context.get_service("qt.shell") if context is not None else None
+        self.visual_reply_service = context.get_service("qt.visual_reply") if context is not None else None
+        self.audio_story_tab_widget = None
+        self.audio_player = None
+        self.audio_output = None
+        self.imported_audio_path = ""
+        self.imported_audio_duration_seconds = 0.0
+        self.transcript_chunks = []
+        self.full_transcript_text = ""
+        self.story_style_guide = ""
+        self._transcription_job_id = 0
+        self._tts_render_job_id = 0
+        self._image_generation_token = 0
+        self._image_generation_worker_running = False
+        self._image_generation_active_start_index = -1
+        self._image_generation_requested_end_index = -1
+        self._user_scrubbing = False
+        self._pending_autoplay_tts = False
+        self._player_source_key = ""
+        self._current_chunk_index = -1
+        self._stored_transcribe_seconds = 8
+        self._stored_image_frequency_seconds = 12
+        self._stored_generate_ahead_frames = 3
+        self._stored_continuity_strength = 0.8
+        self._stored_style_change_live = False
+        self._stored_style_prompts = {item["id"]: item["prompt"] for item in _audio_story_style_presets()}
+        self._stored_style_enabled = []
+        self._stored_playback_mode_label = "Play Imported Audio"
+        self._stored_story_master_prompt_enabled = False
+        self._stored_story_master_prompt_mode = "medium"
+        self._stored_use_llm_story_analysis = False
+        self._stored_prompt_block_limits = dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS)
+        self._story_generated_master_prompt = ""
+        self._story_master_prompt_previous_runtime_value = None
+        self._tts_render_in_progress = False
+        self._pending_play_request = None
+        self._tts_bundle = None
+        self._tts_signature = ""
+        self._image_cache = {}
+        self._prompt_image_cache = {}
+        self._visual_client = None
+        self._visual_client_signature = ""
+        self._raw_transcript_segments = []
+        self.story_bible = {}
+        self.scene_plan = []
+        self.scene_overrides = {
+            "pinned_character_ids": [],
+            "pinned_location_ids": [],
+            "forced_scene_modes": {},
+            "scene_anchor_overrides": {},
+        }
+        self.continuity_memory = {
+            "last_scene_id": "",
+            "last_scene_index": -1,
+            "last_generated_image_path": "",
+            "last_prompt_signature": "",
+            "last_prompt_text": "",
+            "scenes": {},
+            "characters": {},
+            "locations": {},
+        }
+        self.character_anchors = {}
+        self.location_anchors = {}
+        self._last_transcription_audio_duration = 0.0
+        self._lock = threading.RLock()
+        self._cache_root = self.context.storage.resolve("cache") if self.context is not None else (Path("runtime") / "audio_story_mode")
+        self._cache_root.mkdir(parents=True, exist_ok=True)
+        self._visual_refresh_timer = QtCore.QTimer(self)
+        self._visual_refresh_timer.setSingleShot(True)
+        self._visual_refresh_timer.setInterval(220)
+        self._visual_refresh_timer.timeout.connect(self._flush_scheduled_visual_refresh)
+        self.transcriptionFinished.connect(self._on_transcription_finished)
+        self.transcriptionFailed.connect(self._on_transcription_failed)
+        self.ttsRenderFinished.connect(self._on_tts_render_finished)
+        self.ttsRenderFailed.connect(self._on_tts_render_failed)
+        self.imageReady.connect(self._on_image_ready)
+        self.imageFailed.connect(self._on_image_failed)
+
+    def build_tab(self):
+        existing = self.audio_story_tab_widget
+        if existing is not None:
+            return existing
+
+        compact_button_style = (
+            "QPushButton { "
+            "padding: 6px 12px; "
+            "min-height: 30px; "
+            "border-radius: 10px; "
+            "background: #22344c; "
+            "border: 1px solid #35506c; "
+            "color: #f2f5f9; "
+            "font-weight: 600; "
+            "}"
+            "QPushButton:hover { background: #2a4160; border: 1px solid #4d6c8f; } "
+            "QPushButton:pressed { background: #1d2e43; } "
+            "QPushButton:disabled { background: #17212e; color: #71839a; border: 1px solid #243345; }"
+        )
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setMinimumSize(0, 0)
+
+        container = QtWidgets.QWidget()
+        scroll.setWidget(container)
+
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(10)
+
+        intro = QtWidgets.QLabel(
+            "Import audiobook or story audio, transcribe it through the local Whisper runtime already in this repo, "
+            "then drive visual story images from the resulting transcript while the story plays."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #cbd5e1;")
+        layout.addWidget(intro)
+
+        source_box = QtWidgets.QFrame()
+        source_box.setObjectName("Panel")
+        source_layout = QtWidgets.QVBoxLayout(source_box)
+        source_layout.setContentsMargins(14, 12, 14, 12)
+        source_layout.setSpacing(10)
+        source_title = QtWidgets.QLabel("Audio Source")
+        source_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        source_layout.addWidget(source_title)
+
+        path_row = QtWidgets.QHBoxLayout()
+        self.audio_story_path_edit = QtWidgets.QLineEdit()
+        self.audio_story_path_edit.setReadOnly(True)
+        self.audio_story_path_edit.setPlaceholderText("Import an audiobook or story audio file...")
+        path_row.addWidget(self.audio_story_path_edit, 1)
+        self.audio_story_import_button = QtWidgets.QPushButton("Import Audio")
+        self.audio_story_import_button.setStyleSheet(compact_button_style)
+        self.audio_story_import_button.clicked.connect(self._choose_audio_file)
+        path_row.addWidget(self.audio_story_import_button)
+        source_layout.addLayout(path_row)
+
+        options_form = QtWidgets.QFormLayout()
+        options_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        options_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+
+        self.audio_story_playback_mode_combo = _AudioStoryNoWheelComboBox()
+        self.audio_story_playback_mode_combo.addItems(["Play Imported Audio", "Use TTS Narration"])
+        self.audio_story_playback_mode_combo.currentTextChanged.connect(self._on_playback_mode_changed)
+        combo_index = self.audio_story_playback_mode_combo.findText(str(self._stored_playback_mode_label or "").strip())
+        if combo_index >= 0:
+            self.audio_story_playback_mode_combo.setCurrentIndex(combo_index)
+        options_form.addRow("Playback", self.audio_story_playback_mode_combo)
+
+        transcribe_seconds_row = QtWidgets.QHBoxLayout()
+        self.audio_story_transcribe_seconds_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
+        self.audio_story_transcribe_seconds_slider.setRange(1, max(8, int(self._stored_transcribe_seconds or 8)))
+        self.audio_story_transcribe_seconds_slider.setValue(max(1, int(self._stored_transcribe_seconds or 8)))
+        self.audio_story_transcribe_seconds_slider.setToolTip("Group transcript text into story windows of this many seconds before building visual prompts.")
+        self.audio_story_transcribe_seconds_slider.valueChanged.connect(self._on_transcribe_seconds_changed)
+        transcribe_seconds_row.addWidget(self.audio_story_transcribe_seconds_slider, 1)
+        self.audio_story_transcribe_seconds_value_label = QtWidgets.QLabel()
+        self.audio_story_transcribe_seconds_value_label.setMinimumWidth(84)
+        self.audio_story_transcribe_seconds_value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.audio_story_transcribe_seconds_value_label.setStyleSheet("color: #9fb3c8;")
+        transcribe_seconds_row.addWidget(self.audio_story_transcribe_seconds_value_label)
+        transcribe_seconds_widget = QtWidgets.QWidget()
+        transcribe_seconds_widget.setLayout(transcribe_seconds_row)
+        options_form.addRow("Transcribe Seconds", transcribe_seconds_widget)
+
+        image_frequency_row = QtWidgets.QHBoxLayout()
+        self.audio_story_image_frequency_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
+        self.audio_story_image_frequency_slider.setRange(1, max(12, int(self._stored_image_frequency_seconds or 12)))
+        self.audio_story_image_frequency_slider.setValue(max(1, int(self._stored_image_frequency_seconds or 12)))
+        self.audio_story_image_frequency_slider.setToolTip("How often Audio Story Mode should switch to a new image during playback.")
+        self.audio_story_image_frequency_slider.valueChanged.connect(self._on_image_frequency_changed)
+        image_frequency_row.addWidget(self.audio_story_image_frequency_slider, 1)
+        self.audio_story_image_frequency_value_label = QtWidgets.QLabel()
+        self.audio_story_image_frequency_value_label.setMinimumWidth(84)
+        self.audio_story_image_frequency_value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.audio_story_image_frequency_value_label.setStyleSheet("color: #9fb3c8;")
+        image_frequency_row.addWidget(self.audio_story_image_frequency_value_label)
+        image_frequency_widget = QtWidgets.QWidget()
+        image_frequency_widget.setLayout(image_frequency_row)
+        options_form.addRow("Generate Image Every", image_frequency_widget)
+
+        continuity_row = QtWidgets.QHBoxLayout()
+        self.audio_story_continuity_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
+        self.audio_story_continuity_slider.setRange(0, 100)
+        self.audio_story_continuity_slider.setSingleStep(1)
+        self.audio_story_continuity_slider.setPageStep(5)
+        self.audio_story_continuity_slider.setValue(int(round(float(self._stored_continuity_strength or 0.8) * 100.0)))
+        self.audio_story_continuity_slider.setToolTip("How aggressively Audio Story Mode should preserve the same characters, outfits, and locations across the sequence.")
+        self.audio_story_continuity_slider.valueChanged.connect(self._on_continuity_strength_changed)
+        continuity_row.addWidget(self.audio_story_continuity_slider, 1)
+        self.audio_story_continuity_value_label = QtWidgets.QLabel()
+        self.audio_story_continuity_value_label.setMinimumWidth(60)
+        self.audio_story_continuity_value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.audio_story_continuity_value_label.setStyleSheet("color: #9fb3c8;")
+        continuity_row.addWidget(self.audio_story_continuity_value_label)
+        continuity_widget = QtWidgets.QWidget()
+        continuity_widget.setLayout(continuity_row)
+        options_form.addRow("Continuity", continuity_widget)
+
+        style_button_style = (
+            "QPushButton { padding: 6px 10px; }"
+            "QPushButton:checked { background: #4d8dff; color: white; border: 1px solid #6a95ff; }"
+        )
+        self.audio_story_style_buttons = {}
+        self.audio_story_style_edits = {}
+        style_widget = QtWidgets.QWidget()
+        style_layout = QtWidgets.QGridLayout(style_widget)
+        style_layout.setContentsMargins(0, 0, 0, 0)
+        style_layout.setHorizontalSpacing(10)
+        style_layout.setVerticalSpacing(6)
+        for style_index, style_def in enumerate(_audio_story_style_presets()):
+            style_id = str(style_def.get("id") or "").strip().lower()
+            row_group = style_index // 2
+            column = style_index % 2
+            button_row = row_group * 2
+            edit_row = button_row + 1
+            button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
+            button.setCheckable(True)
+            button.setStyleSheet(style_button_style)
+            button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
+            edit = QtWidgets.QLineEdit()
+            edit.setClearButtonEnabled(True)
+            edit.setMinimumWidth(160)
+            edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
+            style_layout.addWidget(button, button_row, column)
+            style_layout.addWidget(edit, edit_row, column)
+            style_layout.setColumnStretch(column, 1)
+            self.audio_story_style_buttons[style_id] = button
+            self.audio_story_style_edits[style_id] = edit
+        options_form.addRow("Styles", style_widget)
+
+        self.audio_story_style_live_checkbox = QtWidgets.QCheckBox("Change Style Live")
+        self.audio_story_style_live_checkbox.toggled.connect(self._on_audio_story_style_live_changed)
+        options_form.addRow("", self.audio_story_style_live_checkbox)
+
+        story_master_prompt_row = QtWidgets.QHBoxLayout()
+        self.audio_story_master_prompt_button = QtWidgets.QPushButton("Visuals Master Prompt From Story")
+        self.audio_story_master_prompt_button.setCheckable(True)
+        self.audio_story_master_prompt_button.setChecked(bool(self._stored_story_master_prompt_enabled))
+        self.audio_story_master_prompt_button.setToolTip("Generate and maintain the global Visuals master prompt from this story transcript.")
+        self.audio_story_master_prompt_button.setStyleSheet(style_button_style)
+        self.audio_story_master_prompt_button.toggled.connect(self._on_story_master_prompt_toggled)
+        story_master_prompt_row.addWidget(self.audio_story_master_prompt_button, 0)
+        self.audio_story_master_prompt_mode_combo = _AudioStoryNoWheelComboBox()
+        for value, label in _audio_story_master_prompt_modes():
+            self.audio_story_master_prompt_mode_combo.addItem(label, value)
+        current_mode_index = self.audio_story_master_prompt_mode_combo.findData(str(self._stored_story_master_prompt_mode or "medium").strip().lower())
+        if current_mode_index >= 0:
+            self.audio_story_master_prompt_mode_combo.setCurrentIndex(current_mode_index)
+        self.audio_story_master_prompt_mode_combo.currentIndexChanged.connect(self._on_story_master_prompt_mode_changed)
+        self.audio_story_master_prompt_mode_combo.setToolTip("Controls how detailed and forceful the story-generated master prompt should be.")
+        story_master_prompt_row.addWidget(self.audio_story_master_prompt_mode_combo, 0)
+        story_master_prompt_row.addStretch(1)
+        story_master_prompt_widget = QtWidgets.QWidget()
+        story_master_prompt_widget.setLayout(story_master_prompt_row)
+        options_form.addRow("Master Prompt", story_master_prompt_widget)
+
+        self.audio_story_llm_analysis_checkbox = QtWidgets.QCheckBox("Use LLM Story Analysis")
+        self.audio_story_llm_analysis_checkbox.setToolTip(
+            "Use the current Chat Provider and LLM model to extract structured story, character, location, and scene continuity metadata after transcription."
+        )
+        self.audio_story_llm_analysis_checkbox.toggled.connect(self._on_llm_story_analysis_toggled)
+        options_form.addRow("Story Analysis", self.audio_story_llm_analysis_checkbox)
+
+        self.audio_story_prompt_limit_spins = {}
+        prompt_limits_widget = QtWidgets.QWidget()
+        prompt_limits_layout = QtWidgets.QGridLayout(prompt_limits_widget)
+        prompt_limits_layout.setContentsMargins(0, 0, 0, 0)
+        prompt_limits_layout.setHorizontalSpacing(10)
+        prompt_limits_layout.setVerticalSpacing(6)
+        for limit_index, (limit_key, default_value) in enumerate(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.items()):
+            row = limit_index // 4
+            column = (limit_index % 4) * 2
+            label = QtWidgets.QLabel(limit_key.replace("_", " ").title())
+            label.setStyleSheet("color: #cbd5e1;")
+            spin = _AudioStoryNoWheelSpinBox()
+            spin.setRange(40, 1600)
+            spin.setSingleStep(20)
+            spin.setValue(int(self._stored_prompt_block_limits.get(limit_key, default_value) or default_value))
+            spin.setSuffix(" chars")
+            spin.setToolTip(f"Maximum characters for the {limit_key.replace('_', ' ')} prompt block.")
+            spin.valueChanged.connect(lambda value, limit_key=limit_key: self._on_prompt_block_limit_changed(limit_key, value))
+            prompt_limits_layout.addWidget(label, row, column)
+            prompt_limits_layout.addWidget(spin, row, column + 1)
+            prompt_limits_layout.setColumnStretch(column + 1, 1)
+            self.audio_story_prompt_limit_spins[limit_key] = spin
+        options_form.addRow("Prompt Blocks", prompt_limits_widget)
+
+        generate_ahead_row = QtWidgets.QHBoxLayout()
+        self.audio_story_generate_ahead_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
+        self.audio_story_generate_ahead_slider.setRange(0, 12)
+        self.audio_story_generate_ahead_slider.setValue(max(0, int(self._stored_generate_ahead_frames or 3)))
+        self.audio_story_generate_ahead_slider.setToolTip("How many future story images should be generated ahead of the current playback position.")
+        self.audio_story_generate_ahead_slider.valueChanged.connect(self._on_generate_ahead_frames_changed)
+        generate_ahead_row.addWidget(self.audio_story_generate_ahead_slider, 1)
+        self.audio_story_generate_ahead_value_label = QtWidgets.QLabel()
+        self.audio_story_generate_ahead_value_label.setMinimumWidth(84)
+        self.audio_story_generate_ahead_value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        self.audio_story_generate_ahead_value_label.setStyleSheet("color: #9fb3c8;")
+        generate_ahead_row.addWidget(self.audio_story_generate_ahead_value_label)
+        generate_ahead_widget = QtWidgets.QWidget()
+        generate_ahead_widget.setLayout(generate_ahead_row)
+        options_form.addRow("Generate Ahead", generate_ahead_widget)
+        source_layout.addLayout(options_form)
+
+        self.audio_story_transcribe_button = QtWidgets.QPushButton("Transcribe Audio")
+        self.audio_story_transcribe_button.setStyleSheet(compact_button_style)
+        self.audio_story_transcribe_button.clicked.connect(self._start_transcription)
+        source_layout.addWidget(self.audio_story_transcribe_button, 0, QtCore.Qt.AlignLeft)
+
+        source_hint = QtWidgets.QLabel(
+            "Visual prompt style still follows the global Visuals settings. Story continuity, visual themes, and image provider settings are reused here."
+        )
+        source_hint.setWordWrap(True)
+        source_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        source_layout.addWidget(source_hint)
+        layout.addWidget(source_box)
+
+        scene_box = QtWidgets.QFrame()
+        scene_box.setObjectName("Panel")
+        scene_layout = QtWidgets.QVBoxLayout(scene_box)
+        scene_layout.setContentsMargins(14, 12, 14, 12)
+        scene_layout.setSpacing(8)
+        scene_title = QtWidgets.QLabel("Scene Overrides")
+        scene_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        scene_layout.addWidget(scene_title)
+        self.audio_story_scene_status_label = QtWidgets.QLabel("No scene selected yet.")
+        self.audio_story_scene_status_label.setWordWrap(True)
+        self.audio_story_scene_status_label.setStyleSheet("color: #cbd5e1;")
+        scene_layout.addWidget(self.audio_story_scene_status_label)
+        character_row = QtWidgets.QHBoxLayout()
+        character_row.setSpacing(6)
+        character_label = QtWidgets.QLabel("Pin Character:")
+        character_label.setStyleSheet("color: #cbd5e1;")
+        character_row.addWidget(character_label)
+        self.audio_story_scene_character_button_row = character_row
+        character_row_container = QtWidgets.QWidget()
+        character_row_container.setLayout(character_row)
+        scene_layout.addWidget(character_row_container)
+        location_row = QtWidgets.QHBoxLayout()
+        location_row.setSpacing(6)
+        self.audio_story_pin_location_button = QtWidgets.QPushButton("Pin Location")
+        self.audio_story_pin_location_button.setCheckable(True)
+        self.audio_story_pin_location_button.setStyleSheet(compact_button_style)
+        self.audio_story_pin_location_button.toggled.connect(self._on_pin_location_toggled)
+        location_row.addWidget(self.audio_story_pin_location_button, 0)
+        self.audio_story_force_fresh_button = QtWidgets.QPushButton("Force Fresh Scene")
+        self.audio_story_force_fresh_button.setCheckable(True)
+        self.audio_story_force_fresh_button.setStyleSheet(compact_button_style)
+        self.audio_story_force_fresh_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("fresh", checked))
+        location_row.addWidget(self.audio_story_force_fresh_button, 0)
+        self.audio_story_force_continuation_button = QtWidgets.QPushButton("Force Continuation")
+        self.audio_story_force_continuation_button.setCheckable(True)
+        self.audio_story_force_continuation_button.setStyleSheet(compact_button_style)
+        self.audio_story_force_continuation_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("continuation", checked))
+        location_row.addWidget(self.audio_story_force_continuation_button, 0)
+        location_row.addStretch(1)
+        location_widget = QtWidgets.QWidget()
+        location_widget.setLayout(location_row)
+        scene_layout.addWidget(location_widget)
+        anchor_row = QtWidgets.QHBoxLayout()
+        anchor_row.setSpacing(6)
+        self.audio_story_scene_anchor_edit = QtWidgets.QPlainTextEdit()
+        self.audio_story_scene_anchor_edit.setPlaceholderText("Edit the extracted anchor text for the current scene...")
+        self.audio_story_scene_anchor_edit.setMaximumBlockCount(10)
+        self.audio_story_scene_anchor_edit.setMinimumHeight(72)
+        anchor_row.addWidget(self.audio_story_scene_anchor_edit, 1)
+        self.audio_story_scene_anchor_apply_button = QtWidgets.QPushButton("Apply Anchor")
+        self.audio_story_scene_anchor_apply_button.setStyleSheet(compact_button_style)
+        self.audio_story_scene_anchor_apply_button.clicked.connect(self._apply_scene_anchor_override)
+        anchor_row.addWidget(self.audio_story_scene_anchor_apply_button)
+        anchor_widget = QtWidgets.QWidget()
+        anchor_widget.setLayout(anchor_row)
+        scene_layout.addWidget(anchor_widget)
+        scene_hint = QtWidgets.QLabel("These overrides apply to the current scene and feed later prompts and continuity references.")
+        scene_hint.setWordWrap(True)
+        scene_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        scene_layout.addWidget(scene_hint)
+        layout.addWidget(scene_box)
+
+        playback_box = QtWidgets.QFrame()
+        playback_box.setObjectName("Panel")
+        playback_layout = QtWidgets.QVBoxLayout(playback_box)
+        playback_layout.setContentsMargins(14, 12, 14, 12)
+        playback_layout.setSpacing(10)
+        playback_title = QtWidgets.QLabel("Playback")
+        playback_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        playback_layout.addWidget(playback_title)
+
+        controls_row = QtWidgets.QHBoxLayout()
+        controls_row.setSpacing(6)
+        self.audio_story_play_button = QtWidgets.QPushButton("Play")
+        self.audio_story_play_button.setStyleSheet(compact_button_style)
+        self.audio_story_play_button.clicked.connect(self._play_story)
+        controls_row.addWidget(self.audio_story_play_button)
+        self.audio_story_pause_button = QtWidgets.QPushButton("Pause")
+        self.audio_story_pause_button.setStyleSheet(compact_button_style)
+        self.audio_story_pause_button.clicked.connect(self._pause_story)
+        controls_row.addWidget(self.audio_story_pause_button)
+        self.audio_story_stop_button = QtWidgets.QPushButton("Stop")
+        self.audio_story_stop_button.setStyleSheet(compact_button_style)
+        self.audio_story_stop_button.clicked.connect(self._stop_story)
+        controls_row.addWidget(self.audio_story_stop_button)
+        controls_row.addStretch(1)
+        self.audio_story_time_label = QtWidgets.QLabel("00:00 / 00:00")
+        self.audio_story_time_label.setStyleSheet("color: #9fb3c8;")
+        controls_row.addWidget(self.audio_story_time_label)
+        playback_layout.addLayout(controls_row)
+
+        self.audio_story_position_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
+        self.audio_story_position_slider.setRange(0, 0)
+        self.audio_story_position_slider.sliderPressed.connect(self._on_slider_pressed)
+        self.audio_story_position_slider.sliderReleased.connect(self._on_slider_released)
+        self.audio_story_position_slider.sliderMoved.connect(self._on_slider_moved)
+        playback_layout.addWidget(self.audio_story_position_slider)
+
+        self.audio_story_status_label = QtWidgets.QLabel("Import an audio file, then transcribe it.")
+        self.audio_story_status_label.setWordWrap(True)
+        self.audio_story_status_label.setStyleSheet("color: #9fb3c8;")
+        playback_layout.addWidget(self.audio_story_status_label)
+        layout.addWidget(playback_box)
+
+        transcript_box = QtWidgets.QFrame()
+        transcript_box.setObjectName("Panel")
+        transcript_layout = QtWidgets.QVBoxLayout(transcript_box)
+        transcript_layout.setContentsMargins(14, 12, 14, 12)
+        transcript_layout.setSpacing(10)
+        transcript_title = QtWidgets.QLabel("Transcript Windows")
+        transcript_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        transcript_layout.addWidget(transcript_title)
+
+        self.audio_story_summary_label = QtWidgets.QLabel("No transcript yet.")
+        self.audio_story_summary_label.setWordWrap(True)
+        self.audio_story_summary_label.setStyleSheet("color: #9fb3c8;")
+        transcript_layout.addWidget(self.audio_story_summary_label)
+
+        self.audio_story_transcript_edit = QtWidgets.QPlainTextEdit()
+        self.audio_story_transcript_edit.setReadOnly(True)
+        self.audio_story_transcript_edit.setMinimumHeight(220)
+        transcript_layout.addWidget(self.audio_story_transcript_edit, 1)
+        layout.addWidget(transcript_box, 1)
+
+        layout.addStretch(1)
+
+        if self.imported_audio_path:
+            self.audio_story_path_edit.setText(str(self.imported_audio_path))
+
+        self.audio_story_tab_widget = scroll
+        self._ensure_player()
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._sync_continuity_slider()
+        self._sync_generate_ahead_slider()
+        self._sync_audio_story_style_controls()
+        self._sync_story_master_prompt_controls()
+        self._sync_llm_story_analysis_controls()
+        self._sync_prompt_block_limit_controls()
+        self._refresh_controls()
+        return scroll
+
+    def _reset_story_consistency_state(self):
+        self.story_bible = {}
+        self.scene_plan = []
+        self.scene_overrides = {
+            "pinned_character_ids": [],
+            "pinned_location_ids": [],
+            "forced_scene_modes": {},
+            "scene_anchor_overrides": {},
+        }
+        self.continuity_memory = {
+            "last_scene_id": "",
+            "last_scene_index": -1,
+            "last_generated_image_path": "",
+            "last_prompt_signature": "",
+            "last_prompt_text": "",
+            "scenes": {},
+            "characters": {},
+            "locations": {},
+        }
+        self.character_anchors = {}
+        self.location_anchors = {}
+
+    def export_session_state(self):
+        return {
+            "audio_story_mode_audio_path": str(self.imported_audio_path or "").strip(),
+            "audio_story_mode_transcribe_seconds": int(self.audio_story_transcribe_seconds_slider.value()) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8),
+            "audio_story_mode_image_frequency_seconds": int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else int(self._stored_image_frequency_seconds or 12),
+            "audio_story_mode_generate_ahead_frames": int(self._stored_generate_ahead_frames or 3),
+            "audio_story_mode_continuity_strength": float(self._stored_continuity_strength or 0.8),
+            "audio_story_mode_style_prompts": dict(self._stored_style_prompts or {}),
+            "audio_story_mode_style_enabled": list(self._stored_style_enabled or []),
+            "audio_story_mode_style_change_live": bool(self._stored_style_change_live),
+            "audio_story_mode_story_master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
+            "audio_story_mode_story_master_prompt_mode": str(self._stored_story_master_prompt_mode or "medium"),
+            "audio_story_mode_use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "audio_story_mode_prompt_block_limits": self._prompt_block_limits(),
+            "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
+            "audio_story_mode_story_bible": dict(self.story_bible or {}),
+            "audio_story_mode_scene_plan": list(self.scene_plan or []),
+            "audio_story_mode_scene_overrides": dict(self.scene_overrides or {}),
+            "audio_story_mode_continuity_memory": dict(self.continuity_memory or {}),
+            "audio_story_mode_character_anchors": dict(self.character_anchors or {}),
+            "audio_story_mode_location_anchors": dict(self.location_anchors or {}),
+        }
+
+    def import_session_state(self, session):
+        payload = dict(session or {})
+        audio_path = str(payload.get("audio_story_mode_audio_path") or "").strip()
+        if audio_path:
+            self.imported_audio_path = audio_path
+        if audio_path and hasattr(self, "audio_story_path_edit"):
+            self.audio_story_path_edit.setText(audio_path)
+        seconds_value = payload.get("audio_story_mode_transcribe_seconds")
+        if seconds_value is not None:
+            try:
+                self._stored_transcribe_seconds = max(1, int(seconds_value or 8))
+                self._sync_transcribe_seconds_slider()
+            except Exception:
+                pass
+        image_frequency_value = payload.get("audio_story_mode_image_frequency_seconds")
+        if image_frequency_value is not None:
+            try:
+                self._stored_image_frequency_seconds = max(1, int(image_frequency_value or 12))
+                self._sync_image_frequency_slider()
+            except Exception:
+                pass
+        generate_ahead_value = payload.get("audio_story_mode_generate_ahead_frames")
+        if generate_ahead_value is not None:
+            try:
+                self._stored_generate_ahead_frames = max(0, int(generate_ahead_value or 0))
+                self._sync_generate_ahead_slider()
+            except Exception:
+                pass
+        continuity_strength = payload.get("audio_story_mode_continuity_strength")
+        if continuity_strength is not None:
+            try:
+                self._stored_continuity_strength = self._normalize_continuity_strength(continuity_strength)
+                self._sync_continuity_slider()
+            except Exception:
+                pass
+        style_prompts = payload.get("audio_story_mode_style_prompts")
+        if isinstance(style_prompts, dict):
+            for style_def in _audio_story_style_presets():
+                style_id = str(style_def.get("id") or "").strip().lower()
+                if style_id:
+                    self._stored_style_prompts[style_id] = str(style_prompts.get(style_id, self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))) or self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))).strip()
+        style_enabled = payload.get("audio_story_mode_style_enabled")
+        if isinstance(style_enabled, (list, tuple, set)):
+            valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
+            self._stored_style_enabled = [str(item or "").strip().lower() for item in style_enabled if str(item or "").strip().lower() in valid_ids]
+        if payload.get("audio_story_mode_style_change_live") is not None:
+            self._stored_style_change_live = bool(payload.get("audio_story_mode_style_change_live"))
+        self._sync_audio_story_style_controls()
+        if payload.get("audio_story_mode_story_master_prompt_enabled") is not None:
+            self._stored_story_master_prompt_enabled = bool(payload.get("audio_story_mode_story_master_prompt_enabled"))
+        story_master_prompt_mode = str(payload.get("audio_story_mode_story_master_prompt_mode") or "").strip().lower()
+        if story_master_prompt_mode in {value for value, _label in _audio_story_master_prompt_modes()}:
+            self._stored_story_master_prompt_mode = story_master_prompt_mode
+        self._sync_story_master_prompt_controls()
+        if payload.get("audio_story_mode_use_llm_story_analysis") is not None:
+            self._stored_use_llm_story_analysis = bool(payload.get("audio_story_mode_use_llm_story_analysis"))
+        self._sync_llm_story_analysis_controls()
+        prompt_block_limits = payload.get("audio_story_mode_prompt_block_limits")
+        if isinstance(prompt_block_limits, dict):
+            self._stored_prompt_block_limits = self._normalize_prompt_block_limits(prompt_block_limits)
+        self._sync_prompt_block_limit_controls()
+        playback_mode = str(payload.get("audio_story_mode_playback_mode") or "").strip()
+        if playback_mode:
+            self._stored_playback_mode_label = playback_mode
+            if hasattr(self, "audio_story_playback_mode_combo"):
+                index = self.audio_story_playback_mode_combo.findText(playback_mode)
+                if index >= 0:
+                    self.audio_story_playback_mode_combo.setCurrentIndex(index)
+        bible = payload.get("audio_story_mode_story_bible")
+        if isinstance(bible, dict):
+            self.story_bible = dict(bible)
+        scene_plan = payload.get("audio_story_mode_scene_plan")
+        if isinstance(scene_plan, list):
+            self.scene_plan = [dict(item) if isinstance(item, dict) else item for item in scene_plan]
+        scene_overrides = payload.get("audio_story_mode_scene_overrides")
+        if isinstance(scene_overrides, dict):
+            self.scene_overrides = {
+                "pinned_character_ids": list(scene_overrides.get("pinned_character_ids", []) or []),
+                "pinned_location_ids": list(scene_overrides.get("pinned_location_ids", []) or []),
+                "forced_scene_modes": dict(scene_overrides.get("forced_scene_modes", {}) or {}),
+                "scene_anchor_overrides": dict(scene_overrides.get("scene_anchor_overrides", {}) or {}),
+            }
+        continuity_memory = payload.get("audio_story_mode_continuity_memory")
+        if isinstance(continuity_memory, dict):
+            self.continuity_memory = dict(continuity_memory)
+        character_anchors = payload.get("audio_story_mode_character_anchors")
+        if isinstance(character_anchors, dict):
+            self.character_anchors = dict(character_anchors)
+        location_anchors = payload.get("audio_story_mode_location_anchors")
+        if isinstance(location_anchors, dict):
+            self.location_anchors = dict(location_anchors)
+        self._refresh_controls()
+        return None
+
+    def shutdown(self):
+        self._transcription_job_id += 1
+        self._tts_render_job_id += 1
+        self._image_generation_token += 1
+        self._pending_play_request = None
+        try:
+            self._visual_refresh_timer.stop()
+        except Exception:
+            pass
+        self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._stop_story()
+        return None
+
+    def _ensure_player(self):
+        if QtMultimedia is None or self.audio_player is not None:
+            return
+        self.audio_output = QtMultimedia.QAudioOutput()
+        self.audio_player = QtMultimedia.QMediaPlayer()
+        self.audio_player.setAudioOutput(self.audio_output)
+        self.audio_player.positionChanged.connect(self._on_player_position_changed)
+        self.audio_player.durationChanged.connect(self._on_player_duration_changed)
+        self.audio_player.playbackStateChanged.connect(self._on_player_state_changed)
+        try:
+            self.audio_player.errorOccurred.connect(self._on_player_error)
+        except Exception:
+            pass
+
+    def _cache_file(self, name: str) -> Path:
+        path = self._cache_root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def _set_status(self, message: str):
+        if hasattr(self, "audio_story_status_label"):
+            self.audio_story_status_label.setText(str(message or "").strip())
+
+    def _show_warning(self, title: str, message: str):
+        if self.dialogs is not None:
+            self.dialogs.warning(title, message)
+
+    def _choose_audio_file(self):
+        if self.dialogs is None:
+            return
+        path, _selected = self.dialogs.open_file(
+            "Import Story Audio",
+            str(Path(self.imported_audio_path).parent if self.imported_audio_path else self._cache_root),
+            "Audio Files (*.mp3 *.wav *.m4a *.flac *.ogg *.aac *.wma);;All Files (*.*)",
+        )
+        path = str(path or "").strip()
+        if not path:
+            return
+        self.imported_audio_path = path
+        try:
+            self.imported_audio_duration_seconds = max(0.0, float(engine.AudioSegment.from_file(path).duration_seconds or 0.0))
+        except Exception:
+            self.imported_audio_duration_seconds = 0.0
+        self.transcript_chunks = []
+        self.full_transcript_text = ""
+        self.story_style_guide = ""
+        self._raw_transcript_segments = []
+        self._reset_story_consistency_state()
+        self._last_transcription_audio_duration = 0.0
+        self._pending_play_request = None
+        self._tts_bundle = None
+        self._tts_signature = ""
+        self._image_cache = {}
+        self._prompt_image_cache = {}
+        self._current_chunk_index = -1
+        if hasattr(self, "audio_story_path_edit"):
+            self.audio_story_path_edit.setText(path)
+        if hasattr(self, "audio_story_transcript_edit"):
+            self.audio_story_transcript_edit.clear()
+        if hasattr(self, "audio_story_summary_label"):
+            self.audio_story_summary_label.setText("Audio imported. Press 'Transcribe Audio' to build transcript windows and prompts.")
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._stop_story()
+        self._refresh_controls()
+
+    def _start_transcription(self):
+        path = str(self.imported_audio_path or "").strip()
+        if not path:
+            self._show_warning("Audio Story Mode", "Import an audio file first.")
+            return
+        if not Path(path).exists():
+            self._show_warning("Audio Story Mode", f"Audio file not found:\n{path}")
+            return
+        self._transcription_job_id += 1
+        job_id = self._transcription_job_id
+        chunk_seconds = max(1, int(self.audio_story_transcribe_seconds_slider.value())) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8)
+        image_frequency_seconds = max(1, int(self.audio_story_image_frequency_slider.value())) if hasattr(self, "audio_story_image_frequency_slider") else int(self._stored_image_frequency_seconds or 12)
+        continuity_strength = float(self._stored_continuity_strength or 0.8)
+        self._set_status("Transcribing audio with the local Whisper model...")
+        self.audio_story_transcribe_button.setEnabled(False)
+        threading.Thread(
+            target=self._run_transcription_job,
+            args=(job_id, path, chunk_seconds, image_frequency_seconds, continuity_strength),
+            daemon=True,
+        ).start()
+
+    def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
+        try:
+            if getattr(engine, "whisper_model", None) is None:
+                if not engine.init_whisper():
+                    raise RuntimeError("Failed to initialize the local Whisper model.")
+            audio_duration = float(engine.AudioSegment.from_file(path).duration_seconds or 0.0)
+            segments, _info = engine.whisper_model.transcribe(path)
+            raw_segments = []
+            for segment in segments:
+                text = str(getattr(segment, "text", "") or "").strip()
+                if not text:
+                    continue
+                raw_segments.append(
+                    {
+                        "start_seconds": max(0.0, float(getattr(segment, "start", 0.0) or 0.0)),
+                        "end_seconds": max(0.0, float(getattr(segment, "end", 0.0) or 0.0)),
+                        "text": text,
+                    }
+                )
+            payload = self._build_story_payload(
+                job_id=job_id,
+                path=path,
+                audio_duration=audio_duration,
+                raw_segments=raw_segments,
+                chunk_seconds=chunk_seconds,
+                image_frequency_seconds=image_frequency_seconds,
+                continuity_strength=continuity_strength,
+            )
+            self.transcriptionFinished.emit(payload)
+        except Exception as exc:
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
+            self.transcriptionFailed.emit(detail)
+
+    def _build_transcript_chunks(self, raw_segments, audio_duration_seconds: float, chunk_seconds: float):
+        if chunk_seconds <= 0:
+            chunk_seconds = 8.0
+        buckets = {}
+        for segment in list(raw_segments or []):
+            text = str(segment.get("text", "") or "").strip()
+            if not text:
+                continue
+            start_seconds = max(0.0, float(segment.get("start_seconds", 0.0) or 0.0))
+            end_seconds = max(start_seconds, float(segment.get("end_seconds", start_seconds) or start_seconds))
+            bucket_index = int(start_seconds // chunk_seconds)
+            bucket = buckets.setdefault(
+                bucket_index,
+                {
+                    "start_seconds": float(bucket_index) * chunk_seconds,
+                    "end_seconds": min(audio_duration_seconds, float(bucket_index + 1) * chunk_seconds) if audio_duration_seconds > 0 else float(bucket_index + 1) * chunk_seconds,
+                    "texts": [],
+                    "raw_end_seconds": end_seconds,
+                },
+            )
+            bucket["texts"].append(text)
+            bucket["raw_end_seconds"] = max(float(bucket.get("raw_end_seconds", 0.0) or 0.0), end_seconds)
+        chunks = []
+        for bucket_index in sorted(buckets.keys()):
+            bucket = buckets[bucket_index]
+            text = " ".join(bucket.get("texts", [])).strip()
+            if not text:
+                continue
+            end_seconds = max(float(bucket.get("end_seconds", 0.0) or 0.0), float(bucket.get("raw_end_seconds", 0.0) or 0.0))
+            if audio_duration_seconds > 0:
+                end_seconds = min(audio_duration_seconds, end_seconds)
+            chunks.append(
+                {
+                    "start_seconds": max(0.0, float(bucket.get("start_seconds", 0.0) or 0.0)),
+                    "end_seconds": max(0.0, end_seconds),
+                    "text": text,
+                }
+            )
+        return chunks
+
+    def _build_image_chunks(self, raw_segments, audio_duration_seconds: float, image_frequency_seconds: float):
+        if image_frequency_seconds <= 0:
+            image_frequency_seconds = 12.0
+        buckets = {}
+        for segment in list(raw_segments or []):
+            text = str(segment.get("text", "") or "").strip()
+            if not text:
+                continue
+            start_seconds = max(0.0, float(segment.get("start_seconds", 0.0) or 0.0))
+            end_seconds = max(start_seconds, float(segment.get("end_seconds", start_seconds) or start_seconds))
+            bucket_index = int(start_seconds // image_frequency_seconds)
+            bucket = buckets.setdefault(
+                bucket_index,
+                {
+                    "start_seconds": float(bucket_index) * image_frequency_seconds,
+                    "end_seconds": min(audio_duration_seconds, float(bucket_index + 1) * image_frequency_seconds) if audio_duration_seconds > 0 else float(bucket_index + 1) * image_frequency_seconds,
+                    "texts": [],
+                    "raw_end_seconds": end_seconds,
+                },
+            )
+            bucket["texts"].append(text)
+            bucket["raw_end_seconds"] = max(float(bucket.get("raw_end_seconds", 0.0) or 0.0), end_seconds)
+        image_chunks = []
+        for bucket_index in sorted(buckets.keys()):
+            bucket = buckets[bucket_index]
+            text = " ".join(bucket.get("texts", [])).strip()
+            if not text:
+                continue
+            end_seconds = max(float(bucket.get("end_seconds", 0.0) or 0.0), float(bucket.get("raw_end_seconds", 0.0) or 0.0))
+            if audio_duration_seconds > 0:
+                end_seconds = min(audio_duration_seconds, end_seconds)
+            image_chunks.append(
+                {
+                    "start_seconds": max(0.0, float(bucket.get("start_seconds", 0.0) or 0.0)),
+                    "end_seconds": max(0.0, end_seconds),
+                    "text": text,
+                }
+            )
+        return image_chunks
+
+    def _build_story_payload(self, *, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
+        transcript_windows = self._build_transcript_chunks(raw_segments, audio_duration, float(chunk_seconds))
+        image_chunks = self._build_image_chunks(raw_segments, audio_duration, float(image_frequency_seconds))
+        if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > 0.0:
+            image_chunks[0]["start_seconds"] = 0.0
+        full_text = " ".join(str(item.get("text", "") or "").strip() for item in image_chunks).strip()
+        story_style_guide = engine._story_visual_reply_style_guide_from_text(
+            full_text,
+            continuity_strength=self._normalize_continuity_strength(continuity_strength),
+        )
+        fallback_story_bible = self._build_story_bible(full_text, continuity_strength=continuity_strength)
+        llm_analysis = {}
+        if self._stored_use_llm_story_analysis and full_text and image_chunks:
+            try:
+                llm_analysis = self._build_llm_story_analysis(
+                    full_text=full_text,
+                    image_chunks=image_chunks,
+                    story_style_guide=story_style_guide,
+                    continuity_strength=continuity_strength,
+                    fallback_story_bible=fallback_story_bible,
+                )
+            except Exception as exc:
+                print(f"[AudioStoryMode] LLM story analysis failed; falling back to heuristic analysis: {exc}")
+                llm_analysis = {}
+        story_bible = dict(llm_analysis.get("story_bible") or fallback_story_bible)
+        llm_scene_map = {}
+        for item in list(llm_analysis.get("scenes", []) or []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                llm_scene_map[int(item.get("chunk_index", -1) or -1)] = dict(item)
+            except Exception:
+                continue
+        scene_plan = []
+        previous_scene = None
+        scene_index = 0
+        for index, chunk in enumerate(image_chunks):
+            chunk["index"] = index
+            llm_scene = dict(llm_scene_map.get(index) or {})
+            if llm_scene:
+                scene_entry, scene_index = self._scene_entry_from_llm_analysis(
+                    llm_scene,
+                    index=index,
+                    chunk=chunk,
+                    story_bible=story_bible,
+                    previous_scene=previous_scene,
+                    scene_index=scene_index,
+                )
+            else:
+                features = self._infer_scene_features(str(chunk.get("text", "") or ""), story_bible, previous_scene=previous_scene)
+                transition = self._classify_scene_transition(features, previous_scene, str(chunk.get("text", "") or ""), story_bible)
+                if previous_scene is None or transition.get("is_new_scene", False):
+                    scene_index += 1
+                    scene_label = str(features.get("scene_label", "") or "").strip()
+                    scene_id = _audio_story_slug(f"{scene_label}_{scene_index}", prefix="scene")
+                    is_new_scene = True
+                    continuation_of = str(previous_scene.get("scene_id", "") or "") if isinstance(previous_scene, dict) else ""
+                else:
+                    scene_id = str(previous_scene.get("scene_id", "") or "")
+                    is_new_scene = False
+                    continuation_of = scene_id
+                location_ids = list(features.get("location_ids", []) or [])
+                location_id = str(location_ids[0] if location_ids else previous_scene.get("location_id", "") if previous_scene else "") or ""
+                location_label = ""
+                if location_id:
+                    location_entry = dict((story_bible.get("locations", {}) or {}).get(location_id) or {})
+                    location_label = str(location_entry.get("label", "") or "").strip()
+                scene_entry = {
+                    "chunk_index": index,
+                    "scene_index": scene_index,
+                    "scene_id": scene_id,
+                    "is_new_scene": bool(is_new_scene),
+                    "continuation_of_scene_id": continuation_of,
+                    "location_id": location_id,
+                    "location_label": location_label,
+                    "active_character_ids": list(features.get("active_character_ids", []) or []),
+                    "prop_ids": list(features.get("prop_ids", []) or []),
+                    "mood": str(features.get("mood", "") or "").strip(),
+                    "time_of_day": str(features.get("time_of_day", "") or "").strip(),
+                    "key_action": str(features.get("key_action", "") or "").strip(),
+                    "summary": str(features.get("summary", "") or "").strip(),
+                    "camera": str(features.get("camera", "") or "").strip(),
+                    "continuity_priority": list(features.get("continuity_priority", []) or []),
+                    "transition_score": float(transition.get("score", 0.0) or 0.0),
+                    "transition_reasons": list(transition.get("reasons", []) or []),
+                    "analysis_source": "heuristic",
+                }
+            scene_entry["reference_image_paths"] = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
+            scene_entry["generation_mode"] = self._choose_generation_mode(scene_entry, previous_scene=previous_scene).get("mode", "fresh")
+            chunk["scene_id"] = scene_entry["scene_id"]
+            chunk["scene_index"] = scene_entry["scene_index"]
+            chunk["location_id"] = scene_entry["location_id"]
+            chunk["location_label"] = scene_entry["location_label"]
+            chunk["active_character_ids"] = list(scene_entry["active_character_ids"])
+            chunk["prop_ids"] = list(scene_entry["prop_ids"])
+            chunk["mood"] = scene_entry["mood"]
+            chunk["time_of_day"] = scene_entry["time_of_day"]
+            chunk["camera"] = scene_entry["camera"]
+            chunk["is_scene_continuation"] = not scene_entry["is_new_scene"]
+            chunk["continuity_priority"] = list(scene_entry["continuity_priority"])
+            chunk["scene_summary"] = scene_entry["summary"]
+            chunk["generation_mode"] = scene_entry["generation_mode"]
+            chunk["reference_image_paths"] = list(scene_entry["reference_image_paths"])
+            chunk["tts_start_seconds"] = None
+            chunk["tts_end_seconds"] = None
+            chunk["prompt"] = self._build_story_image_prompt(
+                str(chunk.get("text", "") or ""),
+                story_style_guide,
+                scene_entry=scene_entry,
+                story_bible=story_bible,
+                previous_scene=previous_scene,
+            )
+            scene_plan.append(scene_entry)
+            previous_scene = scene_entry
+        character_anchors = {}
+        for entity_id, entity in dict(story_bible.get("characters", {}) or {}).items():
+            existing_anchor = dict(self.character_anchors.get(entity_id) or {})
+            anchor = dict(entity or {})
+            anchor["image_path"] = str(existing_anchor.get("image_path", "") or "").strip()
+            character_anchors[entity_id] = anchor
+        location_anchors = {}
+        for entity_id, entity in dict(story_bible.get("locations", {}) or {}).items():
+            existing_anchor = dict(self.location_anchors.get(entity_id) or {})
+            anchor = dict(entity or {})
+            anchor["image_path"] = str(existing_anchor.get("image_path", "") or "").strip()
+            location_anchors[entity_id] = anchor
+        return {
+            "job_id": job_id,
+            "audio_path": path,
+            "audio_duration_seconds": audio_duration,
+            "chunk_seconds": int(chunk_seconds),
+            "image_frequency_seconds": int(image_frequency_seconds),
+            "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
+            "transcript_chunks": image_chunks,
+            "transcript_windows": transcript_windows,
+            "full_text": full_text,
+            "story_style_guide": story_style_guide,
+            "story_bible": story_bible,
+            "scene_plan": scene_plan,
+            "character_anchors": character_anchors,
+            "location_anchors": location_anchors,
+            "raw_segments": list(raw_segments or []),
+        }
+
+    def _apply_story_payload(self, payload):
+        self.imported_audio_path = str(payload.get("audio_path", "") or "").strip()
+        self.imported_audio_duration_seconds = max(0.0, float(payload.get("audio_duration_seconds", 0.0) or 0.0))
+        self.transcript_chunks = list(payload.get("transcript_chunks", []) or [])
+        self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
+        self.story_style_guide = str(payload.get("story_style_guide", "") or "").strip()
+        self._stored_transcribe_seconds = max(1, int(payload.get("chunk_seconds", self._stored_transcribe_seconds) or self._stored_transcribe_seconds))
+        self._stored_image_frequency_seconds = max(1, int(payload.get("image_frequency_seconds", self._stored_image_frequency_seconds) or self._stored_image_frequency_seconds))
+        self._stored_continuity_strength = self._normalize_continuity_strength(payload.get("continuity_strength", self._stored_continuity_strength))
+        self._raw_transcript_segments = list(payload.get("raw_segments", []) or [])
+        self._last_transcription_audio_duration = self.imported_audio_duration_seconds
+        self._pending_play_request = None
+        self._tts_bundle = None
+        self._tts_signature = ""
+        self._image_cache = {}
+        self._prompt_image_cache = {}
+        self._current_chunk_index = -1
+        self.story_bible = dict(payload.get("story_bible", {}) or {})
+        self.scene_plan = [dict(item) if isinstance(item, dict) else item for item in list(payload.get("scene_plan", []) or [])]
+        self.character_anchors = dict(payload.get("character_anchors", {}) or {})
+        self.location_anchors = dict(payload.get("location_anchors", {}) or {})
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._sync_continuity_slider()
+        self._sync_generate_ahead_slider()
+        self._sync_audio_story_style_controls()
+        self._sync_story_master_prompt_controls()
+        self._set_status(
+            f"Transcription ready. {len(self.transcript_chunks)} image window(s) built from {self.imported_audio_duration_seconds:.1f}s of audio."
+        )
+        if hasattr(self, "audio_story_summary_label"):
+            scene_count = len({str(item.get("scene_id", "") or "") for item in list(self.scene_plan or []) if isinstance(item, dict) and str(item.get("scene_id", "") or "").strip()})
+            self.audio_story_summary_label.setText(
+                f"Audio duration: {self._format_seconds(self.imported_audio_duration_seconds)}\n"
+                f"Image windows: {len(self.transcript_chunks)}\n"
+                f"Scenes: {scene_count}\n"
+                f"Generate image every: {self._format_slider_seconds(self._stored_image_frequency_seconds)}\n"
+                f"Continuity: {int(round(self._stored_continuity_strength * 100.0))}%\n"
+                f"Story analysis: {'LLM' if self.story_bible.get('analysis_source') == 'llm' else 'heuristic'}\n"
+                f"Story master prompt: {'on' if self._stored_story_master_prompt_enabled else 'off'} ({str(self._stored_story_master_prompt_mode or 'medium').title()})\n"
+                f"Playback mode: {self.audio_story_playback_mode_combo.currentText() if hasattr(self, 'audio_story_playback_mode_combo') else 'Play Imported Audio'}"
+            )
+        if hasattr(self, "audio_story_transcript_edit"):
+            lines = []
+            for chunk in list(payload.get("transcript_windows", []) or self.transcript_chunks):
+                lines.append(
+                    f"[{self._format_seconds(float(chunk.get('start_seconds', 0.0) or 0.0))}"
+                    f" - {self._format_seconds(float(chunk.get('end_seconds', 0.0) or 0.0))}] "
+                    f"{str(chunk.get('text', '') or '').strip()}"
+                )
+            self.audio_story_transcript_edit.setPlainText("\n\n".join(lines))
+        self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._refresh_scene_override_controls()
+        self._prepare_source_media()
+        self._restart_visual_generation_from_position(0.0)
+        self._refresh_controls()
+
+    def _rebuild_story_payload_from_cached_segments(self, *, preserve_playback: bool = False, preserve_audio_assets: bool = False):
+        if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
+            return
+        previous_position_seconds = self._player_position_seconds()
+        previous_state = None
+        if self.audio_player is not None:
+            try:
+                previous_state = self.audio_player.playbackState()
+            except Exception:
+                previous_state = None
+        previous_tts_bundle = dict(self._tts_bundle or {}) if preserve_audio_assets else None
+        previous_tts_signature = str(self._tts_signature or "") if preserve_audio_assets else ""
+        with self._lock:
+            previous_image_cache = {int(index): dict(item or {}) for index, item in dict(self._image_cache or {}).items()}
+            previous_prompt_cache = {str(key): dict(item or {}) for key, item in dict(self._prompt_image_cache or {}).items()}
+        payload = self._build_story_payload(
+            job_id=self._transcription_job_id,
+            path=self.imported_audio_path,
+            audio_duration=self._last_transcription_audio_duration,
+            raw_segments=self._raw_transcript_segments,
+            chunk_seconds=int(self._stored_transcribe_seconds or 8),
+            image_frequency_seconds=int(self._stored_image_frequency_seconds or 12),
+            continuity_strength=float(self._stored_continuity_strength or 0.8),
+        )
+        if not preserve_playback:
+            self._stop_story()
+        self._apply_story_payload(payload)
+        with self._lock:
+            self._image_cache.update(previous_image_cache)
+            self._prompt_image_cache.update(previous_prompt_cache)
+        self._reconcile_cached_images_for_current_prompts()
+        if preserve_audio_assets:
+            self._tts_bundle = previous_tts_bundle
+            self._tts_signature = previous_tts_signature
+        if preserve_playback and self.audio_player is not None:
+            self.audio_player.setPosition(max(0, int(round(previous_position_seconds * 1000.0))))
+            self._sync_visual_to_position(previous_position_seconds, force=True)
+            playback_state_enum = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlaybackState", None)
+            playing_state = getattr(playback_state_enum, "PlayingState", None) if playback_state_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlayingState", None)
+            paused_state = getattr(playback_state_enum, "PausedState", None) if playback_state_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PausedState", None)
+            if previous_state == playing_state:
+                self._start_playback_with_visual_sync(previous_position_seconds, status_text="Playing audio story with updated visuals.")
+            elif previous_state == paused_state:
+                self._set_status("Playback paused. Visual timing updated.")
+
+    def _start_story_payload_rebuild_job(self, *, status_text: str = "Rebuilding audio story analysis..."):
+        if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
+            return
+        self._transcription_job_id += 1
+        job_id = self._transcription_job_id
+        self._set_status(status_text)
+        if hasattr(self, "audio_story_transcribe_button"):
+            self.audio_story_transcribe_button.setEnabled(False)
+        threading.Thread(
+            target=self._run_story_payload_rebuild_job,
+            args=(
+                job_id,
+                str(self.imported_audio_path or ""),
+                float(self._last_transcription_audio_duration or 0.0),
+                [dict(item or {}) for item in list(self._raw_transcript_segments or [])],
+                int(self._stored_transcribe_seconds or 8),
+                int(self._stored_image_frequency_seconds or 12),
+                float(self._stored_continuity_strength or 0.8),
+            ),
+            daemon=True,
+        ).start()
+
+    def _run_story_payload_rebuild_job(self, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
+        try:
+            payload = self._build_story_payload(
+                job_id=job_id,
+                path=path,
+                audio_duration=audio_duration,
+                raw_segments=raw_segments,
+                chunk_seconds=chunk_seconds,
+                image_frequency_seconds=image_frequency_seconds,
+                continuity_strength=continuity_strength,
+            )
+            self.transcriptionFinished.emit(payload)
+        except Exception as exc:
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
+            self.transcriptionFailed.emit(detail)
+
+    def _on_transcription_finished(self, payload):
+        if int(payload.get("job_id", 0) or 0) != self._transcription_job_id:
+            return
+        self.audio_story_transcribe_button.setEnabled(True)
+        self._apply_story_payload(payload)
+
+    def _on_transcription_failed(self, detail: str):
+        self.audio_story_transcribe_button.setEnabled(True)
+        self._set_status(f"Transcription failed: {detail}")
+
+    def _playback_mode_value(self):
+        text = str(self.audio_story_playback_mode_combo.currentText() if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio").strip().lower()
+        return "tts" if "tts" in text else "source"
+
+    def _on_playback_mode_changed(self, _value):
+        if hasattr(self, "audio_story_playback_mode_combo"):
+            self._stored_playback_mode_label = str(self.audio_story_playback_mode_combo.currentText() or self._stored_playback_mode_label)
+        self._stop_story()
+        self._update_slider_range()
+        self._refresh_controls()
+
+    def _play_story(self):
+        if QtMultimedia is None:
+            self._show_warning("Audio Story Mode", "Qt Multimedia is not available in this environment.")
+            return
+        if not self.transcript_chunks:
+            self._show_warning("Audio Story Mode", "Transcribe the imported audio first.")
+            return
+        mode = self._playback_mode_value()
+        if mode == "source":
+            if not self._prepare_source_media():
+                return
+            self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing imported audio story.")
+            return
+        signature = self._compute_tts_signature()
+        if self._tts_bundle is None or self._tts_signature != signature or not Path(str(self._tts_bundle.get("audio_path", "") or "")).exists():
+            self._pending_autoplay_tts = True
+            self._start_tts_render(signature)
+            return
+        if not self._prepare_tts_media():
+            return
+        self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing TTS narration for the transcribed story.")
+
+    def _pause_story(self):
+        if self.audio_player is None:
+            return
+        self.audio_player.pause()
+        self._set_status("Playback paused.")
+
+    def _stop_story(self):
+        self._pending_play_request = None
+        if self.audio_player is not None:
+            self.audio_player.stop()
+            self.audio_player.setPosition(0)
+        self._current_chunk_index = -1
+        self._update_slider_range()
+        if self.transcript_chunks:
+            self._sync_visual_to_position(0.0, force=True)
+        self._set_status("Playback stopped.")
+
+    def _prepare_source_media(self):
+        if self.audio_player is None:
+            return False
+        path = str(self.imported_audio_path or "").strip()
+        if not path:
+            self._show_warning("Audio Story Mode", "Import an audio file first.")
+            return False
+        key = f"source::{path}"
+        if self._player_source_key != key:
+            self.audio_player.setSource(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
+            self._player_source_key = key
+        self._update_slider_range()
+        return True
+
+    def _prepare_tts_media(self):
+        if self.audio_player is None:
+            return False
+        if not self._tts_bundle:
+            return False
+        path = str(self._tts_bundle.get("audio_path", "") or "").strip()
+        if not path or not Path(path).exists():
+            self._show_warning("Audio Story Mode", "The rendered TTS audio is missing. Render it again.")
+            return False
+        key = f"tts::{path}"
+        if self._player_source_key != key:
+            self.audio_player.setSource(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
+            self._player_source_key = key
+        self._update_slider_range()
+        return True
+
+    def _start_tts_render(self, signature: str):
+        self._tts_render_job_id += 1
+        job_id = self._tts_render_job_id
+        self._tts_render_in_progress = True
+        self._set_status("Rendering TTS narration from the transcript windows...")
+        self._refresh_controls()
+        threading.Thread(
+            target=self._run_tts_render_job,
+            args=(job_id, signature, [dict(item) for item in self.transcript_chunks]),
+            daemon=True,
+        ).start()
+
+    def _run_tts_render_job(self, job_id: int, signature: str, transcript_chunks):
+        try:
+            audio_path = self._cache_file(f"tts_story_{signature}.wav")
+            metadata_path = self._cache_file(f"tts_story_{signature}.json")
+            if audio_path.exists() and metadata_path.exists():
+                metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+                metadata["job_id"] = job_id
+                self.ttsRenderFinished.emit(metadata)
+                return
+
+            if not engine.init_tts():
+                raise RuntimeError("Failed to initialize the active TTS backend.")
+
+            chunk_target_chars, chunk_max_chars = engine.get_text_chunk_limits()
+            combined_audio = engine.AudioSegment.silent(duration=0)
+            rendered_chunks = []
+            sample_rate = int(getattr(engine.tts_model, "sr", 24000) or 24000)
+            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav") or "voices/Hot_16.wav")
+            if not Path(voice_path).exists():
+                voice_path = "voices/Hot_16.wav"
+
+            for chunk in transcript_chunks:
+                if job_id != self._tts_render_job_id:
+                    return
+                chunk_text = str(chunk.get("text", "") or "").strip()
+                if not chunk_text:
+                    segment_audio = engine.AudioSegment.silent(duration=250)
+                else:
+                    subchunks = engine.intelligent_chunk_text(chunk_text, chunk_target_chars, chunk_max_chars)
+                    if not subchunks:
+                        subchunks = [chunk_text]
+                    segment_audio = engine.AudioSegment.silent(duration=0)
+                    for subchunk in subchunks:
+                        if job_id != self._tts_render_job_id:
+                            return
+                        configured_seed = int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0)
+                        if configured_seed > 0:
+                            engine.set_seed(configured_seed)
+                        kwargs = {
+                            "temperature": float(engine.RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+                            "top_p": float(engine.RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+                            "top_k": int(engine.RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+                            "repetition_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+                            "min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+                            "norm_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+                            "audio_prompt_path": voice_path,
+                        }
+                        wav = engine.tts_model.generate(subchunk, **kwargs)
+                        temp_subchunk_path = self._cache_file(f"tts_piece_{job_id}_{uuid.uuid4().hex[:10]}.wav")
+                        engine.ta.save(str(temp_subchunk_path), wav.cpu(), sample_rate)
+                        try:
+                            segment_audio += engine.AudioSegment.from_wav(str(temp_subchunk_path))
+                        finally:
+                            engine.safe_delete_with_retry(str(temp_subchunk_path))
+                playback_start_seconds = max(0.0, float(combined_audio.duration_seconds or 0.0))
+                combined_audio += segment_audio
+                playback_end_seconds = max(playback_start_seconds, float(combined_audio.duration_seconds or 0.0))
+                rendered_chunk = dict(chunk)
+                rendered_chunk["tts_start_seconds"] = playback_start_seconds
+                rendered_chunk["tts_end_seconds"] = playback_end_seconds
+                rendered_chunks.append(rendered_chunk)
+
+            combined_audio.export(str(audio_path), format="wav")
+            payload = {
+                "job_id": job_id,
+                "audio_path": str(audio_path),
+                "duration_seconds": float(combined_audio.duration_seconds or 0.0),
+                "chunks": rendered_chunks,
+                "signature": signature,
+            }
+            metadata_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
+            self.ttsRenderFinished.emit(payload)
+        except Exception as exc:
+            detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
+            self.ttsRenderFailed.emit(detail)
+
+    def _compute_tts_signature(self):
+        payload = {
+            "texts": [str(item.get("text", "") or "").strip() for item in self.transcript_chunks],
+            "backend": str(engine.RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox"),
+            "voice_path": str(engine.RUNTIME_CONFIG.get("voice_path", "") or ""),
+            "tts_seed": int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0),
+            "tts_temperature": float(engine.RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(engine.RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(engine.RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8", errors="ignore")
+        return hashlib.sha1(raw).hexdigest()[:16]
+
+    def _on_tts_render_finished(self, payload):
+        if int(payload.get("job_id", 0) or 0) != self._tts_render_job_id:
+            return
+        self._tts_render_in_progress = False
+        self._tts_bundle = {
+            "audio_path": str(payload.get("audio_path", "") or "").strip(),
+            "duration_seconds": max(0.0, float(payload.get("duration_seconds", 0.0) or 0.0)),
+        }
+        self._tts_signature = str(payload.get("signature", "") or "").strip()
+        rendered_chunks = list(payload.get("chunks", []) or [])
+        if rendered_chunks and len(rendered_chunks) == len(self.transcript_chunks):
+            self.transcript_chunks = rendered_chunks
+        self._set_status("TTS narration rendered and ready to play.")
+        self._refresh_controls()
+        if self._pending_autoplay_tts:
+            self._pending_autoplay_tts = False
+            if self._prepare_tts_media():
+                self._start_playback_with_visual_sync(self._player_position_seconds(), status_text="Playing TTS narration for the transcribed story.")
+
+    def _on_tts_render_failed(self, detail: str):
+        self._tts_render_in_progress = False
+        self._pending_autoplay_tts = False
+        self._set_status(f"TTS render failed: {detail}")
+        self._refresh_controls()
+
+    def _restart_visual_generation_from_position(self, position_seconds: float, *, force: bool = False):
+        if not self.transcript_chunks:
+            return 0
+        start_index = self._chunk_index_for_position(position_seconds)
+        end_index = min(len(self.transcript_chunks) - 1, int(start_index) + max(0, int(self._stored_generate_ahead_frames or 0)))
+        needs_generation = False
+        for index in range(max(0, int(start_index)), min(len(self.transcript_chunks) - 1, int(end_index)) + 1):
+            chunk = dict(self.transcript_chunks[index] or {})
+            prompt_text = str(chunk.get("prompt", "") or "").strip()
+            if not self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk).get("image_path"):
+                needs_generation = True
+                break
+        if not needs_generation:
+            return int(self._image_generation_token or 0)
+        with self._lock:
+            if self._image_generation_worker_running and not force:
+                self._image_generation_requested_end_index = max(int(self._image_generation_requested_end_index), int(end_index))
+                active_start = int(self._image_generation_active_start_index)
+                active_end = int(self._image_generation_requested_end_index)
+                if active_start <= int(start_index) <= active_end:
+                    return int(self._image_generation_token or 0)
+            self._image_generation_token += 1
+            token = self._image_generation_token
+            self._image_generation_worker_running = True
+            self._image_generation_active_start_index = int(start_index)
+            self._image_generation_requested_end_index = int(end_index)
+        threading.Thread(
+            target=self._run_visual_generation,
+            args=(token, int(start_index), int(end_index)),
+            daemon=True,
+        ).start()
+        return token
+
+    def _start_playback_with_visual_sync(self, position_seconds: float, *, status_text: str):
+        position_seconds = max(0.0, float(position_seconds or 0.0))
+        if not self.transcript_chunks or self.audio_player is None:
+            return
+        start_index = self._chunk_index_for_position(position_seconds)
+        chunk = dict(self.transcript_chunks[start_index] or {})
+        cached = self._matching_cached_image_entry(start_index, str(chunk.get("prompt", "") or "").strip(), scene_entry=chunk)
+        if cached.get("image_path"):
+            self._pending_play_request = None
+            self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
+            self._current_chunk_index = -1
+            self._sync_visual_to_position(position_seconds, force=True)
+            self.audio_player.play()
+            self._set_status(status_text)
+            return
+        token = self._restart_visual_generation_from_position(position_seconds)
+        self._pending_play_request = {
+            "token": int(token),
+            "index": int(start_index),
+            "position_seconds": position_seconds,
+            "status_text": str(status_text or "").strip(),
+        }
+        self._set_status("Preparing the first story image before playback starts...")
+
+    def _run_visual_generation(self, token: int, start_index: int, end_index: int):
+        index = max(0, int(start_index))
+        try:
+            while index <= min(len(self.transcript_chunks) - 1, int(end_index)):
+                if token != self._image_generation_token:
+                    return
+                chunk = dict(self.transcript_chunks[index] or {})
+                prompt_text = str(chunk.get("prompt", "") or "").strip()
+                source_text = str(chunk.get("text", "") or "").strip()
+                if not prompt_text:
+                    index += 1
+                    continue
+                cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
+                if cached.get("image_path"):
+                    index += 1
+                    with self._lock:
+                        end_index = max(int(end_index), int(self._image_generation_requested_end_index))
+                    continue
+                try:
+                    scene_entry = self._scene_entry_for_index(index)
+                    image_entry = self._generate_visual_image(prompt_text, index=index, scene_entry=scene_entry)
+                    if token != self._image_generation_token:
+                        return
+                    ready_payload = {
+                        "token": token,
+                        "index": index,
+                        "image_path": str(image_entry.get("image_path", "") or "").strip(),
+                        "prompt_text": prompt_text,
+                        "source_text": source_text,
+                        "prompt_signature": str(image_entry.get("prompt_signature", "") or "").strip(),
+                        "generation_mode": str(image_entry.get("generation_mode", "") or "").strip(),
+                        "reference_image_paths": list(image_entry.get("reference_image_paths", []) or []),
+                    }
+                    ready_entry = self._store_ready_image_entry(index, ready_payload, scene_entry=scene_entry, update_continuity=True)
+                    if index == self._current_chunk_index and ready_entry.get("image_path"):
+                        self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=ready_entry)
+                    ready_payload["already_stored"] = True
+                    self.imageReady.emit(ready_payload)
+                except Exception as exc:
+                    detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
+                    is_moderated = self._is_visual_moderation_error(detail)
+                    self.imageFailed.emit(
+                        {
+                            "token": token,
+                            "index": index,
+                            "detail": detail,
+                            "moderated": bool(is_moderated),
+                        }
+                    )
+                    if not is_moderated:
+                        return
+                index += 1
+                with self._lock:
+                    end_index = max(int(end_index), int(self._image_generation_requested_end_index))
+        finally:
+            with self._lock:
+                if token == self._image_generation_token:
+                    self._image_generation_worker_running = False
+                    self._image_generation_active_start_index = -1
+                    self._image_generation_requested_end_index = -1
+
+    def _generate_visual_image(self, prompt_text: str, *, index: int, scene_entry=None):
+        prompt_text = str(prompt_text or "").strip()
+        if not prompt_text:
+            raise RuntimeError("Visual prompt is empty.")
+        if not engine._visual_reply_enabled():
+            raise RuntimeError("Visual replies are disabled in the Visuals tab.")
+        if not engine._visual_reply_generation_available():
+            raise RuntimeError("Visual reply generation is unavailable. Check your image provider credentials.")
+        scene_entry = dict(scene_entry or {})
+        previous_scene = self._scene_entry_for_index(index - 1)
+        scene_id = str(scene_entry.get("scene_id", "") or "").strip()
+        scene_index = int(scene_entry.get("scene_index", 0) or 0)
+        generation_mode = str(scene_entry.get("generation_mode", "") or "fresh").strip() or "fresh"
+        reference_image_paths = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
+        prompt_signature, effective_prompt = self._visual_request_signature(
+            prompt_text,
+            scene_entry=scene_entry,
+            generation_mode=generation_mode,
+            reference_image_paths=reference_image_paths,
+        )
+        with self._lock:
+            cached_entry = dict(self._prompt_image_cache.get(prompt_signature) or {})
+        if cached_entry.get("image_path") and Path(str(cached_entry.get("image_path", "") or "")).exists():
+            return cached_entry
+        if generation_mode in {"edit", "multi_reference"} and reference_image_paths and self._visual_provider_supports_reference_edits():
+            try:
+                if generation_mode == "multi_reference" and len(reference_image_paths) > 1:
+                    entry = self._generate_visual_image_from_multi_reference(effective_prompt, index=index, reference_image_paths=reference_image_paths)
+                else:
+                    entry = self._generate_visual_image_from_edit(effective_prompt, index=index, reference_image_paths=reference_image_paths)
+            except Exception:
+                entry = self._generate_visual_image_from_fresh(effective_prompt, index=index)
+        else:
+            entry = self._generate_visual_image_from_fresh(effective_prompt, index=index)
+        entry["prompt_signature"] = prompt_signature
+        entry["scene_id"] = scene_id
+        entry["scene_index"] = scene_index
+        entry["generation_mode"] = generation_mode if generation_mode in {"fresh", "edit", "multi_reference"} else "fresh"
+        entry["reference_image_paths"] = list(reference_image_paths or [])
+        entry["scene_context"] = dict(scene_entry or {})
+        with self._lock:
+            self._prompt_image_cache[prompt_signature] = dict(entry)
+        return entry
+
+    def _store_ready_image_entry(self, index: int, payload: dict, *, scene_entry=None, update_continuity: bool = True):
+        prompt_signature = str(payload.get("prompt_signature", "") or "").strip()
+        generation_mode = str(payload.get("generation_mode", "") or "").strip()
+        reference_image_paths = list(payload.get("reference_image_paths", []) or [])
+        scene_entry = dict(scene_entry or self._scene_entry_for_index(index))
+        entry = {
+            "image_path": str(payload.get("image_path", "") or "").strip(),
+            "prompt_text": str(payload.get("prompt_text", "") or "").strip(),
+            "source_text": str(payload.get("source_text", "") or "").strip(),
+            "prompt_signature": prompt_signature,
+            "generation_mode": generation_mode,
+            "reference_image_paths": list(reference_image_paths or []),
+            "scene_id": str(scene_entry.get("scene_id", "") or "").strip(),
+            "scene_index": int(scene_entry.get("scene_index", 0) or 0),
+            "scene_context": dict(scene_entry or {}),
+        }
+        with self._lock:
+            self._image_cache[int(index)] = dict(entry)
+            if prompt_signature and entry.get("image_path") and Path(str(entry.get("image_path", "") or "")).exists():
+                self._prompt_image_cache[prompt_signature] = dict(entry)
+        if update_continuity and scene_entry:
+            self._update_continuity_memory_from_image(scene_entry=scene_entry, image_entry=entry, prompt_signature=prompt_signature)
+        return entry
+
+    def _on_image_ready(self, payload):
+        token = int(payload.get("token", 0) or 0)
+        if token != self._image_generation_token:
+            return
+        index = int(payload.get("index", -1) or -1)
+        scene_entry = self._scene_entry_for_index(index)
+        if bool(payload.get("already_stored", False)):
+            with self._lock:
+                entry = dict(self._image_cache.get(int(index)) or {})
+            if not entry:
+                entry = self._store_ready_image_entry(index, payload, scene_entry=scene_entry, update_continuity=False)
+        else:
+            entry = self._store_ready_image_entry(index, payload, scene_entry=scene_entry, update_continuity=True)
+        pending = dict(self._pending_play_request or {})
+        if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
+            position_seconds = max(0.0, float(pending.get("position_seconds", 0.0) or 0.0))
+            status_text = str(pending.get("status_text", "") or "").strip()
+            self._pending_play_request = None
+            if entry.get("image_path"):
+                self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=entry)
+            if self.audio_player is not None:
+                self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
+                self._current_chunk_index = -1
+                self._sync_visual_to_position(position_seconds, force=True)
+                self.audio_player.play()
+                self._set_status(status_text or "Playing audio story.")
+            return
+        if index == self._current_chunk_index:
+            if entry.get("image_path"):
+                self._publish_ready_visual_entry(index, chunk=scene_entry, image_entry=entry)
+            else:
+                self._publish_visual_for_index(index, keep_current_image=False)
+
+    def _on_image_failed(self, payload):
+        token = int(payload.get("token", 0) or 0)
+        if token != self._image_generation_token:
+            return
+        index = int(payload.get("index", -1) or -1)
+        detail = str(payload.get("detail", "") or "").strip() or "Visual generation failed."
+        if bool(payload.get("moderated", False)):
+            provider_label = "xAI / Grok" if engine._visual_reply_provider() == "xai" else "image provider"
+            status = f"{provider_label} rejected one story image prompt for content moderation. Skipping that chunk."
+            self._set_status(status)
+            current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+            current_image_path = str(current_state.get("image_path", "") or "").strip()
+            pending = dict(self._pending_play_request or {})
+            if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
+                self._pending_play_request = None
+                if self.audio_player is not None:
+                    position_seconds = max(0.0, float(pending.get("position_seconds", 0.0) or 0.0))
+                    status_text = str(pending.get("status_text", "") or "").strip()
+                    self.audio_player.setPosition(max(0, int(round(position_seconds * 1000.0))))
+                    self.audio_player.play()
+                    self._set_status(status_text or status)
+            if index == self._current_chunk_index and not current_image_path:
+                shared_state.set_current_visual_reply_data(
+                    {
+                        "status": "error",
+                        "status_text": "Visual Reply skipped",
+                        "detail_text": status,
+                        "image_path": "",
+                        "caption": "",
+                        "request_id": f"audio_story_moderated_{index}_{int(time.time())}",
+                        "updated_at": time.time(),
+                }
+            )
+            return
+        pending = dict(self._pending_play_request or {})
+        if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
+            self._pending_play_request = None
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "error",
+                "status_text": "Visual Reply failed",
+                "detail_text": detail,
+                "image_path": "",
+                "caption": "",
+                "request_id": f"audio_story_error_{int(time.time())}",
+                "updated_at": time.time(),
+            }
+        )
+        self._set_status(detail)
+
+    def _is_visual_moderation_error(self, detail: str):
+        text = str(detail or "").strip().lower()
+        if not text:
+            return False
+        moderation_markers = (
+            "content moderation",
+            "rejected by content moderation",
+            "safety system",
+            "safety filters",
+            "policy violation",
+        )
+        return any(marker in text for marker in moderation_markers)
+
+    def _publish_visual_for_index(self, index: int, *, keep_current_image: bool):
+        index = int(index or 0)
+        if index < 0 or index >= len(self.transcript_chunks):
+            return
+        chunk = dict(self.transcript_chunks[index] or {})
+        prompt_text = str(chunk.get("prompt", "") or "").strip()
+        cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
+        current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+        current_image_path = str(current_state.get("image_path", "") or "").strip()
+        retained_image_path = current_image_path if keep_current_image and current_image_path and Path(current_image_path).exists() else ""
+        retained_caption = str(current_state.get("caption", "") or "").strip()
+        if cached.get("image_path"):
+            detail_bits = [
+                str(cached.get("source_text", "") or "")[:200],
+                f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
+                str(chunk.get("generation_mode", "") or "").strip(),
+            ]
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "ready",
+                    "status_text": "Visual Reply",
+                    "detail_text": " • ".join(bit for bit in detail_bits if str(bit or "").strip()),
+                    "image_path": str(cached.get("image_path", "") or "").strip(),
+                    "caption": str(cached.get("prompt_text", prompt_text) or prompt_text).strip(),
+                    "request_id": f"audio_story_chunk_{index}",
+                    "updated_at": time.time(),
+                }
+            )
+            return
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "loading",
+                "status_text": "Visual Reply generating...",
+                "detail_text": "Preparing audio story image...",
+                "image_path": retained_image_path,
+                "caption": retained_caption or prompt_text,
+                "request_id": f"audio_story_chunk_{index}",
+                "keep_current_image": bool(retained_image_path),
+                "updated_at": time.time(),
+            }
+        )
+
+    def _publish_ready_visual_entry(self, index: int, *, chunk: dict, image_entry: dict):
+        prompt_text = str(chunk.get("prompt", "") or "").strip()
+        detail_bits = [
+            str(image_entry.get("source_text", "") or "")[:200],
+            f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
+            str(image_entry.get("generation_mode", "") or chunk.get("generation_mode", "") or "").strip(),
+        ]
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "ready",
+                "status_text": "Visual Reply",
+                "detail_text": " • ".join(bit for bit in detail_bits if str(bit or "").strip()),
+                "image_path": str(image_entry.get("image_path", "") or "").strip(),
+                "caption": str(image_entry.get("prompt_text", prompt_text) or prompt_text).strip(),
+                "request_id": f"audio_story_chunk_{index}",
+                "updated_at": time.time(),
+            }
+        )
+
+    def _active_timeline_duration_seconds(self):
+        if self._playback_mode_value() == "tts" and self._tts_bundle is not None:
+            return max(0.0, float(self._tts_bundle.get("duration_seconds", 0.0) or 0.0))
+        return max(0.0, float(self.imported_audio_duration_seconds or 0.0))
+
+    def _chunk_bounds_for_mode(self, chunk):
+        if self._playback_mode_value() == "tts":
+            start_seconds = chunk.get("tts_start_seconds")
+            end_seconds = chunk.get("tts_end_seconds")
+            if start_seconds is not None and end_seconds is not None:
+                return max(0.0, float(start_seconds or 0.0)), max(0.0, float(end_seconds or 0.0))
+        return max(0.0, float(chunk.get("start_seconds", 0.0) or 0.0)), max(0.0, float(chunk.get("end_seconds", 0.0) or 0.0))
+
+    def _chunk_index_for_position(self, position_seconds: float):
+        seconds = max(0.0, float(position_seconds or 0.0))
+        if not self.transcript_chunks:
+            return 0
+        last_index = len(self.transcript_chunks) - 1
+        for index, chunk in enumerate(self.transcript_chunks):
+            start_seconds, end_seconds = self._chunk_bounds_for_mode(chunk)
+            if index == last_index:
+                if seconds >= start_seconds:
+                    return index
+                continue
+            if start_seconds <= seconds < max(start_seconds + 0.001, end_seconds):
+                return index
+        return max(0, min(last_index, int(self._current_chunk_index if self._current_chunk_index >= 0 else 0)))
+
+    def _sync_visual_to_position(self, position_seconds: float, *, force: bool = False):
+        if not self.transcript_chunks:
+            return
+        index = self._chunk_index_for_position(position_seconds)
+        if not force and index == self._current_chunk_index:
+            return
+        keep_current_image = self._current_chunk_index >= 0
+        self._current_chunk_index = index
+        self._publish_visual_for_index(index, keep_current_image=keep_current_image)
+        if self._pending_play_request is None:
+            self._restart_visual_generation_from_position(position_seconds)
+        current_chunk = dict(self.transcript_chunks[index] or {})
+        self._set_status(
+            f"Chunk {index + 1}/{len(self.transcript_chunks)} active. "
+            f"{self._format_seconds(position_seconds)} into the story."
+        )
+        if hasattr(self, "audio_story_summary_label"):
+            self.audio_story_summary_label.setText(
+                f"Audio duration: {self._format_seconds(self._active_timeline_duration_seconds())}\n"
+                f"Transcript windows: {len(self.transcript_chunks)}\n"
+                f"Current chunk: {index + 1}/{len(self.transcript_chunks)}\n"
+                f"Current text: {str(current_chunk.get('text', '') or '').strip()[:260]}"
+            )
+        self._refresh_scene_override_controls()
+
+    def _player_position_seconds(self):
+        if self.audio_player is None:
+            return 0.0
+        return max(0.0, float(self.audio_player.position() or 0) / 1000.0)
+
+    def _update_slider_range(self):
+        duration_seconds = self._active_timeline_duration_seconds()
+        duration_ms = max(0, int(round(duration_seconds * 1000.0)))
+        if hasattr(self, "audio_story_position_slider"):
+            self.audio_story_position_slider.blockSignals(True)
+            self.audio_story_position_slider.setRange(0, duration_ms)
+            position_ms = min(duration_ms, max(0, int(round(self._player_position_seconds() * 1000.0))))
+            self.audio_story_position_slider.setValue(position_ms)
+            self.audio_story_position_slider.blockSignals(False)
+        if hasattr(self, "audio_story_time_label"):
+            self.audio_story_time_label.setText(f"{self._format_seconds(self._player_position_seconds())} / {self._format_seconds(duration_seconds)}")
+
+    def _on_player_position_changed(self, position_ms: int):
+        duration_seconds = self._active_timeline_duration_seconds()
+        position_seconds = max(0.0, float(position_ms or 0) / 1000.0)
+        if hasattr(self, "audio_story_position_slider") and not self._user_scrubbing:
+            self.audio_story_position_slider.blockSignals(True)
+            self.audio_story_position_slider.setValue(max(0, int(position_ms or 0)))
+            self.audio_story_position_slider.blockSignals(False)
+        if hasattr(self, "audio_story_time_label"):
+            self.audio_story_time_label.setText(f"{self._format_seconds(position_seconds)} / {self._format_seconds(duration_seconds)}")
+        self._sync_visual_to_position(position_seconds)
+
+    def _on_player_duration_changed(self, duration_ms: int):
+        if duration_ms and self._playback_mode_value() == "source":
+            self.imported_audio_duration_seconds = max(0.0, float(duration_ms or 0) / 1000.0)
+            self._sync_transcribe_seconds_slider()
+        self._update_slider_range()
+
+    def _on_player_state_changed(self, _state):
+        self._refresh_controls()
+
+    def _on_player_error(self, *_args):
+        if self.audio_player is None:
+            return
+        try:
+            detail = str(self.audio_player.errorString() or "").strip()
+        except Exception:
+            detail = "Audio playback failed."
+        self._set_status(detail or "Audio playback failed.")
+
+    def _on_slider_pressed(self):
+        self._user_scrubbing = True
+
+    def _on_slider_moved(self, value: int):
+        duration_seconds = self._active_timeline_duration_seconds()
+        position_seconds = max(0.0, float(value or 0) / 1000.0)
+        if hasattr(self, "audio_story_time_label"):
+            self.audio_story_time_label.setText(f"{self._format_seconds(position_seconds)} / {self._format_seconds(duration_seconds)}")
+
+    def _on_slider_released(self):
+        self._user_scrubbing = False
+        if self.audio_player is None or not hasattr(self, "audio_story_position_slider"):
+            return
+        target_ms = max(0, int(self.audio_story_position_slider.value() or 0))
+        self.audio_player.setPosition(target_ms)
+        target_seconds = max(0.0, float(target_ms) / 1000.0)
+        self._restart_visual_generation_from_position(target_seconds)
+        self._sync_visual_to_position(target_seconds, force=True)
+
+    def _transcribe_seconds_slider_maximum(self):
+        if self.imported_audio_duration_seconds > 0:
+            return max(1, int(round(self.imported_audio_duration_seconds)))
+        return max(8, int(self._stored_transcribe_seconds or 8))
+
+    def _image_frequency_slider_maximum(self):
+        if self.imported_audio_duration_seconds > 0:
+            return max(1, int(round(self.imported_audio_duration_seconds)))
+        return max(12, int(self._stored_image_frequency_seconds or 12))
+
+    def _sync_transcribe_seconds_slider(self):
+        slider = getattr(self, "audio_story_transcribe_seconds_slider", None)
+        value_label = getattr(self, "audio_story_transcribe_seconds_value_label", None)
+        maximum = self._transcribe_seconds_slider_maximum()
+        current_value = max(1, min(maximum, int(self._stored_transcribe_seconds or 8)))
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setRange(1, maximum)
+            slider.setValue(current_value)
+            slider.blockSignals(False)
+        self._stored_transcribe_seconds = current_value
+        if value_label is not None:
+            value_label.setText(self._format_seconds(current_value))
+
+    def _sync_image_frequency_slider(self):
+        slider = getattr(self, "audio_story_image_frequency_slider", None)
+        value_label = getattr(self, "audio_story_image_frequency_value_label", None)
+        maximum = self._image_frequency_slider_maximum()
+        current_value = max(1, min(maximum, int(self._stored_image_frequency_seconds or 12)))
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setRange(1, maximum)
+            slider.setValue(current_value)
+            slider.blockSignals(False)
+        self._stored_image_frequency_seconds = current_value
+        if value_label is not None:
+            value_label.setText(self._format_slider_seconds(current_value))
+
+    def _normalize_continuity_strength(self, value):
+        try:
+            strength = float(value or 0.0)
+        except Exception:
+            strength = 0.8
+        if strength > 1.0:
+            strength = strength / 100.0
+        return max(0.0, min(1.0, strength))
+
+    def _sync_continuity_slider(self):
+        slider = getattr(self, "audio_story_continuity_slider", None)
+        value_label = getattr(self, "audio_story_continuity_value_label", None)
+        strength = self._normalize_continuity_strength(self._stored_continuity_strength)
+        self._stored_continuity_strength = strength
+        percent = int(round(strength * 100.0))
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setValue(percent)
+            slider.blockSignals(False)
+        if value_label is not None:
+            value_label.setText(f"{percent}%")
+
+    def _sync_generate_ahead_slider(self):
+        slider = getattr(self, "audio_story_generate_ahead_slider", None)
+        value_label = getattr(self, "audio_story_generate_ahead_value_label", None)
+        frames = max(0, int(self._stored_generate_ahead_frames or 0))
+        self._stored_generate_ahead_frames = frames
+        if slider is not None:
+            slider.blockSignals(True)
+            slider.setValue(frames)
+            slider.blockSignals(False)
+        if value_label is not None:
+            value_label.setText(f"{frames} frame" if frames == 1 else f"{frames} frames")
+
+    def _sync_audio_story_style_controls(self):
+        valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
+        enabled_set = {style_id for style_id in self._stored_style_enabled if style_id in valid_ids}
+        for style_def in _audio_story_style_presets():
+            style_id = str(style_def.get("id") or "").strip().lower()
+            if not style_id:
+                continue
+            prompt_text = str(self._stored_style_prompts.get(style_id, style_def.get("prompt", "")) or style_def.get("prompt", "")).strip()
+            self._stored_style_prompts[style_id] = prompt_text
+            button = dict(getattr(self, "audio_story_style_buttons", {}) or {}).get(style_id)
+            if button is not None:
+                button.blockSignals(True)
+                button.setChecked(style_id in enabled_set)
+                button.blockSignals(False)
+            edit = dict(getattr(self, "audio_story_style_edits", {}) or {}).get(style_id)
+            if edit is not None:
+                edit.blockSignals(True)
+                edit.setText(prompt_text)
+                edit.blockSignals(False)
+        checkbox = getattr(self, "audio_story_style_live_checkbox", None)
+        if checkbox is not None:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(self._stored_style_change_live))
+            checkbox.blockSignals(False)
+
+    def _sync_story_master_prompt_controls(self):
+        button = getattr(self, "audio_story_master_prompt_button", None)
+        if button is not None:
+            button.blockSignals(True)
+            button.setChecked(bool(self._stored_story_master_prompt_enabled))
+            button.blockSignals(False)
+        combo = getattr(self, "audio_story_master_prompt_mode_combo", None)
+        if combo is not None:
+            combo.blockSignals(True)
+            target_mode = str(self._stored_story_master_prompt_mode or "medium").strip().lower()
+            index = combo.findData(target_mode)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+            combo.blockSignals(False)
+
+    def _sync_llm_story_analysis_controls(self):
+        checkbox = getattr(self, "audio_story_llm_analysis_checkbox", None)
+        if checkbox is not None:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(bool(self._stored_use_llm_story_analysis))
+            checkbox.blockSignals(False)
+
+    def _normalize_prompt_block_limits(self, limits=None):
+        source = dict(limits or self._stored_prompt_block_limits or {})
+        normalized = {}
+        for key, default_value in _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.items():
+            try:
+                value = int(source.get(key, default_value) or default_value)
+            except Exception:
+                value = int(default_value)
+            normalized[key] = max(40, min(1600, value))
+        return normalized
+
+    def _prompt_block_limits(self):
+        self._stored_prompt_block_limits = self._normalize_prompt_block_limits()
+        return dict(self._stored_prompt_block_limits)
+
+    def _sync_prompt_block_limit_controls(self):
+        limits = self._prompt_block_limits()
+        for key, spin in dict(getattr(self, "audio_story_prompt_limit_spins", {}) or {}).items():
+            if spin is None:
+                continue
+            spin.blockSignals(True)
+            spin.setValue(int(limits.get(key, _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.get(key, 240)) or 240))
+            spin.blockSignals(False)
+
+    def _current_audio_story_style_suffix(self):
+        prompts = dict(self._stored_style_prompts or {})
+        enabled = list(self._stored_style_enabled or [])
+        parts = []
+        for style_id in enabled:
+            prompt_text = str(prompts.get(style_id, "") or "").strip()
+            if prompt_text:
+                parts.append(prompt_text)
+        if not parts:
+            return ""
+        return "; ".join(parts)
+
+    def _build_story_image_prompt(self, text: str, story_style_guide: str, *, scene_entry=None, story_bible=None, previous_scene=None):
+        base_text = str(text or "").strip()
+        if not scene_entry or not isinstance(scene_entry, dict):
+            style_suffix = self._current_audio_story_style_suffix()
+            if style_suffix:
+                prompt = f"Story illustration. {style_suffix}. Scene: {base_text}."
+                if story_style_guide:
+                    prompt = f"{prompt} {story_style_guide}"
+            else:
+                prompt = engine._story_visual_reply_prompt_from_text(base_text, story_style_guide=story_style_guide)
+            if style_suffix:
+                prompt = prompt.strip()
+            if len(prompt) > 760:
+                prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
+            return prompt
+        return self._compose_story_prompt(
+            dict(scene_entry or {}),
+            story_bible=dict(story_bible or self.story_bible or {}),
+            story_style_guide=str(story_style_guide or self.story_style_guide or "").strip(),
+            previous_scene=dict(previous_scene or {}) if isinstance(previous_scene, dict) else None,
+        )
+
+    def _audio_story_master_prompt_mode(self):
+        mode = str(self._stored_story_master_prompt_mode or "medium").strip().lower()
+        valid = {value for value, _label in _audio_story_master_prompt_modes()}
+        return mode if mode in valid else "medium"
+
+    def _build_story_generated_master_prompt(self):
+        full_text = engine._normalize_visual_reply_prompt_text(self.full_transcript_text)
+        story_style_guide = str(self.story_style_guide or "").strip()
+        style_suffix = self._current_audio_story_style_suffix()
+        mode = self._audio_story_master_prompt_mode()
+        mode_config = {
+            "simple": {
+                "context_limit": 160,
+                "lead": "Keep one coherent visual style and the same recurring adult characters and places across this story.",
+                "tail": "Let the story context shape the imagery without redesigning the cast between shots.",
+            },
+            "medium": {
+                "context_limit": 240,
+                "lead": "Keep one coherent visual language across this story and treat recurring adult characters, outfits, props, and locations as the same world.",
+                "tail": "Use the story context to influence framing, mood, and world details while preserving continuity.",
+            },
+            "strong": {
+                "context_limit": 340,
+                "lead": "Strongly preserve a single visual identity for this story: the same adult faces, clothing silhouettes, props, and recognizable locations from image to image.",
+                "tail": "Push the imagery to stay anchored in the story's recurring cast, atmosphere, and world-building with minimal redesign drift.",
+            },
+            "strongest": {
+                "context_limit": 420,
+                "lead": "Preserve this story like consecutive shots from the same film: the same adult characters, faces, hair, outfits, props, architecture, lighting logic, and world details unless the story explicitly changes them.",
+                "tail": "Make the imagery heavily story-driven while preserving the exact same cast and visual identity as aggressively as possible.",
+            },
+        }
+        config = dict(mode_config.get(mode) or mode_config["medium"])
+        context_text = str(full_text or "").strip()
+        if len(context_text) > int(config.get("context_limit", 240) or 240):
+            context_text = context_text[: int(config.get("context_limit", 240) or 240)].rstrip(" \t\r\n,;:.-")
+        parts = [str(config.get("lead", "") or "").strip()]
+        if style_suffix:
+            parts.append(style_suffix)
+        if story_style_guide:
+            parts.append(story_style_guide)
+        if context_text:
+            parts.append(f"Story context: {context_text}")
+        tail = str(config.get("tail", "") or "").strip()
+        if tail:
+            parts.append(tail)
+        prompt = " ".join(part for part in parts if str(part or "").strip()).strip()
+        if len(prompt) > 420:
+            prompt = prompt[:420].rstrip(" \t\r\n,;:.-")
+        return prompt
+
+    def _active_story_analysis_chat_provider(self):
+        provider = chat_providers.normalize_provider_id(
+            engine.RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
+        if not model:
+            try:
+                error_placeholder = chat_providers.provider_model_error(provider)
+                models = [
+                    str(item or "").strip()
+                    for item in list(chat_providers.list_models(provider, quiet=True) or [])
+                    if str(item or "").strip() and str(item or "").strip() != error_placeholder
+                ]
+                model = models[0] if models else ""
+            except Exception:
+                model = ""
+        return provider, model
+
+    def _build_llm_story_analysis(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float, fallback_story_bible: dict):
+        provider, model = self._active_story_analysis_chat_provider()
+        if not provider or not model:
+            raise RuntimeError("No active Chat Provider model is available for LLM story analysis.")
+        prompt_payload = self._llm_story_analysis_prompt_payload(
+            full_text=full_text,
+            image_chunks=image_chunks,
+            story_style_guide=story_style_guide,
+            continuity_strength=continuity_strength,
+        )
+        raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload)
+        try:
+            parsed = self._parse_llm_json_object(raw_text)
+        except Exception:
+            repaired_text = self._repair_llm_story_analysis_json(raw_text, provider=provider, model=model)
+            parsed = self._parse_llm_json_object(repaired_text)
+        story_bible = self._normalize_llm_story_bible(
+            parsed.get("story_bible") or {},
+            fallback_story_bible=fallback_story_bible,
+            story_style_guide=story_style_guide,
+            continuity_strength=continuity_strength,
+        )
+        scenes = self._normalize_llm_scene_list(parsed.get("scenes") or [], image_chunks=image_chunks, story_bible=story_bible)
+        if not scenes:
+            raise RuntimeError("LLM story analysis returned no usable scenes.")
+        story_bible["analysis_source"] = "llm"
+        story_bible["analysis_provider"] = chat_providers.provider_label(provider)
+        story_bible["analysis_model"] = model
+        return {"story_bible": story_bible, "scenes": scenes}
+
+    def _llm_story_analysis_prompt_payload(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float):
+        per_chunk_limit = max(180, min(520, int(14000 / max(1, len(image_chunks or [])))))
+        chunks = []
+        for index, chunk in enumerate(list(image_chunks or [])):
+            chunks.append(
+                {
+                    "chunk_index": int(index),
+                    "start_seconds": round(float(chunk.get("start_seconds", 0.0) or 0.0), 2),
+                    "end_seconds": round(float(chunk.get("end_seconds", 0.0) or 0.0), 2),
+                    "text": _audio_story_truncate(str(chunk.get("text", "") or ""), per_chunk_limit),
+                }
+            )
+        return {
+            "task": "Analyze audiobook transcript chunks for consistent visual story generation.",
+            "continuity_strength": round(float(self._normalize_continuity_strength(continuity_strength)), 3),
+            "current_visual_style_guide": str(story_style_guide or "").strip(),
+            "full_story_excerpt": _audio_story_truncate(full_text, 2200),
+            "chunks": chunks,
+        }
+
+    def _call_llm_story_analysis(self, *, provider: str, model: str, prompt_payload: dict):
+        system_prompt = (
+            "You are a visual story continuity analyst for an audiobook image generator. "
+            "Return strict JSON only. Do not use markdown, comments, prose, code fences, or trailing commas. "
+            "Do not invent unnecessary characters. Prefer stable, reusable visual anchors for recurring people, places, props, and world details."
+        )
+        user_prompt = (
+            "Create structured visual continuity metadata for these transcript chunks.\n\n"
+            "Required JSON shape:\n"
+            "{\n"
+            '  "story_bible": {\n'
+            '    "summary": "short story visual summary",\n'
+            '    "global_visual_style": "stable style anchor",\n'
+            '    "world_anchor": "recurring world, time period, palette, atmosphere",\n'
+            '    "tone": ["tone words"],\n'
+            '    "palette": ["palette or lighting cues"],\n'
+            '    "time_period": "if inferable",\n'
+            '    "characters": [{"id":"char_stable_id","label":"Name or role","aliases":["Name"],"summary":"role in story","appearance_anchor":"stable face/body/clothes/accessories"}],\n'
+            '    "locations": [{"id":"loc_stable_id","label":"Location","aliases":["Location"],"summary":"location role","anchor_text":"stable architecture/layout/lighting"}],\n'
+            '    "props": [{"id":"prop_stable_id","label":"Prop","aliases":["Prop"],"summary":"prop role","anchor_text":"stable visual description"}]\n'
+            "  },\n"
+            '  "scenes": [{\n'
+            '    "chunk_index": 0,\n'
+            '    "scene_id": "scene_stable_id",\n'
+            '    "is_new_scene": true,\n'
+            '    "continuation_of_scene_id": "",\n'
+            '    "location_id": "loc_stable_id_or_empty",\n'
+            '    "active_character_ids": ["char_stable_id"],\n'
+            '    "prop_ids": ["prop_stable_id"],\n'
+            '    "scene_focus": "visual focus, not raw transcript",\n'
+            '    "key_action": "what should be pictured now",\n'
+            '    "environment": "specific visible setting facts",\n'
+            '    "mood": "mood",\n'
+            '    "time_of_day": "if inferable",\n'
+            '    "camera": "shot/framing suggestion",\n'
+            '    "continuity_priority": ["characters","location","props","mood"],\n'
+            '    "continuity": "what to preserve from previous image",\n'
+            '    "preserve": "identity/location requirements",\n'
+            '    "avoid": "image mistakes to avoid"\n'
+            "  }]\n"
+            "}\n\n"
+            "Rules:\n"
+            "- Return one scene object for every input chunk_index.\n"
+            "- Use the exact same ids for recurring characters, locations, and props.\n"
+            "- Scene text must be cleaned visual facts, not copied raw transcript.\n"
+            "- If a chunk continues the same place/action, set is_new_scene=false and reuse scene_id.\n"
+            "- If a new location, time jump, or major action shift occurs, set is_new_scene=true.\n"
+            "- Keep all fields concise and useful for image prompting.\n\n"
+            "Return compact minified JSON. Keep each text field under 160 characters.\n\n"
+            "Input JSON:\n"
+            f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
+        )
+        params = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.1,
+            "max_tokens": 8000,
+            "response_format": {"type": "json_object"},
+        }
+        last_error = None
+        for _attempt in range(3):
+            try:
+                return str(chat_providers.complete_chat(provider, params, {}) or "").strip()
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                changed = False
+                if "temperature" in message and "temperature" in params:
+                    params.pop("temperature", None)
+                    changed = True
+                if ("max_tokens" in message or "max completion" in message) and "max_tokens" in params:
+                    params.pop("max_tokens", None)
+                    changed = True
+                if ("response_format" in message or "json_object" in message) and "response_format" in params:
+                    params.pop("response_format", None)
+                    changed = True
+                if not changed:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return ""
+
+    def _repair_llm_story_analysis_json(self, text: str, *, provider: str, model: str):
+        raw_text = _audio_story_truncate(str(text or "").strip(), 24000)
+        if not raw_text:
+            raise RuntimeError("LLM story analysis returned an empty response.")
+        params = {
+            "model": model,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You repair malformed JSON. Return strict JSON only, no markdown, no prose. "
+                        "Preserve the original keys and values as much as possible."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": (
+                        "Repair this malformed story-analysis JSON into one valid compact JSON object. "
+                        "If a list item or string is incomplete, close it safely rather than adding prose.\n\n"
+                        f"{raw_text}"
+                    ),
+                },
+            ],
+            "temperature": 0,
+            "max_tokens": 8000,
+            "response_format": {"type": "json_object"},
+        }
+        last_error = None
+        for _attempt in range(3):
+            try:
+                return str(chat_providers.complete_chat(provider, params, {}) or "").strip()
+            except Exception as exc:
+                last_error = exc
+                message = str(exc).lower()
+                changed = False
+                if "temperature" in message and "temperature" in params:
+                    params.pop("temperature", None)
+                    changed = True
+                if ("max_tokens" in message or "max completion" in message) and "max_tokens" in params:
+                    params.pop("max_tokens", None)
+                    changed = True
+                if ("response_format" in message or "json_object" in message) and "response_format" in params:
+                    params.pop("response_format", None)
+                    changed = True
+                if not changed:
+                    raise
+        if last_error is not None:
+            raise last_error
+        return ""
+
+    def _parse_llm_json_object(self, text: str):
+        value = str(text or "").strip()
+        if value.startswith("```"):
+            value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.IGNORECASE).strip()
+            value = re.sub(r"\s*```$", "", value).strip()
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            start = value.find("{")
+            end = value.rfind("}")
+            if start < 0 or end <= start:
+                raise RuntimeError("LLM story analysis did not return a JSON object.")
+            parsed = json.loads(value[start : end + 1])
+        if not isinstance(parsed, dict):
+            raise RuntimeError("LLM story analysis JSON root must be an object.")
+        return parsed
+
+    def _llm_string_list(self, value, *, limit: int = 8):
+        if isinstance(value, str):
+            candidates = re.split(r"[,;\n]+", value)
+        elif isinstance(value, dict):
+            candidates = value.values()
+        else:
+            candidates = list(value or []) if isinstance(value, (list, tuple, set)) else []
+        return _audio_story_unique_keep_order(str(item or "").strip() for item in candidates if str(item or "").strip())[:limit]
+
+    def _normalize_llm_entities(self, raw_entities, *, kind: str, fallback_prefix: str):
+        if isinstance(raw_entities, dict):
+            raw_items = []
+            for key, value in raw_entities.items():
+                if isinstance(value, dict):
+                    item = dict(value)
+                    item.setdefault("id", key)
+                else:
+                    item = {"id": key, "label": value}
+                raw_items.append(item)
+        else:
+            raw_items = [dict(item) for item in list(raw_entities or []) if isinstance(item, dict)]
+        entities = {}
+        for item in raw_items[:32]:
+            label = str(item.get("label") or item.get("name") or item.get("role") or item.get("id") or "").strip()
+            if not label:
+                continue
+            entity_id = str(item.get("id") or "").strip().lower()
+            if not entity_id:
+                entity_id = _audio_story_slug(label, prefix=fallback_prefix)
+            entity_id = _audio_story_slug(entity_id, prefix=fallback_prefix) if not entity_id.startswith(f"{fallback_prefix}_") else entity_id
+            aliases = self._llm_string_list(item.get("aliases") or [label], limit=8)
+            summary = str(item.get("summary") or item.get("description") or item.get("role") or "").strip()
+            anchor = str(
+                item.get("appearance_anchor")
+                or item.get("anchor_text")
+                or item.get("visual_anchor")
+                or item.get("description")
+                or summary
+                or ""
+            ).strip()
+            entities[entity_id] = {
+                "id": entity_id,
+                "label": label,
+                "kind": kind,
+                "mentions": max(1, int(item.get("mentions", 1) or 1)) if str(item.get("mentions", "1")).strip().isdigit() else 1,
+                "sentences": [],
+                "aliases": aliases,
+                "summary": _audio_story_truncate(summary or anchor, 360),
+                "anchor_text": _audio_story_truncate(anchor or summary, 420),
+                "appearance_anchor": _audio_story_truncate(anchor or summary, 420) if kind == "character" else "",
+                "image_path": str(item.get("image_path", "") or "").strip(),
+            }
+        return entities
+
+    def _normalize_llm_story_bible(self, raw_bible, *, fallback_story_bible: dict, story_style_guide: str, continuity_strength: float):
+        raw_bible = dict(raw_bible or {}) if isinstance(raw_bible, dict) else {}
+        fallback_story_bible = dict(fallback_story_bible or {})
+        global_style = dict(fallback_story_bible.get("global_style", {}) or {})
+        global_style.update(
+            {
+                "story_style_guide": str(story_style_guide or global_style.get("story_style_guide", "") or "").strip(),
+                "style_suffix": self._current_audio_story_style_suffix(),
+                "master_prompt": str(self._story_generated_master_prompt or "").strip(),
+                "style_enabled": list(self._stored_style_enabled or []),
+                "style_prompts": dict(self._stored_style_prompts or {}),
+                "master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
+                "master_prompt_mode": self._audio_story_master_prompt_mode(),
+                "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
+                "llm_global_visual_style": str(raw_bible.get("global_visual_style", "") or "").strip(),
+            }
+        )
+        characters = self._normalize_llm_entities(raw_bible.get("characters"), kind="character", fallback_prefix="char")
+        locations = self._normalize_llm_entities(raw_bible.get("locations"), kind="location", fallback_prefix="loc")
+        props = self._normalize_llm_entities(raw_bible.get("props"), kind="prop", fallback_prefix="prop")
+        if not characters:
+            characters = dict(fallback_story_bible.get("characters", {}) or {})
+        if not locations:
+            locations = dict(fallback_story_bible.get("locations", {}) or {})
+        if not props:
+            props = dict(fallback_story_bible.get("props", {}) or {})
+        atmosphere = str(
+            raw_bible.get("atmosphere")
+            or raw_bible.get("tone_palette_atmosphere")
+            or raw_bible.get("world_anchor")
+            or fallback_story_bible.get("atmosphere", "")
+            or ""
+        ).strip()
+        world_cues = self._llm_string_list(raw_bible.get("world_cues") or raw_bible.get("world_anchor") or fallback_story_bible.get("world_cues", []), limit=8)
+        return {
+            "summary": _audio_story_truncate(str(raw_bible.get("summary") or fallback_story_bible.get("summary", "") or ""), 420),
+            "global_style": global_style,
+            "tone": self._llm_string_list(raw_bible.get("tone") or fallback_story_bible.get("tone", []), limit=6),
+            "palette": self._llm_string_list(raw_bible.get("palette") or fallback_story_bible.get("palette", []), limit=6),
+            "atmosphere": _audio_story_truncate(atmosphere, 520),
+            "world_cues": world_cues,
+            "time_period": str(raw_bible.get("time_period") or fallback_story_bible.get("time_period", "") or "").strip(),
+            "characters": characters,
+            "locations": locations,
+            "props": props,
+        }
+
+    def _resolve_llm_entity_ids(self, raw_value, entities: dict, *, fallback_prefix: str, limit: int = 8):
+        values = self._llm_string_list(raw_value, limit=limit)
+        if not values:
+            return []
+        entity_map = dict(entities or {})
+        label_to_id = {}
+        for entity_id, entity in entity_map.items():
+            labels = [str(entity.get("label", "") or "").strip(), *self._llm_string_list(entity.get("aliases", []), limit=12)]
+            for label in labels:
+                if label:
+                    label_to_id[label.lower()] = str(entity_id)
+        resolved = []
+        for value in values:
+            key = str(value or "").strip()
+            if not key:
+                continue
+            lowered = key.lower()
+            entity_id = key if key in entity_map else label_to_id.get(lowered, "")
+            if not entity_id:
+                entity_id = lowered if lowered.startswith(f"{fallback_prefix}_") else _audio_story_slug(key, prefix=fallback_prefix)
+            resolved.append(entity_id)
+        return _audio_story_unique_keep_order(resolved)[:limit]
+
+    def _normalize_llm_scene_list(self, raw_scenes, *, image_chunks: list[dict], story_bible: dict):
+        scenes = []
+        max_index = max(0, len(image_chunks or []) - 1)
+        for item in list(raw_scenes or []):
+            if not isinstance(item, dict):
+                continue
+            try:
+                chunk_index = int(item.get("chunk_index", -1) or -1)
+            except Exception:
+                continue
+            if chunk_index < 0 or chunk_index > max_index:
+                continue
+            normalized = dict(item)
+            normalized["chunk_index"] = chunk_index
+            normalized["active_character_ids"] = self._resolve_llm_entity_ids(
+                item.get("active_character_ids") or item.get("characters"),
+                story_bible.get("characters", {}),
+                fallback_prefix="char",
+                limit=8,
+            )
+            normalized["prop_ids"] = self._resolve_llm_entity_ids(
+                item.get("prop_ids") or item.get("props"),
+                story_bible.get("props", {}),
+                fallback_prefix="prop",
+                limit=8,
+            )
+            location_ids = self._resolve_llm_entity_ids(
+                item.get("location_id") or item.get("location") or item.get("locations"),
+                story_bible.get("locations", {}),
+                fallback_prefix="loc",
+                limit=1,
+            )
+            normalized["location_id"] = location_ids[0] if location_ids else ""
+            scenes.append(normalized)
+        return sorted(scenes, key=lambda item: int(item.get("chunk_index", 0) or 0))
+
+    def _scene_entry_from_llm_analysis(self, llm_scene: dict, *, index: int, chunk: dict, story_bible: dict, previous_scene, scene_index: int):
+        llm_scene = dict(llm_scene or {})
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        requested_new_scene = bool(llm_scene.get("is_new_scene", previous_scene == {}))
+        if previous_scene and not requested_new_scene:
+            resolved_scene_index = int(previous_scene.get("scene_index", scene_index) or scene_index)
+            scene_id = str(llm_scene.get("scene_id") or previous_scene.get("scene_id") or "").strip()
+            if not scene_id:
+                scene_id = _audio_story_slug(f"scene_{resolved_scene_index}", prefix="scene")
+            continuation_of = scene_id
+        else:
+            resolved_scene_index = int(scene_index) + 1
+            scene_label = str(llm_scene.get("scene_id") or llm_scene.get("location_id") or llm_scene.get("scene_focus") or llm_scene.get("key_action") or f"scene {resolved_scene_index}").strip()
+            scene_id = str(llm_scene.get("scene_id") or "").strip() or _audio_story_slug(f"{scene_label}_{resolved_scene_index}", prefix="scene")
+            continuation_of = str(previous_scene.get("scene_id", "") or "") if previous_scene else ""
+        location_id = str(llm_scene.get("location_id", "") or "").strip()
+        location_label = ""
+        if location_id:
+            location_entry = dict((story_bible.get("locations", {}) or {}).get(location_id) or {})
+            location_label = str(location_entry.get("label", "") or "").strip()
+        scene_focus = str(llm_scene.get("scene_focus") or llm_scene.get("summary") or "").strip()
+        key_action = str(llm_scene.get("key_action") or llm_scene.get("action") or scene_focus or chunk.get("text", "") or "").strip()
+        summary = str(llm_scene.get("summary") or scene_focus or key_action or "").strip()
+        scene_entry = {
+            "chunk_index": int(index),
+            "scene_index": resolved_scene_index,
+            "scene_id": scene_id,
+            "is_new_scene": bool(not previous_scene or requested_new_scene),
+            "continuation_of_scene_id": continuation_of,
+            "location_id": location_id,
+            "location_label": location_label,
+            "active_character_ids": list(llm_scene.get("active_character_ids", []) or []),
+            "prop_ids": list(llm_scene.get("prop_ids", []) or []),
+            "mood": str(llm_scene.get("mood", "") or "").strip(),
+            "time_of_day": str(llm_scene.get("time_of_day", "") or "").strip(),
+            "key_action": _audio_story_truncate(key_action, 420),
+            "summary": _audio_story_truncate(summary, 420),
+            "camera": str(llm_scene.get("camera") or llm_scene.get("shot") or "").strip(),
+            "continuity_priority": self._llm_string_list(llm_scene.get("continuity_priority") or ["characters", "location"], limit=8),
+            "transition_score": 1.0 if requested_new_scene or not previous_scene else 0.05,
+            "transition_reasons": ["llm_new_scene"] if requested_new_scene or not previous_scene else ["llm_continuation"],
+            "analysis_source": "llm",
+            "llm_scene_focus": scene_focus,
+            "llm_environment": str(llm_scene.get("environment", "") or "").strip(),
+            "llm_style": str(llm_scene.get("style", "") or llm_scene.get("style_anchor", "") or "").strip(),
+            "llm_world": str(llm_scene.get("world", "") or llm_scene.get("world_anchor", "") or "").strip(),
+            "llm_continuity": str(llm_scene.get("continuity", "") or "").strip(),
+            "llm_preserve": str(llm_scene.get("preserve", "") or "").strip(),
+            "llm_avoid": str(llm_scene.get("avoid", "") or "").strip(),
+        }
+        return scene_entry, resolved_scene_index
+
+    def _extract_story_entities(self, full_text: str):
+        sentences = _audio_story_sentence_split(full_text)
+        characters = {}
+        locations = {}
+        props = {}
+        world_cues = []
+        tones = []
+        palettes = []
+        time_period = ""
+
+        def _first_descriptor(sentence: str, label: str):
+            match = re.search(rf"(?<![A-Za-z0-9']){re.escape(str(label or '').strip())}(?![A-Za-z0-9'])", sentence, flags=re.IGNORECASE)
+            if match is None:
+                return ""
+            before = sentence[max(0, match.start() - 48):match.start()].strip(" ,;:-")
+            after = sentence[match.end(): match.end() + 96].strip(" ,;:-")
+            return " ".join(part for part in (before, after) if part).strip()
+
+        def _add_entity(entity_map, entity_id, label, kind, sentence, aliases=None):
+            item = entity_map.setdefault(entity_id, {"id": entity_id, "label": label, "kind": kind, "mentions": 0, "sentences": [], "aliases": [], "summary": "", "anchor_text": "", "appearance_anchor": "", "image_path": ""})
+            item["mentions"] = int(item.get("mentions", 0) or 0) + 1
+            if sentence:
+                item["sentences"].append(sentence)
+            for alias in list(aliases or []):
+                alias_text = str(alias or "").strip().lower()
+                if alias_text and alias_text not in item["aliases"]:
+                    item["aliases"].append(alias_text)
+
+        candidate_names = Counter()
+        candidate_locations = Counter()
+        candidate_props = Counter()
+        for sentence in sentences:
+            lowered = sentence.lower()
+            for marker, label in _AUDIO_STORY_WORLD_HINTS.items():
+                if marker in lowered and label not in world_cues:
+                    world_cues.append(label)
+            for marker in _AUDIO_STORY_MOOD_MARKERS:
+                if marker in lowered and marker not in tones:
+                    tones.append(marker)
+            for marker in _AUDIO_STORY_TIME_OF_DAY_MARKERS:
+                if marker in lowered and marker not in palettes:
+                    palettes.append(marker)
+                    if not time_period:
+                        time_period = marker
+            for match in re.finditer(r"\b(?:Mr|Mrs|Ms|Miss|Dr|Sir|Lady|Lord|Captain|Professor)\.?\s+[A-Z][a-z]+\b", sentence):
+                label = _audio_story_normalize_character_label(match.group(0))
+                if label:
+                    candidate_names[label] += 1
+            for match in re.finditer(r"\b(?:[A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\b", sentence):
+                label = _audio_story_normalize_character_label(match.group(0))
+                if not label:
+                    continue
+                words = re.findall(r"[A-Za-z0-9']+", label)
+                if len(words) == 1 and match.start() == 0:
+                    continue
+                if len(words) == 1 and sentence[max(0, match.start() - 16):match.start()].strip().lower().endswith((" no", " so", " yes")):
+                    continue
+                if any(keyword in label.lower() for keyword in _AUDIO_STORY_LOCATION_KEYWORDS):
+                    continue
+                candidate_names[label] += 1
+            for pattern in (
+                r"\b(?:in|at|inside|within|near|around|through|back\s+at|back\s+to|into|onto|on|aboard|inside\s+of|outside\s+of)\s+(?:the\s+|a\s+|an\s+)?([a-z][a-z0-9' -]{2,60})",
+                r"\b(?:the\s+)?([A-Z][a-z]+(?:\s+[A-Z][a-z]+){0,2})\s+(?:room|house|home|apartment|hall|street|city|town|village|forest|office|lab|workshop|studio|station|ship|market|cafe|diner|tower|castle|plaza|bridge|garden|kitchen|bedroom|bathroom)\b",
+            ):
+                for match in re.finditer(pattern, sentence):
+                    label = _audio_story_clean_location_candidate(match.group(1), prefix=sentence[max(0, match.start() - 24):match.start()])
+                    if label and label.lower() not in _AUDIO_STORY_COMMON_WORDS and len(label) >= 3:
+                        candidate_locations[label] += 1
+            for match in re.findall(r"\b(?:a|an|the)\s+([a-z][a-z0-9-]*(?:\s+[a-z][a-z0-9-]*){0,2})", sentence.lower()):
+                label = str(match or "").strip()
+                if label and label not in _AUDIO_STORY_COMMON_WORDS and any(hint in label for hint in _AUDIO_STORY_PROP_HINTS):
+                    candidate_props[label] += 1
+
+        if not candidate_names:
+            for sentence in sentences:
+                for hint in _AUDIO_STORY_CHARACTER_HINTS:
+                    if _audio_story_sentence_matches(sentence, [hint]):
+                        candidate_names[hint.title()] += 1
+                        break
+        if not candidate_locations:
+            for sentence in sentences:
+                for keyword in _AUDIO_STORY_LOCATION_KEYWORDS:
+                    if keyword in sentence.lower():
+                        candidate_locations[keyword] += 1
+                        break
+        if not candidate_props:
+            for sentence in sentences:
+                for hint in _AUDIO_STORY_PROP_HINTS:
+                    if hint in sentence.lower():
+                        candidate_props[hint] += 1
+                        break
+
+        for label, _count in candidate_names.most_common(10):
+            if not _audio_story_is_character_candidate(label):
+                continue
+            entity_id = _audio_story_slug(label, prefix="char")
+            related_sentences = [sentence for sentence in sentences if _audio_story_sentence_matches(sentence, [label])]
+            summary_bits = []
+            for sentence in related_sentences[:3]:
+                summary_bits.append(_audio_story_truncate(sentence, 160))
+            summary = _audio_story_truncate("; ".join(summary_bits), 220)
+            _add_entity(characters, entity_id, label, "character", related_sentences[0] if related_sentences else "", aliases=[label])
+            characters[entity_id]["summary"] = summary
+            characters[entity_id]["appearance_anchor"] = summary
+            characters[entity_id]["anchor_text"] = summary
+
+        for label, _count in candidate_locations.most_common(10):
+            entity_id = _audio_story_slug(label, prefix="loc")
+            related_sentences = [sentence for sentence in sentences if _audio_story_sentence_matches(sentence, [label])]
+            summary_bits = []
+            for sentence in related_sentences[:3]:
+                summary_bits.append(_audio_story_truncate(sentence, 160))
+            summary = _audio_story_truncate("; ".join(summary_bits), 220)
+            _add_entity(locations, entity_id, label, "location", related_sentences[0] if related_sentences else "", aliases=[label])
+            locations[entity_id]["summary"] = summary
+            locations[entity_id]["anchor_text"] = summary
+
+        for label, _count in candidate_props.most_common(12):
+            entity_id = _audio_story_slug(label, prefix="prop")
+            related_sentences = [sentence for sentence in sentences if label in sentence.lower()]
+            summary = _audio_story_truncate("; ".join(_audio_story_truncate(sentence, 120) for sentence in related_sentences[:2]), 220)
+            _add_entity(props, entity_id, label, "prop", related_sentences[0] if related_sentences else "", aliases=[label])
+            props[entity_id]["summary"] = summary
+            props[entity_id]["anchor_text"] = summary
+
+        return {
+            "characters": characters,
+            "locations": locations,
+            "props": props,
+            "tone": _audio_story_unique_keep_order(tones[:4]),
+            "palette": _audio_story_unique_keep_order(palettes[:4]),
+            "world_cues": _audio_story_unique_keep_order(world_cues[:6]),
+            "time_period": str(time_period or "").strip(),
+            "atmosphere": "; ".join(
+                [
+                    f"tone: {', '.join(_audio_story_unique_keep_order(tones[:3]))}" if tones else "",
+                    f"time cues: {', '.join(_audio_story_unique_keep_order(palettes[:3]))}" if palettes else "",
+                    f"world cues: {', '.join(_audio_story_unique_keep_order(world_cues[:4]))}" if world_cues else "",
+                ]
+            ).strip("; "),
+        }
+
+    def _build_story_bible(self, full_text: str, *, continuity_strength: float):
+        entities = self._extract_story_entities(full_text)
+        style_guide = str(self.story_style_guide or "").strip()
+        master_prompt = str(self._story_generated_master_prompt or "").strip()
+        style_suffix = self._current_audio_story_style_suffix()
+        return {
+            "summary": _audio_story_truncate(full_text, 260),
+            "global_style": {
+                "story_style_guide": style_guide,
+                "style_suffix": style_suffix,
+                "master_prompt": master_prompt,
+                "style_enabled": list(self._stored_style_enabled or []),
+                "style_prompts": dict(self._stored_style_prompts or {}),
+                "master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
+                "master_prompt_mode": self._audio_story_master_prompt_mode(),
+                "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
+            },
+            "tone": list(entities.get("tone", []) or []),
+            "palette": list(entities.get("palette", []) or []),
+            "atmosphere": str(entities.get("atmosphere", "") or "").strip(),
+            "world_cues": list(entities.get("world_cues", []) or []),
+            "time_period": str(entities.get("time_period", "") or "").strip(),
+            "characters": dict(entities.get("characters", {}) or {}),
+            "locations": dict(entities.get("locations", {}) or {}),
+            "props": dict(entities.get("props", {}) or {}),
+        }
+
+    def _match_entity_ids(self, text: str, entities: dict, *, kind: str):
+        lowered = str(text or "").lower()
+        matches = []
+        for entity_id, entity in dict(entities or {}).items():
+            label = str(entity.get("label", "") or "").strip().lower()
+            aliases = [str(alias or "").strip().lower() for alias in list(entity.get("aliases", []) or [])]
+            if any(phrase for phrase in [label, *aliases] if phrase and phrase in lowered):
+                matches.append(entity_id)
+        if matches:
+            return _audio_story_unique_keep_order(matches)
+        fallback_hints = _AUDIO_STORY_CHARACTER_HINTS if kind == "character" else _AUDIO_STORY_LOCATION_KEYWORDS if kind == "location" else _AUDIO_STORY_PROP_HINTS
+        for hint in fallback_hints:
+            if re.search(rf"(?<![A-Za-z0-9']){re.escape(str(hint or '').strip())}(?![A-Za-z0-9'])", lowered, flags=re.IGNORECASE):
+                return [hint.replace(" ", "_")]
+        return []
+
+    def _infer_scene_features(self, chunk_text: str, story_bible: dict, previous_scene=None):
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        full_text = str(chunk_text or "").strip()
+        sentences = _audio_story_sentence_split(full_text)
+        characters = dict(story_bible.get("characters", {}) or {})
+        locations = dict(story_bible.get("locations", {}) or {})
+        props = dict(story_bible.get("props", {}) or {})
+        active_character_ids = self._match_entity_ids(full_text, characters, kind="character")
+        location_ids = self._match_entity_ids(full_text, locations, kind="location")
+        prop_ids = self._match_entity_ids(full_text, props, kind="prop")
+        if not location_ids and previous_scene.get("location_id"):
+            location_ids = [str(previous_scene.get("location_id") or "").strip()]
+        mood = str(previous_scene.get("mood", "") or "").strip()
+        for marker in _AUDIO_STORY_MOOD_MARKERS:
+            if marker in full_text.lower():
+                mood = marker
+                break
+        time_of_day = str(previous_scene.get("time_of_day", "") or "").strip()
+        for marker in _AUDIO_STORY_TIME_OF_DAY_MARKERS:
+            if marker in full_text.lower():
+                time_of_day = marker
+                break
+        key_action = _audio_story_truncate(" ".join(sentences[:2]) or full_text, 180)
+        if not key_action:
+            key_action = _audio_story_truncate(full_text, 180)
+        location_label = ""
+        if location_ids:
+            location_entry = dict(locations.get(location_ids[0]) or {})
+            location_label = str(location_entry.get("label", "") or "").strip()
+        if not location_label and previous_scene.get("location_label"):
+            location_label = str(previous_scene.get("location_label") or "").strip()
+        scene_label = location_label or key_action or f"scene {int(previous_scene.get('scene_index', 0) or 0) + 1}"
+        camera = "wide shot" if not previous_scene else "medium shot"
+        if len(active_character_ids) <= 1 and (mood in {"tense", "fearful", "intimate"} or not location_ids):
+            camera = "close-up"
+        if location_ids and not previous_scene.get("location_id"):
+            camera = "establishing shot"
+        continuity_priority = []
+        if active_character_ids:
+            continuity_priority.append("characters")
+        if location_ids:
+            continuity_priority.append("location")
+        if prop_ids:
+            continuity_priority.append("props")
+        if mood:
+            continuity_priority.append("mood")
+        return {
+            "active_character_ids": active_character_ids,
+            "location_ids": location_ids,
+            "prop_ids": prop_ids,
+            "mood": mood,
+            "time_of_day": time_of_day,
+            "key_action": key_action,
+            "scene_label": scene_label,
+            "camera": camera,
+            "continuity_priority": continuity_priority or ["continuity"],
+            "summary": key_action,
+        }
+
+    def _classify_scene_transition(self, current_features: dict, previous_scene: dict | None, chunk_text: str, story_bible: dict):
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        if not previous_scene:
+            return {"score": 1.0, "is_new_scene": True, "reasons": ["first_scene"]}
+        score = 0.0
+        reasons = []
+        lowered = str(chunk_text or "").lower()
+        if any(marker in lowered for marker in _AUDIO_STORY_TRANSITION_MARKERS):
+            score += 0.34
+            reasons.append("transition_marker")
+        prev_location = str(previous_scene.get("location_id", "") or "").strip()
+        current_location = str((current_features.get("location_ids") or [""])[0] or "").strip()
+        if current_location and current_location != prev_location:
+            score += 0.30
+            reasons.append("location_change")
+        prev_chars = set(previous_scene.get("active_character_ids", []) or [])
+        current_chars = set(current_features.get("active_character_ids", []) or [])
+        if current_chars and current_chars != prev_chars:
+            if current_chars - prev_chars:
+                score += 0.18
+                reasons.append("new_character_focus")
+        prev_mood = str(previous_scene.get("mood", "") or "").strip()
+        current_mood = str(current_features.get("mood", "") or "").strip()
+        if current_mood and current_mood != prev_mood:
+            score += 0.12
+            reasons.append("mood_shift")
+        prev_time = str(previous_scene.get("time_of_day", "") or "").strip()
+        current_time = str(current_features.get("time_of_day", "") or "").strip()
+        if current_time and current_time != prev_time:
+            score += 0.10
+            reasons.append("time_shift")
+        prev_tokens = set(_audio_story_keyword_tokens(previous_scene.get("summary", "") or previous_scene.get("key_action", "") or ""))
+        current_tokens = set(_audio_story_keyword_tokens(current_features.get("summary", "") or current_features.get("key_action", "") or ""))
+        if prev_tokens or current_tokens:
+            overlap = len(prev_tokens & current_tokens) / max(1, len(prev_tokens | current_tokens))
+            score += max(0.0, 0.18 - (overlap * 0.18))
+            if overlap < 0.35:
+                reasons.append("low_token_overlap")
+        if current_location and not prev_location:
+            score += 0.08
+        threshold = 0.38 + (0.34 * float(self._normalize_continuity_strength(self._stored_continuity_strength)))
+        return {"score": min(1.0, score), "is_new_scene": score >= threshold, "reasons": reasons}
+
+    def _build_character_anchor_text(self, story_bible: dict, character_ids: list[str]):
+        parts = []
+        for character_id in list(character_ids or []):
+            entry = dict((story_bible.get("characters", {}) or {}).get(character_id) or {})
+            if not entry:
+                continue
+            label = str(entry.get("label", "") or "").strip()
+            if not _audio_story_is_character_candidate(label):
+                continue
+            anchor_text = str(entry.get("appearance_anchor", "") or entry.get("summary", "") or "").strip()
+            if label or anchor_text:
+                parts.append(f"{label}: {anchor_text}".strip(": ").strip())
+        return "; ".join([part for part in parts if part])
+
+    def _build_location_anchor_text(self, story_bible: dict, location_id: str):
+        entry = dict((story_bible.get("locations", {}) or {}).get(location_id) or {})
+        if not entry:
+            return ""
+        label = str(entry.get("label", "") or "").strip()
+        anchor_text = str(entry.get("anchor_text", "") or entry.get("summary", "") or "").strip()
+        if label and anchor_text:
+            return f"{label}: {anchor_text}"
+        return label or anchor_text
+
+    def _build_continuity_block(self, scene_entry: dict, story_bible: dict, previous_scene=None):
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        active_chars = list(scene_entry.get("active_character_ids", []) or [])
+        character_block = self._build_character_anchor_text(story_bible, active_chars)
+        location_id = str(scene_entry.get("location_id", "") or "").strip()
+        location_block = self._build_location_anchor_text(story_bible, location_id)
+        continuity_bits = []
+        if character_block:
+            continuity_bits.append(f"Preserve the recurring character identity: {character_block}.")
+        if location_block:
+            continuity_bits.append(f"Preserve the recurring location identity: {location_block}.")
+        if previous_scene and previous_scene.get("scene_id") == scene_entry.get("scene_id"):
+            continuity_bits.append("Continue the exact same scene and preserve composition continuity.")
+        elif previous_scene:
+            continuity_bits.append("Keep the same story world and preserve recurring identities while allowing the scene to move forward.")
+        continuity_bits.append("Do not redesign faces, clothes, props, or location architecture unless the story explicitly changes them.")
+        return " ".join(continuity_bits).strip()
+
+    def _compose_story_prompt(self, scene_entry: dict, *, story_bible: dict, story_style_guide: str, previous_scene=None):
+        scene_entry = dict(scene_entry or {})
+        story_bible = dict(story_bible or {})
+        block_limits = self._prompt_block_limits()
+        style_bits = []
+        global_style = dict(story_bible.get("global_style", {}) or {})
+        style_suffix = str(global_style.get("style_suffix", "") or "").strip()
+        if style_suffix:
+            style_bits.append(style_suffix)
+        if story_style_guide:
+            style_bits.append(story_style_guide)
+        if global_style.get("master_prompt_enabled") and global_style.get("master_prompt"):
+            style_bits.append(str(global_style.get("master_prompt", "") or "").strip())
+        if scene_entry.get("llm_style"):
+            style_bits.append(str(scene_entry.get("llm_style", "") or "").strip())
+        world_bits = []
+        if story_bible.get("atmosphere"):
+            world_bits.append(str(story_bible.get("atmosphere", "") or "").strip())
+        if story_bible.get("world_cues"):
+            world_bits.append("world cues: " + ", ".join(_audio_story_unique_keep_order(story_bible.get("world_cues", []) or [])[:4]))
+        if story_bible.get("time_period"):
+            world_bits.append(f"time period cue: {str(story_bible.get('time_period', '') or '').strip()}")
+        if scene_entry.get("llm_world"):
+            world_bits.append(str(scene_entry.get("llm_world", "") or "").strip())
+        pinned_character_ids = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_character_ids", []) or []) if str(item or "").strip()]
+        active_character_ids = _audio_story_unique_keep_order(list(scene_entry.get("active_character_ids", []) or []) + pinned_character_ids)
+        character_text = self._build_character_anchor_text(story_bible, active_character_ids)
+        location_id = str(scene_entry.get("location_id", "") or "").strip()
+        pinned_location_ids = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_location_ids", []) or []) if str(item or "").strip()]
+        if pinned_location_ids and (not location_id or location_id not in pinned_location_ids):
+            location_id = pinned_location_ids[0]
+        location_text = self._build_location_anchor_text(story_bible, location_id)
+        style_text = " ".join([part for part in style_bits if part]).strip()
+        world_text = " ".join([part for part in world_bits if part]).strip()
+        props = []
+        for prop_id in list(scene_entry.get("prop_ids", []) or [])[:4]:
+            entry = dict((story_bible.get("props", {}) or {}).get(prop_id) or {})
+            label = str(entry.get("label", "") or "").strip()
+            anchor_text = str(entry.get("anchor_text", "") or entry.get("summary", "") or "").strip()
+            if label or anchor_text:
+                props.append(f"{label}: {anchor_text}".strip(": ").strip())
+        scene_id = str(scene_entry.get("scene_id", "") or "").strip()
+        anchor_override = str(dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
+        action = _audio_story_truncate(anchor_override or str(scene_entry.get("llm_scene_focus", "") or scene_entry.get("key_action", "") or "").strip(), 320)
+        environment = str(scene_entry.get("llm_environment", "") or "").strip()
+        camera = str(scene_entry.get("camera", "") or "").strip()
+        continuity = self._build_continuity_block(scene_entry, story_bible, previous_scene=previous_scene)
+        if scene_entry.get("llm_continuity"):
+            continuity = " ".join([continuity, str(scene_entry.get("llm_continuity", "") or "").strip()]).strip()
+        preserve_bits = [
+            "Preserve the same character identities, clothing silhouettes, facial features, and location identity across the sequence.",
+            "Use the transcript-derived scene facts; avoid inventing new cast members or props unless the story introduces them.",
+            "Respect any pinned characters and locations as persistent continuity anchors.",
+        ]
+        if scene_entry.get("llm_preserve"):
+            preserve_bits.insert(0, str(scene_entry.get("llm_preserve", "") or "").strip())
+        avoid_bits = [
+            "Avoid text, captions, watermarks, speech bubbles, and unrelated background clutter.",
+            "Avoid redesigning recurring identities, objects, or architecture.",
+        ]
+        if scene_entry.get("llm_avoid"):
+            avoid_bits.insert(0, str(scene_entry.get("llm_avoid", "") or "").strip())
+        blocks = [
+            "Story illustration.",
+            f"Scene focus: {action}" if action else "",
+            f"Shot: {camera}" if camera else "",
+            f"Characters: {_audio_story_truncate(character_text, block_limits['characters'])}" if character_text else "",
+            f"Location: {_audio_story_truncate(location_text, block_limits['location'])}" if location_text else "",
+            f"Environment: {_audio_story_truncate(environment, 360)}" if environment else "",
+            f"Props: {_audio_story_truncate(', '.join(props), block_limits['props'])}" if props else "",
+            f"Style: {_audio_story_truncate(style_text, block_limits['style'])}" if style_text else "",
+            f"World: {_audio_story_truncate(world_text, block_limits['world'])}" if world_text else "",
+            f"Continuity: {_audio_story_truncate(continuity, block_limits['continuity'])}" if continuity else "",
+            f"Preserve: {_audio_story_truncate(' '.join(preserve_bits), block_limits['preserve'])}",
+            f"Avoid: {_audio_story_truncate(' '.join(avoid_bits), block_limits['avoid'])}",
+        ]
+        prompt = "\n".join(part for part in blocks if str(part or "").strip()).strip()
+        if len(prompt) > 1800:
+            prompt = prompt[:1800].rstrip(" \t\r\n,;:.-")
+        return prompt
+
+    def _story_reference_image_paths(self, scene_entry: dict, previous_scene=None):
+        references = []
+        scene_entry = dict(scene_entry or {})
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        continuity_memory = dict(self.continuity_memory or {})
+        scenes_memory = dict(continuity_memory.get("scenes", {}) or {})
+        if previous_scene.get("scene_id"):
+            prev_scene_memory = dict(scenes_memory.get(str(previous_scene.get("scene_id", "") or ""), {}) or {})
+            prev_image = str(prev_scene_memory.get("last_generated_image_path", "") or "").strip()
+            if prev_image:
+                references.append(prev_image)
+        scene_id = str(scene_entry.get("scene_id", "") or "").strip()
+        if scene_id:
+            scene_memory = dict(scenes_memory.get(scene_id, {}) or {})
+            scene_image = str(scene_memory.get("last_generated_image_path", "") or "").strip()
+            if scene_image:
+                references.append(scene_image)
+        for character_id in list(scene_entry.get("active_character_ids", []) or []):
+            anchor = dict((self.character_anchors or {}).get(character_id) or {})
+            if not anchor:
+                anchor = dict(dict(continuity_memory.get("characters", {}) or {}).get(character_id) or {})
+            image_path = str(anchor.get("image_path", "") or "").strip()
+            if image_path:
+                references.append(image_path)
+        for character_id in list(self.scene_overrides.get("pinned_character_ids", []) or []):
+            anchor = dict((self.character_anchors or {}).get(str(character_id)) or {})
+            if not anchor:
+                anchor = dict(dict(continuity_memory.get("characters", {}) or {}).get(str(character_id)) or {})
+            image_path = str(anchor.get("image_path", "") or "").strip()
+            if image_path:
+                references.append(image_path)
+        location_id = str(scene_entry.get("location_id", "") or "").strip()
+        if location_id:
+            anchor = dict((self.location_anchors or {}).get(location_id) or {})
+            if not anchor:
+                anchor = dict(dict(continuity_memory.get("locations", {}) or {}).get(location_id) or {})
+            image_path = str(anchor.get("image_path", "") or "").strip()
+            if image_path:
+                references.append(image_path)
+        for location_id in list(self.scene_overrides.get("pinned_location_ids", []) or []):
+            anchor = dict((self.location_anchors or {}).get(str(location_id)) or {})
+            if not anchor:
+                anchor = dict(dict(continuity_memory.get("locations", {}) or {}).get(str(location_id)) or {})
+            image_path = str(anchor.get("image_path", "") or "").strip()
+            if image_path:
+                references.append(image_path)
+        cleaned = []
+        for path in _audio_story_unique_keep_order(references):
+            try:
+                if Path(path).exists():
+                    cleaned.append(path)
+            except Exception:
+                continue
+        return cleaned
+
+    def _choose_generation_mode(self, scene_entry: dict, previous_scene=None):
+        scene_entry = dict(scene_entry or {})
+        previous_scene = dict(previous_scene or {}) if isinstance(previous_scene, dict) else {}
+        scene_id = str(scene_entry.get("scene_id", "") or "").strip()
+        forced_mode = str(dict(self.scene_overrides.get("forced_scene_modes", {}) or {}).get(scene_id, "") or "").strip().lower()
+        if forced_mode == "fresh":
+            return {"mode": "fresh", "reference_image_paths": [], "reason": "forced_fresh"}
+        if forced_mode == "continuation":
+            scene_entry["is_new_scene"] = False
+            scene_entry["transition_score"] = 0.0
+        if previous_scene.get("scene_id") and previous_scene.get("scene_id") == scene_entry.get("scene_id") and self._visual_provider_supports_reference_edits():
+            return {"mode": "edit", "reference_image_paths": [], "reason": "same_scene"}
+        if not self._visual_provider_supports_reference_edits():
+            return {"mode": "fresh", "reference_image_paths": [], "reason": "no_reference_support"}
+        references = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
+        is_new_scene = bool(scene_entry.get("is_new_scene", False))
+        transition_score = float(scene_entry.get("transition_score", 0.0) or 0.0)
+        if is_new_scene and transition_score >= 0.72 and len(scene_entry.get("active_character_ids", []) or []) <= 1 and not scene_entry.get("location_id"):
+            return {"mode": "fresh", "reference_image_paths": [], "reason": "major_jump"}
+        if len(references) >= 2:
+            return {"mode": "multi_reference", "reference_image_paths": references[:3], "reason": "scene_continuity"}
+        return {"mode": "edit", "reference_image_paths": references[:1], "reason": "single_reference"}
+
+    def _reference_image_signature(self, path: str):
+        try:
+            stat = Path(path).stat()
+        except Exception:
+            return ""
+        payload = {
+            "path": str(Path(path).resolve()),
+            "size": int(stat.st_size),
+            "mtime": int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))),
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8", errors="ignore")
+        return hashlib.sha1(raw).hexdigest()
+
+    def _visual_provider_supports_reference_edits(self):
+        provider = str(engine._visual_reply_provider() or "").strip().lower()
+        if provider != "openai":
+            return False
+        return bool(engine._visual_reply_generation_available())
+
+    def _generate_visual_image_from_fresh(self, prompt_text: str, *, index: int):
+        client = self._get_visual_client()
+        request_kwargs = {
+            "model": engine._visual_reply_model_name(),
+            "prompt": str(prompt_text or "").strip(),
+        }
+        if engine._visual_reply_provider() == "xai":
+            request_kwargs["response_format"] = "b64_json"
+            request_kwargs["extra_body"] = engine._visual_reply_xai_extra_body()
+        else:
+            request_kwargs["size"] = engine._visual_reply_image_size()
+        response = client.images.generate(**request_kwargs)
+        output_path = engine.VISUAL_REPLY_OUTPUT_DIR / f"audio_story_{int(time.time())}_{index}_{uuid.uuid4().hex[:8]}"
+        output_path = engine._write_visual_reply_image_from_response(response, output_path)
+        return {
+            "image_path": str(output_path),
+            "prompt_text": str(prompt_text or "").strip(),
+            "prompt_signature": "",
+            "generation_mode": "fresh",
+            "reference_image_paths": [],
+        }
+
+    def _generate_visual_image_from_references(self, prompt_text: str, *, index: int, reference_image_paths: list[str], generation_mode: str):
+        if not reference_image_paths:
+            raise RuntimeError("No reference images available for continuity generation.")
+        if not self._visual_provider_supports_reference_edits():
+            raise RuntimeError("The active image provider does not support reference edits.")
+        client = self._get_visual_client()
+        request_kwargs = {
+            "model": engine._visual_reply_model_name(),
+            "prompt": str(prompt_text or "").strip(),
+            "image": [],
+            "size": engine._visual_reply_image_size(),
+        }
+        with ExitStack() as stack:
+            handles = []
+            for path in list(reference_image_paths or [])[:3]:
+                try:
+                    handles.append(stack.enter_context(open(str(path), "rb")))
+                except Exception:
+                    continue
+            if not handles:
+                raise RuntimeError("No usable reference images could be opened.")
+            request_kwargs["image"] = handles if len(handles) > 1 else handles[0]
+            try:
+                response = client.images.edit(**request_kwargs)
+            except Exception:
+                if len(handles) > 1:
+                    request_kwargs["image"] = handles[0]
+                    response = client.images.edit(**request_kwargs)
+                else:
+                    raise
+        output_path = engine.VISUAL_REPLY_OUTPUT_DIR / f"audio_story_{int(time.time())}_{index}_{uuid.uuid4().hex[:8]}"
+        output_path = engine._write_visual_reply_image_from_response(response, output_path)
+        return {
+            "image_path": str(output_path),
+            "prompt_text": str(prompt_text or "").strip(),
+            "prompt_signature": "",
+            "generation_mode": generation_mode,
+            "reference_image_paths": list(reference_image_paths or []),
+        }
+
+    def _generate_visual_image_from_edit(self, prompt_text: str, *, index: int, reference_image_paths: list[str]):
+        return self._generate_visual_image_from_references(prompt_text, index=index, reference_image_paths=reference_image_paths[:1], generation_mode="edit")
+
+    def _generate_visual_image_from_multi_reference(self, prompt_text: str, *, index: int, reference_image_paths: list[str]):
+        return self._generate_visual_image_from_references(prompt_text, index=index, reference_image_paths=reference_image_paths[:3], generation_mode="multi_reference")
+
+    def _update_continuity_memory_from_image(self, *, scene_entry: dict, image_entry: dict, prompt_signature: str):
+        scene_entry = dict(scene_entry or {})
+        image_entry = dict(image_entry or {})
+        image_path = str(image_entry.get("image_path", "") or "").strip()
+        scene_id = str(scene_entry.get("scene_id", "") or "").strip()
+        location_id = str(scene_entry.get("location_id", "") or "").strip()
+        active_character_ids = list(scene_entry.get("active_character_ids", []) or [])
+        continuity_memory = dict(self.continuity_memory or {})
+        scenes_memory = dict(continuity_memory.get("scenes", {}) or {})
+        characters_memory = dict(continuity_memory.get("characters", {}) or {})
+        locations_memory = dict(continuity_memory.get("locations", {}) or {})
+        if scene_id:
+            scenes_memory[scene_id] = {
+                "scene_id": scene_id,
+                "scene_index": int(scene_entry.get("scene_index", 0) or 0),
+                "location_id": location_id,
+                "location_label": str(scene_entry.get("location_label", "") or "").strip(),
+                "active_character_ids": list(active_character_ids),
+                "last_generated_image_path": image_path,
+                "last_prompt_signature": str(prompt_signature or "").strip(),
+                "last_prompt_text": str(image_entry.get("prompt_text", "") or "").strip(),
+                "generation_mode": str(image_entry.get("generation_mode", "") or "").strip(),
+                "reference_image_paths": list(image_entry.get("reference_image_paths", []) or []),
+            }
+        for character_id in active_character_ids:
+            if not character_id:
+                continue
+            anchor = dict(characters_memory.get(character_id) or {})
+            anchor.update({"id": character_id, "image_path": image_path or str(anchor.get("image_path", "") or "").strip(), "last_seen_scene_id": scene_id, "last_prompt_signature": str(prompt_signature or "").strip()})
+            self.character_anchors[character_id] = anchor
+            characters_memory[character_id] = dict(anchor)
+        if location_id:
+            anchor = dict(locations_memory.get(location_id) or {})
+            anchor.update({"id": location_id, "image_path": image_path or str(anchor.get("image_path", "") or "").strip(), "last_seen_scene_id": scene_id, "last_prompt_signature": str(prompt_signature or "").strip()})
+            self.location_anchors[location_id] = anchor
+            locations_memory[location_id] = dict(anchor)
+        self.continuity_memory = {
+            "last_scene_id": scene_id,
+            "last_scene_index": int(scene_entry.get("scene_index", 0) or 0),
+            "last_generated_image_path": image_path,
+            "last_prompt_signature": str(prompt_signature or "").strip(),
+            "last_prompt_text": str(image_entry.get("prompt_text", "") or "").strip(),
+            "scenes": scenes_memory,
+            "characters": characters_memory,
+            "locations": locations_memory,
+        }
+
+    def _apply_scene_prompts(self):
+        if not self.transcript_chunks:
+            return
+        story_bible = dict(self.story_bible or {})
+        scene_map = {}
+        for scene_entry in list(self.scene_plan or []):
+            if isinstance(scene_entry, dict):
+                scene_map[int(scene_entry.get("chunk_index", -1) or -1)] = dict(scene_entry)
+        for index, chunk in enumerate(self.transcript_chunks):
+            scene_entry = dict(scene_map.get(int(index)) or {})
+            previous_scene = dict(scene_map.get(int(index - 1)) or {}) if index > 0 else None
+            chunk["scene_id"] = str(scene_entry.get("scene_id", "") or "")
+            chunk["scene_index"] = int(scene_entry.get("scene_index", 0) or 0)
+            chunk["location_id"] = str(scene_entry.get("location_id", "") or "")
+            chunk["location_label"] = str(scene_entry.get("location_label", "") or "")
+            chunk["active_character_ids"] = list(scene_entry.get("active_character_ids", []) or [])
+            chunk["prop_ids"] = list(scene_entry.get("prop_ids", []) or [])
+            chunk["mood"] = str(scene_entry.get("mood", "") or "")
+            chunk["time_of_day"] = str(scene_entry.get("time_of_day", "") or "")
+            chunk["camera"] = str(scene_entry.get("camera", "") or "")
+            chunk["is_scene_continuation"] = not bool(scene_entry.get("is_new_scene", False))
+            chunk["continuity_priority"] = list(scene_entry.get("continuity_priority", []) or [])
+            chunk["scene_summary"] = str(scene_entry.get("summary", "") or "")
+            chunk["prompt"] = self._build_story_image_prompt(
+                str(chunk.get("text", "") or ""),
+                str(self.story_style_guide or ""),
+                scene_entry=scene_entry,
+                story_bible=story_bible,
+                previous_scene=previous_scene,
+            )
+
+    def _rebuild_story_consistency_from_transcript(self, *, refresh_visuals: bool = False):
+        if not self.transcript_chunks and not self._raw_transcript_segments:
+            return
+        if self._raw_transcript_segments and self._last_transcription_audio_duration > 0.0:
+            payload = self._build_story_payload(
+                job_id=self._transcription_job_id,
+                path=self.imported_audio_path,
+                audio_duration=self._last_transcription_audio_duration,
+                raw_segments=self._raw_transcript_segments,
+                chunk_seconds=int(self._stored_transcribe_seconds or 8),
+                image_frequency_seconds=int(self._stored_image_frequency_seconds or 12),
+                continuity_strength=float(self._stored_continuity_strength or 0.8),
+            )
+            self.transcript_chunks = list(payload.get("transcript_chunks", []) or [])
+            self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
+            self.story_style_guide = str(payload.get("story_style_guide", "") or "").strip()
+            self.story_bible = dict(payload.get("story_bible", {}) or {})
+            self.scene_plan = list(payload.get("scene_plan", []) or [])
+            self.character_anchors = dict(payload.get("character_anchors", {}) or {})
+            self.location_anchors = dict(payload.get("location_anchors", {}) or {})
+        with self._lock:
+            previous_image_cache = {int(index): dict(item or {}) for index, item in dict(self._image_cache or {}).items()}
+            previous_prompt_cache = {str(key): dict(item or {}) for key, item in dict(self._prompt_image_cache or {}).items()}
+        self._apply_scene_prompts()
+        with self._lock:
+            self._image_cache.update(previous_image_cache)
+            self._prompt_image_cache.update(previous_prompt_cache)
+        self._reconcile_cached_images_for_current_prompts()
+        if refresh_visuals:
+            position_seconds = self._player_position_seconds()
+            self._restart_visual_generation_from_position(position_seconds, force=True)
+            self._sync_visual_to_position(position_seconds, force=True)
+        self._refresh_scene_override_controls()
+
+    def _set_visual_reply_master_prompt_runtime(self, prompt_text: str):
+        normalized_prompt = str(prompt_text or "").strip()
+        current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+        if current_prompt == normalized_prompt:
+            return False
+        engine.update_runtime_config("visual_reply_master_style_prompt", normalized_prompt)
+        if self.visual_reply_service is not None:
+            try:
+                self.visual_reply_service.refresh_hint()
+            except Exception:
+                pass
+        if self.shell is not None:
+            try:
+                self.shell.notify_settings_changed()
+            except Exception:
+                pass
+        return True
+
+    def _sync_story_generated_master_prompt(self, *, refresh_visuals: bool = False):
+        if not self._stored_story_master_prompt_enabled:
+            current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+            restore_prompt = self._story_master_prompt_previous_runtime_value
+            if restore_prompt is None:
+                self._story_generated_master_prompt = ""
+                return False
+            updated = False
+            if current_prompt == str(self._story_generated_master_prompt or "").strip():
+                updated = self._set_visual_reply_master_prompt_runtime(str(restore_prompt or "").strip())
+            self._story_generated_master_prompt = ""
+            self._story_master_prompt_previous_runtime_value = None
+            if refresh_visuals and self.transcript_chunks and updated:
+                self.refresh_master_style_anchor({"source": "audio_story_master_prompt_off"})
+            return updated
+        if not self.full_transcript_text:
+            return False
+        generated_prompt = self._build_story_generated_master_prompt()
+        current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+        if self._story_master_prompt_previous_runtime_value is None:
+            if current_prompt != str(self._story_generated_master_prompt or "").strip():
+                self._story_master_prompt_previous_runtime_value = current_prompt
+            else:
+                self._story_master_prompt_previous_runtime_value = ""
+        self._story_generated_master_prompt = generated_prompt
+        updated = self._set_visual_reply_master_prompt_runtime(generated_prompt)
+        if refresh_visuals and self.transcript_chunks and updated:
+            self.refresh_master_style_anchor({"source": "audio_story_master_prompt_on"})
+        return updated
+
+    def _schedule_visual_refresh(self):
+        if not self.transcript_chunks:
+            return False
+        try:
+            self._visual_refresh_timer.start()
+            return True
+        except Exception:
+            self._apply_live_prompt_changes()
+            return True
+
+    def _flush_scheduled_visual_refresh(self):
+        if not self.transcript_chunks:
+            return
+        self._apply_live_prompt_changes()
+
+    def _is_audio_story_currently_playing(self):
+        if self.audio_player is None:
+            return False
+        try:
+            state = self.audio_player.playbackState()
+        except Exception:
+            return False
+        playback_state_enum = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlaybackState", None)
+        playing_state = getattr(playback_state_enum, "PlayingState", None) if playback_state_enum is not None else getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlayingState", None)
+        return state == playing_state
+
+    def _apply_live_prompt_changes(self):
+        if not self.transcript_chunks:
+            return
+        story_style_guide = engine._story_visual_reply_style_guide_from_text(
+            self.full_transcript_text,
+            continuity_strength=self._normalize_continuity_strength(self._stored_continuity_strength),
+        )
+        self.story_style_guide = story_style_guide
+        if not self.story_bible and self._raw_transcript_segments:
+            self._rebuild_story_consistency_from_transcript(refresh_visuals=False)
+            return
+        story_bible = dict(self.story_bible or {})
+        global_style = dict(story_bible.get("global_style", {}) or {})
+        global_style["story_style_guide"] = story_style_guide
+        global_style["style_suffix"] = self._current_audio_story_style_suffix()
+        global_style["master_prompt"] = str(self._story_generated_master_prompt or "").strip()
+        global_style["style_enabled"] = list(self._stored_style_enabled or [])
+        global_style["style_prompts"] = dict(self._stored_style_prompts or {})
+        global_style["master_prompt_enabled"] = bool(self._stored_story_master_prompt_enabled)
+        global_style["master_prompt_mode"] = self._audio_story_master_prompt_mode()
+        global_style["continuity_strength"] = float(self._normalize_continuity_strength(self._stored_continuity_strength))
+        story_bible["global_style"] = global_style
+        self.story_bible = story_bible
+        self._apply_scene_prompts()
+        self._sync_story_generated_master_prompt(refresh_visuals=False)
+        position_seconds = self._player_position_seconds()
+        self._reconcile_cached_images_for_current_prompts()
+        self._restart_visual_generation_from_position(position_seconds, force=True)
+        self._sync_visual_to_position(position_seconds, force=True)
+
+    def _on_transcribe_seconds_changed(self, value: int):
+        maximum = self._transcribe_seconds_slider_maximum()
+        self._stored_transcribe_seconds = max(1, min(maximum, int(value or 1)))
+        label = getattr(self, "audio_story_transcribe_seconds_value_label", None)
+        if label is not None:
+            label.setText(self._format_seconds(self._stored_transcribe_seconds))
+        if self._raw_transcript_segments:
+            self._rebuild_story_payload_from_cached_segments()
+
+    def _on_image_frequency_changed(self, value: int):
+        maximum = self._image_frequency_slider_maximum()
+        self._stored_image_frequency_seconds = max(1, min(maximum, int(value or 1)))
+        label = getattr(self, "audio_story_image_frequency_value_label", None)
+        if label is not None:
+            label.setText(self._format_slider_seconds(self._stored_image_frequency_seconds))
+        if self._raw_transcript_segments:
+            self._rebuild_story_payload_from_cached_segments()
+
+    def _on_continuity_strength_changed(self, value: int):
+        self._stored_continuity_strength = self._normalize_continuity_strength(value)
+        label = getattr(self, "audio_story_continuity_value_label", None)
+        if label is not None:
+            label.setText(f"{int(round(self._stored_continuity_strength * 100.0))}%")
+        if self._raw_transcript_segments:
+            self._schedule_visual_refresh()
+
+    def _on_generate_ahead_frames_changed(self, value: int):
+        self._stored_generate_ahead_frames = max(0, int(value or 0))
+        self._sync_generate_ahead_slider()
+        if self.transcript_chunks:
+            self._restart_visual_generation_from_position(self._player_position_seconds())
+
+    def _on_audio_story_style_toggled(self, style_id: str, checked: bool):
+        normalized_id = str(style_id or "").strip().lower()
+        enabled_set = set(self._stored_style_enabled or [])
+        if checked:
+            enabled_set.add(normalized_id)
+        else:
+            enabled_set.discard(normalized_id)
+        self._stored_style_enabled = [str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets() if str(item.get("id") or "").strip().lower() in enabled_set]
+        if self._raw_transcript_segments:
+            if self._stored_style_change_live or not self._is_audio_story_currently_playing():
+                self._schedule_visual_refresh()
+            else:
+                self._sync_story_generated_master_prompt(refresh_visuals=False)
+
+    def _on_audio_story_style_text_changed(self, style_id: str, text: str):
+        normalized_id = str(style_id or "").strip().lower()
+        if not normalized_id:
+            return
+        self._stored_style_prompts[normalized_id] = str(text or "").strip()
+        if self._raw_transcript_segments:
+            if self._stored_style_change_live or not self._is_audio_story_currently_playing():
+                self._schedule_visual_refresh()
+            else:
+                self._sync_story_generated_master_prompt(refresh_visuals=False)
+
+    def _on_audio_story_style_live_changed(self, checked: bool):
+        self._stored_style_change_live = bool(checked)
+        if self._raw_transcript_segments and (self._stored_style_change_live or not self._is_audio_story_currently_playing()):
+            self._schedule_visual_refresh()
+
+    def _on_story_master_prompt_toggled(self, checked: bool):
+        self._stored_story_master_prompt_enabled = bool(checked)
+        if self.transcript_chunks:
+            self._schedule_visual_refresh()
+        else:
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._refresh_controls()
+
+    def _on_story_master_prompt_mode_changed(self, _index: int):
+        combo = getattr(self, "audio_story_master_prompt_mode_combo", None)
+        if combo is not None:
+            value = str(combo.currentData() or combo.currentText() or "").strip().lower()
+            if value in {mode for mode, _label in _audio_story_master_prompt_modes()}:
+                self._stored_story_master_prompt_mode = value
+        if self.transcript_chunks and self._stored_story_master_prompt_enabled:
+            self._schedule_visual_refresh()
+        else:
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._refresh_scene_override_controls()
+
+    def _on_llm_story_analysis_toggled(self, checked: bool):
+        self._stored_use_llm_story_analysis = bool(checked)
+        if self._raw_transcript_segments:
+            self._start_story_payload_rebuild_job(
+                status_text="Analyzing story with the current Chat Provider..." if self._stored_use_llm_story_analysis else "Rebuilding audio story analysis..."
+            )
+        self._refresh_controls()
+
+    def _on_prompt_block_limit_changed(self, limit_key: str, value: int):
+        key = str(limit_key or "").strip().lower()
+        if key not in _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS:
+            return
+        limits = self._prompt_block_limits()
+        limits[key] = max(40, min(1600, int(value or _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS[key])))
+        self._stored_prompt_block_limits = self._normalize_prompt_block_limits(limits)
+        if self.transcript_chunks:
+            self._schedule_visual_refresh()
+
+    def _current_scene_entry(self):
+        if not self.transcript_chunks:
+            return {}
+        index = self._chunk_index_for_position(self._player_position_seconds())
+        if index < 0 or index >= len(self.transcript_chunks):
+            index = max(0, min(len(self.transcript_chunks) - 1, int(self._current_chunk_index if self._current_chunk_index >= 0 else 0)))
+        return dict(self.transcript_chunks[index] or {})
+
+    def _current_scene_id(self):
+        return str(self._current_scene_entry().get("scene_id", "") or "").strip()
+
+    def _current_scene_label(self):
+        chunk = self._current_scene_entry()
+        scene_id = str(chunk.get("scene_id", "") or "").strip()
+        scene_index = int(chunk.get("scene_index", 0) or 0)
+        summary = str(chunk.get("scene_summary", "") or chunk.get("key_action", "") or chunk.get("text", "") or "").strip()
+        parts = [f"Scene {scene_index + 1}" if scene_index >= 0 else "Scene"]
+        if scene_id:
+            parts.append(scene_id)
+        if summary:
+            parts.append(_audio_story_truncate(summary, 80))
+        return " • ".join([part for part in parts if part])
+
+    def _scene_override_value(self, key: str, default=None):
+        scene_id = self._current_scene_id()
+        if not scene_id:
+            return default
+        return dict(self.scene_overrides.get(key, {}) or {}).get(scene_id, default)
+
+    def _current_scene_character_items(self):
+        chunk = self._current_scene_entry()
+        characters = []
+        for character_id in list(chunk.get("active_character_ids", []) or []):
+            entry = dict((self.story_bible.get("characters", {}) or {}).get(character_id) or {})
+            label = str(entry.get("label", "") or character_id).strip()
+            characters.append((character_id, label))
+        return characters
+
+    def _refresh_scene_override_controls(self):
+        label = getattr(self, "audio_story_scene_status_label", None)
+        if label is not None:
+            chunk = self._current_scene_entry()
+            if chunk:
+                scene_label = self._current_scene_label()
+                generation_mode = str(chunk.get("generation_mode", "fresh") or "fresh").strip()
+                scene_id = self._current_scene_id()
+                forced_mode = str(dict(self.scene_overrides.get("forced_scene_modes", {}) or {}).get(scene_id, "") or "").strip()
+                current_anchor = str(dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
+                if not current_anchor:
+                    current_anchor = str(chunk.get("scene_summary", "") or chunk.get("key_action", "") or chunk.get("text", "") or "").strip()
+                label.setText(
+                    f"{scene_label}\n"
+                    f"Mode: {generation_mode}{f' (forced {forced_mode})' if forced_mode else ''}\n"
+                    f"Current anchor: {current_anchor[:180]}"
+                )
+            else:
+                label.setText("No scene selected yet.")
+        layout = getattr(self, "audio_story_scene_character_button_row", None)
+        if layout is not None:
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                if widget is not None:
+                    widget.deleteLater()
+            chunk = self._current_scene_entry()
+            pinned = set(str(item or "").strip() for item in list(self.scene_overrides.get("pinned_character_ids", []) or []))
+            for character_id, label_text in self._current_scene_character_items():
+                button = QtWidgets.QPushButton(label_text)
+                button.setCheckable(True)
+                button.setChecked(character_id in pinned)
+                button.setToolTip("Pin or unpin this character across future story images.")
+                button.setStyleSheet(
+                    "QPushButton { padding: 5px 10px; border-radius: 9px; background: #22344c; border: 1px solid #35506c; color: #f2f5f9; }"
+                    "QPushButton:checked { background: #4d8dff; border: 1px solid #6a95ff; }"
+                )
+                button.toggled.connect(lambda checked, character_id=character_id: self._toggle_pinned_character(character_id, checked))
+                layout.addWidget(button)
+            layout.addStretch(1)
+        location_button = getattr(self, "audio_story_pin_location_button", None)
+        if location_button is not None:
+            chunk = self._current_scene_entry()
+            location_id = str(chunk.get("location_id", "") or "").strip()
+            location_label = str(chunk.get("location_label", "") or "").strip() or self._build_location_anchor_text(self.story_bible, location_id) or "current location"
+            pinned_locations = set(str(item or "").strip() for item in list(self.scene_overrides.get("pinned_location_ids", []) or []))
+            location_button.blockSignals(True)
+            location_button.setText(f"Pin Location: {location_label}")
+            location_button.setChecked(location_id in pinned_locations if location_id else False)
+            location_button.blockSignals(False)
+        for key, button_name, label_text in (
+            ("force_fresh_button", "audio_story_force_fresh_button", "Force Fresh Scene"),
+            ("force_continuation_button", "audio_story_force_continuation_button", "Force Continuation"),
+        ):
+            button = getattr(self, button_name, None)
+            if button is not None:
+                scene_id = self._current_scene_id()
+                forced_mode = str(dict(self.scene_overrides.get("forced_scene_modes", {}) or {}).get(scene_id, "") or "").strip()
+                desired = label_text.startswith("Force Fresh") and forced_mode == "fresh" or label_text.startswith("Force Continuation") and forced_mode == "continuation"
+                button.blockSignals(True)
+                button.setChecked(desired)
+                button.blockSignals(False)
+        anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
+        if anchor_edit is not None:
+            scene_id = self._current_scene_id()
+            anchor_text = ""
+            if scene_id:
+                anchor_text = str(dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
+                if not anchor_text:
+                    chunk = self._current_scene_entry()
+                    anchor_text = str(chunk.get("scene_summary", "") or chunk.get("key_action", "") or chunk.get("text", "") or "").strip()
+            anchor_edit.blockSignals(True)
+            anchor_edit.setPlainText(anchor_text)
+            anchor_edit.blockSignals(False)
+
+    def _scene_override_refresh_after_change(self, *, refresh_visuals: bool = True):
+        if not self.transcript_chunks:
+            self._refresh_scene_override_controls()
+            return
+        self._apply_scene_prompts()
+        self._reconcile_cached_images_for_current_prompts()
+        position_seconds = self._player_position_seconds()
+        if refresh_visuals:
+            self._restart_visual_generation_from_position(position_seconds, force=True)
+            self._sync_visual_to_position(position_seconds, force=True)
+        else:
+            self._refresh_scene_override_controls()
+
+    def _toggle_pinned_character(self, character_id: str, checked: bool):
+        character_id = str(character_id or "").strip()
+        if not character_id:
+            return
+        pinned = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_character_ids", []) or []) if str(item or "").strip()]
+        if checked:
+            if character_id not in pinned:
+                pinned.append(character_id)
+        else:
+            pinned = [item for item in pinned if item != character_id]
+        self.scene_overrides["pinned_character_ids"] = _audio_story_unique_keep_order(pinned)
+        self._scene_override_refresh_after_change(refresh_visuals=True)
+
+    def _on_pin_location_toggled(self, checked: bool):
+        scene_id = self._current_scene_id()
+        if not scene_id:
+            self._refresh_scene_override_controls()
+            return
+        chunk = self._current_scene_entry()
+        location_id = str(chunk.get("location_id", "") or "").strip()
+        pinned = [str(item or "").strip() for item in list(self.scene_overrides.get("pinned_location_ids", []) or []) if str(item or "").strip()]
+        if checked and location_id:
+            if location_id not in pinned:
+                pinned.append(location_id)
+        else:
+            pinned = [item for item in pinned if item != location_id]
+        self.scene_overrides["pinned_location_ids"] = _audio_story_unique_keep_order(pinned)
+        self._scene_override_refresh_after_change(refresh_visuals=True)
+
+    def _on_force_scene_mode_changed(self, mode: str, checked: bool):
+        scene_id = self._current_scene_id()
+        mode = str(mode or "").strip().lower()
+        if not scene_id or mode not in {"fresh", "continuation"}:
+            self._refresh_scene_override_controls()
+            return
+        forced_modes = dict(self.scene_overrides.get("forced_scene_modes", {}) or {})
+        if checked:
+            forced_modes[scene_id] = mode
+        else:
+            if str(forced_modes.get(scene_id, "") or "").strip().lower() == mode:
+                forced_modes.pop(scene_id, None)
+        self.scene_overrides["forced_scene_modes"] = forced_modes
+        other_button = getattr(self, "audio_story_force_continuation_button", None) if mode == "fresh" else getattr(self, "audio_story_force_fresh_button", None)
+        if checked and other_button is not None:
+            other_button.blockSignals(True)
+            other_button.setChecked(False)
+            other_button.blockSignals(False)
+        self._scene_override_refresh_after_change(refresh_visuals=True)
+
+    def _apply_scene_anchor_override(self):
+        scene_id = self._current_scene_id()
+        anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
+        if not scene_id or anchor_edit is None:
+            self._refresh_scene_override_controls()
+            return
+        anchor_text = str(anchor_edit.toPlainText() or "").strip()
+        anchor_overrides = dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {})
+        if anchor_text:
+            anchor_overrides[scene_id] = anchor_text
+        else:
+            anchor_overrides.pop(scene_id, None)
+        self.scene_overrides["scene_anchor_overrides"] = anchor_overrides
+        self._scene_override_refresh_after_change(refresh_visuals=True)
+
+    def _scene_entry_for_index(self, index: int):
+        if index < 0 or index >= len(self.transcript_chunks):
+            return {}
+        return dict(self.transcript_chunks[index] or {})
+
+    def load_current_story_image(self, payload=None):
+        if not self.transcript_chunks:
+            self._set_status("No audio story is loaded.")
+            return {"ok": False, "reason": "no_story"}
+        position_seconds = self._player_position_seconds()
+        if isinstance(payload, dict) and payload.get("position_seconds") is not None:
+            try:
+                position_seconds = max(0.0, float(payload.get("position_seconds", 0.0) or 0.0))
+            except Exception:
+                position_seconds = self._player_position_seconds()
+        index = self._chunk_index_for_position(position_seconds)
+        chunk = dict(self.transcript_chunks[index] or {})
+        cached = self._matching_cached_image_entry(index, str(chunk.get("prompt", "") or "").strip(), scene_entry=chunk)
+        if cached.get("image_path"):
+            self._sync_visual_to_position(position_seconds, force=True)
+        else:
+            self._restart_visual_generation_from_position(position_seconds)
+            self._sync_visual_to_position(position_seconds, force=True)
+        return {
+            "ok": True,
+            "index": index,
+            "position_seconds": position_seconds,
+            "image_ready": bool(cached.get("image_path")),
+        }
+
+    def refresh_master_style_anchor(self, payload=None):
+        if not self.transcript_chunks:
+            return {"ok": False, "reason": "no_story"}
+        position_seconds = self._player_position_seconds()
+        self._reconcile_cached_images_for_current_prompts()
+        token = self._restart_visual_generation_from_position(position_seconds)
+        return {
+            "ok": True,
+            "token": int(token),
+            "position_seconds": position_seconds,
+            "current_index": int(self._chunk_index_for_position(position_seconds)),
+        }
+
+    def _visual_request_signature(self, prompt_text: str, *, scene_entry=None, generation_mode: str = "", reference_image_paths=None):
+        effective_prompt = engine._apply_visual_reply_style_anchor(str(prompt_text or "").strip())
+        provider = str(engine._visual_reply_provider() or "openai").strip().lower()
+        scene_entry = dict(scene_entry or {}) if isinstance(scene_entry, dict) else {}
+        reference_image_paths = list(reference_image_paths or [])
+        payload = {
+            "provider": provider,
+            "base_url": str(engine._visual_reply_base_url() or "").strip(),
+            "model": str(engine._visual_reply_model_name() or "").strip(),
+            "size": str(engine._visual_reply_image_size() or "").strip(),
+            "extra_body": engine._visual_reply_xai_extra_body() if provider == "xai" else {},
+            "prompt": effective_prompt,
+            "generation_mode": str(generation_mode or "fresh").strip().lower(),
+            "scene_id": str(scene_entry.get("scene_id", "") or "").strip(),
+            "scene_index": int(scene_entry.get("scene_index", 0) or 0),
+            "location_id": str(scene_entry.get("location_id", "") or "").strip(),
+            "active_character_ids": list(scene_entry.get("active_character_ids", []) or []),
+            "reference_image_signatures": [self._reference_image_signature(path) for path in reference_image_paths if path],
+        }
+        raw = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8", errors="ignore")
+        return hashlib.sha1(raw).hexdigest(), effective_prompt
+
+    def _matching_cached_image_entry(self, index: int, prompt_text: str, scene_entry=None):
+        scene_entry = dict(scene_entry or {}) if isinstance(scene_entry, dict) else {}
+        previous_scene = self._scene_entry_for_index(index - 1)
+        generation_mode = str(scene_entry.get("generation_mode", "") or "").strip()
+        reference_image_paths = self._story_reference_image_paths(scene_entry, previous_scene=previous_scene)
+        expected_signature, _effective_prompt = self._visual_request_signature(
+            prompt_text,
+            scene_entry=scene_entry,
+            generation_mode=generation_mode,
+            reference_image_paths=reference_image_paths,
+        )
+        with self._lock:
+            entry = dict(self._image_cache.get(int(index)) or {})
+            indexed_entry = bool(entry)
+            if not entry:
+                entry = dict(self._prompt_image_cache.get(expected_signature) or {})
+        if not entry:
+            return {}
+        image_path = str(entry.get("image_path", "") or "").strip()
+        if not image_path or not Path(image_path).exists():
+            return {}
+        if indexed_entry:
+            cached_prompt_text = str(entry.get("prompt_text", "") or "").strip()
+            if cached_prompt_text == str(prompt_text or "").strip():
+                return entry
+        entry_signature = str(entry.get("prompt_signature", "") or "").strip()
+        if not entry_signature:
+            cached_prompt_text = str(entry.get("prompt_text", "") or "").strip()
+            if cached_prompt_text:
+                entry_signature, _unused = self._visual_request_signature(cached_prompt_text, scene_entry=scene_entry, generation_mode=generation_mode, reference_image_paths=reference_image_paths)
+        if entry_signature != expected_signature:
+            return {}
+        if int(index) >= 0:
+            with self._lock:
+                self._image_cache[int(index)] = dict(entry)
+        return entry
+
+    def _reconcile_cached_images_for_current_prompts(self):
+        prompt_cache = {}
+        with self._lock:
+            existing_entries = list(dict(self._prompt_image_cache or {}).values()) + list(dict(self._image_cache or {}).values())
+        for entry in existing_entries:
+            item = dict(entry or {})
+            image_path = str(item.get("image_path", "") or "").strip()
+            if not image_path or not Path(image_path).exists():
+                continue
+            prompt_signature = str(item.get("prompt_signature", "") or "").strip()
+            if not prompt_signature:
+                prompt_text = str(item.get("prompt_text", "") or "").strip()
+                if not prompt_text:
+                    continue
+                prompt_signature, _unused = self._visual_request_signature(
+                    prompt_text,
+                    scene_entry=item.get("scene_context", {}),
+                    generation_mode=str(item.get("generation_mode", "") or ""),
+                    reference_image_paths=list(item.get("reference_image_paths", []) or []),
+                )
+                item["prompt_signature"] = prompt_signature
+            prompt_cache[prompt_signature] = item
+        rebuilt_cache = {}
+        for index, chunk in enumerate(list(self.transcript_chunks or [])):
+            prompt_text = str(dict(chunk or {}).get("prompt", "") or "").strip()
+            if not prompt_text:
+                continue
+            previous_scene = self._scene_entry_for_index(index - 1)
+            runtime_reference_image_paths = self._story_reference_image_paths(chunk, previous_scene=previous_scene)
+            prompt_signature, _unused = self._visual_request_signature(
+                prompt_text,
+                scene_entry=chunk,
+                generation_mode=str(chunk.get("generation_mode", "") or ""),
+                reference_image_paths=runtime_reference_image_paths,
+            )
+            entry = dict(prompt_cache.get(prompt_signature) or {})
+            image_path = str(entry.get("image_path", "") or "").strip()
+            if image_path and Path(image_path).exists():
+                entry["scene_context"] = dict(chunk or {})
+                entry["generation_mode"] = str(chunk.get("generation_mode", "") or entry.get("generation_mode", "") or "").strip() or "fresh"
+                entry["reference_image_paths"] = list(runtime_reference_image_paths or entry.get("reference_image_paths", []) or [])
+                rebuilt_cache[int(index)] = entry
+        with self._lock:
+            self._prompt_image_cache = prompt_cache
+            self._image_cache = rebuilt_cache
+
+    def _get_visual_client(self):
+        client_kwargs = {"api_key": engine._visual_reply_api_key() or "visual-reply"}
+        base_url = engine._visual_reply_base_url()
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        signature = json.dumps(
+            {
+                "api_key": str(client_kwargs.get("api_key") or ""),
+                "base_url": str(client_kwargs.get("base_url") or ""),
+            },
+            sort_keys=True,
+            ensure_ascii=True,
+        )
+        if self._visual_client is not None and self._visual_client_signature == signature:
+            return self._visual_client
+        self._visual_client = engine.OpenAI(**client_kwargs)
+        self._visual_client_signature = signature
+        return self._visual_client
+
+    def _refresh_controls(self):
+        multimedia_available = QtMultimedia is not None
+        has_audio_path = bool(str(self.imported_audio_path or "").strip())
+        has_transcript = bool(self.transcript_chunks)
+        mode_value = self._playback_mode_value()
+        has_tts_bundle = bool(
+            self._tts_bundle
+            and str(self._tts_bundle.get("audio_path", "") or "").strip()
+            and Path(str(self._tts_bundle.get("audio_path", "") or "").strip()).exists()
+        )
+        can_prepare_media = has_audio_path and has_transcript and (mode_value == "source" or has_tts_bundle)
+        is_rendering_tts = bool(mode_value == "tts" and self._tts_render_in_progress)
+
+        state = None
+        if self.audio_player is not None:
+            try:
+                state = self.audio_player.playbackState()
+            except Exception:
+                state = None
+        playing_state = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlayingState", None)
+        paused_state = getattr(getattr(QtMultimedia, "QMediaPlayer", object), "PausedState", None)
+        if hasattr(getattr(QtMultimedia, "QMediaPlayer", object), "PlaybackState"):
+            playback_state_enum = getattr(QtMultimedia.QMediaPlayer, "PlaybackState")
+            playing_state = getattr(playback_state_enum, "PlayingState", playing_state)
+            paused_state = getattr(playback_state_enum, "PausedState", paused_state)
+        is_playing = state == playing_state
+        is_paused = state == paused_state
+        has_position = self._player_position_seconds() > 0.0
+
+        if hasattr(self, "audio_story_import_button"):
+            self.audio_story_import_button.setEnabled(True)
+        if hasattr(self, "audio_story_path_edit"):
+            self.audio_story_path_edit.setEnabled(True)
+        if hasattr(self, "audio_story_playback_mode_combo"):
+            self.audio_story_playback_mode_combo.setEnabled(has_audio_path)
+        if hasattr(self, "audio_story_transcribe_seconds_slider"):
+            self.audio_story_transcribe_seconds_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_image_frequency_slider"):
+            self.audio_story_image_frequency_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_continuity_slider"):
+            self.audio_story_continuity_slider.setEnabled(bool(has_transcript))
+        if hasattr(self, "audio_story_generate_ahead_slider"):
+            self.audio_story_generate_ahead_slider.setEnabled(bool(has_transcript))
+        if hasattr(self, "audio_story_master_prompt_button"):
+            self.audio_story_master_prompt_button.setEnabled(bool(has_transcript))
+        if hasattr(self, "audio_story_master_prompt_mode_combo"):
+            self.audio_story_master_prompt_mode_combo.setEnabled(bool(has_transcript and self._stored_story_master_prompt_enabled))
+        if hasattr(self, "audio_story_llm_analysis_checkbox"):
+            self.audio_story_llm_analysis_checkbox.setEnabled(has_audio_path and not is_playing and not is_paused)
+        for spin in dict(getattr(self, "audio_story_prompt_limit_spins", {}) or {}).values():
+            spin.setEnabled(bool(has_transcript))
+        for button in dict(getattr(self, "audio_story_style_buttons", {}) or {}).values():
+            button.setEnabled(bool(has_transcript))
+        for edit in dict(getattr(self, "audio_story_style_edits", {}) or {}).values():
+            edit.setEnabled(bool(has_transcript))
+        if hasattr(self, "audio_story_style_live_checkbox"):
+            self.audio_story_style_live_checkbox.setEnabled(bool(has_transcript))
+        if hasattr(self, "audio_story_transcribe_button"):
+            self.audio_story_transcribe_button.setEnabled(has_audio_path and not is_playing and not is_paused)
+
+        if hasattr(self, "audio_story_play_button"):
+            self.audio_story_play_button.setEnabled(multimedia_available and has_transcript and not is_rendering_tts)
+        if hasattr(self, "audio_story_pause_button"):
+            self.audio_story_pause_button.setEnabled(multimedia_available and is_playing)
+        if hasattr(self, "audio_story_stop_button"):
+            self.audio_story_stop_button.setEnabled(multimedia_available and (is_playing or is_paused or has_position))
+
+        slider_enabled = multimedia_available and can_prepare_media and not is_rendering_tts
+        if hasattr(self, "audio_story_position_slider"):
+            self.audio_story_position_slider.setEnabled(slider_enabled)
+
+        if hasattr(self, "audio_story_status_label"):
+            if not multimedia_available:
+                self.audio_story_status_label.setText("Qt Multimedia is unavailable in this environment.")
+            elif is_rendering_tts:
+                self.audio_story_status_label.setText("Rendering TTS narration for timeline-accurate playback...")
+
+    def _format_seconds(self, total_seconds):
+        total_seconds = max(0, int(round(float(total_seconds or 0.0))))
+        hours, remainder = divmod(total_seconds, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        if hours > 0:
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+        return f"{minutes:02d}:{seconds:02d}"
+
+    def _format_slider_seconds(self, total_seconds):
+        seconds = max(1, int(round(float(total_seconds or 0.0))))
+        return f"{seconds} second" if seconds == 1 else f"{seconds} seconds"

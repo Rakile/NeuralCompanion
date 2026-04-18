@@ -822,6 +822,19 @@ DEFAULT_VAM_TIMELINE_CLIP_MAP = {
 
 DEFAULT_VAM_BRIDGE_ROOT = derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 
+VISUAL_REPLY_STORY_THEME_PRESETS = (
+    {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
+    {"id": "cartoon", "label": "Cartoon", "prompt": "cartoon illustration, bold shapes, clean outlines"},
+    {"id": "retro", "label": "Retro", "prompt": "retro pulp illustration, vintage color palette, halftone print texture"},
+    {"id": "cyberpunk", "label": "Cyberpunk", "prompt": "cyberpunk neon glow, high-tech city atmosphere, vivid contrast"},
+    {"id": "anime", "label": "Anime", "prompt": "anime illustration, expressive character design, dynamic framing"},
+    {"id": "storybook", "label": "Storybook", "prompt": "storybook painting, whimsical detail, illustrated fantasy look"},
+)
+
+
+def _default_visual_reply_story_theme_prompts():
+    return {str(item.get("id") or ""): str(item.get("prompt") or "").strip() for item in VISUAL_REPLY_STORY_THEME_PRESETS if str(item.get("id") or "").strip()}
+
 RUNTIME_CONFIG = {
     "active_preset_name": "",
     "model_name": "",
@@ -900,6 +913,14 @@ RUNTIME_CONFIG = {
     "visual_reply_model": os.environ.get("NC_VISUAL_REPLY_MODEL", "gpt-image-1"),
     "visual_reply_size": os.environ.get("NC_VISUAL_REPLY_SIZE", "1024x1024"),
     "visual_reply_auto_show_dock": True,
+    "visual_reply_story_mode": False,
+    "visual_reply_story_max_images": 3,
+    "visual_reply_story_continuity_strength": 0.8,
+    "visual_reply_story_theme_prompts": _default_visual_reply_story_theme_prompts(),
+    "visual_reply_story_theme_enabled": [],
+    "visual_reply_master_style_prompt": "",
+    "visual_reply_master_prompt_safe": False,
+    "visual_reply_master_prompt_no_speech_bubbles": False,
     "sensory_feedback_source": os.environ.get("NC_SENSORY_FEEDBACK_SOURCE", "off"),
     "sensory_feedback_interval_seconds": float(os.environ.get("NC_SENSORY_FEEDBACK_INTERVAL_SECONDS", "7.0") or 7.0),
     "sensory_pingpong_enabled": str(os.environ.get("NC_SENSORY_PINGPONG_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
@@ -1060,6 +1081,12 @@ PENDING_GUI_ACTION = None
 _musetalk_cleanup_lock = threading.Lock()
 _visual_reply_request_lock = threading.Lock()
 _visual_reply_request_counter = 0
+_visual_reply_story_queue = queue.Queue()
+_visual_reply_story_queue_lock = threading.Lock()
+_visual_reply_story_worker_started = False
+_visual_reply_story_session_lock = threading.Lock()
+_visual_reply_story_session_counter = 0
+_visual_reply_story_active_session = 0
 _llm_request_active = threading.Event()
 sensory_pingpong_lock = threading.Lock()
 sensory_hidden_history = []
@@ -1080,11 +1107,17 @@ sensory_hidden_action_state = {
     "last_visual_at": 0.0,
 }
 _addon_event_publisher = None
+_addon_manager_getter = None
 
 
 def set_addon_event_publisher(callback):
     global _addon_event_publisher
     _addon_event_publisher = callback if callable(callback) else None
+
+
+def set_addon_manager_getter(callback):
+    global _addon_manager_getter
+    _addon_manager_getter = callback if callable(callback) else None
 
 
 def _publish_addon_runtime_event(event_name, payload=None):
@@ -1097,6 +1130,91 @@ def _publish_addon_runtime_event(event_name, payload=None):
     except Exception as exc:
         print(f"⚠️ [Addons] Runtime event publish failed for {event_name}: {exc}")
         return False
+
+
+def _get_addon_manager():
+    getter = _addon_manager_getter
+    if getter is None:
+        return None
+    try:
+        return getter()
+    except Exception as exc:
+        print(f"⚠️ [Addons] Failed to resolve addon manager: {exc}")
+        return None
+
+
+def list_available_tts_backends():
+    backends = []
+    seen = set()
+    manager = _get_addon_manager()
+    if manager is not None:
+        try:
+            entries = list(manager.list_registered_services() or [])
+        except Exception as exc:
+            print(f"⚠️ [Addons] Failed to enumerate TTS backends: {exc}")
+            entries = []
+        for entry in entries:
+            metadata = dict(entry.get("metadata") or {})
+            kind = str(metadata.get("kind", "") or "").strip().lower()
+            if kind not in {"tts", "tts_backend", "text_to_speech"}:
+                continue
+            backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
+            if not backend_id or backend_id in seen:
+                continue
+            label = str(metadata.get("label") or entry.get("name") or backend_id).strip()
+            backends.append(
+                {
+                    "id": backend_id,
+                    "label": label,
+                    "kind": "addon",
+                    "service_name": str(entry.get("name") or backend_id).strip(),
+                    "metadata": metadata,
+                }
+            )
+            seen.add(backend_id)
+    for item in (
+        {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
+        {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
+    ):
+        backend_id = str(item.get("id") or "").strip().lower()
+        if backend_id and backend_id not in seen:
+            backends.append(item)
+            seen.add(backend_id)
+    return backends
+
+
+def _resolve_addon_tts_backend(backend_id: str):
+    target = str(backend_id or "").strip().lower()
+    if not target:
+        return None
+    manager = _get_addon_manager()
+    if manager is None:
+        return None
+    try:
+        entries = list(manager.list_registered_services() or [])
+    except Exception:
+        return None
+    for entry in entries:
+        metadata = dict(entry.get("metadata") or {})
+        kind = str(metadata.get("kind", "") or "").strip().lower()
+        if kind not in {"tts", "tts_backend", "text_to_speech"}:
+            continue
+        service_name = str(entry.get("name") or "").strip()
+        candidate_id = str(metadata.get("backend_id") or service_name).strip().lower()
+        candidate_label = str(metadata.get("label") or service_name or candidate_id).strip().lower()
+        if target not in {candidate_id, candidate_label, service_name.lower()}:
+            continue
+        service = manager.get_registered_service(service_name)
+        if service is None:
+            continue
+        return {
+            "id": candidate_id or target,
+            "label": str(metadata.get("label") or service_name or candidate_id or target).strip(),
+            "service_name": service_name,
+            "service": service,
+            "metadata": metadata,
+        }
+    return None
 
 
 # ============================================================================
@@ -1903,11 +2021,85 @@ class PocketTTSSubprocessAdapter:
                     pass
 
 
+class AddonTTSBackendAdapter:
+    def __init__(self, backend_id: str, label: str, service):
+        self.backend_id = str(backend_id or "").strip().lower()
+        self.label = str(label or backend_id or "AddonTTS").strip()
+        self.service = service
+        self.sr = int(getattr(service, "sr", getattr(service, "sample_rate", 24000)) or 24000)
+
+    def _callable(self):
+        for name in ("generate", "synthesize", "tts", "speak"):
+            candidate = getattr(self.service, name, None)
+            if callable(candidate):
+                return candidate
+        return None
+
+    def _normalize_result(self, result):
+        if result is None:
+            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned no audio")
+        if isinstance(result, (str, Path)):
+            wav, sample_rate = ta.load(str(result))
+            self.sr = int(sample_rate or self.sr or 24000)
+            return wav
+        if isinstance(result, dict):
+            audio_path = str(result.get("audio_path") or result.get("path") or "").strip()
+            if audio_path:
+                wav, sample_rate = ta.load(audio_path)
+                self.sr = int(result.get("sample_rate") or result.get("sr") or sample_rate or self.sr or 24000)
+                return wav
+            wav = result.get("wav")
+            if wav is not None:
+                sample_rate = int(result.get("sample_rate") or result.get("sr") or self.sr or 24000)
+                self.sr = sample_rate
+                if hasattr(wav, "cpu"):
+                    return wav
+                return torch.as_tensor(wav)
+        if isinstance(result, tuple) and len(result) == 2:
+            wav, sample_rate = result
+            if isinstance(wav, (str, Path)):
+                wav, loaded_sample_rate = ta.load(str(wav))
+                self.sr = int(sample_rate or loaded_sample_rate or self.sr or 24000)
+                return wav
+            self.sr = int(sample_rate or self.sr or 24000)
+            if hasattr(wav, "cpu"):
+                return wav
+            return torch.as_tensor(wav)
+        if hasattr(result, "cpu"):
+            return result
+        if isinstance(result, np.ndarray):
+            return torch.from_numpy(result)
+        raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned an unsupported audio payload")
+
+    def generate(self, text, audio_prompt_path=None, **kwargs):
+        fn = self._callable()
+        if fn is None:
+            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' does not expose a generate-compatible method")
+        request = dict(kwargs or {})
+        if audio_prompt_path is not None:
+            request.setdefault("audio_prompt_path", audio_prompt_path)
+        request.setdefault("backend_id", self.backend_id)
+        request.setdefault("backend_label", self.label)
+        request.setdefault("tts_backend", self.backend_id)
+        try:
+            result = fn(text, **request)
+        except TypeError:
+            result = fn(text)
+        return self._normalize_result(result)
+
+    def close(self):
+        closer = getattr(self.service, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass
+
+
 def init_tts():
     global tts_model, tts_backend_name
     desired_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
-    if desired_backend not in {"chatterbox", "pockettts"}:
-        desired_backend = "chatterbox"
+    desired_backend = desired_backend.strip()
 
     if tts_model is not None and tts_backend_name == desired_backend:
         print(f"✓ {desired_backend} TTS model already loaded (Skipping reload)")
@@ -1921,6 +2113,23 @@ def init_tts():
     tts_model = None
     tts_backend_name = None
 
+    if desired_backend:
+        resolved = _resolve_addon_tts_backend(desired_backend)
+        if resolved is not None:
+            print(f"Loading addon TTS backend '{resolved['label']}' ({resolved['service_name']})...")
+            try:
+                tts_model = AddonTTSBackendAdapter(
+                    backend_id=resolved["id"],
+                    label=resolved["label"],
+                    service=resolved["service"],
+                )
+                tts_backend_name = resolved["id"]
+                print(f"✓ Addon TTS backend loaded successfully: {resolved['label']}")
+                return True
+            except Exception as e:
+                print(f"✗ Failed to load addon TTS backend '{resolved['label']}': {e}")
+                print("↩️ Falling back to built-in TTS backends...")
+
     if desired_backend == "pockettts":
         print("Loading PocketTTS via isolated interpreter...")
         try:
@@ -1932,7 +2141,7 @@ def init_tts():
                     RUNTIME_CONFIG["pocket_tts_python"] = fallback
                     print(f"[PocketTTS] Runtime path was empty. Using default interpreter: {fallback}")
             if not python_exe:
-                raise RuntimeError("Set 'PocketTTS Python' in the Qt app first.")
+                raise RuntimeError("Set 'PocketTTS Python' in the addon tab first.")
             tts_model = PocketTTSSubprocessAdapter(python_exe)
             tts_backend_name = "pockettts"
             print("✓ PocketTTS backend loaded successfully")
@@ -2358,6 +2567,353 @@ def _visual_reply_generation_available():
     if _visual_reply_provider() == "xai":
         return bool(_visual_reply_api_key())
     return bool(_visual_reply_api_key() or _visual_reply_base_url())
+
+
+def _visual_reply_story_mode_enabled():
+    return bool(RUNTIME_CONFIG.get("visual_reply_story_mode", False)) and _visual_reply_enabled()
+
+
+def _visual_reply_story_max_images():
+    try:
+        return max(1, int(RUNTIME_CONFIG.get("visual_reply_story_max_images", 3) or 3))
+    except Exception:
+        return 3
+
+
+def _visual_reply_story_continuity_strength():
+    try:
+        strength = float(RUNTIME_CONFIG.get("visual_reply_story_continuity_strength", 0.8) or 0.8)
+    except Exception:
+        strength = 0.8
+    if strength > 1.0:
+        strength = strength / 100.0
+    return max(0.0, min(1.0, strength))
+
+
+def _visual_reply_story_theme_prompts():
+    raw = RUNTIME_CONFIG.get("visual_reply_story_theme_prompts", {})
+    if not isinstance(raw, dict):
+        raw = {}
+    defaults = _default_visual_reply_story_theme_prompts()
+    prompts = {}
+    for item in VISUAL_REPLY_STORY_THEME_PRESETS:
+        theme_id = str(item.get("id") or "").strip().lower()
+        if not theme_id:
+            continue
+        prompt = str(raw.get(theme_id, defaults.get(theme_id, item.get("prompt", ""))) or "").strip()
+        prompts[theme_id] = prompt or defaults.get(theme_id, str(item.get("prompt") or "").strip())
+    return prompts
+
+
+def _visual_reply_story_theme_enabled():
+    raw = RUNTIME_CONFIG.get("visual_reply_story_theme_enabled", [])
+    if isinstance(raw, (str, bytes)):
+        raw = [raw]
+    if not isinstance(raw, (list, tuple, set)):
+        raw = []
+    valid_ids = {str(item.get("id") or "").strip().lower() for item in VISUAL_REPLY_STORY_THEME_PRESETS}
+    enabled = []
+    seen = set()
+    for value in raw:
+        theme_id = str(value or "").strip().lower()
+        if not theme_id or theme_id not in valid_ids or theme_id in seen:
+            continue
+        enabled.append(theme_id)
+        seen.add(theme_id)
+    return enabled
+
+
+def _visual_reply_story_theme_suffix():
+    prompts = _visual_reply_story_theme_prompts()
+    parts = []
+    for theme_id in _visual_reply_story_theme_enabled():
+        prompt = str(prompts.get(theme_id, "") or "").strip()
+        if prompt:
+            parts.append(prompt)
+    if not parts:
+        return ""
+    return "Visual style: " + "; ".join(parts)
+
+
+def _visual_reply_master_style_prompt():
+    prompt = _normalize_visual_reply_prompt_text(RUNTIME_CONFIG.get("visual_reply_master_style_prompt", ""))
+    if len(prompt) > 420:
+        prompt = prompt[:420].rstrip(" \t\r\n,;:.-")
+    return prompt
+
+
+def _visual_reply_master_style_suffix():
+    prompt = _visual_reply_master_style_prompt()
+    if not prompt:
+        return ""
+    return (
+        "Preserve the same art direction, recurring character identity, clothing, props, "
+        f"and world details from this reference image prompt: {prompt}"
+    )
+
+
+def _visual_reply_master_prompt_safety_suffix():
+    if not bool(RUNTIME_CONFIG.get("visual_reply_master_prompt_safe", False)):
+        return ""
+    return (
+        "Depict only clearly adult people aged 21 or older. "
+        "Do not depict children, minors, teenagers, school-age people, or underage-looking persons."
+    )
+
+
+def _visual_reply_no_speech_bubbles_suffix():
+    if not bool(RUNTIME_CONFIG.get("visual_reply_master_prompt_no_speech_bubbles", False)):
+        return ""
+    return (
+        "No speech bubbles, dialogue balloons, comic bubbles, captions, subtitles, text overlays, or written text in the image."
+    )
+
+
+def _apply_visual_reply_style_anchor(prompt_text: str):
+    prompt = str(prompt_text or "").strip()
+    if not prompt:
+        return ""
+    suffixes = [
+        _visual_reply_master_style_suffix(),
+        _visual_reply_master_prompt_safety_suffix(),
+        _visual_reply_no_speech_bubbles_suffix(),
+    ]
+    suffixes = [item for item in suffixes if str(item or "").strip()]
+    if suffixes:
+        prompt = f"{prompt}. {' '.join(suffixes)}"
+    if len(prompt) > 760:
+        prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
+    return prompt
+
+
+def _ensure_visual_reply_story_worker():
+    global _visual_reply_story_worker_started
+    if _visual_reply_story_worker_started:
+        return
+    with _visual_reply_story_queue_lock:
+        if _visual_reply_story_worker_started:
+            return
+
+        def _worker():
+            while True:
+                item = _visual_reply_story_queue.get()
+                if item is None:
+                    continue
+                try:
+                    session_id = int(item.get("session_id", 0) or 0)
+                    with _visual_reply_story_session_lock:
+                        active_session = int(_visual_reply_story_active_session or 0)
+                    if session_id <= 0 or session_id != active_session:
+                        continue
+                    prompt_text = str(item.get("prompt", "") or "").strip()
+                    if not prompt_text or not _visual_reply_enabled() or not _visual_reply_generation_available():
+                        continue
+                    request_id = str(item.get("request_id", "") or "").strip() or _next_visual_reply_request_id()
+                    _perform_visual_reply_generation(
+                        prompt_text,
+                        source_text=str(item.get("source_text", "") or ""),
+                        request_id=request_id,
+                        keep_current_image=True,
+                    )
+                except Exception as exc:
+                    print(f"⚠️ [VisualReply] Story worker failed: {exc}")
+
+        threading.Thread(target=_worker, daemon=True).start()
+        _visual_reply_story_worker_started = True
+
+
+def begin_visual_reply_story_session():
+    global _visual_reply_story_session_counter, _visual_reply_story_active_session
+    with _visual_reply_story_session_lock:
+        _visual_reply_story_session_counter += 1
+        _visual_reply_story_active_session = _visual_reply_story_session_counter
+        return _visual_reply_story_active_session
+
+
+def clear_visual_reply_story_queue():
+    try:
+        while True:
+            _visual_reply_story_queue.get_nowait()
+    except queue.Empty:
+        pass
+
+
+def enqueue_visual_reply_story_generation(prompt: str, *, source_text: str = "", session_id: int | None = None, request_id: str | None = None):
+    prompt_text = str(prompt or "").strip()
+    if not prompt_text:
+        return False
+    if not _visual_reply_story_mode_enabled() or not _visual_reply_generation_available():
+        return False
+    _ensure_visual_reply_story_worker()
+    active_session = int(session_id or 0)
+    if active_session <= 0:
+        with _visual_reply_story_session_lock:
+            active_session = int(_visual_reply_story_active_session or 0)
+    if active_session <= 0:
+        active_session = begin_visual_reply_story_session()
+    _visual_reply_story_queue.put(
+        {
+            "session_id": active_session,
+            "prompt": prompt_text,
+            "source_text": str(source_text or ""),
+            "request_id": str(request_id or "").strip(),
+        }
+    )
+    return True
+
+
+def _perform_visual_reply_generation(
+    prompt_text: str,
+    *,
+    source_text: str = "",
+    request_id: str | None = None,
+    keep_current_image: bool = False,
+):
+    prompt_text = str(prompt_text or "").strip()
+    if not prompt_text or not _visual_reply_enabled():
+        return False
+    request_id = str(request_id or "").strip() or _next_visual_reply_request_id()
+    if not _visual_reply_generation_available():
+        if _visual_reply_provider() == "xai":
+            detail = "Set XAI_API_KEY (or NC_VISUAL_REPLY_XAI_API_KEY / NC_VISUAL_REPLY_XAI_BASE_URL) to enable Grok visual replies."
+        else:
+            detail = "Set OPENAI_API_KEY (or NC_VISUAL_REPLY_API_KEY / NC_VISUAL_REPLY_BASE_URL) to enable visual replies."
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "error",
+                "status_text": "Visual Reply unavailable",
+                "detail_text": detail,
+                "image_path": "",
+                "caption": prompt_text,
+                "request_id": request_id,
+                "updated_at": time.time(),
+            }
+        )
+        print(f"⚠️ [VisualReply] {detail}")
+        return False
+
+    current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+    current_image_path = str(current_state.get("image_path", "") or "").strip()
+    preserve_visible_image = bool(keep_current_image and current_image_path)
+    published_loading_state = False
+    if not preserve_visible_image:
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "loading",
+                "status_text": "Visual Reply generating...",
+                "detail_text": "Preparing story image..." if keep_current_image else prompt_text,
+                "image_path": "",
+                "caption": prompt_text,
+                "request_id": request_id,
+                "keep_current_image": bool(keep_current_image),
+                "updated_at": time.time(),
+            }
+        )
+        published_loading_state = True
+    print(f"🖼️ [VisualReply] Requested: {prompt_text}")
+
+    try:
+        client_kwargs = {"api_key": _visual_reply_api_key() or "visual-reply"}
+        base_url = _visual_reply_base_url()
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        client = OpenAI(**client_kwargs)
+        model_name = _visual_reply_model_name()
+        effective_prompt = _apply_visual_reply_style_anchor(prompt_text)
+        request_kwargs = {
+            "model": model_name,
+            "prompt": effective_prompt,
+        }
+        if _visual_reply_provider() == "xai":
+            request_kwargs["response_format"] = "b64_json"
+            request_kwargs["extra_body"] = _visual_reply_xai_extra_body()
+        else:
+            request_kwargs["size"] = _visual_reply_image_size()
+        response = client.images.generate(**request_kwargs)
+        output_path = VISUAL_REPLY_OUTPUT_DIR / request_id
+        output_path = _write_visual_reply_image_from_response(response, output_path)
+        current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+        if published_loading_state and current_request_id and current_request_id != request_id:
+            return True
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "ready",
+                "status_text": "Visual Reply",
+                "detail_text": source_text[:240],
+                "image_path": str(output_path),
+                "caption": prompt_text,
+                "request_id": request_id,
+                "updated_at": time.time(),
+            }
+        )
+        print(f"🖼️ [VisualReply] Ready: {output_path}")
+        return True
+    except Exception as exc:
+        current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+        if published_loading_state and current_request_id and current_request_id != request_id:
+            return False
+        detail = str(exc) or repr(exc)
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "error",
+                "status_text": "Visual Reply failed",
+                "detail_text": detail,
+                "image_path": "",
+                "caption": prompt_text,
+                "request_id": request_id,
+                "updated_at": time.time(),
+            }
+        )
+        print(f"⚠️ [VisualReply] Generation failed: {detail}")
+        return False
+
+
+def _story_visual_reply_style_guide_from_text(story_text: str, continuity_strength: float = 0.8) -> str:
+    story_prompt = sanitize_assistant_text_for_speech(story_text, preserve_emotion_tags=False)
+    story_prompt = _normalize_visual_reply_prompt_text(story_prompt)
+    strength = max(0.0, min(1.0, float(continuity_strength or 0.0)))
+    continuity_parts = []
+    if strength >= 0.05:
+        continuity_parts.append("Keep a consistent visual language across this entire story sequence.")
+    if strength >= 0.2:
+        continuity_parts.append("Treat recurring people and places as the same cast and world from image to image.")
+    if strength >= 0.4:
+        continuity_parts.append("Keep recurring characters with the same face, hair, body type, age, outfit silhouette, and key accessories unless the story explicitly changes them.")
+    if strength >= 0.6:
+        continuity_parts.append("Keep recurring locations recognizable with the same architecture, props, palette, weather, and lighting direction unless the story explicitly changes them.")
+    if strength >= 0.8:
+        continuity_parts.append("Do not redesign characters, reset outfits, or relocate scenes between shots unless the story explicitly says that a change happened.")
+    if strength >= 0.95:
+        continuity_parts.append("Use each new image like the next shot from the same film, preserving continuity as aggressively as possible.")
+    continuity = " ".join(continuity_parts).strip()
+    if not story_prompt:
+        return continuity
+    if len(story_prompt) > 420:
+        story_prompt = story_prompt[:420].rstrip(" \t\r\n,;:.-")
+    if not continuity:
+        return f"Story context: {story_prompt}"
+    return f"{continuity} Story context: {story_prompt}"
+
+
+def _story_visual_reply_prompt_from_text(prompt_text: str, emotion: str = "", story_style_guide: str = "") -> str:
+    prompt = sanitize_assistant_text_for_speech(prompt_text, preserve_emotion_tags=False)
+    prompt = _normalize_visual_reply_prompt_text(prompt)
+    if not prompt:
+        return ""
+    prefix = "Story illustration"
+    mood = str(emotion or "").strip().lower()
+    if mood and mood != "neutral":
+        prefix = f"{prefix}, {mood} mood"
+    prompt = f"{prefix}: {prompt}"
+    guide = str(story_style_guide or "").strip()
+    if guide:
+        prompt = f"{prompt}. {guide}"
+    style_suffix = _visual_reply_story_theme_suffix()
+    if style_suffix:
+        prompt = f"{prompt}. {style_suffix}"
+    if len(prompt) > 760:
+        prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
+    return prompt
 
 
 def _visual_reply_model_name():
@@ -3562,97 +4118,18 @@ def _write_visual_reply_image_from_response(response, output_base_path: Path):
     raise RuntimeError("Image API response did not include b64_json or url.")
 
 
-def request_visual_reply_generation(prompt: str, *, source_text: str = ""):
+def request_visual_reply_generation(prompt: str, *, source_text: str = "", keep_current_image: bool = False):
     prompt_text = str(prompt or "").strip()
     if not prompt_text:
         return False
     if not _visual_reply_enabled():
         return False
-    request_id = _next_visual_reply_request_id()
-    if not _visual_reply_generation_available():
-        if _visual_reply_provider() == "xai":
-            detail = "Set XAI_API_KEY (or NC_VISUAL_REPLY_XAI_API_KEY / NC_VISUAL_REPLY_XAI_BASE_URL) to enable Grok visual replies."
-        else:
-            detail = "Set OPENAI_API_KEY (or NC_VISUAL_REPLY_API_KEY / NC_VISUAL_REPLY_BASE_URL) to enable visual replies."
-        shared_state.set_current_visual_reply_data(
-            {
-                "status": "error",
-                "status_text": "Visual Reply unavailable",
-                "detail_text": detail,
-                "image_path": "",
-                "caption": prompt_text,
-                "request_id": request_id,
-                "updated_at": time.time(),
-            }
-        )
-        print(f"⚠️ [VisualReply] {detail}")
-        return False
-
-    shared_state.set_current_visual_reply_data(
-        {
-            "status": "loading",
-            "status_text": "Visual Reply generating...",
-            "detail_text": prompt_text,
-            "image_path": "",
-            "caption": prompt_text,
-            "request_id": request_id,
-            "updated_at": time.time(),
-        }
-    )
-    print(f"🖼️ [VisualReply] Requested: {prompt_text}")
-
     def worker():
-        try:
-            client_kwargs = {"api_key": _visual_reply_api_key() or "visual-reply"}
-            base_url = _visual_reply_base_url()
-            if base_url:
-                client_kwargs["base_url"] = base_url
-            client = OpenAI(**client_kwargs)
-            model_name = _visual_reply_model_name()
-            request_kwargs = {
-                "model": model_name,
-                "prompt": prompt_text,
-            }
-            if _visual_reply_provider() == "xai":
-                request_kwargs["response_format"] = "b64_json"
-                request_kwargs["extra_body"] = _visual_reply_xai_extra_body()
-            else:
-                request_kwargs["size"] = _visual_reply_image_size()
-            response = client.images.generate(**request_kwargs)
-            output_path = VISUAL_REPLY_OUTPUT_DIR / request_id
-            output_path = _write_visual_reply_image_from_response(response, output_path)
-            current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
-            if current_request_id and current_request_id != request_id:
-                return
-            shared_state.set_current_visual_reply_data(
-                {
-                    "status": "ready",
-                    "status_text": "Visual Reply",
-                    "detail_text": source_text[:240],
-                    "image_path": str(output_path),
-                    "caption": prompt_text,
-                    "request_id": request_id,
-                    "updated_at": time.time(),
-                }
-            )
-            print(f"🖼️ [VisualReply] Ready: {output_path}")
-        except Exception as exc:
-            current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
-            if current_request_id and current_request_id != request_id:
-                return
-            detail = str(exc) or repr(exc)
-            shared_state.set_current_visual_reply_data(
-                {
-                    "status": "error",
-                    "status_text": "Visual Reply failed",
-                    "detail_text": detail,
-                    "image_path": "",
-                    "caption": prompt_text,
-                    "request_id": request_id,
-                    "updated_at": time.time(),
-                }
-            )
-            print(f"⚠️ [VisualReply] Generation failed: {detail}")
+        _perform_visual_reply_generation(
+            prompt_text,
+            source_text=source_text,
+            keep_current_image=keep_current_image,
+        )
 
     threading.Thread(target=worker, daemon=True).start()
     return True
@@ -4948,6 +5425,41 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
     else:
         shared_state.reset_musetalk_pipeline_data()
 
+    story_mode_enabled = _visual_reply_story_mode_enabled()
+    story_max_images = _visual_reply_story_max_images()
+    story_generation_available = story_mode_enabled and _visual_reply_generation_available()
+    story_images_requested = 0
+    story_session_id = 0
+    story_style_guide = ""
+    if story_mode_enabled and not story_generation_available:
+        print("⚠️ [VisualReply] Story mode is enabled, but visual reply generation is unavailable.")
+    elif story_mode_enabled:
+        clear_visual_reply_story_queue()
+        story_session_id = begin_visual_reply_story_session()
+        story_style_guide = _story_visual_reply_style_guide_from_text(
+            text,
+            continuity_strength=_visual_reply_story_continuity_strength(),
+        )
+
+    def _queue_story_visual_reply(chunk_text: str, emotion: str) -> bool:
+        nonlocal story_images_requested, story_generation_available
+        if not story_generation_available or story_images_requested >= story_max_images:
+            return False
+        story_prompt = _story_visual_reply_prompt_from_text(chunk_text, emotion, story_style_guide=story_style_guide)
+        if not story_prompt:
+            return False
+        queued = enqueue_visual_reply_story_generation(
+            story_prompt,
+            source_text=str(chunk_text or ""),
+            session_id=story_session_id,
+        )
+        if queued:
+            story_images_requested += 1
+            return True
+        if not _visual_reply_generation_available():
+            story_generation_available = False
+        return False
+
     def generator_worker():
         cnt = 0
         muse_chunk_index = 0
@@ -5666,6 +6178,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     )
                     if kind == "musetalk":
                         audio_start_time = time.time()
+                        _queue_story_visual_reply(txt, emotion)
                         current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
                         if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
                             current_state["sync_time"] = audio_start_time
@@ -5722,6 +6235,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         if kind == "vam" and isinstance(avatar_gui, VaMAdapter):
                             skip_local_playback = bool(avatar_gui.begin_chunk_playback(chunk_result))
                         audio_start_time = time.time()
+                        _queue_story_visual_reply(txt, emotion)
                         current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
                         current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
                         if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
@@ -5742,6 +6256,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         )
                     else:
                         audio_start_time = time.time()
+                        _queue_story_visual_reply(txt, emotion)
                     if skip_local_playback:
                         wait_seconds = delegated_playback_duration
                         if wait_seconds <= 0:
