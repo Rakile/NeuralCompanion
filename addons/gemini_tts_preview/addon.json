@@ -1,0 +1,13 @@
+{
+  "id": "nc.gemini_tts_preview",
+  "name": "Gemini TTS Preview",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Gemini preview TTS backend addon for Neural Companion.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "enabled": true
+}

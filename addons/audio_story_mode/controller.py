@@ -49,6 +49,8 @@ _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
     "avoid": 180,
 }
 
+_AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT = 1800
+
 
 def _audio_story_style_presets():
     return [
@@ -424,6 +426,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._stored_story_master_prompt_mode = "medium"
         self._stored_use_llm_story_analysis = False
         self._stored_prompt_block_limits = dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS)
+        self._stored_prompt_safety_cap = _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
         self._story_generated_master_prompt = ""
         self._story_master_prompt_previous_runtime_value = None
         self._tts_render_in_progress = False
@@ -681,6 +684,24 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_prompt_limit_spins[limit_key] = spin
         options_form.addRow("Prompt Blocks", prompt_limits_widget)
 
+        safety_cap_row = QtWidgets.QHBoxLayout()
+        safety_cap_row.setSpacing(8)
+        safety_cap_label = QtWidgets.QLabel("Final Prompt Cap")
+        safety_cap_label.setStyleSheet("color: #cbd5e1;")
+        safety_cap_row.addWidget(safety_cap_label, 0)
+        self.audio_story_prompt_safety_cap_spin = _AudioStoryNoWheelSpinBox()
+        self.audio_story_prompt_safety_cap_spin.setRange(400, 6000)
+        self.audio_story_prompt_safety_cap_spin.setSingleStep(100)
+        self.audio_story_prompt_safety_cap_spin.setValue(int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT))
+        self.audio_story_prompt_safety_cap_spin.setSuffix(" chars")
+        self.audio_story_prompt_safety_cap_spin.setToolTip("Maximum length of the final composed story prompt after all prompt blocks are assembled.")
+        self.audio_story_prompt_safety_cap_spin.valueChanged.connect(self._on_prompt_safety_cap_changed)
+        safety_cap_row.addWidget(self.audio_story_prompt_safety_cap_spin, 0)
+        safety_cap_row.addStretch(1)
+        safety_cap_widget = QtWidgets.QWidget()
+        safety_cap_widget.setLayout(safety_cap_row)
+        options_form.addRow("Prompt Cap", safety_cap_widget)
+
         generate_ahead_row = QtWidgets.QHBoxLayout()
         self.audio_story_generate_ahead_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_generate_ahead_slider.setRange(0, 12)
@@ -850,6 +871,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_story_master_prompt_controls()
         self._sync_llm_story_analysis_controls()
         self._sync_prompt_block_limit_controls()
+        self._sync_prompt_safety_cap_control()
         self._refresh_controls()
         return scroll
 
@@ -889,6 +911,7 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_story_master_prompt_mode": str(self._stored_story_master_prompt_mode or "medium"),
             "audio_story_mode_use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
             "audio_story_mode_prompt_block_limits": self._prompt_block_limits(),
+            "audio_story_mode_prompt_safety_cap": int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT),
             "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
             "audio_story_mode_story_bible": dict(self.story_bible or {}),
             "audio_story_mode_scene_plan": list(self.scene_plan or []),
@@ -959,6 +982,10 @@ class AudioStoryModeController(QtCore.QObject):
         if isinstance(prompt_block_limits, dict):
             self._stored_prompt_block_limits = self._normalize_prompt_block_limits(prompt_block_limits)
         self._sync_prompt_block_limit_controls()
+        prompt_safety_cap = payload.get("audio_story_mode_prompt_safety_cap")
+        if prompt_safety_cap is not None:
+            self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(prompt_safety_cap)
+        self._sync_prompt_safety_cap_control()
         playback_mode = str(payload.get("audio_story_mode_playback_mode") or "").strip()
         if playback_mode:
             self._stored_playback_mode_label = playback_mode
@@ -1095,7 +1122,8 @@ class AudioStoryModeController(QtCore.QObject):
     def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
         try:
             if getattr(engine, "whisper_model", None) is None:
-                if not engine.init_whisper():
+                engine.init_whisper()
+                if getattr(engine, "whisper_model", None) is None:
                     raise RuntimeError("Failed to initialize the local Whisper model.")
             audio_duration = float(engine.AudioSegment.from_file(path).duration_seconds or 0.0)
             segments, _info = engine.whisper_model.transcribe(path)
@@ -2312,6 +2340,21 @@ class AudioStoryModeController(QtCore.QObject):
             spin.setValue(int(limits.get(key, _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.get(key, 240)) or 240))
             spin.blockSignals(False)
 
+    def _normalize_prompt_safety_cap(self, value=None):
+        try:
+            cap = int(value if value is not None else self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT)
+        except Exception:
+            cap = _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
+        return max(400, min(6000, cap))
+
+    def _sync_prompt_safety_cap_control(self):
+        spin = getattr(self, "audio_story_prompt_safety_cap_spin", None)
+        self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap()
+        if spin is not None:
+            spin.blockSignals(True)
+            spin.setValue(int(self._stored_prompt_safety_cap))
+            spin.blockSignals(False)
+
     def _current_audio_story_style_suffix(self):
         prompts = dict(self._stored_style_prompts or {})
         enabled = list(self._stored_style_enabled or [])
@@ -3236,8 +3279,9 @@ class AudioStoryModeController(QtCore.QObject):
             f"Avoid: {_audio_story_truncate(' '.join(avoid_bits), block_limits['avoid'])}",
         ]
         prompt = "\n".join(part for part in blocks if str(part or "").strip()).strip()
-        if len(prompt) > 1800:
-            prompt = prompt[:1800].rstrip(" \t\r\n,;:.-")
+        safety_cap = self._normalize_prompt_safety_cap()
+        if len(prompt) > safety_cap:
+            prompt = prompt[:safety_cap].rstrip(" \t\r\n,;:.-")
         return prompt
 
     def _story_reference_image_paths(self, scene_entry: dict, previous_scene=None):
@@ -3718,6 +3762,12 @@ class AudioStoryModeController(QtCore.QObject):
         limits = self._prompt_block_limits()
         limits[key] = max(40, min(1600, int(value or _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS[key])))
         self._stored_prompt_block_limits = self._normalize_prompt_block_limits(limits)
+        if self.transcript_chunks:
+            self._schedule_visual_refresh()
+
+    def _on_prompt_safety_cap_changed(self, value: int):
+        self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(value)
+        self._sync_prompt_safety_cap_control()
         if self.transcript_chunks:
             self._schedule_visual_refresh()
 
