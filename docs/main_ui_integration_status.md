@@ -72,6 +72,7 @@ Current behavior:
 - Adds read-only addon mount placeholder tabs in the Designer shell.
 - Live-mounts the allowlisted low-risk addons.
 - Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
+- Binds preset/session controls in shell-local preview mode.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -148,6 +149,25 @@ This is still shell-local:
 - Live model refresh remains deferred.
 - Engine start/stop remains disconnected.
 
+## Preset/Session Shell Binding
+
+The Designer shell now binds the main preset/session controls in a read-only-safe way:
+
+- `preset_combo` is populated from `presets/*.json`.
+- `btn_preset_load` reads the selected preset and previews its Chat Runtime values in the shell.
+- The previewed values include selected chat provider, model name, provider settings, and provider generation fields.
+- `btn_preset_save`, `btn_preset_save_as`, and `btn_preset_delete` remain disabled.
+- `btn_save_chat_session`, `btn_load_chat_session`, and `btn_reset_chat_session` remain disabled.
+- `session_hint_label` reports that preset load is shell-local and does not mutate runtime state.
+
+This keeps preset loading useful for validating Designer bindings while preserving the safety boundary:
+
+- No preset file is written or deleted.
+- `qt_session.json` is not changed.
+- `RUNTIME_CONFIG` is not changed.
+- Chat history/context files are not read or written.
+- Engine lifecycle and model refresh remain disconnected.
+
 ## TTS Runtime Designer Layout
 
 The Designer shell now keeps TTS backend selection and backend-specific settings together:
@@ -208,7 +228,7 @@ Intentionally not connected yet:
 - Transcription.
 - Provider model refresh/checks/completions/streaming.
 - Model loading.
-- Session save/load actions.
+- Session save/load/delete actions.
 - Chat quick save/load actions.
 
 ## Shell-Local Console/Chat Controls
@@ -243,7 +263,7 @@ The shell preview can mirror saved values such as:
 - TTS Backend.
 - MuseTalk VRAM mode.
 - MuseTalk avatar pack.
-- Preset list/current preset.
+- Preset list/current preset, with shell-local preset-load preview for Chat Runtime values.
 - Chat Provider and provider-specific config/generation fields, now shell-local rather than placeholder text.
 - LLM Model, currently saved-model display plus deferred live refresh.
 - Visual Reply mode/provider/size/model.

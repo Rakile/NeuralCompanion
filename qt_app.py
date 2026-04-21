@@ -446,11 +446,20 @@ def run_ui_shell_smoke(raw_path):
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
+    preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
     print(
         "[UI Shell Smoke] Chat Runtime binding: "
         + (
             f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
             if chat_runtime_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell Smoke] Preset/session binding: "
+        + (
+            f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
+            if preset_session_summary.get("bound")
             else "deferred"
         )
     )
@@ -1633,7 +1642,7 @@ def _ui_shell_create_generation_editor(field, value):
     return editor
 
 
-def _bind_ui_shell_chat_runtime(window, providers):
+def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
     from PySide6 import QtWidgets as _QtWidgets
 
     providers = list(providers or [])
@@ -1641,7 +1650,7 @@ def _bind_ui_shell_chat_runtime(window, providers):
     if not provider_by_id:
         return {"bound": False, "providers": 0, "selected_provider": ""}
 
-    session = _read_ui_shell_session_snapshot()
+    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
     settings_map = dict(session.get("chat_provider_settings") or {})
     generation_settings_map = dict(session.get("chat_provider_generation_settings") or {})
     saved_provider = str(session.get("chat_provider", "") or "").strip().lower()
@@ -2152,6 +2161,106 @@ def _ui_shell_preset_names():
     return names
 
 
+def _ui_shell_load_preset_payload(name):
+    preset_name = str(name or "").strip()
+    if not preset_name or preset_name.lower() in {"select preset...", "no presets", "no presets found"}:
+        return {}
+    path = Path(__file__).resolve().parent / "presets" / f"{preset_name}.json"
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _bind_ui_shell_preset_session_controls(window, providers):
+    preset_combo = _ui_shell_find_object(window, "preset_combo")
+    preset_label = _ui_shell_find_object(window, "preset_label")
+    load_button = _ui_shell_find_object(window, "btn_preset_load")
+    save_button = _ui_shell_find_object(window, "btn_preset_save")
+    save_as_button = _ui_shell_find_object(window, "btn_preset_save_as")
+    delete_button = _ui_shell_find_object(window, "btn_preset_delete")
+    session_hint = _ui_shell_find_object(window, "session_hint_label")
+    session_buttons = [
+        _ui_shell_find_object(window, "btn_save_chat_session"),
+        _ui_shell_find_object(window, "btn_load_chat_session"),
+        _ui_shell_find_object(window, "btn_reset_chat_session"),
+    ]
+
+    presets = _ui_shell_preset_names()
+    session = _read_ui_shell_session_snapshot()
+    selected = str(session.get("last_preset") or session.get("active_preset_name") or "").strip()
+    if preset_combo is not None and hasattr(preset_combo, "clear"):
+        _ui_shell_combo_set_items(preset_combo, presets or ["No presets found"])
+        if selected:
+            _ui_shell_combo_select_label(preset_combo, selected)
+        preset_combo.setToolTip("Shell-local preset selector. Load previews a preset without saving or mutating runtime state.")
+    if preset_label is not None and hasattr(preset_label, "setText"):
+        preset_label.setText("Preset")
+
+    state = {"loaded_preset": ""}
+
+    def update_load_button():
+        if load_button is None or not hasattr(load_button, "setEnabled"):
+            return
+        current = str(preset_combo.currentText() if preset_combo is not None and hasattr(preset_combo, "currentText") else "").strip()
+        enabled = bool(current and current in presets)
+        load_button.setEnabled(enabled)
+        load_button.setToolTip(
+            "Preview this preset in the Designer shell. No session file or runtime config is changed."
+            if enabled
+            else "No preset is available to preview."
+        )
+
+    def preview_selected_preset():
+        current = str(preset_combo.currentText() if preset_combo is not None and hasattr(preset_combo, "currentText") else "").strip()
+        payload = _ui_shell_load_preset_payload(current)
+        if not payload:
+            return
+        state["loaded_preset"] = current
+        _bind_ui_shell_chat_runtime(window, providers, session_override=payload)
+        if session_hint is not None and hasattr(session_hint, "setText"):
+            provider = str(payload.get("chat_provider") or "").strip() or "saved provider"
+            model = str(payload.get("model_name") or "").strip() or "saved model"
+            session_hint.setText(
+                f"Shell preview loaded preset '{current}' into Chat Runtime controls "
+                f"({provider} / {model}). Runtime state was not changed."
+            )
+
+    if preset_combo is not None and hasattr(preset_combo, "currentTextChanged"):
+        preset_combo.currentTextChanged.connect(lambda _text: update_load_button())
+    if load_button is not None and hasattr(load_button, "clicked"):
+        load_button.clicked.connect(preview_selected_preset)
+    update_load_button()
+
+    for button, label in (
+        (save_button, "Preset Save is deferred in shell mode."),
+        (save_as_button, "Preset Save As is deferred in shell mode."),
+        (delete_button, "Preset Delete is deferred in shell mode."),
+    ):
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(False)
+            button.setToolTip(label)
+
+    for button in session_buttons:
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(False)
+            button.setToolTip("Chat session file/runtime mutation is deferred in shell mode.")
+    if session_hint is not None and hasattr(session_hint, "setText"):
+        session_hint.setText(
+            "Shell-local session binding: preset Load previews saved Chat Runtime values; "
+            "Save/Delete and chat-context file operations remain deferred."
+        )
+
+    return {
+        "bound": preset_combo is not None,
+        "presets": len(presets),
+        "selected": str(preset_combo.currentText() if preset_combo is not None and hasattr(preset_combo, "currentText") else "").strip(),
+        "session_buttons_deferred": sum(1 for button in session_buttons if button is not None),
+    }
+
+
 def _ui_shell_combo_set_items(combo, labels):
     if combo is None or not hasattr(combo, "clear"):
         return
@@ -2375,6 +2484,7 @@ def run_ui_shell_preview(raw_path):
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
+    preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
     placeholder_targets = _apply_ui_shell_addon_placeholders(
         window,
         addon_report,
@@ -2407,6 +2517,14 @@ def run_ui_shell_preview(raw_path):
         + (
             f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
             if chat_runtime_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell] Preset/session binding: "
+        + (
+            f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
+            if preset_session_summary.get("bound")
             else "deferred"
         )
     )
