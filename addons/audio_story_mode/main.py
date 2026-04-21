@@ -22,8 +22,11 @@ class Addon(BaseAddon):
 
     def initialize(self, context):
         super().initialize(context)
-        controller_cls = _load_controller_class()
-        self.controller = controller_cls(context)
+        self._shell_preview = bool(context.get_service("qt.audio_story_mode_shell_preview") if context is not None else False)
+        self.controller = None
+        if not self._shell_preview:
+            controller_cls = _load_controller_class()
+            self.controller = controller_cls(context)
         context.ui.register_tab(
             id=self.TAB_ID,
             title="Audio Story Mode",
@@ -38,10 +41,89 @@ class Addon(BaseAddon):
         return getattr(self, "controller", None)
 
     def _build_tab(self, context):
+        if getattr(self, "_shell_preview", False):
+            return self._build_shell_preview_tab()
         controller = self._peek_controller()
         if controller is None:
             raise RuntimeError("Audio Story Mode controller is unavailable.")
         return controller.build_tab()
+
+    def _build_shell_preview_tab(self):
+        from PySide6 import QtCore, QtWidgets
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setObjectName("audio_story_mode_tab")
+        scroll.setWidgetResizable(True)
+
+        content = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+
+        box = QtWidgets.QGroupBox("Audio Story Mode")
+        box_layout = QtWidgets.QVBoxLayout(box)
+        box_layout.setContentsMargins(14, 12, 14, 12)
+        box_layout.setSpacing(10)
+
+        title = QtWidgets.QLabel("Shell preview only")
+        title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        box_layout.addWidget(title)
+
+        intro = QtWidgets.QLabel(
+            "The real Audio Story Mode tab is runtime-sensitive: it imports engine/shared state, "
+            "creates a media player, and connects controls to transcription, TTS narration, visual generation, "
+            "timeline sync, and Visual Reply publication.\n\n"
+            "This Designer shell tab proves the addon mount boundary and tab replacement without importing the "
+            "runtime controller or creating audio/model/image-generation objects."
+        )
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #9fb3c8;")
+        box_layout.addWidget(intro)
+
+        workflow_box = QtWidgets.QGroupBox("Workflow Boundary")
+        workflow_layout = QtWidgets.QVBoxLayout(workflow_box)
+        workflow_layout.setContentsMargins(12, 10, 12, 10)
+        workflow_layout.setSpacing(6)
+        for step in (
+            "Import audio file",
+            "Transcribe through local Whisper",
+            "Build transcript windows and story continuity",
+            "Pre-generate Visual Reply images",
+            "Play source audio or TTS narration",
+            "Sync images to playback position",
+        ):
+            checkbox = QtWidgets.QCheckBox(step)
+            checkbox.setEnabled(False)
+            checkbox.setToolTip("Runtime action disabled in main.ui shell preview.")
+            workflow_layout.addWidget(checkbox)
+        box_layout.addWidget(workflow_box)
+
+        controls_row = QtWidgets.QHBoxLayout()
+        for label in ("Import Audio", "Transcribe Audio", "Play", "Pause", "Stop"):
+            button = QtWidgets.QPushButton(label)
+            button.setEnabled(False)
+            button.setToolTip("Disabled in shell preview; the real addon owns this runtime action.")
+            controls_row.addWidget(button)
+        controls_row.addStretch(1)
+        box_layout.addLayout(controls_row)
+
+        progress = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        progress.setRange(0, 100)
+        progress.setValue(0)
+        progress.setEnabled(False)
+        progress.setToolTip("Playback timeline is disabled in shell preview.")
+        box_layout.addWidget(progress)
+
+        status = QtWidgets.QLabel("Ready for shell layout validation. Use the normal app path for real audio-story playback.")
+        status.setObjectName("audio_story_mode_shell_status")
+        status.setWordWrap(True)
+        status.setStyleSheet("color: #8ea3b8;")
+        box_layout.addWidget(status)
+
+        layout.addWidget(box)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        return scroll
 
     def export_session_state(self):
         controller = self._peek_controller()

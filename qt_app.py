@@ -151,6 +151,7 @@ UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
 }
 
 UI_SHELL_LIVE_ADDON_IDS = {
+    "nc.audio_story_mode",
     "nc.chatterbox_tts",
     "nc.chat_provider_lmstudio",
     "nc.chat_provider_openai",
@@ -164,6 +165,7 @@ UI_SHELL_LIVE_ADDON_IDS = {
     "nc.hotkeys",
     "nc.loop_authoring",
     "nc.mock_heart_rate",
+    "nc.musetalk_preprocess",
     "nc.pockettts",
     "nc.screen_supervisor",
     "nc.visual_reply",
@@ -1512,6 +1514,8 @@ def _ui_shell_static_addon_placeholder_name(addon_id):
         return "hotkeys_tab"
     if addon_id == "nc.visual_reply":
         return "host_settings_visuals_tab"
+    if addon_id == "nc.audio_story_mode":
+        return "audio_story_mode_tab"
     if addon_id == "nc.chatterbox_tts":
         return "tts_chatterbox_tab"
     if addon_id == "nc.pockettts":
@@ -1654,11 +1658,13 @@ def _ui_shell_mount_live_addons(window, report):
         "qt.hotkeys": _UiShellHotkeyService(),
         "qt.shell": _UiShellShellService(),
         "qt.visual_reply": _UiShellVisualReplyService(window),
+        "qt.audio_story_mode_shell_preview": True,
         "qt.chatterbox_tts_shell_preview": True,
         "qt.pockettts_shell_preview": True,
         "qt.clipboard_source_shell_preview": True,
         "qt.gemini_tts_preview_shell_preview": True,
         "qt.loop_authoring_shell_preview": True,
+        "qt.musetalk_preprocess_shell_preview": True,
         "qt.shell_session_snapshot": _read_ui_shell_session_snapshot,
     }
 

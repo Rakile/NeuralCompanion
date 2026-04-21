@@ -82,8 +82,10 @@ This mode does not start runtime systems or mutate saved state.
 The shell preview now live-mounts these addons:
 
 - `nc.chat_session_player` -> `left_tabs` as `Chat Player`
+- `nc.audio_story_mode` -> replaces the static `audio_story_mode_tab` in `right_tabs` as `Audio Story Mode`
 - `nc.hotkeys` -> `left_tabs` as `Hotkeys`
 - `nc.loop_authoring` -> `musetalk_tabs` as `Loop Authoring`
+- `nc.musetalk_preprocess` -> `musetalk_tabs` as `Preprocess`
 - `nc.visual_reply` -> replaces the static `host_settings_visuals_tab` as `Visuals`
 - `nc.visual_story_settings` -> `host_settings_tabs` as `Story Visuals`
 - `nc.chatterbox_tts` -> replaces the static `tts_chatterbox_tab` as `Chatterbox`
@@ -114,17 +116,19 @@ Why these addons were chosen:
 - Chatterbox renders with an addon-local shell-preview guard; Chatterbox model loading, runtime config writes, backend startup, and audio generation are disabled in shell mode.
 - PocketTTS renders with an addon-local shell-preview guard; interpreter lookup, file dialogs, subprocess adapter startup, runtime config writes, and audio generation are disabled in shell mode.
 - Loop Authoring renders with an addon-local shell-preview guard; Wan2GP launch, conda environment probing, file dialogs, folder writes/opens, generated-video import, and MuseTalk handoff actions are disabled in shell mode.
+- MuseTalk Preprocess renders through a shell-only adapter in the addon entry point; the real controller is not imported, so shell mode avoids import-time `engine.py`, `cv2`, and `MuseTalkBridge` coupling from this addon.
+- Audio Story Mode renders through a shell-only adapter in the addon entry point; the real controller is not imported, so shell mode avoids `engine.py`/`shared_state` import-time coupling, `QMediaPlayer` creation, Whisper transcription, TTS narration, Visual Reply generation, and playback timeline sync.
 
 Important:
 
 - The shell provides no replay, model, audio, or engine lifecycle host services yet.
-- Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring shell-preview flags, and no-op shell settings notifications.
+- Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
 - Provider model-list, connection-check, completion, and stream handlers are not invoked in shell mode.
 - `Hotkeys` and `Visual Story Settings` currently import `engine.py` to read existing hotkey/config constants. Smoke tests confirm this does not start the companion runtime, but it can emit existing engine-import warnings.
 - Shell mode configures stdout/stderr with a Unicode fallback before live addon mounting so Windows `cp1252` consoles do not turn existing emoji startup prints into addon mount failures.
-- Addons that call network/model/audio paths during render or expose subprocess-heavy workflows remain placeholder-only for now.
+- Runtime-sensitive addons that cannot safely render their real controller in shell mode use shell-only adapters or addon-local shell guards.
 
 ## TTS Runtime Designer Layout
 
@@ -166,9 +170,9 @@ The current comparison is useful for spotting tabs that are probably static plac
 - `left_tabs`: static `Hotkeys` is replaced by the live-mounted `nc.hotkeys` addon in shell mode.
 - `left_tabs`: static `Chat Player` is replaced by the live-mounted `nc.chat_session_player` addon in shell mode.
 - `host_settings_tabs`: static `Visuals` is replaced by the live-mounted `nc.visual_reply` addon in shell mode, and `nc.visual_story_settings` mounts as `Story Visuals`.
-- `musetalk_tabs`: `Loop Authoring` is live-mounted through `nc.loop_authoring`; `MuseTalk Preprocess` remains placeholder-only.
+- `musetalk_tabs`: `Loop Authoring` is live-mounted through `nc.loop_authoring`; `Preprocess` is live-mounted through the `nc.musetalk_preprocess` shell-only adapter.
 - `tts_runtime_addon_tabs`: static `Chatterbox` and `PocketTTS` are replaced by the live-mounted `nc.chatterbox_tts` and `nc.pockettts` addons in shell mode.
-- `right_tabs`: static `Audio Story Mode` overlaps the `nc.audio_story_mode` addon target.
+- `right_tabs`: static `Audio Story Mode` is replaced by the `nc.audio_story_mode` shell-only adapter.
 
 These should be handled gradually. Do not remove static tabs until the corresponding addon is safely live-mounted in the shell or intentionally kept as a static Designer-owned panel.
 
@@ -233,21 +237,21 @@ These are display-only in shell mode.
 
 Recommended next phase:
 
-1. Keep the static `Audio Story Mode` tab Designer-owned for now.
-2. Leave `MuseTalk Preprocess` placeholder-only until it has a dedicated shell-safe path that avoids import-time `engine.py`, `cv2`, and `MuseTalkBridge` coupling.
-3. Keep `Audio Story Mode` as a dedicated later phase because it touches audio playback, transcription, timing, image generation, and addon state.
-4. Re-run `python qt_app.py --ui-shell main.ui --shell-smoke` after each phase and confirm `left_tabs`, `host_settings_tabs`, `musetalk_tabs`, `sensory_feedback_tabs`, and `tts_runtime_addon_tabs` stay clean with no duplicate candidates except intentionally deferred runtime-sensitive tabs.
+1. Keep `main.ui` shell mode as a non-runtime shell until the object-name and addon-mount boundary is accepted.
+2. Start a separate runtime-binding plan for stable controls such as provider/model selection, presets/session state, and engine lifecycle.
+3. Later, consider replacing shell adapters with real controller splits only if runtime-heavy imports can be kept out of shell rendering.
+4. Re-run `python qt_app.py --ui-shell main.ui --shell-smoke` after each phase and confirm addon-owned tab surfaces stay clean with no duplicate candidates or placeholder-only addon targets.
 
 Why this should come next:
 
 - `left_tabs` is now clean after live-mounting `Chat Player` and `Hotkeys`.
 - `host_settings_tabs` is now clean after live-mounting `Visual Reply` and `Visual Story Settings`.
 - `sensory_feedback_tabs` is now clean after live-mounting `Clipboard Source` with shell-only clipboard capture disabled.
-- `Audio Story Mode` is the next visible duplicate, but it touches audio playback, transcription, timing, and image generation, so it needs a dedicated risk-controlled phase.
+- `right_tabs` is now clean after replacing the static `Audio Story Mode` tab with the addon shell adapter.
 - Console/chat local controls are now in place without starting runtime systems.
 - `tts_runtime_addon_tabs` is now clean after live-mounting Chatterbox, Gemini TTS, and PocketTTS with shell-only backend/model/subprocess work disabled.
-- `musetalk_tabs` now live-mounts Loop Authoring with Wan2GP/subprocess/file actions disabled in shell mode.
-- The remaining placeholder-only addons are runtime-sensitive surfaces, so the next phase should inspect one target at a time before allowlisting it.
+- `musetalk_tabs` now live-mounts Loop Authoring with Wan2GP/subprocess/file actions disabled in shell mode, and Preprocess through a shell-only adapter.
+- All addon-owned tab surfaces currently report clean in shell smoke; remaining shell placeholders are provider-field metadata placeholders, not tab duplicates.
 - This keeps `python qt_app.py` as the stable default and keeps the Designer shell path experimental.
 
 Audio Story Mode notes:
@@ -255,11 +259,12 @@ Audio Story Mode notes:
 - The current addon controller imports `engine.py` and `shared_state` at module import time.
 - `build_tab()` creates a `QMediaPlayer` through `_ensure_player()`.
 - The tab controls connect directly to Whisper transcription, source/TTS playback, visual generation, timeline sync, and Visual Reply publication.
-- Do not live-mount this addon through the generic shell allowlist until it has either a shell-only adapter or a controller split that can render UI without creating playback/model/image-generation runtime objects.
+- Shell mode live-mounts this addon through a shell-only adapter. Do not replace that adapter with the real controller until the controller is split so UI rendering cannot create playback/model/image-generation runtime objects.
 
 Alternative later phases:
 
-1. Replace the static `Audio Story Mode` tab only after defining a shell-safe audio story host service boundary.
-2. Add another carefully scoped addon host-service stub, but only when the addon can render without runtime/network/model calls.
+1. Split the real Audio Story Mode controller into shell-renderable UI state and runtime actions if the shell eventually needs a faithful live form instead of the current safe adapter.
+2. Split the real MuseTalk Preprocess controller into shell-renderable UI state and runtime bridge actions if the shell eventually needs a faithful live form instead of the current safe adapter.
+3. Add carefully scoped runtime host-service stubs only when the target behavior can be proven not to start network/model/audio/video work during shell rendering.
 
 Do not connect engine lifecycle, audio capture, TTS generation, transcription, or image generation in the same phase as real addon mounting.

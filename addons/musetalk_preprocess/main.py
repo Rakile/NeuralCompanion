@@ -20,8 +20,11 @@ def _load_controller_class():
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
-        controller_cls = _load_controller_class()
-        self.controller = controller_cls(context)
+        self._shell_preview = bool(context.get_service("qt.musetalk_preprocess_shell_preview") if context is not None else False)
+        self.controller = None
+        if not self._shell_preview:
+            controller_cls = _load_controller_class()
+            self.controller = controller_cls(context)
         context.ui.register_tab(
             id="musetalk_preprocess_tab",
             title="Preprocess",
@@ -39,10 +42,68 @@ class Addon(BaseAddon):
         return getattr(self, "controller", None)
 
     def _build_tab(self, context):
+        if getattr(self, "_shell_preview", False):
+            return self._build_shell_preview_tab()
         controller = self._peek_controller()
         if controller is None:
             raise RuntimeError("MuseTalk preprocess controller is unavailable.")
         return controller.build_tab()
+
+    def _build_shell_preview_tab(self):
+        from PySide6 import QtWidgets
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setObjectName("musetalk_preprocess_tab")
+        scroll.setWidgetResizable(True)
+
+        content = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(content)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(12)
+
+        box = QtWidgets.QGroupBox("MuseTalk Preprocess")
+        box_layout = QtWidgets.QVBoxLayout(box)
+        box_layout.setContentsMargins(14, 12, 14, 12)
+        box_layout.setSpacing(10)
+
+        title = QtWidgets.QLabel("Shell preview only")
+        title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
+        box_layout.addWidget(title)
+
+        text = QtWidgets.QLabel(
+            "The real MuseTalk Preprocess tab is runtime-sensitive: it imports engine, OpenCV, "
+            "and the MuseTalk bridge, and can start preprocessing/debug workers.\n\n"
+            "This Designer shell tab confirms the addon mount point and ordering without loading "
+            "MuseTalk runtime modules, starting bridge workers, scanning avatar folders, or mutating runtime state."
+        )
+        text.setWordWrap(True)
+        text.setStyleSheet("color: #9fb3c8;")
+        box_layout.addWidget(text)
+
+        disabled_actions = [
+            "Avatar pack and prepared variant scanning",
+            "Source video/folder browsing",
+            "MuseTalk preprocessing",
+            "First-frame debug generation",
+            "Mask editor bridge handoff",
+            "Runtime avatar metadata writes",
+        ]
+        list_widget = QtWidgets.QListWidget()
+        list_widget.setObjectName("musetalk_preprocess_shell_disabled_actions")
+        list_widget.addItems(disabled_actions)
+        list_widget.setToolTip("Actions intentionally disabled in main.ui shell preview.")
+        box_layout.addWidget(list_widget)
+
+        status = QtWidgets.QLabel("Ready for shell layout validation. Use the normal app path for real MuseTalk preprocessing.")
+        status.setObjectName("musetalk_preprocess_shell_status")
+        status.setWordWrap(True)
+        status.setStyleSheet("color: #8ea3b8;")
+        box_layout.addWidget(status)
+
+        layout.addWidget(box)
+        layout.addStretch(1)
+        scroll.setWidget(content)
+        return scroll
 
     def _on_ui_tab_focus_changed(self, payload):
         controller = self._peek_controller()

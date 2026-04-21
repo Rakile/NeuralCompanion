@@ -40,6 +40,7 @@ class LoopAuthoringController(QtCore.QObject):
         self._loop_author_generation_thread = None
         self._loop_author_generation_lock = threading.Lock()
         self._pending_loop_author_generation_result = None
+        self._loop_author_importing_session = False
         self._loop_author_wan2gp_root = loop_authoring.detect_wan2gp_root()
         self.loop_author_tab_widget = None
 
@@ -675,7 +676,7 @@ class LoopAuthoringController(QtCore.QObject):
         return entries
 
     def refresh_loop_authoring_conda_env_list(self):
-        if self._is_shell_preview():
+        if self._is_shell_preview() or bool(getattr(self, "_loop_author_importing_session", False)):
             return
         combo = getattr(self, "loop_author_conda_env_combo", None)
         if combo is None:
@@ -773,7 +774,7 @@ class LoopAuthoringController(QtCore.QObject):
             widget = getattr(self, widget_name, None)
             if widget is not None:
                 widget.setEnabled(not use_python)
-        if not use_python:
+        if not use_python and not bool(getattr(self, "_loop_author_importing_session", False)):
             self.refresh_loop_authoring_conda_env_list()
 
     def _build_loop_authoring_wan2gp_command_prefix(self):
@@ -1245,6 +1246,7 @@ class LoopAuthoringController(QtCore.QObject):
         }
 
     def import_session_state(self, session):
+        self._loop_author_importing_session = True
         loop_author_backend = session.get("loop_author_backend")
         if loop_author_backend and hasattr(self, "loop_author_backend_combo"):
             index = self.loop_author_backend_combo.findText(str(loop_author_backend))
@@ -1362,6 +1364,7 @@ class LoopAuthoringController(QtCore.QObject):
         self._refresh_loop_authoring_recommendation()
         if hasattr(self, "loop_author_prompt_edit") and not self.loop_author_prompt_edit.toPlainText().strip():
             self.apply_loop_authoring_template()
+        self._loop_author_importing_session = False
 
     def apply_loop_authoring_template(self):
         preset_key = self._get_loop_authoring_preset_key()
