@@ -692,33 +692,6 @@ QProgressBar::chunk {
                  </item>
                 </widget>
                </item>
-               <item row="4" column="0">
-                <widget class="QLabel" name="tts_backend_label">
-                 <property name="text">
-                  <string>TTS Backend</string>
-                 </property>
-                </widget>
-               </item>
-               <item row="4" column="1">
-                <widget class="QComboBox" name="tts_backend_combo">
-                 <property name="maximumSize">
-                  <size>
-                   <width>200</width>
-                   <height>16777215</height>
-                  </size>
-                 </property>
-                 <item>
-                  <property name="text">
-                   <string>Chatterbox</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>PocketTTS</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
                <item row="5" column="0">
                 <widget class="QLabel" name="musetalk_vram_label">
                  <property name="text">
@@ -954,194 +927,409 @@ QProgressBar::chunk {
                <property name="title">
                 <string>TTS Runtime</string>
                </property>
-               <layout class="QFormLayout" name="ttsRuntimeForm">
-                <item row="0" column="0">
-                 <widget class="QLabel" name="tts_seed_label">
+               <layout class="QVBoxLayout" name="ttsRuntimeLayout">
+                <property name="spacing">
+                 <number>10</number>
+                </property>
+                <item>
+                 <layout class="QFormLayout" name="ttsBackendSelectorForm">
+                  <property name="fieldGrowthPolicy">
+                   <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="tts_backend_label">
+                    <property name="text">
+                     <string>TTS Backend</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="tts_backend_combo">
+                    <property name="minimumSize">
+                     <size>
+                      <width>240</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>360</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Chatterbox</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>PocketTTS</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Gemini TTS Preview</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QLabel" name="tts_runtime_hint_label">
                   <property name="text">
-                   <string>Random seed (0 = random)</string>
+                   <string>Choose the TTS backend from the dropdown. Backend-specific settings live in the tabs below.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
                   </property>
                  </widget>
                 </item>
-                <item row="0" column="1">
-                 <widget class="QSpinBox" name="tts_seed_spin">
+                <item>
+                 <widget class="QTabWidget" name="tts_runtime_addon_tabs">
                   <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                  <property name="maximum">
-                   <number>999999</number>
-                  </property>
-                 </widget>
-                </item>
-                <item row="1" column="0">
-                 <widget class="QLabel" name="tts_temperature_label">
-                  <property name="text">
-                   <string>Temperature</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="1" column="1">
-                 <widget class="QDoubleSpinBox" name="tts_temperature_spin">
-                  <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                  <property name="singleStep">
-                   <double>0.050000000000000</double>
-                  </property>
-                  <property name="value">
-                   <double>0.800000000000000</double>
-                  </property>
-                 </widget>
-                </item>
-                <item row="2" column="0">
-                 <widget class="QLabel" name="tts_top_p_label">
-                  <property name="text">
-                   <string>Top P</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="2" column="1">
-                 <widget class="QDoubleSpinBox" name="tts_top_p_spin">
-                  <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                  <property name="sizeIncrement">
                    <size>
                     <width>0</width>
-                    <height>0</height>
+                    <height>420</height>
                    </size>
                   </property>
-                  <property name="singleStep">
-                   <double>0.050000000000000</double>
-                  </property>
-                  <property name="value">
-                   <double>0.900000000000000</double>
-                  </property>
-                 </widget>
-                </item>
-                <item row="3" column="0">
-                 <widget class="QLabel" name="tts_top_k_label">
-                  <property name="text">
-                   <string>Top K</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="3" column="1">
-                 <widget class="QSpinBox" name="tts_top_k_spin">
-                  <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                  <property name="maximum">
-                   <number>200</number>
-                  </property>
-                  <property name="value">
-                   <number>40</number>
-                  </property>
-                 </widget>
-                </item>
-                <item row="4" column="0">
-                 <widget class="QLabel" name="tts_repeat_penalty_label">
-                  <property name="text">
-                   <string>Repetition Penalty</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="4" column="1">
-                 <widget class="QDoubleSpinBox" name="tts_repeat_penalty_spin">
-                  <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                  <property name="value">
-                   <double>1.200000000000000</double>
-                  </property>
-                 </widget>
-                </item>
-                <item row="5" column="0">
-                 <widget class="QLabel" name="tts_min_p_label">
-                  <property name="text">
-                   <string>Min P</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="5" column="1">
-                 <widget class="QDoubleSpinBox" name="tts_min_p_spin">
-                  <property name="minimumSize">
-                   <size>
-                    <width>176</width>
-                    <height>0</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>100</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
-                 </widget>
-                </item>
-                <item row="6" column="0">
-                 <widget class="QLabel" name="tts_normalize_label">
-                  <property name="text">
-                   <string>Normalize Loudness</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="6" column="1">
-                 <widget class="QCheckBox" name="tts_normalize_loudness_checkbox">
-                  <property name="text">
-                   <string>Enabled</string>
-                  </property>
-                 </widget>
-                </item>
-                <item row="7" column="0" colspan="2">
-                 <widget class="QTabWidget" name="tts_runtime_addon_tabs">
                   <property name="visible">
-                   <bool>false</bool>
+                   <bool>true</bool>
                   </property>
+                  <property name="documentMode">
+                   <bool>true</bool>
+                  </property>
+                  <widget class="QWidget" name="tts_chatterbox_tab">
+                   <attribute name="title">
+                    <string>Chatterbox</string>
+                   </attribute>
+                   <attribute name="toolTip">
+                    <string>Shared Chatterbox sampling controls.</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="ttsChatterboxTabLayout">
+                    <property name="leftMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="topMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="rightMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="bottomMargin">
+                     <number>12</number>
+                    </property>
+                    <item>
+                     <widget class="QLabel" name="tts_chatterbox_intro_label">
+                      <property name="text">
+                       <string>Chatterbox sampling and normalization controls. These are shared runtime values used by the live Python UI.</string>
+                      </property>
+                      <property name="wordWrap">
+                       <bool>true</bool>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <layout class="QFormLayout" name="ttsRuntimeForm">
+                      <property name="fieldGrowthPolicy">
+                       <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                      </property>
+                      <item row="0" column="0">
+                       <widget class="QLabel" name="tts_seed_label">
+                        <property name="text">
+                         <string>Random seed (0 = random)</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="0" column="1">
+                       <widget class="QSpinBox" name="tts_seed_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="maximum">
+                         <number>999999</number>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="1" column="0">
+                       <widget class="QLabel" name="tts_temperature_label">
+                        <property name="text">
+                         <string>Temperature</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="1" column="1">
+                       <widget class="QDoubleSpinBox" name="tts_temperature_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="singleStep">
+                         <double>0.050000000000000</double>
+                        </property>
+                        <property name="value">
+                         <double>0.800000000000000</double>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="0">
+                       <widget class="QLabel" name="tts_top_p_label">
+                        <property name="text">
+                         <string>Top P</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="1">
+                       <widget class="QDoubleSpinBox" name="tts_top_p_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="sizeIncrement">
+                         <size>
+                          <width>0</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="singleStep">
+                         <double>0.050000000000000</double>
+                        </property>
+                        <property name="value">
+                         <double>0.900000000000000</double>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="3" column="0">
+                       <widget class="QLabel" name="tts_top_k_label">
+                        <property name="text">
+                         <string>Top K</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="3" column="1">
+                       <widget class="QSpinBox" name="tts_top_k_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="maximum">
+                         <number>200</number>
+                        </property>
+                        <property name="value">
+                         <number>40</number>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="4" column="0">
+                       <widget class="QLabel" name="tts_repeat_penalty_label">
+                        <property name="text">
+                         <string>Repetition Penalty</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="4" column="1">
+                       <widget class="QDoubleSpinBox" name="tts_repeat_penalty_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="value">
+                         <double>1.200000000000000</double>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="5" column="0">
+                       <widget class="QLabel" name="tts_min_p_label">
+                        <property name="text">
+                         <string>Min P</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="5" column="1">
+                       <widget class="QDoubleSpinBox" name="tts_min_p_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>220</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="6" column="0">
+                       <widget class="QLabel" name="tts_normalize_label">
+                        <property name="text">
+                         <string>Normalize Loudness</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="6" column="1">
+                       <widget class="QCheckBox" name="tts_normalize_loudness_checkbox">
+                        <property name="text">
+                         <string>Enabled</string>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </item>
+                    <item>
+                     <spacer name="ttsChatterboxTabSpacer">
+                      <property name="orientation">
+                       <enum>Qt::Vertical</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>20</width>
+                        <height>40</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </widget>
+                  <widget class="QWidget" name="tts_pockettts_tab">
+                   <attribute name="title">
+                    <string>PocketTTS</string>
+                   </attribute>
+                   <attribute name="toolTip">
+                    <string>PocketTTS bundled runtime and optional interpreter override.</string>
+                   </attribute>
+                   <layout class="QVBoxLayout" name="ttsPocketTtsTabLayout">
+                    <property name="leftMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="topMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="rightMargin">
+                     <number>12</number>
+                    </property>
+                    <property name="bottomMargin">
+                     <number>12</number>
+                    </property>
+                    <item>
+                     <widget class="QLabel" name="pocket_tts_info_label">
+                      <property name="text">
+                       <string>PocketTTS is bundled with Neural Interface and is used automatically when selected.</string>
+                      </property>
+                      <property name="wordWrap">
+                       <bool>true</bool>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QPushButton" name="btn_toggle_pocket_tts_advanced">
+                      <property name="text">
+                       <string>Show Advanced PocketTTS Override</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QGroupBox" name="pocket_tts_advanced_group">
+                      <property name="title">
+                       <string>Advanced PocketTTS Override</string>
+                      </property>
+                      <layout class="QVBoxLayout" name="pocketTtsAdvancedLayout">
+                       <item>
+                        <widget class="QLabel" name="pocket_tts_bundled_label">
+                         <property name="text">
+                          <string>Bundled interpreter: detected automatically in the live app.</string>
+                         </property>
+                         <property name="wordWrap">
+                          <bool>true</bool>
+                         </property>
+                        </widget>
+                       </item>
+                       <item>
+                        <layout class="QHBoxLayout" name="pocketTtsOverrideRow">
+                         <item>
+                          <widget class="QLineEdit" name="pocket_tts_python_edit">
+                           <property name="placeholderText">
+                            <string>Optional override path to PocketTTS python.exe</string>
+                           </property>
+                          </widget>
+                         </item>
+                         <item>
+                          <widget class="QPushButton" name="pocket_tts_browse_button">
+                           <property name="text">
+                            <string>Browse</string>
+                           </property>
+                          </widget>
+                         </item>
+                        </layout>
+                       </item>
+                       <item>
+                        <widget class="QPushButton" name="btn_use_bundled_pocket_tts">
+                         <property name="text">
+                          <string>Use Bundled PocketTTS</string>
+                         </property>
+                        </widget>
+                       </item>
+                      </layout>
+                     </widget>
+                    </item>
+                    <item>
+                     <spacer name="ttsPocketTtsTabSpacer">
+                      <property name="orientation">
+                       <enum>Qt::Vertical</enum>
+                      </property>
+                      <property name="sizeHint" stdset="0">
+                       <size>
+                        <width>20</width>
+                        <height>40</height>
+                       </size>
+                      </property>
+                     </spacer>
+                    </item>
+                   </layout>
+                  </widget>
                  </widget>
                 </item>
                </layout>
@@ -2614,67 +2802,6 @@ QProgressBar::chunk {
              <string>ms-twav</string>
             </property>
            </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QLabel" name="pocket_tts_info_label">
-           <property name="text">
-            <string>PocketTTS is bundled with Neural Interface and is used automatically when selected.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_toggle_pocket_tts_advanced">
-           <property name="text">
-            <string>Show Advanced PocketTTS Override</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="pocket_tts_advanced_group">
-           <property name="title">
-            <string>Advanced PocketTTS Override</string>
-           </property>
-           <layout class="QVBoxLayout" name="pocketTtsAdvancedLayout">
-            <item>
-             <widget class="QLabel" name="pocket_tts_bundled_label">
-              <property name="text">
-               <string>Bundled interpreter: detected automatically in the live app.</string>
-              </property>
-              <property name="wordWrap">
-               <bool>true</bool>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="pocketTtsOverrideRow">
-              <item>
-               <widget class="QLineEdit" name="pocket_tts_python_edit">
-                <property name="placeholderText">
-                 <string>Optional override path to PocketTTS python.exe</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="pocket_tts_browse_button">
-                <property name="text">
-                 <string>Browse</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <widget class="QPushButton" name="btn_use_bundled_pocket_tts">
-              <property name="text">
-               <string>Use Bundled PocketTTS</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
           </widget>
          </item>
          <item>

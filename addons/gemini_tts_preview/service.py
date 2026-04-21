@@ -63,6 +63,7 @@ VOICE_OPTIONS = [
 class GeminiTTSPreviewService:
     def __init__(self, context):
         self._context = context
+        self._shell_preview = bool(context.get_service("qt.gemini_tts_preview_shell_preview")) if context is not None else False
         self._lock = threading.RLock()
         self._settings = {
             "api_key": self._env_value("NC_TTS_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),
@@ -75,7 +76,11 @@ class GeminiTTSPreviewService:
             "style_prompt": self._env_value("NC_TTS_GEMINI_STYLE_PROMPT", fallback=DEFAULT_STYLE_PROMPT),
         }
         self._output_dir = Path(tempfile.gettempdir()) / "NeuralInterface" / "gemini_tts_preview"
-        self._output_dir.mkdir(parents=True, exist_ok=True)
+        if not self._shell_preview:
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+
+    def is_shell_preview(self) -> bool:
+        return bool(self._shell_preview)
 
     def _env_value(self, *names: str, fallback: str = "") -> str:
         for name in names:
@@ -220,6 +225,8 @@ class GeminiTTSPreviewService:
         return [candidate for candidate in candidates if candidate]
 
     def list_models(self, quiet: bool = False) -> list[dict[str, Any]]:
+        if self._shell_preview:
+            return [{"id": model_id, "label": model_id, "source": "shell_preview"} for model_id in FALLBACK_MODELS]
         if not self._api_key():
             return [{"id": model_id, "label": model_id, "source": "fallback"} for model_id in FALLBACK_MODELS]
         try:
@@ -243,6 +250,8 @@ class GeminiTTSPreviewService:
             return [{"id": model_id, "label": model_id, "source": "fallback"} for model_id in FALLBACK_MODELS]
 
     def check_connection(self) -> dict[str, Any]:
+        if self._shell_preview:
+            return {"ok": False, "detail": "Shell preview: Gemini TTS network checks are disabled."}
         if not self._api_key():
             return {"ok": False, "detail": "Gemini API key is required."}
         try:
@@ -298,6 +307,8 @@ class GeminiTTSPreviewService:
         raise RuntimeError("Gemini TTS response did not contain audio data.")
 
     def _write_wave(self, raw_audio: bytes) -> Path:
+        if self._shell_preview:
+            raise RuntimeError("Shell preview: Gemini TTS audio file writes are disabled.")
         target = self._output_dir / f"gemini_tts_{uuid.uuid4().hex}.wav"
         if raw_audio.startswith(b"RIFF") and raw_audio[8:12] == b"WAVE":
             target.write_bytes(raw_audio)
@@ -310,6 +321,8 @@ class GeminiTTSPreviewService:
         return target
 
     def generate(self, text, audio_prompt_path=None, **kwargs):
+        if self._shell_preview:
+            raise RuntimeError("Shell preview: Gemini TTS generation is disabled.")
         _ = audio_prompt_path
         _ = kwargs
         payload = self._build_payload(text)

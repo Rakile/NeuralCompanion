@@ -8,6 +8,8 @@ class ChatterboxTTSController:
     def __init__(self, context=None):
         self.context = context
         self.shell = context.get_service("qt.shell") if context is not None else None
+        self._shell_preview = bool(context.get_service("qt.chatterbox_tts_shell_preview")) if context is not None else False
+        self._shell_state = self._initial_shell_state()
         self._widget = None
         self._build_pending = False
         self._seed_spin = None
@@ -23,12 +25,34 @@ class ChatterboxTTSController:
 
         return engine
 
+    def _initial_shell_state(self):
+        if not self._shell_preview:
+            return {}
+        session_getter = self.context.get_service("qt.shell_session_snapshot") if self.context is not None else None
+        session = {}
+        if callable(session_getter):
+            try:
+                session = dict(session_getter() or {})
+            except Exception:
+                session = {}
+        return {
+            "tts_seed": int(session.get("tts_seed", 0) or 0),
+            "tts_temperature": float(session.get("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(session.get("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(session.get("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(session.get("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(session.get("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": bool(session.get("tts_normalize_loudness", False)),
+        }
+
     def _notify_settings_changed(self):
         notifier = getattr(self.shell, "notify_settings_changed", None) if self.shell is not None else None
         if callable(notifier):
             notifier()
 
     def _current_state(self):
+        if self._shell_preview:
+            return dict(self._shell_state)
         engine = self._engine()
         return {
             "tts_seed": int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0),
@@ -41,6 +65,10 @@ class ChatterboxTTSController:
         }
 
     def _set_runtime(self, key: str, value):
+        if self._shell_preview:
+            self._shell_state[str(key)] = value
+            self._notify_settings_changed()
+            return
         engine = self._engine()
         engine.update_runtime_config(key, value)
         self._notify_settings_changed()
@@ -143,7 +171,10 @@ class ChatterboxTTSController:
         form.addRow("", self._normalize_loudness_checkbox)
 
         card_layout.addLayout(form)
-        info = QtWidgets.QLabel("Chatterbox sampling controls for local speech generation.")
+        info_text = "Shell preview: Chatterbox settings are local only. No model, backend, or audio path is started."
+        if not self._shell_preview:
+            info_text = "Chatterbox sampling controls for local speech generation."
+        info = QtWidgets.QLabel(info_text)
         info.setWordWrap(True)
         info.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         card_layout.addWidget(info)
@@ -161,6 +192,30 @@ class ChatterboxTTSController:
         return self._current_state()
 
     def import_session_state(self, session):
+        if self._shell_preview:
+            payload = dict(session or {})
+            mapping = {
+                "tts_seed": lambda v: max(0, int(v or 0)),
+                "tts_temperature": lambda v: max(0.05, float(v or 0.8)),
+                "tts_top_p": lambda v: max(0.0, min(1.0, float(v or 0.9))),
+                "tts_top_k": lambda v: max(0, int(v or 0)),
+                "tts_repeat_penalty": lambda v: max(1.0, float(v or 1.2)),
+                "tts_min_p": lambda v: max(0.0, min(1.0, float(v or 0.0))),
+                "tts_normalize_loudness": lambda v: bool(v),
+            }
+            changed = False
+            for key, converter in mapping.items():
+                if key not in payload:
+                    continue
+                try:
+                    self._shell_state[key] = converter(payload.get(key))
+                    changed = True
+                except Exception:
+                    pass
+            if changed:
+                self._sync_widgets_from_runtime()
+                self._notify_settings_changed()
+            return None
         engine = self._engine()
         payload = dict(session or {})
         changed = False

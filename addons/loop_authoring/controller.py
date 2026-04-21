@@ -28,6 +28,7 @@ class LoopAuthoringController(QtCore.QObject):
         super().__setattr__("shell", context.get_service("qt.shell") if context is not None else None)
         super().__setattr__("musetalk_ui", context.get_service("qt.musetalk_ui") if context is not None else None)
         super().__setattr__("capabilities", context.get_service("addons.capabilities") if context is not None else None)
+        super().__setattr__("shell_preview", bool(context.get_service("qt.loop_authoring_shell_preview") if context is not None else False))
 
 
     def _initialize_host_state(self):
@@ -41,6 +42,47 @@ class LoopAuthoringController(QtCore.QObject):
         self._pending_loop_author_generation_result = None
         self._loop_author_wan2gp_root = loop_authoring.detect_wan2gp_root()
         self.loop_author_tab_widget = None
+
+    def _is_shell_preview(self):
+        return bool(getattr(self, "shell_preview", False))
+
+    def _disable_shell_runtime_controls(self):
+        if not self._is_shell_preview():
+            return
+        disabled_names = (
+            "btn_loop_author_source_image",
+            "btn_loop_author_reference_video",
+            "btn_loop_author_wan2gp_root",
+            "btn_loop_author_conda_env_refresh",
+            "btn_loop_author_conda_command",
+            "btn_loop_author_wan2gp_python",
+            "btn_loop_author_save_draft",
+            "btn_loop_author_generate",
+            "btn_loop_author_open_draft",
+            "btn_loop_author_open_wan2gp_outputs",
+            "btn_loop_author_import_latest",
+            "btn_loop_author_use_video",
+        )
+        for widget_name in disabled_names:
+            widget = getattr(self, widget_name, None)
+            if widget is not None:
+                widget.setEnabled(False)
+                widget.setToolTip("Disabled in the main.ui shell preview; the live app owns file, subprocess, and MuseTalk handoff actions.")
+        for widget_name in (
+            "loop_author_source_image_edit",
+            "loop_author_reference_video_edit",
+            "loop_author_wan2gp_root_edit",
+            "loop_author_conda_command_edit",
+            "loop_author_wan2gp_python_edit",
+        ):
+            widget = getattr(self, widget_name, None)
+            if widget is not None and hasattr(widget, "setReadOnly"):
+                widget.setReadOnly(True)
+                widget.setToolTip("Read-only in the main.ui shell preview.")
+        if hasattr(self, "loop_author_status_label"):
+            self.loop_author_status_label.setText(
+                "Loop Authoring shell preview only. Wan2GP launch, file dialogs, folder writes, and MuseTalk handoff are disabled."
+            )
 
     def _detect_default_conda_command(self):
         env_candidates = [
@@ -535,6 +577,7 @@ class LoopAuthoringController(QtCore.QObject):
         self._refresh_loop_authoring_recommendation()
         if not self.loop_author_prompt_edit.toPlainText().strip():
             self.apply_loop_authoring_template()
+        self._disable_shell_runtime_controls()
         return scroll
 
 
@@ -632,6 +675,8 @@ class LoopAuthoringController(QtCore.QObject):
         return entries
 
     def refresh_loop_authoring_conda_env_list(self):
+        if self._is_shell_preview():
+            return
         combo = getattr(self, "loop_author_conda_env_combo", None)
         if combo is None:
             return
@@ -2154,4 +2199,3 @@ class LoopAuthoringController(QtCore.QObject):
                 self.loop_author_status_label.setText("Wan2GP generation failed.")
             print(f"[QtGUI] Wan2GP generation failed: {error_text}")
             self._warn("Loop Authoring", error_text[:4000])
-

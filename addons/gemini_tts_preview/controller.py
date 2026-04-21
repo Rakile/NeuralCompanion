@@ -422,9 +422,24 @@ class GeminiTTSPreviewController(QtCore.QObject):
         layout.addStretch(1)
 
         self._widget = widget
+        if self._is_shell_preview():
+            for control in (self.check_button, self.refresh_button, self.refresh_models_button):
+                control.setEnabled(False)
+                control.setToolTip("Disabled in the main.ui shell preview; Gemini network calls are not started.")
+            self._set_status("Shell preview: Gemini TTS settings render only. Network checks and TTS generation are disabled.")
         self.refresh_models()
-        self.check_connection()
+        if not self._is_shell_preview():
+            self.check_connection()
         return widget
+
+    def _is_shell_preview(self) -> bool:
+        checker = getattr(self.service, "is_shell_preview", None)
+        if callable(checker):
+            try:
+                return bool(checker())
+            except Exception:
+                return False
+        return False
 
     def _update_setting(self, key: str, value: str):
         self.service.update_settings(**{key: value})
@@ -468,7 +483,10 @@ class GeminiTTSPreviewController(QtCore.QObject):
         finally:
             self.model_combo.blockSignals(False)
         self.service.update_settings(model=str(self.model_combo.currentData() or self.model_combo.currentText() or DEFAULT_MODEL))
-        self._set_status("Gemini model list refreshed.")
+        if self._is_shell_preview():
+            self._set_status("Shell preview: showing fallback Gemini TTS model names only.")
+        else:
+            self._set_status("Gemini model list refreshed.")
 
     def check_connection(self):
         result = self.service.check_connection()

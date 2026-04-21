@@ -1,0 +1,13 @@
+{
+  "id": "nc.pockettts",
+  "name": "PocketTTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Built-in PocketTTS backend exposed as an addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "enabled": true
+}

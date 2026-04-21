@@ -151,15 +151,23 @@ UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
 }
 
 UI_SHELL_LIVE_ADDON_IDS = {
+    "nc.chatterbox_tts",
     "nc.chat_provider_lmstudio",
     "nc.chat_provider_openai",
     "nc.chat_provider_xai",
     "nc.chat_session_player",
     "nc.claude_provider",
+    "nc.clipboard_source",
     "nc.clipboard_supervisor",
+    "nc.gemini_tts_preview",
     "nc.heart_rate_behavior",
+    "nc.hotkeys",
+    "nc.loop_authoring",
     "nc.mock_heart_rate",
+    "nc.pockettts",
     "nc.screen_supervisor",
+    "nc.visual_reply",
+    "nc.visual_story_settings",
     "nc.webcam_supervisor",
 }
 
@@ -343,6 +351,24 @@ def _ui_shell_find_object(window, object_name):
     return window.findChild(_QtCore.QObject, object_name)
 
 
+def _ui_shell_enable_stdio_unicode_fallback():
+    """Shell mode may import modules that print emoji on Windows cp1252 consoles."""
+    for stream_name in ("stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(errors="replace")
+        except TypeError:
+            try:
+                reconfigure(encoding=getattr(stream, "encoding", None) or "utf-8", errors="replace")
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+
 def _ui_shell_class_matches(obj, expected_class):
     if obj is None:
         return False
@@ -515,6 +541,178 @@ def _apply_ui_shell_preview_status(window):
             button.setToolTip("Disabled in shell preview. Runtime wiring is intentionally deferred.")
 
     return summary
+
+
+def _ui_shell_text_line_count(widget):
+    if widget is None:
+        return 0
+    if hasattr(widget, "document"):
+        try:
+            text = widget.document().toPlainText()
+        except Exception:
+            text = ""
+    elif hasattr(widget, "toPlainText"):
+        try:
+            text = widget.toPlainText()
+        except Exception:
+            text = ""
+    else:
+        text = ""
+    return len([line for line in str(text or "").splitlines() if line.strip()])
+
+
+def _bind_ui_shell_console_chat_local_controls(window):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtGui as _QtGui
+    from PySide6 import QtWidgets as _QtWidgets
+
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    chat_edit = _ui_shell_find_object(window, "chat_edit")
+    console_status = _ui_shell_find_object(window, "console_status")
+    chat_status = _ui_shell_find_object(window, "chat_status")
+    console_autoscroll_button = _ui_shell_find_object(window, "console_autoscroll_button")
+    chat_autoscroll_button = _ui_shell_find_object(window, "chat_autoscroll_button")
+    console_clear_button = _ui_shell_find_object(window, "console_clear_button")
+    chat_clear_button = _ui_shell_find_object(window, "chat_clear_button")
+    chat_font_size_combo = _ui_shell_find_object(window, "chat_font_size_combo")
+    chat_edit_mode_button = _ui_shell_find_object(window, "chat_edit_mode_button")
+    chat_apply_edit_button = _ui_shell_find_object(window, "chat_apply_edit_button")
+    chat_cancel_edit_button = _ui_shell_find_object(window, "chat_cancel_edit_button")
+    quick_save_button = _ui_shell_find_object(window, "chat_quick_save_button")
+    quick_load_button = _ui_shell_find_object(window, "chat_quick_load_button")
+
+    state = {
+        "console_autoscroll": True,
+        "chat_autoscroll": True,
+        "chat_editing": False,
+        "chat_edit_snapshot": "",
+    }
+
+    def set_button_text(button, label, enabled):
+        if button is not None and hasattr(button, "setText"):
+            button.setText(f"{label}: {'On' if enabled else 'Off'}")
+
+    def update_console_status():
+        if console_status is not None and hasattr(console_status, "setText"):
+            console_status.setText(
+                f"{_ui_shell_text_line_count(console_edit)} lines | "
+                f"autoscroll {'on' if state['console_autoscroll'] else 'off'} | shell-local"
+            )
+
+    def update_chat_status():
+        if chat_status is not None and hasattr(chat_status, "setText"):
+            mode = "edit mode" if state["chat_editing"] else "read-only"
+            chat_status.setText(
+                f"{_ui_shell_text_line_count(chat_edit)} lines | "
+                f"autoscroll {'on' if state['chat_autoscroll'] else 'off'} | {mode} | shell-local"
+            )
+
+    def set_chat_editing(enabled):
+        state["chat_editing"] = bool(enabled)
+        if isinstance(chat_edit, _QtWidgets.QTextEdit):
+            chat_edit.setReadOnly(not state["chat_editing"])
+        if chat_edit_mode_button is not None:
+            chat_edit_mode_button.setVisible(not state["chat_editing"])
+        if chat_apply_edit_button is not None:
+            chat_apply_edit_button.setVisible(state["chat_editing"])
+        if chat_cancel_edit_button is not None:
+            chat_cancel_edit_button.setVisible(state["chat_editing"])
+        update_chat_status()
+
+    if isinstance(console_edit, _QtWidgets.QPlainTextEdit):
+        console_edit.setReadOnly(True)
+        console_edit.textChanged.connect(update_console_status)
+    if isinstance(chat_edit, _QtWidgets.QTextEdit):
+        chat_edit.setReadOnly(True)
+        chat_edit.textChanged.connect(update_chat_status)
+
+    if console_clear_button is not None and hasattr(console_clear_button, "clicked"):
+        console_clear_button.clicked.connect(lambda: (console_edit.clear(), update_console_status()) if console_edit is not None else None)
+    if chat_clear_button is not None and hasattr(chat_clear_button, "clicked"):
+        chat_clear_button.clicked.connect(lambda: (chat_edit.clear(), update_chat_status()) if chat_edit is not None else None)
+
+    if console_autoscroll_button is not None and hasattr(console_autoscroll_button, "clicked"):
+        console_autoscroll_button.clicked.connect(
+            lambda: (
+                state.__setitem__("console_autoscroll", not state["console_autoscroll"]),
+                set_button_text(console_autoscroll_button, "Autoscroll", state["console_autoscroll"]),
+                update_console_status(),
+            )
+        )
+    if chat_autoscroll_button is not None and hasattr(chat_autoscroll_button, "clicked"):
+        chat_autoscroll_button.clicked.connect(
+            lambda: (
+                state.__setitem__("chat_autoscroll", not state["chat_autoscroll"]),
+                set_button_text(chat_autoscroll_button, "Autoscroll", state["chat_autoscroll"]),
+                update_chat_status(),
+            )
+        )
+
+    if isinstance(chat_font_size_combo, _QtWidgets.QComboBox):
+        chat_font_size_combo.clear()
+        for size in (10, 11, 12, 13, 14, 16, 18):
+            chat_font_size_combo.addItem(str(size), size)
+        index = chat_font_size_combo.findData(12)
+        if index >= 0:
+            chat_font_size_combo.setCurrentIndex(index)
+
+        def apply_font_size():
+            if not isinstance(chat_edit, _QtWidgets.QTextEdit):
+                return
+            size = chat_font_size_combo.currentData()
+            try:
+                point_size = int(size)
+            except Exception:
+                point_size = 12
+            font = _QtGui.QFont(chat_edit.font())
+            font.setPointSize(max(6, point_size))
+            chat_edit.setFont(font)
+
+        chat_font_size_combo.currentIndexChanged.connect(lambda _index: apply_font_size())
+        apply_font_size()
+
+    if chat_edit_mode_button is not None and hasattr(chat_edit_mode_button, "clicked"):
+        chat_edit_mode_button.clicked.connect(
+            lambda: (
+                state.__setitem__("chat_edit_snapshot", chat_edit.toPlainText() if chat_edit is not None else ""),
+                set_chat_editing(True),
+            )
+        )
+    if chat_apply_edit_button is not None and hasattr(chat_apply_edit_button, "clicked"):
+        chat_apply_edit_button.clicked.connect(lambda: set_chat_editing(False))
+    if chat_cancel_edit_button is not None and hasattr(chat_cancel_edit_button, "clicked"):
+        chat_cancel_edit_button.clicked.connect(
+            lambda: (
+                chat_edit.setPlainText(state["chat_edit_snapshot"]) if chat_edit is not None else None,
+                set_chat_editing(False),
+            )
+        )
+
+    for button in (quick_save_button, quick_load_button):
+        if button is not None:
+            button.setEnabled(False)
+            button.setToolTip("Disabled in the main.ui shell preview because file/session operations are deferred.")
+
+    set_button_text(console_autoscroll_button, "Autoscroll", state["console_autoscroll"])
+    set_button_text(chat_autoscroll_button, "Autoscroll", state["chat_autoscroll"])
+    set_chat_editing(False)
+    update_console_status()
+    update_chat_status()
+    return {
+        "bound": [
+            name for name, widget in (
+                ("console_clear_button", console_clear_button),
+                ("console_autoscroll_button", console_autoscroll_button),
+                ("chat_clear_button", chat_clear_button),
+                ("chat_autoscroll_button", chat_autoscroll_button),
+                ("chat_font_size_combo", chat_font_size_combo),
+                ("chat_edit_mode_button", chat_edit_mode_button),
+                ("chat_apply_edit_button", chat_apply_edit_button),
+                ("chat_cancel_edit_button", chat_cancel_edit_button),
+            ) if widget is not None
+        ],
+        "deferred": ["chat_quick_save_button", "chat_quick_load_button"],
+    }
 
 
 def _read_ui_shell_session_snapshot():
@@ -789,11 +987,17 @@ def _ui_shell_static_addon_comparison(ui_path, report, live_mount_report):
         static_norms = {_ui_shell_norm_label(title) for title in static_titles}
         live_titles = [str(tab.get("title") or "").strip() for tab in live_target_tabs if str(tab.get("title") or "").strip()]
         live_norms = {_ui_shell_norm_label(title) for title in live_titles}
+        replaced_norms = {
+            _ui_shell_norm_label(str(tab.get("title") or "").strip())
+            for tab in live_target_tabs
+            if tab.get("replaced_static_placeholder") and str(tab.get("title") or "").strip()
+        }
         manifest_names = [str(row.get("name") or row.get("id") or "").strip() for row in addon_rows]
         manifest_norms = {_ui_shell_norm_label(name) for name in manifest_names}
         duplicate_candidates = [
             title for title in static_titles
-            if _ui_shell_norm_label(title) in live_norms or _ui_shell_norm_label(title) in manifest_norms
+            if _ui_shell_norm_label(title) not in replaced_norms
+            and (_ui_shell_norm_label(title) in live_norms or _ui_shell_norm_label(title) in manifest_norms)
         ]
         placeholder_only = [
             str(row.get("name") or row.get("id") or "").strip()
@@ -910,6 +1114,332 @@ class _UiShellChatProviderRegistry:
         return ""
 
 
+class _UiShellHotkeyService:
+    """Read-only shell hotkey service: expose bindings without mutating runtime state."""
+
+    def list_bindings(self):
+        try:
+            import engine as _engine
+
+            entries = [
+                {
+                    "action": "push_to_talk",
+                    "label": str(_engine.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
+                    "binding": str(_engine.get_push_to_talk_hotkey() or ""),
+                    "default_binding": str(_engine.DEFAULT_PUSH_TO_TALK_HOTKEY),
+                    "category": "input",
+                    "scope": "global",
+                    "description": "Read-only shell preview of the Push-to-Talk binding.",
+                }
+            ]
+            manual_bindings = _engine.get_manual_action_hotkeys()
+            for action, default_binding in _engine.DEFAULT_MANUAL_ACTION_HOTKEYS.items():
+                entries.append(
+                    {
+                        "action": action,
+                        "label": str(_engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "binding": str(manual_bindings.get(action, "") or ""),
+                        "default_binding": str(default_binding or ""),
+                        "category": "manual_controls",
+                        "scope": "global_and_window",
+                        "description": "Read-only shell preview of a manual control binding.",
+                    }
+                )
+            ui_bindings = _engine.get_ui_action_hotkeys()
+            for action, default_binding in _engine.DEFAULT_UI_ACTION_HOTKEYS.items():
+                entries.append(
+                    {
+                        "action": action,
+                        "label": str(_engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "binding": str(ui_bindings.get(action, "") or ""),
+                        "default_binding": str(default_binding or ""),
+                        "category": "ui_actions",
+                        "scope": "window",
+                        "description": "Read-only shell preview of a focused-window shortcut.",
+                    }
+                )
+            return entries
+        except Exception:
+            return []
+
+    def set_binding(self, action, binding):
+        action_key = str(action or "").strip()
+        for entry in self.list_bindings():
+            if str(entry.get("action", "") or "") == action_key:
+                return str(entry.get("binding", "") or "")
+        return ""
+
+    def reset_defaults(self):
+        return self.list_bindings()
+
+
+class _UiShellShellService:
+    """Shell-preview service: allow addon UI refresh notifications without saving state."""
+
+    def open_local_path(self, path):
+        return False
+
+    def notify_settings_changed(self):
+        return None
+
+
+class _UiShellVisualReplyService:
+    """Shell-only visual reply service: render settings UI without image/runtime side effects."""
+
+    _THEME_PRESETS = (
+        {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
+        {"id": "cartoon", "label": "Cartoon", "prompt": "cartoon illustration, bold shapes, clean outlines"},
+        {"id": "retro", "label": "Retro", "prompt": "retro halftone print texture, vintage color palette"},
+        {"id": "cyberpunk", "label": "Cyberpunk", "prompt": "neon atmosphere, vivid contrast, futuristic detail"},
+        {"id": "anime", "label": "Anime", "prompt": "anime key art, expressive characters, dynamic framing"},
+        {"id": "storybook", "label": "Storybook", "prompt": "illustrated fantasy look, painterly storybook texture"},
+    )
+
+    def __init__(self, window):
+        self._window = window
+        self._state = self._initial_state()
+        self._hint_label = None
+        self._settings_widgets = {}
+        self._panel = None
+
+    def _initial_state(self):
+        session = _read_ui_shell_session_snapshot()
+        state = {
+            "visual_reply_mode": str(session.get("visual_reply_mode", "auto") or "auto"),
+            "visual_reply_provider": str(session.get("visual_reply_provider", "openai") or "openai"),
+            "visual_reply_size": str(session.get("visual_reply_size", "1024x1024") or "1024x1024"),
+            "visual_reply_model": str(session.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_auto_show_dock": bool(session.get("visual_reply_auto_show_dock", True)),
+            "visual_reply_story_mode": bool(session.get("visual_reply_story_mode", False)),
+            "visual_reply_story_max_images": session.get("visual_reply_story_max_images", 3),
+            "visual_reply_story_continuity_strength": session.get("visual_reply_story_continuity_strength", 0.8),
+            "visual_reply_story_theme_prompts": dict(session.get("visual_reply_story_theme_prompts") or {}),
+            "visual_reply_story_theme_enabled": list(session.get("visual_reply_story_theme_enabled") or []),
+            "visual_reply_master_style_prompt": str(session.get("visual_reply_master_style_prompt", "") or ""),
+            "visual_reply_master_prompt_safe": bool(session.get("visual_reply_master_prompt_safe", False)),
+            "visual_reply_master_prompt_no_speech_bubbles": bool(session.get("visual_reply_master_prompt_no_speech_bubbles", False)),
+        }
+        if str(state["visual_reply_provider"]).strip().lower() not in {"openai", "xai"}:
+            state["visual_reply_provider"] = "openai"
+        return state
+
+    def _theme_prompts(self):
+        raw = dict(self._state.get("visual_reply_story_theme_prompts") or {})
+        prompts = {}
+        for theme in self._THEME_PRESETS:
+            theme_id = str(theme.get("id") or "").strip().lower()
+            if theme_id:
+                prompts[theme_id] = str(raw.get(theme_id, theme.get("prompt", "")) or theme.get("prompt", "")).strip()
+        return prompts
+
+    def _theme_enabled(self):
+        raw = self._state.get("visual_reply_story_theme_enabled", [])
+        if isinstance(raw, (str, bytes)):
+            raw = [raw]
+        if not isinstance(raw, (list, tuple, set)):
+            raw = []
+        valid = {str(theme.get("id") or "").strip().lower() for theme in self._THEME_PRESETS}
+        enabled = []
+        seen = set()
+        for item in raw:
+            theme_id = str(item or "").strip().lower()
+            if theme_id in valid and theme_id not in seen:
+                enabled.append(theme_id)
+                seen.add(theme_id)
+        return enabled
+
+    def _story_continuity_strength(self):
+        try:
+            value = float(self._state.get("visual_reply_story_continuity_strength", 0.8) or 0.8)
+        except Exception:
+            value = 0.8
+        if value > 1.0:
+            value = value / 100.0
+        return max(0.0, min(1.0, value))
+
+    def _story_max_images(self):
+        try:
+            return max(1, int(self._state.get("visual_reply_story_max_images", 3) or 3))
+        except Exception:
+            return 3
+
+    def settings_snapshot(self):
+        prompts = self._theme_prompts()
+        enabled = set(self._theme_enabled())
+        return {
+            "mode_value": str(self._state.get("visual_reply_mode", "auto") or "auto"),
+            "provider_value": str(self._state.get("visual_reply_provider", "openai") or "openai"),
+            "size_value": str(self._state.get("visual_reply_size", "1024x1024") or "1024x1024"),
+            "model_name": str(self._state.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "auto_show": bool(self._state.get("visual_reply_auto_show_dock", True)),
+            "master_prompt_safe": bool(self._state.get("visual_reply_master_prompt_safe", False)),
+            "master_prompt_no_speech_bubbles": bool(self._state.get("visual_reply_master_prompt_no_speech_bubbles", False)),
+            "story_mode": bool(self._state.get("visual_reply_story_mode", False)),
+            "story_max_images": self._story_max_images(),
+            "story_continuity_strength": self._story_continuity_strength(),
+            "story_themes": [
+                {
+                    "id": str(theme.get("id") or "").strip().lower(),
+                    "label": str(theme.get("label") or theme.get("id") or "").strip(),
+                    "prompt": prompts.get(str(theme.get("id") or "").strip().lower(), ""),
+                    "enabled": str(theme.get("id") or "").strip().lower() in enabled,
+                }
+                for theme in self._THEME_PRESETS
+            ],
+        }
+
+    def mode_labels(self):
+        return ["Off", "Auto"]
+
+    def provider_labels(self):
+        return ["OpenAI", "xAI / Grok"]
+
+    def size_labels(self):
+        return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def mode_label_from_value(self, value):
+        return "Off" if str(value or "").strip().lower() == "off" else "Auto"
+
+    def provider_label_from_value(self, value):
+        provider = str(value or "").strip().lower()
+        return "xAI / Grok" if provider == "xai" else "OpenAI"
+
+    def size_label_from_value(self, value):
+        size = self.normalize_size(value)
+        return "Auto" if size == "auto" else size
+
+    def normalize_size(self, value):
+        size = str(value or "1024x1024").strip().lower().replace(" ", "")
+        if size in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
+            return size
+        if size in {"1024 1024", "1024*1024"}:
+            return "1024x1024"
+        return "1024x1024"
+
+    def attach_settings_widgets(self, **widgets):
+        self._settings_widgets = dict(widgets or {})
+        self._hint_label = widgets.get("hint_label")
+        for widget in widgets.values():
+            if widget is not None and hasattr(widget, "setToolTip"):
+                widget.setToolTip("Shell-local Visual Reply preview. Changes are not saved and no image generation is started.")
+
+    def _set_state(self, key, value):
+        self._state[str(key)] = value
+        self.refresh_hint()
+
+    def apply_mode(self, choice):
+        self._set_state("visual_reply_mode", "off" if str(choice or "").strip().lower() == "off" else "auto")
+
+    def apply_provider(self, choice):
+        label = str(choice or "").strip().lower()
+        self._set_state("visual_reply_provider", "xai" if "grok" in label or "xai" in label else "openai")
+
+    def apply_size(self, choice):
+        self._set_state("visual_reply_size", self.normalize_size(choice))
+
+    def apply_model(self):
+        edit = self._settings_widgets.get("model_edit")
+        text = str(edit.text() if edit is not None and hasattr(edit, "text") else "").strip()
+        self._set_state("visual_reply_model", text or "gpt-image-1")
+
+    def apply_auto_show(self, checked):
+        self._set_state("visual_reply_auto_show_dock", bool(checked))
+
+    def apply_story_mode(self, checked):
+        self._set_state("visual_reply_story_mode", bool(checked))
+
+    def apply_story_max_images(self, value):
+        try:
+            self._set_state("visual_reply_story_max_images", max(1, int(value or 1)))
+        except Exception:
+            self._set_state("visual_reply_story_max_images", 3)
+
+    def apply_story_continuity_strength(self, value):
+        try:
+            strength = max(0.0, min(1.0, float(value or 0) / 100.0))
+        except Exception:
+            strength = 0.8
+        self._set_state("visual_reply_story_continuity_strength", strength)
+
+    def apply_story_theme_toggle(self, theme_id, checked):
+        enabled = set(self._theme_enabled())
+        theme_id = str(theme_id or "").strip().lower()
+        if checked:
+            enabled.add(theme_id)
+        else:
+            enabled.discard(theme_id)
+        self._set_state("visual_reply_story_theme_enabled", sorted(enabled))
+
+    def apply_story_theme_text(self, theme_id, text):
+        prompts = self._theme_prompts()
+        theme_id = str(theme_id or "").strip().lower()
+        if theme_id:
+            prompts[theme_id] = str(text or "").strip()
+        self._set_state("visual_reply_story_theme_prompts", prompts)
+
+    def refresh_hint(self):
+        label = self._hint_label
+        if label is None or not hasattr(label, "setText"):
+            return
+        snapshot = self.settings_snapshot()
+        mode = str(snapshot.get("mode_value") or "auto")
+        provider = self.provider_label_from_value(snapshot.get("provider_value"))
+        model = str(snapshot.get("model_name") or "gpt-image-1")
+        label.setText(
+            "Shell-local Visual Reply settings preview. "
+            f"Mode: {mode}; Provider: {provider}; Model: {model}. "
+            "No image generation, dock replacement, or session save is connected."
+        )
+
+    def replace_panel(self, panel):
+        self._panel = panel
+        try:
+            timer = getattr(panel, "poll_timer", None)
+            if timer is not None and hasattr(timer, "stop"):
+                timer.stop()
+        except Exception:
+            pass
+        try:
+            panel.setParent(self._window)
+            panel.hide()
+        except Exception:
+            pass
+        for name in (
+            "prev_button",
+            "load_button",
+            "next_button",
+            "load_story_button",
+            "use_style_button",
+            "caption_button",
+            "delete_button",
+            "clear_button",
+            "delete_all_button",
+        ):
+            try:
+                button = getattr(panel, name, None)
+                if button is not None:
+                    button.setEnabled(False)
+                    button.setToolTip("Disabled in the main.ui shell preview; Visual Reply dock/image history remains Designer-owned.")
+            except Exception:
+                pass
+        return False
+
+    def show(self):
+        return None
+
+    def hide(self):
+        return None
+
+    def clear(self, *args, **kwargs):
+        return False
+
+    def set_loading(self, *args, **kwargs):
+        return False
+
+    def show_image(self, *args, **kwargs):
+        return False
+
+
 def _ui_shell_chat_provider_rows_text(providers):
     providers = list(providers or [])
     if not providers:
@@ -972,6 +1502,67 @@ def _ui_shell_add_placeholder_tab(tab_widget, title, body_text):
     if hasattr(tab_widget, "setVisible"):
         tab_widget.setVisible(True)
     return True
+
+
+def _ui_shell_static_addon_placeholder_name(addon_id):
+    addon_id = str(addon_id or "").strip().lower()
+    if addon_id == "nc.chat_session_player":
+        return "chat_player_tab"
+    if addon_id == "nc.hotkeys":
+        return "hotkeys_tab"
+    if addon_id == "nc.visual_reply":
+        return "host_settings_visuals_tab"
+    if addon_id == "nc.chatterbox_tts":
+        return "tts_chatterbox_tab"
+    if addon_id == "nc.pockettts":
+        return "tts_pockettts_tab"
+    return ""
+
+
+def _ui_shell_replace_static_addon_placeholder(tab_widget, placeholder_name, widget, title, tooltip=""):
+    if tab_widget is None or widget is None or not placeholder_name:
+        return -1
+    from PySide6 import QtWidgets as _QtWidgets
+
+    placeholder = tab_widget.findChild(_QtWidgets.QWidget, str(placeholder_name))
+    if placeholder is None:
+        return -1
+    index = tab_widget.indexOf(placeholder)
+    if index < 0:
+        return -1
+    tab_icon = tab_widget.tabIcon(index)
+    tab_text = str(tab_widget.tabText(index) or "").strip() or str(title or "").strip()
+    tab_tooltip = str(tab_widget.tabToolTip(index) or "").strip() or str(tooltip or "").strip()
+    tab_widget.removeTab(index)
+    placeholder.setParent(None)
+    placeholder.deleteLater()
+    new_index = tab_widget.insertTab(index, widget, tab_text)
+    if not tab_icon.isNull():
+        tab_widget.setTabIcon(new_index, tab_icon)
+    if tab_tooltip:
+        tab_widget.setTabToolTip(new_index, tab_tooltip)
+    return new_index
+
+
+def _ui_shell_prepare_live_addon_widget(addon_id, widget):
+    if str(addon_id or "").strip().lower() != "nc.hotkeys" or widget is None:
+        return
+    from PySide6 import QtWidgets as _QtWidgets
+
+    disabled_actions = {
+        "Record Binding",
+        "Apply Binding",
+        "Clear",
+        "Reset To Default",
+        "Reset All Defaults",
+    }
+    for button in widget.findChildren(_QtWidgets.QPushButton):
+        if str(button.text() or "").strip() in disabled_actions:
+            button.setEnabled(False)
+            button.setToolTip("Disabled in the main.ui shell preview; the real Python-built UI owns hotkey mutation and capture.")
+    for edit in widget.findChildren(_QtWidgets.QLineEdit):
+        edit.setReadOnly(True)
+        edit.setToolTip("Read-only in the main.ui shell preview.")
 
 
 def _ui_shell_contribution_title(contribution, manifest):
@@ -1046,6 +1637,8 @@ def _ui_shell_mount_live_addons(window, report):
     from core.addons.context import AddonContext, AddonEventBus, AddonServiceRegistry
     from core.addons.manifest import AddonManifest
 
+    _ui_shell_enable_stdio_unicode_fallback()
+
     mounted = []
     mounted_ids = []
     failures = []
@@ -1058,6 +1651,15 @@ def _ui_shell_mount_live_addons(window, report):
     chat_provider_registry = _UiShellChatProviderRegistry()
     host_services = {
         "qt.chat_providers": chat_provider_registry,
+        "qt.hotkeys": _UiShellHotkeyService(),
+        "qt.shell": _UiShellShellService(),
+        "qt.visual_reply": _UiShellVisualReplyService(window),
+        "qt.chatterbox_tts_shell_preview": True,
+        "qt.pockettts_shell_preview": True,
+        "qt.clipboard_source_shell_preview": True,
+        "qt.gemini_tts_preview_shell_preview": True,
+        "qt.loop_authoring_shell_preview": True,
+        "qt.shell_session_snapshot": _read_ui_shell_session_snapshot,
     }
 
     rows_by_id = {
@@ -1104,15 +1706,32 @@ def _ui_shell_mount_live_addons(window, report):
                 widget = contribution.factory(context)
                 if not isinstance(widget, _QtWidgets.QWidget):
                     raise RuntimeError(f"Tab factory for {contribution.id} did not return a QWidget.")
+                _ui_shell_prepare_live_addon_widget(addon_id, widget)
                 title = _ui_shell_contribution_title(contribution, manifest)
-                tab_widget.addTab(widget, title)
-                tab_index = tab_widget.indexOf(widget)
+                placeholder_name = _ui_shell_static_addon_placeholder_name(addon_id)
+                tab_index = _ui_shell_replace_static_addon_placeholder(
+                    tab_widget,
+                    placeholder_name,
+                    widget,
+                    title,
+                    str(contribution.tooltip or ""),
+                )
+                replaced_static_placeholder = tab_index >= 0
+                if tab_index < 0:
+                    tab_widget.addTab(widget, title)
+                    tab_index = tab_widget.indexOf(widget)
                 if tab_index >= 0 and contribution.tooltip:
                     tab_widget.setTabToolTip(tab_index, str(contribution.tooltip or ""))
                 if hasattr(tab_widget, "setVisible"):
                     tab_widget.setVisible(True)
                 added_tabs.append(f"{target}/{title}")
-                live_tabs.append({"addon_id": addon_id, "target": target, "title": title})
+                live_tabs.append({
+                    "addon_id": addon_id,
+                    "target": target,
+                    "title": title,
+                    "replaced_static_placeholder": replaced_static_placeholder,
+                    "placeholder_name": placeholder_name,
+                })
             added_provider_summaries = [
                 provider
                 for provider in chat_provider_registry.list_providers()
@@ -1396,6 +2015,7 @@ def run_ui_shell_preview(raw_path):
         window.setTabPosition(_QtCore.Qt.AllDockWidgetAreas, _QtWidgets.QTabWidget.North)
     summary = _apply_ui_shell_preview_status(window)
     config_summary = _apply_ui_shell_read_only_config(window)
+    console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     placeholder_targets = _apply_ui_shell_addon_placeholders(
@@ -1416,6 +2036,14 @@ def run_ui_shell_preview(raw_path):
         f"[UI Shell] Read-only session config: "
         f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
         f"({len(config_summary['applied'])} widget(s) populated)"
+    )
+    print(
+        "[UI Shell] Console/chat shell-local controls: "
+        + ", ".join(console_chat_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Console/chat deferred controls: "
+        + ", ".join(console_chat_summary.get("deferred") or ["none"])
     )
     print(
         f"[UI Shell] Addon manifests discovered: "

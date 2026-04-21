@@ -22,9 +22,12 @@ class Addon(BaseAddon):
         self.last_auto_attached_image_hash = ""
         self.last_delivery_status = "No clipboard image captured yet."
         self._tab_refreshers = []
+        self._shell_preview = bool(context.get_service("qt.clipboard_source_shell_preview"))
+        if self._shell_preview:
+            self.last_delivery_status = "Shell preview: clipboard monitoring, capture, and send actions are disabled."
 
         sensory_service = context.get_service("qt.sensory")
-        if sensory_service is not None:
+        if sensory_service is not None and not self._shell_preview:
             sensory_service.register_provider(
                 provider_id="clipboard",
                 label="Clipboard",
@@ -50,11 +53,13 @@ class Addon(BaseAddon):
             factory=self._build_tab,
         )
 
-        clipboard = QtWidgets.QApplication.clipboard()
-        self._clipboard = clipboard
-        if clipboard is not None:
-            clipboard.dataChanged.connect(self._on_clipboard_changed)
-        self._capture_current_clipboard_image(trigger_actions=False, allow_existing=True)
+        self._clipboard = None
+        if not self._shell_preview:
+            clipboard = QtWidgets.QApplication.clipboard()
+            self._clipboard = clipboard
+            if clipboard is not None:
+                clipboard.dataChanged.connect(self._on_clipboard_changed)
+            self._capture_current_clipboard_image(trigger_actions=False, allow_existing=True)
         context.logger.info("Clipboard source addon initialized.")
 
     def shutdown(self):
@@ -70,7 +75,8 @@ class Addon(BaseAddon):
                 sensory_service.unregister_provider("clipboard")
             except Exception:
                 pass
-        self._clear_pending_next_user_turn()
+        if not getattr(self, "_shell_preview", False):
+            self._clear_pending_next_user_turn()
         self._tab_refreshers = []
         return None
 
@@ -91,6 +97,10 @@ class Addon(BaseAddon):
         self.hidden_loop_enabled = bool(payload.get("clipboard_source_hidden_loop_enabled", self.hidden_loop_enabled))
         if self.auto_send_immediately and self.hidden_loop_enabled:
             self.hidden_loop_enabled = False
+        if getattr(self, "_shell_preview", False):
+            self.last_delivery_status = "Shell preview: clipboard source settings are display-only."
+            self._notify_tab_refreshers()
+            return None
         if self.auto_attach_next_user_turn and self._source_is_enabled() and self._has_latest_image():
             self._arm_latest_for_next_user_turn(silent_missing=True, require_new_image=True, mark_auto_attach=True)
         elif not self._source_is_enabled():
@@ -153,6 +163,11 @@ class Addon(BaseAddon):
         layout.addWidget(status_label)
         layout.addStretch(1)
 
+        if getattr(self, "_shell_preview", False):
+            for control in (attach_checkbox, send_now_checkbox, hidden_loop_checkbox, send_button, arm_button, clear_button):
+                control.setEnabled(False)
+                control.setToolTip("Disabled in the main.ui shell preview; clipboard monitoring and runtime delivery are not started.")
+
         def refresh_from_state():
             for checkbox, checked in [
                 (attach_checkbox, self.auto_attach_next_user_turn),
@@ -204,6 +219,8 @@ class Addon(BaseAddon):
         return target
 
     def _clipboard_png_bytes(self):
+        if getattr(self, "_shell_preview", False):
+            return b""
         clipboard = getattr(self, "_clipboard", None) or QtWidgets.QApplication.clipboard()
         if clipboard is None:
             return b""
@@ -223,6 +240,8 @@ class Addon(BaseAddon):
         return payload
 
     def _capture_current_clipboard_image(self, *, trigger_actions: bool, allow_existing: bool = False) -> bool:
+        if getattr(self, "_shell_preview", False):
+            return False
         payload = self._clipboard_png_bytes()
         if not payload:
             return False
@@ -281,6 +300,8 @@ class Addon(BaseAddon):
         return engine
 
     def _source_is_enabled(self) -> bool:
+        if getattr(self, "_shell_preview", False):
+            return False
         try:
             raw_value = self._engine_module().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
         except Exception:
@@ -304,6 +325,8 @@ class Addon(BaseAddon):
         return False
 
     def _clear_pending_next_user_turn(self):
+        if getattr(self, "_shell_preview", False):
+            return
         try:
             self._engine_module().clear_pending_user_image_attachment()
         except Exception:
@@ -374,6 +397,10 @@ class Addon(BaseAddon):
         self._notify_tab_refreshers()
 
     def _on_auto_attach_toggled(self, checked):
+        if getattr(self, "_shell_preview", False):
+            self.last_delivery_status = "Shell preview: next-turn clipboard attachment is disabled."
+            self._notify_tab_refreshers()
+            return
         self.auto_attach_next_user_turn = bool(checked)
         if self.auto_attach_next_user_turn:
             if self._source_is_enabled():
@@ -389,6 +416,10 @@ class Addon(BaseAddon):
         self._notify_settings_changed()
 
     def _on_auto_send_toggled(self, checked):
+        if getattr(self, "_shell_preview", False):
+            self.last_delivery_status = "Shell preview: immediate clipboard auto-send is disabled."
+            self._notify_tab_refreshers()
+            return
         self.auto_send_immediately = bool(checked)
         if self.auto_send_immediately and self.hidden_loop_enabled:
             self.hidden_loop_enabled = False
@@ -397,6 +428,10 @@ class Addon(BaseAddon):
         self._notify_settings_changed()
 
     def _on_hidden_loop_toggled(self, checked):
+        if getattr(self, "_shell_preview", False):
+            self.last_delivery_status = "Shell preview: hidden-loop clipboard feed is disabled."
+            self._notify_tab_refreshers()
+            return
         self.hidden_loop_enabled = bool(checked)
         if self.hidden_loop_enabled and self.auto_send_immediately:
             self.auto_send_immediately = False
@@ -435,6 +470,8 @@ class Addon(BaseAddon):
             return "n/a"
 
     def _capture_sensory_snapshot(self, capture_context=None):
+        if getattr(self, "_shell_preview", False):
+            return None
         if not self._source_is_enabled() or not self.hidden_loop_enabled or not self._has_latest_image():
             return None
         is_new = bool(self.latest_image_is_new)
