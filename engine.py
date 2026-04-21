@@ -4934,8 +4934,8 @@ def transition_musetalk_to_idle_after_interrupt(delay=0.35):
     threading.Thread(target=_delayed_idle, daemon=True).start()
 
 
-def shutdown_avatar_engine(unload_tts=True):
-    global avatar_gui, tts_model, tts_backend_name
+def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
+    global avatar_gui, tts_model, tts_backend_name, whisper_model
     stop_playback.set()
     pause_after_chunk.clear()
     playback_paused.clear()
@@ -4948,14 +4948,27 @@ def shutdown_avatar_engine(unload_tts=True):
         finally:
             avatar_gui = None
     if unload_tts and tts_model is not None:
+        model = tts_model
+        tts_model = None
+        tts_backend_name = None
         try:
-            if hasattr(tts_model, "close"):
-                tts_model.close()
+            if hasattr(model, "close"):
+                model.close()
         except Exception as e:
             print(f"⚠️ [TTS] Shutdown error: {e}")
         finally:
-            tts_model = None
-            tts_backend_name = None
+            del model
+    if unload_stt and whisper_model is not None:
+        model = whisper_model
+        whisper_model = None
+        try:
+            closer = getattr(model, "close", None)
+            if callable(closer):
+                closer()
+        except Exception as e:
+            print(f"⚠️ [STT] Shutdown error: {e}")
+        finally:
+            del model
     gc.collect()
     if torch.cuda.is_available():
         try:
@@ -5376,7 +5389,15 @@ def set_seed(seed: int):
 def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
     first_yield_logged = False
     while True:
-        item = text_queue.get()
+        while True:
+            if stop_playback.is_set() or stop_flag.is_set():
+                shared_state.append_musetalk_preview_log("🌊 [Stream] Text queue stopped before sentinel")
+                return
+            try:
+                item = text_queue.get(timeout=0.1)
+                break
+            except queue.Empty:
+                continue
         if item is None:
             shared_state.append_musetalk_preview_log("🌊 [Stream] Text queue received sentinel")
             break
@@ -5521,9 +5542,19 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         print(f"⚠️ Voice file not found: {v_path}. Using default.")
                         v_path = "voices/Hot_16.wav"
                     kwargs["audio_prompt_path"] = v_path
-                    wav = tts_model.generate(sub, **kwargs)
+                    try:
+                        wav = tts_model.generate(sub, **kwargs)
+                    except Exception as e:
+                        if stop_playback.is_set() or stop_flag.is_set():
+                            print(f"⏹️ [TTS] Generation cancelled during shutdown: {e}")
+                            playback_queue.put(None)
+                            return
+                        raise
                     path = os.path.join(output_dir, f"speech_{cnt}_{int(time.time())}.wav")
-                    ta.save(path, wav.cpu(), sample_rate)
+                    wav_to_save = wav.cpu()
+                    ta.save(path, wav_to_save, sample_rate)
+                    del wav_to_save
+                    del wav
                     estimated_duration_seconds = 0.0
                     estimated_frame_count = 0
                     if avatar_mode in {"musetalk", "none"}:
@@ -6125,6 +6156,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     )
                     time.sleep(0.01)
                 elif kind in {"vam", "none"}:
+                    delegated_label = "VaM" if kind == "vam" else "None"
                     current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
                     delegated_duration_seconds = max(
                         0.0,
@@ -6153,7 +6185,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         "preview_chunk_id": chunk_result.get("chunk_id"),
                         "preview_frame_index": 0,
                         "preview_source_index": 0,
-                        "avatar_id": "vam",
+                        "avatar_id": kind,
                     })
                     shared_state.update_musetalk_pipeline_chunk(
                         current_sequence,
@@ -6164,7 +6196,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         chunk_id=chunk_result.get("chunk_id"),
                     )
                     print(
-                        f"✅ [VaM] Chunk buffered for delegated playback "
+                        f"✅ [{delegated_label}] Chunk buffered for delegated playback "
                         f"({delegated_duration_seconds:.2f}s, chunk={chunk_result.get('chunk_id')})"
                     )
 
@@ -6382,9 +6414,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
             ctrl.done.set()
 
 
-    threading.Thread(target=generator_worker, daemon=True).start()
-    threading.Thread(target=expression_preprocessor, daemon=True).start()
-    threading.Thread(target=playback_worker, daemon=True).start()
+    threading.Thread(target=generator_worker, daemon=True, name="nc-tts-generator").start()
+    threading.Thread(target=expression_preprocessor, daemon=True, name="nc-tts-preprocessor").start()
+    threading.Thread(target=playback_worker, daemon=True, name="nc-tts-playback").start()
     return ctrl
 
 

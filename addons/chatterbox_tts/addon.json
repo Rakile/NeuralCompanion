@@ -1,0 +1,13 @@
+{
+  "id": "nc.chatterbox_tts",
+  "name": "Chatterbox TTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Built-in Chatterbox TTS backend exposed as an addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "enabled": true
+}

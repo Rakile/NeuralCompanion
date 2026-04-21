@@ -16,6 +16,866 @@ import time
 import warnings
 from collections import OrderedDict
 from pathlib import Path
+import xml.etree.ElementTree as ET
+
+
+UI_VALIDATION_REQUIRED_GROUPS = (
+    (
+        "Core Shell",
+        (
+            ("CompanionQtMainWindow", "QMainWindow"),
+            ("workspace_central", "QWidget"),
+            ("SystemShapingDock", "QDockWidget"),
+            ("WorkspaceTabsDock", "QDockWidget"),
+            ("OperationalViewDock", "QDockWidget"),
+            ("PreviewDock", "QDockWidget"),
+            ("VisualReplyDock", "QDockWidget"),
+        ),
+    ),
+    (
+        "Stable Tab Mounts",
+        (
+            ("host_settings_tabs", "QTabWidget"),
+            ("left_tabs", "QTabWidget"),
+            ("right_tabs", "QTabWidget"),
+            ("musetalk_tabs", "QTabWidget"),
+            ("sensory_feedback_tabs", "QTabWidget"),
+            ("vseeface_tabs", "QTabWidget"),
+        ),
+    ),
+    (
+        "Dynamic Mount Points",
+        (
+            ("left_tabs", "QTabWidget"),
+            ("host_settings_tabs", "QTabWidget"),
+            ("right_tabs", "QTabWidget"),
+            ("musetalk_tabs", "QTabWidget"),
+            ("tts_runtime_addon_tabs", "QTabWidget"),
+            ("sensory_feedback_tabs", "QTabWidget"),
+            ("sensory_feedback_sources_widget", "QWidget"),
+            ("chat_provider_fields_widget", "QWidget"),
+            ("chat_provider_generation_fields_widget", "QWidget"),
+            ("chat_provider_fields_layout", "QFormLayout"),
+            ("chat_provider_generation_fields_layout", "QFormLayout"),
+        ),
+    ),
+    (
+        "Stable Runtime Controls",
+        (
+            ("listen_diode", "QFrame"),
+            ("mic_diode", "QFrame"),
+            ("mic_status_label", "QLabel"),
+            ("audio_input_device_combo", "QComboBox"),
+            ("audio_output_device_combo", "QComboBox"),
+            ("engine_combo", "QComboBox"),
+            ("input_mode_combo", "QComboBox"),
+            ("input_role_combo", "QComboBox"),
+            ("stream_mode_combo", "QComboBox"),
+            ("tts_backend_combo", "QComboBox"),
+            ("musetalk_vram_combo", "QComboBox"),
+            ("musetalk_loop_fade_spin", "QSpinBox"),
+            ("musetalk_avatar_pack_combo", "QComboBox"),
+            ("preset_combo", "QComboBox"),
+            ("chat_provider_combo", "QComboBox"),
+            ("model_combo", "QComboBox"),
+            ("visual_reply_mode_combo", "QComboBox"),
+            ("visual_reply_provider_combo", "QComboBox"),
+            ("visual_reply_size_combo", "QComboBox"),
+            ("visual_reply_model_edit", "QLineEdit"),
+            ("sensory_feedback_source_combo", "QComboBox"),
+            ("sensory_feedback_sources_widget", "QWidget"),
+            ("console_status", "QLabel"),
+            ("console_autoscroll_button", "QPushButton"),
+            ("console_clear_button", "QPushButton"),
+            ("console_edit", "QPlainTextEdit"),
+            ("chat_status", "QLabel"),
+            ("chat_font_size_combo", "QComboBox"),
+            ("chat_quick_save_button", "QPushButton"),
+            ("chat_quick_load_button", "QPushButton"),
+            ("chat_edit_mode_button", "QPushButton"),
+            ("chat_apply_edit_button", "QPushButton"),
+            ("chat_cancel_edit_button", "QPushButton"),
+            ("chat_autoscroll_button", "QPushButton"),
+            ("chat_clear_button", "QPushButton"),
+            ("chat_edit", "QTextEdit"),
+            ("btn_regenerate", "QPushButton"),
+            ("btn_retry", "QPushButton"),
+            ("btn_pause", "QPushButton"),
+            ("btn_skip", "QPushButton"),
+            ("btn_skip_user", "QPushButton"),
+            ("btn_start_engine", "QPushButton"),
+            ("btn_stop_engine", "QPushButton"),
+            ("btn_reset_chat", "QPushButton"),
+        ),
+    ),
+)
+
+UI_VALIDATION_DYNAMIC_OWNED_PREFIXES = (
+    "audio_story_",
+)
+
+UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
+    "story_mode_button",
+    "visual_master_prompt_label",
+    "visual_master_prompt_no_speech_bubbles_button",
+    "visual_master_prompt_safe_button",
+    "visual_master_prompt_text",
+    "visual_reply_caption_button",
+    "visual_reply_clear_button",
+    "visual_reply_delete_all_button",
+    "visual_reply_delete_button",
+    "visual_reply_frame",
+    "visual_reply_image_label",
+    "visual_reply_load_button",
+    "visual_reply_load_current_story_button",
+    "visual_reply_next_button",
+    "visual_reply_panel",
+    "visual_reply_previous_button",
+    "visual_reply_status",
+    "visual_reply_storage_label",
+    "visual_reply_story_max_images_spin",
+    "visual_reply_use_current_style_button",
+    "theme_anime",
+    "theme_anime_edit",
+    "theme_cartoon",
+    "theme_cartoon_edit",
+    "theme_cyberpunk",
+    "theme_cyberpunk_edit",
+    "theme_realistic",
+    "theme_realistic_edit",
+    "theme_retro",
+    "theme_retro_edit",
+    "theme_storybook",
+    "theme_storybook_edit",
+}
+
+
+def _resolve_ui_path(raw_path):
+    ui_path = Path(str(raw_path or "").strip() or "main.ui")
+    return ui_path if ui_path.is_absolute() else (Path(__file__).resolve().parent / ui_path)
+
+
+def _collect_ui_object_classes(ui_path):
+    tree = ET.parse(ui_path)
+    objects = {}
+    duplicates = []
+    seen = {}
+    for element in tree.getroot().iter():
+        if element.tag not in {"widget", "layout", "action"}:
+            continue
+        object_name = str(element.attrib.get("name") or "").strip()
+        if not object_name:
+            continue
+        object_class = str(element.attrib.get("class") or element.tag or "").strip()
+        if object_name in seen:
+            duplicates.append((object_name, seen[object_name], object_class))
+        else:
+            seen[object_name] = object_class
+        objects[object_name] = object_class
+    return objects, duplicates
+
+
+def validate_ui_file(raw_path):
+    ui_path = _resolve_ui_path(raw_path)
+    print(f"[UI Validation] File: {ui_path}")
+    if not ui_path.exists():
+        print("[UI Validation] ERROR: UI file not found.")
+        return 2
+    try:
+        objects, duplicates = _collect_ui_object_classes(ui_path)
+    except Exception as exc:
+        print(f"[UI Validation] ERROR: Could not parse UI file: {exc}")
+        return 2
+
+    missing = []
+    mismatched = []
+    required_names = {
+        object_name
+        for _group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS
+        for object_name, _expected_class in requirements
+    }
+    print(f"[UI Validation] Object names: {len(objects)}")
+    if duplicates:
+        print("[UI Validation] Duplicate widget/layout/action objectNames:")
+        for object_name, first_class, duplicate_class in duplicates:
+            print(f"  - {object_name}: {first_class} and {duplicate_class}")
+    else:
+        print("[UI Validation] Duplicate widget/layout/action objectNames: none")
+
+    for group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS:
+        group_missing = []
+        group_mismatched = []
+        for object_name, expected_class in requirements:
+            actual_class = objects.get(object_name)
+            if actual_class is None:
+                group_missing.append((object_name, expected_class))
+                missing.append((group_name, object_name, expected_class))
+            elif actual_class != expected_class:
+                group_mismatched.append((object_name, expected_class, actual_class))
+                mismatched.append((group_name, object_name, expected_class, actual_class))
+        print(f"[UI Validation] {group_name}:")
+        if not group_missing and not group_mismatched:
+            print("  OK")
+        for object_name, expected_class in group_missing:
+            print(f"  MISSING {object_name} ({expected_class})")
+        for object_name, expected_class, actual_class in group_mismatched:
+            print(f"  TYPE {object_name}: expected {expected_class}, found {actual_class}")
+
+    dynamic_owned = []
+    for object_name in sorted(objects):
+        if object_name in required_names:
+            continue
+        if object_name in UI_VALIDATION_DYNAMIC_OWNED_NAMES or any(
+            object_name.startswith(prefix) for prefix in UI_VALIDATION_DYNAMIC_OWNED_PREFIXES
+        ):
+            dynamic_owned.append((object_name, objects[object_name]))
+    print("[UI Validation] Dynamic addon-owned UI present in main.ui; keep as preview/static shell until later binding:")
+    if dynamic_owned:
+        for object_name, object_class in dynamic_owned:
+            print(f"  - {object_name} ({object_class})")
+    else:
+        print("  none")
+
+    if missing or mismatched or duplicates:
+        print("[UI Validation] Result: NOT READY for safe real-logic binding.")
+    else:
+        print("[UI Validation] Result: READY for the checked Phase 1 binding prerequisites.")
+    return 0
+
+
+if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--validate-ui":
+    ui_arg = sys.argv[2] if len(sys.argv) >= 3 else "main.ui"
+    sys.exit(validate_ui_file(ui_arg))
+
+
+def _load_ui_shell_for_smoke(ui_path):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtUiTools as _QtUiTools
+    from PySide6 import QtWidgets as _QtWidgets
+
+    app = _QtWidgets.QApplication.instance() or _QtWidgets.QApplication(sys.argv)
+    ui_file = _QtCore.QFile(str(ui_path))
+    if not ui_file.open(_QtCore.QIODevice.ReadOnly):
+        raise RuntimeError(f"Could not open UI file: {ui_path}")
+    try:
+        window = _QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    if window is None:
+        raise RuntimeError(f"Qt Designer UI did not produce a window: {ui_path}")
+    return app, window
+
+
+def _ui_shell_find_object(window, object_name):
+    from PySide6 import QtCore as _QtCore
+
+    if str(window.objectName() or "") == object_name:
+        return window
+    return window.findChild(_QtCore.QObject, object_name)
+
+
+def _ui_shell_class_matches(obj, expected_class):
+    if obj is None:
+        return False
+    return any(cls.__name__ == expected_class for cls in obj.__class__.mro())
+
+
+def run_ui_shell_smoke(raw_path):
+    ui_path = _resolve_ui_path(raw_path)
+    print(f"[UI Shell Smoke] File: {ui_path}")
+    if not ui_path.exists():
+        print("[UI Shell Smoke] ERROR: UI file not found.")
+        return 2
+    app = None
+    window = None
+    try:
+        app, window = _load_ui_shell_for_smoke(ui_path)
+    except Exception as exc:
+        print(f"[UI Shell Smoke] ERROR: Could not load Designer shell: {exc}")
+        return 2
+
+    missing = []
+    mismatched = []
+    bound_total = 0
+    for group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS:
+        group_bound = 0
+        group_missing = []
+        group_mismatched = []
+        for object_name, expected_class in requirements:
+            obj = _ui_shell_find_object(window, object_name)
+            if obj is None:
+                group_missing.append((object_name, expected_class))
+                missing.append((group_name, object_name, expected_class))
+                continue
+            if not _ui_shell_class_matches(obj, expected_class):
+                actual_class = obj.__class__.__name__
+                group_mismatched.append((object_name, expected_class, actual_class))
+                mismatched.append((group_name, object_name, expected_class, actual_class))
+                continue
+            group_bound += 1
+        bound_total += group_bound
+        print(f"[UI Shell Smoke] {group_name}: bound {group_bound}/{len(requirements)}")
+        for object_name, expected_class in group_missing:
+            print(f"  MISSING {object_name} ({expected_class})")
+        for object_name, expected_class, actual_class in group_mismatched:
+            print(f"  TYPE {object_name}: expected {expected_class}, found {actual_class}")
+
+    deferred_controls = (
+        "btn_start_engine",
+        "btn_stop_engine",
+        "btn_reset_chat",
+        "import_audio_button",
+        "transcribe_audio_button",
+    )
+    present_deferred = [
+        name for name in deferred_controls
+        if _ui_shell_find_object(window, name) is not None
+    ]
+    print(f"[UI Shell Smoke] Total checked bindings: {bound_total}")
+    print(
+        "[UI Shell Smoke] Deferred runtime controls found but intentionally not connected: "
+        + (", ".join(present_deferred) if present_deferred else "none")
+    )
+    print("[UI Shell Smoke] Runtime started: no")
+    print("[UI Shell Smoke] Addons initialized: no")
+    print("[UI Shell Smoke] Engine lifecycle connected: no")
+    config_summary = _apply_ui_shell_read_only_config(window)
+    print(
+        f"[UI Shell Smoke] Read-only session config: "
+        f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
+        f"({len(config_summary['applied'])} widget(s) populated)"
+    )
+    addon_report = _ui_shell_addon_mount_report(window)
+    _print_ui_shell_addon_mount_report(addon_report)
+
+    try:
+        window.close()
+        if app is not None:
+            app.quit()
+    except Exception:
+        pass
+
+    if missing or mismatched:
+        print("[UI Shell Smoke] Result: NOT READY for shell binding.")
+        return 1
+    print("[UI Shell Smoke] Result: READY for the checked shell binding surface.")
+    return 0
+
+
+def _ui_shell_binding_summary(window):
+    checked = 0
+    bound = 0
+    missing = []
+    mismatched = []
+    for group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS:
+        for object_name, expected_class in requirements:
+            checked += 1
+            obj = _ui_shell_find_object(window, object_name)
+            if obj is None:
+                missing.append(f"{group_name}:{object_name}")
+                continue
+            if not _ui_shell_class_matches(obj, expected_class):
+                mismatched.append(f"{group_name}:{object_name}")
+                continue
+            bound += 1
+    return {
+        "checked": checked,
+        "bound": bound,
+        "missing": missing,
+        "mismatched": mismatched,
+    }
+
+
+def _apply_ui_shell_preview_status(window):
+    summary = _ui_shell_binding_summary(window)
+    lines = [
+        "Shell Preview",
+        "Runtime: not started",
+        "Addons: not initialized",
+        "Engine lifecycle: not connected",
+        f"Bindings: {summary['bound']}/{summary['checked']} checked",
+    ]
+    if summary["missing"] or summary["mismatched"]:
+        lines.append("Binding issues: yes, run --shell-smoke")
+    else:
+        lines.append("Binding issues: none")
+    status_text = " | ".join(lines)
+
+    for label_name in ("console_status", "chat_status", "mic_status_label"):
+        label = _ui_shell_find_object(window, label_name)
+        if label is not None and hasattr(label, "setText"):
+            label.setText(status_text)
+            if hasattr(label, "setToolTip"):
+                label.setToolTip("Visual-only Designer shell preview. No runtime systems are connected.")
+
+    for button_name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat", "import_audio_button", "transcribe_audio_button"):
+        button = _ui_shell_find_object(window, button_name)
+        if button is not None and hasattr(button, "setToolTip"):
+            button.setToolTip("Disabled in shell preview. Runtime wiring is intentionally deferred.")
+
+    return summary
+
+
+def _read_ui_shell_session_snapshot():
+    session_path = Path(__file__).resolve().parent / "qt_session.json"
+    try:
+        with session_path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+            return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ui_shell_addon_registry_state(session=None):
+    payload = dict(session or _read_ui_shell_session_snapshot() or {})
+    registry = payload.get("addon_registry_state")
+    if isinstance(registry, dict):
+        return registry
+    registry_path = Path(__file__).resolve().parent / "runtime" / "addons" / "addon_registry.json"
+    try:
+        with registry_path.open("r", encoding="utf-8") as handle:
+            registry = json.load(handle)
+            return registry if isinstance(registry, dict) else {}
+    except Exception:
+        return {}
+
+
+def _ui_shell_addon_effectively_enabled(manifest, registry_state):
+    addon_id = str(manifest.get("id", "") or "").strip()
+    category = str(manifest.get("category", "") or "other").strip().lower() or "other"
+    manifest_enabled = bool(manifest.get("enabled", True))
+    category_overrides = dict((registry_state or {}).get("categories", {}) or {})
+    addon_overrides = dict((registry_state or {}).get("addons", {}) or {})
+    category_enabled = bool(category_overrides.get(category, True))
+    addon_enabled = bool(addon_overrides.get(addon_id, manifest_enabled))
+    return bool(category_enabled and addon_enabled)
+
+
+def _ui_shell_static_tab_areas(addon_dir):
+    main_path = Path(addon_dir) / "main.py"
+    try:
+        text = main_path.read_text(encoding="utf-8")
+    except Exception:
+        return []
+    areas = []
+    for match in re.finditer(r"register_tab\s*\((?P<body>.*?)\)", text, re.DOTALL):
+        body = match.group("body") or ""
+        area_match = re.search(r"area\s*=\s*[\"']([^\"']+)[\"']", body)
+        if area_match:
+            areas.append(area_match.group(1).strip())
+    return sorted(set(item for item in areas if item))
+
+
+def _ui_shell_static_service_hints(addon_dir, manifest):
+    addon_id = str(manifest.get("id", "") or "").strip().lower()
+    name = str(manifest.get("name", "") or "").strip().lower()
+    hints = []
+    if addon_id.startswith("nc.chat_provider_") or "chat provider" in name or addon_id == "nc.claude_provider":
+        hints.append("chat_provider_registry")
+    main_path = Path(addon_dir) / "main.py"
+    try:
+        text = main_path.read_text(encoding="utf-8")
+    except Exception:
+        text = ""
+    if "services.register" in text:
+        if '"kind": "tts"' in text or "'kind': 'tts'" in text:
+            hints.append("tts_backend_service")
+        else:
+            hints.append("service_registry")
+    return sorted(set(hints))
+
+
+def _ui_shell_discover_addon_manifests():
+    addons_dir = Path(__file__).resolve().parent / "addons"
+    discovered = []
+    if not addons_dir.exists():
+        return discovered
+    for addon_dir in sorted((path for path in addons_dir.iterdir() if path.is_dir()), key=lambda path: path.name.lower()):
+        manifest_path = addon_dir / "addon.json"
+        if not manifest_path.exists():
+            continue
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            discovered.append({
+                "id": addon_dir.name,
+                "name": addon_dir.name,
+                "category": "other",
+                "enabled": False,
+                "error": str(exc),
+                "areas": [],
+                "service_hints": [],
+            })
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        manifest = dict(manifest)
+        manifest["root"] = str(addon_dir)
+        manifest["areas"] = _ui_shell_static_tab_areas(addon_dir)
+        manifest["service_hints"] = _ui_shell_static_service_hints(addon_dir, manifest)
+        discovered.append(manifest)
+    return discovered
+
+
+def _ui_shell_mount_target_for_area(area):
+    mapping = {
+        "top_level": "left_tabs",
+        "host_settings": "host_settings_tabs",
+        "musetalk": "musetalk_tabs",
+        "tts_runtime": "tts_runtime_addon_tabs",
+        "vision_source": "sensory_feedback_tabs",
+        "operational_view": "OperationalViewDock",
+    }
+    return mapping.get(str(area or "").strip(), "")
+
+
+def _ui_shell_fallback_targets_for_manifest(manifest):
+    addon_id = str(manifest.get("id", "") or "").strip().lower()
+    category = str(manifest.get("category", "") or "other").strip().lower()
+    if addon_id.startswith("nc.chat_provider_") or addon_id == "nc.claude_provider":
+        return ["chat_provider_combo"]
+    if category == "vision":
+        return ["sensory_feedback_tabs"]
+    if category == "musetalk":
+        return ["musetalk_tabs"]
+    if category == "visuals":
+        return ["host_settings_tabs"]
+    if category == "chat":
+        return ["left_tabs"]
+    if category == "global":
+        return ["left_tabs"]
+    return []
+
+
+def _ui_shell_addon_mount_report(window):
+    session = _read_ui_shell_session_snapshot()
+    registry_state = _ui_shell_addon_registry_state(session)
+    manifests = _ui_shell_discover_addon_manifests()
+    mount_points = {
+        "left_tabs": _ui_shell_find_object(window, "left_tabs") is not None,
+        "host_settings_tabs": _ui_shell_find_object(window, "host_settings_tabs") is not None,
+        "tts_runtime_addon_tabs": _ui_shell_find_object(window, "tts_runtime_addon_tabs") is not None,
+        "musetalk_tabs": _ui_shell_find_object(window, "musetalk_tabs") is not None,
+        "sensory_feedback_tabs": _ui_shell_find_object(window, "sensory_feedback_tabs") is not None,
+        "sensory_feedback_sources_widget": _ui_shell_find_object(window, "sensory_feedback_sources_widget") is not None,
+        "chat_provider_combo": _ui_shell_find_object(window, "chat_provider_combo") is not None,
+        "chat_provider_fields_widget": _ui_shell_find_object(window, "chat_provider_fields_widget") is not None,
+        "chat_provider_generation_fields_widget": _ui_shell_find_object(window, "chat_provider_generation_fields_widget") is not None,
+        "OperationalViewDock": _ui_shell_find_object(window, "OperationalViewDock") is not None,
+    }
+    rows = []
+    for manifest in manifests:
+        areas = list(manifest.get("areas", []) or [])
+        service_hints = list(manifest.get("service_hints", []) or [])
+        targets = []
+        for area in areas:
+            target = _ui_shell_mount_target_for_area(area)
+            if target:
+                targets.append(target)
+        if not targets:
+            targets = _ui_shell_fallback_targets_for_manifest(manifest)
+        rows.append({
+            "id": str(manifest.get("id", "") or ""),
+            "name": str(manifest.get("name", "") or manifest.get("id", "") or ""),
+            "category": str(manifest.get("category", "") or "other"),
+            "enabled": _ui_shell_addon_effectively_enabled(manifest, registry_state),
+            "areas": areas,
+            "service_hints": service_hints,
+            "targets": sorted(set(targets)),
+            "missing_targets": sorted(set(target for target in targets if not mount_points.get(target, False))),
+            "error": str(manifest.get("error", "") or ""),
+        })
+    enabled_count = sum(1 for row in rows if row["enabled"])
+    return {
+        "mount_points": mount_points,
+        "addons": rows,
+        "enabled_count": enabled_count,
+        "total_count": len(rows),
+    }
+
+
+def _print_ui_shell_addon_mount_report(report, prefix="[UI Shell Smoke]"):
+    print(f"{prefix} Addon manifests discovered: {report['total_count']} ({report['enabled_count']} effectively enabled)")
+    print(f"{prefix} Addon mount points:")
+    for name, present in sorted((report.get("mount_points") or {}).items()):
+        print(f"  - {name}: {'present' if present else 'missing'}")
+    print(f"{prefix} Would mount/register:")
+    for row in report.get("addons", []):
+        status = "enabled" if row.get("enabled") else "disabled"
+        areas = ", ".join(row.get("areas") or [])
+        hints = ", ".join(row.get("service_hints") or [])
+        targets = ", ".join(row.get("targets") or [])
+        missing = ", ".join(row.get("missing_targets") or [])
+        detail_bits = []
+        if areas:
+            detail_bits.append(f"areas={areas}")
+        if hints:
+            detail_bits.append(f"services={hints}")
+        if targets:
+            detail_bits.append(f"targets={targets}")
+        if missing:
+            detail_bits.append(f"missing_targets={missing}")
+        if row.get("error"):
+            detail_bits.append(f"error={row['error']}")
+        detail = "; ".join(detail_bits) if detail_bits else "manifest-only"
+        print(f"  - {row.get('id') or row.get('name')} [{status}]: {detail}")
+
+
+def _ui_shell_preset_names():
+    presets_dir = Path(__file__).resolve().parent / "presets"
+    names = []
+    try:
+        for item in sorted(presets_dir.glob("*.json"), key=lambda path: path.stem.lower()):
+            names.append(item.stem)
+    except Exception:
+        pass
+    return names
+
+
+def _ui_shell_combo_set_items(combo, labels):
+    if combo is None or not hasattr(combo, "clear"):
+        return
+    combo.blockSignals(True)
+    try:
+        combo.clear()
+        for label in labels:
+            combo.addItem(str(label))
+    finally:
+        combo.blockSignals(False)
+
+
+def _ui_shell_combo_select_label(combo, label):
+    if combo is None or not hasattr(combo, "count"):
+        return False
+    target = str(label or "").strip()
+    if not target:
+        return False
+    combo.blockSignals(True)
+    try:
+        for index in range(combo.count()):
+            if str(combo.itemText(index) or "").strip().lower() == target.lower():
+                combo.setCurrentIndex(index)
+                return True
+        if hasattr(combo, "addItem"):
+            combo.addItem(target)
+            combo.setCurrentIndex(combo.count() - 1)
+            return True
+    finally:
+        combo.blockSignals(False)
+    return False
+
+
+def _ui_shell_set_spin_value(widget, value):
+    if widget is None or not hasattr(widget, "setValue"):
+        return False
+    try:
+        widget.blockSignals(True)
+        widget.setValue(int(value))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            widget.blockSignals(False)
+        except Exception:
+            pass
+
+
+def _ui_shell_set_double_value(widget, value):
+    if widget is None or not hasattr(widget, "setValue"):
+        return False
+    try:
+        widget.blockSignals(True)
+        widget.setValue(float(value))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            widget.blockSignals(False)
+        except Exception:
+            pass
+
+
+def _ui_shell_set_checked(widget, value):
+    if widget is None or not hasattr(widget, "setChecked"):
+        return False
+    try:
+        widget.blockSignals(True)
+        widget.setChecked(bool(value))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            widget.blockSignals(False)
+        except Exception:
+            pass
+
+
+def _ui_shell_set_read_only_tooltip(widget, detail=""):
+    if widget is None or not hasattr(widget, "setToolTip"):
+        return
+    suffix = f" {detail}" if detail else ""
+    widget.setToolTip(f"Read-only shell preview. Changes are not saved or applied.{suffix}")
+
+
+def _apply_ui_shell_read_only_config(window):
+    session = _read_ui_shell_session_snapshot()
+    provider_labels = {
+        "lmstudio": "LM Studio",
+        "openai": "OpenAI",
+        "xai": "xAI / Grok",
+        "claude": "Claude",
+    }
+    visual_mode_labels = {
+        "off": "Off",
+        "manual": "Manual",
+        "auto": "Auto",
+    }
+    tts_labels = {
+        "chatterbox": "Chatterbox",
+        "pockettts": "PocketTTS",
+        "gemini_tts_preview": "Gemini TTS Preview",
+    }
+    avatar_labels = {
+        "vseeface": "VSeeFace",
+        "musetalk": "MuseTalk",
+        "vam": "VaM",
+        "none": "None",
+    }
+    applied = []
+
+    combo_specs = (
+        ("engine_combo", list(avatar_labels.values()), avatar_labels.get(str(session.get("avatar_mode", "")).strip().lower(), session.get("avatar_mode", ""))),
+        ("input_mode_combo", ["Voice Activation", "Push-to-Talk"], session.get("input_mode", "")),
+        ("input_role_combo", ["User Message", "System Message", "Assistant Message"], session.get("input_message_role", "")),
+        ("stream_mode_combo", ["Off", "On"], session.get("stream_mode", "")),
+        ("tts_backend_combo", list(tts_labels.values()), tts_labels.get(str(session.get("tts_backend", "")).strip().lower(), session.get("tts_backend", ""))),
+        ("chat_provider_combo", list(provider_labels.values()), provider_labels.get(str(session.get("chat_provider", "")).strip().lower(), session.get("chat_provider", ""))),
+        ("musetalk_vram_combo", ["Quality", "Balanced", "Low VRAM", "Very Low VRAM"], str(session.get("musetalk_vram_mode", "") or "").replace("_", " ").title().replace("Vram", "VRAM")),
+        ("musetalk_avatar_pack_combo", [str(session.get("musetalk_avatar_pack_id", "") or "No avatar pack saved")], session.get("musetalk_avatar_pack_id", "")),
+        ("visual_reply_mode_combo", ["Off", "Manual", "Auto"], visual_mode_labels.get(str(session.get("visual_reply_mode", "")).strip().lower(), session.get("visual_reply_mode", ""))),
+        ("visual_reply_provider_combo", ["OpenAI", "xAI / Grok"], provider_labels.get(str(session.get("visual_reply_provider", "")).strip().lower(), session.get("visual_reply_provider", ""))),
+        ("visual_reply_size_combo", ["1024x1024", "1024x1792", "1792x1024"], session.get("visual_reply_size", "")),
+    )
+    for object_name, labels, selected in combo_specs:
+        combo = _ui_shell_find_object(window, object_name)
+        _ui_shell_combo_set_items(combo, labels)
+        if _ui_shell_combo_select_label(combo, selected):
+            applied.append(object_name)
+        _ui_shell_set_read_only_tooltip(combo)
+
+    preset_combo = _ui_shell_find_object(window, "preset_combo")
+    preset_names = _ui_shell_preset_names()
+    _ui_shell_combo_set_items(preset_combo, preset_names or ["No presets found"])
+    if _ui_shell_combo_select_label(preset_combo, session.get("last_preset", "")):
+        applied.append("preset_combo")
+    _ui_shell_set_read_only_tooltip(preset_combo)
+
+    model_combo = _ui_shell_find_object(window, "model_combo")
+    model_name = str(session.get("model_name", "") or "").strip()
+    _ui_shell_combo_set_items(model_combo, [model_name] if model_name else ["No model saved"])
+    if model_name and _ui_shell_combo_select_label(model_combo, model_name):
+        applied.append("model_combo")
+    _ui_shell_set_read_only_tooltip(model_combo, "Model refresh is not connected.")
+
+    visual_model = _ui_shell_find_object(window, "visual_reply_model_edit")
+    if visual_model is not None and hasattr(visual_model, "setText"):
+        visual_model.setText(str(session.get("visual_reply_model", "") or ""))
+        _ui_shell_set_read_only_tooltip(visual_model)
+        applied.append("visual_reply_model_edit")
+
+    numeric_specs = (
+        ("musetalk_loop_fade_spin", session.get("musetalk_loop_fade_ms")),
+        ("tts_seed_spin", session.get("tts_seed")),
+    )
+    for object_name, value in numeric_specs:
+        if value is None:
+            continue
+        widget = _ui_shell_find_object(window, object_name)
+        if _ui_shell_set_spin_value(widget, value):
+            _ui_shell_set_read_only_tooltip(widget)
+            applied.append(object_name)
+
+    double_specs = (
+        ("tts_temperature_spin", session.get("tts_temperature")),
+        ("tts_top_p_spin", session.get("tts_top_p")),
+        ("tts_repeat_penalty_spin", session.get("tts_repeat_penalty")),
+        ("tts_min_p_spin", session.get("tts_min_p")),
+    )
+    for object_name, value in double_specs:
+        if value is None:
+            continue
+        widget = _ui_shell_find_object(window, object_name)
+        if _ui_shell_set_double_value(widget, value):
+            _ui_shell_set_read_only_tooltip(widget)
+            applied.append(object_name)
+
+    top_k_spin = _ui_shell_find_object(window, "tts_top_k_spin")
+    if _ui_shell_set_spin_value(top_k_spin, session.get("tts_top_k", 0)):
+        _ui_shell_set_read_only_tooltip(top_k_spin)
+        applied.append("tts_top_k_spin")
+
+    normalize_checkbox = _ui_shell_find_object(window, "tts_normalize_loudness_checkbox")
+    if _ui_shell_set_checked(normalize_checkbox, session.get("tts_normalize_loudness", False)):
+        _ui_shell_set_read_only_tooltip(normalize_checkbox)
+        applied.append("tts_normalize_loudness_checkbox")
+
+    provider_placeholder = _ui_shell_find_object(window, "chat_provider_fields_placeholder")
+    if provider_placeholder is not None and hasattr(provider_placeholder, "setText"):
+        provider_placeholder.setText("Read-only shell preview. Provider-specific fields mount here in the live app.")
+    generation_placeholder = _ui_shell_find_object(window, "chat_provider_generation_fields_placeholder")
+    if generation_placeholder is not None and hasattr(generation_placeholder, "setText"):
+        generation_placeholder.setText("Read-only shell preview. Generation controls mount here in the live app.")
+
+    return {
+        "session_loaded": bool(session),
+        "applied": sorted(set(applied)),
+        "session_path": str(Path(__file__).resolve().parent / "qt_session.json"),
+    }
+
+
+def run_ui_shell_preview(raw_path):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtWidgets as _QtWidgets
+
+    ui_path = _resolve_ui_path(raw_path)
+    print(f"[UI Shell] Loading visual-only Designer shell: {ui_path}")
+    if not ui_path.exists():
+        raise FileNotFoundError(f"UI file not found: {ui_path}")
+    app, window = _load_ui_shell_for_smoke(ui_path)
+    current_title = str(window.windowTitle() or "").strip()
+    window.setWindowTitle(f"{current_title} [UI Shell Preview]" if current_title else "UI Shell Preview")
+    if isinstance(window, _QtWidgets.QMainWindow):
+        window.setTabPosition(_QtCore.Qt.AllDockWidgetAreas, _QtWidgets.QTabWidget.North)
+    summary = _apply_ui_shell_preview_status(window)
+    config_summary = _apply_ui_shell_read_only_config(window)
+    addon_report = _ui_shell_addon_mount_report(window)
+    print("[UI Shell] Runtime started: no")
+    print("[UI Shell] Addons initialized: no")
+    print("[UI Shell] Engine lifecycle connected: no")
+    print(f"[UI Shell] Bindings checked: {summary['bound']}/{summary['checked']}")
+    print(
+        f"[UI Shell] Read-only session config: "
+        f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
+        f"({len(config_summary['applied'])} widget(s) populated)"
+    )
+    print(
+        f"[UI Shell] Addon manifests discovered: "
+        f"{addon_report['total_count']} ({addon_report['enabled_count']} effectively enabled)"
+    )
+    print("[UI Shell] Close the shell window to return to the terminal.")
+    window.show()
+    return app.exec()
+
+
+if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--ui-shell":
+    shell_smoke = any(str(item or "").strip().lower() == "--shell-smoke" for item in sys.argv[2:])
+    ui_arg = sys.argv[2] if len(sys.argv) >= 3 and not str(sys.argv[2] or "").startswith("--") else "main.ui"
+    if shell_smoke:
+        sys.exit(run_ui_shell_smoke(ui_arg))
+    sys.exit(run_ui_shell_preview(ui_arg))
 
 import dry_run
 import tutorial_framework
@@ -83,6 +943,22 @@ DEFAULT_LOCAL_VAM_VR_LAUNCHER = "VaM (OpenVR).bat"
 QT_PREVIEW_CACHE_LIMIT = 384
 QT_PREVIEW_INITIAL_PRELOAD = 96
 QT_PREVIEW_AHEAD_PRELOAD = 72
+
+def _load_ui_preview_window(ui_path):
+    try:
+        from PySide6 import QtUiTools
+    except Exception as exc:
+        raise RuntimeError("QtUiTools is unavailable, so Designer UI preview mode cannot start.") from exc
+    ui_file = QtCore.QFile(str(ui_path))
+    if not ui_file.open(QtCore.QIODevice.ReadOnly):
+        raise RuntimeError(f"Could not open UI file: {ui_path}")
+    try:
+        window = QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    if window is None:
+        raise RuntimeError(f"Qt Designer UI did not produce a window: {ui_path}")
+    return window
 
 _WIN32_DOCK_OWNER_SUPPORTED = False
 _WIN32_GWLP_HWNDPARENT = -8
@@ -11270,8 +12146,21 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
 
 def main():
+    argv = list(sys.argv[1:])
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    if len(argv) >= 1 and str(argv[0] or "").strip().lower() in {"--ui-preview", "--ui-file"}:
+        ui_path = _resolve_ui_path(argv[1] if len(argv) >= 2 else "main.ui")
+        if not ui_path.exists():
+            raise FileNotFoundError(f"UI file not found: {ui_path}")
+        window = _load_ui_preview_window(ui_path)
+        current_title = str(window.windowTitle() or "").strip()
+        window.setWindowTitle(f"{current_title} [UI Preview]" if current_title else "UI Preview")
+        if isinstance(window, QtWidgets.QMainWindow):
+            _configure_main_window_docking(window)
+            window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
+        window.show()
+        sys.exit(app.exec())
     window = CompanionQtMainWindow()
     window.show()
     sys.exit(app.exec())

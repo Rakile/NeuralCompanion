@@ -1,0 +1,4912 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>CompanionQtMainWindow</class>
+ <widget class="QMainWindow" name="CompanionQtMainWindow">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1810</width>
+    <height>1012</height>
+   </rect>
+  </property>
+  <property name="minimumSize">
+   <size>
+    <width>740</width>
+    <height>670</height>
+   </size>
+  </property>
+  <property name="windowTitle">
+   <string>Neural Interface Qt (Experimental)</string>
+  </property>
+  <property name="dockOptions">
+   <set>QMainWindow::AnimatedDocks|QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::GroupedDragging</set>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QMainWindow { background: #1f2022; }
+QWidget { color: #eceff3; font-family: &quot;Segoe UI&quot;; font-size: 12px; }
+QWidget#HeaderCard {
+    background: #26282c;
+    border: 1px solid #3a3d43;
+    border-radius: 10px;
+}
+QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QComboBox, QSpinBox, QDoubleSpinBox {
+    background: #27292d;
+    border: 1px solid #3a3d43;
+    border-radius: 10px;
+}
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+QTabWidget::pane {
+    background: #27292d;
+    border: none;
+}
+QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
+    min-width: 140px;
+}
+QComboBox {
+    padding: 6px 34px 6px 10px;
+    min-height: 18px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 24px;
+    border-left: 1px solid #4c5058;
+    background: #34373d;
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QComboBox::drop-down:hover {
+    background: #444850;
+}
+QComboBox::down-arrow {
+    width: 8px;
+    height: 8px;
+}
+QSpinBox, QDoubleSpinBox {
+    padding-right: 34px;
+}
+QSpinBox::up-button, QSpinBox::down-button,
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+    width: 18px;
+    background: #34373d;
+    border-left: 1px solid #4c5058;
+}
+QSpinBox::up-button, QDoubleSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    border-top-right-radius: 10px;
+}
+QSpinBox::down-button, QDoubleSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    border-bottom-right-radius: 10px;
+}
+QSpinBox::up-button:hover, QSpinBox::down-button:hover,
+QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
+    background: #444850;
+}
+QSpinBox::up-arrow, QSpinBox::down-arrow,
+QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow {
+    width: 8px;
+    height: 8px;
+}
+QSlider {
+    background: transparent;
+    border: none;
+}
+QSlider::groove:horizontal {
+    background: #8d9198;
+    border: none;
+    height: 4px;
+    border-radius: 2px;
+}
+QSlider::sub-page:horizontal {
+    background: #2f83ff;
+    border: none;
+    height: 4px;
+    border-radius: 2px;
+}
+QSlider::add-page:horizontal {
+    background: #8d9198;
+    border: none;
+    height: 4px;
+    border-radius: 2px;
+}
+QSlider::handle:horizontal {
+    background: #2f83ff;
+    border: 1px solid #1d5ea8;
+    width: 10px;
+    height: 10px;
+    margin: -4px 0;
+    border-radius: 6px;
+}
+QSlider::handle:horizontal:hover {
+    background: #4b9cff;
+}
+QGroupBox {
+    background: #27292d;
+    border: 1px solid #31353b;
+    border-radius: 8px;
+    margin-top: 10px;
+    padding-top: 10px;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 4px;
+}
+QPushButton {
+    background: #373a40;
+    border: 1px solid #4c5058;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #464a52; }
+QPushButton:pressed { background: #2f3237; }
+QPushButton:disabled { color: #8f949c; background: #2a2c30; border-color: #3b3e44; }
+QPushButton#btn_start_engine,
+QPushButton#btn_stop_engine,
+QPushButton#btn_reset_chat {
+    min-height: 34px;
+    max-height: 38px;
+    padding: 6px 14px;
+    font-size: 12px;
+    font-weight: 700;
+}
+QPushButton#btn_start_engine {
+    background: #1f6e54;
+    border: 1px solid #2ca97d;
+}
+QPushButton#btn_start_engine:hover { background: #268062; }
+QPushButton#btn_start_engine:pressed { background: #195944; }
+QPushButton#btn_stop_engine {
+    background: #6d2929;
+    border: 1px solid #a94b4b;
+}
+QPushButton#btn_stop_engine:hover { background: #7d3131; }
+QPushButton#btn_stop_engine:pressed { background: #592121; }
+QPushButton#btn_reset_chat {
+    background: #343840;
+    border: 1px solid #535964;
+}
+QPushButton#btn_reset_chat:hover { background: #40454f; }
+QPushButton#btn_reset_chat:pressed { background: #2d3138; }
+QFrame#visual_reply_frame {
+    background: #27292d;
+    border: 1px solid #3a3d43;
+    border-radius: 10px;
+}
+QTabBar::tab {
+    background: #2b2e33;
+    border: 1px solid #3b3f46;
+    padding: 8px 12px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+    margin-right: 4px;
+}
+QTabBar::tab:selected { background: #3b4047; }
+QTabWidget#sensory_feedback_tabs::tab-bar,
+QTabWidget#vseeface_tabs::tab-bar,
+QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#vam_setup_tabs::tab-bar,
+QTabWidget#right_tabs::tab-bar {
+    left: 0px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#vam_setup_tabs QTabBar::tab,
+QTabWidget#right_tabs QTabBar::tab {
+    padding: 8px 14px;
+    margin-right: 2px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#sensory_feedback_tabs::pane,
+QTabWidget#vseeface_tabs::pane,
+QTabWidget#musetalk_tabs::pane,
+QTabWidget#vam_setup_tabs::pane,
+QTabWidget#right_tabs::pane {
+    top: -1px;
+    background: #27292d;
+    border: 1px solid #32363c;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#vam_setup_tabs QTabBar::tab:selected,
+QTabWidget#right_tabs QTabBar::tab:selected {
+    background: #27292d;
+    border-bottom-color: #27292d;
+    margin-bottom: -1px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab,
+QTabWidget#left_tabs QTabBar::tab {
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 34px;
+    padding: 3px 6px 13px 6px;
+    margin-bottom: 4px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#host_settings_tabs::pane {
+    margin-left: -1px;
+    background: #27292d;
+    border: 1px solid #32363c;
+}
+QTabWidget#left_tabs::pane {
+    margin-left: -1px;
+    background: #27292d;
+    border: 1px solid #32363c;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:selected,
+QTabWidget#left_tabs QTabBar::tab:selected {
+    background: #27292d;
+    border-right-color: #27292d;
+    margin-right: -1px;
+}
+QTabWidget#host_settings_tabs QTabBar,
+QTabWidget#left_tabs QTabBar {
+    background: transparent;
+}
+QTabWidget#left_tabs QTabBar {
+    margin-top: 0px;
+}
+QTabWidget#left_tabs::pane {
+    margin-top: 0px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QTabWidget#host_settings_tabs::pane {
+    border-top-left-radius: 0px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#vam_setup_tabs QTabBar::tab,
+QTabWidget#right_tabs QTabBar::tab {
+    min-width: 0px;
+    max-width: 16777215px;
+    min-height: 0px;
+    padding: 8px 14px;
+    margin-right: 2px;
+    margin-bottom: 0px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#vam_setup_tabs QTabBar::tab:selected,
+QTabWidget#right_tabs QTabBar::tab:selected {
+    background: #27292d;
+    border-bottom-color: #27292d;
+    border-right-color: #3b3f46;
+    margin-right: 0px;
+    margin-bottom: -1px;
+}
+QDockWidget::title {
+    text-align: left;
+    background: #32363d;
+    border-top: 1px solid #5a606b;
+    border-left: 1px solid #4d535d;
+    border-right: 1px solid #24282f;
+    border-bottom: 1px solid #1b1f25;
+    border-top-left-radius: 10px;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 6px;
+    border-bottom-right-radius: 6px;
+    padding: 7px 12px;
+    font-weight: 600;
+    color: #f1f4f8;
+}
+QProgressBar {
+    background: #2a2c31;
+    border: 1px solid #3b3f46;
+    border-radius: 6px;
+    text-align: center;
+}
+QProgressBar::chunk {
+    background: #7c8088;
+    border-radius: 5px;
+}</string>
+  </property>
+  <widget class="QWidget" name="workspace_central">
+   <property name="minimumSize">
+    <size>
+     <width>0</width>
+     <height>0</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>0</width>
+     <height>0</height>
+    </size>
+   </property>
+  </widget>
+  <widget class="QDockWidget" name="SystemShapingDock">
+   <property name="minimumSize">
+    <size>
+     <width>360</width>
+     <height>260</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>System Shaping</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="system_shaping_panel">
+    <layout class="QVBoxLayout" name="systemShapingOuterLayout">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="QScrollArea" name="system_shaping_scroll">
+       <property name="widgetResizable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="system_shaping_content">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>890</width>
+          <height>1175</height>
+         </rect>
+        </property>
+        <layout class="QVBoxLayout" name="systemShapingLayout">
+         <property name="spacing">
+          <number>12</number>
+         </property>
+         <property name="leftMargin">
+          <number>14</number>
+         </property>
+         <property name="topMargin">
+          <number>14</number>
+         </property>
+         <property name="rightMargin">
+          <number>14</number>
+         </property>
+         <property name="bottomMargin">
+          <number>14</number>
+         </property>
+         <item>
+          <layout class="QHBoxLayout" name="micStatusRow">
+           <item>
+            <widget class="QFrame" name="listen_diode">
+             <property name="minimumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">background:#5b6675;border-radius:8px;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QFrame" name="mic_diode">
+             <property name="minimumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="maximumSize">
+              <size>
+               <width>16</width>
+               <height>16</height>
+              </size>
+             </property>
+             <property name="styleSheet">
+              <string notr="true">background:#5b6675;border-radius:8px;</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="mic_status_label">
+             <property name="styleSheet">
+              <string notr="true">color:#9fb3c8;font-weight:600;</string>
+             </property>
+             <property name="text">
+              <string>Microphone idle</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_input_device_label">
+             <property name="text">
+              <string>Input</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="audio_input_device_combo">
+             <item>
+              <property name="text">
+               <string>Default Input</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="audio_output_device_label">
+             <property name="text">
+              <string>Output</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QComboBox" name="audio_output_device_combo">
+             <item>
+              <property name="text">
+               <string>Default Output</string>
+              </property>
+             </item>
+            </widget>
+           </item>
+           <item>
+            <spacer name="micRowSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QTabWidget" name="host_settings_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="autoFillBackground">
+            <bool>false</bool>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::West</enum>
+           </property>
+           <property name="tabShape">
+            <enum>QTabWidget::Rounded</enum>
+           </property>
+           <property name="currentIndex">
+            <number>0</number>
+           </property>
+           <property name="iconSize">
+            <size>
+             <width>35</width>
+             <height>35</height>
+            </size>
+           </property>
+           <property name="movable">
+            <bool>true</bool>
+           </property>
+           <widget class="QWidget" name="host_settings_host_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>../../../New folder (3)/persona.png</normaloff>../../../New folder (3)/persona.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Host</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="hostTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>8</number>
+             </property>
+             <property name="topMargin">
+              <number>8</number>
+             </property>
+             <property name="rightMargin">
+              <number>8</number>
+             </property>
+             <property name="bottomMargin">
+              <number>8</number>
+             </property>
+             <item>
+              <layout class="QFormLayout" name="hostRuntimeForm">
+               <item row="0" column="0">
+                <widget class="QLabel" name="engine_label">
+                 <property name="text">
+                  <string>Avatar Engine</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="engine_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>186</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>VSeeFace</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>MuseTalk</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>VaM</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>None</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="input_mode_label">
+                 <property name="text">
+                  <string>Input Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="input_mode_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>Voice Activation</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Push-to-Talk</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="input_role_label">
+                 <property name="text">
+                  <string>Input Role</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QComboBox" name="input_role_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>User Message</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>System Message</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Assistant Message</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="stream_mode_label">
+                 <property name="text">
+                  <string>Stream Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QComboBox" name="stream_mode_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>Off</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>On</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="tts_backend_label">
+                 <property name="text">
+                  <string>TTS Backend</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QComboBox" name="tts_backend_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>Chatterbox</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>PocketTTS</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="5" column="0">
+                <widget class="QLabel" name="musetalk_vram_label">
+                 <property name="text">
+                  <string>MuseTalk VRAM</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="5" column="1">
+                <widget class="QComboBox" name="musetalk_vram_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>Quality</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Balanced</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Low VRAM</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Very Low VRAM</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="6" column="0">
+                <widget class="QLabel" name="musetalk_loop_fade_label">
+                 <property name="text">
+                  <string>Loop Fade (ms)</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="6" column="1">
+                <widget class="QSpinBox" name="musetalk_loop_fade_spin">
+                 <property name="minimumSize">
+                  <size>
+                   <width>176</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="maximum">
+                  <number>1000</number>
+                 </property>
+                 <property name="value">
+                  <number>180</number>
+                 </property>
+                </widget>
+               </item>
+               <item row="7" column="0">
+                <widget class="QLabel" name="musetalk_avatar_label">
+                 <property name="text">
+                  <string>MuseTalk Avatar</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="7" column="1">
+                <widget class="QComboBox" name="musetalk_avatar_pack_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="0">
+                <widget class="QLabel" name="preset_label">
+                 <property name="text">
+                  <string>Preset</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="1">
+                <widget class="QComboBox" name="preset_combo">
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="chat_runtime_box">
+               <property name="title">
+                <string>Chat Runtime</string>
+               </property>
+               <layout class="QFormLayout" name="chatRuntimeForm">
+                <item row="0" column="0">
+                 <widget class="QLabel" name="chat_provider_label">
+                  <property name="text">
+                   <string>Chat Provider</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QComboBox" name="chat_provider_combo">
+                  <property name="maximumSize">
+                   <size>
+                    <width>200</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <item>
+                   <property name="text">
+                    <string>OpenAI</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>xAI / Grok</string>
+                   </property>
+                  </item>
+                  <item>
+                   <property name="text">
+                    <string>LM Studio</string>
+                   </property>
+                  </item>
+                 </widget>
+                </item>
+                <item row="1" column="0">
+                 <widget class="QLabel" name="provider_settings_label">
+                  <property name="text">
+                   <string>Provider Settings</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="1">
+                 <widget class="QWidget" name="chat_provider_fields_widget">
+                  <layout class="QFormLayout" name="chat_provider_fields_layout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item row="0" column="0" colspan="2">
+                    <widget class="QLabel" name="chat_provider_fields_placeholder">
+                     <property name="text">
+                      <string>Provider API key / endpoint fields mount here in the live app.</string>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+                <item row="2" column="0">
+                 <widget class="QLabel" name="model_label">
+                  <property name="text">
+                   <string>LLM Model</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="1">
+                 <widget class="QComboBox" name="model_combo">
+                  <property name="maximumSize">
+                   <size>
+                    <width>200</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="0">
+                 <widget class="QLabel" name="provider_generation_label">
+                  <property name="text">
+                   <string>Generation Fields</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="1">
+                 <widget class="QWidget" name="chat_provider_generation_fields_widget">
+                  <layout class="QFormLayout" name="chat_provider_generation_fields_layout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item row="0" column="0" colspan="2">
+                    <widget class="QLabel" name="chat_provider_generation_fields_placeholder">
+                     <property name="text">
+                      <string>Provider-specific generation controls mount here in the live app.</string>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="tts_runtime_box">
+               <property name="title">
+                <string>TTS Runtime</string>
+               </property>
+               <layout class="QFormLayout" name="ttsRuntimeForm">
+                <item row="0" column="0">
+                 <widget class="QLabel" name="tts_seed_label">
+                  <property name="text">
+                   <string>Random seed (0 = random)</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="0" column="1">
+                 <widget class="QSpinBox" name="tts_seed_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <property name="maximum">
+                   <number>999999</number>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="0">
+                 <widget class="QLabel" name="tts_temperature_label">
+                  <property name="text">
+                   <string>Temperature</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="1" column="1">
+                 <widget class="QDoubleSpinBox" name="tts_temperature_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <property name="singleStep">
+                   <double>0.050000000000000</double>
+                  </property>
+                  <property name="value">
+                   <double>0.800000000000000</double>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="0">
+                 <widget class="QLabel" name="tts_top_p_label">
+                  <property name="text">
+                   <string>Top P</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="2" column="1">
+                 <widget class="QDoubleSpinBox" name="tts_top_p_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <property name="sizeIncrement">
+                   <size>
+                    <width>0</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="singleStep">
+                   <double>0.050000000000000</double>
+                  </property>
+                  <property name="value">
+                   <double>0.900000000000000</double>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="0">
+                 <widget class="QLabel" name="tts_top_k_label">
+                  <property name="text">
+                   <string>Top K</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="1">
+                 <widget class="QSpinBox" name="tts_top_k_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <property name="maximum">
+                   <number>200</number>
+                  </property>
+                  <property name="value">
+                   <number>40</number>
+                  </property>
+                 </widget>
+                </item>
+                <item row="4" column="0">
+                 <widget class="QLabel" name="tts_repeat_penalty_label">
+                  <property name="text">
+                   <string>Repetition Penalty</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="4" column="1">
+                 <widget class="QDoubleSpinBox" name="tts_repeat_penalty_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                  <property name="value">
+                   <double>1.200000000000000</double>
+                  </property>
+                 </widget>
+                </item>
+                <item row="5" column="0">
+                 <widget class="QLabel" name="tts_min_p_label">
+                  <property name="text">
+                   <string>Min P</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="5" column="1">
+                 <widget class="QDoubleSpinBox" name="tts_min_p_spin">
+                  <property name="minimumSize">
+                   <size>
+                    <width>176</width>
+                    <height>0</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>100</width>
+                    <height>16777215</height>
+                   </size>
+                  </property>
+                 </widget>
+                </item>
+                <item row="6" column="0">
+                 <widget class="QLabel" name="tts_normalize_label">
+                  <property name="text">
+                   <string>Normalize Loudness</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="6" column="1">
+                 <widget class="QCheckBox" name="tts_normalize_loudness_checkbox">
+                  <property name="text">
+                   <string>Enabled</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="7" column="0" colspan="2">
+                 <widget class="QTabWidget" name="tts_runtime_addon_tabs">
+                  <property name="visible">
+                   <bool>false</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="performance_guidance_box">
+               <property name="title">
+                <string>Performance Guidance</string>
+               </property>
+               <layout class="QVBoxLayout" name="performanceGuidanceLayout">
+                <item>
+                 <widget class="QCheckBox" name="performance_guidance_toggle">
+                  <property name="text">
+                   <string>Show Performance Guidance</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="stream_hint_label">
+                  <property name="text">
+                   <string>Chatterbox sounds more expressive; PocketTTS may start faster.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="musetalk_vram_hint">
+                  <property name="text">
+                   <string>Quality keeps Whisper on GPU and larger batches; lower VRAM modes trade speed and quality for memory.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="contextCheckRow">
+                  <item>
+                   <widget class="QLabel" name="context_check_label">
+                    <property name="text">
+                     <string>Check context:</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QSpinBox" name="model_context_input">
+                    <property name="maximum">
+                     <number>131072</number>
+                    </property>
+                    <property name="value">
+                     <number>8192</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="context_tokens_label">
+                    <property name="text">
+                     <string>tokens</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="contextCheckSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QLabel" name="model_budget_label">
+                  <property name="text">
+                   <string>Model advisor: checking hardware budget...</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="presetButtonRow">
+               <item>
+                <widget class="QPushButton" name="btn_preset_load">
+                 <property name="text">
+                  <string>Load</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_preset_save">
+                 <property name="text">
+                  <string>Save</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_preset_save_as">
+                 <property name="text">
+                  <string>Save As</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_preset_delete">
+                 <property name="text">
+                  <string>Delete</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="input_mode_hint">
+               <property name="text">
+                <string>Push-to-Talk hotkey: Right Ctrl (fallback button below)</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="runtimeUtilityButtons">
+               <item>
+                <widget class="QPushButton" name="btn_musetalk_preview">
+                 <property name="text">
+                  <string>Show MuseTalk Preview</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_musetalk_avatar_focus">
+                 <property name="text">
+                  <string>Avatar Focus</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_visual_reply">
+                 <property name="text">
+                  <string>Show Visual Reply</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="btn_push_to_talk">
+                 <property name="text">
+                  <string>Hold To Talk</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="host_settings_vision_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>ui_icons/side_tabs/vision.png</normaloff>ui_icons/side_tabs/vision.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Vision</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="visionTabLayout">
+             <property name="leftMargin">
+              <number>8</number>
+             </property>
+             <property name="topMargin">
+              <number>8</number>
+             </property>
+             <property name="rightMargin">
+              <number>8</number>
+             </property>
+             <property name="bottomMargin">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QTabWidget" name="sensory_feedback_tabs">
+               <property name="minimumSize">
+                <size>
+                 <width>0</width>
+                 <height>0</height>
+                </size>
+               </property>
+               <property name="tabPosition">
+                <enum>QTabWidget::North</enum>
+               </property>
+               <property name="currentIndex">
+                <number>0</number>
+               </property>
+               <widget class="QWidget" name="sensory_feedback_core_tab">
+                <attribute name="title">
+                 <string>Core</string>
+                </attribute>
+                <layout class="QVBoxLayout" name="sensoryCoreLayout">
+                 <item>
+                  <widget class="QGroupBox" name="sensory_feedback_box">
+                   <property name="title">
+                    <string>Hidden Sensory Feedback</string>
+                   </property>
+                   <layout class="QVBoxLayout" name="sensoryFeedbackBoxLayout">
+                    <item>
+                     <widget class="QCheckBox" name="sensory_pingpong_checkbox">
+                      <property name="text">
+                       <string>Enable Hidden PING/PONG Loop</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QCheckBox" name="sensory_allow_hidden_proactive_checkbox">
+                      <property name="text">
+                       <string>Allow Hidden Proactive Replies</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <widget class="QCheckBox" name="sensory_allow_hidden_visual_checkbox">
+                      <property name="text">
+                       <string>Allow Hidden Visual Replies</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item>
+                     <layout class="QFormLayout" name="sensoryFeedbackForm">
+                      <item row="0" column="0">
+                       <widget class="QLabel" name="sensory_include_label">
+                        <property name="text">
+                         <string>Include</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="0" column="1">
+                       <widget class="QWidget" name="sensory_feedback_sources_widget">
+                        <property name="minimumSize">
+                         <size>
+                          <width>142</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>300</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <layout class="QVBoxLayout" name="sensoryFeedbackSourcesWidgetLayout">
+                         <property name="leftMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="topMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="rightMargin">
+                          <number>0</number>
+                         </property>
+                         <property name="bottomMargin">
+                          <number>0</number>
+                         </property>
+                         <item>
+                          <widget class="QComboBox" name="sensory_feedback_source_combo">
+                           <item>
+                            <property name="text">
+                             <string>Off</string>
+                            </property>
+                           </item>
+                          </widget>
+                         </item>
+                        </layout>
+                       </widget>
+                      </item>
+                      <item row="1" column="0">
+                       <widget class="QLabel" name="sensory_refresh_label">
+                        <property name="text">
+                         <string>Refresh (s)</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="1" column="1">
+                       <widget class="QDoubleSpinBox" name="sensory_feedback_interval_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>100</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="value">
+                         <double>5.000000000000000</double>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="0">
+                       <widget class="QLabel" name="sensory_retain_label">
+                        <property name="text">
+                         <string>Retain PONGs</string>
+                        </property>
+                       </widget>
+                      </item>
+                      <item row="2" column="1">
+                       <widget class="QSpinBox" name="sensory_pingpong_history_spin">
+                        <property name="minimumSize">
+                         <size>
+                          <width>176</width>
+                          <height>0</height>
+                         </size>
+                        </property>
+                        <property name="maximumSize">
+                         <size>
+                          <width>100</width>
+                          <height>16777215</height>
+                         </size>
+                        </property>
+                        <property name="value">
+                         <number>3</number>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </item>
+                    <item>
+                     <widget class="QLabel" name="sensory_feedback_hint">
+                      <property name="text">
+                       <string>Core prompt defines the shared hidden sensory contract. Source tabs add source-specific guidance.</string>
+                      </property>
+                      <property name="wordWrap">
+                       <bool>true</bool>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QGroupBox" name="sensory_pingpong_prompt_box">
+                   <property name="title">
+                    <string>Core Hidden PING/PONG Prompt</string>
+                   </property>
+                   <layout class="QVBoxLayout" name="sensoryPingPongPromptLayout">
+                    <item>
+                     <widget class="QPlainTextEdit" name="sensory_pingpong_prompt_text">
+                      <property name="styleSheet">
+                       <string notr="true">border:none;background:transparent;</string>
+                      </property>
+                      <property name="frameShape">
+                       <enum>QFrame::NoFrame</enum>
+                      </property>
+                      <property name="frameShadow">
+                       <enum>QFrame::Plain</enum>
+                      </property>
+                      <property name="lineWidth">
+                       <number>0</number>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+               <widget class="QWidget" name="sensory_feedback_sources_tab">
+                <attribute name="title">
+                 <string>Sources</string>
+                </attribute>
+                <layout class="QVBoxLayout" name="sensorySourcesLayout">
+                 <item>
+                  <widget class="QPlainTextEdit" name="sensory_sources_placeholder">
+                   <property name="plainText">
+                    <string>Source-specific prompt tabs are mounted dynamically in the live app.</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </widget>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="host_settings_chat_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>ui_icons/side_tabs/chat.png</normaloff>ui_icons/side_tabs/chat.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Chat</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="chatTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>8</number>
+             </property>
+             <property name="topMargin">
+              <number>8</number>
+             </property>
+             <property name="rightMargin">
+              <number>8</number>
+             </property>
+             <property name="bottomMargin">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QGroupBox" name="conversation_flow_box">
+               <property name="title">
+                <string>Conversation Flow</string>
+               </property>
+               <layout class="QVBoxLayout" name="conversationFlowLayout">
+                <item>
+                 <widget class="QCheckBox" name="allow_proactive_checkbox">
+                  <property name="text">
+                   <string>Allow Proactive Replies</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="require_first_user_checkbox">
+                  <property name="text">
+                   <string>Require First User Message</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QFormLayout" name="conversationFlowForm">
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="listen_idle_window_label">
+                    <property name="text">
+                     <string>Idle wait window (s)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QDoubleSpinBox" name="listen_idle_window_spin">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>0</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>100</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="value">
+                     <double>5.000000000000000</double>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="proactive_delay_label">
+                    <property name="text">
+                     <string>Proactive delay (s)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QDoubleSpinBox" name="proactive_delay_spin">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>0</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>100</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="value">
+                     <double>10.000000000000000</double>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="chat_context_window_label">
+                    <property name="text">
+                     <string>Context window (msgs)</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QSpinBox" name="chat_context_window_spin">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>0</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>100</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="value">
+                     <number>20</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="0">
+                   <widget class="QLabel" name="stored_history_limit_label">
+                    <property name="text">
+                     <string>Stored history limit</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="1">
+                   <widget class="QSpinBox" name="stored_chat_history_limit_spin">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>0</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>100</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <property name="maximum">
+                     <number>5000</number>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="4" column="0">
+                   <widget class="QLabel" name="overflow_policy_label">
+                    <property name="text">
+                     <string>Overflow policy</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="4" column="1">
+                   <widget class="QComboBox" name="chat_overflow_policy_combo">
+                    <property name="minimumSize">
+                     <size>
+                      <width>186</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>200</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Rolling Window</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Truncate Middle</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Stop At Limit</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QLabel" name="chat_session_hint">
+                  <property name="text">
+                   <string>Conversation flow and context retention settings for the active session.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="session_box">
+               <property name="title">
+                <string>Session</string>
+               </property>
+               <layout class="QVBoxLayout" name="sessionBoxLayout">
+                <item>
+                 <widget class="QLabel" name="session_hint_label">
+                  <property name="text">
+                   <string>Clear conversation memory when you want to restart the current chat without restarting the whole app.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="sessionButtonsRow">
+                  <item>
+                   <widget class="QPushButton" name="btn_save_chat_session">
+                    <property name="text">
+                     <string>Save Chat Context</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="btn_load_chat_session">
+                    <property name="text">
+                     <string>Load Chat Context</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="btn_reset_chat_session">
+                    <property name="text">
+                     <string>Reset Chat Memory</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+               </layout>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="host_settings_themes_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>ui_icons/side_tabs/themes.png</normaloff>ui_icons/side_tabs/themes.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Themes</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="themesTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>8</number>
+             </property>
+             <property name="topMargin">
+              <number>8</number>
+             </property>
+             <property name="rightMargin">
+              <number>8</number>
+             </property>
+             <property name="bottomMargin">
+              <number>8</number>
+             </property>
+             <item>
+              <widget class="QLabel" name="themes_intro_label">
+               <property name="text">
+                <string>Color theme presets for the preview shell. Each preset has its own button so you can swap or redesign the palette later.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QGridLayout" name="themePresetGrid">
+               <property name="spacing">
+                <number>12</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QGroupBox" name="theme_light_gray_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#dddddf; color:#22252a; border:1px solid #b6b8bd; border-radius:10px; } QPushButton { background:#f4f4f5; color:#23262b; border:1px solid #babdc3; border-radius:8px; padding:6px 10px; } QLineEdit { background:#fafafb; color:#23262b; border:1px solid #babdc3; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Light Gray</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeLightGrayLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_light_gray_button">
+                    <property name="text">
+                     <string>Apply Light Gray</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_light_gray_edit">
+                    <property name="text">
+                     <string>Soft neutral designer gray</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QGroupBox" name="theme_gray_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#8b8e95; color:#16181c; border:1px solid #70737a; border-radius:10px; } QPushButton { background:#d3d5d9; color:#1f2227; border:1px solid #7b7f87; border-radius:8px; padding:6px 10px; } QLineEdit { background:#eceef1; color:#1f2227; border:1px solid #7b7f87; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Gray</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeGrayLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_gray_button">
+                    <property name="text">
+                     <string>Apply Gray</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_gray_edit">
+                    <property name="text">
+                     <string>Balanced neutral shell</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="0" column="2">
+                <widget class="QGroupBox" name="theme_dark_gray_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#26282c; color:#eceff3; border:1px solid #3a3d43; border-radius:10px; } QPushButton { background:#3a3d43; color:#eceff3; border:1px solid #50545b; border-radius:8px; padding:6px 10px; } QLineEdit { background:#2f3237; color:#eceff3; border:1px solid #50545b; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Dark Gray</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeDarkGrayLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_dark_gray_button">
+                    <property name="text">
+                     <string>Apply Dark Gray</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_dark_gray_edit">
+                    <property name="text">
+                     <string>Default dark neutral shell</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QGroupBox" name="theme_slate_blue_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#6d7789; color:#111824; border:1px solid #556071; border-radius:10px; } QPushButton { background:#dbe5f5; color:#172133; border:1px solid #6d7c93; border-radius:8px; padding:6px 10px; } QLineEdit { background:#edf3fd; color:#172133; border:1px solid #6d7c93; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Slate Blue</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeSlateBlueLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_slate_blue_button">
+                    <property name="text">
+                     <string>Apply Slate Blue</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_slate_blue_edit">
+                    <property name="text">
+                     <string>Muted steel-blue interface</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QGroupBox" name="theme_warm_sand_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#c6b8a2; color:#2a2117; border:1px solid #9f927f; border-radius:10px; } QPushButton { background:#f4ead9; color:#2f2417; border:1px solid #a28f72; border-radius:8px; padding:6px 10px; } QLineEdit { background:#fbf4ea; color:#2f2417; border:1px solid #a28f72; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Warm Sand</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeWarmSandLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_warm_sand_button">
+                    <property name="text">
+                     <string>Apply Warm Sand</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_warm_sand_edit">
+                    <property name="text">
+                     <string>Warm beige and ink contrast</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="1" column="2">
+                <widget class="QGroupBox" name="theme_forest_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#31463d; color:#edf4ef; border:1px solid #486256; border-radius:10px; } QPushButton { background:#496457; color:#edf4ef; border:1px solid #678677; border-radius:8px; padding:6px 10px; } QLineEdit { background:#3a5147; color:#edf4ef; border:1px solid #678677; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Forest</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeForestLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_forest_button">
+                    <property name="text">
+                     <string>Apply Forest</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_forest_edit">
+                    <property name="text">
+                     <string>Deep green studio palette</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QGroupBox" name="theme_ocean_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#355d70; color:#eef8fb; border:1px solid #4a7f97; border-radius:10px; } QPushButton { background:#47778e; color:#eef8fb; border:1px solid #69a1bc; border-radius:8px; padding:6px 10px; } QLineEdit { background:#3f6e82; color:#eef8fb; border:1px solid #69a1bc; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Ocean</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeOceanLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_ocean_button">
+                    <property name="text">
+                     <string>Apply Ocean</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_ocean_edit">
+                    <property name="text">
+                     <string>Cool marine blue contrast</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QGroupBox" name="theme_rose_smoke_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#7b686d; color:#fff5f7; border:1px solid #9a858b; border-radius:10px; } QPushButton { background:#a2868d; color:#fff5f7; border:1px solid #bca4aa; border-radius:8px; padding:6px 10px; } QLineEdit { background:#8c767d; color:#fff5f7; border:1px solid #bca4aa; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Rose Smoke</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeRoseSmokeLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_rose_smoke_button">
+                    <property name="text">
+                     <string>Apply Rose Smoke</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_rose_smoke_edit">
+                    <property name="text">
+                     <string>Dusty rose neutral mix</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+               <item row="2" column="2">
+                <widget class="QGroupBox" name="theme_midnight_card">
+                 <property name="styleSheet">
+                  <string notr="true">QGroupBox { background:#151b24; color:#edf2fb; border:1px solid #283244; border-radius:10px; } QPushButton { background:#253247; color:#edf2fb; border:1px solid #40536f; border-radius:8px; padding:6px 10px; } QLineEdit { background:#1d2837; color:#edf2fb; border:1px solid #40536f; border-radius:8px; padding:4px 8px; }</string>
+                 </property>
+                 <property name="title">
+                  <string>Midnight</string>
+                 </property>
+                 <layout class="QVBoxLayout" name="themeMidnightLayout">
+                  <item>
+                   <widget class="QPushButton" name="theme_midnight_button">
+                    <property name="text">
+                     <string>Apply Midnight</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QLineEdit" name="theme_midnight_edit">
+                    <property name="text">
+                     <string>Blue-black high contrast shell</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <spacer name="themesBottomSpacer">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="host_settings_visuals_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>ui_icons/side_tabs/visuals.png</normaloff>ui_icons/side_tabs/visuals.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Visuals</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="visualsTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <property name="leftMargin">
+              <number>8</number>
+             </property>
+             <property name="topMargin">
+              <number>8</number>
+             </property>
+             <property name="rightMargin">
+              <number>8</number>
+             </property>
+             <property name="bottomMargin">
+              <number>8</number>
+             </property>
+             <item>
+              <layout class="QFormLayout" name="visualReplyForm">
+               <item row="0" column="0">
+                <widget class="QLabel" name="visual_reply_mode_label">
+                 <property name="text">
+                  <string>Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="visual_reply_mode_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>186</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>Auto</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Off</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="visual_reply_provider_label">
+                 <property name="text">
+                  <string>Provider</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="visual_reply_provider_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>186</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>OpenAI</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>xAI / Grok</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="visual_reply_size_label">
+                 <property name="text">
+                  <string>Image Size</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QComboBox" name="visual_reply_size_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>186</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>1024x1024</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>1024x1536</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>1536x1024</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="image_model_label">
+                 <property name="text">
+                  <string>Image Model</string>
+                 </property>
+               </widget>
+              </item>
+              <item row="3" column="1">
+                <widget class="QLineEdit" name="visual_reply_model_edit">
+                 <property name="minimumSize">
+                  <size>
+                   <width>142</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>grok-imagine-image</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="story_mode_form_label">
+                 <property name="text">
+                  <string>Story Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QPushButton" name="story_mode_button">
+                 <property name="minimumSize">
+                  <size>
+                   <width>200</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>Story Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="5" column="0">
+                <widget class="QLabel" name="max_pictures_label">
+                 <property name="text">
+                  <string>Max Pictures</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="5" column="1">
+                <widget class="QSpinBox" name="visual_reply_story_max_images_spin">
+                 <property name="minimumSize">
+                  <size>
+                   <width>176</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>100</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="maximum">
+                  <number>999</number>
+                 </property>
+                 <property name="value">
+                  <number>20</number>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QGridLayout" name="themeGrid">
+               <item row="0" column="0">
+                <widget class="QPushButton" name="theme_realistic">
+                 <property name="text">
+                  <string>Realistic</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QPushButton" name="theme_cartoon">
+                 <property name="styleSheet">
+                  <string notr="true">background:#4d8dff;border-color:#6ea4ff;</string>
+                 </property>
+                 <property name="text">
+                  <string>Cartoon</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="2">
+                <widget class="QPushButton" name="theme_retro">
+                 <property name="text">
+                  <string>Retro</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLineEdit" name="theme_realistic_edit">
+                 <property name="text">
+                  <string>real textures, grounded detail</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QLineEdit" name="theme_cartoon_edit">
+                 <property name="text">
+                  <string>clean shapes, clean outlines</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="2">
+                <widget class="QLineEdit" name="theme_retro_edit">
+                 <property name="text">
+                  <string>halftone print texture</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QPushButton" name="theme_cyberpunk">
+                 <property name="text">
+                  <string>Cyberpunk</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QPushButton" name="theme_anime">
+                 <property name="text">
+                  <string>Anime</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="2">
+                <widget class="QPushButton" name="theme_storybook">
+                 <property name="text">
+                  <string>Storybook</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLineEdit" name="theme_cyberpunk_edit">
+                 <property name="text">
+                  <string>neon atmosphere, vivid contrast</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QLineEdit" name="theme_anime_edit">
+                 <property name="text">
+                  <string>dynamic framing, stylized faces</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="2">
+                <widget class="QLineEdit" name="theme_storybook_edit">
+                 <property name="text">
+                  <string>illustrated fantasy look</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="continuityRow">
+               <item>
+                <widget class="QLabel" name="continuity_label">
+                 <property name="maximumSize">
+                  <size>
+                   <width>75</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="text">
+                  <string>Continuity</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QSlider" name="continuity_slider">
+                 <property name="minimumSize">
+                  <size>
+                   <width>100</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <property name="maximumSize">
+                  <size>
+                   <width>200</width>
+                   <height>16777215</height>
+                  </size>
+                 </property>
+                 <property name="maximum">
+                  <number>100</number>
+                 </property>
+                 <property name="value">
+                  <number>81</number>
+                 </property>
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QLabel" name="continuity_value_label">
+                 <property name="text">
+                  <string>81%</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QCheckBox" name="visual_reply_auto_show_checkbox">
+               <property name="text">
+                <string>Auto-show Visual Reply dock</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="masterPromptGuardsRow">
+               <item>
+                <widget class="QPushButton" name="visual_master_prompt_safe_button">
+                 <property name="text">
+                  <string>Safe</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="visual_master_prompt_no_speech_bubbles_button">
+                 <property name="text">
+                  <string>No Speech Bubbles</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="masterPromptGuardsSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="visual_master_prompt_label">
+               <property name="text">
+                <string>Master Prompt / Style Anchor</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPlainTextEdit" name="visual_master_prompt_text">
+               <property name="frameShadow">
+                <enum>QFrame::Plain</enum>
+               </property>
+               <property name="plainText">
+                <string>Captured current-image style anchor and story master prompt content appears here in the live app.</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="visual_reply_hint">
+               <property name="text">
+                <string>Automatic image generation still follows the NC auto-visual toggle. Story continuity, master prompt guards, and current-image style anchor are applied in the live app.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="WorkspaceTabsDock">
+   <property name="minimumSize">
+    <size>
+     <width>360</width>
+     <height>260</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Workspace Tabs</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="workspace_tabs_panel">
+    <property name="sizePolicy">
+     <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
+      <horstretch>0</horstretch>
+      <verstretch>0</verstretch>
+     </sizepolicy>
+    </property>
+    <layout class="QVBoxLayout" name="workspaceTabsLayout">
+     <property name="spacing">
+      <number>12</number>
+     </property>
+     <property name="leftMargin">
+      <number>14</number>
+     </property>
+     <property name="topMargin">
+      <number>14</number>
+     </property>
+     <property name="rightMargin">
+      <number>14</number>
+     </property>
+     <property name="bottomMargin">
+      <number>14</number>
+     </property>
+     <item>
+      <widget class="QTabWidget" name="left_tabs">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Ignored">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>0</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="tabPosition">
+        <enum>QTabWidget::West</enum>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>35</width>
+         <height>35</height>
+        </size>
+       </property>
+       <property name="movable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="persona_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/persona.png</normaloff>ui_icons/side_tabs/persona.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Persona</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="personaLayout">
+         <item>
+          <widget class="QLabel" name="voice_clone_label">
+           <property name="text">
+            <string>Voice Clone</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="voice_combo">
+           <property name="minimumSize">
+            <size>
+             <width>186</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>200</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string>ms-twav</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="pocket_tts_info_label">
+           <property name="text">
+            <string>PocketTTS is bundled with Neural Interface and is used automatically when selected.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_toggle_pocket_tts_advanced">
+           <property name="text">
+            <string>Show Advanced PocketTTS Override</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="pocket_tts_advanced_group">
+           <property name="title">
+            <string>Advanced PocketTTS Override</string>
+           </property>
+           <layout class="QVBoxLayout" name="pocketTtsAdvancedLayout">
+            <item>
+             <widget class="QLabel" name="pocket_tts_bundled_label">
+              <property name="text">
+               <string>Bundled interpreter: detected automatically in the live app.</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="pocketTtsOverrideRow">
+              <item>
+               <widget class="QLineEdit" name="pocket_tts_python_edit">
+                <property name="placeholderText">
+                 <string>Optional override path to PocketTTS python.exe</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="pocket_tts_browse_button">
+                <property name="text">
+                 <string>Browse</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_use_bundled_pocket_tts">
+              <property name="text">
+               <string>Use Bundled PocketTTS</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="technical_rules_group">
+           <property name="title">
+            <string>Technical Rules (Tags)</string>
+           </property>
+           <layout class="QVBoxLayout" name="technicalRulesLayout">
+            <item>
+             <widget class="QPlainTextEdit" name="emotional_text">
+              <property name="plainText">
+               <string>Technical rules / expressive tags</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="system_prompt_group">
+           <property name="title">
+            <string>System Prompt</string>
+           </property>
+           <layout class="QVBoxLayout" name="systemPromptLayout">
+            <item>
+             <widget class="QPlainTextEdit" name="system_prompt_text">
+              <property name="plainText">
+               <string>System prompt</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_apply_text_config">
+           <property name="text">
+            <string>Apply Changes</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="vseeface_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/vseeface.png</normaloff>ui_icons/side_tabs/vseeface.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>VSeeFace</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="vseefaceLayout">
+         <property name="spacing">
+          <number>10</number>
+         </property>
+         <item>
+          <widget class="QTabWidget" name="vseeface_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::North</enum>
+           </property>
+           <widget class="QWidget" name="body_tab">
+            <attribute name="title">
+             <string>Body</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="bodyTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <item>
+              <layout class="QVBoxLayout" name="bodyPresetsLayout">
+               <property name="spacing">
+                <number>8</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="body_presets_heading">
+                 <property name="styleSheet">
+                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
+                 </property>
+                 <property name="text">
+                  <string>Body Presets</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="body_combo">
+                 <item>
+                  <property name="text">
+                   <string>Default</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="bodyPresetButtons">
+                 <item>
+                  <widget class="QPushButton" name="btn_body_load">
+                   <property name="text">
+                    <string>Load</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_save">
+                   <property name="text">
+                    <string>Save</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_save_as">
+                   <property name="text">
+                    <string>Save As</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_delete">
+                   <property name="text">
+                    <string>Delete</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="bodyEmotionRow">
+               <item>
+                <widget class="QComboBox" name="emotion_combo">
+                 <item>
+                  <property name="text">
+                   <string>Neutral</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Happy</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sad</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Angry</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Shy</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Surprised</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <spacer name="bodyEmotionSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="live_sync_checkbox">
+                 <property name="text">
+                  <string>Live Sync</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btn_hand_doctor">
+               <property name="text">
+                <string>Hand Doctor</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QVBoxLayout" name="bodyPoseSlidersSectionLayout">
+               <property name="spacing">
+                <number>8</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="body_pose_sliders_heading">
+                 <property name="styleSheet">
+                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
+                 </property>
+                 <property name="text">
+                  <string>Pose Sliders</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QFormLayout" name="bodyPoseSlidersLayout">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="idle_fwd_left_label">
+                   <property name="text">
+                    <string>L Depth</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QSlider" name="idle_fwd_left_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="idle_fwd_right_label">
+                   <property name="text">
+                    <string>R Depth</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QSlider" name="idle_fwd_right_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="idle_arm_down_label">
+                   <property name="text">
+                    <string>Shoulder Down</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QSlider" name="idle_arm_down_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="dynamics_tab">
+            <attribute name="title">
+             <string>Dynamics</string>
+            </attribute>
+            <layout class="QFormLayout" name="dynamicsTabLayout">
+             <item row="0" column="0">
+              <widget class="QLabel" name="eye_activity_label">
+               <property name="text">
+                <string>Eye Activity</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSlider" name="eye_activity_slider">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="breath_speed_label">
+               <property name="text">
+                <string>Breath Speed</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QSlider" name="breath_speed_slider">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="shoulder_lift_label">
+               <property name="text">
+                <string>Shoulder Lift</string>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QSlider" name="shoulder_lift_slider">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+         <item>
+          <layout class="QVBoxLayout" name="vseefaceViewLayout">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="vseeface_view_heading">
+             <property name="styleSheet">
+              <string notr="true">font-weight:600;color:#dfe3e8;</string>
+             </property>
+             <property name="text">
+              <string>VSeeFace View</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="vseeface_view_hint">
+             <property name="text">
+              <string>Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="vseefaceViewButtons">
+             <item>
+              <widget class="QPushButton" name="btn_vseeface_hide_interface">
+               <property name="text">
+                <string>Hide NC Interface</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="vseefaceViewButtonsSpacer">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="musetalk_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/musetalk.png</normaloff>ui_icons/side_tabs/musetalk.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>MuseTalk</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="musetalkLayout">
+         <item>
+          <widget class="QTabWidget" name="musetalk_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::North</enum>
+           </property>
+           <widget class="QWidget" name="musetalk_core_tab">
+            <attribute name="title">
+             <string>Core</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="musetalkCoreLayout">
+             <item>
+              <widget class="QPlainTextEdit" name="musetalk_core_placeholder">
+               <property name="plainText">
+                <string>MuseTalk pages are addon-mounted dynamically in the live app. This static shell reserves the same workspace surface.</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="musetalk_preview_tab">
+            <attribute name="title">
+             <string>Preview</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="musetalkPreviewLayout">
+             <item>
+              <widget class="QLabel" name="musetalk_preview_hint">
+               <property name="text">
+                <string>MuseTalk preview and stage controls are docked separately in the live app.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="vam_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/vam.png</normaloff>ui_icons/side_tabs/vam.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>VaM</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="vamLayout">
+         <item>
+          <widget class="QLabel" name="vam_summary_label">
+           <property name="text">
+            <string>VaM uses two channels: VMC for motion/head/hands, and a file bridge for emotion, speaking, and optional in-VaM audio.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="vam_detected_setup_box">
+           <property name="title">
+            <string>Detected Setup</string>
+           </property>
+           <layout class="QVBoxLayout" name="vamDetectedSetupLayout">
+            <item>
+             <widget class="QLabel" name="vam_runtime_label">
+              <property name="text">
+               <string>Runtime: not detected</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="vam_bridge_status_label">
+              <property name="text">
+               <string>Bridge status: idle</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="vam_bridge_detail_label">
+              <property name="text">
+               <string>Bridge detail appears here in the live app.</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="vam_bridge_box">
+           <property name="title">
+            <string>VaM Bridge</string>
+           </property>
+           <layout class="QFormLayout" name="vamBridgeForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="vam_root_label">
+              <property name="text">
+               <string>VaM Root</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLineEdit" name="vam_root_edit"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="vam_bridge_root_label">
+              <property name="text">
+               <string>Bridge Path</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLineEdit" name="vam_bridge_root_edit"/>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="vam_target_atom_uid_label">
+              <property name="text">
+               <string>Target Atom UID</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLineEdit" name="vam_target_atom_uid_edit"/>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="vam_target_storable_id_label">
+              <property name="text">
+               <string>Target Storable ID</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QLineEdit" name="vam_target_storable_id_edit"/>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="vam_vmc_host_label">
+              <property name="text">
+               <string>VMC Host</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QLineEdit" name="vam_vmc_host_edit"/>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="vam_vmc_port_label">
+              <property name="text">
+               <string>VMC Port</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QSpinBox" name="vam_vmc_port_spin">
+              <property name="maximum">
+               <number>65535</number>
+              </property>
+              <property name="value">
+               <number>39539</number>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="vamBridgeCheckboxes">
+           <item>
+            <widget class="QCheckBox" name="vam_vmc_enabled_checkbox">
+             <property name="text">
+              <string>Enable VMC</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_bridge_enabled_checkbox">
+             <property name="text">
+              <string>Enable File Bridge</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_play_audio_in_vam_checkbox">
+             <property name="text">
+              <string>Play Audio In VaM</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_timeline_auto_resume_checkbox">
+             <property name="text">
+              <string>Timeline Auto Resume</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="vamActions">
+           <item>
+            <widget class="QPushButton" name="btn_start_vam_desktop">
+             <property name="text">
+              <string>Start VaM Desktop</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_start_vam_vr">
+             <property name="text">
+              <string>Start VaM VR</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_vam_hide_interface">
+             <property name="text">
+              <string>Hide NC Interface</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QTabWidget" name="vam_setup_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::North</enum>
+           </property>
+           <widget class="QWidget" name="vam1_setup_tab">
+            <attribute name="title">
+             <string>VaM1</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="vam1SetupLayout">
+             <item>
+              <widget class="QLabel" name="vam1_setup_hint">
+               <property name="text">
+                <string>VaM1 setup: point NC at the VaM install root and ensure the plugin creates the outbox status file.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="vam2_setup_tab">
+            <attribute name="title">
+             <string>VaM2</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="vam2SetupLayout">
+             <item>
+              <widget class="QLabel" name="vam2_setup_hint">
+               <property name="text">
+                <string>VaM2 setup: point NC at the VaM2 install root and ensure the runtime processes bridge commands.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="brain_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/brain.png</normaloff>ui_icons/side_tabs/brain.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Brain</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="brainLayout">
+         <item>
+          <widget class="QGroupBox" name="brain_sampling_box">
+           <property name="title">
+            <string>Sampling</string>
+           </property>
+           <layout class="QFormLayout" name="brainSamplingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="temperature_label">
+              <property name="text">
+               <string>Temperature</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="temperature_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="top_p_label">
+              <property name="text">
+               <string>Top P</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="top_p_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="top_k_label">
+              <property name="text">
+               <string>Top K</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSlider" name="top_k_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="repeat_penalty_label">
+              <property name="text">
+               <string>Repeat Penalty</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSlider" name="repeat_penalty_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="min_p_label">
+              <property name="text">
+               <string>Min P</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QSlider" name="min_p_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="response_length_box">
+           <property name="title">
+            <string>Response Length</string>
+           </property>
+           <layout class="QFormLayout" name="responseLengthForm">
+            <item row="0" column="0">
+             <widget class="QCheckBox" name="limit_response_checkbox">
+              <property name="text">
+               <string>Limit Response Length</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QWidget" name="response_limit_placeholder" native="true"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="max_response_tokens_label">
+              <property name="text">
+               <string>Maximum response length (tokens)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSpinBox" name="max_response_tokens_spin">
+              <property name="maximum">
+               <number>8192</number>
+              </property>
+              <property name="value">
+               <number>600</number>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="chunking_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/chunking.png</normaloff>ui_icons/side_tabs/chunking.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Chunking</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="chunkingLayout">
+         <item>
+          <widget class="QLabel" name="chunking_hint_label">
+           <property name="text">
+            <string>Global pipeline tuning. These values affect chunking behavior system-wide and are not saved with personas.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="standard_chunking_box">
+           <property name="title">
+            <string>Standard</string>
+           </property>
+           <layout class="QFormLayout" name="standardChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="musetalk_chunking_box">
+           <property name="title">
+            <string>MuseTalk Non-Stream</string>
+           </property>
+           <layout class="QFormLayout" name="musetalkChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="musetalk_chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="musetalk_chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="musetalk_chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="musetalk_chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_1_target_chars_label">
+              <property name="text">
+               <string>Quickstart 1 Target</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_1_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="streaming_chunking_box">
+           <property name="title">
+            <string>Streaming</string>
+           </property>
+           <layout class="QFormLayout" name="streamingChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="stream_chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="stream_chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="stream_chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="stream_chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="stream_first_chunk_min_chars_label">
+              <property name="text">
+               <string>First Chunk Min</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSlider" name="stream_first_chunk_min_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_reset_chunking_defaults">
+           <property name="text">
+            <string>Reset Chunking Defaults</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="chunking_profiles_box">
+           <property name="title">
+            <string>Performance Profiles</string>
+           </property>
+           <layout class="QVBoxLayout" name="chunkingProfilesLayout">
+            <item>
+             <layout class="QHBoxLayout" name="chunkingProfileRow">
+              <item>
+               <widget class="QComboBox" name="chunking_profile_combo">
+                <item>
+                 <property name="text">
+                  <string>No Saved Profiles</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_refresh">
+                <property name="text">
+                 <string>Refresh</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="chunkingProfileButtons">
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_load">
+                <property name="text">
+                 <string>Load Profile</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_save">
+                <property name="text">
+                 <string>Save Current As</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_delete">
+                <property name="text">
+                 <string>Delete</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="dry_run_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/dry_run.png</normaloff>ui_icons/side_tabs/dry_run.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Dry Run</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="dryRunLayout">
+         <item>
+          <widget class="QLabel" name="dry_run_intro">
+           <property name="text">
+            <string>Dry Run profiles your current hardware and recommends safer startup/chunking values without changing the live pipeline while it measures.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QFormLayout" name="dryRunForm">
+           <item row="0" column="0">
+            <widget class="QLabel" name="dry_run_target_label">
+             <property name="text">
+              <string>Target Reply Samples</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSpinBox" name="dry_run_target_spin">
+             <property name="maximum">
+              <number>12</number>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="dry_run_hands_free_label">
+             <property name="text">
+              <string>Hands-Free</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QCheckBox" name="dry_run_auto_replies_checkbox">
+             <property name="text">
+              <string>Auto-generate follow-up replies</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="dryRunButtons">
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_start">
+             <property name="text">
+              <string>Arm Dry Run</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_stop">
+             <property name="text">
+              <string>Stop Dry Run</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_apply">
+             <property name="text">
+              <string>Apply Recommendation</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="dry_run_status_label">
+           <property name="text">
+            <string>Dry Run idle.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="dry_run_summary">
+           <property name="plainText">
+            <string>Recommendations and measured startup metrics will appear here.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="performance_profiles_box">
+           <property name="title">
+            <string>Performance Profiles</string>
+           </property>
+           <layout class="QVBoxLayout" name="performanceProfilesLayout">
+            <item>
+             <layout class="QHBoxLayout" name="performanceProfileRow">
+              <item>
+               <widget class="QComboBox" name="performance_profile_combo">
+                <item>
+                 <property name="text">
+                  <string>No Saved Profiles</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_refresh">
+                <property name="text">
+                 <string>Refresh</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="performanceProfileButtons">
+              <item>
+               <widget class="QPushButton" name="btn_profile_load">
+                <property name="text">
+                 <string>Load Profile</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_save_latest">
+                <property name="text">
+                 <string>Save Latest As</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_delete">
+                <property name="text">
+                 <string>Delete</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="tutorials_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/tutorials.png</normaloff>ui_icons/side_tabs/tutorials.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Tutorials</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="tutorialsLayout">
+         <item>
+          <widget class="QLabel" name="tutorials_intro_label">
+           <property name="text">
+            <string>Tutorials are loaded from JSON files, so new walkthroughs can be added over time without hardcoding them into the application.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QListWidget" name="tutorials_list">
+           <item>
+            <property name="text">
+             <string>Getting Started</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Visual Replies</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Audio Story Mode</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="tutorial_description">
+           <property name="plainText">
+            <string>Select a tutorial to see its description.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="tutorialButtons">
+           <item>
+            <widget class="QPushButton" name="btn_tutorial_refresh">
+             <property name="text">
+              <string>Refresh</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="tutorialButtonsSpacer">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_tutorial_start">
+             <property name="text">
+              <string>Start Tutorial</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="hotkeys_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/hotkeys.png</normaloff>ui_icons/side_tabs/hotkeys.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Hotkeys</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="hotkeysLayout">
+         <item>
+          <widget class="QPlainTextEdit" name="hotkeys_text">
+           <property name="plainText">
+            <string>Addon workspace tabs mount here at runtime.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="chat_player_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/chat_player.png</normaloff>ui_icons/side_tabs/chat_player.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Chat Player</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="chatPlayerLayout">
+         <item>
+          <widget class="QPlainTextEdit" name="chat_player_text">
+           <property name="plainText">
+            <string>Chat Player addon placeholder.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="OperationalViewDock">
+   <property name="minimumSize">
+    <size>
+     <width>360</width>
+     <height>260</height>
+    </size>
+   </property>
+   <property name="windowTitle">
+    <string>Operational View</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>2</number>
+   </attribute>
+   <widget class="QWidget" name="operational_view_panel">
+    <layout class="QVBoxLayout" name="operationalOuterLayout">
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="QScrollArea" name="operational_scroll">
+       <property name="widgetResizable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="operational_content">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>890</width>
+          <height>1185</height>
+         </rect>
+        </property>
+        <layout class="QVBoxLayout" name="operationalLayout" stretch="0,0,0,0,0">
+         <property name="spacing">
+          <number>12</number>
+         </property>
+         <property name="leftMargin">
+          <number>14</number>
+         </property>
+         <property name="topMargin">
+          <number>14</number>
+         </property>
+         <property name="rightMargin">
+          <number>14</number>
+         </property>
+         <property name="bottomMargin">
+          <number>14</number>
+         </property>
+         <item>
+          <widget class="QGroupBox" name="pipeline_telemetry_box">
+           <property name="title">
+            <string>Buffer Race</string>
+           </property>
+           <layout class="QVBoxLayout" name="telemetryLayout">
+            <item>
+             <widget class="QLabel" name="telemetry_hint">
+              <property name="styleSheet">
+               <string notr="true">color:#9fb3c8;</string>
+              </property>
+              <property name="text">
+               <string>Telemetry appears during MuseTalk and VaM replies.</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QProgressBar" name="render_ready_bar">
+              <property name="value">
+               <number>4</number>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QProgressBar" name="preview_playback_bar">
+              <property name="value">
+               <number>3</number>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QTabWidget" name="right_tabs">
+           <property name="sizePolicy">
+            <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+             <horstretch>0</horstretch>
+             <verstretch>1</verstretch>
+            </sizepolicy>
+           </property>
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::North</enum>
+           </property>
+           <widget class="QWidget" name="system_console_tab">
+            <attribute name="title">
+             <string>System Console</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="systemConsoleLayout" stretch="0,1">
+             <item>
+              <layout class="QHBoxLayout" name="systemConsoleHeader">
+               <item>
+                <widget class="QLabel" name="console_status">
+                 <property name="text">
+                  <string>6 lines | autoscroll on</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="systemConsoleSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QPushButton" name="console_autoscroll_button">
+                 <property name="text">
+                  <string>Autoscroll: On</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="console_clear_button">
+                 <property name="text">
+                  <string>Clear</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QPlainTextEdit" name="console_edit">
+               <property name="plainText">
+                <string>[Addons] Loaded: nc.audio_story_mode, nc.visual_reply, nc.hotkeys</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="chat_runtime_tab">
+            <attribute name="title">
+             <string>Chat</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="chatRuntimeLayout" stretch="0,1">
+             <item>
+              <layout class="QHBoxLayout" name="chatRuntimeHeader">
+               <item>
+                <widget class="QLabel" name="chat_status">
+                 <property name="text">
+                  <string>0 lines | autoscroll on</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <spacer name="chatRuntimeHeaderSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QLabel" name="chat_font_size_label">
+                 <property name="text">
+                  <string>Font Size</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="chat_font_size_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>74</width>
+                   <height>0</height>
+                  </size>
+                 </property>
+                 <item>
+                  <property name="text">
+                   <string>12</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_quick_save_button">
+                 <property name="text">
+                  <string>Quick Save</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_quick_load_button">
+                 <property name="text">
+                  <string>Quick Load</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_edit_mode_button">
+                 <property name="text">
+                  <string>Edit Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_apply_edit_button">
+                 <property name="text">
+                  <string>Apply Edit</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_cancel_edit_button">
+                 <property name="text">
+                  <string>Cancel Edit</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_autoscroll_button">
+                 <property name="text">
+                  <string>Autoscroll: On</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QPushButton" name="chat_clear_button">
+                 <property name="text">
+                  <string>Clear</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QTextEdit" name="chat_edit">
+               <property name="plainText">
+                <string>Conversation output renders here in the live app.</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="audio_story_mode_tab">
+            <property name="sizePolicy">
+             <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
+              <horstretch>0</horstretch>
+              <verstretch>0</verstretch>
+             </sizepolicy>
+            </property>
+            <property name="minimumSize">
+             <size>
+              <width>0</width>
+              <height>780</height>
+             </size>
+            </property>
+            <attribute name="title">
+             <string>Audio Story Mode</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="audioStoryModeLayout" stretch="0,0,0,1">
+             <item>
+              <widget class="QGroupBox" name="audio_story_source_box">
+               <property name="title">
+                <string>Audio Source</string>
+               </property>
+               <layout class="QVBoxLayout" name="audioStorySourceLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="audioStoryImportRow">
+                  <item>
+                   <widget class="QLineEdit" name="audio_file_path_edit">
+                    <property name="placeholderText">
+                     <string>Import an audiobook or story audio file...</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="import_audio_button">
+                    <property name="text">
+                     <string>Import Audio</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QFormLayout" name="audioStorySourceForm">
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="audio_story_playback_label">
+                    <property name="text">
+                     <string>Playback</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="audio_story_playback_combo">
+                    <item>
+                     <property name="text">
+                      <string>Play Imported Audio</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Use TTS Narration</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="transcribe_seconds_label">
+                    <property name="text">
+                     <string>Transcribe Seconds</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QSlider" name="transcribe_seconds_slider">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QPushButton" name="transcribe_audio_button">
+                  <property name="text">
+                   <string>Transcribe Audio</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="audio_story_playback_box">
+               <property name="title">
+                <string>Playback</string>
+               </property>
+               <layout class="QVBoxLayout" name="audioStoryPlaybackLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="audioStoryButtons">
+                  <item>
+                   <widget class="QPushButton" name="audio_story_play_button">
+                    <property name="text">
+                     <string>Play</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_pause_button">
+                    <property name="text">
+                     <string>Pause</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_stop_button">
+                    <property name="text">
+                     <string>Stop</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="audioStoryButtonsSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                  <item>
+                   <widget class="QLabel" name="audio_story_position_label">
+                    <property name="text">
+                     <string>00:00 / 00:00</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QSlider" name="audio_story_seek_slider">
+                  <property name="orientation">
+                   <enum>Qt::Horizontal</enum>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QFormLayout" name="audioStoryPlaybackForm">
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="image_frequency_label">
+                    <property name="text">
+                     <string>Generate Image Every</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QSlider" name="image_frequency_slider">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="audio_story_continuity_label">
+                    <property name="text">
+                     <string>Continuity</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QSlider" name="audio_story_continuity_slider">
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="generate_ahead_label">
+                    <property name="text">
+                     <string>Generate Ahead</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QSpinBox" name="generate_ahead_spin">
+                    <property name="minimum">
+                     <number>1</number>
+                    </property>
+                    <property name="maximum">
+                     <number>12</number>
+                    </property>
+                    <property name="value">
+                     <number>3</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="audio_story_style_box">
+               <property name="title">
+                <string>Story Visual Prompting</string>
+               </property>
+               <layout class="QVBoxLayout" name="audioStoryStyleLayout">
+                <item>
+                 <layout class="QHBoxLayout" name="audioStoryMasterPromptRow">
+                  <item>
+                   <widget class="QPushButton" name="audio_story_master_prompt_from_story_button">
+                    <property name="text">
+                     <string>Visuals Master Prompt From Story</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="audio_story_master_prompt_strength_combo">
+                    <item>
+                     <property name="text">
+                      <string>Simple</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Medium</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Strong</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Strongest</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="audioStoryStyleButtonsRow1">
+                  <item>
+                   <widget class="QPushButton" name="audio_story_style_realistic_button">
+                    <property name="text">
+                     <string>Realistic</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_style_cartoon_button">
+                    <property name="text">
+                     <string>Cartoon</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_style_retro_button">
+                    <property name="text">
+                     <string>Retro</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_style_cyberpunk_button">
+                    <property name="text">
+                     <string>Cyberpunk</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QGridLayout" name="audioStoryStyleTextGrid">
+                  <item row="0" column="0">
+                   <widget class="QLineEdit" name="audio_story_style_realistic_edit">
+                    <property name="text">
+                     <string>real textures, grounded detail</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QLineEdit" name="audio_story_style_cartoon_edit">
+                    <property name="text">
+                     <string>clean shapes, clean outlines</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLineEdit" name="audio_story_style_retro_edit">
+                    <property name="text">
+                     <string>halftone print texture</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QLineEdit" name="audio_story_style_cyberpunk_edit">
+                    <property name="text">
+                     <string>neon atmosphere, vivid contrast</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QCheckBox" name="audio_story_change_style_live_checkbox">
+                  <property name="text">
+                   <string>Change Style Live</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPlainTextEdit" name="audio_story_placeholder">
+               <property name="plainText">
+                <string>Audio Story Mode playback, transcription, continuity, prompt style, timing controls, and transcript preview live here in the Python-built app.</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+         <item>
+          <layout class="QGridLayout" name="controlButtonsGrid">
+           <item row="0" column="0">
+            <widget class="QPushButton" name="btn_regenerate">
+             <property name="text">
+              <string>Regenerate</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QPushButton" name="btn_retry">
+             <property name="text">
+              <string>Retry Input</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="2">
+            <widget class="QPushButton" name="btn_pause">
+             <property name="text">
+              <string>Pause / Resume</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="3">
+            <widget class="QPushButton" name="btn_skip">
+             <property name="text">
+              <string>Skip Speech</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="4">
+            <widget class="QPushButton" name="btn_skip_user">
+             <property name="text">
+              <string>Skip User Reply</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="engineActionButtonsRow">
+           <property name="spacing">
+            <number>10</number>
+           </property>
+           <item>
+            <widget class="QPushButton" name="btn_start_engine">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>48</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Initialize System</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_stop_engine">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>48</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Terminate</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_reset_chat">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>48</height>
+              </size>
+             </property>
+             <property name="text">
+              <string>Reset Chat Memory</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="PreviewDock">
+   <property name="visible">
+    <bool>true</bool>
+   </property>
+   <property name="windowTitle">
+    <string>MuseTalk Preview</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>2</number>
+   </attribute>
+   <widget class="QWidget" name="preview_dock_content">
+    <layout class="QVBoxLayout" name="previewDockLayout">
+     <item>
+      <widget class="QLabel" name="preview_placeholder_label">
+       <property name="text">
+        <string>MuseTalk preview panel placeholder</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QDockWidget" name="VisualReplyDock">
+   <property name="visible">
+    <bool>true</bool>
+   </property>
+   <property name="windowTitle">
+    <string>Visual Reply</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>2</number>
+   </attribute>
+   <widget class="QWidget" name="visual_reply_panel">
+    <layout class="QVBoxLayout" name="visualReplyLayout" stretch="0,0,0,0,0">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <property name="leftMargin">
+      <number>12</number>
+     </property>
+     <property name="topMargin">
+      <number>12</number>
+     </property>
+     <property name="rightMargin">
+      <number>12</number>
+     </property>
+     <property name="bottomMargin">
+      <number>12</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="visual_reply_status">
+       <property name="styleSheet">
+        <string notr="true">font-weight:700;</string>
+       </property>
+       <property name="text">
+        <string>Visual Reply generating...</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="visual_reply_storage_label">
+       <property name="text">
+        <string>Storage: 0 image(s), 0 MiB total | Current: 0/0</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="visualReplyButtons">
+       <item>
+        <widget class="QPushButton" name="visual_reply_previous_button">
+         <property name="text">
+          <string>Previous</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_load_button">
+         <property name="text">
+          <string>Load Image</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_next_button">
+         <property name="text">
+          <string>Next</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_load_current_story_button">
+         <property name="text">
+          <string>Load Current Story Image</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_use_current_style_button">
+         <property name="text">
+          <string>Use Current Image Style</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="visualReplyButtonsRow2">
+       <item>
+        <widget class="QPushButton" name="visual_reply_caption_button">
+         <property name="text">
+          <string>Caption</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_delete_button">
+         <property name="text">
+          <string>Delete Image</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_clear_button">
+         <property name="text">
+          <string>Clear</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="visual_reply_delete_all_button">
+         <property name="text">
+          <string>Delete All</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <widget class="QFrame" name="visual_reply_frame">
+       <property name="minimumSize">
+        <size>
+         <width>360</width>
+         <height>360</height>
+        </size>
+       </property>
+       <property name="frameShape">
+        <enum>QFrame::StyledPanel</enum>
+       </property>
+       <layout class="QVBoxLayout" name="visualReplyFrameLayout">
+        <item>
+         <widget class="QLabel" name="visual_reply_image_label">
+          <property name="text">
+           <string>Image preview area</string>
+          </property>
+          <property name="alignment">
+           <set>Qt::AlignCenter</set>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
+  <widget class="QMenuBar" name="menubar">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>1810</width>
+     <height>21</height>
+    </rect>
+   </property>
+   <widget class="QMenu" name="menuWorkspace">
+    <property name="title">
+     <string>Workspace</string>
+    </property>
+    <addaction name="actionShowAllPanels"/>
+    <addaction name="actionResetWorkspaceLayout"/>
+   </widget>
+   <addaction name="menuWorkspace"/>
+  </widget>
+  <widget class="QStatusBar" name="statusbar"/>
+  <action name="actionShowAllPanels">
+   <property name="text">
+    <string>Show All Panels</string>
+   </property>
+  </action>
+  <action name="actionResetWorkspaceLayout">
+   <property name="text">
+    <string>Reset Workspace Layout</string>
+   </property>
+  </action>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
