@@ -557,7 +557,11 @@ def _apply_ui_shell_preview_status(window):
 
     for button_name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat", "import_audio_button", "transcribe_audio_button"):
         button = _ui_shell_find_object(window, button_name)
-        if button is not None and hasattr(button, "setToolTip"):
+        if button is None:
+            continue
+        if hasattr(button, "setEnabled"):
+            button.setEnabled(False)
+        if hasattr(button, "setToolTip"):
             button.setToolTip("Disabled in shell preview. Runtime wiring is intentionally deferred.")
 
     return summary

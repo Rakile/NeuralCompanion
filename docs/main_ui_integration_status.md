@@ -67,7 +67,7 @@ Current behavior:
 - Shows the Designer shell window.
 - Marks existing status labels with shell-preview status.
 - Populates selected controls from saved session state in read-only form.
-- Adds tooltips to deferred runtime controls.
+- Disables deferred runtime controls and adds tooltips explaining that runtime wiring is intentionally not connected yet.
 - Prints a concise binding/config/addon manifest summary to the terminal.
 - Adds read-only addon mount placeholder tabs in the Designer shell.
 - Live-mounts the allowlisted low-risk addons.
@@ -231,6 +231,14 @@ Intentionally not connected yet:
 - Session save/load/delete actions.
 - Chat quick save/load actions.
 
+In shell preview, the main runtime buttons are visibly disabled rather than left as misleading inert buttons:
+
+- `btn_start_engine`
+- `btn_stop_engine`
+- `btn_reset_chat`
+- `import_audio_button`
+- `transcribe_audio_button`
+
 ## Shell-Local Console/Chat Controls
 
 The Designer shell now binds these controls locally:
@@ -279,6 +287,20 @@ Recommended next phase:
 2. Continue runtime binding one narrow surface at a time. The next good candidates are preset/session binding or engine lifecycle buttons, with model refresh still deferred until the provider binding is accepted.
 3. Later, consider replacing shell adapters with real controller splits only if runtime-heavy imports can be kept out of shell rendering.
 4. Re-run `python qt_app.py --ui-shell main.ui --shell-smoke` after each phase and confirm addon-owned tab surfaces stay clean with no duplicate candidates or placeholder-only addon targets.
+
+## Handover Notes
+
+Current pushed shell milestones:
+
+- `0d8222f` - Chat Runtime provider/model/config/generation metadata binding.
+- `a08f291` - Preset Load previews selected preset Chat Runtime values without mutating runtime/session state.
+
+Current handover boundary:
+
+- The Python-built app remains the stable default via `python qt_app.py`.
+- `python qt_app.py --ui-shell main.ui` is the safe Designer shell preview.
+- Shell mode can render addon tabs and preview Chat Runtime/preset state, but cannot start runtime systems.
+- Engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:
 
