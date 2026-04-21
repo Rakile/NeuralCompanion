@@ -71,7 +71,7 @@ Current behavior:
 - Prints a concise binding/config/addon manifest summary to the terminal.
 - Adds read-only addon mount placeholder tabs in the Designer shell.
 - Live-mounts the allowlisted low-risk addons.
-- Shows chat provider addon metadata without calling provider handlers.
+- Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -125,10 +125,28 @@ Important:
 - Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
-- Provider model-list, connection-check, completion, and stream handlers are not invoked in shell mode.
+- Chat Runtime fields are rendered from provider metadata in shell mode, but provider model-list, connection-check, completion, and stream handlers are not invoked.
 - `Hotkeys` and `Visual Story Settings` currently import `engine.py` to read existing hotkey/config constants. Smoke tests confirm this does not start the companion runtime, but it can emit existing engine-import warnings.
 - Shell mode configures stdout/stderr with a Unicode fallback before live addon mounting so Windows `cp1252` consoles do not turn existing emoji startup prints into addon mount failures.
 - Runtime-sensitive addons that cannot safely render their real controller in shell mode use shell-only adapters or addon-local shell guards.
+
+## Chat Runtime Shell Binding
+
+The Designer shell now binds the `Chat Runtime` card to shell-registered chat provider addon metadata:
+
+- `chat_provider_combo` is populated from provider addons registered through the shell-safe `qt.chat_providers` service.
+- `chat_provider_fields_layout` renders provider config fields such as API key, base URL, and API version.
+- `chat_provider_generation_fields_layout` renders provider-specific generation fields such as temperature, top-p, top-k, repetition penalty, and max tokens.
+- `model_combo` shows the saved model plus a deferred-refresh note.
+- The Chat Runtime group title summarizes the selected provider and saved model.
+
+This is still shell-local:
+
+- Edits are not saved to `qt_session.json`.
+- Edits are not pushed into `RUNTIME_CONFIG`.
+- Provider handlers are stored by the shell registry but never called.
+- Live model refresh remains deferred.
+- Engine start/stop remains disconnected.
 
 ## TTS Runtime Designer Layout
 
@@ -226,8 +244,8 @@ The shell preview can mirror saved values such as:
 - MuseTalk VRAM mode.
 - MuseTalk avatar pack.
 - Preset list/current preset.
-- Chat Provider.
-- LLM Model.
+- Chat Provider and provider-specific config/generation fields, now shell-local rather than placeholder text.
+- LLM Model, currently saved-model display plus deferred live refresh.
 - Visual Reply mode/provider/size/model.
 - TTS sampling controls.
 
@@ -238,7 +256,7 @@ These are display-only in shell mode.
 Recommended next phase:
 
 1. Keep `main.ui` shell mode as a non-runtime shell until the object-name and addon-mount boundary is accepted.
-2. Start a separate runtime-binding plan for stable controls such as provider/model selection, presets/session state, and engine lifecycle.
+2. Continue runtime binding one narrow surface at a time. The next good candidates are preset/session binding or engine lifecycle buttons, with model refresh still deferred until the provider binding is accepted.
 3. Later, consider replacing shell adapters with real controller splits only if runtime-heavy imports can be kept out of shell rendering.
 4. Re-run `python qt_app.py --ui-shell main.ui --shell-smoke` after each phase and confirm addon-owned tab surfaces stay clean with no duplicate candidates or placeholder-only addon targets.
 

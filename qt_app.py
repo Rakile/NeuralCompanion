@@ -445,6 +445,15 @@ def run_ui_shell_smoke(raw_path):
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
+    print(
+        "[UI Shell Smoke] Chat Runtime binding: "
+        + (
+            f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
+            if chat_runtime_summary.get("bound")
+            else "deferred"
+        )
+    )
     print(
         "[UI Shell Smoke] Live addon mounts: "
         + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
@@ -468,7 +477,7 @@ def run_ui_shell_smoke(raw_path):
         window,
         addon_report,
         exclude_addon_ids=set(live_mount_report["mounted_ids"]),
-        live_chat_providers=live_mount_report.get("chat_providers", []),
+        live_chat_providers=[] if chat_runtime_summary.get("bound") else live_mount_report.get("chat_providers", []),
     )
     print(
         "[UI Shell Smoke] Addon mount placeholders: "
@@ -1469,6 +1478,347 @@ def _ui_shell_chat_provider_rows_text(providers):
     return "\n".join(lines)
 
 
+def _ui_shell_chat_provider_map(providers):
+    return {
+        str(provider.get("id") or "").strip().lower(): dict(provider)
+        for provider in list(providers or [])
+        if str(provider.get("id") or "").strip()
+    }
+
+
+def _ui_shell_clear_form_layout(layout):
+    if layout is None or not hasattr(layout, "rowCount"):
+        return
+    while layout.rowCount():
+        try:
+            layout.removeRow(0)
+        except Exception:
+            break
+
+
+def _ui_shell_provider_label(provider):
+    return str(provider.get("label") or provider.get("id") or "Provider").strip()
+
+
+def _ui_shell_current_provider_id(combo, providers):
+    provider_ids = set(_ui_shell_chat_provider_map(providers))
+    if combo is None:
+        return ""
+    try:
+        data = combo.currentData()
+    except Exception:
+        data = None
+    provider_id = str(data or "").strip().lower()
+    if provider_id in provider_ids:
+        return provider_id
+    current_text = str(combo.currentText() if hasattr(combo, "currentText") else "" or "").strip().lower()
+    for provider in list(providers or []):
+        if str(provider.get("label") or "").strip().lower() == current_text:
+            return str(provider.get("id") or "").strip().lower()
+    return ""
+
+
+def _ui_shell_generation_default_value(field, settings, provider_settings):
+    field_id = str(field.get("id") or "").strip()
+    if field_id in settings:
+        return settings.get(field_id)
+    if field_id == "max_tokens" and field_id in provider_settings:
+        return provider_settings.get(field_id)
+    if "default" in field:
+        return field.get("default")
+    return ""
+
+
+def _ui_shell_add_field_tooltip(widget, field, *, shell_local=True):
+    if widget is None or not hasattr(widget, "setToolTip"):
+        return
+    tooltip_parts = []
+    description = str(field.get("description") or "").strip()
+    if description:
+        tooltip_parts.append(description)
+    env_names = [
+        str(name or "").strip()
+        for name in list(field.get("env") or [])
+        if str(name or "").strip()
+    ]
+    if env_names:
+        tooltip_parts.append("Env: " + ", ".join(env_names))
+    if field.get("default") not in (None, ""):
+        tooltip_parts.append(f"Default: {field.get('default')}")
+    if shell_local:
+        tooltip_parts.append("Shell-local preview only; not saved or applied.")
+    widget.setToolTip("\n".join(tooltip_parts))
+
+
+def _ui_shell_create_provider_config_editor(field, value):
+    from PySide6 import QtWidgets as _QtWidgets
+
+    field_id = str(field.get("id") or "").strip()
+    kind = str(field.get("kind") or "").strip().lower()
+    if not kind:
+        kind = "password" if "key" in field_id.lower() or "token" in field_id.lower() else "text"
+    editor = _QtWidgets.QLineEdit()
+    editor.setObjectName(f"ui_shell_chat_provider_field_{field_id}")
+    if kind == "password":
+        editor.setEchoMode(_QtWidgets.QLineEdit.Password)
+    editor.setText(str(value if value is not None else ""))
+    placeholder = field.get("placeholder")
+    if placeholder:
+        editor.setPlaceholderText(str(placeholder))
+    _ui_shell_add_field_tooltip(editor, field)
+    return editor
+
+
+def _ui_shell_create_generation_editor(field, value):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtWidgets as _QtWidgets
+
+    field_id = str(field.get("id") or "").strip()
+    kind = str(field.get("kind") or "text").strip().lower()
+    if kind == "note":
+        editor = _QtWidgets.QLabel(str(field.get("text") or field.get("description") or ""))
+        editor.setWordWrap(True)
+        editor.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        return editor
+    if kind == "bool":
+        editor = _QtWidgets.QCheckBox(str(field.get("label") or field_id.replace("_", " ").title()))
+        editor.setChecked(bool(value))
+        _ui_shell_add_field_tooltip(editor, field)
+        return editor
+    if kind == "select":
+        editor = _QtWidgets.QComboBox()
+        for option in list(field.get("options") or []):
+            if isinstance(option, dict):
+                editor.addItem(str(option.get("label") or option.get("value") or ""), option.get("value"))
+            else:
+                editor.addItem(str(option), option)
+        index = editor.findData(value)
+        if index < 0:
+            index = editor.findText(str(value))
+        if index >= 0:
+            editor.setCurrentIndex(index)
+        _ui_shell_add_field_tooltip(editor, field)
+        return editor
+    if kind == "int":
+        editor = _QtWidgets.QSpinBox()
+        editor.setRange(int(field.get("min", -999999)), int(field.get("max", 999999)))
+        editor.setSingleStep(int(field.get("step", 1) or 1))
+        try:
+            editor.setValue(int(value if value not in (None, "") else field.get("default", 0)))
+        except Exception:
+            editor.setValue(int(field.get("default", 0) or 0))
+        editor.setFocusPolicy(_QtCore.Qt.StrongFocus)
+        _ui_shell_add_field_tooltip(editor, field)
+        return editor
+    if kind == "float":
+        editor = _QtWidgets.QDoubleSpinBox()
+        editor.setRange(float(field.get("min", -999999.0)), float(field.get("max", 999999.0)))
+        editor.setDecimals(int(field.get("decimals", 2) or 2))
+        editor.setSingleStep(float(field.get("step", 0.01) or 0.01))
+        try:
+            editor.setValue(float(value if value not in (None, "") else field.get("default", 0.0)))
+        except Exception:
+            editor.setValue(float(field.get("default", 0.0) or 0.0))
+        editor.setFocusPolicy(_QtCore.Qt.StrongFocus)
+        _ui_shell_add_field_tooltip(editor, field)
+        return editor
+
+    editor = _QtWidgets.QLineEdit()
+    editor.setObjectName(f"ui_shell_chat_provider_generation_field_{field_id}")
+    editor.setText(str(value if value is not None else ""))
+    placeholder = field.get("placeholder")
+    if placeholder:
+        editor.setPlaceholderText(str(placeholder))
+    _ui_shell_add_field_tooltip(editor, field)
+    return editor
+
+
+def _bind_ui_shell_chat_runtime(window, providers):
+    from PySide6 import QtWidgets as _QtWidgets
+
+    providers = list(providers or [])
+    provider_by_id = _ui_shell_chat_provider_map(providers)
+    if not provider_by_id:
+        return {"bound": False, "providers": 0, "selected_provider": ""}
+
+    session = _read_ui_shell_session_snapshot()
+    settings_map = dict(session.get("chat_provider_settings") or {})
+    generation_settings_map = dict(session.get("chat_provider_generation_settings") or {})
+    saved_provider = str(session.get("chat_provider", "") or "").strip().lower()
+    selected_provider_id = saved_provider if saved_provider in provider_by_id else str(providers[0].get("id") or "").strip().lower()
+
+    combo = _ui_shell_find_object(window, "chat_provider_combo")
+    model_combo = _ui_shell_find_object(window, "model_combo")
+    settings_layout = _ui_shell_find_object(window, "chat_provider_fields_layout")
+    generation_layout = _ui_shell_find_object(window, "chat_provider_generation_fields_layout")
+    settings_label = _ui_shell_find_object(window, "provider_settings_label")
+    generation_label = _ui_shell_find_object(window, "provider_generation_label")
+    runtime_box = _ui_shell_find_object(window, "chat_runtime_box")
+
+    if settings_layout is None or generation_layout is None:
+        return {"bound": False, "providers": len(providers), "selected_provider": selected_provider_id}
+
+    local_state = {
+        "provider_settings": {
+            str(provider_id or "").strip().lower(): dict(values or {})
+            for provider_id, values in settings_map.items()
+            if isinstance(values, dict)
+        },
+        "generation_settings": {
+            str(provider_id or "").strip().lower(): dict(values or {})
+            for provider_id, values in generation_settings_map.items()
+            if isinstance(values, dict)
+        },
+    }
+
+    def refresh_model_summary(provider_id):
+        if model_combo is None or not hasattr(model_combo, "clear"):
+            return
+        saved_model = str(session.get("model_name", "") or "").strip()
+        model_combo.blockSignals(True)
+        try:
+            model_combo.clear()
+            if saved_model:
+                model_combo.addItem(saved_model)
+            model_combo.addItem("Model refresh deferred in shell preview")
+            model_combo.setCurrentIndex(0)
+        finally:
+            model_combo.blockSignals(False)
+        _ui_shell_set_read_only_tooltip(model_combo, "Live model refresh remains deferred for this binding slice.")
+
+    def refresh_runtime_title(provider_id):
+        provider = provider_by_id.get(provider_id, {})
+        provider_label = _ui_shell_provider_label(provider)
+        model_name = str(session.get("model_name", "") or "").strip()
+        title = f"Chat Runtime - {provider_label}"
+        if model_name:
+            title += f" / {model_name}"
+        if runtime_box is not None and hasattr(runtime_box, "setTitle"):
+            runtime_box.setTitle(title)
+
+    def current_provider_settings(provider_id):
+        return dict(local_state["provider_settings"].get(provider_id, {}))
+
+    def current_generation_settings(provider_id):
+        return dict(local_state["generation_settings"].get(provider_id, {}))
+
+    def render_provider(provider_id):
+        provider = provider_by_id.get(provider_id) or providers[0]
+        provider_id = str(provider.get("id") or "").strip().lower()
+        metadata = dict(provider.get("metadata") or {})
+        config_fields = list(metadata.get("config_fields") or [])
+        generation_fields = list(metadata.get("generation_fields") or [])
+        provider_settings = current_provider_settings(provider_id)
+        generation_settings = current_generation_settings(provider_id)
+
+        _ui_shell_clear_form_layout(settings_layout)
+        if config_fields:
+            for field in config_fields:
+                field_id = str(field.get("id") or "").strip()
+                if not field_id:
+                    continue
+                label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
+                value = provider_settings.get(field_id, field.get("default", ""))
+                editor = _ui_shell_create_provider_config_editor(field, value)
+
+                def on_config_changed(fid=field_id, edit=editor, pid=provider_id):
+                    local_state["provider_settings"].setdefault(pid, {})[fid] = str(edit.text() if hasattr(edit, "text") else "")
+
+                editor.editingFinished.connect(on_config_changed)
+                settings_layout.addRow(label, editor)
+            if settings_label is not None and hasattr(settings_label, "setText"):
+                settings_label.setText(f"Provider Settings - {len(config_fields)} field(s)")
+        else:
+            hint = _QtWidgets.QLabel("This provider does not expose extra runtime fields.")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            settings_layout.addRow("", hint)
+            if settings_label is not None and hasattr(settings_label, "setText"):
+                settings_label.setText("Provider Settings")
+
+        _ui_shell_clear_form_layout(generation_layout)
+        active_generation_labels = []
+        if generation_fields:
+            for field in generation_fields:
+                field_id = str(field.get("id") or "").strip()
+                if not field_id:
+                    continue
+                label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
+                value = _ui_shell_generation_default_value(field, generation_settings, provider_settings)
+                editor = _ui_shell_create_generation_editor(field, value)
+                kind = str(field.get("kind") or "text").strip().lower()
+                row_label = "" if kind == "bool" else label
+                generation_layout.addRow(row_label, editor)
+                if kind != "note":
+                    active_generation_labels.append(label)
+
+                    def on_generation_changed(_value=None, fid=field_id, edit=editor, pid=provider_id):
+                        if hasattr(edit, "isChecked"):
+                            new_value = bool(edit.isChecked())
+                        elif hasattr(edit, "currentData"):
+                            data = edit.currentData()
+                            new_value = data if data is not None else str(edit.currentText())
+                        elif hasattr(edit, "value"):
+                            new_value = edit.value()
+                        elif hasattr(edit, "text"):
+                            new_value = str(edit.text())
+                        else:
+                            new_value = ""
+                        local_state["generation_settings"].setdefault(pid, {})[fid] = new_value
+
+                    if hasattr(editor, "toggled"):
+                        editor.toggled.connect(on_generation_changed)
+                    elif hasattr(editor, "currentIndexChanged"):
+                        editor.currentIndexChanged.connect(on_generation_changed)
+                    elif hasattr(editor, "valueChanged"):
+                        editor.valueChanged.connect(on_generation_changed)
+                    elif hasattr(editor, "editingFinished"):
+                        editor.editingFinished.connect(on_generation_changed)
+            summary = ", ".join(active_generation_labels[:3])
+            if len(active_generation_labels) > 3:
+                summary += f", +{len(active_generation_labels) - 3}"
+            if generation_label is not None and hasattr(generation_label, "setText"):
+                generation_label.setText(f"Generation Fields - {summary}" if summary else "Generation Fields")
+        else:
+            hint = _QtWidgets.QLabel("This provider does not expose provider-specific generation fields.")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            generation_layout.addRow("", hint)
+            if generation_label is not None and hasattr(generation_label, "setText"):
+                generation_label.setText("Generation Fields")
+
+        refresh_model_summary(provider_id)
+        refresh_runtime_title(provider_id)
+
+    if combo is not None and hasattr(combo, "clear"):
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for provider in providers:
+                provider_id = str(provider.get("id") or "").strip().lower()
+                combo.addItem(_ui_shell_provider_label(provider), provider_id)
+            index = combo.findData(selected_provider_id)
+            combo.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            combo.blockSignals(False)
+        combo.setToolTip("Shell-local provider binding. Provider handlers are not called yet.")
+
+        def on_provider_changed(_index=None):
+            provider_id = _ui_shell_current_provider_id(combo, providers)
+            if provider_id:
+                render_provider(provider_id)
+
+        combo.currentIndexChanged.connect(on_provider_changed)
+
+    render_provider(selected_provider_id)
+    setattr(window, "_nc_ui_shell_chat_runtime_state", local_state)
+    return {
+        "bound": True,
+        "providers": len(providers),
+        "selected_provider": selected_provider_id,
+    }
+
+
 def _ui_shell_tab_title_exists(tab_widget, title):
     if tab_widget is None or not hasattr(tab_widget, "count"):
         return False
@@ -2024,11 +2374,12 @@ def run_ui_shell_preview(raw_path):
     console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
     placeholder_targets = _apply_ui_shell_addon_placeholders(
         window,
         addon_report,
         exclude_addon_ids=set(live_mount_report["mounted_ids"]),
-        live_chat_providers=live_mount_report.get("chat_providers", []),
+        live_chat_providers=[] if chat_runtime_summary.get("bound") else live_mount_report.get("chat_providers", []),
     )
     try:
         app.aboutToQuit.connect(lambda: _ui_shell_cleanup_live_addons(window))
@@ -2050,6 +2401,14 @@ def run_ui_shell_preview(raw_path):
     print(
         "[UI Shell] Console/chat deferred controls: "
         + ", ".join(console_chat_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell] Chat Runtime binding: "
+        + (
+            f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
+            if chat_runtime_summary.get("bound")
+            else "deferred"
+        )
     )
     print(
         f"[UI Shell] Addon manifests discovered: "
