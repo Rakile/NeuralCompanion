@@ -14,6 +14,7 @@ import sys
 import threading
 import time
 import warnings
+import importlib.util
 from collections import OrderedDict
 from pathlib import Path
 import xml.etree.ElementTree as ET
@@ -149,6 +150,29 @@ UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
     "theme_storybook_edit",
 }
 
+UI_SHELL_LIVE_ADDON_IDS = {
+    "nc.chat_provider_lmstudio",
+    "nc.chat_provider_openai",
+    "nc.chat_provider_xai",
+    "nc.chat_session_player",
+    "nc.claude_provider",
+    "nc.clipboard_supervisor",
+    "nc.heart_rate_behavior",
+    "nc.mock_heart_rate",
+    "nc.screen_supervisor",
+    "nc.webcam_supervisor",
+}
+
+UI_SHELL_TAB_MOUNT_WIDGETS = (
+    "left_tabs",
+    "host_settings_tabs",
+    "right_tabs",
+    "musetalk_tabs",
+    "tts_runtime_addon_tabs",
+    "sensory_feedback_tabs",
+    "vseeface_tabs",
+)
+
 
 def _resolve_ui_path(raw_path):
     ui_path = Path(str(raw_path or "").strip() or "main.ui")
@@ -173,6 +197,51 @@ def _collect_ui_object_classes(ui_path):
             seen[object_name] = object_class
         objects[object_name] = object_class
     return objects, duplicates
+
+
+def _ui_shell_tab_page_title(tab_page):
+    for attribute_element in tab_page.findall("attribute"):
+        if str(attribute_element.attrib.get("name") or "") != "title":
+            continue
+        string_element = attribute_element.find("string")
+        if string_element is not None and string_element.text is not None:
+            return str(string_element.text or "").strip()
+    for property_element in tab_page.findall("property"):
+        if str(property_element.attrib.get("name") or "") != "title":
+            continue
+        string_element = property_element.find("string")
+        if string_element is not None and string_element.text is not None:
+            return str(string_element.text or "").strip()
+    for attribute_element in tab_page.findall("attribute"):
+        if str(attribute_element.attrib.get("name") or "") != "toolTip":
+            continue
+        string_element = attribute_element.find("string")
+        if string_element is not None and string_element.text is not None:
+            return str(string_element.text or "").strip()
+    return ""
+
+
+def _collect_ui_shell_static_tabs(ui_path):
+    try:
+        tree = ET.parse(ui_path)
+    except Exception:
+        return {}
+    tab_widgets = {}
+    for widget in tree.getroot().iter("widget"):
+        if str(widget.attrib.get("class") or "") != "QTabWidget":
+            continue
+        object_name = str(widget.attrib.get("name") or "").strip()
+        if object_name not in UI_SHELL_TAB_MOUNT_WIDGETS:
+            continue
+        pages = []
+        for child in list(widget):
+            if child.tag != "widget":
+                continue
+            page_name = str(child.attrib.get("name") or "").strip()
+            page_title = _ui_shell_tab_page_title(child) or page_name or "(untitled)"
+            pages.append({"object_name": page_name, "title": page_title})
+        tab_widgets[object_name] = pages
+    return tab_widgets
 
 
 def validate_ui_file(raw_path):
@@ -337,7 +406,7 @@ def run_ui_shell_smoke(raw_path):
         + (", ".join(present_deferred) if present_deferred else "none")
     )
     print("[UI Shell Smoke] Runtime started: no")
-    print("[UI Shell Smoke] Addons initialized: no")
+    print("[UI Shell Smoke] Broad addons initialized: no")
     print("[UI Shell Smoke] Engine lifecycle connected: no")
     config_summary = _apply_ui_shell_read_only_config(window)
     print(
@@ -347,8 +416,40 @@ def run_ui_shell_smoke(raw_path):
     )
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
+    live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    print(
+        "[UI Shell Smoke] Live addon mounts: "
+        + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
+    )
+    print(
+        "[UI Shell Smoke] Live chat providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("chat_providers", [])
+            )
+            if live_mount_report.get("chat_providers")
+            else "none"
+        )
+    )
+    if live_mount_report["failures"]:
+        print("[UI Shell Smoke] Live addon mount failures:")
+        for failure in live_mount_report["failures"]:
+            print(f"  - {failure}")
+    placeholder_targets = _apply_ui_shell_addon_placeholders(
+        window,
+        addon_report,
+        exclude_addon_ids=set(live_mount_report["mounted_ids"]),
+        live_chat_providers=live_mount_report.get("chat_providers", []),
+    )
+    print(
+        "[UI Shell Smoke] Addon mount placeholders: "
+        + (", ".join(placeholder_targets) if placeholder_targets else "none")
+    )
+    _print_ui_shell_static_addon_comparison(ui_path, addon_report, live_mount_report)
 
     try:
+        _ui_shell_cleanup_live_addons(window)
         window.close()
         if app is not None:
             app.quit()
@@ -391,7 +492,7 @@ def _apply_ui_shell_preview_status(window):
     lines = [
         "Shell Preview",
         "Runtime: not started",
-        "Addons: not initialized",
+        "Addons: limited shell mounts only",
         "Engine lifecycle: not connected",
         f"Bindings: {summary['bound']}/{summary['checked']} checked",
     ]
@@ -524,7 +625,7 @@ def _ui_shell_mount_target_for_area(area):
         "musetalk": "musetalk_tabs",
         "tts_runtime": "tts_runtime_addon_tabs",
         "vision_source": "sensory_feedback_tabs",
-        "operational_view": "OperationalViewDock",
+        "operational_view": "right_tabs",
     }
     return mapping.get(str(area or "").strip(), "")
 
@@ -554,6 +655,7 @@ def _ui_shell_addon_mount_report(window):
     mount_points = {
         "left_tabs": _ui_shell_find_object(window, "left_tabs") is not None,
         "host_settings_tabs": _ui_shell_find_object(window, "host_settings_tabs") is not None,
+        "right_tabs": _ui_shell_find_object(window, "right_tabs") is not None,
         "tts_runtime_addon_tabs": _ui_shell_find_object(window, "tts_runtime_addon_tabs") is not None,
         "musetalk_tabs": _ui_shell_find_object(window, "musetalk_tabs") is not None,
         "sensory_feedback_tabs": _ui_shell_find_object(window, "sensory_feedback_tabs") is not None,
@@ -578,6 +680,7 @@ def _ui_shell_addon_mount_report(window):
             "id": str(manifest.get("id", "") or ""),
             "name": str(manifest.get("name", "") or manifest.get("id", "") or ""),
             "category": str(manifest.get("category", "") or "other"),
+            "root": str(manifest.get("root", "") or ""),
             "enabled": _ui_shell_addon_effectively_enabled(manifest, registry_state),
             "areas": areas,
             "service_hints": service_hints,
@@ -619,6 +722,448 @@ def _print_ui_shell_addon_mount_report(report, prefix="[UI Shell Smoke]"):
             detail_bits.append(f"error={row['error']}")
         detail = "; ".join(detail_bits) if detail_bits else "manifest-only"
         print(f"  - {row.get('id') or row.get('name')} [{status}]: {detail}")
+
+
+def _ui_shell_rows_for_target(report, target, exclude_addon_ids=None):
+    target = str(target or "").strip()
+    excluded = {str(item or "").strip() for item in (exclude_addon_ids or set()) if str(item or "").strip()}
+    rows = []
+    for row in report.get("addons", []):
+        if str(row.get("id") or "").strip() in excluded:
+            continue
+        if target in set(row.get("targets") or []):
+            rows.append(row)
+    return rows
+
+
+def _ui_shell_addon_rows_text(rows):
+    if not rows:
+        return "No addon manifests currently target this mount point."
+    lines = []
+    for row in rows:
+        status = "enabled" if row.get("enabled") else "disabled"
+        name = str(row.get("name") or row.get("id") or "Unnamed addon").strip()
+        addon_id = str(row.get("id") or "").strip()
+        areas = ", ".join(row.get("areas") or [])
+        services = ", ".join(row.get("service_hints") or [])
+        details = [f"{name} [{status}]"]
+        if addon_id and addon_id != name:
+            details.append(addon_id)
+        if areas:
+            details.append(f"area: {areas}")
+        if services:
+            details.append(f"services: {services}")
+        lines.append(" - " + " | ".join(details))
+    return "\n".join(lines)
+
+
+def _ui_shell_norm_label(value):
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
+
+
+def _ui_shell_target_addon_rows(report, target):
+    target = str(target or "").strip()
+    return [
+        row
+        for row in report.get("addons", [])
+        if row.get("enabled") and target in set(row.get("targets") or [])
+    ]
+
+
+def _ui_shell_static_addon_comparison(ui_path, report, live_mount_report):
+    static_tabs = _collect_ui_shell_static_tabs(ui_path)
+    live_tabs = list((live_mount_report or {}).get("live_tabs") or [])
+    live_by_target = {}
+    for live_tab in live_tabs:
+        target = str(live_tab.get("target") or "").strip()
+        if not target:
+            continue
+        live_by_target.setdefault(target, []).append(live_tab)
+
+    rows = []
+    for target in UI_SHELL_TAB_MOUNT_WIDGETS:
+        static_pages = list(static_tabs.get(target, []) or [])
+        addon_rows = _ui_shell_target_addon_rows(report, target)
+        live_target_tabs = list(live_by_target.get(target, []) or [])
+        static_titles = [str(page.get("title") or "").strip() for page in static_pages if str(page.get("title") or "").strip()]
+        static_norms = {_ui_shell_norm_label(title) for title in static_titles}
+        live_titles = [str(tab.get("title") or "").strip() for tab in live_target_tabs if str(tab.get("title") or "").strip()]
+        live_norms = {_ui_shell_norm_label(title) for title in live_titles}
+        manifest_names = [str(row.get("name") or row.get("id") or "").strip() for row in addon_rows]
+        manifest_norms = {_ui_shell_norm_label(name) for name in manifest_names}
+        duplicate_candidates = [
+            title for title in static_titles
+            if _ui_shell_norm_label(title) in live_norms or _ui_shell_norm_label(title) in manifest_norms
+        ]
+        placeholder_only = [
+            str(row.get("name") or row.get("id") or "").strip()
+            for row in addon_rows
+            if str(row.get("id") or "").strip() not in set((live_mount_report or {}).get("mounted_ids") or [])
+        ]
+        if static_titles or addon_rows or live_target_tabs:
+            rows.append({
+                "target": target,
+                "static_titles": static_titles,
+                "live_titles": live_titles,
+                "addon_names": manifest_names,
+                "duplicate_candidates": duplicate_candidates,
+                "placeholder_only": placeholder_only,
+            })
+    return rows
+
+
+def _print_ui_shell_static_addon_comparison(ui_path, report, live_mount_report, prefix="[UI Shell Smoke]"):
+    rows = _ui_shell_static_addon_comparison(ui_path, report, live_mount_report)
+    print(f"{prefix} Static-vs-addon tab comparison:")
+    if not rows:
+        print("  none")
+        return
+    for row in rows:
+        static_text = ", ".join(row.get("static_titles") or []) or "none"
+        live_text = ", ".join(row.get("live_titles") or []) or "none"
+        addon_text = ", ".join(row.get("addon_names") or []) or "none"
+        duplicate_text = ", ".join(row.get("duplicate_candidates") or []) or "none"
+        placeholder_text = ", ".join(row.get("placeholder_only") or []) or "none"
+        print(f"  - {row.get('target')}: static=[{static_text}]")
+        print(f"    addon targets=[{addon_text}]")
+        print(f"    live-mounted=[{live_text}]")
+        print(f"    static duplicate candidates=[{duplicate_text}]")
+        print(f"    placeholder-only addon targets=[{placeholder_text}]")
+
+
+class _UiShellChatProviderRegistry:
+    """Shell-only provider registry: accept addon metadata without invoking handlers."""
+
+    def __init__(self):
+        self._providers = OrderedDict()
+        self._registrations = {}
+
+    def register_provider(
+        self,
+        *,
+        provider_id,
+        label,
+        description="",
+        order=1000,
+        client_factory=None,
+        model_list_handler=None,
+        completion_handler=None,
+        stream_handler=None,
+        connection_check_handler=None,
+        api_key_getter=None,
+        base_url_getter=None,
+        metadata=None,
+    ):
+        provider_id = str(provider_id or "").strip()
+        if not provider_id:
+            raise RuntimeError("Chat provider id is required.")
+        summary = {
+            "id": provider_id,
+            "label": str(label or provider_id).strip() or provider_id,
+            "description": str(description or "").strip(),
+            "order": int(order or 1000),
+            "metadata": dict(metadata or {}),
+            "has_model_list_handler": callable(model_list_handler),
+            "has_completion_handler": callable(completion_handler),
+            "has_stream_handler": callable(stream_handler),
+            "has_connection_check_handler": callable(connection_check_handler),
+            "has_api_key_getter": callable(api_key_getter),
+            "has_base_url_getter": callable(base_url_getter),
+        }
+        self._providers[provider_id] = summary
+        self._registrations[provider_id] = {
+            "client_factory": client_factory,
+            "model_list_handler": model_list_handler,
+            "completion_handler": completion_handler,
+            "stream_handler": stream_handler,
+            "connection_check_handler": connection_check_handler,
+            "api_key_getter": api_key_getter,
+            "base_url_getter": base_url_getter,
+        }
+        return dict(summary)
+
+    def unregister_provider(self, provider_id):
+        provider_id = str(provider_id or "").strip()
+        existed = provider_id in self._providers
+        self._providers.pop(provider_id, None)
+        self._registrations.pop(provider_id, None)
+        return existed
+
+    def list_providers(self):
+        return [
+            dict(item)
+            for item in sorted(
+                self._providers.values(),
+                key=lambda provider: (int(provider.get("order", 1000)), str(provider.get("label", ""))),
+            )
+        ]
+
+    def provider_ids(self):
+        return set(self._providers.keys())
+
+    def get_provider_settings(self, provider_id=None):
+        if provider_id:
+            return {}
+        return {provider_id: {} for provider_id in self._providers}
+
+    def get_provider_setting(self, provider_id, field_id):
+        return ""
+
+
+def _ui_shell_chat_provider_rows_text(providers):
+    providers = list(providers or [])
+    if not providers:
+        return ""
+    lines = ["Shell-live chat provider addons registered metadata only:"]
+    for provider in providers:
+        metadata = dict(provider.get("metadata") or {})
+        config_count = len(list(metadata.get("config_fields") or []))
+        generation_count = len(list(metadata.get("generation_fields") or []))
+        labels = []
+        if provider.get("has_model_list_handler"):
+            labels.append("models")
+        if provider.get("has_completion_handler"):
+            labels.append("completion")
+        if provider.get("has_stream_handler"):
+            labels.append("stream")
+        if provider.get("has_connection_check_handler"):
+            labels.append("connection")
+        capability_text = ", ".join(labels) if labels else "metadata"
+        lines.append(
+            f" - {provider.get('label') or provider.get('id')} ({provider.get('id')}): "
+            f"{config_count} config field(s), {generation_count} generation field(s), handlers: {capability_text}"
+        )
+    lines.append("Handlers are intentionally not called in shell mode.")
+    return "\n".join(lines)
+
+
+def _ui_shell_tab_title_exists(tab_widget, title):
+    if tab_widget is None or not hasattr(tab_widget, "count"):
+        return False
+    expected = str(title or "")
+    for index in range(tab_widget.count()):
+        try:
+            if str(tab_widget.tabText(index) or "") == expected:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _ui_shell_add_placeholder_tab(tab_widget, title, body_text):
+    from PySide6 import QtWidgets as _QtWidgets
+
+    if tab_widget is None or not hasattr(tab_widget, "addTab"):
+        return False
+    if _ui_shell_tab_title_exists(tab_widget, title):
+        return False
+    panel = _QtWidgets.QWidget()
+    layout = _QtWidgets.QVBoxLayout(panel)
+    layout.setContentsMargins(12, 12, 12, 12)
+    heading = _QtWidgets.QLabel("Read-only addon mount preview")
+    heading.setStyleSheet("font-weight: 700; color: #cbd5e1;")
+    layout.addWidget(heading)
+    text = _QtWidgets.QPlainTextEdit()
+    text.setReadOnly(True)
+    text.setPlainText(str(body_text or ""))
+    text.setToolTip("Shell-only preview. Addon modules are not imported and no runtime systems are started.")
+    layout.addWidget(text, 1)
+    tab_widget.addTab(panel, title)
+    if hasattr(tab_widget, "setVisible"):
+        tab_widget.setVisible(True)
+    return True
+
+
+def _ui_shell_contribution_title(contribution, manifest):
+    title = str(getattr(contribution, "title", "") or getattr(contribution, "id", "") or getattr(manifest, "name", "") or "Addon").strip()
+    parent = str(getattr(contribution, "parent_tab_id", "") or "").strip().lower()
+    parent_labels = {
+        "screen": "Screen",
+        "webcam": "Webcam",
+        "clipboard": "Clipboard",
+        "heart_rate": "Heart Rate",
+    }
+    if parent in parent_labels:
+        return f"{parent_labels[parent]} / {title}"
+    return title
+
+
+def _apply_ui_shell_addon_placeholders(window, report, exclude_addon_ids=None, live_chat_providers=None):
+    placeholders = {
+        "left_tabs": "Addon Mounts",
+        "host_settings_tabs": "Addon Preview",
+        "right_tabs": "Addon Preview",
+        "musetalk_tabs": "Addon Preview",
+        "tts_runtime_addon_tabs": "Addon Preview",
+        "sensory_feedback_tabs": "Addon Preview",
+    }
+    added = []
+    for target, title in placeholders.items():
+        rows = _ui_shell_rows_for_target(report, target, exclude_addon_ids=exclude_addon_ids)
+        if not rows:
+            continue
+        tab_widget = _ui_shell_find_object(window, target)
+        if _ui_shell_add_placeholder_tab(tab_widget, title, _ui_shell_addon_rows_text(rows)):
+            added.append(target)
+
+    live_provider_text = _ui_shell_chat_provider_rows_text(live_chat_providers)
+    chat_provider_rows = _ui_shell_rows_for_target(report, "chat_provider_combo", exclude_addon_ids=exclude_addon_ids)
+    if live_provider_text or chat_provider_rows:
+        parts = []
+        if live_provider_text:
+            parts.append(live_provider_text)
+        if chat_provider_rows:
+            parts.append(
+                "Read-only shell preview. Placeholder-only chat provider addons discovered:\n"
+                + _ui_shell_addon_rows_text(chat_provider_rows)
+            )
+        text = "\n\n".join(parts)
+        for object_name in ("chat_provider_fields_placeholder", "chat_provider_generation_fields_placeholder"):
+            placeholder = _ui_shell_find_object(window, object_name)
+            if placeholder is not None and hasattr(placeholder, "setText"):
+                placeholder.setText(text)
+                if hasattr(placeholder, "setToolTip"):
+                    placeholder.setToolTip("Shell-only provider addon preview. Registered provider handlers are not invoked.")
+                added.append(object_name)
+    return sorted(set(added))
+
+
+def _ui_shell_load_addon_module(manifest):
+    root = Path(str(manifest.get("root") or "")).resolve()
+    entry_point = str(manifest.get("entry_point") or "main.py").strip() or "main.py"
+    entry_path = root / entry_point
+    module_name = "nc_ui_shell_addon_" + re.sub(r"[^a-zA-Z0-9_]", "_", str(manifest.get("id") or root.name))
+    spec = importlib.util.spec_from_file_location(module_name, entry_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Could not load addon entry point: {entry_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _ui_shell_mount_live_addons(window, report):
+    from PySide6 import QtWidgets as _QtWidgets
+    from core.addons.context import AddonContext, AddonEventBus, AddonServiceRegistry
+    from core.addons.manifest import AddonManifest
+
+    mounted = []
+    mounted_ids = []
+    failures = []
+    live_refs = []
+    live_tabs = []
+    app_root = Path(__file__).resolve().parent
+    storage_root = app_root / "runtime" / "addons" / "ui_shell"
+    event_bus = AddonEventBus()
+    service_registry = AddonServiceRegistry()
+    chat_provider_registry = _UiShellChatProviderRegistry()
+    host_services = {
+        "qt.chat_providers": chat_provider_registry,
+    }
+
+    rows_by_id = {
+        str(row.get("id") or "").strip(): row
+        for row in report.get("addons", [])
+    }
+    for addon_id in sorted(UI_SHELL_LIVE_ADDON_IDS):
+        row = rows_by_id.get(addon_id)
+        if not row or not row.get("enabled"):
+            continue
+        try:
+            manifest_path = Path(str(row.get("root") or "")) / "addon.json"
+            manifest = AddonManifest.from_file(manifest_path)
+            context = AddonContext(
+                manifest=manifest,
+                app_root=app_root,
+                event_bus=event_bus,
+                service_registry=service_registry,
+                storage_root=storage_root,
+                llm_snapshot_getter=lambda: {},
+                tts_snapshot_getter=lambda: {},
+                avatar_snapshot_getter=lambda: {},
+                host_services=host_services,
+            )
+            provider_ids_before = chat_provider_registry.provider_ids()
+            module = _ui_shell_load_addon_module(row)
+            addon_cls = getattr(module, "Addon", None)
+            if addon_cls is None:
+                raise RuntimeError("Addon class is missing.")
+            addon = addon_cls()
+            addon.initialize(context)
+            provider_ids_after = chat_provider_registry.provider_ids()
+            added_provider_ids = sorted(provider_ids_after - provider_ids_before)
+            contributions = sorted(context.ui.get_tab_contributions(), key=lambda item: (int(item.order), str(item.title or item.id)))
+            added_tabs = []
+            for contribution in contributions:
+                target = _ui_shell_mount_target_for_area(str(contribution.area or "top_level"))
+                if not target:
+                    continue
+                tab_widget = _ui_shell_find_object(window, target)
+                if tab_widget is None or not hasattr(tab_widget, "addTab"):
+                    failures.append(f"{addon_id}: mount point unavailable for area {contribution.area!r}")
+                    continue
+                widget = contribution.factory(context)
+                if not isinstance(widget, _QtWidgets.QWidget):
+                    raise RuntimeError(f"Tab factory for {contribution.id} did not return a QWidget.")
+                title = _ui_shell_contribution_title(contribution, manifest)
+                tab_widget.addTab(widget, title)
+                tab_index = tab_widget.indexOf(widget)
+                if tab_index >= 0 and contribution.tooltip:
+                    tab_widget.setTabToolTip(tab_index, str(contribution.tooltip or ""))
+                if hasattr(tab_widget, "setVisible"):
+                    tab_widget.setVisible(True)
+                added_tabs.append(f"{target}/{title}")
+                live_tabs.append({"addon_id": addon_id, "target": target, "title": title})
+            added_provider_summaries = [
+                provider
+                for provider in chat_provider_registry.list_providers()
+                if str(provider.get("id") or "").strip() in set(added_provider_ids)
+            ]
+            if added_tabs or added_provider_summaries:
+                details = []
+                if added_tabs:
+                    details.append(", ".join(added_tabs))
+                if added_provider_summaries:
+                    labels = ", ".join(
+                        f"chat_provider/{provider.get('label') or provider.get('id')}"
+                        for provider in added_provider_summaries
+                    )
+                    details.append(labels)
+                mounted.append(f"{addon_id}: {'; '.join(details)}")
+                mounted_ids.append(addon_id)
+                live_refs.append({"addon": addon, "context": context, "tabs": added_tabs, "providers": added_provider_ids})
+            else:
+                context.close()
+                failures.append(f"{addon_id}: no supported top-level tabs registered")
+        except Exception as exc:
+            failures.append(f"{addon_id}: {exc}")
+    setattr(window, "_nc_ui_shell_live_addons", live_refs)
+    setattr(window, "_nc_ui_shell_live_services", {"chat_provider_registry": chat_provider_registry})
+    return {
+        "mounted": mounted,
+        "failures": failures,
+        "mounted_ids": sorted(set(mounted_ids)),
+        "chat_providers": chat_provider_registry.list_providers(),
+        "live_tabs": live_tabs,
+    }
+
+
+def _ui_shell_cleanup_live_addons(window):
+    refs = list(getattr(window, "_nc_ui_shell_live_addons", []) or [])
+    setattr(window, "_nc_ui_shell_live_addons", [])
+    setattr(window, "_nc_ui_shell_live_services", {})
+    for ref in refs:
+        addon = ref.get("addon")
+        context = ref.get("context")
+        try:
+            if addon is not None and hasattr(addon, "shutdown"):
+                addon.shutdown()
+        except Exception:
+            pass
+        try:
+            if context is not None and hasattr(context, "close"):
+                context.close()
+        except Exception:
+            pass
 
 
 def _ui_shell_preset_names():
@@ -852,8 +1397,19 @@ def run_ui_shell_preview(raw_path):
     summary = _apply_ui_shell_preview_status(window)
     config_summary = _apply_ui_shell_read_only_config(window)
     addon_report = _ui_shell_addon_mount_report(window)
+    live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    placeholder_targets = _apply_ui_shell_addon_placeholders(
+        window,
+        addon_report,
+        exclude_addon_ids=set(live_mount_report["mounted_ids"]),
+        live_chat_providers=live_mount_report.get("chat_providers", []),
+    )
+    try:
+        app.aboutToQuit.connect(lambda: _ui_shell_cleanup_live_addons(window))
+    except Exception:
+        pass
     print("[UI Shell] Runtime started: no")
-    print("[UI Shell] Addons initialized: no")
+    print("[UI Shell] Broad addons initialized: no")
     print("[UI Shell] Engine lifecycle connected: no")
     print(f"[UI Shell] Bindings checked: {summary['bound']}/{summary['checked']}")
     print(
@@ -865,6 +1421,30 @@ def run_ui_shell_preview(raw_path):
         f"[UI Shell] Addon manifests discovered: "
         f"{addon_report['total_count']} ({addon_report['enabled_count']} effectively enabled)"
     )
+    print(
+        "[UI Shell] Live addon mounts: "
+        + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
+    )
+    print(
+        "[UI Shell] Live chat providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("chat_providers", [])
+            )
+            if live_mount_report.get("chat_providers")
+            else "none"
+        )
+    )
+    if live_mount_report["failures"]:
+        print("[UI Shell] Live addon mount failures:")
+        for failure in live_mount_report["failures"]:
+            print(f"  - {failure}")
+    print(
+        "[UI Shell] Addon mount placeholders: "
+        + (", ".join(placeholder_targets) if placeholder_targets else "none")
+    )
+    _print_ui_shell_static_addon_comparison(ui_path, addon_report, live_mount_report, prefix="[UI Shell]")
     print("[UI Shell] Close the shell window to return to the terminal.")
     window.show()
     return app.exec()
