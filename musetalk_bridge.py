@@ -31,6 +31,17 @@ class MuseTalkBridge:
         self.pending = {}
         self._reader_thread = None
         self._lock = threading.Lock()
+        self._pending_lock = threading.Lock()
+
+    def _fail_pending_requests(self, error):
+        payload = {"ok": False, "error": str(error or "MuseTalk worker stopped.")}
+        with self._pending_lock:
+            queues = list(self.pending.values())
+        for response_queue in queues:
+            try:
+                response_queue.put_nowait(dict(payload))
+            except Exception:
+                pass
 
     def start(self):
         if self.process and self.process.poll() is None:
@@ -65,6 +76,7 @@ class MuseTalkBridge:
     def stop(self):
         if not self.process:
             return
+        self._fail_pending_requests("MuseTalk worker stopping.")
         try:
             self.request({"action": "shutdown"}, timeout=5)
         except Exception:
@@ -95,13 +107,15 @@ class MuseTalkBridge:
                 self.process.stdout.close()
         except Exception:
             pass
+        self._fail_pending_requests("MuseTalk worker stopped.")
         self.process = None
 
     def request(self, payload, timeout=120):
         self.start()
         request_id = str(uuid.uuid4())
         response_queue = queue.Queue(maxsize=1)
-        self.pending[request_id] = response_queue
+        with self._pending_lock:
+            self.pending[request_id] = response_queue
         message = dict(payload)
         message["request_id"] = request_id
 
@@ -112,9 +126,28 @@ class MuseTalkBridge:
             self.process.stdin.flush()
 
         try:
-            response = response_queue.get(timeout=timeout)
+            if timeout is None:
+                response = response_queue.get()
+            else:
+                timeout = max(0.0, float(timeout))
+                import time
+
+                end_at = time.time() + timeout
+                while True:
+                    remaining = end_at - time.time()
+                    if remaining <= 0:
+                        raise queue.Empty()
+                    try:
+                        response = response_queue.get(timeout=min(0.1, remaining))
+                        break
+                    except queue.Empty:
+                        if not self.process or self.process.poll() is not None:
+                            raise RuntimeError("MuseTalk worker stopped before responding.")
+        except queue.Empty:
+            raise TimeoutError(f"MuseTalk worker request timed out after {timeout:.1f}s: {payload.get('action')}")
         finally:
-            self.pending.pop(request_id, None)
+            with self._pending_lock:
+                self.pending.pop(request_id, None)
         if not response.get("ok", False):
             raise RuntimeError(response.get("error", "Unknown MuseTalk worker error"))
         return response
@@ -153,5 +186,10 @@ class MuseTalkBridge:
                     f"gpu={payload.get('gpu')}"
                 )
             request_id = payload.get("request_id")
-            if request_id in self.pending:
-                self.pending[request_id].put(payload)
+            with self._pending_lock:
+                response_queue = self.pending.get(request_id)
+            if response_queue is not None:
+                try:
+                    response_queue.put_nowait(payload)
+                except Exception:
+                    pass

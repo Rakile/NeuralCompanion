@@ -5991,15 +5991,25 @@ def run_companion(config_override=None):
 
         if avatar_gui is not None:
             avatar_gui.start()
+            if stop_flag.is_set():
+                shutdown_avatar_engine()
+                return
             if avatar_mode == "musetalk":
                 try:
                     avatar_gui.warm_up()
                 except Exception as e:
                     print(f"⚠️ [MuseTalk] Warmup exception: {e}")
+                if stop_flag.is_set():
+                    shutdown_avatar_engine()
+                    return
                 set_musetalk_idle_state()
     except Exception as e:
         print(f"⚠️ Could not connect to Avatar Engine: {e}")
         avatar_gui = None
+
+    if stop_flag.is_set():
+        shutdown_avatar_engine()
+        return
 
     if avatar_mode == "musetalk" and selected_model_name and not offline_replay_only and chat_provider == "lmstudio":
         load_lmstudio_model(selected_model_name)

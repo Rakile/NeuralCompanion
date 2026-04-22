@@ -192,18 +192,29 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         self.next_render_order = 0
         self.active_render_order = 0
         self._last_logged_emotion_registry_signature = None
+        self._stop_requested = threading.Event()
+
+    def _raise_if_start_cancelled(self):
+        if self._stop_requested.is_set() or stop_flag.is_set():
+            raise RuntimeError("MuseTalk startup cancelled.")
 
     def start(self):
+        self._stop_requested.clear()
         print(f"🎬 [MuseTalk] Starting worker ({self.vram_mode})...")
         self.bridge.start()
+        self._raise_if_start_cancelled()
         self.previous_audio_tail = None
         self._reload_avatar_pose_connections()
+        self._raise_if_start_cancelled()
         self.last_queued_avatar_id = self.default_avatar_id
         self._ensure_avatar_prepared(self.default_avatar_id, allow_missing=False)
+        self._raise_if_start_cancelled()
         self.avatar_id = self.default_avatar_id
         self.avatar_path = self.prepared_avatars.get(self.default_avatar_id)
         for avatar_id in sorted(set(self.emotion_avatar_map.values())):
+            self._raise_if_start_cancelled()
             self._ensure_avatar_prepared(avatar_id, allow_missing=True)
+        self._raise_if_start_cancelled()
         print(f"✅ [MuseTalk] Avatar pack ready: {self.avatar_pack_id} -> {self.default_avatar_id}")
 
     def warm_up(self):
@@ -244,6 +255,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             shutil.rmtree(warmup_frame_dir, ignore_errors=True)
 
     def stop(self):
+        self._stop_requested.set()
         print("🛑 [MuseTalk] Stopping worker...")
         self.previous_audio_tail = None
         self.bridge.stop()
