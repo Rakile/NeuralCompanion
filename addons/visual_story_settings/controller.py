@@ -3,8 +3,6 @@ from __future__ import annotations
 import shiboken6
 from PySide6 import QtCore, QtWidgets
 
-import engine
-
 
 class VisualStorySettingsController:
     def __init__(self, context):
@@ -22,6 +20,30 @@ class VisualStorySettingsController:
         self.safe_checkbox = None
         self.no_speech_bubbles_checkbox = None
         self.hint_label = None
+
+    def _engine(self):
+        import engine
+
+        return engine
+
+    def _visual_config_service(self):
+        service = self.visual_reply_service
+        if service is not None and hasattr(service, "get_runtime_config") and hasattr(service, "update_runtime_config"):
+            return service
+        return None
+
+    def _runtime_config_get(self, key, default=None):
+        service = self._visual_config_service()
+        if service is not None:
+            return service.get_runtime_config(str(key), default)
+        return self._engine().RUNTIME_CONFIG.get(str(key), default)
+
+    def _runtime_config_set(self, key, value):
+        service = self._visual_config_service()
+        if service is not None:
+            service.update_runtime_config(str(key), value)
+            return
+        self._engine().update_runtime_config(str(key), value)
 
     def build_tab(self):
         if self.tab_widget is not None:
@@ -144,14 +166,14 @@ class VisualStorySettingsController:
 
     def export_session_state(self):
         return {
-            "visual_reply_story_mode": bool(engine.RUNTIME_CONFIG.get("visual_reply_story_mode", False)),
+            "visual_reply_story_mode": bool(self._runtime_config_get("visual_reply_story_mode", False)),
             "visual_reply_story_max_images": self._max_images(),
             "visual_reply_story_continuity_strength": self._continuity_strength(),
             "visual_reply_story_theme_prompts": self._current_theme_prompts(),
             "visual_reply_story_theme_enabled": self._current_theme_enabled(),
             "visual_reply_master_style_prompt": self._master_prompt(),
-            "visual_reply_master_prompt_safe": bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_safe", False)),
-            "visual_reply_master_prompt_no_speech_bubbles": bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_no_speech_bubbles", False)),
+            "visual_reply_master_prompt_safe": bool(self._runtime_config_get("visual_reply_master_prompt_safe", False)),
+            "visual_reply_master_prompt_no_speech_bubbles": bool(self._runtime_config_get("visual_reply_master_prompt_no_speech_bubbles", False)),
         }
 
     def _widget_alive(self, widget):
@@ -180,7 +202,10 @@ class VisualStorySettingsController:
         self._refresh_hint()
 
     def _theme_presets(self):
-        return list(getattr(engine, "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
+        service = self._visual_config_service()
+        if service is not None and hasattr(service, "story_theme_presets"):
+            return list(service.story_theme_presets() or ())
+        return list(getattr(self._engine(), "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
 
     def _default_theme_prompts(self):
         prompts = {}
@@ -199,7 +224,7 @@ class VisualStorySettingsController:
         return labels
 
     def _normalize_theme_prompts(self, payload=None):
-        raw = payload if payload is not None else engine.RUNTIME_CONFIG.get("visual_reply_story_theme_prompts", {})
+        raw = payload if payload is not None else self._runtime_config_get("visual_reply_story_theme_prompts", {})
         if not isinstance(raw, dict):
             raw = {}
         defaults = self._default_theme_prompts()
@@ -210,7 +235,7 @@ class VisualStorySettingsController:
         return prompts
 
     def _normalize_theme_enabled(self, payload=None):
-        raw = payload if payload is not None else engine.RUNTIME_CONFIG.get("visual_reply_story_theme_enabled", [])
+        raw = payload if payload is not None else self._runtime_config_get("visual_reply_story_theme_enabled", [])
         if isinstance(raw, (str, bytes)):
             raw = [raw]
         if not isinstance(raw, (list, tuple, set)):
@@ -248,7 +273,7 @@ class VisualStorySettingsController:
         if self._widget_alive(self.continuity_slider):
             return max(0.0, min(1.0, float(self.continuity_slider.value()) / 100.0))
         try:
-            value = float(engine.RUNTIME_CONFIG.get("visual_reply_story_continuity_strength", 0.8) or 0.8)
+            value = float(self._runtime_config_get("visual_reply_story_continuity_strength", 0.8) or 0.8)
         except Exception:
             value = 0.8
         if value > 1.0:
@@ -259,17 +284,17 @@ class VisualStorySettingsController:
         if self._widget_alive(self.max_images_spin):
             return max(1, int(self.max_images_spin.value()))
         try:
-            return max(1, int(engine.RUNTIME_CONFIG.get("visual_reply_story_max_images", 3) or 3))
+            return max(1, int(self._runtime_config_get("visual_reply_story_max_images", 3) or 3))
         except Exception:
             return 3
 
     def _master_prompt(self):
         if self._widget_alive(self.master_prompt_edit):
             return str(self.master_prompt_edit.toPlainText() or "").strip()
-        return str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+        return str(self._runtime_config_get("visual_reply_master_style_prompt", "") or "").strip()
 
     def _set_runtime_config(self, key, value, *, notify=True):
-        engine.update_runtime_config(str(key), value)
+        self._runtime_config_set(str(key), value)
         if notify:
             self._refresh_hint()
             if self.visual_reply_service is not None:
@@ -287,7 +312,7 @@ class VisualStorySettingsController:
         if self.story_mode_button is None:
             return
         self.story_mode_button.blockSignals(True)
-        self.story_mode_button.setChecked(bool(engine.RUNTIME_CONFIG.get("visual_reply_story_mode", False)))
+        self.story_mode_button.setChecked(bool(self._runtime_config_get("visual_reply_story_mode", False)))
         self.story_mode_button.blockSignals(False)
 
         self.max_images_spin.blockSignals(True)
@@ -312,29 +337,29 @@ class VisualStorySettingsController:
             edit.blockSignals(False)
 
         self.master_prompt_edit.blockSignals(True)
-        self.master_prompt_edit.setPlainText(str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip())
+        self.master_prompt_edit.setPlainText(str(self._runtime_config_get("visual_reply_master_style_prompt", "") or "").strip())
         self.master_prompt_edit.blockSignals(False)
 
         self.safe_checkbox.blockSignals(True)
-        self.safe_checkbox.setChecked(bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_safe", False)))
+        self.safe_checkbox.setChecked(bool(self._runtime_config_get("visual_reply_master_prompt_safe", False)))
         self.safe_checkbox.blockSignals(False)
 
         self.no_speech_bubbles_checkbox.blockSignals(True)
-        self.no_speech_bubbles_checkbox.setChecked(bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_no_speech_bubbles", False)))
+        self.no_speech_bubbles_checkbox.setChecked(bool(self._runtime_config_get("visual_reply_master_prompt_no_speech_bubbles", False)))
         self.no_speech_bubbles_checkbox.blockSignals(False)
 
     def _refresh_hint(self):
         if self.hint_label is None:
             return
-        story_mode = bool(engine.RUNTIME_CONFIG.get("visual_reply_story_mode", False))
+        story_mode = bool(self._runtime_config_get("visual_reply_story_mode", False))
         max_images = self._max_images()
         continuity_percent = int(round(self._continuity_strength() * 100.0))
         labels = self._theme_labels()
         active_labels = [labels.get(theme_id, theme_id.title()) for theme_id in self._normalize_theme_enabled()]
         guard_parts = []
-        if bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_safe", False)):
+        if bool(self._runtime_config_get("visual_reply_master_prompt_safe", False)):
             guard_parts.append("Safe")
-        if bool(engine.RUNTIME_CONFIG.get("visual_reply_master_prompt_no_speech_bubbles", False)):
+        if bool(self._runtime_config_get("visual_reply_master_prompt_no_speech_bubbles", False)):
             guard_parts.append("No Speech Bubbles")
         parts = [
             f"Story Mode is {'on' if story_mode else 'off'}; when enabled, NC can request one image per spoken chunk, up to {max_images} picture(s), with continuity at {continuity_percent}%."

@@ -3033,50 +3033,14 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
 
 
 def build_musetalk_idle_payload_from_state(advance_to_next_frame=True):
-    if not _is_musetalk_avatar_adapter(avatar_gui) or not avatar_gui.avatar_path:
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         return None
 
     current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
-    full_imgs_dir = os.path.join(avatar_gui.avatar_path, "full_imgs")
-    full_frame_paths = list_png_frames(full_imgs_dir)
-    if not full_frame_paths:
+    builder = getattr(avatar_gui, "build_idle_payload_from_state", None)
+    if not callable(builder):
         return None
-
-    fps = int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
-    sync_time = float(current_state.get("sync_time", 0.0) or 0.0)
-    start_index = int(current_state.get("start_index", 0) or 0)
-    rendered_frame_count = int(current_state.get("frame_count", 0) or len(current_state.get("frame_paths", []) or []))
-    if rendered_frame_count <= 0:
-        rendered_frame_count = len(full_frame_paths)
-
-    elapsed = max(0.0, time.time() - sync_time) if sync_time else 0.0
-    displayed_frame_index = min(int(elapsed * max(fps, 1)), max(rendered_frame_count - 1, 0))
-    next_index = start_index + displayed_frame_index + (1 if advance_to_next_frame else 0)
-
-    ordered_frame_paths = [
-        full_frame_paths[(next_index + i) % len(full_frame_paths)]
-        for i in range(len(full_frame_paths))
-    ]
-    source_indices = [
-        (next_index + i) % len(full_frame_paths)
-        for i in range(len(full_frame_paths))
-    ]
-
-    return {
-        "frame_paths": ordered_frame_paths,
-        "source_indices": source_indices,
-        "frame_dir": "",
-        "fps": fps,
-        "sync_time": time.time(),
-        "duration_seconds": 0.0,
-        "chunk_id": "idle",
-        "text": "",
-        "status": "idle",
-        "loop": True,
-        "start_index": next_index % len(full_frame_paths),
-        "frame_count": len(ordered_frame_paths),
-        "avatar_id": current_state.get("avatar_id"),
-    }
+    return builder(current_state=current_state, advance_to_next_frame=advance_to_next_frame)
 
 
 def transition_musetalk_to_local_idle(advance_to_next_frame=True):
@@ -3094,59 +3058,30 @@ def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
     if not _is_musetalk_avatar_adapter(avatar_gui):
         return 0.0
 
-    rule = avatar_gui.get_transition_rule(from_avatar_id, to_avatar_id)
-    if not rule:
+    builder = getattr(avatar_gui, "build_transition_payload", None)
+    if not callable(builder):
         return 0.0
 
-    from_avatar_path = avatar_gui.prepared_avatars.get(from_avatar_id)
-    if not from_avatar_path:
+    transition = builder(from_avatar_id, to_avatar_id)
+    if not transition:
         return 0.0
 
-    full_imgs_dir = os.path.join(from_avatar_path, "full_imgs")
-    full_frame_paths = list_png_frames(full_imgs_dir)
-    if not full_frame_paths:
-        return 0.0
-
-    start_frame = max(0, min(int(rule.get("start_frame", len(full_frame_paths) - 1)), len(full_frame_paths) - 1))
-    end_frame = max(0, min(int(rule.get("end_frame", 0)), len(full_frame_paths) - 1))
-    if start_frame >= end_frame:
-        indices = range(start_frame, end_frame - 1, -1)
-    else:
-        indices = range(start_frame, end_frame + 1)
-    transition_frames = [full_frame_paths[idx] for idx in indices]
-    source_indices = [int(idx) for idx in indices]
-    if not transition_frames:
-        return 0.0
-
-    fps = int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24)
-    transition_id = f"transition:{from_avatar_id}->{to_avatar_id}:{time.time()}"
+    payload = dict(transition.get("payload") or {})
+    duration_seconds = float(transition.get("duration_seconds", payload.get("duration_seconds", 0.0)) or 0.0)
+    transition_id = payload.get("chunk_id")
     shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data({
-        "frame_paths": transition_frames,
-        "source_indices": source_indices,
-        "frame_dir": "",
-        "fps": fps,
-        "sync_time": time.time(),
-        "duration_seconds": len(transition_frames) / max(fps, 1),
-        "chunk_id": transition_id,
-        "text": "",
-        "status": "transition",
-        "loop": False,
-        "start_index": start_frame,
-        "frame_count": len(transition_frames),
-        "avatar_id": from_avatar_id,
-    })
+    shared_state.set_current_musetalk_frame_data(payload)
     prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
 
     def _finish_transition():
-        time.sleep(len(transition_frames) / max(fps, 1))
+        time.sleep(duration_seconds)
         current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
         if current_state.get("chunk_id") != transition_id or stop_flag.is_set():
             return
         set_musetalk_idle_state_for_avatar(to_avatar_id)
 
     threading.Thread(target=_finish_transition, daemon=True).start()
-    return len(transition_frames) / max(fps, 1)
+    return duration_seconds
 
 
 def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):

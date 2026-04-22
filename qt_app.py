@@ -480,6 +480,8 @@ def run_ui_shell_smoke(raw_path):
             else "none"
         )
     )
+    engine_imported = "engine" in sys.modules
+    print(f"[UI Shell Smoke] Heavy engine imported: {'yes' if engine_imported else 'no'}")
     if live_mount_report["failures"]:
         print("[UI Shell Smoke] Live addon mount failures:")
         for failure in live_mount_report["failures"]:
@@ -503,6 +505,9 @@ def run_ui_shell_smoke(raw_path):
             app.quit()
     except Exception:
         pass
+
+    if engine_imported:
+        mismatched.append(("Safety", "engine", "not imported", "imported"))
 
     if missing or mismatched:
         print("[UI Shell Smoke] Result: NOT READY for shell binding.")
@@ -1232,25 +1237,34 @@ class _UiShellHotkeyService:
 
     def list_bindings(self):
         try:
-            import engine as _engine
+            from core import runtime_hotkeys as _hotkeys
 
+            session = _read_ui_shell_session_snapshot()
+            push_to_talk = _hotkeys.normalize_hotkey_text(
+                session.get("push_to_talk_hotkey", _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY)
+            ) or _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY
+            manual_bindings = _hotkeys.normalize_manual_action_hotkeys(
+                session.get("manual_action_hotkeys", _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS)
+            )
+            ui_bindings = _hotkeys.normalize_ui_action_hotkeys(
+                session.get("ui_action_hotkeys", _hotkeys.DEFAULT_UI_ACTION_HOTKEYS)
+            )
             entries = [
                 {
                     "action": "push_to_talk",
-                    "label": str(_engine.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
-                    "binding": str(_engine.get_push_to_talk_hotkey() or ""),
-                    "default_binding": str(_engine.DEFAULT_PUSH_TO_TALK_HOTKEY),
+                    "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
+                    "binding": str(push_to_talk or ""),
+                    "default_binding": str(_hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY),
                     "category": "input",
                     "scope": "global",
                     "description": "Read-only shell preview of the Push-to-Talk binding.",
                 }
             ]
-            manual_bindings = _engine.get_manual_action_hotkeys()
-            for action, default_binding in _engine.DEFAULT_MANUAL_ACTION_HOTKEYS.items():
+            for action, default_binding in _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS.items():
                 entries.append(
                     {
                         "action": action,
-                        "label": str(_engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get(action, action)),
                         "binding": str(manual_bindings.get(action, "") or ""),
                         "default_binding": str(default_binding or ""),
                         "category": "manual_controls",
@@ -1258,12 +1272,11 @@ class _UiShellHotkeyService:
                         "description": "Read-only shell preview of a manual control binding.",
                     }
                 )
-            ui_bindings = _engine.get_ui_action_hotkeys()
-            for action, default_binding in _engine.DEFAULT_UI_ACTION_HOTKEYS.items():
+            for action, default_binding in _hotkeys.DEFAULT_UI_ACTION_HOTKEYS.items():
                 entries.append(
                     {
                         "action": action,
-                        "label": str(_engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get(action, action)),
                         "binding": str(ui_bindings.get(action, "") or ""),
                         "default_binding": str(default_binding or ""),
                         "category": "ui_actions",
@@ -1376,6 +1389,15 @@ class _UiShellVisualReplyService:
         except Exception:
             return 3
 
+    def story_theme_presets(self):
+        return [dict(theme) for theme in self._THEME_PRESETS]
+
+    def get_runtime_config(self, key, default=None):
+        return self._state.get(str(key), default)
+
+    def update_runtime_config(self, key, value):
+        self._set_state(str(key), value)
+
     def settings_snapshot(self):
         prompts = self._theme_prompts()
         enabled = set(self._theme_enabled())
@@ -1385,6 +1407,7 @@ class _UiShellVisualReplyService:
             "size_value": str(self._state.get("visual_reply_size", "1024x1024") or "1024x1024"),
             "model_name": str(self._state.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
             "auto_show": bool(self._state.get("visual_reply_auto_show_dock", True)),
+            "master_style_prompt": str(self._state.get("visual_reply_master_style_prompt", "") or ""),
             "master_prompt_safe": bool(self._state.get("visual_reply_master_prompt_safe", False)),
             "master_prompt_no_speech_bubbles": bool(self._state.get("visual_reply_master_prompt_no_speech_bubbles", False)),
             "story_mode": bool(self._state.get("visual_reply_story_mode", False)),

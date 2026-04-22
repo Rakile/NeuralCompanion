@@ -51,6 +51,7 @@ Current behavior:
 - Live-mounts the current allowlisted low-risk addons, then cleans them up before exit.
 - Live-registers chat provider addons through a shell-safe provider registry stub.
 - Prints a static-vs-addon tab comparison for likely duplicate/fake Designer tabs.
+- Reports whether the heavy `engine.py` module was imported; shell smoke is not ready if this regresses to `yes`.
 
 This mode does not start Flask, connect engine lifecycle actions, call provider model refresh, or start audio/image/transcription/model runtime systems.
 
@@ -112,7 +113,7 @@ Why these addons were chosen:
 - Chat provider addons only register metadata and callable handlers; shell mode stores those handlers but never calls them.
 - Hotkeys renders with a shell-only read-only hotkey service; capture and mutation controls are disabled in the Designer shell.
 - Visual Reply renders through a shell-only `qt.visual_reply` service; it does not replace the real image dock, generate images, mutate image history, or save settings.
-- Visual Story Settings can render its real host-settings UI; it may update in-memory preview/runtime config while the shell is open, but shell notifications do not save session state or start runtime systems.
+- Visual Story Settings can render its real host-settings UI through the shell-local Visual Reply config facade; it may update in-memory preview config while the shell is open, but shell notifications do not save session state or start runtime systems.
 - Clipboard Source renders with an addon-local shell-preview guard; clipboard monitoring, initial clipboard capture, runtime delivery buttons, pending-turn mutation, and hidden-loop capture are disabled in shell mode.
 - Gemini TTS Preview renders with an addon-local shell-preview guard; Gemini model refresh, connection checks, TTS generation, audio file writes, backend startup, and audio playback are disabled in shell mode.
 - Chatterbox renders with an addon-local shell-preview guard; Chatterbox model loading, runtime config writes, backend startup, and audio generation are disabled in shell mode.
@@ -128,7 +129,7 @@ Important:
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
 - Chat Runtime fields are rendered from provider metadata in shell mode, but provider model-list, connection-check, completion, and stream handlers are not invoked.
-- `Hotkeys` and `Visual Story Settings` currently import `engine.py` to read existing hotkey/config constants. Smoke tests confirm this does not start the companion runtime, but it can emit existing engine-import warnings.
+- `Hotkeys` and `Visual Story Settings` no longer import `engine.py` during shell preview mounting. Hotkeys reads constants from `core.runtime_hotkeys`; Visual Story Settings reads/writes shell-local Visual Reply config through `qt.visual_reply`.
 - Shell mode configures stdout/stderr with a Unicode fallback before live addon mounting so Windows `cp1252` consoles do not turn existing emoji startup prints into addon mount failures.
 - Runtime-sensitive addons that cannot safely render their real controller in shell mode use shell-only adapters or addon-local shell guards.
 
@@ -308,7 +309,7 @@ These are display-only in shell mode.
 Recommended next phase:
 
 1. Keep `main.ui` shell mode as a non-runtime shell until the object-name and addon-mount boundary is accepted.
-2. Continue runtime binding one narrow surface at a time. The next good candidates are preset/session binding or engine lifecycle buttons, with model refresh still deferred until the provider binding is accepted.
+2. Continue runtime binding one narrow surface at a time. The next good candidates are runtime host-service facades for model refresh/status or shell-safe engine lifecycle preparation, with real model/audio/avatar startup still deferred until that boundary is accepted.
 3. Later, consider replacing shell adapters with real controller splits only if runtime-heavy imports can be kept out of shell rendering.
 4. Re-run `python qt_app.py --ui-shell main.ui --shell-smoke` after each phase and confirm addon-owned tab surfaces stay clean with no duplicate candidates or placeholder-only addon targets.
 
@@ -319,6 +320,13 @@ Current pushed shell milestones:
 - `0d8222f` - Chat Runtime provider/model/config/generation metadata binding.
 - `a08f291` - Preset Load previews selected preset Chat Runtime values without mutating runtime/session state.
 - `af08b8e` - Handover boundary docs plus visibly disabled deferred runtime buttons.
+
+Current local shell-boundary milestone:
+
+- Shell live-addon mounting no longer imports the heavy runtime engine path for Hotkeys or Visual Story Settings.
+- `python qt_app.py --ui-shell main.ui --shell-smoke` now completes without the engine-import startup cleanup/TensorFlow warning path.
+- Shell smoke now prints `Heavy engine imported: no` and treats a heavy-engine import as a shell-boundary regression.
+- MuseTalk avatar adapter payload construction has been moved further into the MuseTalk avatar addon and still needs a quick real MuseTalk runtime validation before being treated as a pushed safe point.
 
 Current handover boundary:
 

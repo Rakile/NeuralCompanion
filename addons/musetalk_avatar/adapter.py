@@ -991,3 +991,101 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             "start_index": int(result.get("start_index", 0) or 0),
             "frame_count": int(result.get("frame_count", 0) or len(result.get("ordered_frame_paths", result.get("frame_paths", [])))),
         }
+
+    def build_idle_payload_from_state(self, current_state=None, advance_to_next_frame=True):
+        """Build a local idle loop from the current displayed avatar frames."""
+        if self._shutdown_requested() or not self.avatar_path:
+            return None
+
+        current_state = dict(current_state or {})
+        full_imgs_dir = os.path.join(self.avatar_path, "full_imgs")
+        full_frame_paths = list_png_frames(full_imgs_dir)
+        if not full_frame_paths:
+            return None
+
+        fps = int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", self.fps)) or self.fps)
+        sync_time = float(current_state.get("sync_time", 0.0) or 0.0)
+        start_index = int(current_state.get("start_index", 0) or 0)
+        rendered_frame_count = int(current_state.get("frame_count", 0) or len(current_state.get("frame_paths", []) or []))
+        if rendered_frame_count <= 0:
+            rendered_frame_count = len(full_frame_paths)
+
+        elapsed = max(0.0, time.time() - sync_time) if sync_time else 0.0
+        displayed_frame_index = min(int(elapsed * max(fps, 1)), max(rendered_frame_count - 1, 0))
+        next_index = start_index + displayed_frame_index + (1 if advance_to_next_frame else 0)
+
+        ordered_frame_paths = [
+            full_frame_paths[(next_index + index) % len(full_frame_paths)]
+            for index in range(len(full_frame_paths))
+        ]
+        source_indices = [
+            (next_index + index) % len(full_frame_paths)
+            for index in range(len(full_frame_paths))
+        ]
+
+        return {
+            "frame_paths": ordered_frame_paths,
+            "source_indices": source_indices,
+            "frame_dir": "",
+            "fps": fps,
+            "sync_time": time.time(),
+            "duration_seconds": 0.0,
+            "chunk_id": "idle",
+            "text": "",
+            "status": "idle",
+            "loop": True,
+            "start_index": next_index % len(full_frame_paths),
+            "frame_count": len(ordered_frame_paths),
+            "avatar_id": current_state.get("avatar_id"),
+        }
+
+    def build_transition_payload(self, from_avatar_id, to_avatar_id):
+        """Build a local avatar transition frame payload without invoking the worker."""
+        if self._shutdown_requested():
+            return None
+
+        rule = self.get_transition_rule(from_avatar_id, to_avatar_id)
+        if not rule:
+            return None
+
+        from_avatar_path = self.prepared_avatars.get(from_avatar_id)
+        if not from_avatar_path:
+            return None
+
+        full_imgs_dir = os.path.join(from_avatar_path, "full_imgs")
+        full_frame_paths = list_png_frames(full_imgs_dir)
+        if not full_frame_paths:
+            return None
+
+        start_frame = max(0, min(int(rule.get("start_frame", len(full_frame_paths) - 1)), len(full_frame_paths) - 1))
+        end_frame = max(0, min(int(rule.get("end_frame", 0)), len(full_frame_paths) - 1))
+        if start_frame >= end_frame:
+            indices = range(start_frame, end_frame - 1, -1)
+        else:
+            indices = range(start_frame, end_frame + 1)
+        transition_frames = [full_frame_paths[index] for index in indices]
+        source_indices = [int(index) for index in indices]
+        if not transition_frames:
+            return None
+
+        fps = int(RUNTIME_CONFIG.get("musetalk_fps", self.fps) or self.fps)
+        duration_seconds = len(transition_frames) / max(fps, 1)
+        transition_id = f"transition:{from_avatar_id}->{to_avatar_id}:{time.time()}"
+        return {
+            "duration_seconds": duration_seconds,
+            "payload": {
+                "frame_paths": transition_frames,
+                "source_indices": source_indices,
+                "frame_dir": "",
+                "fps": fps,
+                "sync_time": time.time(),
+                "duration_seconds": duration_seconds,
+                "chunk_id": transition_id,
+                "text": "",
+                "status": "transition",
+                "loop": False,
+                "start_index": start_frame,
+                "frame_count": len(transition_frames),
+                "avatar_id": from_avatar_id,
+            },
+        }

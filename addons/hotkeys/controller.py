@@ -3,8 +3,8 @@ from __future__ import annotations
 import threading
 import time
 
-import engine
 from PySide6 import QtCore, QtWidgets
+from core import runtime_hotkeys
 
 
 class HotkeysController(QtCore.QObject):
@@ -216,7 +216,7 @@ class HotkeysController(QtCore.QObject):
         ordered = []
         seen = set()
         for raw in list(key_names or []):
-            normalized = engine.normalize_hotkey_text(raw)
+            normalized = runtime_hotkeys.normalize_hotkey_text(raw)
             if not normalized:
                 continue
             key = normalized.lower()
@@ -257,10 +257,10 @@ class HotkeysController(QtCore.QObject):
         started = False
         finished = threading.Event()
         try:
-            if getattr(engine, "PYNPUT_HOTKEY_AVAILABLE", False) and getattr(engine, "pynput_keyboard", None) is not None:
+            if runtime_hotkeys.PYNPUT_HOTKEY_AVAILABLE and runtime_hotkeys.pynput_keyboard is not None:
                 def on_press(key):
                     nonlocal started
-                    normalized = engine.canonicalize_pynput_key(key)
+                    normalized = runtime_hotkeys.canonicalize_pynput_key(key)
                     if not normalized:
                         return
                     started = True
@@ -269,14 +269,14 @@ class HotkeysController(QtCore.QObject):
                         captured_order.append(normalized)
 
                 def on_release(key):
-                    normalized = engine.canonicalize_pynput_key(key)
+                    normalized = runtime_hotkeys.canonicalize_pynput_key(key)
                     if not normalized:
                         return
                     pressed.discard(normalized)
                     if started and not pressed:
                         finished.set()
 
-                with engine.pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
+                with runtime_hotkeys.pynput_keyboard.Listener(on_press=on_press, on_release=on_release) as listener:
                     timeout_at = time.time() + 8.0
                     while time.time() < timeout_at:
                         if finished.wait(timeout=0.05):
@@ -290,7 +290,7 @@ class HotkeysController(QtCore.QObject):
                     try:
                         event_type = str(getattr(event, "event_type", "") or "").lower()
                         raw_name = str(getattr(event, "name", "") or "").strip()
-                        normalized = engine.normalize_hotkey_text(raw_name).lower()
+                        normalized = runtime_hotkeys.normalize_hotkey_text(raw_name).lower()
                         if not normalized:
                             return
                         if event_type == "down":
@@ -305,14 +305,14 @@ class HotkeysController(QtCore.QObject):
                     except Exception:
                         pass
 
-                hook = engine.keyboard.hook(callback)
+                hook = runtime_hotkeys.keyboard.hook(callback)
                 timeout_at = time.time() + 8.0
                 while time.time() < timeout_at:
                     if finished.wait(timeout=0.05):
                         break
                 if hook is not None:
                     try:
-                        engine.keyboard.unhook(hook)
+                        runtime_hotkeys.keyboard.unhook(hook)
                     except Exception:
                         pass
             binding = self._format_recorded_binding(captured_order)
