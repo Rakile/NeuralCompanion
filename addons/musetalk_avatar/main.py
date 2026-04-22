@@ -44,7 +44,12 @@ class Addon(BaseAddon):
         if runtime_context is None:
             # Backward-compatible fallback for older hosts that do not pass the
             # avatar runtime context yet.
-            return MuseTalkAdapter()
+            try:
+                import engine
+
+                runtime_context = engine._build_avatar_runtime_context()
+            except Exception:
+                return MuseTalkAdapter()
         return MuseTalkAdapter(
             runtime_config=runtime_context.runtime_config,
             invalidate_available_emotion_names_fn=runtime_context.get("invalidate_available_emotion_names_fn"),

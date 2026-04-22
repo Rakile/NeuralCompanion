@@ -41,10 +41,11 @@ class Addon(BaseAddon):
     def _create_adapter(self, runtime_context=None):
         if runtime_context is None:
             # Backward-compatible fallback for older hosts that do not pass the
-            # avatar runtime context yet.
+            # avatar runtime context yet. The engine helper provides the
+            # required VaM path and runtime hooks without engine-owned wrappers.
             import engine
 
-            return engine.VaMAdapter()
+            runtime_context = engine._build_avatar_runtime_context()
         from addons.vam_avatar.adapter import VaMAdapter
 
         return VaMAdapter(

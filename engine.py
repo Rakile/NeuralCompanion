@@ -48,11 +48,7 @@ import shared_state
 from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
-from addons.musetalk_avatar.adapter import MuseTalkAdapter as MuseTalkAddonAdapter
-from addons.vseeface_avatar.adapter import VSeeFaceAdapter as VSeeFaceAddonAdapter
-from addons.vam_avatar.adapter import VaMAdapter as VaMAddonAdapter
 from pydub import AudioSegment
-from musetalk_bridge import MuseTalkBridge
 
 
 _ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
@@ -276,18 +272,12 @@ def reset_hotkeys_to_defaults():
 
 def _is_musetalk_avatar_adapter(adapter) -> bool:
     """Recognize MuseTalk adapters created by either legacy wrappers or addons."""
-    return (
-        isinstance(adapter, MuseTalkAdapter)
-        or str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "musetalk"
-    )
+    return str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "musetalk"
 
 
 def _is_vam_avatar_adapter(adapter) -> bool:
     """Recognize VaM adapters created by either legacy wrappers or addons."""
-    return (
-        isinstance(adapter, VaMAdapter)
-        or str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "vam"
-    )
+    return str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "vam"
 
 
 PUSH_TO_TALK_MAX_SECONDS = 300.0
@@ -5862,10 +5852,8 @@ def run_conversation_flow(source):
 AvatarAdapter = avatar_runtime.AvatarAdapter
 
 
-def create_avatar_adapter_for_mode(avatar_mode: str):
-    """Create the selected avatar adapter from addon registry, then legacy fallback."""
-    mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
-    runtime_context = avatar_runtime.AvatarRuntimeContext(
+def _build_avatar_runtime_context():
+    return avatar_runtime.AvatarRuntimeContext(
         runtime_config=RUNTIME_CONFIG,
         dependencies={
             "avatar_profile": AVATAR_PROFILE,
@@ -5888,70 +5876,32 @@ def create_avatar_adapter_for_mode(avatar_mode: str):
             "dry_run_module": dry_run,
         },
     )
-    registered_adapter = avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
-    if registered_adapter is not None:
-        return registered_adapter
+
+
+def _create_fallback_avatar_adapter(mode, runtime_context):
     if mode == "none":
         return None
     if mode == "musetalk":
-        return MuseTalkAdapter()
+        from addons.musetalk_avatar.main import Addon as MuseTalkAvatarAddon
+
+        return MuseTalkAvatarAddon()._create_adapter(runtime_context=runtime_context)
     if mode == "vam":
-        return VaMAdapter()
-    return VSeeFaceAdapter()
+        from addons.vam_avatar.main import Addon as VaMAvatarAddon
+
+        return VaMAvatarAddon()._create_adapter(runtime_context=runtime_context)
+    from addons.vseeface_avatar.main import Addon as VSeeFaceAvatarAddon
+
+    return VSeeFaceAvatarAddon()._create_adapter(runtime_context=runtime_context)
 
 
-# ============================================================================
-# VSEEFACE ADAPTER
-# ============================================================================
-class VSeeFaceAdapter(VSeeFaceAddonAdapter):
-    """Compatibility wrapper around the VSeeFace avatar addon adapter."""
-
-    def __init__(self, ip="127.0.0.1", port=39539):
-        super().__init__(
-            ip=ip,
-            port=port,
-            avatar_profile=AVATAR_PROFILE,
-            current_body_state=CURRENT_BODY_STATE,
-            edit_emotion_getter=lambda: EDIT_EMOTION,
-            force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
-            hand_debug=HAND_DEBUG,
-            hand_calibration=HAND_CALIBRATION,
-        )
-
-class VaMAdapter(VaMAddonAdapter):
-    """Compatibility wrapper around the VaM avatar addon adapter."""
-
-    def __init__(self):
-        super().__init__(
-            runtime_config=RUNTIME_CONFIG,
-            normalize_vam_root=normalize_vam_root,
-            derive_vam_bridge_root=derive_vam_bridge_root,
-            default_vam_root=DEFAULT_VAM_ROOT,
-            default_emotion_preset_map=DEFAULT_VAM_EMOTION_PRESET_MAP,
-            default_timeline_clip_map=DEFAULT_VAM_TIMELINE_CLIP_MAP,
-            audio_segment_cls=AudioSegment,
-            avatar_profile=AVATAR_PROFILE,
-            current_body_state=CURRENT_BODY_STATE,
-            edit_emotion_getter=lambda: EDIT_EMOTION,
-            force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
-            hand_debug=HAND_DEBUG,
-            hand_calibration=HAND_CALIBRATION,
-        )
-
-class MuseTalkAdapter(MuseTalkAddonAdapter):
-    """Compatibility wrapper around the MuseTalk avatar addon adapter."""
-
-    def __init__(self, root_dir="./MuseTalk"):
-        super().__init__(
-            root_dir=root_dir,
-            runtime_config=RUNTIME_CONFIG,
-            invalidate_available_emotion_names_fn=invalidate_available_emotion_names,
-            shared_state_module=shared_state,
-            log_memory_checkpoint_fn=log_musetalk_memory_checkpoint,
-            stop_flag_event=stop_flag,
-            stop_playback_event=stop_playback,
-            dry_run_module=dry_run,
-        )
+def create_avatar_adapter_for_mode(avatar_mode: str):
+    """Create the selected avatar adapter from addon registry, then addon fallback."""
+    mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
+    runtime_context = _build_avatar_runtime_context()
+    registered_adapter = avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
+    if registered_adapter is not None:
+        return registered_adapter
+    return _create_fallback_avatar_adapter(mode, runtime_context)
 
 
 # ============================================================================

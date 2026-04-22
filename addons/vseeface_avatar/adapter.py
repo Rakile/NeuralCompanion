@@ -19,6 +19,8 @@ class VSeeFaceAdapter(avatar_runtime.AvatarAdapter):
     behavior while legacy UI pose editing can continue to work during migration.
     """
 
+    avatar_provider_id = "vseeface"
+
     EMOTION_MAP = {
         "neutral": "Neutral",
         "happy": "Fun",

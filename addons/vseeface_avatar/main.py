@@ -39,13 +39,10 @@ class Addon(BaseAddon):
         return None
 
     def _create_adapter(self, runtime_context=None):
-        if runtime_context is None:
-            # Backward-compatible fallback for older hosts that do not pass the
-            # avatar runtime context yet.
-            import engine
-
-            return engine.VSeeFaceAdapter()
         from addons.vseeface_avatar.adapter import VSeeFaceAdapter
+
+        if runtime_context is None:
+            return VSeeFaceAdapter()
 
         return VSeeFaceAdapter(
             avatar_profile=runtime_context.get("avatar_profile", {}),
