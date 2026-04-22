@@ -73,6 +73,7 @@ Current behavior:
 - Live-mounts the allowlisted low-risk addons.
 - Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
 - Binds preset/session controls in shell-local preview mode.
+- Binds engine lifecycle buttons in shell-local preview mode.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -147,7 +148,7 @@ This is still shell-local:
 - Edits are not pushed into `RUNTIME_CONFIG`.
 - Provider handlers are stored by the shell registry but never called.
 - Live model refresh remains deferred.
-- Engine start/stop remains disconnected.
+- Real engine start/stop remains disconnected.
 
 ## Preset/Session Shell Binding
 
@@ -167,6 +168,22 @@ This keeps preset loading useful for validating Designer bindings while preservi
 - `RUNTIME_CONFIG` is not changed.
 - Chat history/context files are not read or written.
 - Engine lifecycle and model refresh remain disconnected.
+
+## Lifecycle Shell Binding
+
+The Designer shell now gives the main lifecycle buttons shell-local behavior:
+
+- `btn_start_engine` switches the shell preview into a simulated running state and logs a shell-only Initialize message.
+- `btn_stop_engine` switches the shell preview back to a simulated stopped state and logs a shell-only Terminate message.
+- `btn_reset_chat` clears only the Designer shell chat widget and logs a shell-only reset message.
+
+This is intentionally not the real engine lifecycle yet:
+
+- `run_companion(...)` is not called.
+- `stop_flag` is not changed.
+- `shutdown_avatar_engine()` is not called.
+- No TTS/STT/audio/avatar/image/model runtime is started or stopped.
+- No session file, preset file, chat context, or `RUNTIME_CONFIG` value is mutated.
 
 ## TTS Runtime Designer Layout
 
@@ -218,9 +235,9 @@ These should be handled gradually. Do not remove static tabs until the correspon
 
 Intentionally not connected yet:
 
-- Engine start.
-- Engine stop.
-- Reset chat memory.
+- Real engine start.
+- Real engine stop.
+- Real reset chat memory.
 - Broad real addon initialization.
 - Broad real addon widget mounting.
 - TTS/STT/audio runtime.
@@ -231,11 +248,14 @@ Intentionally not connected yet:
 - Session save/load/delete actions.
 - Chat quick save/load actions.
 
-In shell preview, the main runtime buttons are visibly disabled rather than left as misleading inert buttons:
+In shell preview, the main runtime buttons are now shell-local previews rather than real runtime controls:
 
 - `btn_start_engine`
 - `btn_stop_engine`
 - `btn_reset_chat`
+
+Runtime-heavy audio-story buttons remain visibly disabled:
+
 - `import_audio_button`
 - `transcribe_audio_button`
 
@@ -251,6 +271,9 @@ The Designer shell now binds these controls locally:
 - `chat_edit_mode_button`
 - `chat_apply_edit_button`
 - `chat_cancel_edit_button`
+- `btn_start_engine`
+- `btn_stop_engine`
+- `btn_reset_chat`
 
 Behavior:
 
@@ -258,6 +281,7 @@ Behavior:
 - Autoscroll toggles update shell status labels only.
 - Chat font size changes only the preview `chat_edit` widget.
 - Chat edit/apply/cancel is shell-local and does not save or update runtime state.
+- Lifecycle start/stop/reset is shell-local and does not start or stop runtime systems.
 - `chat_quick_save_button` and `chat_quick_load_button` remain disabled because they touch file/session operations.
 
 ## Current Read-Only Preview Data
@@ -294,13 +318,15 @@ Current pushed shell milestones:
 
 - `0d8222f` - Chat Runtime provider/model/config/generation metadata binding.
 - `a08f291` - Preset Load previews selected preset Chat Runtime values without mutating runtime/session state.
+- `af08b8e` - Handover boundary docs plus visibly disabled deferred runtime buttons.
 
 Current handover boundary:
 
 - The Python-built app remains the stable default via `python qt_app.py`.
 - `python qt_app.py --ui-shell main.ui` is the safe Designer shell preview.
 - Shell mode can render addon tabs and preview Chat Runtime/preset state, but cannot start runtime systems.
-- Engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
+- Shell-local lifecycle buttons can simulate Initialize/Terminate/Reset, but they do not call real runtime functions.
+- Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:
 

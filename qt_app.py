@@ -418,9 +418,6 @@ def run_ui_shell_smoke(raw_path):
             print(f"  TYPE {object_name}: expected {expected_class}, found {actual_class}")
 
     deferred_controls = (
-        "btn_start_engine",
-        "btn_stop_engine",
-        "btn_reset_chat",
         "import_audio_button",
         "transcribe_audio_button",
     )
@@ -435,12 +432,17 @@ def run_ui_shell_smoke(raw_path):
     )
     print("[UI Shell Smoke] Runtime started: no")
     print("[UI Shell Smoke] Broad addons initialized: no")
-    print("[UI Shell Smoke] Engine lifecycle connected: no")
+    print("[UI Shell Smoke] Engine lifecycle connected: shell-local only")
     config_summary = _apply_ui_shell_read_only_config(window)
+    lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
     print(
         f"[UI Shell Smoke] Read-only session config: "
         f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
         f"({len(config_summary['applied'])} widget(s) populated)"
+    )
+    print(
+        "[UI Shell Smoke] Lifecycle shell-local controls: "
+        + ", ".join(lifecycle_summary.get("bound") or ["none"])
     )
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
@@ -555,7 +557,7 @@ def _apply_ui_shell_preview_status(window):
             if hasattr(label, "setToolTip"):
                 label.setToolTip("Visual-only Designer shell preview. No runtime systems are connected.")
 
-    for button_name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat", "import_audio_button", "transcribe_audio_button"):
+    for button_name in ("import_audio_button", "transcribe_audio_button"):
         button = _ui_shell_find_object(window, button_name)
         if button is None:
             continue
@@ -563,6 +565,11 @@ def _apply_ui_shell_preview_status(window):
             button.setEnabled(False)
         if hasattr(button, "setToolTip"):
             button.setToolTip("Disabled in shell preview. Runtime wiring is intentionally deferred.")
+
+    for button_name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat"):
+        button = _ui_shell_find_object(window, button_name)
+        if button is not None and hasattr(button, "setToolTip"):
+            button.setToolTip("Shell-local lifecycle preview. No engine/runtime systems are started.")
 
     return summary
 
@@ -736,6 +743,88 @@ def _bind_ui_shell_console_chat_local_controls(window):
             ) if widget is not None
         ],
         "deferred": ["chat_quick_save_button", "chat_quick_load_button"],
+    }
+
+
+def _bind_ui_shell_lifecycle_local_controls(window):
+    start_button = _ui_shell_find_object(window, "btn_start_engine")
+    stop_button = _ui_shell_find_object(window, "btn_stop_engine")
+    reset_button = _ui_shell_find_object(window, "btn_reset_chat")
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    chat_edit = _ui_shell_find_object(window, "chat_edit")
+    console_status = _ui_shell_find_object(window, "console_status")
+    chat_status = _ui_shell_find_object(window, "chat_status")
+    mic_status = _ui_shell_find_object(window, "mic_status_label")
+
+    state = {"running": False}
+
+    def append_console(message):
+        if console_edit is None:
+            return
+        try:
+            if hasattr(console_edit, "appendPlainText"):
+                console_edit.appendPlainText(str(message))
+            elif hasattr(console_edit, "append"):
+                console_edit.append(str(message))
+        except Exception:
+            pass
+
+    def set_status(message):
+        for label in (console_status, chat_status, mic_status):
+            if label is not None and hasattr(label, "setText"):
+                label.setText(str(message))
+
+    def refresh_buttons():
+        if start_button is not None and hasattr(start_button, "setEnabled"):
+            start_button.setEnabled(not state["running"])
+        if stop_button is not None and hasattr(stop_button, "setEnabled"):
+            stop_button.setEnabled(state["running"])
+        if reset_button is not None and hasattr(reset_button, "setEnabled"):
+            reset_button.setEnabled(True)
+        if start_button is not None and hasattr(start_button, "setToolTip"):
+            start_button.setToolTip("Shell-local Initialize preview. Does not start the companion engine.")
+        if stop_button is not None and hasattr(stop_button, "setToolTip"):
+            stop_button.setToolTip("Shell-local Terminate preview. Does not stop any runtime system.")
+        if reset_button is not None and hasattr(reset_button, "setToolTip"):
+            reset_button.setToolTip("Shell-local reset preview. Clears only the Designer shell chat widget.")
+
+    def start_preview():
+        state["running"] = True
+        refresh_buttons()
+        set_status("Shell lifecycle preview | runtime simulated | engine not started")
+        append_console("[UI Shell] Initialize preview: no runtime systems were started.")
+
+    def stop_preview():
+        state["running"] = False
+        refresh_buttons()
+        set_status("Shell lifecycle preview | runtime stopped | engine was never started")
+        append_console("[UI Shell] Terminate preview: no runtime systems were stopped.")
+
+    def reset_preview():
+        if chat_edit is not None and hasattr(chat_edit, "clear"):
+            try:
+                chat_edit.clear()
+            except Exception:
+                pass
+        append_console("[UI Shell] Reset preview: shell chat widget cleared only.")
+
+    if start_button is not None and hasattr(start_button, "clicked"):
+        start_button.clicked.connect(start_preview)
+    if stop_button is not None and hasattr(stop_button, "clicked"):
+        stop_button.clicked.connect(stop_preview)
+    if reset_button is not None and hasattr(reset_button, "clicked"):
+        reset_button.clicked.connect(reset_preview)
+    refresh_buttons()
+    return {
+        "bound": [
+            name for name, widget in (
+                ("btn_start_engine", start_button),
+                ("btn_stop_engine", stop_button),
+                ("btn_reset_chat", reset_button),
+            )
+            if widget is not None
+        ],
+        "mode": "shell-local",
     }
 
 
@@ -2485,6 +2574,7 @@ def run_ui_shell_preview(raw_path):
     summary = _apply_ui_shell_preview_status(window)
     config_summary = _apply_ui_shell_read_only_config(window)
     console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
+    lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
@@ -2501,7 +2591,7 @@ def run_ui_shell_preview(raw_path):
         pass
     print("[UI Shell] Runtime started: no")
     print("[UI Shell] Broad addons initialized: no")
-    print("[UI Shell] Engine lifecycle connected: no")
+    print("[UI Shell] Engine lifecycle connected: shell-local only")
     print(f"[UI Shell] Bindings checked: {summary['bound']}/{summary['checked']}")
     print(
         f"[UI Shell] Read-only session config: "
@@ -2515,6 +2605,10 @@ def run_ui_shell_preview(raw_path):
     print(
         "[UI Shell] Console/chat deferred controls: "
         + ", ".join(console_chat_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell] Lifecycle shell-local controls: "
+        + ", ".join(lifecycle_summary.get("bound") or ["none"])
     )
     print(
         "[UI Shell] Chat Runtime binding: "
