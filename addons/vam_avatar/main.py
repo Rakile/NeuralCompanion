@@ -23,7 +23,7 @@ class Addon(BaseAddon):
             metadata={
                 "kind": "avatar",
                 "transport": "vam_bridge",
-                "legacy_engine_adapter": True,
+                "runtime_context": True,
             },
         )
         context.logger.info("VaM avatar provider addon initialized.")
@@ -38,9 +38,27 @@ class Addon(BaseAddon):
                 pass
         return None
 
-    def _create_adapter(self):
-        # The host wrapper injects VaM runtime settings until those settings
-        # are exposed through an addon-facing config contract.
-        import engine
+    def _create_adapter(self, runtime_context=None):
+        if runtime_context is None:
+            # Backward-compatible fallback for older hosts that do not pass the
+            # avatar runtime context yet.
+            import engine
 
-        return engine.VaMAdapter()
+            return engine.VaMAdapter()
+        from addons.vam_avatar.adapter import VaMAdapter
+
+        return VaMAdapter(
+            runtime_config=runtime_context.runtime_config,
+            normalize_vam_root=runtime_context.get("normalize_vam_root"),
+            derive_vam_bridge_root=runtime_context.get("derive_vam_bridge_root"),
+            default_vam_root=runtime_context.get("default_vam_root", ""),
+            default_emotion_preset_map=runtime_context.get("default_vam_emotion_preset_map", {}),
+            default_timeline_clip_map=runtime_context.get("default_vam_timeline_clip_map", {}),
+            audio_segment_cls=runtime_context.get("audio_segment_cls"),
+            avatar_profile=runtime_context.get("avatar_profile", {}),
+            current_body_state=runtime_context.get("current_body_state", {}),
+            edit_emotion_getter=runtime_context.get("edit_emotion_getter", lambda: "neutral"),
+            force_edit_mode_getter=runtime_context.get("force_edit_mode_getter", lambda: False),
+            hand_debug=runtime_context.get("hand_debug", {"active": False}),
+            hand_calibration=runtime_context.get("hand_calibration", {}),
+        )

@@ -272,6 +272,24 @@ def reset_hotkeys_to_defaults():
     update_runtime_config("manual_action_hotkeys", dict(DEFAULT_MANUAL_ACTION_HOTKEYS))
     update_runtime_config("ui_action_hotkeys", dict(DEFAULT_UI_ACTION_HOTKEYS))
     return get_hotkey_bindings()
+
+
+def _is_musetalk_avatar_adapter(adapter) -> bool:
+    """Recognize MuseTalk adapters created by either legacy wrappers or addons."""
+    return (
+        isinstance(adapter, MuseTalkAdapter)
+        or str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "musetalk"
+    )
+
+
+def _is_vam_avatar_adapter(adapter) -> bool:
+    """Recognize VaM adapters created by either legacy wrappers or addons."""
+    return (
+        isinstance(adapter, VaMAdapter)
+        or str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "vam"
+    )
+
+
 PUSH_TO_TALK_MAX_SECONDS = 300.0
 PUSH_TO_TALK_TAIL_SECONDS = 0.55
 PUSH_TO_TALK_MIN_TAIL_CHUNKS = 8
@@ -2588,7 +2606,7 @@ def _apply_sensory_pong_result(result, snapshots):
         try:
             avatar_gui.set_emotion(emotion)
             print(f"🎭 [Sensory] Hidden PONG updated avatar emotion -> {emotion}")
-            if isinstance(avatar_gui, MuseTalkAdapter) and not audio_playing.is_set() and not microphone_active.is_set():
+            if _is_musetalk_avatar_adapter(avatar_gui) and not audio_playing.is_set() and not microphone_active.is_set():
                 try:
                     target_avatar_id = avatar_gui._resolve_avatar_id_for_emotion(emotion) or avatar_gui.default_avatar_id
                     set_musetalk_idle_state_for_avatar(target_avatar_id)
@@ -3018,7 +3036,7 @@ def log_musetalk_memory_checkpoint(label, chunk_id=None, extra=None):
 
 
 def set_musetalk_idle_state():
-    if not isinstance(avatar_gui, MuseTalkAdapter):
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         clear_avatar_stream_state()
         return
 
@@ -3034,7 +3052,7 @@ def set_musetalk_idle_state():
 
 
 def set_musetalk_idle_state_for_avatar(avatar_id):
-    if not isinstance(avatar_gui, MuseTalkAdapter):
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         clear_avatar_stream_state()
         return
 
@@ -3058,7 +3076,7 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
 
 
 def build_musetalk_idle_payload_from_state(advance_to_next_frame=True):
-    if not isinstance(avatar_gui, MuseTalkAdapter) or not avatar_gui.avatar_path:
+    if not _is_musetalk_avatar_adapter(avatar_gui) or not avatar_gui.avatar_path:
         return None
 
     current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
@@ -3116,7 +3134,7 @@ def transition_musetalk_to_local_idle(advance_to_next_frame=True):
 
 
 def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
-    if not isinstance(avatar_gui, MuseTalkAdapter):
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         return 0.0
 
     rule = avatar_gui.get_transition_rule(from_avatar_id, to_avatar_id)
@@ -3175,7 +3193,7 @@ def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
 
 
 def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
-    if not isinstance(avatar_gui, MuseTalkAdapter):
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         return False
     current_avatar_id = str(current_avatar_id or "").strip()
     if not current_avatar_id or current_avatar_id == avatar_gui.default_avatar_id:
@@ -3223,7 +3241,7 @@ def apply_musetalk_avatar_pack_selection(pack_id):
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
     update_runtime_config("musetalk_avatar_pack_id", selected.pack_id)
     invalidate_available_emotion_names()
-    if isinstance(avatar_gui, MuseTalkAdapter):
+    if _is_musetalk_avatar_adapter(avatar_gui):
         avatar_gui.select_avatar_pack(selected.pack_id)
         if not audio_playing.is_set() and not stop_flag.is_set():
             try:
@@ -3297,7 +3315,7 @@ def freeze_current_musetalk_frame():
 
 
 def transition_musetalk_to_idle_after_interrupt(delay=0.35):
-    if not isinstance(avatar_gui, MuseTalkAdapter):
+    if not _is_musetalk_avatar_adapter(avatar_gui):
         return
 
     def _delayed_idle():
@@ -3578,34 +3596,12 @@ def estimate_displayed_musetalk_frames(state, now=None):
 
 
 def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
-    state = state or getattr(shared_state, "current_musetalk_frame_data", {}) or {}
-    start_index = int(state.get("start_index", 0) or 0)
-    source_indices = list(state.get("source_indices", []) or [])
-    frame_count = int(state.get("frame_count", 0) or len(state.get("frame_paths", []) or []))
-    if frame_count <= 0:
-        return start_index
-    sync_time = float(state.get("sync_time", 0.0) or 0.0)
-    now = time.time()
-    elapsed = max(0.0, now - sync_time) if sync_time else 0.0
-    if state.get("loop", False):
-        fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
-        frame_index = int(elapsed * max(fps, 1)) % frame_count
-    else:
-        duration_seconds = float(state.get("duration_seconds", 0.0) or 0.0)
-        if duration_seconds > 0:
-            progress = min(elapsed / duration_seconds, 1.0)
-            frame_span = max(frame_count - 1, 1)
-            frame_index = min(int(progress * frame_span), frame_count - 1)
-        else:
-            fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
-            frame_index = min(int(elapsed * max(fps, 1)), frame_count - 1)
-    if source_indices and 0 <= frame_index < len(source_indices):
-        current_index = int(source_indices[frame_index])
-    else:
-        current_index = start_index + frame_index
-    if advance_to_next_frame:
-        current_index += 1
-    return current_index
+    return musetalk_preview_runtime.get_current_musetalk_source_index(
+        state,
+        runtime_config=RUNTIME_CONFIG,
+        shared_state_module=shared_state,
+        advance_to_next_frame=advance_to_next_frame,
+    )
 
 
 def cleanup_musetalk_runtime(keep_frame_dirs=None, max_keep=64):
@@ -3964,7 +3960,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                 temp_json_name = f"bsData_{unique_id}.json"
                 predicted_chunk_id = os.path.splitext(temp_json_name)[0]
                 predicted_frame_dir = ""
-                if avatar_mode == "musetalk" and isinstance(avatar_gui, MuseTalkAdapter):
+                if avatar_mode == "musetalk" and _is_musetalk_avatar_adapter(avatar_gui):
                     try:
                         predicted_frame_dir = os.path.abspath(
                             os.path.join(
@@ -4121,7 +4117,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         )
                         safe_delete_with_retry(path)
                         continue
-                    if isinstance(avatar_gui, MuseTalkAdapter):
+                    if _is_musetalk_avatar_adapter(avatar_gui):
                         chunk_generation = int(result_holder.get("generation", -1))
                         if chunk_generation != int(getattr(avatar_gui, "reply_generation", chunk_generation)):
                             shared_state.update_musetalk_pipeline_chunk(
@@ -4589,7 +4585,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             )
                             dry_run.finalize_reply(dry_run_reply_id)
                     elif kind in {"vam", "none"}:
-                        if kind == "vam" and isinstance(avatar_gui, VaMAdapter):
+                        if kind == "vam" and _is_vam_avatar_adapter(avatar_gui):
                             skip_local_playback = bool(avatar_gui.begin_chunk_playback(chunk_result))
                         audio_start_time = time.time()
                         _queue_story_visual_reply(txt, emotion)
@@ -4683,7 +4679,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     playback_paused.set()
                     if avatar_gui:
                         avatar_gui.set_speaking_state(False)
-                    if isinstance(avatar_gui, MuseTalkAdapter):
+                    if _is_musetalk_avatar_adapter(avatar_gui):
                         current_avatar_id = chunk_result.get("avatar_id")
                         if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
                             transition_musetalk_to_local_idle(advance_to_next_frame=True)
@@ -4719,7 +4715,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     except:
                         break
 
-            if isinstance(avatar_gui, MuseTalkAdapter) and not stop_flag.is_set():
+            if _is_musetalk_avatar_adapter(avatar_gui) and not stop_flag.is_set():
                 if stop_playback.is_set():
                     transition_musetalk_to_local_idle(advance_to_next_frame=True)
                 else:
@@ -5869,7 +5865,30 @@ AvatarAdapter = avatar_runtime.AvatarAdapter
 def create_avatar_adapter_for_mode(avatar_mode: str):
     """Create the selected avatar adapter from addon registry, then legacy fallback."""
     mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
-    registered_adapter = avatar_runtime.create_avatar_adapter(mode)
+    runtime_context = avatar_runtime.AvatarRuntimeContext(
+        runtime_config=RUNTIME_CONFIG,
+        dependencies={
+            "avatar_profile": AVATAR_PROFILE,
+            "current_body_state": CURRENT_BODY_STATE,
+            "edit_emotion_getter": lambda: EDIT_EMOTION,
+            "force_edit_mode_getter": lambda: FORCE_EDIT_MODE,
+            "hand_debug": HAND_DEBUG,
+            "hand_calibration": HAND_CALIBRATION,
+            "normalize_vam_root": normalize_vam_root,
+            "derive_vam_bridge_root": derive_vam_bridge_root,
+            "default_vam_root": DEFAULT_VAM_ROOT,
+            "default_vam_emotion_preset_map": DEFAULT_VAM_EMOTION_PRESET_MAP,
+            "default_vam_timeline_clip_map": DEFAULT_VAM_TIMELINE_CLIP_MAP,
+            "audio_segment_cls": AudioSegment,
+            "invalidate_available_emotion_names_fn": invalidate_available_emotion_names,
+            "shared_state_module": shared_state,
+            "log_memory_checkpoint_fn": log_musetalk_memory_checkpoint,
+            "stop_flag_event": stop_flag,
+            "stop_playback_event": stop_playback,
+            "dry_run_module": dry_run,
+        },
+    )
+    registered_adapter = avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
     if registered_adapter is not None:
         return registered_adapter
     if mode == "none":
@@ -5922,7 +5941,17 @@ class VaMAdapter(VaMAddonAdapter):
 class MuseTalkAdapter(MuseTalkAddonAdapter):
     """Compatibility wrapper around the MuseTalk avatar addon adapter."""
 
-    pass
+    def __init__(self, root_dir="./MuseTalk"):
+        super().__init__(
+            root_dir=root_dir,
+            runtime_config=RUNTIME_CONFIG,
+            invalidate_available_emotion_names_fn=invalidate_available_emotion_names,
+            shared_state_module=shared_state,
+            log_memory_checkpoint_fn=log_musetalk_memory_checkpoint,
+            stop_flag_event=stop_flag,
+            stop_playback_event=stop_playback,
+            dry_run_module=dry_run,
+        )
 
 
 # ============================================================================

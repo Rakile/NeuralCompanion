@@ -8,46 +8,163 @@ import time
 import uuid
 from pathlib import Path
 
-from core import avatar_runtime
+from pydub import AudioSegment
+
+from core import avatar_runtime, musetalk_preview_runtime, runtime_files, streaming_text
+from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
+from musetalk_bridge import MuseTalkBridge
+
+
+_RUNTIME_SYMBOLS_READY = False
+
+
+MUSE_MAX_INFLIGHT_RENDERS = 3
+MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS = 2.0
+MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT = 8
+MUSE_RENDER_OVERLAP_MS = 150
+STREAM_FIRST_CHUNK_PLAN_SECONDS = streaming_text.STREAM_FIRST_CHUNK_PLAN_SECONDS
+
+MUSE_EMOTION_AVATAR_MAP = {
+    "angry": "angry_avatar",
+}
+MUSE_AVATAR_TRANSITIONS = {
+    ("angry_avatar", "default_avatar"): {
+        "start_frame": 80,
+        "end_frame": 7,
+    },
+}
+
+
+def list_png_frames(frame_dir):
+    return runtime_files.list_png_frames(frame_dir)
+
+
+def safe_delete_with_retry(file_path, *, retries=5, delay=0.1):
+    return runtime_files.safe_delete_with_retry(file_path, retries=retries, delay=delay)
+
+
+def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
+    return musetalk_preview_runtime.get_current_musetalk_source_index(
+        state,
+        runtime_config=RUNTIME_CONFIG,
+        shared_state_module=shared_state,
+        advance_to_next_frame=advance_to_next_frame,
+    )
+
+
+def prime_musetalk_preview_frame(playback_state):
+    return musetalk_preview_runtime.prime_musetalk_preview_frame(
+        playback_state,
+        runtime_config=RUNTIME_CONFIG,
+        list_png_frames=list_png_frames,
+        shared_state_module=shared_state,
+    )
+
+
+def _normalize_musetalk_enabled_pack_emotions(value):
+    mapping = {}
+    if not isinstance(value, dict):
+        return mapping
+    for raw_pack_id, raw_tags in value.items():
+        pack_id = str(raw_pack_id or "").strip()
+        if not pack_id:
+            continue
+        if isinstance(raw_tags, (list, tuple, set)):
+            iterable = list(raw_tags)
+        else:
+            iterable = str(raw_tags or "").split(",")
+        tags = []
+        for raw_tag in iterable:
+            clean_tag = str(raw_tag or "").strip().strip("[]").strip().lower()
+            if clean_tag and clean_tag not in tags:
+                tags.append(clean_tag)
+        mapping[pack_id] = tags
+    return mapping
+
+
+def get_musetalk_enabled_pack_emotions(pack_id):
+    mapping = _normalize_musetalk_enabled_pack_emotions(RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
+    clean_pack_id = str(pack_id or "").strip()
+    if not clean_pack_id or clean_pack_id not in mapping:
+        return None
+    return set(mapping.get(clean_pack_id) or [])
+
+
+def configure_runtime_symbols(
+    *,
+    runtime_config,
+    invalidate_available_emotion_names_fn,
+    shared_state_module,
+    log_memory_checkpoint_fn,
+    stop_flag_event,
+    stop_playback_event,
+    dry_run_module,
+):
+    """Install host-owned runtime hooks without making the addon import engine."""
+    global RUNTIME_CONFIG
+    global invalidate_available_emotion_names
+    global shared_state
+    global log_musetalk_memory_checkpoint
+    global stop_flag
+    global stop_playback
+    global dry_run
+    global _RUNTIME_SYMBOLS_READY
+
+    RUNTIME_CONFIG = runtime_config
+    invalidate_available_emotion_names = invalidate_available_emotion_names_fn
+    shared_state = shared_state_module
+    log_musetalk_memory_checkpoint = log_memory_checkpoint_fn
+    stop_flag = stop_flag_event
+    stop_playback = stop_playback_event
+    dry_run = dry_run_module
+    _RUNTIME_SYMBOLS_READY = True
 
 
 def _hydrate_engine_symbols():
     # Transitional dependency bridge: this class has moved into the addon,
     # while several MuseTalk helper contracts still live in engine.py.
+    if _RUNTIME_SYMBOLS_READY:
+        return
     import engine
 
-    names = (
-        "RUNTIME_CONFIG",
-        "MuseTalkBridge",
-        "discover_avatar_packs",
-        "get_avatar_pack",
-        "MUSE_EMOTION_AVATAR_MAP",
-        "MUSE_AVATAR_TRANSITIONS",
-        "get_musetalk_enabled_pack_emotions",
-        "invalidate_available_emotion_names",
-        "MUSE_MAX_INFLIGHT_RENDERS",
-        "MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS",
-        "MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT",
-        "MUSE_RENDER_OVERLAP_MS",
-        "STREAM_FIRST_CHUNK_PLAN_SECONDS",
-        "AudioSegment",
-        "safe_delete_with_retry",
-        "shared_state",
-        "list_png_frames",
-        "get_current_musetalk_source_index",
-        "prime_musetalk_preview_frame",
-        "log_musetalk_memory_checkpoint",
-        "stop_flag",
-        "stop_playback",
-        "dry_run",
+    configure_runtime_symbols(
+        runtime_config=engine.RUNTIME_CONFIG,
+        invalidate_available_emotion_names_fn=engine.invalidate_available_emotion_names,
+        shared_state_module=engine.shared_state,
+        log_memory_checkpoint_fn=engine.log_musetalk_memory_checkpoint,
+        stop_flag_event=engine.stop_flag,
+        stop_playback_event=engine.stop_playback,
+        dry_run_module=engine.dry_run,
     )
-    for name in names:
-        globals()[name] = getattr(engine, name)
 
 
 class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
-    def __init__(self, root_dir="./MuseTalk"):
-        _hydrate_engine_symbols()
+    avatar_provider_id = "musetalk"
+
+    def __init__(
+        self,
+        root_dir="./MuseTalk",
+        *,
+        runtime_config=None,
+        invalidate_available_emotion_names_fn=None,
+        shared_state_module=None,
+        log_memory_checkpoint_fn=None,
+        stop_flag_event=None,
+        stop_playback_event=None,
+        dry_run_module=None,
+    ):
+        if runtime_config is not None:
+            configure_runtime_symbols(
+                runtime_config=runtime_config,
+                invalidate_available_emotion_names_fn=invalidate_available_emotion_names_fn,
+                shared_state_module=shared_state_module,
+                log_memory_checkpoint_fn=log_memory_checkpoint_fn,
+                stop_flag_event=stop_flag_event,
+                stop_playback_event=stop_playback_event,
+                dry_run_module=dry_run_module,
+            )
+        else:
+            _hydrate_engine_symbols()
         self.root_dir = root_dir
         self.vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
         self.bridge = MuseTalkBridge(root_dir=self.root_dir, worker_options={"vram_mode": self.vram_mode})

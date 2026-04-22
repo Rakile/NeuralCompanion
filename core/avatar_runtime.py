@@ -3,13 +3,25 @@
 from __future__ import annotations
 
 import abc
+import inspect
 import math
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
 
-AvatarFactory = Callable[[], "AvatarAdapter | None"]
+AvatarFactory = Callable[..., "AvatarAdapter | None"]
+
+
+@dataclass
+class AvatarRuntimeContext:
+    """Host/runtime hooks passed to avatar provider factories at creation time."""
+
+    runtime_config: dict[str, Any]
+    dependencies: dict[str, Any] = field(default_factory=dict)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        return self.dependencies.get(key, default)
 
 
 @dataclass
@@ -125,11 +137,27 @@ def list_providers() -> list[AvatarProvider]:
     return sorted(providers, key=lambda provider: (provider.order, provider.label.lower(), provider.id))
 
 
-def create_avatar_adapter(provider_id: str | None) -> AvatarAdapter | None:
+def _factory_accepts_runtime_context(factory: AvatarFactory) -> bool:
+    try:
+        signature = inspect.signature(factory)
+    except (TypeError, ValueError):
+        return False
+    for parameter in signature.parameters.values():
+        if parameter.kind == inspect.Parameter.VAR_KEYWORD:
+            return True
+        if parameter.name == "runtime_context":
+            return True
+    return False
+
+
+def create_avatar_adapter(provider_id: str | None, runtime_context: AvatarRuntimeContext | None = None) -> AvatarAdapter | None:
     provider = get_provider(provider_id)
     if provider is None:
         return None
-    adapter = provider.factory()
+    if runtime_context is not None and _factory_accepts_runtime_context(provider.factory):
+        adapter = provider.factory(runtime_context=runtime_context)
+    else:
+        adapter = provider.factory()
     if adapter is not None and not isinstance(adapter, AvatarAdapter):
         raise TypeError(f"Avatar provider '{provider.id}' returned {type(adapter).__name__}, expected AvatarAdapter.")
     return adapter

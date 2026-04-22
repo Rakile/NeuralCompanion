@@ -1,0 +1,390 @@
+"""TTS backend adapters and backend discovery helpers."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import threading
+import time
+import uuid
+
+import numpy as np
+import torch
+import torchaudio as ta
+
+
+@dataclass
+class TTSRuntimeState:
+    ok: bool
+    model: object | None
+    backend_name: str | None
+
+
+class TTSController:
+    def __init__(self):
+        self.done = threading.Event()
+        self.interrupted = threading.Event()
+        self.spoken_chunks = []
+        self._lock = threading.Lock()
+
+    def add_spoken(self, chunk_text: str):
+        with self._lock:
+            self.spoken_chunks.append(chunk_text)
+
+    def get_spoken_text(self) -> str:
+        with self._lock:
+            return " ".join(self.spoken_chunks).strip()
+
+
+def list_available_tts_backends(manager_getter, *, logger=print):
+    backends = []
+    seen = set()
+    manager = manager_getter()
+    if manager is not None:
+        try:
+            entries = list(manager.list_registered_services() or [])
+        except Exception as exc:
+            logger(f"⚠️ [Addons] Failed to enumerate TTS backends: {exc}")
+            entries = []
+        for entry in entries:
+            metadata = dict(entry.get("metadata") or {})
+            kind = str(metadata.get("kind", "") or "").strip().lower()
+            if kind not in {"tts", "tts_backend", "text_to_speech"}:
+                continue
+            backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
+            if not backend_id or backend_id in seen:
+                continue
+            label = str(metadata.get("label") or entry.get("name") or backend_id).strip()
+            backends.append(
+                {
+                    "id": backend_id,
+                    "label": label,
+                    "kind": "addon",
+                    "service_name": str(entry.get("name") or backend_id).strip(),
+                    "metadata": metadata,
+                }
+            )
+            seen.add(backend_id)
+    for item in (
+        {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
+        {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
+    ):
+        backend_id = str(item.get("id") or "").strip().lower()
+        if backend_id and backend_id not in seen:
+            backends.append(item)
+            seen.add(backend_id)
+    return backends
+
+
+def resolve_addon_tts_backend(backend_id: str, manager_getter):
+    target = str(backend_id or "").strip().lower()
+    if not target:
+        return None
+    manager = manager_getter()
+    if manager is None:
+        return None
+    try:
+        entries = list(manager.list_registered_services() or [])
+    except Exception:
+        return None
+    for entry in entries:
+        metadata = dict(entry.get("metadata") or {})
+        kind = str(metadata.get("kind", "") or "").strip().lower()
+        if kind not in {"tts", "tts_backend", "text_to_speech"}:
+            continue
+        service_name = str(entry.get("name") or "").strip()
+        candidate_id = str(metadata.get("backend_id") or service_name).strip().lower()
+        candidate_label = str(metadata.get("label") or service_name or candidate_id).strip().lower()
+        if target not in {candidate_id, candidate_label, service_name.lower()}:
+            continue
+        service = manager.get_registered_service(service_name)
+        if service is None:
+            continue
+        return {
+            "id": candidate_id or target,
+            "label": str(metadata.get("label") or service_name or candidate_id or target).strip(),
+            "service_name": service_name,
+            "service": service,
+            "metadata": metadata,
+        }
+    return None
+
+
+def initialize_tts_backend(
+    *,
+    runtime_config,
+    current_model,
+    current_backend_name,
+    addon_resolver,
+    addon_adapter_cls,
+    pocket_adapter_cls,
+    chatterbox_factory,
+    tts_device: str,
+    default_pocket_tts_python: str,
+    logger=print,
+):
+    desired_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower().strip()
+
+    if current_model is not None and current_backend_name == desired_backend:
+        logger(f"✓ {desired_backend} TTS model already loaded (Skipping reload)")
+        return TTSRuntimeState(True, current_model, current_backend_name)
+
+    if current_model is not None and hasattr(current_model, "close"):
+        try:
+            current_model.close()
+        except Exception:
+            pass
+    model = None
+    backend_name = None
+
+    if desired_backend:
+        resolved = addon_resolver(desired_backend)
+        if resolved is not None:
+            logger(f"Loading addon TTS backend '{resolved['label']}' ({resolved['service_name']})...")
+            try:
+                model = addon_adapter_cls(
+                    backend_id=resolved["id"],
+                    label=resolved["label"],
+                    service=resolved["service"],
+                )
+                backend_name = resolved["id"]
+                logger(f"✓ Addon TTS backend loaded successfully: {resolved['label']}")
+                return TTSRuntimeState(True, model, backend_name)
+            except Exception as exc:
+                logger(f"✗ Failed to load addon TTS backend '{resolved['label']}': {exc}")
+                logger("↩️ Falling back to built-in TTS backends...")
+
+    if desired_backend == "pockettts":
+        logger("Loading PocketTTS via isolated interpreter...")
+        try:
+            python_exe = str(runtime_config.get("pocket_tts_python", "") or "").strip()
+            if not python_exe:
+                fallback = str(default_pocket_tts_python or "").strip()
+                if fallback and os.path.exists(fallback):
+                    python_exe = fallback
+                    runtime_config["pocket_tts_python"] = fallback
+                    logger(f"[PocketTTS] Runtime path was empty. Using default interpreter: {fallback}")
+            if not python_exe:
+                raise RuntimeError("Set 'PocketTTS Python' in the addon tab first.")
+            model = pocket_adapter_cls(python_exe)
+            backend_name = "pockettts"
+            logger("✓ PocketTTS backend loaded successfully")
+            return TTSRuntimeState(True, model, backend_name)
+        except Exception as exc:
+            logger(f"✗ Failed to load PocketTTS: {exc}")
+            logger("↩️ Falling back to ChatterboxTurboTTS...")
+
+    logger(f"Loading ChatterboxTurboTTS on {tts_device}...")
+    try:
+        model = chatterbox_factory(device=tts_device)
+        backend_name = "chatterbox"
+        logger("✓ ChatterboxTurboTTS loaded successfully")
+        return TTSRuntimeState(True, model, backend_name)
+    except Exception as exc:
+        logger(f"✗ Failed to load TTS model: {exc}")
+        return TTSRuntimeState(False, None, None)
+
+
+def build_generation_kwargs(runtime_config, *, set_seed=None, path_exists=os.path.exists, logger=print):
+    configured_seed = int(runtime_config.get("tts_seed", 0) or 0)
+    if configured_seed > 0 and callable(set_seed):
+        set_seed(configured_seed)
+    kwargs = dict(
+        temperature=float(runtime_config.get("tts_temperature", 0.8) or 0.8),
+        top_p=float(runtime_config.get("tts_top_p", 0.9) or 0.9),
+        top_k=int(runtime_config.get("tts_top_k", 40) or 40),
+        repetition_penalty=float(runtime_config.get("tts_repeat_penalty", 1.2) or 1.2),
+        min_p=float(runtime_config.get("tts_min_p", 0.0) or 0.0),
+        norm_loudness=bool(runtime_config.get("tts_normalize_loudness", False)),
+    )
+    voice_path = runtime_config.get("voice_path", "voices/Hot_16.wav")
+    if not path_exists(voice_path):
+        logger(f"⚠️ Voice file not found: {voice_path}. Using default.")
+        voice_path = "voices/Hot_16.wav"
+    kwargs["audio_prompt_path"] = voice_path
+    return kwargs
+
+
+class PocketTTSSubprocessAdapter:
+    def __init__(self, python_exe, *, app_root=None, safe_delete_with_retry=None, logger=print):
+        self.python_exe = python_exe
+        self.app_root = app_root or os.getcwd()
+        self.safe_delete_with_retry = safe_delete_with_retry or (lambda path: None)
+        self.logger = logger
+        self.process = None
+        self.lock = threading.Lock()
+        self.sr = 24000
+        self._stderr_thread = None
+        self._start_worker()
+
+    def _start_worker(self):
+        worker_script = os.path.abspath(os.path.join(self.app_root, "pocket_tts_worker.py"))
+        if not os.path.exists(self.python_exe):
+            raise FileNotFoundError(f"PocketTTS interpreter not found: {self.python_exe}")
+        if not os.path.exists(worker_script):
+            raise FileNotFoundError(f"PocketTTS worker not found: {worker_script}")
+        self.process = subprocess.Popen(
+            [self.python_exe, worker_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            bufsize=1,
+        )
+        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
+        self._stderr_thread.start()
+        ready = self._read_message(timeout=120.0)
+        if not ready or ready.get("status") != "ready":
+            raise RuntimeError(f"PocketTTS worker failed to start: {ready}")
+        self.sr = int(ready.get("sample_rate", 24000) or 24000)
+        worker_pid = ready.get("pid")
+        if worker_pid:
+            self.logger(f"[PocketTTS] Worker ready: pid={worker_pid}, sample_rate={self.sr}")
+
+    def _drain_stderr(self):
+        if self.process is None or self.process.stderr is None:
+            return
+        for line in self.process.stderr:
+            line = (line or "").rstrip()
+            if line:
+                self.logger(f"[PocketTTS] {line}")
+
+    def _read_message(self, timeout=60.0):
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError("PocketTTS worker is not running")
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            line = self.process.stdout.readline()
+            if line:
+                return json.loads(line)
+            if self.process.poll() is not None:
+                break
+            time.sleep(0.01)
+        raise TimeoutError("Timed out waiting for PocketTTS worker response")
+
+    def generate(self, text, audio_prompt_path=None, **kwargs):
+        if self.process is None or self.process.poll() is not None:
+            raise RuntimeError("PocketTTS worker is not available")
+        request_id = uuid.uuid4().hex[:8]
+        output_path = os.path.join(tempfile.gettempdir(), f"pocket_tts_{request_id}.wav")
+        payload = {
+            "cmd": "synthesize",
+            "request_id": request_id,
+            "text": text,
+            "voice_prompt": audio_prompt_path or "alba",
+            "output_path": output_path,
+        }
+        with self.lock:
+            self.process.stdin.write(json.dumps(payload) + "\n")
+            self.process.stdin.flush()
+            response = self._read_message(timeout=180.0)
+        if response.get("status") != "ok":
+            raise RuntimeError(response.get("error", "PocketTTS worker synthesis failed"))
+        wav, sample_rate = ta.load(output_path)
+        self.sr = int(sample_rate or self.sr or 24000)
+        self.safe_delete_with_retry(output_path)
+        return wav
+
+    def close(self):
+        process = self.process
+        self.process = None
+        if process is None:
+            return
+        try:
+            if process.stdin is not None:
+                process.stdin.write(json.dumps({"cmd": "close"}) + "\n")
+                process.stdin.flush()
+        except Exception:
+            pass
+        try:
+            process.wait(timeout=3.0)
+        except Exception:
+            try:
+                process.terminate()
+                process.wait(timeout=2.0)
+            except Exception:
+                try:
+                    process.kill()
+                except Exception:
+                    pass
+
+
+class AddonTTSBackendAdapter:
+    def __init__(self, backend_id: str, label: str, service):
+        self.backend_id = str(backend_id or "").strip().lower()
+        self.label = str(label or backend_id or "AddonTTS").strip()
+        self.service = service
+        self.sr = int(getattr(service, "sr", getattr(service, "sample_rate", 24000)) or 24000)
+
+    def _callable(self):
+        for name in ("generate", "synthesize", "tts", "speak"):
+            candidate = getattr(self.service, name, None)
+            if callable(candidate):
+                return candidate
+        return None
+
+    def _normalize_result(self, result):
+        if result is None:
+            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned no audio")
+        if isinstance(result, (str, Path)):
+            wav, sample_rate = ta.load(str(result))
+            self.sr = int(sample_rate or self.sr or 24000)
+            return wav
+        if isinstance(result, dict):
+            audio_path = str(result.get("audio_path") or result.get("path") or "").strip()
+            if audio_path:
+                wav, sample_rate = ta.load(audio_path)
+                self.sr = int(result.get("sample_rate") or result.get("sr") or sample_rate or self.sr or 24000)
+                return wav
+            wav = result.get("wav")
+            if wav is not None:
+                sample_rate = int(result.get("sample_rate") or result.get("sr") or self.sr or 24000)
+                self.sr = sample_rate
+                if hasattr(wav, "cpu"):
+                    return wav
+                return torch.as_tensor(wav)
+        if isinstance(result, tuple) and len(result) == 2:
+            wav, sample_rate = result
+            if isinstance(wav, (str, Path)):
+                wav, loaded_sample_rate = ta.load(str(wav))
+                self.sr = int(sample_rate or loaded_sample_rate or self.sr or 24000)
+                return wav
+            self.sr = int(sample_rate or self.sr or 24000)
+            if hasattr(wav, "cpu"):
+                return wav
+            return torch.as_tensor(wav)
+        if hasattr(result, "cpu"):
+            return result
+        if isinstance(result, np.ndarray):
+            return torch.from_numpy(result)
+        raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned an unsupported audio payload")
+
+    def generate(self, text, audio_prompt_path=None, **kwargs):
+        fn = self._callable()
+        if fn is None:
+            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' does not expose a generate-compatible method")
+        request = dict(kwargs or {})
+        if audio_prompt_path is not None:
+            request.setdefault("audio_prompt_path", audio_prompt_path)
+        request.setdefault("backend_id", self.backend_id)
+        request.setdefault("backend_label", self.label)
+        request.setdefault("tts_backend", self.backend_id)
+        try:
+            result = fn(text, **request)
+        except TypeError:
+            result = fn(text)
+        return self._normalize_result(result)
+
+    def close(self):
+        closer = getattr(self.service, "close", None)
+        if callable(closer):
+            try:
+                closer()
+            except Exception:
+                pass

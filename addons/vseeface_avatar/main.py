@@ -23,7 +23,7 @@ class Addon(BaseAddon):
             metadata={
                 "kind": "avatar",
                 "transport": "vmc_osc",
-                "legacy_engine_adapter": True,
+                "runtime_context": True,
             },
         )
         context.logger.info("VSeeFace avatar provider addon initialized.")
@@ -38,9 +38,20 @@ class Addon(BaseAddon):
                 pass
         return None
 
-    def _create_adapter(self):
-        # The host wrapper injects legacy pose-edit state until the body-pose
-        # editor is moved behind an addon-facing settings contract.
-        import engine
+    def _create_adapter(self, runtime_context=None):
+        if runtime_context is None:
+            # Backward-compatible fallback for older hosts that do not pass the
+            # avatar runtime context yet.
+            import engine
 
-        return engine.VSeeFaceAdapter()
+            return engine.VSeeFaceAdapter()
+        from addons.vseeface_avatar.adapter import VSeeFaceAdapter
+
+        return VSeeFaceAdapter(
+            avatar_profile=runtime_context.get("avatar_profile", {}),
+            current_body_state=runtime_context.get("current_body_state", {}),
+            edit_emotion_getter=runtime_context.get("edit_emotion_getter", lambda: "neutral"),
+            force_edit_mode_getter=runtime_context.get("force_edit_mode_getter", lambda: False),
+            hand_debug=runtime_context.get("hand_debug", {"active": False}),
+            hand_calibration=runtime_context.get("hand_calibration", {}),
+        )

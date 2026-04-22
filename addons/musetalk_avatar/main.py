@@ -23,7 +23,7 @@ class Addon(BaseAddon):
             metadata={
                 "kind": "avatar",
                 "transport": "musetalk_worker",
-                "legacy_engine_adapter": True,
+                "runtime_context": True,
             },
         )
         context.logger.info("MuseTalk avatar provider addon initialized.")
@@ -38,9 +38,19 @@ class Addon(BaseAddon):
                 pass
         return None
 
-    def _create_adapter(self):
-        # The host wrapper keeps isinstance checks stable while MuseTalk helper
-        # contracts are gradually moved out of engine.py.
-        import engine
+    def _create_adapter(self, runtime_context=None):
+        from addons.musetalk_avatar.adapter import MuseTalkAdapter
 
-        return engine.MuseTalkAdapter()
+        if runtime_context is None:
+            # Backward-compatible fallback for older hosts that do not pass the
+            # avatar runtime context yet.
+            return MuseTalkAdapter()
+        return MuseTalkAdapter(
+            runtime_config=runtime_context.runtime_config,
+            invalidate_available_emotion_names_fn=runtime_context.get("invalidate_available_emotion_names_fn"),
+            shared_state_module=runtime_context.get("shared_state_module"),
+            log_memory_checkpoint_fn=runtime_context.get("log_memory_checkpoint_fn"),
+            stop_flag_event=runtime_context.get("stop_flag_event"),
+            stop_playback_event=runtime_context.get("stop_playback_event"),
+            dry_run_module=runtime_context.get("dry_run_module"),
+        )

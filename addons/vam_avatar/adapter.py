@@ -11,6 +11,8 @@ from addons.vseeface_avatar.adapter import VSeeFaceAdapter
 
 
 class VaMAdapter(VSeeFaceAdapter):
+    avatar_provider_id = "vam"
+
     """Virt-A-Mate avatar bridge adapter.
 
     VaM-specific file bridge and VMC relay behavior lives here; the host injects
