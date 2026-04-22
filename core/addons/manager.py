@@ -29,6 +29,7 @@ class AddonManager:
         "musetalk": "MuseTalk",
         "visuals": "Visuals",
         "chat": "Chat",
+        "avatar": "Avatar",
         "global": "Global",
         "other": "Other",
     }
@@ -411,4 +412,3 @@ class AddonManager:
 
     def get_pending_restart_changes_summary(self) -> dict[str, int]:
         return self._addon_change_summary()
-

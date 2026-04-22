@@ -45,9 +45,12 @@ import importlib
 import dry_run
 import app_help
 import shared_state
-from core import sensory, chat_providers, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, speech_text, streaming_text, text_chunking, text_tags, visual_reply_runtime
+from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
+from addons.musetalk_avatar.adapter import MuseTalkAdapter as MuseTalkAddonAdapter
+from addons.vseeface_avatar.adapter import VSeeFaceAdapter as VSeeFaceAddonAdapter
+from addons.vam_avatar.adapter import VaMAdapter as VaMAddonAdapter
 from pydub import AudioSegment
 from musetalk_bridge import MuseTalkBridge
 
@@ -788,77 +791,11 @@ def _get_addon_manager():
 
 
 def list_available_tts_backends():
-    backends = []
-    seen = set()
-    manager = _get_addon_manager()
-    if manager is not None:
-        try:
-            entries = list(manager.list_registered_services() or [])
-        except Exception as exc:
-            print(f"⚠️ [Addons] Failed to enumerate TTS backends: {exc}")
-            entries = []
-        for entry in entries:
-            metadata = dict(entry.get("metadata") or {})
-            kind = str(metadata.get("kind", "") or "").strip().lower()
-            if kind not in {"tts", "tts_backend", "text_to_speech"}:
-                continue
-            backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
-            if not backend_id or backend_id in seen:
-                continue
-            label = str(metadata.get("label") or entry.get("name") or backend_id).strip()
-            backends.append(
-                {
-                    "id": backend_id,
-                    "label": label,
-                    "kind": "addon",
-                    "service_name": str(entry.get("name") or backend_id).strip(),
-                    "metadata": metadata,
-                }
-            )
-            seen.add(backend_id)
-    for item in (
-        {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
-        {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
-    ):
-        backend_id = str(item.get("id") or "").strip().lower()
-        if backend_id and backend_id not in seen:
-            backends.append(item)
-            seen.add(backend_id)
-    return backends
+    return tts_runtime.list_available_tts_backends(_get_addon_manager, logger=print)
 
 
 def _resolve_addon_tts_backend(backend_id: str):
-    target = str(backend_id or "").strip().lower()
-    if not target:
-        return None
-    manager = _get_addon_manager()
-    if manager is None:
-        return None
-    try:
-        entries = list(manager.list_registered_services() or [])
-    except Exception:
-        return None
-    for entry in entries:
-        metadata = dict(entry.get("metadata") or {})
-        kind = str(metadata.get("kind", "") or "").strip().lower()
-        if kind not in {"tts", "tts_backend", "text_to_speech"}:
-            continue
-        service_name = str(entry.get("name") or "").strip()
-        candidate_id = str(metadata.get("backend_id") or service_name).strip().lower()
-        candidate_label = str(metadata.get("label") or service_name or candidate_id).strip().lower()
-        if target not in {candidate_id, candidate_label, service_name.lower()}:
-            continue
-        service = manager.get_registered_service(service_name)
-        if service is None:
-            continue
-        return {
-            "id": candidate_id or target,
-            "label": str(metadata.get("label") or service_name or candidate_id or target).strip(),
-            "service_name": service_name,
-            "service": service,
-            "metadata": metadata,
-        }
-    return None
+    return tts_runtime.resolve_addon_tts_backend(backend_id, _get_addon_manager)
 
 
 # ============================================================================
@@ -964,21 +901,11 @@ def _chat_provider_connection_check():
 
 
 def get_main_whisper_runtime_config():
-    vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
-    if not torch.cuda.is_available():
-        return "cpu", "int8"
-    #if vram_mode in {"low", "very_low"}:
-    #    return "cpu", "int8"
-    return "cuda", "float16"
+    return stt_runtime.whisper_runtime_config(RUNTIME_CONFIG, cuda_available=torch.cuda.is_available())
 
 
 def get_main_whisper_runtime_reason():
-    vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
-    if not torch.cuda.is_available():
-        return "CUDA unavailable"
-    if vram_mode in {"low", "very_low"}:
-        return f"{vram_mode} VRAM mode prefers CPU"
-    return f"{vram_mode} VRAM mode prefers CUDA"
+    return stt_runtime.whisper_runtime_reason(RUNTIME_CONFIG, cuda_available=torch.cuda.is_available())
 
 
 def _get_lmstudio_sdk():
@@ -1135,198 +1062,59 @@ def check_interaction_status_old(source):
 # ============================================================================
 # AUDIO PLAYBACK
 # ============================================================================
-class TTSController:
-    def __init__(self):
-        self.done = threading.Event()
-        self.interrupted = threading.Event()
-        self.spoken_chunks = []
-        self._lock = threading.Lock()
-
-    def add_spoken(self, chunk_text: str):
-        with self._lock:
-            self.spoken_chunks.append(chunk_text)
-
-    def get_spoken_text(self) -> str:
-        with self._lock:
-            return " ".join(self.spoken_chunks).strip()
+TTSController = tts_runtime.TTSController
 
 
 def init_whisper():
     global whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
-    if whisper_model is not None:
-        print("✓ Whisper model already loaded (Skipping reload)")
-        return
-    WHISPER_DEVICE, WHISPER_COMPUTE_TYPE = get_main_whisper_runtime_config()
-    whisper_reason = get_main_whisper_runtime_reason()
-    print(
-        f"Loading Whisper ({WHISPER_MODEL_SIZE}) on {WHISPER_DEVICE} "
-        f"[compute_type={WHISPER_COMPUTE_TYPE}, reason={whisper_reason}]..."
+    whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE = stt_runtime.initialize_whisper_model(
+        whisper_model,
+        model_size=WHISPER_MODEL_SIZE,
+        runtime_config=RUNTIME_CONFIG,
+        cuda_available=torch.cuda.is_available(),
+        model_factory=WhisperModel,
+        logger=print,
     )
-    whisper_model = WhisperModel(WHISPER_MODEL_SIZE, device=WHISPER_DEVICE, compute_type=WHISPER_COMPUTE_TYPE)
-    print(f"✓ Whisper model loaded on {WHISPER_DEVICE} ({WHISPER_COMPUTE_TYPE})")
 
 
 import soundfile as sf
 
 
 def play_audio_file(path: str):
-    global stop_playback, audio_playing
-    audio_playing.set()
-    try:
-        data, fs = sf.read(path)
-        sd.play(data, fs)
-        while sd.get_stream().active:
-            if stop_playback.is_set():
-                sd.stop()
-                print("⏸️  Playback interrupted!")
-                break
-            time.sleep(0.01)
-    except Exception as e:
-        print(f"Audio error: {e}")
-    finally:
-        audio_playing.clear()
+    return audio_playback.play_audio_file(
+        path,
+        soundfile_module=sf,
+        sounddevice_module=sd,
+        stop_event=stop_playback,
+        audio_playing_event=audio_playing,
+        logger=print,
+    )
 
 
 def stream_musetalk_preview_frames(playback_state, stop_event):
-    state = dict(playback_state or {})
-    frame_paths = list(state.get("frame_paths", []) or [])
-    frame_dir = state.get("frame_dir", "")
-    fps = max(int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24), 1)
-    expected_frame_count = int(state.get("expected_frame_count", 0) or len(frame_paths))
-    if expected_frame_count <= 0:
-        expected_frame_count = len(frame_paths)
-    trim_start_frames = int(state.get("trim_start_frames", 0) or 0)
-    start_index = int(state.get("start_index", 0) or 0)
-    chunk_id = state.get("chunk_id")
-    status = state.get("status", "idle")
-    loop = bool(state.get("loop", False))
-
-    def _refresh_frame_paths():
-        nonlocal frame_paths
-        if not frame_dir:
-            return
-        scanned_paths = list_png_frames(frame_dir)
-        if trim_start_frames > 0 and scanned_paths:
-            trimmed = scanned_paths[min(trim_start_frames, len(scanned_paths) - 1):]
-            if trimmed:
-                scanned_paths = trimmed
-        if scanned_paths:
-            frame_paths = scanned_paths
-
-    if not frame_paths and frame_dir:
-        _refresh_frame_paths()
-    if not frame_paths:
-        return
-
-    start_time = time.time()
-    frame_index = 0
-    last_emitted_path = None
-    while not stop_event.is_set():
-        if loop and frame_paths:
-            target_index = frame_index % len(frame_paths)
-        else:
-            target_index = frame_index
-        if target_index >= len(frame_paths):
-            _refresh_frame_paths()
-        if target_index >= len(frame_paths):
-            if not loop and frame_index >= max(expected_frame_count - 1, 0):
-                break
-            time.sleep(0.005)
-            continue
-
-        frame_path = frame_paths[target_index]
-        if frame_path != last_emitted_path:
-            shared_state.write_musetalk_preview_frame(
-                {
-                    "chunk_id": chunk_id,
-                    "status": status,
-                    "loop": loop,
-                    "frame_path": frame_path,
-                    "frame_index": target_index,
-                    "source_index": start_index + target_index,
-                    "fps": fps,
-                    "emitted_at": time.time(),
-                }
-            )
-            last_emitted_path = frame_path
-
-        frame_index += 1
-        if not loop and frame_index >= max(expected_frame_count, len(frame_paths)):
-            break
-
-        target_time = start_time + (frame_index / fps)
-        while not stop_event.is_set():
-            remaining = target_time - time.time()
-            if remaining <= 0:
-                break
-            time.sleep(min(remaining, 0.005))
+    return musetalk_preview_runtime.stream_musetalk_preview_frames(
+        playback_state,
+        stop_event,
+        runtime_config=RUNTIME_CONFIG,
+        list_png_frames=list_png_frames,
+        shared_state_module=shared_state,
+    )
 
 
 def stream_delegated_audio_progress(playback_state, stop_event):
-    state = dict(playback_state or {})
-    duration_seconds = max(0.0, float(state.get("duration_seconds", 0.0) or 0.0))
-    expected_frame_count = max(
-        2,
-        int(state.get("expected_frame_count", 0) or 0),
-        int(round(duration_seconds * 50.0)) if duration_seconds > 0 else 2,
+    return musetalk_preview_runtime.stream_delegated_audio_progress(
+        playback_state,
+        stop_event,
+        shared_state_module=shared_state,
     )
-    sequence_index = int(state.get("sequence_index", 0) or 0)
-    chunk_id = state.get("chunk_id")
-    sync_time = float(state.get("sync_time", time.time()) or time.time())
-
-    while not stop_event.is_set():
-        elapsed = max(0.0, time.time() - sync_time)
-        progress = min(elapsed / duration_seconds, 1.0) if duration_seconds > 0 else 1.0
-        preview_frame_index = min(int(progress * max(expected_frame_count - 1, 1)), expected_frame_count - 1)
-        live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
-        if live_state.get("chunk_id") != chunk_id:
-            break
-        shared_state.update_current_musetalk_frame_data(
-            sequence_index=sequence_index,
-            expected_frame_count=expected_frame_count,
-            frame_count=expected_frame_count,
-            preview_chunk_id=chunk_id,
-            preview_frame_index=preview_frame_index,
-            preview_source_index=preview_frame_index,
-            sync_time=sync_time,
-            duration_seconds=duration_seconds,
-            status="ready",
-        )
-        if progress >= 1.0:
-            break
-        time.sleep(0.02)
 
 
 def prime_musetalk_preview_frame(playback_state):
-    state = dict(playback_state or {})
-    frame_paths = list(state.get("frame_paths", []) or [])
-    if not frame_paths:
-        frame_dir = state.get("frame_dir", "")
-        trim_start_frames = int(state.get("trim_start_frames", 0) or 0)
-        if frame_dir:
-            frame_paths = list_png_frames(frame_dir)
-            if trim_start_frames > 0 and frame_paths:
-                trimmed = frame_paths[min(trim_start_frames, len(frame_paths) - 1):]
-                if trimmed:
-                    frame_paths = trimmed
-    if not frame_paths:
-        return
-
-    first_frame_path = frame_paths[0]
-    if not first_frame_path or not os.path.exists(first_frame_path):
-        return
-
-    shared_state.write_musetalk_preview_frame(
-        {
-            "chunk_id": state.get("chunk_id"),
-            "status": state.get("status", "idle"),
-            "loop": bool(state.get("loop", False)),
-            "frame_path": first_frame_path,
-            "frame_index": 0,
-            "source_index": int(state.get("start_index", 0) or 0),
-            "fps": max(int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24), 1),
-            "emitted_at": time.time(),
-        }
+    return musetalk_preview_runtime.prime_musetalk_preview_frame(
+        playback_state,
+        runtime_config=RUNTIME_CONFIG,
+        list_png_frames=list_png_frames,
+        shared_state_module=shared_state,
     )
 
 
@@ -1375,247 +1163,37 @@ def setup_nltk():
     sent_tokenize = _safe_sent_tokenize
 
 
-class PocketTTSSubprocessAdapter:
+class PocketTTSSubprocessAdapter(tts_runtime.PocketTTSSubprocessAdapter):
     def __init__(self, python_exe):
-        self.python_exe = python_exe
-        self.process = None
-        self.lock = threading.Lock()
-        self.sr = 24000
-        self._stderr_thread = None
-        self._start_worker()
-
-    def _start_worker(self):
-        worker_script = os.path.abspath(os.path.join(os.path.dirname(__file__), "pocket_tts_worker.py"))
-        if not os.path.exists(self.python_exe):
-            raise FileNotFoundError(f"PocketTTS interpreter not found: {self.python_exe}")
-        if not os.path.exists(worker_script):
-            raise FileNotFoundError(f"PocketTTS worker not found: {worker_script}")
-        self.process = subprocess.Popen(
-            [self.python_exe, worker_script],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
+        # Keep the engine-facing constructor stable for existing addons.
+        super().__init__(
+            python_exe,
+            app_root=os.path.dirname(__file__),
+            safe_delete_with_retry=safe_delete_with_retry,
+            logger=print,
         )
-        self._stderr_thread = threading.Thread(target=self._drain_stderr, daemon=True)
-        self._stderr_thread.start()
-        ready = self._read_message(timeout=120.0)
-        if not ready or ready.get("status") != "ready":
-            raise RuntimeError(f"PocketTTS worker failed to start: {ready}")
-        self.sr = int(ready.get("sample_rate", 24000) or 24000)
-        worker_pid = ready.get("pid")
-        if worker_pid:
-            print(f"[PocketTTS] Worker ready: pid={worker_pid}, sample_rate={self.sr}")
-
-    def _drain_stderr(self):
-        if self.process is None or self.process.stderr is None:
-            return
-        for line in self.process.stderr:
-            line = (line or "").rstrip()
-            if line:
-                print(f"[PocketTTS] {line}")
-
-    def _read_message(self, timeout=60.0):
-        if self.process is None or self.process.stdout is None:
-            raise RuntimeError("PocketTTS worker is not running")
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            line = self.process.stdout.readline()
-            if line:
-                return json.loads(line)
-            if self.process.poll() is not None:
-                break
-            time.sleep(0.01)
-        raise TimeoutError("Timed out waiting for PocketTTS worker response")
-
-    def generate(self, text, audio_prompt_path=None, **kwargs):
-        if self.process is None or self.process.poll() is not None:
-            raise RuntimeError("PocketTTS worker is not available")
-        request_id = uuid.uuid4().hex[:8]
-        output_path = os.path.join(tempfile.gettempdir(), f"pocket_tts_{request_id}.wav")
-        payload = {
-            "cmd": "synthesize",
-            "request_id": request_id,
-            "text": text,
-            "voice_prompt": audio_prompt_path or "alba",
-            "output_path": output_path,
-        }
-        with self.lock:
-            self.process.stdin.write(json.dumps(payload) + "\n")
-            self.process.stdin.flush()
-            response = self._read_message(timeout=180.0)
-        if response.get("status") != "ok":
-            raise RuntimeError(response.get("error", "PocketTTS worker synthesis failed"))
-        wav, sample_rate = ta.load(output_path)
-        self.sr = int(sample_rate or self.sr or 24000)
-        safe_delete_with_retry(output_path)
-        return wav
-
-    def close(self):
-        process = self.process
-        self.process = None
-        if process is None:
-            return
-        try:
-            if process.stdin is not None:
-                process.stdin.write(json.dumps({"cmd": "close"}) + "\n")
-                process.stdin.flush()
-        except Exception:
-            pass
-        try:
-            process.wait(timeout=3.0)
-        except Exception:
-            try:
-                process.terminate()
-                process.wait(timeout=2.0)
-            except Exception:
-                try:
-                    process.kill()
-                except Exception:
-                    pass
 
 
-class AddonTTSBackendAdapter:
-    def __init__(self, backend_id: str, label: str, service):
-        self.backend_id = str(backend_id or "").strip().lower()
-        self.label = str(label or backend_id or "AddonTTS").strip()
-        self.service = service
-        self.sr = int(getattr(service, "sr", getattr(service, "sample_rate", 24000)) or 24000)
-
-    def _callable(self):
-        for name in ("generate", "synthesize", "tts", "speak"):
-            candidate = getattr(self.service, name, None)
-            if callable(candidate):
-                return candidate
-        return None
-
-    def _normalize_result(self, result):
-        if result is None:
-            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned no audio")
-        if isinstance(result, (str, Path)):
-            wav, sample_rate = ta.load(str(result))
-            self.sr = int(sample_rate or self.sr or 24000)
-            return wav
-        if isinstance(result, dict):
-            audio_path = str(result.get("audio_path") or result.get("path") or "").strip()
-            if audio_path:
-                wav, sample_rate = ta.load(audio_path)
-                self.sr = int(result.get("sample_rate") or result.get("sr") or sample_rate or self.sr or 24000)
-                return wav
-            wav = result.get("wav")
-            if wav is not None:
-                sample_rate = int(result.get("sample_rate") or result.get("sr") or self.sr or 24000)
-                self.sr = sample_rate
-                if hasattr(wav, "cpu"):
-                    return wav
-                return torch.as_tensor(wav)
-        if isinstance(result, tuple) and len(result) == 2:
-            wav, sample_rate = result
-            if isinstance(wav, (str, Path)):
-                wav, loaded_sample_rate = ta.load(str(wav))
-                self.sr = int(sample_rate or loaded_sample_rate or self.sr or 24000)
-                return wav
-            self.sr = int(sample_rate or self.sr or 24000)
-            if hasattr(wav, "cpu"):
-                return wav
-            return torch.as_tensor(wav)
-        if hasattr(result, "cpu"):
-            return result
-        if isinstance(result, np.ndarray):
-            return torch.from_numpy(result)
-        raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned an unsupported audio payload")
-
-    def generate(self, text, audio_prompt_path=None, **kwargs):
-        fn = self._callable()
-        if fn is None:
-            raise RuntimeError(f"Addon TTS backend '{self.backend_id}' does not expose a generate-compatible method")
-        request = dict(kwargs or {})
-        if audio_prompt_path is not None:
-            request.setdefault("audio_prompt_path", audio_prompt_path)
-        request.setdefault("backend_id", self.backend_id)
-        request.setdefault("backend_label", self.label)
-        request.setdefault("tts_backend", self.backend_id)
-        try:
-            result = fn(text, **request)
-        except TypeError:
-            result = fn(text)
-        return self._normalize_result(result)
-
-    def close(self):
-        closer = getattr(self.service, "close", None)
-        if callable(closer):
-            try:
-                closer()
-            except Exception:
-                pass
+AddonTTSBackendAdapter = tts_runtime.AddonTTSBackendAdapter
 
 
 def init_tts():
     global tts_model, tts_backend_name
-    desired_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
-    desired_backend = desired_backend.strip()
-
-    if tts_model is not None and tts_backend_name == desired_backend:
-        print(f"✓ {desired_backend} TTS model already loaded (Skipping reload)")
-        return True
-
-    if tts_model is not None and hasattr(tts_model, "close"):
-        try:
-            tts_model.close()
-        except Exception:
-            pass
-    tts_model = None
-    tts_backend_name = None
-
-    if desired_backend:
-        resolved = _resolve_addon_tts_backend(desired_backend)
-        if resolved is not None:
-            print(f"Loading addon TTS backend '{resolved['label']}' ({resolved['service_name']})...")
-            try:
-                tts_model = AddonTTSBackendAdapter(
-                    backend_id=resolved["id"],
-                    label=resolved["label"],
-                    service=resolved["service"],
-                )
-                tts_backend_name = resolved["id"]
-                print(f"✓ Addon TTS backend loaded successfully: {resolved['label']}")
-                return True
-            except Exception as e:
-                print(f"✗ Failed to load addon TTS backend '{resolved['label']}': {e}")
-                print("↩️ Falling back to built-in TTS backends...")
-
-    if desired_backend == "pockettts":
-        print("Loading PocketTTS via isolated interpreter...")
-        try:
-            python_exe = str(RUNTIME_CONFIG.get("pocket_tts_python", "") or "").strip()
-            if not python_exe:
-                fallback = str(DEFAULT_POCKET_TTS_PYTHON or "").strip()
-                if fallback and os.path.exists(fallback):
-                    python_exe = fallback
-                    RUNTIME_CONFIG["pocket_tts_python"] = fallback
-                    print(f"[PocketTTS] Runtime path was empty. Using default interpreter: {fallback}")
-            if not python_exe:
-                raise RuntimeError("Set 'PocketTTS Python' in the addon tab first.")
-            tts_model = PocketTTSSubprocessAdapter(python_exe)
-            tts_backend_name = "pockettts"
-            print("✓ PocketTTS backend loaded successfully")
-            return True
-        except Exception as e:
-            print(f"✗ Failed to load PocketTTS: {e}")
-            print("↩️ Falling back to ChatterboxTurboTTS...")
-
-    print(f"Loading ChatterboxTurboTTS on {TTS_DEVICE}...")
-    try:
-        tts_model = ChatterboxTurboTTS.from_pretrained(device=TTS_DEVICE)
-        tts_backend_name = "chatterbox"
-        print("✓ ChatterboxTurboTTS loaded successfully")
-        return True
-    except Exception as e:
-        print(f"✗ Failed to load TTS model: {e}")
-        return False
+    state = tts_runtime.initialize_tts_backend(
+        runtime_config=RUNTIME_CONFIG,
+        current_model=tts_model,
+        current_backend_name=tts_backend_name,
+        addon_resolver=_resolve_addon_tts_backend,
+        addon_adapter_cls=AddonTTSBackendAdapter,
+        pocket_adapter_cls=PocketTTSSubprocessAdapter,
+        chatterbox_factory=ChatterboxTurboTTS.from_pretrained,
+        tts_device=TTS_DEVICE,
+        default_pocket_tts_python=DEFAULT_POCKET_TTS_PYTHON,
+        logger=print,
+    )
+    tts_model = state.model
+    tts_backend_name = state.backend_name
+    return bool(state.ok)
 
 
 @lru_cache(maxsize=1024)
@@ -3736,48 +3314,24 @@ def transition_musetalk_to_idle_after_interrupt(delay=0.35):
 
 def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
     global avatar_gui, tts_model, tts_backend_name, whisper_model
-    stop_playback.set()
-    pause_after_chunk.clear()
-    playback_paused.clear()
-    clear_avatar_stream_state()
-    if avatar_gui:
-        try:
-            avatar_gui.stop()
-        except Exception as e:
-            print(f"⚠️ [Avatar] Shutdown error: {e}")
-        finally:
-            avatar_gui = None
-    if unload_tts and tts_model is not None:
-        model = tts_model
-        tts_model = None
+    had_tts_model = tts_model is not None
+    avatar_gui, tts_model, whisper_model = runtime_shutdown.shutdown_runtime_components(
+        avatar_gui=avatar_gui,
+        tts_model=tts_model,
+        whisper_model=whisper_model,
+        unload_tts=unload_tts,
+        unload_stt=unload_stt,
+        stop_playback=stop_playback,
+        pause_after_chunk=pause_after_chunk,
+        playback_paused=playback_paused,
+        clear_avatar_stream_state=clear_avatar_stream_state,
+        schedule_musetalk_runtime_cleanup=schedule_musetalk_runtime_cleanup,
+        gc_module=gc,
+        torch_module=torch,
+        logger=print,
+    )
+    if unload_tts and had_tts_model and tts_model is None:
         tts_backend_name = None
-        try:
-            if hasattr(model, "close"):
-                model.close()
-        except Exception as e:
-            print(f"⚠️ [TTS] Shutdown error: {e}")
-        finally:
-            del model
-    if unload_stt and whisper_model is not None:
-        model = whisper_model
-        whisper_model = None
-        try:
-            closer = getattr(model, "close", None)
-            if callable(closer):
-                closer()
-        except Exception as e:
-            print(f"⚠️ [STT] Shutdown error: {e}")
-        finally:
-            del model
-    gc.collect()
-    if torch.cuda.is_available():
-        try:
-            torch.cuda.empty_cache()
-            if hasattr(torch.cuda, "ipc_collect"):
-                torch.cuda.ipc_collect()
-        except Exception:
-            pass
-    schedule_musetalk_runtime_cleanup(max_keep=0, force=True)
 
 
 def reset_session_state():
@@ -4016,24 +3570,11 @@ def list_png_frames(frame_dir):
 
 
 def estimate_displayed_musetalk_frames(state, now=None):
-    state = state or {}
-    frame_count = int(state.get("frame_count", 0) or 0)
-    if frame_count <= 0:
-        return 0
-    if state.get("loop", False):
-        return frame_count
-    now = time.time() if now is None else now
-    sync_time = float(state.get("sync_time", 0.0) or 0.0)
-    elapsed = max(0.0, now - sync_time)
-    duration_seconds = float(state.get("duration_seconds", 0.0) or 0.0)
-    if duration_seconds > 0:
-        progress = min(elapsed / duration_seconds, 1.0)
-        frame_span = max(frame_count - 1, 1)
-        frame_index = min(int(progress * frame_span), frame_count - 1)
-    else:
-        fps = int(state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24)
-        frame_index = min(int(elapsed * max(fps, 1)), frame_count - 1)
-    return frame_index + 1
+    return musetalk_preview_runtime.estimate_displayed_musetalk_frames(
+        state,
+        now=now,
+        runtime_config=RUNTIME_CONFIG,
+    )
 
 
 def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
@@ -4320,22 +3861,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         )
                         dry_run.record_reply_event(dry_run_reply_id, "first_tts_subchunk_at")
                         first_subchunk_logged = True
-                    configured_seed = int(RUNTIME_CONFIG.get("tts_seed", 0) or 0)
-                    if configured_seed > 0:
-                        set_seed(configured_seed)
-                    kwargs = dict(
-                        temperature=float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-                        top_p=float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-                        top_k=int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-                        repetition_penalty=float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-                        min_p=float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-                        norm_loudness=bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+                    kwargs = tts_runtime.build_generation_kwargs(
+                        RUNTIME_CONFIG,
+                        set_seed=set_seed,
+                        path_exists=os.path.exists,
+                        logger=print,
                     )
-                    v_path = RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav")
-                    if not os.path.exists(v_path):
-                        print(f"⚠️ Voice file not found: {v_path}. Using default.")
-                        v_path = "voices/Hot_16.wav"
-                    kwargs["audio_prompt_path"] = v_path
                     try:
                         wav = tts_model.generate(sub, **kwargs)
                     except Exception as e:
@@ -5228,96 +4759,50 @@ def safe_delete_with_retry(file_path, retries=5, delay=0.1):
 # ============================================================================
 
 def transcribe_audio_with_main_whisper(audio, language="en"):
-    global whisper_model
-    if whisper_model is None:
-        init_whisper()
-    temp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-            tmp.write(audio.get_wav_data())
-            temp_path = tmp.name
-        segments, _info = whisper_model.transcribe(temp_path, language=language)
-        text = " ".join((segment.text or "").strip() for segment in segments).strip()
-        return text or None
-    finally:
-        if temp_path:
-            safe_delete_with_retry(temp_path)
+    return stt_runtime.transcribe_audio_with_whisper(
+        audio,
+        model_getter=lambda: whisper_model,
+        init_model=init_whisper,
+        safe_delete_with_retry=safe_delete_with_retry,
+        language=language,
+    )
 
 def listen_for_speech(source, timeout=None):
-    global recognizer, whisper_model
-    recognizer.energy_threshold = ENERGY_THRESHOLD
-    recognizer.dynamic_energy_threshold = DYNAMIC_ENERGY_THRESHOLD
-    recognizer.pause_threshold = PAUSE_THRESHOLD
-    recognizer.non_speaking_duration = NON_SPEAKING_DURATION
-    recognizer.phrase_threshold = PHRASE_THRESHOLD
-    try:
-        microphone_active.set()
-        audio = recognizer.listen(source, timeout=timeout)
-        audio_data = np.frombuffer(audio.get_raw_data(), dtype=np.int16).astype(np.float32) / 32768.0
-        text = transcribe_audio_with_main_whisper(audio, language="en")
-        if text and re.search(r'[a-zA-Z0-9]', text):
-            return text
-        return None
-    except sr.WaitTimeoutError:
-        return None
-    except sr.UnknownValueError:
-        return None
-    except Exception as e:
-        print(f"✗ Mic error: {e}")
-        return None
-    finally:
-        microphone_active.clear()
+    return stt_runtime.listen_for_speech(
+        source,
+        recognizer=recognizer,
+        microphone_active=microphone_active,
+        transcribe_func=transcribe_audio_with_main_whisper,
+        sr_module=sr,
+        settings={
+            "energy_threshold": ENERGY_THRESHOLD,
+            "dynamic_energy_threshold": DYNAMIC_ENERGY_THRESHOLD,
+            "pause_threshold": PAUSE_THRESHOLD,
+            "non_speaking_duration": NON_SPEAKING_DURATION,
+            "phrase_threshold": PHRASE_THRESHOLD,
+        },
+        np_module=np,
+        timeout=timeout,
+        logger=print,
+    )
 
 
 def listen_for_speech_push_to_talk(source, chunk_size=1024, max_seconds=PUSH_TO_TALK_MAX_SECONDS, trailing_chunks=None):
-    global recognizer
-    sample_rate = getattr(source, "SAMPLE_RATE", 16000)
-    sample_width = getattr(source, "SAMPLE_WIDTH", 2)
-    if trailing_chunks is None:
-        chunk_seconds = float(chunk_size) / max(float(sample_rate), 1.0)
-        trailing_chunks = max(PUSH_TO_TALK_MIN_TAIL_CHUNKS, int(math.ceil(PUSH_TO_TALK_TAIL_SECONDS / max(chunk_seconds, 0.001))))
-    frames = []
-    deadline = (time.time() + float(max_seconds)) if max_seconds else None
-    trailing = 0
-    try:
-        microphone_active.set()
-        while deadline is None or time.time() < deadline:
-            if source.stream is None:
-                break
-            try:
-                data = source.stream.read(chunk_size)
-            except Exception:
-                break
-            if data:
-                frames.append(data)
-
-            if is_push_to_talk_held():
-                trailing = trailing_chunks
-                continue
-
-            if trailing > 0:
-                trailing -= 1
-                continue
-            break
-
-        if deadline is not None and time.time() >= deadline and is_push_to_talk_held():
-            print("⚠️ Push-to-talk reached the recording safety limit and stopped automatically.")
-
-        if not frames:
-            return None
-
-        audio = sr.AudioData(b"".join(frames), sample_rate, sample_width)
-        text = transcribe_audio_with_main_whisper(audio, language="en")
-        if text and re.search(r"[a-zA-Z0-9]", text):
-            return text
-        return None
-    except sr.UnknownValueError:
-        return None
-    except Exception as e:
-        print(f"✗ Push-to-talk mic error: {e}")
-        return None
-    finally:
-        microphone_active.clear()
+    return stt_runtime.listen_for_speech_push_to_talk(
+        source,
+        recognizer=recognizer,
+        microphone_active=microphone_active,
+        transcribe_func=transcribe_audio_with_main_whisper,
+        sr_module=sr,
+        is_push_to_talk_held=is_push_to_talk_held,
+        audio_data_factory=sr.AudioData,
+        chunk_size=chunk_size,
+        max_seconds=max_seconds,
+        tail_seconds=PUSH_TO_TALK_TAIL_SECONDS,
+        min_tail_chunks=PUSH_TO_TALK_MIN_TAIL_CHUNKS,
+        trailing_chunks=trailing_chunks,
+        logger=print,
+    )
 
 
 # ============================================================================
@@ -5340,17 +4825,11 @@ def _input_history_roles():
 
 
 def _chat_context_window_messages():
-    try:
-        return max(4, int(RUNTIME_CONFIG.get("chat_context_window_messages", 20) or 20))
-    except Exception:
-        return 20
+    return conversation_history_runtime.chat_context_window_messages(RUNTIME_CONFIG)
 
 
 def _stored_chat_history_limit():
-    try:
-        return max(0, int(RUNTIME_CONFIG.get("stored_chat_history_limit", 0) or 0))
-    except Exception:
-        return 0
+    return conversation_history_runtime.stored_chat_history_limit(RUNTIME_CONFIG)
 
 
 def _request_chat_view_rebuild():
@@ -5360,116 +4839,48 @@ def _request_chat_view_rebuild():
 def _apply_stored_chat_history_limit():
     global conversation_history
     limit = _stored_chat_history_limit()
-    if limit <= 0:
-        return
-    if len(conversation_history) > limit:
-        conversation_history = conversation_history[-limit:]
+    conversation_history = conversation_history_runtime.apply_stored_chat_history_limit(conversation_history, limit)
 
 
 def _chat_context_overflow_policy():
-    policy = str(RUNTIME_CONFIG.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip().lower()
-    if policy not in {"rolling_window", "truncate_middle", "stop_at_limit"}:
-        policy = "rolling_window"
-    return policy
+    return conversation_history_runtime.chat_context_overflow_policy(RUNTIME_CONFIG)
 
 
-class ChatContextLimitReached(RuntimeError):
-    pass
+ChatContextLimitReached = conversation_history_runtime.ChatContextLimitReached
 
 
 def _apply_overflow_policy_to_history(history, limit, policy):
-    history = list(history or [])
-    limit = max(1, int(limit or 1))
-    if len(history) <= limit:
-        return history
-    if policy == "stop_at_limit":
-        raise ChatContextLimitReached(
-            f"Chat context window limit reached ({limit} messages). Increase the context window, switch overflow policy, quick-save the chat, or reset chat memory."
-        )
-    if policy == "truncate_middle":
-        head_count = max(1, min(4, limit // 3 if limit >= 3 else 1))
-        tail_count = max(0, limit - head_count)
-        indexed = list(enumerate(history))
-        kept = indexed[:head_count]
-        if tail_count > 0:
-            kept.extend(indexed[-tail_count:])
-        deduped = []
-        seen = set()
-        for index, item in kept:
-            if index in seen:
-                continue
-            seen.add(index)
-            deduped.append((index, item))
-        deduped.sort(key=lambda pair: pair[0])
-        return [item for _, item in deduped]
-    return history[-limit:]
+    return conversation_history_runtime.apply_overflow_policy_to_history(history, limit, policy)
 
 
 def _blank_user_anchor():
-    return {"role": "user", "content": "", "origin": "synthetic_anchor"}
+    return conversation_history_runtime.blank_user_anchor()
 
 
 def _repair_model_history_window(history, policy=None):
-    repaired = [dict(item) for item in list(history or []) if isinstance(item, dict)]
-    if not repaired:
-        return repaired
-    policy = str(policy or _chat_context_overflow_policy()).strip().lower()
-    first_non_system_index = next(
-        (i for i, item in enumerate(repaired) if str(item.get("role", "") or "").strip().lower() != "system"),
-        None,
+    return conversation_history_runtime.repair_model_history_window(
+        history,
+        policy=policy or _chat_context_overflow_policy(),
+        assistant_prefix_anchor_threshold=ASSISTANT_PREFIX_ANCHOR_THRESHOLD,
     )
-    if first_non_system_index is None:
-        return [_blank_user_anchor()]
-    first_non_system_role = str(repaired[first_non_system_index].get("role", "") or "").strip().lower()
-    if first_non_system_role == "user":
-        return repaired
-    first_user_index = next(
-        (i for i, item in enumerate(repaired) if str(item.get("role", "") or "").strip().lower() == "user"),
-        None,
-    )
-    if first_user_index is None:
-        return repaired[:first_non_system_index] + [_blank_user_anchor()] + repaired[first_non_system_index:]
-    prefix_length = max(0, int(first_user_index - first_non_system_index))
-    if policy == "rolling_window" and prefix_length > ASSISTANT_PREFIX_ANCHOR_THRESHOLD:
-        return repaired[:first_non_system_index] + [_blank_user_anchor()] + repaired[first_non_system_index:]
-    return repaired[:first_non_system_index] + repaired[first_user_index:]
 
 
 def _build_model_history_window():
     limit = _chat_context_window_messages()
     policy = _chat_context_overflow_policy()
-    selected = _apply_overflow_policy_to_history(conversation_history, limit, policy)
-    repaired = _repair_model_history_window(selected, policy=policy)
-    return repaired
+    return conversation_history_runtime.build_model_history_window(
+        conversation_history,
+        limit=limit,
+        policy=policy,
+        assistant_prefix_anchor_threshold=ASSISTANT_PREFIX_ANCHOR_THRESHOLD,
+    )
 
 
 def _build_chat_message_from_turn(turn):
-    if not isinstance(turn, dict):
-        return None
-    role = str(turn.get("role", "user") or "user").strip().lower() or "user"
-    if role not in {"user", "system", "assistant"}:
-        role = "user"
-    content_text = str(turn.get("content", "") or "").strip()
-    attachment_image_path = str(turn.get("attachment_image_path", "") or "").strip()
-    if attachment_image_path:
-        data_url = _data_url_for_local_image(attachment_image_path)
-        if data_url:
-            return {
-                "role": role,
-                "content": [
-                    {
-                        "type": "text",
-                        "text": content_text or "Please respond to the attached image.",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": data_url},
-                    },
-                ],
-            }
-    if not content_text:
-        return None
-    return {"role": role, "content": content_text}
+    return conversation_history_runtime.build_chat_message_from_turn(
+        turn,
+        data_url_for_local_image=_data_url_for_local_image,
+    )
 
 
 def _pop_last_proactive_placeholder(content):
@@ -6452,1367 +5863,67 @@ def run_conversation_flow(source):
 # ============================================================================
 # AVATAR ADAPTER PATTERN
 # ============================================================================
-class AvatarAdapter(abc.ABC):
-    #Abstract base class ensuring all rendering engines share the same interface.
+AvatarAdapter = avatar_runtime.AvatarAdapter
 
-    @abc.abstractmethod
-    def start(self):
-        pass
 
-    @abc.abstractmethod
-    def stop(self):
-        pass
-
-    @abc.abstractmethod
-    def set_emotion(self, emotion_name: str):
-        pass
-
-    @abc.abstractmethod
-    def set_speaking_state(self, is_speaking: bool):
-        pass
-
-    @abc.abstractmethod
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
-        pass
+def create_avatar_adapter_for_mode(avatar_mode: str):
+    """Create the selected avatar adapter from addon registry, then legacy fallback."""
+    mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
+    registered_adapter = avatar_runtime.create_avatar_adapter(mode)
+    if registered_adapter is not None:
+        return registered_adapter
+    if mode == "none":
+        return None
+    if mode == "musetalk":
+        return MuseTalkAdapter()
+    if mode == "vam":
+        return VaMAdapter()
+    return VSeeFaceAdapter()
 
 
 # ============================================================================
 # VSEEFACE ADAPTER
 # ============================================================================
-class VSeeFaceAdapter(AvatarAdapter):
+class VSeeFaceAdapter(VSeeFaceAddonAdapter):
+    """Compatibility wrapper around the VSeeFace avatar addon adapter."""
+
     def __init__(self, ip="127.0.0.1", port=39539):
-        self.client = udp_client.SimpleUDPClient(ip, port)
-        self.current_emotion = "neutral"
-        self.is_speaking = False
-        self.running = False
-        self.start_time = time.time()
+        super().__init__(
+            ip=ip,
+            port=port,
+            avatar_profile=AVATAR_PROFILE,
+            current_body_state=CURRENT_BODY_STATE,
+            edit_emotion_getter=lambda: EDIT_EMOTION,
+            force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
+            hand_debug=HAND_DEBUG,
+            hand_calibration=HAND_CALIBRATION,
+        )
 
-        # Animation Timing
-        self.last_anim_time = time.time()
-        self.anim_phase = 0.0
+class VaMAdapter(VaMAddonAdapter):
+    """Compatibility wrapper around the VaM avatar addon adapter."""
 
-        # SAFETY: Track when we last received a "Speaking" signal
-        self.last_speaking_update = 0
-
-        # Queue
-        self.update_queue = queue.Queue()
-
-        # VRM BlendShape Names
-        self.EMOTION_MAP = {
-            "neutral": "Neutral",
-            "happy": "Fun",
-            "angry": "Angry",
-            "sad": "Sorrow",
-            "surprised": "Surprised",
-            "shy": "Joy"
-        }
-        self.FINGER_BONES = [
-            "IndexProximal", "IndexIntermediate",
-            "MiddleProximal", "MiddleIntermediate",
-            "RingProximal", "RingIntermediate",
-            "LittleProximal", "LittleIntermediate",
-            "ThumbProximal", "ThumbIntermediate"
-        ]
-
-        # Initialize thread object but do not start it yet
-        self.thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
-
-    def start(self):
-        self.running = True
-        self.thread.start()
-        print(f"🔌 Connected to VSeeFace on port {self.client._port}")
-
-    def stop(self):
-        self.running = False
-        if self.thread.is_alive():
-            self.thread.join()
-        print("🔌 Disconnected from VSeeFace.")
-
-    def set_emotion(self, emotion_name: str):
-        self.update_queue.put(("emotion", emotion_name))
-
-    def set_speaking_state(self, is_speaking: bool):
-        self.update_queue.put(("speaking", is_speaking))
-
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
-        # VSeeFace handles lip-sync via system audio loopback, so we do nothing here.
-        return {"ok": True, "kind": "audio"}
-        #pass
-
-    def _euler_to_quaternion(self, roll, pitch, yaw):
-        rx = math.radians(roll) / 2
-        ry = math.radians(pitch) / 2
-        rz = math.radians(yaw) / 2
-
-        cx = math.cos(rx)
-        sx = math.sin(rx)
-        cy = math.cos(ry)
-        sy = math.sin(ry)
-        cz = math.cos(rz)
-        sz = math.sin(rz)
-
-        return [
-            sx * cy * cz - cx * sy * sz,
-            cx * sy * cz + sx * cy * sz,
-            cx * cy * sz - sx * sy * cz,
-            cx * cy * cz + sx * sy * sz
-        ]
-
-    def _heartbeat_loop(self):
-        while self.running:
-            # 1. Process Queue
-            try:
-                while not self.update_queue.empty():
-                    cmd, val = self.update_queue.get_nowait()
-                    if cmd == "emotion":
-                        self._update_internal_state(val)
-                    elif cmd == "speaking":
-                        self.is_speaking = val
-                        if val: self.last_speaking_update = time.time()
-            except queue.Empty:
-                pass
-
-            # 2. Send Face
-            self._send_current_emotion()
-
-            # 3. Send Body
-            self._animate_body()
-
-            # 4. Apply
-            self.client.send_message("/VMC/Ext/Blend/Apply", "")
-
-            time.sleep(0.033)
-
-    def _update_internal_state(self, emotion_name):
-        clean_name = emotion_name.lower().strip()
-        if clean_name in self.EMOTION_MAP:
-            self.current_emotion = clean_name
-
-    def _send_current_emotion(self):
-        target_key = self.EMOTION_MAP.get(self.current_emotion, "Neutral")
-        for tag, key in self.EMOTION_MAP.items():
-            value = 1.0 if key == target_key else 0.0
-            self.client.send_message("/VMC/Ext/Blend/Val", [key, value])
-
-    def _animate_body(self):
-        """
-        Generates 'Idol' style gestures + SYNCED HANDS + HEAD STABILIZATION
-        + SHOULDER BREATHING + EYE SACCADES (The "Micro-Dart" System).
-        """
-        global AVATAR_PROFILE, CURRENT_BODY_STATE, EDIT_EMOTION, FORCE_EDIT_MODE, HAND_DEBUG, HAND_CALIBRATION
-
-        now = time.time()
-        dt = now - self.last_anim_time
-        self.last_anim_time = now
-
-        # --- 0. SAFETY INIT (Run once) ---
-        if not hasattr(self, "breath_phase"):
-            self.breath_phase = 0.0
-
-        # Initialize Eye Logic Variables
-        if not hasattr(self, "eye_target_x"):
-            self.eye_target_x = 0.0
-            self.eye_target_y = 0.0
-            self.eye_current_x = 0.0
-            self.eye_current_y = 0.0
-            self.next_saccade_time = now + 1.0
-
-        # --- 1. DETERMINE TARGET POSE ---
-        if FORCE_EDIT_MODE:
-            target_key = EDIT_EMOTION
-        else:
-            target_key = self.current_emotion if self.current_emotion in AVATAR_PROFILE else "neutral"
-
-        target_pose = AVATAR_PROFILE.get(target_key, AVATAR_PROFILE["neutral"])
-
-        # --- 2. INTERPOLATION ---
-        lerp_speed = 0.1
-        for key in AVATAR_PROFILE["neutral"]:
-            target_val = target_pose.get(key, AVATAR_PROFILE["neutral"][key])
-            if key not in CURRENT_BODY_STATE:
-                CURRENT_BODY_STATE[key] = target_val
-            CURRENT_BODY_STATE[key] += (target_val - CURRENT_BODY_STATE[key]) * lerp_speed
-
-        # --- 3. DYNAMIC PARAMETERS ---
-        base_speed = CURRENT_BODY_STATE.get("idle_speed", 1.0)
-        base_intensity = CURRENT_BODY_STATE.get("idle_intensity", 2.0)
-
-        s_sway_mult = CURRENT_BODY_STATE.get("spine_sway_mult", 1.0)
-        s_twist_mult = CURRENT_BODY_STATE.get("spine_twist_mult", 0.7)
-        n_stabilize = CURRENT_BODY_STATE.get("neck_stabilize", 1.0)
-
-        sh_lift_amp = CURRENT_BODY_STATE.get("shoulder_lift", 1.5)
-        b_speed = CURRENT_BODY_STATE.get("breath_speed", 1.2)
-        sh_manual_back = CURRENT_BODY_STATE.get("idle_shoulder_back", 0.0)
-
-        # Eye Control
-        eye_amp = CURRENT_BODY_STATE.get("eye_activity", 1.0)
-
-        current_speed = base_speed
-        sway_z = base_intensity
-        sway_x = base_intensity * 0.5
-        sway_twist = base_intensity * 1.5
-        sway_bend = 2.0
-
-        # --- 4. SPEAKING MODIFIERS ---
-        is_talking = self.is_speaking
-        if is_talking:
-            current_speed = base_speed * 2.5
-            sway_twist += 20.0
-            sway_z *= 1.5
-            sway_x += 1.0
-            sway_bend = 8.0
-
-        # --- 5. PHASE & BREATH ---
-        self.anim_phase += dt * current_speed
-        self.breath_phase += dt * b_speed
-
-        gravity_phase = self.anim_phase - 0.5 * math.sin(self.anim_phase)
-        noise_x = math.cos(self.anim_phase * 0.8)
-        noise_z = math.sin(gravity_phase)
-        noise_bend = math.sin(self.anim_phase * 1.1 + 1.5)
-        noise_twist = math.sin(self.anim_phase * 0.7 + 2.0)
-        wave_grip = 0.5 - 0.5 * noise_x
-
-        # =================================================================================
-        # 6. EYE SACCADE LAYER (Micro-Darts)
-        # =================================================================================
-        if eye_amp > 0.1:
-            if now > self.next_saccade_time:
-                range_mult = 3.0 if is_talking else 1.0
-                tgt_yaw = random.uniform(-3, 3) * eye_amp * range_mult
-                tgt_pitch = random.uniform(-1.5, 1.5) * eye_amp * range_mult
-
-                self.eye_target_x = tgt_pitch
-                self.eye_target_y = tgt_yaw
-
-                min_wait = 0.2 if is_talking else 0.5
-                max_wait = 1.0 if is_talking else 2.5
-                self.next_saccade_time = now + random.uniform(min_wait, max_wait)
-
-            snap_speed = 0.3
-            self.eye_current_x += (self.eye_target_x - self.eye_current_x) * snap_speed
-            self.eye_current_y += (self.eye_target_y - self.eye_current_y) * snap_speed
-        else:
-            self.eye_current_x *= 0.9
-            self.eye_current_y *= 0.9
-
-        q_eyes = self._euler_to_quaternion(self.eye_current_x, self.eye_current_y, 0)
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftEye", 0.0, 0.0, 0.0] + q_eyes)
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightEye", 0.0, 0.0, 0.0] + q_eyes)
-
-        # =================================================================================
-        # 7. SHOULDER LAYER (3D Breath)
-        # =================================================================================
-        amplified_lift = sh_lift_amp * 6.0
-        breath_wave = (math.sin(self.breath_phase) + 0.2) * amplified_lift
-        speech_shrug = (10.0 * wave_grip) if is_talking else 0.0
-        total_lift_z = breath_wave + speech_shrug
-
-        auto_roll = total_lift_z * -0.5
-        total_roll_y = auto_roll - sh_manual_back
-
-        q_sh_l = self._euler_to_quaternion(0, total_roll_y, total_lift_z)
-        q_sh_r = self._euler_to_quaternion(0, -total_roll_y, -total_lift_z)
-
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftShoulder", 0.0, 0.0, 0.0] + q_sh_l)
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightShoulder", 0.0, 0.0, 0.0] + q_sh_r)
-
-        # =================================================================================
-        # 8. SPINE & NECK
-        # =================================================================================
-        spine_z = noise_z * (sway_z * s_sway_mult)
-        spine_x = noise_x * (sway_x * s_sway_mult)
-        spine_y = noise_twist * (sway_twist * s_twist_mult)
-
-        neck_z = -1 * spine_z * n_stabilize
-        neck_x = -1 * spine_x * n_stabilize
-        neck_y = -1 * spine_y * n_stabilize
-
-        if is_talking:
-            neck_x += 5.0 * wave_grip
-
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["Spine", 0.0, 0.0, 0.0] + self._euler_to_quaternion(spine_x, spine_y, spine_z))
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["Neck", 0.0, 0.0, 0.0] + self._euler_to_quaternion(neck_x, neck_y, neck_z))
-
-        # --- 9. ARMS & HANDS ---
-        l_z = CURRENT_BODY_STATE["idle_arm_down"] + (noise_z * sway_z)
-        l_x = CURRENT_BODY_STATE["idle_fwd_left"] + (noise_x * sway_x)
-        l_bend = CURRENT_BODY_STATE["idle_elbow_bend"] + (noise_bend * sway_bend)
-        l_y = CURRENT_BODY_STATE["idle_arm_twist"] + (noise_twist * sway_twist)
-
-        r_z = -1 * (CURRENT_BODY_STATE["idle_arm_down"] + (math.sin(gravity_phase + 2.0) * sway_z))
-        r_x = -1 * (CURRENT_BODY_STATE["idle_fwd_right"] + (math.cos(self.anim_phase * 0.9 + 1.0) * sway_x))
-        r_bend = -1 * (CURRENT_BODY_STATE["idle_elbow_bend"] + (math.sin(self.anim_phase * 1.2 + 0.5) * sway_bend))
-        r_y = -1 * (CURRENT_BODY_STATE["idle_arm_twist"] + (noise_twist * sway_twist))
-
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftUpperArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(l_x, l_y, l_z))
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightUpperArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(r_x, r_y, r_z))
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["LeftLowerArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(0, 0, l_bend))
-        self.client.send_message("/VMC/Ext/Bone/Pos", ["RightLowerArm", 0.0, 0.0, 0.0] + self._euler_to_quaternion(0, 0, r_bend))
-
-        # --- 10. FINGER LOGIC ---
-        if HAND_DEBUG["active"]:
-            t_x, t_y, t_z = HAND_DEBUG["thumb_x"], HAND_DEBUG["thumb_y"], HAND_DEBUG["thumb_z"]
-            f_x, f_y, f_z = HAND_DEBUG["finger_x"], HAND_DEBUG["finger_y"], HAND_DEBUG["finger_z"]
-        else:
-            target_grip = 0.0
-            if is_talking:
-                target_grip = 0.2 + (0.5 * wave_grip) if target_key not in ["angry", "shy"] else (0.5 + 0.4 * wave_grip)
-            else:
-                target_grip = {"angry": 0.8, "shy": 0.5}.get(target_key, 0.05)
-
-            target_grip = max(0.0, min(1.0, target_grip))
-
-            def lerp_h(key):
-                return HAND_CALIBRATION["relaxed"][key] + (HAND_CALIBRATION["fist"][key] - HAND_CALIBRATION["relaxed"][key]) * target_grip
-
-            f_x, f_y, f_z = lerp_h("finger_x"), lerp_h("finger_y"), lerp_h("finger_z")
-            t_x, t_y, t_z = lerp_h("thumb_x"), lerp_h("thumb_y"), lerp_h("thumb_z")
-
-        ql, qr = self._euler_to_quaternion(t_x, t_y, t_z), self._euler_to_quaternion(t_x, -t_y, -t_z)
-        fl, fr = self._euler_to_quaternion(f_x, f_y, f_z), self._euler_to_quaternion(f_x, -f_y, -f_z)
-
-        for bone in self.FINGER_BONES:
-            self.client.send_message(f"/VMC/Ext/Bone/Pos", [f"Left{bone}", 0.0, 0.0, 0.0] + (ql if "Thumb" in bone else fl))
-            self.client.send_message(f"/VMC/Ext/Bone/Pos", [f"Right{bone}", 0.0, 0.0, 0.0] + (qr if "Thumb" in bone else fr))
-
-
-class VaMAdapter(VSeeFaceAdapter):
     def __init__(self):
-        vmc_host = str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1").strip() or "127.0.0.1"
-        vmc_port = int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)
-        super().__init__(ip=vmc_host, port=vmc_port)
-        self.vmc_enabled = bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True))
-        self.bridge_enabled = bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True))
-        self.vam_root = normalize_vam_root(
-            RUNTIME_CONFIG.get(
-                "vam_root",
-                RUNTIME_CONFIG.get("vam_bridge_root", DEFAULT_VAM_ROOT),
-            )
-        )
-        self.bridge_root = derive_vam_bridge_root(self.vam_root)
-        self.play_audio_in_vam = bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))
-        self.target_atom_uid = str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person").strip() or "Person"
-        self.target_storable_id = str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge").strip()
-        self.timeline_auto_resume = bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True))
-        self.emotion_preset_map = self._coerce_mapping_dict(
-            RUNTIME_CONFIG.get("vam_emotion_preset_map"),
-            DEFAULT_VAM_EMOTION_PRESET_MAP,
-        )
-        self.timeline_clip_map = self._coerce_mapping_dict(
-            RUNTIME_CONFIG.get("vam_timeline_clip_map"),
-            DEFAULT_VAM_TIMELINE_CLIP_MAP,
-        )
-        self.session_id = uuid.uuid4().hex[:12]
-        self._vmc_started = False
-        self._bridge_inbox_dir = os.path.join(self.bridge_root, "inbox")
-        self._bridge_outbox_dir = os.path.join(self.bridge_root, "outbox")
-        self._bridge_audio_dir = os.path.join(self.bridge_root, "audio")
-
-    def _coerce_mapping_dict(self, value, default):
-        if isinstance(value, dict):
-            return {str(key).strip().lower(): str(item or "").strip() for key, item in value.items() if str(key).strip()}
-        return {str(key).strip().lower(): str(item or "").strip() for key, item in dict(default).items()}
-
-    def _ensure_bridge_dirs(self):
-        os.makedirs(self._bridge_inbox_dir, exist_ok=True)
-        os.makedirs(self._bridge_outbox_dir, exist_ok=True)
-        os.makedirs(self._bridge_audio_dir, exist_ok=True)
-
-    def _emotion_key(self, emotion_name):
-        clean = str(emotion_name or "").strip().lower()
-        return clean or "neutral"
-
-    def _mapped_value(self, mapping, emotion_name, fallback_key="default"):
-        clean = self._emotion_key(emotion_name)
-        if clean in mapping:
-            return str(mapping.get(clean) or "").strip()
-        for key, value in mapping.items():
-            if key and key in clean:
-                return str(value or "").strip()
-        return str(mapping.get(fallback_key, "") or "").strip()
-
-    def _build_payload(self, **overrides):
-        emotion_name = overrides.get("emotion", self.current_emotion)
-        payload = {
-            "target_atom_uid": self.target_atom_uid,
-            "target_storable_id": self.target_storable_id,
-            "emotion": self._emotion_key(emotion_name),
-            "speaking": bool(overrides.get("speaking", self.is_speaking)),
-            "timeline_auto_resume": bool(overrides.get("timeline_auto_resume", self.timeline_auto_resume)),
-            "expression_preset": overrides.get("expression_preset", self._mapped_value(self.emotion_preset_map, emotion_name)),
-            "timeline_clip": overrides.get("timeline_clip", self._mapped_value(self.timeline_clip_map, emotion_name)),
-            "audio_path": str(overrides.get("audio_path", "") or ""),
-            "audio_duration_seconds": float(overrides.get("audio_duration_seconds", 0.0) or 0.0),
-            "text": str(overrides.get("text", "") or ""),
-            "play_audio_in_vam": bool(overrides.get("play_audio_in_vam", self.play_audio_in_vam)),
-            "enabled": bool(overrides.get("enabled", True)),
-        }
-        return payload
-
-    def _send_bridge_command(self, action, payload=None):
-        if not self.bridge_enabled:
-            return None
-        self._ensure_bridge_dirs()
-        command_id = f"{int(time.time() * 1000)}_{uuid.uuid4().hex[:8]}"
-        final_path = os.path.join(self._bridge_inbox_dir, f"{command_id}_{action}.json")
-        tmp_path = f"{final_path}.tmp"
-        body = {
-            "session_id": self.session_id,
-            "command_id": command_id,
-            "sent_at": time.time(),
-            "action": str(action or "").strip(),
-            "payload": payload or {},
-        }
-        Path(tmp_path).write_text(json.dumps(body, indent=2), encoding="utf-8")
-        os.replace(tmp_path, final_path)
-        return final_path
-
-    def start(self):
-        if not self.vmc_enabled and not self.bridge_enabled:
-            raise RuntimeError("VaM mode is enabled, but both VMC relay and file bridge are disabled.")
-        if self.vmc_enabled:
-            self.running = True
-            if not self.thread.is_alive():
-                self.thread.start()
-            self._vmc_started = True
-            print(f"🔌 Connected to VaM VMC relay on {self.client._address}:{self.client._port}")
-        else:
-            print("🔌 VaM VMC relay disabled; using file bridge only.")
-        if self.bridge_enabled:
-            self._ensure_bridge_dirs()
-            self._send_bridge_command("session_start", self._build_payload(speaking=False, play_audio_in_vam=False))
-            print(f"🪄 [VaM] Bridge root: {self.bridge_root}")
-
-    def stop(self):
-        if self.bridge_enabled:
-            try:
-                self._send_bridge_command("session_stop", self._build_payload(speaking=False, play_audio_in_vam=False))
-            except Exception as exc:
-                print(f"⚠️ [VaM] Could not send session_stop: {exc}")
-        if self._vmc_started:
-            self.running = False
-            if self.thread.is_alive():
-                self.thread.join()
-            print("🔌 Disconnected from VaM VMC relay.")
-
-    def set_emotion(self, emotion_name: str):
-        self.current_emotion = self._emotion_key(emotion_name)
-        if self.vmc_enabled:
-            super().set_emotion(self.current_emotion)
-        if self.bridge_enabled:
-            try:
-                self._send_bridge_command("set_emotion", self._build_payload(emotion=self.current_emotion, speaking=self.is_speaking, play_audio_in_vam=False))
-            except Exception as exc:
-                print(f"⚠️ [VaM] Could not send set_emotion: {exc}")
-
-    def set_speaking_state(self, is_speaking: bool):
-        self.is_speaking = bool(is_speaking)
-        if self.vmc_enabled:
-            super().set_speaking_state(self.is_speaking)
-        if self.bridge_enabled:
-            try:
-                self._send_bridge_command("set_speaking", self._build_payload(speaking=self.is_speaking, play_audio_in_vam=False))
-            except Exception as exc:
-                print(f"⚠️ [VaM] Could not send set_speaking: {exc}")
-
-    def _stage_bridge_audio(self, audio_path, output_filename):
-        self._ensure_bridge_dirs()
-        chunk_id = os.path.splitext(os.path.basename(output_filename or ""))[0] or f"speech_{uuid.uuid4().hex[:8]}"
-        staged_audio_path = os.path.join(self._bridge_audio_dir, f"{chunk_id}.wav")
-        shutil.copy2(audio_path, staged_audio_path)
-        return staged_audio_path
-
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
-        duration_seconds = 0.0
-        try:
-            duration_seconds = max(0.0, float(AudioSegment.from_file(audio_path).duration_seconds or 0.0))
-        except Exception:
-            duration_seconds = 0.0
-
-        if not self.bridge_enabled:
-            return {"ok": True, "kind": "audio"}
-
-        staged_audio_path = ""
-        play_audio_in_vam = self.play_audio_in_vam
-        if play_audio_in_vam:
-            try:
-                staged_audio_path = self._stage_bridge_audio(audio_path, output_filename)
-            except Exception as exc:
-                print(f"⚠️ [VaM] Audio staging failed; falling back to local playback: {exc}")
-                play_audio_in_vam = False
-
-        payload = self._build_payload(
-            emotion=self.current_emotion,
-            speaking=True,
-            text=text,
-            audio_path=staged_audio_path,
-            audio_duration_seconds=duration_seconds,
-            play_audio_in_vam=play_audio_in_vam,
+        super().__init__(
+            runtime_config=RUNTIME_CONFIG,
+            normalize_vam_root=normalize_vam_root,
+            derive_vam_bridge_root=derive_vam_bridge_root,
+            default_vam_root=DEFAULT_VAM_ROOT,
+            default_emotion_preset_map=DEFAULT_VAM_EMOTION_PRESET_MAP,
+            default_timeline_clip_map=DEFAULT_VAM_TIMELINE_CLIP_MAP,
+            audio_segment_cls=AudioSegment,
+            avatar_profile=AVATAR_PROFILE,
+            current_body_state=CURRENT_BODY_STATE,
+            edit_emotion_getter=lambda: EDIT_EMOTION,
+            force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
+            hand_debug=HAND_DEBUG,
+            hand_calibration=HAND_CALIBRATION,
         )
 
-        result = {
-            "ok": True,
-            "kind": "vam",
-            "skip_local_playback": play_audio_in_vam,
-            "playback_duration_seconds": duration_seconds,
-            "payload_path": staged_audio_path or audio_path,
-            "bridge_payload": payload,
-            "expected_frame_count": max(2, int(round(duration_seconds * 50.0))) if duration_seconds > 0 else 2,
-            "chunk_id": os.path.splitext(os.path.basename(staged_audio_path or output_filename or audio_path))[0],
-        }
-        if play_audio_in_vam:
-            print(
-                f"🎧 [VaM] Prepared speech chunk for VaM head audio "
-                f"({duration_seconds:.2f}s, {os.path.basename(staged_audio_path)})"
-            )
-        return result
+class MuseTalkAdapter(MuseTalkAddonAdapter):
+    """Compatibility wrapper around the MuseTalk avatar addon adapter."""
 
-    def begin_chunk_playback(self, chunk_result):
-        if not self.bridge_enabled:
-            return False
-        payload = dict((chunk_result or {}).get("bridge_payload", {}) or {})
-        if not payload:
-            return False
-        try:
-            self._send_bridge_command("speech_chunk", payload)
-            if bool(payload.get("play_audio_in_vam")):
-                print(
-                    f"🎧 [VaM] Delegating speech chunk to VaM head audio "
-                    f"({float(payload.get('audio_duration_seconds', 0.0) or 0.0):.2f}s, "
-                    f"{os.path.basename(str(payload.get('audio_path', '') or ''))})"
-                )
-            return bool(payload.get("play_audio_in_vam"))
-        except Exception as exc:
-            print(f"⚠️ [VaM] Could not send speech_chunk: {exc}")
-            return False
+    pass
 
-
-import abc
-import os
-import subprocess
-import shutil
-
-
-# ============================================================================
-# AVATAR ADAPTER PATTERN
-# ============================================================================
-"""class AvatarAdapter(abc.ABC):
-    #Abstract base class ensuring all rendering engines share the same interface.
-
-    @abc.abstractmethod
-    def start(self):
-        pass
-
-    @abc.abstractmethod
-    def stop(self):
-        pass
-
-    @abc.abstractmethod
-    def set_emotion(self, emotion_name: str):
-        pass
-
-    @abc.abstractmethod
-    def set_speaking_state(self, is_speaking: bool):
-        pass
-
-    @abc.abstractmethod
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str):
-        pass"""
-
-
-class MuseTalkAdapter(AvatarAdapter):
-    def __init__(self, root_dir="./MuseTalk"):
-        self.root_dir = root_dir
-        self.vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
-        self.bridge = MuseTalkBridge(root_dir=self.root_dir, worker_options={"vram_mode": self.vram_mode})
-        self.current_emotion = "neutral"
-        self.is_speaking = False
-        self.avatar_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
-        self.avatar_pack = None
-        self.available_avatar_packs = {}
-        self.avatar_path_overrides = {}
-        self.default_avatar_id = RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar")
-        self.video_path = RUNTIME_CONFIG.get("musetalk_video_path", os.path.join("data", "video", "ani.mp4"))
-        self.fps = int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24)
-        self.avatar_id = self.default_avatar_id
-        self.avatar_path = None
-        self.prepared_avatars = {}
-        self.emotion_avatar_map = {}
-        self.last_queued_avatar_id = self.default_avatar_id
-        self.previous_audio_tail = None
-        self.reply_chunk_index = 0
-        self.reply_generation = 0
-        self.first_chunk_ready_samples = []
-        self.first_chunk_seconds_per_frame_samples = []
-        self.render_slots = threading.BoundedSemaphore(MUSE_MAX_INFLIGHT_RENDERS)
-        self.render_order_condition = threading.Condition()
-        self.next_render_order = 0
-        self.active_render_order = 0
-        self._last_logged_emotion_registry_signature = None
-
-    def start(self):
-        print(f"🎬 [MuseTalk] Starting worker ({self.vram_mode})...")
-        self.bridge.start()
-        self.previous_audio_tail = None
-        self._reload_avatar_pose_connections()
-        self.last_queued_avatar_id = self.default_avatar_id
-        self._ensure_avatar_prepared(self.default_avatar_id, allow_missing=False)
-        self.avatar_id = self.default_avatar_id
-        self.avatar_path = self.prepared_avatars.get(self.default_avatar_id)
-        for avatar_id in sorted(set(self.emotion_avatar_map.values())):
-            self._ensure_avatar_prepared(avatar_id, allow_missing=True)
-        print(f"✅ [MuseTalk] Avatar pack ready: {self.avatar_pack_id} -> {self.default_avatar_id}")
-
-    def warm_up(self):
-        warmup_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "warmup"))
-        os.makedirs(warmup_dir, exist_ok=True)
-        warmup_audio_path = os.path.join(warmup_dir, "musetalk_warmup.wav")
-        warmup_chunk_id = f"warmup_{uuid.uuid4().hex[:8]}"
-        warmup_frame_dir = os.path.join(warmup_dir, warmup_chunk_id)
-        try:
-            print("🔥 [MuseTalk] Running early warmup render before LLM reload...")
-            AudioSegment.silent(duration=900).export(warmup_audio_path, format="wav")
-            started_at = time.time()
-            result = self.bridge.request(
-                {
-                    "action": "render_audio",
-                    "avatar_id": self.default_avatar_id,
-                    "avatar_path_override": self._avatar_path_override_for_id(self.default_avatar_id),
-                    "audio_path": warmup_audio_path,
-                    "chunk_id": warmup_chunk_id,
-                    "fps": self.fps,
-                    "output_root": os.path.join("runtime", "warmup"),
-                    "reset_timeline": True,
-                    "start_timeline_idx": 0,
-                },
-                timeout=180,
-            )
-            elapsed = time.time() - started_at
-            print(
-                f"✓ [MuseTalk] Early warmup complete: "
-                f"{int(result.get('frame_count', 0) or 0)} frame(s) in {elapsed:.2f}s"
-            )
-            return True
-        except Exception as e:
-            print(f"⚠️ [MuseTalk] Early warmup failed: {e}")
-            return False
-        finally:
-            safe_delete_with_retry(warmup_audio_path)
-            shutil.rmtree(warmup_frame_dir, ignore_errors=True)
-
-    def stop(self):
-        print("🛑 [MuseTalk] Stopping worker...")
-        self.previous_audio_tail = None
-        self.bridge.stop()
-        print("🔌 [MuseTalk] Disconnected.")
-
-    def set_emotion(self, emotion_name: str):
-        self.current_emotion = emotion_name
-
-    def _avatar_path_override_for_id(self, avatar_id):
-        return str((self.avatar_path_overrides or {}).get(avatar_id) or "").strip()
-
-    def _prepared_avatar_root(self, avatar_id):
-        override = self._avatar_path_override_for_id(avatar_id)
-        if override:
-            return os.path.abspath(override)
-        return os.path.abspath(os.path.join(self.root_dir, "results", "v15", "avatars", avatar_id))
-
-    def _reload_avatar_pose_connections(self):
-        requested_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", self.avatar_pack_id or "") or self.avatar_pack_id or "").strip()
-        packs = discover_avatar_packs(
-            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
-            legacy_map=MUSE_EMOTION_AVATAR_MAP,
-            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
-            avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
-            packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
-            include_legacy=False,
-            include_standalone=False,
-        )
-        self.available_avatar_packs = dict(packs)
-        if not self.available_avatar_packs:
-            raise LookupError("No MuseTalk avatar packs found under MuseTalk/results/v15/avatar_packs.")
-        selected = packs.get(requested_pack_id)
-        if selected is None:
-            try:
-                selected = get_avatar_pack(
-                    default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
-                    requested_pack_id=requested_pack_id,
-                    legacy_map=MUSE_EMOTION_AVATAR_MAP,
-                    legacy_transitions=MUSE_AVATAR_TRANSITIONS,
-                    avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
-                    packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
-                    include_legacy=False,
-                    include_standalone=False,
-                )
-            except LookupError:
-                selected = next(iter(self.available_avatar_packs.values()))
-            self.available_avatar_packs[selected.pack_id] = selected
-        self.avatar_pack = selected
-        self.avatar_pack_id = selected.pack_id
-        self.default_avatar_id = selected.default_avatar_id
-        full_emotion_avatar_map = selected.emotion_avatar_map()
-        enabled_tags = get_musetalk_enabled_pack_emotions(selected.pack_id)
-        if enabled_tags is None:
-            self.emotion_avatar_map = dict(full_emotion_avatar_map)
-        else:
-            locked_tags = {
-                str(tag or "").strip().lower()
-                for tag, avatar_id in full_emotion_avatar_map.items()
-                if str(tag or "").strip()
-                and (
-                    str(avatar_id or "").strip() == str(selected.default_avatar_id or "").strip()
-                    or str(tag or "").strip().lower() in {"neutral", "default", "idle", "base"}
-                )
-            }
-            allowed_tags = enabled_tags | locked_tags
-            self.emotion_avatar_map = {
-                tag: avatar_id
-                for tag, avatar_id in full_emotion_avatar_map.items()
-                if str(tag or "").strip().lower() in allowed_tags
-            }
-        invalidate_available_emotion_names()
-        registered_tags = sorted(
-            {
-                str(tag or '').strip().lower()
-                for tag in (self.emotion_avatar_map or {}).keys()
-                if str(tag or '').strip()
-            }
-        )
-        registry_signature = (str(self.avatar_pack_id or ''), tuple(registered_tags))
-        if registry_signature != self._last_logged_emotion_registry_signature:
-            self._last_logged_emotion_registry_signature = registry_signature
-            if registered_tags:
-                print(f"🧩 [MuseTalk] Registered emotion tags for pack '{self.avatar_pack_id}': {', '.join(registered_tags)}")
-            else:
-                print(f"🧩 [MuseTalk] No emotion tags registered for pack '{self.avatar_pack_id}'.")
-        self.avatar_path_overrides = {
-            str(variant.avatar_id or '').strip(): str(getattr(variant, 'avatar_path', '') or '').strip()
-            for variant in (selected.variants or {}).values()
-            if str(getattr(variant, 'avatar_path', '') or '').strip()
-        }
-        return dict(self.emotion_avatar_map)
-
-    def select_avatar_pack(self, pack_id, reset_avatar=True):
-        requested_pack_id = str(pack_id or "").strip()
-        pack_changed = requested_pack_id != str(self.avatar_pack_id or "").strip()
-        self.avatar_pack_id = requested_pack_id
-        if pack_changed:
-            self.prepared_avatars = {}
-            self.avatar_path = None
-        self._reload_avatar_pose_connections()
-        self._ensure_avatar_prepared(self.default_avatar_id, allow_missing=False)
-        if reset_avatar:
-            self.current_emotion = "neutral"
-            self.avatar_id = self.default_avatar_id
-            self.avatar_path = self.prepared_avatars.get(self.default_avatar_id, self.avatar_path)
-            self.last_queued_avatar_id = self.default_avatar_id
-        return self.avatar_pack
-
-    def get_transition_rule(self, from_avatar_id, to_avatar_id):
-        if getattr(self, "avatar_pack", None) is None:
-            self._reload_avatar_pose_connections()
-        if self.avatar_pack is None:
-            return None
-        return self.avatar_pack.transition_rule_for_avatar_ids(from_avatar_id, to_avatar_id)
-
-    def _resolve_avatar_id_for_emotion(self, emotion_name):
-        clean_emotion = str(emotion_name or "").strip().lower()
-        if not getattr(self, "emotion_avatar_map", None):
-            self._reload_avatar_pose_connections()
-        if not clean_emotion or clean_emotion in {"neutral", "default", "idle", "base"}:
-            return self.default_avatar_id
-        if clean_emotion:
-            exact_avatar_id = self.emotion_avatar_map.get(clean_emotion)
-            if exact_avatar_id:
-                return exact_avatar_id
-        for emotion_key, avatar_id in self.emotion_avatar_map.items():
-            if str(emotion_key or "").strip().lower() in clean_emotion:
-                return avatar_id
-        return None
-
-    def _prepared_avatar_bbox_shift(self, avatar_id):
-        avatar_root = self._prepared_avatar_root(avatar_id)
-        info_path = os.path.join(avatar_root, "avator_info.json")
-        try:
-            if os.path.isfile(info_path):
-                payload = json.loads(Path(info_path).read_text(encoding="utf-8"))
-                return int(payload.get("bbox_shift", 0) or 0)
-        except Exception:
-            pass
-        return 0
-
-    def _ensure_avatar_prepared(self, avatar_id, allow_missing=False):
-        if avatar_id in self.prepared_avatars:
-            return avatar_id
-
-        avatar_root = self._prepared_avatar_root(avatar_id)
-        if allow_missing and not os.path.isdir(avatar_root):
-            return None
-
-        bbox_shift = self._prepared_avatar_bbox_shift(avatar_id)
-
-        result = self.bridge.request(
-            {
-                "action": "prepare_avatar",
-                "avatar_id": avatar_id,
-                "avatar_path_override": self._avatar_path_override_for_id(avatar_id),
-                "video_path": self.video_path,
-                "bbox_shift": bbox_shift,
-                "recreate": False,
-            },
-            timeout=600,
-        )
-        avatar_path = result.get("avatar_path")
-        if avatar_path:
-            self.prepared_avatars[avatar_id] = avatar_path
-            self._reload_avatar_pose_connections()
-            print(f"🎭 [MuseTalk] Prepared avatar variant: {avatar_id}")
-            return avatar_id
-        return None
-
-    def _set_active_avatar(self, avatar_id):
-        self.avatar_id = avatar_id
-        self.avatar_path = self.prepared_avatars.get(avatar_id, self.avatar_path)
-
-    def set_speaking_state(self, is_speaking: bool):
-        self.is_speaking = is_speaking
-
-    def begin_reply(self):
-        self.reply_generation += 1
-        self.reply_chunk_index = 0
-        self.previous_audio_tail = None
-        self.last_queued_avatar_id = self.avatar_id or self.default_avatar_id
-        with self.render_order_condition:
-            self.next_render_order = 0
-            self.active_render_order = 0
-
-    def _estimate_first_chunk_delay(self):
-        if bool(RUNTIME_CONFIG.get("stream_mode", False)):
-            startup_buffer_frames = max(10, min(int(self.fps * 0.5), 16))
-        else:
-            startup_buffer_frames = max(24, min(int(self.fps * 2.5), 72))
-        if self.first_chunk_seconds_per_frame_samples:
-            avg_seconds_per_frame = (
-                sum(self.first_chunk_seconds_per_frame_samples)
-                / len(self.first_chunk_seconds_per_frame_samples)
-            )
-            estimated = avg_seconds_per_frame * startup_buffer_frames
-            return max(0.25, estimated)
-        if not self.first_chunk_ready_samples:
-            return MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS
-        return sum(self.first_chunk_ready_samples) / len(self.first_chunk_ready_samples)
-
-    def _record_first_chunk_delay(self, delay_seconds):
-        try:
-            delay_seconds = float(delay_seconds)
-        except Exception:
-            return
-        if delay_seconds <= 0:
-            return
-        self.first_chunk_ready_samples.append(delay_seconds)
-        if len(self.first_chunk_ready_samples) > MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:
-            self.first_chunk_ready_samples = self.first_chunk_ready_samples[-MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:]
-
-    def _record_first_chunk_seconds_per_frame(self, delay_seconds, frame_count):
-        try:
-            delay_seconds = float(delay_seconds)
-            frame_count = int(frame_count)
-        except Exception:
-            return
-        if delay_seconds <= 0 or frame_count <= 0:
-            return
-        seconds_per_frame = delay_seconds / max(frame_count, 1)
-        self.first_chunk_seconds_per_frame_samples.append(seconds_per_frame)
-        if len(self.first_chunk_seconds_per_frame_samples) > MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:
-            self.first_chunk_seconds_per_frame_samples = self.first_chunk_seconds_per_frame_samples[-MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT:]
-
-    def _build_loop_frame_paths(self, full_frame_paths, start_index, count):
-        if not full_frame_paths:
-            return []
-        frame_total = len(full_frame_paths)
-        start_index = int(start_index) % frame_total
-        count = max(1, int(count))
-        return [
-            full_frame_paths[(start_index + offset) % frame_total]
-            for offset in range(count)
-        ]
-
-    def _build_pingpong_frame_paths(self, full_frame_paths, start_index, count):
-        forward_paths = self._build_loop_frame_paths(full_frame_paths, start_index, count)
-        if len(forward_paths) <= 1:
-            return forward_paths
-        backward_paths = forward_paths[-2:0:-1]
-        return forward_paths + backward_paths
-
-    def _plan_first_chunk_idle_window(self, avatar_id):
-        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
-        if current_state.get("status") != "idle":
-            return None
-        if current_state.get("avatar_id") != avatar_id:
-            return None
-
-        avatar_path = self.prepared_avatars.get(avatar_id)
-        if not avatar_path:
-            return None
-
-        full_frame_paths = list_png_frames(os.path.join(avatar_path, "full_imgs"))
-        if not full_frame_paths:
-            return None
-
-        fps = int(current_state.get("fps", self.fps) or self.fps)
-        current_visible_index = get_current_musetalk_source_index(current_state, advance_to_next_frame=False) % len(full_frame_paths)
-        predicted_delay = self._estimate_first_chunk_delay()
-        predicted_offset_frames = max(1, int(round(predicted_delay * max(fps, 1))))
-        predicted_entry_index = (current_visible_index + predicted_offset_frames) % len(full_frame_paths)
-        # In normal mode we keep the longer anticipation runway. In stream mode
-        # we shorten it so startup stays responsive.
-        if bool(RUNTIME_CONFIG.get("stream_mode", False)):
-            desired_pingpong_frames = max(18, int(round(fps * STREAM_FIRST_CHUNK_PLAN_SECONDS)))
-        else:
-            desired_pingpong_frames = max(24, int(round(fps * 3.0)))
-        window_size = min(
-            max(13, desired_pingpong_frames + 1),
-            max(len(full_frame_paths) - 1, 13),
-        )
-        window_start = predicted_entry_index % len(full_frame_paths)
-        plan_id = f"first_chunk_plan:{time.time()}:{uuid.uuid4().hex[:8]}"
-
-        def _orbit_predicted_entry():
-            wait_frames = max(predicted_offset_frames - 1, 0)
-            if wait_frames > 0:
-                time.sleep(wait_frames / max(fps, 1))
-            while not stop_flag.is_set():
-                current_plan_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
-                if current_plan_state.get("status") != "idle" or current_plan_state.get("avatar_id") != avatar_id:
-                    return
-                active_chunk_id = current_plan_state.get("chunk_id")
-                if active_chunk_id and str(active_chunk_id).startswith("first_chunk_plan:"):
-                    return
-                current_source_index = get_current_musetalk_source_index(
-                    current_plan_state,
-                    advance_to_next_frame=False,
-                ) % len(full_frame_paths)
-                passed_predicted_index = (current_source_index - predicted_entry_index) % len(full_frame_paths)
-                if 0 < passed_predicted_index < (len(full_frame_paths) // 2):
-                    break
-                time.sleep(0.01)
-
-            window_paths = self._build_pingpong_frame_paths(full_frame_paths, window_start, window_size)
-            forward_indices = [
-                (window_start + offset) % len(full_frame_paths)
-                for offset in range(window_size)
-            ]
-            backward_indices = forward_indices[-2:0:-1] if len(forward_indices) > 1 else []
-            window_source_indices = forward_indices + backward_indices
-            shared_state.append_musetalk_preview_log(
-                f"🕒 [MuseTalkStartup] First chunk plan armed {plan_id}: "
-                f"predicted_entry={predicted_entry_index} current_source={current_source_index} "
-                f"window_end={(predicted_entry_index + desired_pingpong_frames) % len(full_frame_paths)}"
-            )
-            log_musetalk_memory_checkpoint(
-                "first_chunk_plan_armed",
-                plan_id,
-                {
-                    "predicted_entry": predicted_entry_index,
-                    "current_source": current_source_index,
-                    "window_size": len(window_paths),
-                },
-            )
-            shared_state.current_expression_data = {"names": [], "frames": []}
-            shared_state.set_current_musetalk_frame_data({
-                "frame_paths": window_paths,
-                "source_indices": window_source_indices,
-                "frame_dir": "",
-                "fps": fps,
-                "sync_time": time.time(),
-                "duration_seconds": 0.0,
-                "trim_start_frames": 0,
-                "chunk_id": plan_id,
-                "text": "",
-                "status": "idle",
-                "loop": True,
-                "start_index": window_start,
-                "frame_count": len(window_paths),
-                "avatar_id": avatar_id,
-            })
-            prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
-
-        threading.Thread(target=_orbit_predicted_entry, daemon=True).start()
-        return predicted_entry_index
-
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None):
-        requested_avatar_id = self._resolve_avatar_id_for_emotion(self.current_emotion)
-        if requested_avatar_id:
-            active_avatar_id = self._ensure_avatar_prepared(requested_avatar_id, allow_missing=True) or self.default_avatar_id
-        else:
-            active_avatar_id = self.avatar_id or self.last_queued_avatar_id or self.default_avatar_id
-        print(f"🎭 [MuseTalk] Emotion '{self.current_emotion}' -> requested avatar '{requested_avatar_id}' -> active avatar '{active_avatar_id}'")
-        self._ensure_avatar_prepared(active_avatar_id, allow_missing=False)
-        previous_avatar_id = self.last_queued_avatar_id
-        is_first_reply_chunk = self.reply_chunk_index == 0
-        sequence_index = self.reply_chunk_index
-        self.reply_chunk_index += 1
-        reset_timeline = active_avatar_id == "angry_avatar" and previous_avatar_id != active_avatar_id
-        self.last_queued_avatar_id = active_avatar_id
-        self._set_active_avatar(active_avatar_id)
-        with self.render_order_condition:
-            render_order = self.next_render_order
-            self.next_render_order += 1
-
-        chunk_id = os.path.splitext(os.path.basename(output_filename))[0]
-        frame_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "rendered_chunks", chunk_id))
-        os.makedirs(frame_dir, exist_ok=True)
-        staged_audio_dir = os.path.abspath(os.path.join(self.root_dir, "runtime", "staged_audio"))
-        os.makedirs(staged_audio_dir, exist_ok=True)
-        render_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}.wav")
-        result_holder = {
-            "frame_dir": frame_dir,
-            "fps": self.fps,
-            "start_index": 0,
-            "trim_start_frames": 0,
-            "avatar_id": active_avatar_id,
-            "sequence_index": sequence_index,
-            "generation": self.reply_generation,
-            "cancelled": False,
-            "dry_run_reply_id": dry_run_reply_id,
-        }
-        try:
-            shutil.copy2(audio_path, render_audio_path)
-        except Exception as e:
-            print(f"⚠️ [MuseTalk] Audio staging failed: {e}")
-            return {"ok": False, "kind": "musetalk"}
-        ready_event = threading.Event()
-
-        def render_job():
-            temp_audio_paths = []
-            trim_start_frames = 0
-            job_generation = self.reply_generation
-            has_render_turn = False
-
-            def _request_render(
-                avatar_id,
-                request_chunk_id,
-                request_audio_path,
-                reset=False,
-                timeline_indices=None,
-                overlap_prefix_frames=0,
-                start_timeline_idx=None,
-            ):
-                return self.bridge.request(
-                    {
-                        "action": "render_audio",
-                        "avatar_id": avatar_id,
-                        "avatar_path_override": self._avatar_path_override_for_id(avatar_id),
-                        "audio_path": request_audio_path,
-                        "chunk_id": request_chunk_id,
-                        "fps": self.fps,
-                        "output_root": os.path.join("runtime", "rendered_chunks"),
-                        "reset_timeline": reset,
-                        "timeline_indices": timeline_indices,
-                        "overlap_prefix_frames": overlap_prefix_frames,
-                        "start_timeline_idx": start_timeline_idx,
-                    },
-                    timeout=180,
-                )
-
-            def _merge_frame_dirs(source_dirs, target_dir):
-                if os.path.exists(target_dir):
-                    shutil.rmtree(target_dir, ignore_errors=True)
-                os.makedirs(target_dir, exist_ok=True)
-                frame_index = 0
-                for source_dir in source_dirs:
-                    for source_path in list_png_frames(source_dir):
-                        shutil.copy2(source_path, os.path.join(target_dir, f"{frame_index:08d}.png"))
-                        frame_index += 1
-                return frame_index
-
-            try:
-                if job_generation != self.reply_generation or stop_playback.is_set():
-                    result_holder["cancelled"] = True
-                    return
-                self.render_slots.acquire()
-                if job_generation != self.reply_generation or stop_playback.is_set():
-                    result_holder["cancelled"] = True
-                    return
-                with self.render_order_condition:
-                    while (
-                        render_order != self.active_render_order
-                        and job_generation == self.reply_generation
-                        and not stop_playback.is_set()
-                    ):
-                        self.render_order_condition.wait(timeout=0.1)
-                    if job_generation != self.reply_generation or stop_playback.is_set():
-                        result_holder["cancelled"] = True
-                        return
-                    has_render_turn = True
-                transition_rule = self.get_transition_rule(previous_avatar_id, active_avatar_id)
-                use_transition_render = bool(
-                    transition_rule
-                    and previous_avatar_id != active_avatar_id
-                )
-                overlap_source = self.previous_audio_tail
-                if use_transition_render:
-                    overlap_source = None
-                requested_start_timeline_idx = None
-                render_started_at = time.time()
-                if is_first_reply_chunk:
-                    shared_state.append_musetalk_preview_log(
-                        f"🕒 [MuseTalkStartup] First chunk render start {chunk_id}: "
-                        f"avatar={active_avatar_id} emotion={self.current_emotion} "
-                        f"audio_path={os.path.basename(render_audio_path)}"
-                    )
-                    log_musetalk_memory_checkpoint(
-                        "first_chunk_render_start",
-                        chunk_id,
-                        {
-                            "avatar": active_avatar_id,
-                            "emotion": self.current_emotion,
-                            "audio_path": os.path.basename(render_audio_path),
-                        },
-                    )
-                if is_first_reply_chunk and not use_transition_render:
-                    requested_start_timeline_idx = self._plan_first_chunk_idle_window(active_avatar_id)
-                    if requested_start_timeline_idx is not None:
-                        result_holder["start_index"] = int(requested_start_timeline_idx)
-
-                if use_transition_render:
-                    audio_segment = AudioSegment.from_wav(render_audio_path)
-                    transition_indices_full = list(
-                        range(
-                            int(transition_rule["start_frame"]),
-                            int(transition_rule["end_frame"]) - 1,
-                            -1,
-                        )
-                    )
-                    max_transition_frames = max(1, int((len(audio_segment) / 1000.0) * self.fps))
-                    transition_indices = transition_indices_full[:max_transition_frames]
-                    transition_ms = int(round((len(transition_indices) / max(self.fps, 1)) * 1000))
-
-                    frame_dirs_to_merge = []
-                    total_render_seconds = 0.0
-
-                    if transition_indices:
-                        transition_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_transition.wav")
-                        temp_audio_paths.append(transition_audio_path)
-                        audio_segment[:transition_ms].export(transition_audio_path, format="wav")
-                        transition_chunk_id = f"{chunk_id}_transition"
-                        transition_result = _request_render(
-                            previous_avatar_id,
-                            transition_chunk_id,
-                            transition_audio_path,
-                            reset=False,
-                            timeline_indices=transition_indices,
-                        )
-                        frame_dirs_to_merge.append(transition_result.get("frame_dir"))
-                        total_render_seconds += float(transition_result.get("render_seconds", 0.0) or 0.0)
-
-                    remainder_audio = audio_segment[transition_ms:]
-                    if len(remainder_audio) > 0:
-                        default_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_default.wav")
-                        temp_audio_paths.append(default_audio_path)
-                        remainder_audio.export(default_audio_path, format="wav")
-                        default_chunk_id = f"{chunk_id}_default"
-                        default_result = _request_render(
-                            active_avatar_id,
-                            default_chunk_id,
-                            default_audio_path,
-                            reset=True,
-                        )
-                        frame_dirs_to_merge.append(default_result.get("frame_dir"))
-                        total_render_seconds += float(default_result.get("render_seconds", 0.0) or 0.0)
-
-                    merged_frame_count = _merge_frame_dirs(frame_dirs_to_merge, frame_dir)
-                    result = {
-                        "frame_dir": frame_dir,
-                        "frame_count": merged_frame_count,
-                        "fps": self.fps,
-                        "render_seconds": total_render_seconds,
-                        "start_index": 0,
-                    }
-                else:
-                    request_audio_path = render_audio_path
-                    if overlap_source is not None and len(overlap_source) > 0:
-                        current_audio = AudioSegment.from_wav(render_audio_path)
-                        combined_audio = overlap_source + current_audio
-                        overlap_audio_path = os.path.join(staged_audio_dir, f"{chunk_id}_overlap.wav")
-                        temp_audio_paths.append(overlap_audio_path)
-                        combined_audio.export(overlap_audio_path, format="wav")
-                        request_audio_path = overlap_audio_path
-                        combined_count_result = self.bridge.request(
-                            {
-                                "action": "estimate_frame_count",
-                                "avatar_id": active_avatar_id,
-                                "avatar_path_override": self._avatar_path_override_for_id(active_avatar_id),
-                                "audio_path": overlap_audio_path,
-                                "fps": self.fps,
-                            },
-                            timeout=120,
-                        )
-                        current_count_result = self.bridge.request(
-                            {
-                                "action": "estimate_frame_count",
-                                "avatar_id": active_avatar_id,
-                                "avatar_path_override": self._avatar_path_override_for_id(active_avatar_id),
-                                "audio_path": render_audio_path,
-                                "fps": self.fps,
-                            },
-                            timeout=120,
-                        )
-                        trim_start_frames = max(
-                            0,
-                            int(combined_count_result.get("frame_count", 0) or 0)
-                            - int(current_count_result.get("frame_count", 0) or 0),
-                        )
-                        print(
-                            f"🪡 [MuseTalk] Applying {len(overlap_source)} ms overlap "
-                            f"({trim_start_frames} frame(s)) to {chunk_id}"
-                        )
-                        result_holder["trim_start_frames"] = trim_start_frames
-                    result = _request_render(
-                        active_avatar_id,
-                        chunk_id,
-                        request_audio_path,
-                        reset=reset_timeline,
-                        overlap_prefix_frames=trim_start_frames,
-                        start_timeline_idx=requested_start_timeline_idx,
-                    )
-                result_holder.update(result)
-                result_holder["trim_start_frames"] = trim_start_frames
-                result_holder["avatar_id"] = active_avatar_id
-                result_holder["sequence_index"] = sequence_index
-                result_holder["generation"] = job_generation
-                shared_state.update_musetalk_pipeline_chunk(
-                    sequence_index,
-                    status="rendered",
-                    expected_frame_count=int(result.get("frame_count", 0) or 0),
-                    chunk_id=chunk_id,
-                )
-                if is_first_reply_chunk:
-                    measured_ready_delay = time.time() - render_started_at
-                    self._record_first_chunk_delay(measured_ready_delay)
-                    self._record_first_chunk_seconds_per_frame(
-                        measured_ready_delay,
-                        int(result.get("frame_count", 0) or 0),
-                    )
-                    seconds_per_frame = 0.0
-                    frame_count = int(result.get("frame_count", 0) or 0)
-                    if frame_count > 0:
-                        seconds_per_frame = measured_ready_delay / frame_count
-                    shared_state.append_musetalk_preview_log(
-                        f"🕒 [MuseTalkStartup] First chunk render ready {chunk_id}: "
-                        f"ready_in={measured_ready_delay * 1000.0:.1f} ms "
-                        f"frames={int(result.get('frame_count', 0) or 0)} "
-                        f"spf_ms={seconds_per_frame * 1000.0:.2f} "
-                        f"start_index={int(result.get('start_index', 0) or 0)} "
-                        f"trim={trim_start_frames}"
-                    )
-                    log_musetalk_memory_checkpoint(
-                        "first_chunk_render_ready",
-                        chunk_id,
-                        {
-                            "ready_ms": round(measured_ready_delay * 1000.0, 1),
-                            "frames": int(result.get("frame_count", 0) or 0),
-                            "spf_ms": round(seconds_per_frame * 1000.0, 2),
-                            "start_index": int(result.get("start_index", 0) or 0),
-                            "trim": trim_start_frames,
-                        },
-                    )
-                    dry_run.record_reply_metric(
-                        dry_run_reply_id,
-                        "first_chunk_render_ready_ms",
-                        round(measured_ready_delay * 1000.0, 1),
-                    )
-                    dry_run.record_reply_metric(
-                        dry_run_reply_id,
-                        "first_chunk_spf_ms",
-                        round(seconds_per_frame * 1000.0, 2),
-                    )
-                    dry_run.record_reply_metric(
-                        dry_run_reply_id,
-                        "first_chunk_frame_count",
-                        int(result.get("frame_count", 0) or 0),
-                    )
-                current_audio = AudioSegment.from_wav(render_audio_path)
-                self.previous_audio_tail = current_audio[-MUSE_RENDER_OVERLAP_MS:] if len(current_audio) > 0 else None
-                print(
-                    f"🎞️ [MuseTalk] Chunk {chunk_id}: "
-                    f"{result.get('frame_count', 0)} frame(s) at {result.get('fps', self.fps)} fps "
-                    f"in {result.get('render_seconds', 0):.2f}s "
-                    f"[avatar={active_avatar_id}, emotion={self.current_emotion}]"
-                )
-            except Exception as e:
-                print(f"⚠️ [MuseTalk] Render failed: {e}")
-            finally:
-                if has_render_turn:
-                    with self.render_order_condition:
-                        if render_order == self.active_render_order:
-                            self.active_render_order += 1
-                        self.render_order_condition.notify_all()
-                try:
-                    self.render_slots.release()
-                except Exception:
-                    pass
-                safe_delete_with_retry(render_audio_path)
-                for temp_audio_path in temp_audio_paths:
-                    safe_delete_with_retry(temp_audio_path)
-                ready_event.set()
-
-        try:
-            threading.Thread(target=render_job, daemon=True).start()
-            return {
-                "ok": True,
-                "kind": "musetalk",
-                "frame_paths": [],
-                "frame_dir": frame_dir,
-                "fps": self.fps,
-                "chunk_id": chunk_id,
-                "ready_event": ready_event,
-                "result_holder": result_holder,
-                "avatar_id": active_avatar_id,
-                "sequence_index": sequence_index,
-            }
-        except Exception as e:
-            print(f"⚠️ [MuseTalk] Render failed: {e}")
-            return {"ok": False, "kind": "musetalk"}
-
-    def get_idle_payload(self, avatar_id=None):
-        target_avatar_id = avatar_id or self.avatar_id or self.default_avatar_id
-        self._ensure_avatar_prepared(target_avatar_id, allow_missing=False)
-        avatar_path = self.prepared_avatars.get(target_avatar_id)
-        if not avatar_path:
-            return None
-
-        try:
-            result = self.bridge.request(
-                {
-                    "action": "get_idle_payload",
-                    "avatar_id": target_avatar_id,
-                    "avatar_path_override": self._avatar_path_override_for_id(target_avatar_id),
-                    "fps": self.fps,
-                },
-                timeout=30,
-            )
-        except Exception as e:
-            print(f"⚠️ [MuseTalk] Idle payload failed: {e}")
-            return None
-
-        self._set_active_avatar(target_avatar_id)
-        return {
-            "frame_paths": result.get("ordered_frame_paths", result.get("frame_paths", [])),
-            "frame_dir": result.get("frame_dir", ""),
-            "fps": result.get("fps", self.fps),
-            "sync_time": time.time(),
-            "chunk_id": "idle",
-            "text": "",
-            "status": "idle",
-            "loop": True,
-            "avatar_id": target_avatar_id,
-            "start_index": int(result.get("start_index", 0) or 0),
-            "frame_count": int(result.get("frame_count", 0) or len(result.get("ordered_frame_paths", result.get("frame_paths", [])))),
-        }
 
 # ============================================================================
 # ENTRY POINT (Refactored for GUI)
@@ -7847,14 +5958,7 @@ def run_companion(config_override=None):
 
     print(f"🔌 Connecting to Avatar Engine: {avatar_mode.upper()}...")
     try:
-        if avatar_mode == "none":
-            avatar_gui = None
-        elif avatar_mode == "musetalk":
-            avatar_gui = MuseTalkAdapter()
-        elif avatar_mode == "vam":
-            avatar_gui = VaMAdapter()
-        else:
-            avatar_gui = VSeeFaceAdapter()
+        avatar_gui = create_avatar_adapter_for_mode(avatar_mode)
 
         if avatar_gui is not None:
             avatar_gui.start()

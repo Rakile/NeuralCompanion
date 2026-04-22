@@ -1,0 +1,10 @@
+{
+  "id": "nc.vam_avatar",
+  "name": "VaM Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Virt-A-Mate avatar bridge provider.",
+  "permissions": [],
+  "enabled": true
+}

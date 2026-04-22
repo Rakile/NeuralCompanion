@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import sensory, chat_providers
+from core import avatar_runtime, sensory, chat_providers
 import shared_state
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -96,12 +96,48 @@ class QtVisualReplyService:
         import engine
 
         runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+        theme_presets = list(getattr(engine, "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
+        raw_theme_prompts = runtime.get("visual_reply_story_theme_prompts", {})
+        if not isinstance(raw_theme_prompts, dict):
+            raw_theme_prompts = {}
+        raw_theme_enabled = runtime.get("visual_reply_story_theme_enabled", [])
+        if isinstance(raw_theme_enabled, (str, bytes)):
+            raw_theme_enabled = [raw_theme_enabled]
+        if not isinstance(raw_theme_enabled, (list, tuple, set)):
+            raw_theme_enabled = []
+        theme_enabled = {str(item or "").strip().lower() for item in raw_theme_enabled}
+        try:
+            story_max_images = max(1, int(runtime.get("visual_reply_story_max_images", 3) or 3))
+        except Exception:
+            story_max_images = 3
+        try:
+            story_continuity_strength = float(runtime.get("visual_reply_story_continuity_strength", 0.8) or 0.8)
+        except Exception:
+            story_continuity_strength = 0.8
+        if story_continuity_strength > 1.0:
+            story_continuity_strength = story_continuity_strength / 100.0
+        story_continuity_strength = max(0.0, min(1.0, story_continuity_strength))
         return {
             "mode_value": str(runtime.get("visual_reply_mode", "auto") or "auto"),
             "provider_value": str(runtime.get("visual_reply_provider", "openai") or "openai"),
             "size_value": str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024"),
             "model_name": str(runtime.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
             "auto_show": bool(runtime.get("visual_reply_auto_show_dock", True)),
+            "master_prompt_safe": bool(runtime.get("visual_reply_master_prompt_safe", False)),
+            "master_prompt_no_speech_bubbles": bool(runtime.get("visual_reply_master_prompt_no_speech_bubbles", False)),
+            "story_mode": bool(runtime.get("visual_reply_story_mode", False)),
+            "story_max_images": story_max_images,
+            "story_continuity_strength": story_continuity_strength,
+            "story_themes": [
+                {
+                    "id": str(theme.get("id") or "").strip().lower(),
+                    "label": str(theme.get("label") or theme.get("id") or "").strip(),
+                    "prompt": str(raw_theme_prompts.get(str(theme.get("id") or "").strip().lower(), theme.get("prompt", "")) or theme.get("prompt", "")).strip(),
+                    "enabled": str(theme.get("id") or "").strip().lower() in theme_enabled,
+                }
+                for theme in theme_presets
+                if str(theme.get("id") or "").strip()
+            ],
         }
 
     def mode_labels(self):
@@ -134,6 +170,12 @@ class QtVisualReplyService:
         model_edit,
         auto_show_checkbox,
         hint_label,
+        story_mode_button=None,
+        story_max_images_spin=None,
+        story_continuity_slider=None,
+        story_continuity_value_label=None,
+        story_theme_buttons=None,
+        story_theme_edits=None,
     ) -> None:
         self._window.visual_reply_mode_combo = mode_combo
         self._window.visual_reply_provider_combo = provider_combo
@@ -141,6 +183,18 @@ class QtVisualReplyService:
         self._window.visual_reply_model_edit = model_edit
         self._window.visual_reply_auto_show_checkbox = auto_show_checkbox
         self._window.visual_reply_hint = hint_label
+        if story_mode_button is not None:
+            self._window.visual_reply_story_mode_button = story_mode_button
+        if story_max_images_spin is not None:
+            self._window.visual_reply_story_max_images_spin = story_max_images_spin
+        if story_continuity_slider is not None:
+            self._window.visual_reply_story_continuity_slider = story_continuity_slider
+        if story_continuity_value_label is not None:
+            self._window.visual_reply_story_continuity_value_label = story_continuity_value_label
+        if story_theme_buttons is not None:
+            self._window.visual_reply_story_theme_buttons = dict(story_theme_buttons or {})
+        if story_theme_edits is not None:
+            self._window.visual_reply_story_theme_edits = dict(story_theme_edits or {})
 
     def apply_mode(self, choice: str) -> None:
         self._window.on_visual_reply_mode_changed(choice)
@@ -156,6 +210,21 @@ class QtVisualReplyService:
 
     def apply_auto_show(self, checked: bool) -> None:
         self._window.on_visual_reply_auto_show_changed(bool(checked))
+
+    def apply_story_mode(self, checked: bool) -> None:
+        self._window.on_visual_reply_story_mode_changed(bool(checked))
+
+    def apply_story_max_images(self, value: int) -> None:
+        self._window.on_visual_reply_story_max_images_changed(int(value))
+
+    def apply_story_continuity_strength(self, value: int) -> None:
+        self._window.on_visual_reply_story_continuity_strength_changed(int(value))
+
+    def apply_story_theme_toggle(self, theme_id: str, checked: bool) -> None:
+        self._window.on_visual_reply_story_theme_toggled(str(theme_id or ""), bool(checked))
+
+    def apply_story_theme_text(self, theme_id: str, text: str) -> None:
+        self._window.on_visual_reply_story_theme_text_changed(str(theme_id or ""), str(text or ""))
 
     def refresh_hint(self) -> None:
         self._window._refresh_visual_reply_hint()
@@ -345,6 +414,47 @@ class QtChatProviderService:
     def get_provider_setting(self, provider_id: str, field_id: str):
         return chat_providers.get_provider_setting(provider_id, field_id)
 
+
+class QtAvatarProviderService:
+    def __init__(self, window):
+        self._window = window
+
+    def _refresh_ui(self, selected_provider_id: str | None = None):
+        refresh = getattr(self._window, "refresh_avatar_engine_options", None)
+        if callable(refresh):
+            refresh(selected_provider_id=selected_provider_id)
+
+    def register_provider(
+        self,
+        *,
+        provider_id: str,
+        label: str,
+        factory,
+        description: str = "",
+        order: int = 1000,
+        metadata: dict | None = None,
+    ):
+        provider = avatar_runtime.register_provider(
+            provider_id=provider_id,
+            label=label,
+            factory=factory,
+            description=description,
+            order=order,
+            metadata=metadata,
+        )
+        self._refresh_ui(getattr(provider, "id", ""))
+        return provider.to_summary()
+
+    def unregister_provider(self, provider_id: str) -> bool:
+        removed = bool(avatar_runtime.unregister_provider(provider_id))
+        if removed:
+            self._refresh_ui()
+        return removed
+
+    def list_providers(self):
+        return [provider.to_summary() for provider in avatar_runtime.list_providers()]
+
+
 class QtChatReplayService:
     def __init__(self, window):
         self._window = window
@@ -506,7 +616,3 @@ class QtMuseTalkUIService:
         preview_widget = self._preview_widget()
         if preview_widget is not None and hasattr(preview_widget, "clear_debug_mask_editor"):
             preview_widget.clear_debug_mask_editor()
-
-
-
-

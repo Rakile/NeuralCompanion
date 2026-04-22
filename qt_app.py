@@ -2701,9 +2701,9 @@ except Exception:
 
 import engine
 import shared_state
-from core import sensory, chat_providers
+from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -6545,7 +6545,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.engine_combo = NoWheelComboBox()
         self.engine_combo.setObjectName("engine_combo")
-        self.engine_combo.addItems(["VSeeFace", "MuseTalk", "VaM", "None"])
+        self.refresh_avatar_engine_options()
         self.engine_combo.currentTextChanged.connect(self.on_engine_change)
 
         self.input_mode_combo = NoWheelComboBox()
@@ -6898,6 +6898,67 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         workspace_outer_layout.addWidget(self.tabs, 1)
 
         return shaping_panel, workspace_panel
+
+    def _avatar_provider_options(self):
+        legacy = {
+            "vseeface": {"id": "vseeface", "label": "VSeeFace", "order": 100},
+            "musetalk": {"id": "musetalk", "label": "MuseTalk", "order": 200},
+            "vam": {"id": "vam", "label": "VaM", "order": 300},
+            "none": {"id": "none", "label": "None", "order": 900},
+        }
+        for provider in avatar_runtime.list_providers():
+            summary = provider.to_summary()
+            provider_id = str(summary.get("id") or "").strip().lower()
+            if provider_id:
+                legacy[provider_id] = summary
+        return sorted(
+            legacy.values(),
+            key=lambda item: (int(item.get("order", 1000) or 1000), str(item.get("label", "")).lower()),
+        )
+
+    def _avatar_mode_value_from_label(self, label):
+        raw = str(label or "").strip()
+        legacy = {
+            "vseeface": "vseeface",
+            "musetalk": "musetalk",
+            "vam": "vam",
+            "none": "none",
+        }
+        return legacy.get(raw.lower(), raw.lower())
+
+    def _current_avatar_mode_value(self):
+        combo = getattr(self, "engine_combo", None)
+        if combo is None:
+            return str(RUNTIME_CONFIG.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
+        data = combo.currentData()
+        if data:
+            return str(data).strip().lower()
+        return self._avatar_mode_value_from_label(combo.currentText())
+
+    def refresh_avatar_engine_options(self, selected_provider_id=None):
+        combo = getattr(self, "engine_combo", None)
+        if combo is None:
+            return
+        selected = str(
+            selected_provider_id
+            or self._current_avatar_mode_value()
+            or RUNTIME_CONFIG.get("avatar_mode", "vseeface")
+            or "vseeface"
+        ).strip().lower()
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            for provider in self._avatar_provider_options():
+                provider_id = str(provider.get("id") or "").strip().lower()
+                label = str(provider.get("label") or provider_id).strip() or provider_id
+                combo.addItem(label, provider_id)
+            index = combo.findData(selected)
+            if index < 0:
+                index = combo.findText(selected, QtCore.Qt.MatchFixedString)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        finally:
+            combo.blockSignals(False)
 
     def _build_runtime_shell_tab(self):
         tab = QtWidgets.QWidget()
@@ -8552,7 +8613,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _build_addon_avatar_snapshot(self):
         return {
-            "engine": self.engine_combo.currentText() if hasattr(self, "engine_combo") else "",
+            "engine": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
             "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
             "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
             "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
@@ -8587,6 +8648,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     "qt.shell": QtShellService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
+                    "qt.avatar_providers": QtAvatarProviderService(self),
                     "qt.sensory": QtSensoryService(self),
                     "qt.chat_providers": QtChatProviderService(self),
                     "qt.chat_replay": QtChatReplayService(self),
@@ -11163,7 +11225,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _build_current_performance_override(self, include_chunking=True):
         override = {
-            "avatar_mode": self.engine_combo.currentText().lower(),
+            "avatar_mode": self._current_avatar_mode_value(),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
@@ -11507,7 +11569,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         return f"{float(value):.1f}"
 
     def apply_text_config(self):
-        avatar_mode = self.engine_combo.currentText().lower() if hasattr(self, "engine_combo") else str(RUNTIME_CONFIG.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(RUNTIME_CONFIG.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
         mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
         role = self._input_role_value_from_label(self.input_role_combo.currentText())
         stream_mode = self.stream_mode_combo.currentText() == "On"
@@ -11587,7 +11649,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         print(f"[QtGUI] Control action: {action}")
 
     def on_engine_change(self, choice):
-        mode = choice.lower()
+        mode = self._current_avatar_mode_value()
         update_runtime_config("avatar_mode", mode)
         if mode == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox") and not self.vam_play_audio_in_vam_checkbox.isChecked():
             self.vam_play_audio_in_vam_checkbox.setChecked(True)
@@ -11616,7 +11678,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_session()
 
     def toggle_live_sync(self, checked):
-        if self.engine_combo.currentText() != "VSeeFace":
+        if self._current_avatar_mode_value() != "vseeface":
             return
         engine.FORCE_EDIT_MODE = not checked
         status = "LIVE (Brain Controlled)" if checked else "EDITING (Manual)"
@@ -11890,7 +11952,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "lm_studio_running": bool(getattr(self, "_tutorial_lm_studio_running", False)),
             "model_loaded": self._tutorial_model_loaded(),
             "engine_running": bool(self.thread and self.thread.is_alive()),
-            "avatar_mode": self.engine_combo.currentText() if hasattr(self, "engine_combo") else "",
+            "avatar_mode": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
             "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
             "tts_backend": self._current_tts_backend_value(),
             "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
@@ -12018,7 +12080,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         }
 
     def _estimate_setup_increment_gib(self):
-        avatar_mode = str(self.engine_combo.currentText() or "").strip().lower() if hasattr(self, "engine_combo") else "musetalk"
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
         tts_backend = self._current_tts_backend_value()
         vram_mode_label = str(self.musetalk_vram_combo.currentText() or "").strip() if hasattr(self, "musetalk_vram_combo") else "Very Low VRAM"
 
@@ -12822,7 +12884,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.hand_doctor_dialog = dialog
 
     def show_musetalk_preview(self):
-        if self.engine_combo.currentText() != "MuseTalk":
+        if self._current_avatar_mode_value() != "musetalk":
             return
         if self._musetalk_avatar_focus_active:
             stage_window = self._ensure_musetalk_stage_window()
@@ -12846,7 +12908,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         print("[QtGUI] MuseTalk preview dock shown.")
 
     def enter_musetalk_avatar_focus(self):
-        if self.engine_combo.currentText() != "MuseTalk":
+        if self._current_avatar_mode_value() != "musetalk":
             return
         self._musetalk_avatar_focus_active = True
         self._musetalk_main_window_was_maximized = bool(self.isMaximized())
@@ -13027,7 +13089,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if self.thread and self.thread.is_alive():
             return
         self._publish_addon_event("runtime.heavy_task_starting", {"source": "engine_start"})
-        mode = self.engine_combo.currentText().lower()
+        mode = self._current_avatar_mode_value()
         update_runtime_config("avatar_mode", mode)
         self.apply_text_config()
         config = {
@@ -13394,7 +13456,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return
         session = {
             "first_run": bool(self.first_run),
-            "avatar_mode": self.engine_combo.currentText(),
+            "avatar_mode": self._current_avatar_mode_value(),
             "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
@@ -13541,7 +13603,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if isinstance(engine_choice, str) and engine_choice.strip().lower() == "lam":
                 engine_choice = "MuseTalk"
             if engine_choice:
-                index = self.engine_combo.findText(engine_choice)
+                index = self.engine_combo.findData(str(engine_choice).strip().lower())
+                if index < 0:
+                    index = self.engine_combo.findText(engine_choice)
                 if index >= 0:
                     self.engine_combo.setCurrentIndex(index)
             if str(engine_choice or "").strip().lower() == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox"):

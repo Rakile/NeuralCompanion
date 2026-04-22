@@ -1,0 +1,10 @@
+{
+  "id": "nc.musetalk_avatar",
+  "name": "MuseTalk Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "MuseTalk avatar engine provider.",
+  "permissions": [],
+  "enabled": true
+}
