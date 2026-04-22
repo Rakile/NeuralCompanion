@@ -36,22 +36,16 @@ import re
 import random
 import math
 from pythonosc import udp_client
-import keyboard
-try:
-    from pynput import keyboard as pynput_keyboard
-except Exception:
-    pynput_keyboard = None
 import abc
 import shutil
 import json
 import uuid
 import gc
 import importlib
-from dataclasses import dataclass, field
 import dry_run
 import app_help
 import shared_state
-from core import sensory, chat_providers
+from core import sensory, chat_providers, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, speech_text, streaming_text, text_chunking, text_tags, visual_reply_runtime
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
 from pydub import AudioSegment
@@ -178,34 +172,23 @@ MUSE_MAX_INFLIGHT_RENDERS = 3
 MUSE_FIRST_CHUNK_IDLE_WINDOW = 48
 MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS = 2.0
 MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT = 8
-STREAM_FIRST_CHUNK_MIN_CHARS = 28
-STREAM_FORCE_FLUSH_SECONDS = 0.9
-STREAM_FORCE_FLUSH_LATER_SECONDS = 1.4
-STREAM_FIRST_CHUNK_PLAN_SECONDS = 1.25
-STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS = 0.75
-STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS = 0.6
+STREAM_FIRST_CHUNK_MIN_CHARS = streaming_text.STREAM_FIRST_CHUNK_MIN_CHARS
+STREAM_FORCE_FLUSH_SECONDS = streaming_text.STREAM_FORCE_FLUSH_SECONDS
+STREAM_FORCE_FLUSH_LATER_SECONDS = streaming_text.STREAM_FORCE_FLUSH_LATER_SECONDS
+STREAM_FIRST_CHUNK_PLAN_SECONDS = streaming_text.STREAM_FIRST_CHUNK_PLAN_SECONDS
+STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS = streaming_text.STREAM_FIRST_CHUNK_PLAN_SYNC_MAX_SECONDS
+STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS = streaming_text.STREAM_FIRST_CHUNK_IDLE_SYNC_MAX_SECONDS
 MUSE_DIAGNOSTIC_LOGGING = False
-STREAM_TINY_TAIL_CHARS = 18
-STREAM_WHITESPACE_FALLBACK_MARGIN = 24
-STREAM_POST_TARGET_PUNCTUATION_MARGIN = 18
-STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS = 0.45
-STREAM_CLAUSE_FALLBACK_MARGIN = 40
-STREAM_CLAUSE_FALLBACK_MIN_SCORE = 1.15
-STREAM_CLAUSE_FALLBACK_WAIT_SECONDS = 0.85
+STREAM_TINY_TAIL_CHARS = streaming_text.STREAM_TINY_TAIL_CHARS
+STREAM_WHITESPACE_FALLBACK_MARGIN = streaming_text.STREAM_WHITESPACE_FALLBACK_MARGIN
+STREAM_POST_TARGET_PUNCTUATION_MARGIN = streaming_text.STREAM_POST_TARGET_PUNCTUATION_MARGIN
+STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS = streaming_text.STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS
+STREAM_CLAUSE_FALLBACK_MARGIN = streaming_text.STREAM_CLAUSE_FALLBACK_MARGIN
+STREAM_CLAUSE_FALLBACK_MIN_SCORE = streaming_text.STREAM_CLAUSE_FALLBACK_MIN_SCORE
+STREAM_CLAUSE_FALLBACK_WAIT_SECONDS = streaming_text.STREAM_CLAUSE_FALLBACK_WAIT_SECONDS
 
-STREAM_CLAUSE_STARTERS = {
-    "and", "but", "so", "then", "because", "though", "although", "however",
-    "instead", "meanwhile", "afterward", "afterwards", "therefore", "thus",
-    "still", "yet", "while", "when", "where", "if", "since", "before",
-    "once", "unless", "except", "plus", "also", "besides", "meanwhile",
-}
-STREAM_BAD_ENDING_WORDS = {
-    "a", "an", "and", "as", "at", "because", "but", "by", "for", "from",
-    "if", "in", "into", "of", "on", "or", "so", "than", "that", "the",
-    "this", "those", "through", "to", "under", "until", "with", "without",
-    "while", "which", "who", "whom", "whose", "your", "our", "their", "my",
-    "his", "her", "its",
-}
+STREAM_CLAUSE_STARTERS = streaming_text.STREAM_CLAUSE_STARTERS
+STREAM_BAD_ENDING_WORDS = streaming_text.STREAM_BAD_ENDING_WORDS
 
 # Voice activation settings
 ENERGY_THRESHOLD = 500
@@ -215,328 +198,25 @@ NON_SPEAKING_DURATION = 0.35
 PHRASE_THRESHOLD = 0.2
 AMBIENT_CALIBRATION_SECONDS = 0.6
 BARGE_IN_THRESHOLD = 500
-DEFAULT_PUSH_TO_TALK_HOTKEY = "Right Ctrl"
-DEFAULT_MANUAL_ACTION_HOTKEYS = {
-    "regenerate_response": "Alt+R",
-    "retry_user_input": "Alt+Y",
-    "pause_speech": "Alt+P",
-    "skip_speech": "Alt+Enter",
-    "skip_user_reply": "Alt+U",
-    "replay_last_assistant": "Alt+L",
-    "replay_chat_session": "Alt+J",
-}
-DEFAULT_UI_ACTION_HOTKEYS = {
-    "start_engine": "",
-    "stop_engine": "",
-    "reset_chat_session": "",
-    "clear_console": "",
-    "clear_chat": "",
-    "show_musetalk_preview": "",
-    "toggle_musetalk_avatar_focus": "",
-    "show_visual_reply": "",
-    "start_vam_desktop": "",
-    "start_vam_vr": "",
-}
-HOTKEY_ACTION_LABELS = {
-    "push_to_talk": "Push-to-Talk",
-    "regenerate_response": "Regenerate Response",
-    "retry_user_input": "Retry Input",
-    "pause_speech": "Pause / Resume Speech",
-    "skip_speech": "Skip Speech",
-    "skip_user_reply": "Skip User Reply",
-    "replay_last_assistant": "Replay Last Assistant Reply",
-    "replay_chat_session": "Replay Chat Session",
-    "start_engine": "Start Engine",
-    "stop_engine": "Stop Engine",
-    "reset_chat_session": "Reset Chat Memory",
-    "clear_console": "Clear Console",
-    "clear_chat": "Clear Chat",
-    "show_musetalk_preview": "Show MuseTalk Preview",
-    "toggle_musetalk_avatar_focus": "Toggle MuseTalk Avatar Focus",
-    "show_visual_reply": "Show Visual Reply",
-    "start_vam_desktop": "Start VaM Desktop",
-    "start_vam_vr": "Start VaM VR",
-}
-PYNPUT_HOTKEY_AVAILABLE = pynput_keyboard is not None
-EXACT_HOTKEY_SCAN_CODES = {
-    "left ctrl": (29,),
-    "right ctrl": (3613,),
-    "left alt": (56,),
-    "right alt": (3640,),
-    "left shift": (42,),
-    "right shift": (54,),
-    "left enter": (28,),
-    "right enter": (3612,),
-    "enter": (28, 3612),
-    "left windows": (3675,),
-    "right windows": (3676,),
-}
-_pynput_hotkey_state_tracker = None
-
-
-if PYNPUT_HOTKEY_AVAILABLE:
-    PYNPUT_EXACT_KEY_NAMES = {
-        pynput_keyboard.Key.ctrl_l: "left ctrl",
-        pynput_keyboard.Key.ctrl_r: "right ctrl",
-        pynput_keyboard.Key.alt_l: "left alt",
-        pynput_keyboard.Key.alt_r: "right alt",
-        pynput_keyboard.Key.shift_l: "left shift",
-        pynput_keyboard.Key.shift_r: "right shift",
-        pynput_keyboard.Key.cmd_l: "left windows",
-        pynput_keyboard.Key.cmd_r: "right windows",
-        pynput_keyboard.Key.enter: "enter",
-    }
-else:
-    PYNPUT_EXACT_KEY_NAMES = {}
-
-
-def normalize_hotkey_text(value):
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    text = re.sub(r"\s*\+\s*", "+", text)
-    text = re.sub(r"\s+", " ", text)
-    return text
-
-
-def _hotkey_variants(binding_text):
-    text = normalize_hotkey_text(binding_text).lower()
-    if not text:
-        return ()
-    alias_groups = {
-        "right ctrl": ("right ctrl", "ctrl right", "right control", "control right"),
-        "ctrl right": ("right ctrl", "ctrl right", "right control", "control right"),
-        "right control": ("right ctrl", "ctrl right", "right control", "control right"),
-        "control right": ("right ctrl", "ctrl right", "right control", "control right"),
-        "left ctrl": ("left ctrl", "ctrl left", "left control", "control left"),
-        "ctrl left": ("left ctrl", "ctrl left", "left control", "control left"),
-        "left control": ("left ctrl", "ctrl left", "left control", "control left"),
-        "control left": ("left ctrl", "ctrl left", "left control", "control left"),
-        "ctrl": ("ctrl", "control"),
-        "control": ("ctrl", "control"),
-        "enter": ("enter", "return"),
-        "return": ("return", "enter"),
-    }
-    parts = [part.strip() for part in text.split("+") if str(part or "").strip()]
-    if not parts:
-        return ()
-    variants = [""]
-    for part in parts:
-        part_variants = alias_groups.get(part, (part,))
-        expanded = []
-        for prefix in variants:
-            for option in part_variants:
-                expanded.append(f"{prefix}+{option}" if prefix else option)
-        variants = expanded
-    return tuple(dict.fromkeys(item for item in variants if item))
-
-
-def _binding_parts(binding_text):
-    return [part.strip() for part in normalize_hotkey_text(binding_text).split("+") if str(part or "").strip()]
-
-
-def _scan_code_groups_for_binding(binding_text):
-    groups = []
-    for part in _binding_parts(binding_text):
-        lowered = normalize_hotkey_text(part).lower()
-        scan_codes = list(EXACT_HOTKEY_SCAN_CODES.get(lowered, ()))
-        if not scan_codes:
-            try:
-                scan_codes = list(keyboard.key_to_scan_codes(part))
-            except Exception:
-                scan_codes = []
-        normalized_codes = []
-        seen = set()
-        for code in scan_codes:
-            try:
-                value = int(code)
-            except Exception:
-                continue
-            if value in seen:
-                continue
-            seen.add(value)
-            normalized_codes.append(value)
-        groups.append(tuple(normalized_codes))
-    return tuple(groups)
-
-
-def canonicalize_pynput_key(key):
-    if not PYNPUT_HOTKEY_AVAILABLE:
-        return ""
-    try:
-        explicit = PYNPUT_EXACT_KEY_NAMES.get(key, "")
-        if explicit:
-            return explicit
-    except Exception:
-        pass
-    try:
-        if key == pynput_keyboard.Key.ctrl:
-            return "ctrl"
-        if key == pynput_keyboard.Key.alt:
-            return "alt"
-        if key == pynput_keyboard.Key.shift:
-            return "shift"
-        if key == pynput_keyboard.Key.cmd:
-            return "windows"
-    except Exception:
-        pass
-    try:
-        char = getattr(key, "char", None)
-        if char:
-            if len(char) == 1:
-                codepoint = ord(char)
-                if 1 <= codepoint <= 26:
-                    return chr(codepoint + 96)
-            return normalize_hotkey_text(char).lower()
-    except Exception:
-        pass
-    try:
-        vk = getattr(key, "vk", None)
-        if isinstance(vk, int):
-            if 65 <= vk <= 90:
-                return chr(vk + 32)
-            if 48 <= vk <= 57:
-                return chr(vk)
-    except Exception:
-        pass
-    try:
-        name = getattr(key, "name", None)
-        if name:
-            return normalize_hotkey_text(name).lower()
-    except Exception:
-        pass
-    return ""
-
-
-def _required_binding_part_matches(required, pressed_names):
-    required_name = normalize_hotkey_text(required).lower()
-    if not required_name:
-        return False
-    pressed = {normalize_hotkey_text(item).lower() for item in set(pressed_names or set()) if str(item or "").strip()}
-    alias_groups = {
-        "ctrl": {"ctrl", "control", "left ctrl", "right ctrl"},
-        "control": {"ctrl", "control", "left ctrl", "right ctrl"},
-        "alt": {"alt", "left alt", "right alt"},
-        "shift": {"shift", "left shift", "right shift"},
-        "windows": {"windows", "win", "left windows", "right windows"},
-        "win": {"windows", "win", "left windows", "right windows"},
-        "enter": {"enter", "left enter", "right enter", "return"},
-        "return": {"enter", "left enter", "right enter", "return"},
-    }
-    valid = alias_groups.get(required_name, {required_name})
-    return any(item in pressed for item in valid)
-
-
-def _binding_matches_pressed_names(binding_text, pressed_names):
-    parts = _binding_parts(binding_text)
-    if not parts:
-        return False
-    return all(_required_binding_part_matches(part, pressed_names) for part in parts)
-
-
-class _PynputHotkeyStateTracker:
-    def __init__(self):
-        self._lock = threading.Lock()
-        self._pressed = set()
-        self._listener = None
-
-    def start(self):
-        if not PYNPUT_HOTKEY_AVAILABLE:
-            return False
-        if self._listener is not None:
-            return True
-
-        def on_press(key):
-            name = canonicalize_pynput_key(key)
-            if not name:
-                return
-            with self._lock:
-                self._pressed.add(name)
-
-        def on_release(key):
-            name = canonicalize_pynput_key(key)
-            if not name:
-                return
-            with self._lock:
-                self._pressed.discard(name)
-
-        listener = pynput_keyboard.Listener(on_press=on_press, on_release=on_release)
-        listener.daemon = True
-        listener.start()
-        self._listener = listener
-        return True
-
-    def snapshot_pressed(self):
-        with self._lock:
-            return set(self._pressed)
-
-
-def _ensure_pynput_hotkey_state_tracker():
-    global _pynput_hotkey_state_tracker
-    if not PYNPUT_HOTKEY_AVAILABLE:
-        return None
-    if _pynput_hotkey_state_tracker is None:
-        tracker = _PynputHotkeyStateTracker()
-        if tracker.start():
-            _pynput_hotkey_state_tracker = tracker
-        else:
-            return None
-    return _pynput_hotkey_state_tracker
-
-
-def is_hotkey_binding_pressed(binding_text):
-    text = normalize_hotkey_text(binding_text)
-    if not text:
-        return False
-    tracker = _ensure_pynput_hotkey_state_tracker()
-    if tracker is not None:
-        pressed_names = tracker.snapshot_pressed()
-        if _binding_matches_pressed_names(text, pressed_names):
-            return True
-    scan_code_groups = _scan_code_groups_for_binding(text)
-    if scan_code_groups and all(group for group in scan_code_groups):
-        for group in scan_code_groups:
-            pressed = False
-            for scan_code in group:
-                try:
-                    if keyboard.is_pressed(scan_code):
-                        pressed = True
-                        break
-                except Exception:
-                    continue
-            if not pressed:
-                return False
-        return True
-    for key_name in _hotkey_variants(text):
-        try:
-            if keyboard.is_pressed(key_name):
-                return True
-        except Exception:
-            continue
-    return False
+keyboard = runtime_hotkeys.keyboard
+pynput_keyboard = runtime_hotkeys.pynput_keyboard
+DEFAULT_PUSH_TO_TALK_HOTKEY = runtime_hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY
+DEFAULT_MANUAL_ACTION_HOTKEYS = runtime_hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS
+DEFAULT_UI_ACTION_HOTKEYS = runtime_hotkeys.DEFAULT_UI_ACTION_HOTKEYS
+HOTKEY_ACTION_LABELS = runtime_hotkeys.HOTKEY_ACTION_LABELS
+PYNPUT_HOTKEY_AVAILABLE = runtime_hotkeys.PYNPUT_HOTKEY_AVAILABLE
+EXACT_HOTKEY_SCAN_CODES = runtime_hotkeys.EXACT_HOTKEY_SCAN_CODES
+normalize_hotkey_text = runtime_hotkeys.normalize_hotkey_text
+canonicalize_pynput_key = runtime_hotkeys.canonicalize_pynput_key
+is_hotkey_binding_pressed = runtime_hotkeys.is_hotkey_binding_pressed
 
 
 def _normalize_manual_action_hotkeys(raw):
-    result = dict(DEFAULT_MANUAL_ACTION_HOTKEYS)
-    if isinstance(raw, dict):
-        for action, binding in raw.items():
-            key = str(action or "").strip()
-            if key not in DEFAULT_MANUAL_ACTION_HOTKEYS:
-                continue
-            normalized = normalize_hotkey_text(binding)
-            result[key] = normalized
-    return result
+    return runtime_hotkeys.normalize_manual_action_hotkeys(raw)
 
 
 def _normalize_ui_action_hotkeys(raw):
-    result = dict(DEFAULT_UI_ACTION_HOTKEYS)
-    if isinstance(raw, dict):
-        for action, binding in raw.items():
-            key = str(action or "").strip()
-            if key not in DEFAULT_UI_ACTION_HOTKEYS:
-                continue
-            result[key] = normalize_hotkey_text(binding)
-    return result
+    return runtime_hotkeys.normalize_ui_action_hotkeys(raw)
 
 
 def get_push_to_talk_hotkey():
@@ -722,83 +402,50 @@ def _env_json_dict(name, default):
 
 
 def _normalized_abs_path(raw_path):
-    return os.path.abspath(os.path.expanduser(str(raw_path or "").strip()))
+    return runtime_paths.normalized_abs_path(raw_path)
 
 
 def _path_endswith_parts(path_value, *parts):
-    try:
-        normalized = Path(_normalized_abs_path(path_value))
-    except Exception:
-        return False
-    expected = tuple(str(part).lower() for part in parts)
-    actual = tuple(part.lower() for part in normalized.parts[-len(expected):])
-    return bool(expected) and actual == expected
+    return runtime_paths.path_endswith_parts(path_value, *parts)
 
 
 def _detect_default_vam_root():
-    env_root = str(os.environ.get("NC_VAM_ROOT", "") or "").strip()
-    if env_root:
-        return _normalized_abs_path(env_root)
-
-    candidates = [
-        Path("D:/tools/python_scripts/VaM 1.20.0.6"),
-        Path(__file__).resolve().parent.parent / "VaM 1.20.0.6",
-        Path(__file__).resolve().parent.parent / "VaM",
-    ]
-    for candidate in candidates:
-        try:
-            if candidate.exists():
-                return str(candidate.resolve())
-        except Exception:
-            continue
-    return ""
+    return runtime_paths.detect_default_vam_root(app_root=Path(__file__).resolve().parent, environ=os.environ)
 
 
 def derive_vam_bridge_root(vam_root):
-    normalized_root = _normalized_abs_path(vam_root) if str(vam_root or "").strip() else ""
-    if not normalized_root:
-        return _normalized_abs_path(Path(__file__).resolve().parent / "runtime" / "vam_bridge")
-    return _normalized_abs_path(Path(normalized_root) / "Custom" / "PluginData" / "NeuralCompanionBridge")
+    return runtime_paths.derive_vam_bridge_root(vam_root, app_root=Path(__file__).resolve().parent)
 
 
 def derive_vam_plugin_dir(vam_root):
-    normalized_root = _normalized_abs_path(vam_root) if str(vam_root or "").strip() else ""
-    if not normalized_root:
-        return ""
-    return _normalized_abs_path(Path(normalized_root) / "Custom" / "Scripts" / "NeuralCompanionBridge")
+    return runtime_paths.derive_vam_plugin_dir(vam_root)
 
 
 DEFAULT_VAM_ROOT = _detect_default_vam_root()
 
 
 LEGACY_VAM_BRIDGE_ROOTS = tuple(
-    dict.fromkeys(
-        [
-            _normalized_abs_path("D:/tools/python_scripts/VaM 1.20.0.6/Custom/PluginData/NeuralCompanionBridge"),
-            _normalized_abs_path(Path(__file__).resolve().parent.parent / "VaM 1.20.0.6" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
-            _normalized_abs_path(Path(__file__).resolve().parent.parent / "VaM" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
-            _normalized_abs_path(Path(__file__).resolve().parent / "runtime" / "vam_bridge"),
-        ]
-    )
+    runtime_paths.legacy_vam_bridge_roots(app_root=Path(__file__).resolve().parent)
 )
 
 
 def normalize_vam_root(raw_value=None, migrate_legacy=True):
-    value = str(raw_value or "").strip()
-    if not value:
-        return DEFAULT_VAM_ROOT
-    normalized = _normalized_abs_path(value)
-    if _path_endswith_parts(normalized, "Custom", "PluginData", "NeuralCompanionBridge"):
-        return _normalized_abs_path(Path(normalized).parent.parent.parent)
-    if _path_endswith_parts(normalized, "Custom", "Scripts", "NeuralCompanionBridge"):
-        return _normalized_abs_path(Path(normalized).parent.parent.parent)
-    if migrate_legacy and normalized in LEGACY_VAM_BRIDGE_ROOTS:
-        return DEFAULT_VAM_ROOT
-    return normalized
+    return runtime_paths.normalize_vam_root(
+        raw_value,
+        default_vam_root=DEFAULT_VAM_ROOT,
+        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
+        migrate_legacy=migrate_legacy,
+    )
 
 
 def normalize_vam_bridge_root(raw_value=None, migrate_legacy=True):
-    return derive_vam_bridge_root(normalize_vam_root(raw_value, migrate_legacy=migrate_legacy))
+    return runtime_paths.normalize_vam_bridge_root(
+        raw_value,
+        app_root=Path(__file__).resolve().parent,
+        default_vam_root=DEFAULT_VAM_ROOT,
+        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
+        migrate_legacy=migrate_legacy,
+    )
 
 
 DEFAULT_VAM_EMOTION_PRESET_MAP = {
@@ -822,18 +469,11 @@ DEFAULT_VAM_TIMELINE_CLIP_MAP = {
 
 DEFAULT_VAM_BRIDGE_ROOT = derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 
-VISUAL_REPLY_STORY_THEME_PRESETS = (
-    {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
-    {"id": "cartoon", "label": "Cartoon", "prompt": "cartoon illustration, bold shapes, clean outlines"},
-    {"id": "retro", "label": "Retro", "prompt": "retro pulp illustration, vintage color palette, halftone print texture"},
-    {"id": "cyberpunk", "label": "Cyberpunk", "prompt": "cyberpunk neon glow, high-tech city atmosphere, vivid contrast"},
-    {"id": "anime", "label": "Anime", "prompt": "anime illustration, expressive character design, dynamic framing"},
-    {"id": "storybook", "label": "Storybook", "prompt": "storybook painting, whimsical detail, illustrated fantasy look"},
-)
+VISUAL_REPLY_STORY_THEME_PRESETS = visual_reply_runtime.VISUAL_REPLY_STORY_THEME_PRESETS
 
 
 def _default_visual_reply_story_theme_prompts():
-    return {str(item.get("id") or ""): str(item.get("prompt") or "").strip() for item in VISUAL_REPLY_STORY_THEME_PRESETS if str(item.get("id") or "").strip()}
+    return visual_reply_runtime.default_story_theme_prompts()
 
 RUNTIME_CONFIG = {
     "active_preset_name": "",
@@ -1108,6 +748,10 @@ sensory_hidden_action_state = {
 }
 _addon_event_publisher = None
 _addon_manager_getter = None
+_chat_runtime = runtime_chat.ChatProviderRuntime(lambda: RUNTIME_CONFIG)
+# Keep Visual Reply settings/text helpers behind a runtime facade while the
+# image-generation worker remains in engine.py during the migration.
+_visual_reply_runtime = visual_reply_runtime.VisualReplyRuntime(lambda: RUNTIME_CONFIG, environ=os.environ)
 
 
 def set_addon_event_publisher(callback):
@@ -1221,150 +865,47 @@ def _resolve_addon_tts_backend(backend_id: str):
 # HELPER: Fetch Models
 # ============================================================================
 def _chat_provider():
-    return chat_providers.normalize_provider_id(
-        RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
-        fallback=chat_providers.DEFAULT_PROVIDER_ID,
-    )
+    return _chat_runtime.current_provider()
 
 
 def _chat_provider_label(provider=None):
-    return chat_providers.provider_label(provider or _chat_provider())
+    return _chat_runtime.provider_label(provider)
 
 
 def _chat_provider_api_key(provider=None):
-    return chat_providers.provider_api_key(provider or _chat_provider())
+    return _chat_runtime.provider_api_key(provider)
 
 
 def _chat_provider_base_url(provider=None):
-    return chat_providers.provider_base_url(provider or _chat_provider())
+    return _chat_runtime.provider_base_url(provider)
 
 
 def _chat_provider_generation_settings(provider=None):
-    provider_key = chat_providers.normalize_provider_id(provider or _chat_provider(), fallback=chat_providers.DEFAULT_PROVIDER_ID)
-    raw_map = RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}
-    if not isinstance(raw_map, dict):
-        return {}
-    raw_settings = raw_map.get(provider_key, {})
-    return dict(raw_settings or {}) if isinstance(raw_settings, dict) else {}
+    return _chat_runtime.generation_settings(provider)
 
 
 def _coerce_generation_value(field, value):
-    if value is None:
-        return None
-    kind = str((field or {}).get("kind") or "text").strip().lower()
-    if kind == "bool":
-        if isinstance(value, str):
-            return value.strip().lower() in {"1", "true", "yes", "on"}
-        return bool(value)
-    if kind == "int":
-        if value == "":
-            return None
-        parsed = int(float(value))
-        if "min" in (field or {}):
-            parsed = max(int((field or {}).get("min")), parsed)
-        if "max" in (field or {}):
-            parsed = min(int((field or {}).get("max")), parsed)
-        return parsed
-    if kind == "float":
-        if value == "":
-            return None
-        parsed = float(value)
-        if "min" in (field or {}):
-            parsed = max(float((field or {}).get("min")), parsed)
-        if "max" in (field or {}):
-            parsed = min(float((field or {}).get("max")), parsed)
-        return parsed
-    return value
+    return _chat_runtime._coerce_generation_value(field, value)
 
 
 def _omit_generation_value(field, value):
-    if value is None:
-        return True
-    if value == "" and not bool((field or {}).get("required", False)):
-        return True
-    omit_values = (field or {}).get("omit_if", [])
-    if not isinstance(omit_values, list):
-        omit_values = [omit_values]
-    for omit_value in omit_values:
-        if value == omit_value or str(value) == str(omit_value):
-            return True
-    return False
+    return _chat_runtime._omit_generation_value(field, value)
 
 
 def _legacy_generation_value(field, provider):
-    field_id = str((field or {}).get("id") or "").strip()
-    if field_id in {"temperature", "top_p", "repeat_penalty", "min_p"}:
-        return RUNTIME_CONFIG.get(field_id, (field or {}).get("default"))
-    if field_id == "top_k":
-        return RUNTIME_CONFIG.get("top_k", (field or {}).get("default"))
-    if field_id in {"max_tokens", "max_completion_tokens"}:
-        provider_settings = chat_providers.get_provider_settings(provider)
-        if isinstance(provider_settings, dict) and provider_settings.get("max_tokens") not in {None, ""}:
-            return provider_settings.get("max_tokens")
-        if bool(RUNTIME_CONFIG.get("limit_response_length", False)):
-            return max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
-        if provider == "lmstudio":
-            return -1
-    return (field or {}).get("default")
+    return _chat_runtime._legacy_generation_value(field, provider)
 
 
 def _apply_chat_provider_generation_fields(params, additional_params):
-    provider = _chat_provider()
-    metadata = chat_providers.provider_metadata(provider)
-    fields = [dict(item) for item in list(metadata.get("generation_fields") or []) if isinstance(item, dict)]
-    if not fields:
-        params["temperature"] = float(RUNTIME_CONFIG["temperature"])
-        params["top_p"] = float(RUNTIME_CONFIG["top_p"])
-        if bool(RUNTIME_CONFIG.get("limit_response_length")):
-            params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
-        elif provider == "lmstudio":
-            # LM Studio applies its own generation cap when max_tokens is omitted.
-            # Sending -1 matches LM Studio's documented "no explicit response cap" behavior.
-            params["max_tokens"] = -1
-        additional_params.update({
-            "top_k": int(RUNTIME_CONFIG["top_k"]),
-            "min_p": float(RUNTIME_CONFIG["min_p"]),
-            "repeat_penalty": float(RUNTIME_CONFIG["repeat_penalty"]),
-        })
-        return
-
-    settings = _chat_provider_generation_settings(provider)
-    max_token_applied = False
-    for field in fields:
-        field_id = str(field.get("id") or "").strip()
-        if not field_id or str(field.get("kind") or "").strip().lower() == "note":
-            continue
-        raw_value = settings[field_id] if field_id in settings else _legacy_generation_value(field, provider)
-        try:
-            value = _coerce_generation_value(field, raw_value)
-        except Exception:
-            value = field.get("default")
-        if _omit_generation_value(field, value):
-            continue
-        request_key = str(field.get("request_key") or field_id).strip()
-        request_location = str(field.get("request_location") or "params").strip().lower()
-        if not request_key or request_location == "none":
-            continue
-        if request_location == "additional_params":
-            additional_params[request_key] = value
-        else:
-            params[request_key] = value
-        if request_key in {"max_tokens", "max_completion_tokens"}:
-            max_token_applied = True
-
-    if not max_token_applied:
-        if bool(RUNTIME_CONFIG.get("limit_response_length")):
-            params["max_tokens"] = max(1, int(RUNTIME_CONFIG.get("max_response_tokens", 600) or 600))
-        elif provider == "lmstudio":
-            params["max_tokens"] = -1
+    _chat_runtime.apply_generation_fields(params, additional_params)
 
 
 def _chat_provider_model_error(provider=None):
-    return chat_providers.provider_model_error(provider or _chat_provider())
+    return _chat_runtime.provider_model_error(provider)
 
 
 def _chat_client(provider=None):
-    return chat_providers.create_client(provider or _chat_provider())
+    return _chat_runtime.create_client(provider)
 
 
 def _fetch_json_with_bearer(url, api_key, *, timeout=10.0):
@@ -1387,8 +928,7 @@ def _fetch_json_with_bearer(url, api_key, *, timeout=10.0):
 
 
 def get_chat_models(provider=None, quiet=False):
-    value = str(provider or _chat_provider() or chat_providers.DEFAULT_PROVIDER_ID).strip().lower()
-    return chat_providers.list_models(value, quiet=quiet)
+    return _chat_runtime.list_models(provider=provider, quiet=quiet)
 
 
 def get_lmstudio_models(quiet=False):
@@ -1404,8 +944,8 @@ def _is_model_catalog_placeholder(model_name):
 
 def _chat_completion_create(params, additional_params=None, *, stream=False):
     if stream:
-        return chat_providers.stream_chat(_chat_provider(), params, additional_params)
-    return chat_providers.complete_chat(_chat_provider(), params, additional_params)
+        return _chat_runtime.stream(params, additional_params)
+    return _chat_runtime.complete(params, additional_params)
 
 
 def _chat_provider_connection_check():
@@ -1415,18 +955,12 @@ def _chat_provider_connection_check():
         print(f"Checking {label} at {LMSTUDIO_BASE_URL}...")
     else:
         print(f"Checking {label} connectivity...")
-    try:
-        result = dict(chat_providers.check_connection(provider) or {})
-        if bool(result.get("ok")):
-            detail = str(result.get("detail") or f"Connected to {label}").strip()
-            print(f"✓ {detail}")
-            return True
-        detail = str(result.get("detail") or f"Could not connect to {label}").strip()
-        print(f"✗ {detail}")
-        return False
-    except Exception as e:
-        print(f"✗ Could not connect to {label}: {e}")
-        return False
+    status = _chat_runtime.check_connection(provider)
+    if status.ok:
+        print(f"✓ {status.message}")
+        return True
+    print(f"✗ {status.message}")
+    return False
 
 
 def get_main_whisper_runtime_config():
@@ -1448,115 +982,38 @@ def get_main_whisper_runtime_reason():
 
 
 def _get_lmstudio_sdk():
-    try:
-        return importlib.import_module("lmstudio")
-    except Exception:
-        return None
+    return lmstudio_runtime.get_sdk()
 
 
 def _get_lmstudio_sdk_host():
-    try:
-        api_host = str(LMSTUDIO_BASE_URL or "").strip()
-        api_host = re.sub(r"^https?://", "", api_host, flags=re.IGNORECASE)
-        api_host = api_host.rstrip("/")
-        if api_host.endswith("/v1"):
-            api_host = api_host[:-3]
-        return api_host.strip("/")
-    except Exception:
-        return "127.0.0.1:1234"
+    return lmstudio_runtime.sdk_host(LMSTUDIO_BASE_URL)
 
 
 def _get_lmstudio_sdk_client(sdk):
-    if sdk is None:
-        return None
-    try:
-        return sdk.Client(api_host=_get_lmstudio_sdk_host())
-    except Exception:
-        return None
+    return lmstudio_runtime.sdk_client(sdk, LMSTUDIO_BASE_URL)
 
 
 def _run_lms_cli(args, timeout=300):
-    try:
-        completed = subprocess.run(
-            ["lms", *args],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-        )
-        output = "\n".join(
-            part.strip() for part in [completed.stdout or "", completed.stderr or ""] if part and part.strip()
-        ).strip()
-        return completed.returncode == 0, output
-    except Exception as e:
-        return False, str(e)
+    return lmstudio_runtime.run_lms_cli(args, timeout=timeout)
 
 
 def unload_lmstudio_models():
-    print("🧠 [LM Studio] Unloading loaded models before MuseTalk warmup...")
-    sdk = _get_lmstudio_sdk()
-    if sdk is not None:
-        try:
-            client = _get_lmstudio_sdk_client(sdk)
-            if client is None:
-                raise RuntimeError("Could not create LM Studio SDK client")
-            loaded_models = list(client.list_loaded_models())
-            if not loaded_models:
-                print("✓ [LM Studio] No loaded models to unload.")
-                return True
-            unloaded = []
-            for model in loaded_models:
-                identifier = getattr(model, "identifier", None) or "<unknown>"
-                model.unload()
-                unloaded.append(str(identifier))
-            print(f"✓ [LM Studio] Unloaded via SDK: {', '.join(unloaded)}")
-            return True
-        except Exception as e:
-            print(f"⚠️ [LM Studio] SDK unload failed, falling back to CLI: {e}")
-    ok, output = _run_lms_cli(["unload", "--all"], timeout=180)
-    if ok:
-        if output:
-            print(f"✓ [LM Studio] Unload complete: {output}")
-        else:
-            print("✓ [LM Studio] Unload complete.")
-        return True
-    print(f"⚠️ [LM Studio] Could not unload models: {output}")
-    return False
+    return lmstudio_runtime.unload_models(base_url=LMSTUDIO_BASE_URL, logger=print)
 
 
 def load_lmstudio_model(model_name):
-    model_name = str(model_name or "").strip()
-    if _is_model_catalog_placeholder(model_name):
-        return False
-    print(f"🧠 [LM Studio] Reloading selected model: {model_name}")
-    sdk = _get_lmstudio_sdk()
-    if sdk is not None:
-        try:
-            client = _get_lmstudio_sdk_client(sdk)
-            if client is None:
-                raise RuntimeError("Could not create LM Studio SDK client")
-            model = client.llm.model(model_name)
-            identifier = getattr(model, "identifier", None) or model_name
-            print(f"✓ [LM Studio] Model ready via SDK: {identifier}")
-            return True
-        except Exception as e:
-            print(f"⚠️ [LM Studio] SDK reload failed, falling back to CLI: {e}")
-    ok, output = _run_lms_cli(["load", model_name, "--yes"], timeout=600)
-    if ok:
-        if output:
-            print(f"✓ [LM Studio] Model ready: {output}")
-        else:
-            print(f"✓ [LM Studio] Model ready: {model_name}")
-        return True
-    print(f"⚠️ [LM Studio] Could not reload '{model_name}': {output}")
-    return False
+    return lmstudio_runtime.load_model(
+        model_name,
+        base_url=LMSTUDIO_BASE_URL,
+        is_placeholder=_is_model_catalog_placeholder,
+        logger=print,
+    )
 
 
 # Text chunking constants
-PUNCTUATION_SPLIT_STRONGLY = {".", "!", "?"}
-PUNCTUATION_SPLIT_WEAKLY = {",", ";", ":"}
-PUNCTUATION_ALL = PUNCTUATION_SPLIT_STRONGLY.union(PUNCTUATION_SPLIT_WEAKLY)
+PUNCTUATION_SPLIT_STRONGLY = text_chunking.PUNCTUATION_SPLIT_STRONGLY
+PUNCTUATION_SPLIT_WEAKLY = text_chunking.PUNCTUATION_SPLIT_WEAKLY
+PUNCTUATION_ALL = text_chunking.PUNCTUATION_ALL
 
 # Add this global variable near the top of engine.py or just before the function
 LAST_INPUT_TIME = 0
@@ -2163,212 +1620,64 @@ def init_tts():
 
 @lru_cache(maxsize=1024)
 def _find_intelligent_split_point(text_segment: str, target_chars: int, max_chars: int) -> int:
-    try:
-        segment_len = len(text_segment)
-        if segment_len <= max_chars:
-            return segment_len
-        search_end = min(segment_len - 1, max_chars - 1)
-        search_start = max(0, target_chars - (max_chars - target_chars) // 2)
-        search_start = max(0, min(search_start, search_end - 1))
-        for i in range(search_end, search_start - 1, -1):
-            if text_segment[i] in PUNCTUATION_SPLIT_STRONGLY:
-                if i + 1 < segment_len and text_segment[i + 1].isspace():
-                    return i + 1
-                elif i == segment_len - 1:
-                    return i + 1
-        for i in range(search_end, search_start - 1, -1):
-            if text_segment[i] in PUNCTUATION_SPLIT_WEAKLY:
-                if i + 1 < segment_len and text_segment[i + 1].isspace():
-                    return i + 1
-                elif i == segment_len - 1:
-                    return i + 1
-        whitespace_end = min(segment_len - 1, max_chars - 1)
-        whitespace_start = max(0, MIN_CHUNK_SIZE - 1)
-        if whitespace_end > whitespace_start:
-            space_pos = text_segment.rfind(' ', whitespace_start, whitespace_end + 1)
-            if space_pos != -1:
-                return space_pos + 1
-        return min(segment_len, max_chars)
-    except Exception as e:
-        print(f"Error in split point detection: {e}")
-        return min(len(text_segment), max_chars)
+    return text_chunking.find_intelligent_split_point(
+        text_segment,
+        target_chars,
+        max_chars,
+        min_chunk_size=MIN_CHUNK_SIZE,
+    )
 
 
 def intelligent_chunk_text(long_text: str, target_chars: int, max_chars: int) -> list:
-    try:
-        if not long_text or not long_text.strip():
-            return []
-        long_text = re.sub(r'\s+', ' ', long_text).strip()
-        if not (MIN_CHUNK_SIZE <= target_chars < max_chars):
-            return [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars)]
-        sentences = sent_tokenize(long_text)
-        if not sentences:
-            return [long_text] if len(long_text) <= max_chars else [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars)]
-        chunks = []
-        current_buffer = []
-        current_buffer_length = 0
-        for sentence in sentences:
-            sentence = sentence.strip()
-            if not sentence:
-                continue
-            sentence_length = len(sentence)
-            if sentence_length > max_chars:
-                if current_buffer:
-                    chunks.append(" ".join(current_buffer).strip())
-                    current_buffer = []
-                    current_buffer_length = 0
-                temp_segment_start_idx = 0
-                while temp_segment_start_idx < sentence_length:
-                    remaining_sentence_part = sentence[temp_segment_start_idx:]
-                    if not remaining_sentence_part.strip():
-                        break
-                    if len(remaining_sentence_part) <= max_chars:
-                        chunks.append(remaining_sentence_part.strip())
-                        break
-                    else:
-                        split_at = _find_intelligent_split_point(remaining_sentence_part, target_chars, max_chars)
-                        chunk_to_add = remaining_sentence_part[:split_at].strip()
-                        if chunk_to_add:
-                            chunks.append(chunk_to_add)
-                        temp_segment_start_idx += split_at
-                        while temp_segment_start_idx < sentence_length and sentence[temp_segment_start_idx].isspace():
-                            temp_segment_start_idx += 1
-            else:
-                if current_buffer_length + (1 if current_buffer else 0) + sentence_length > max_chars:
-                    if current_buffer:
-                        chunks.append(" ".join(current_buffer).strip())
-                    current_buffer = [sentence]
-                    current_buffer_length = sentence_length
-                else:
-                    current_buffer.append(sentence)
-                    current_buffer_length += (1 if len(current_buffer) > 1 else 0) + sentence_length
-                if current_buffer_length >= target_chars:
-                    chunks.append(" ".join(current_buffer).strip())
-                    current_buffer = []
-                    current_buffer_length = 0
-        if current_buffer:
-            chunks.append(" ".join(current_buffer).strip())
-        valid_chunks = [chunk for chunk in chunks if MIN_CHUNK_SIZE <= len(chunk.strip()) <= max_chars]
-        if not valid_chunks and long_text:
-            if MIN_CHUNK_SIZE <= len(long_text) <= max_chars:
-                return [long_text]
-        return valid_chunks
-    except Exception as e:
-        print(f"Error chunking text: {e}")
-        try:
-            return [long_text[i:i + max_chars] for i in range(0, len(long_text), max_chars) if long_text[i:i + max_chars].strip()]
-        except:
-            return []
+    return text_chunking.chunk_text(
+        long_text,
+        target_chars,
+        max_chars,
+        min_chunk_size=MIN_CHUNK_SIZE,
+        sentence_splitter=sent_tokenize,
+        logger=print,
+    )
 
 
 def get_musetalk_chunk_limits_for_index(chunk_index: int):
-    chunk_index = max(0, int(chunk_index))
-    quickstart_limits = [
-        (
-            int(RUNTIME_CONFIG.get("musetalk_quickstart_1_target_chars", MUSE_QUICKSTART_CHUNK_LIMITS[0][0]) or MUSE_QUICKSTART_CHUNK_LIMITS[0][0]),
-            int(RUNTIME_CONFIG.get("musetalk_quickstart_1_max_chars", MUSE_QUICKSTART_CHUNK_LIMITS[0][1]) or MUSE_QUICKSTART_CHUNK_LIMITS[0][1]),
-        ),
-        (
-            int(RUNTIME_CONFIG.get("musetalk_quickstart_2_target_chars", MUSE_QUICKSTART_CHUNK_LIMITS[1][0]) or MUSE_QUICKSTART_CHUNK_LIMITS[1][0]),
-            int(RUNTIME_CONFIG.get("musetalk_quickstart_2_max_chars", MUSE_QUICKSTART_CHUNK_LIMITS[1][1]) or MUSE_QUICKSTART_CHUNK_LIMITS[1][1]),
-        ),
-    ]
-    if chunk_index < len(quickstart_limits):
-        return quickstart_limits[chunk_index]
-    return (
-        int(RUNTIME_CONFIG.get("musetalk_chunk_target_chars", MUSE_TARGET_CHARS_PER_CHUNK) or MUSE_TARGET_CHARS_PER_CHUNK),
-        int(RUNTIME_CONFIG.get("musetalk_chunk_max_chars", MUSE_MAX_CHARS_PER_CHUNK) or MUSE_MAX_CHARS_PER_CHUNK),
+    return text_chunking.musetalk_chunk_limits_for_index(
+        chunk_index,
+        RUNTIME_CONFIG,
+        {
+            "quickstart": MUSE_QUICKSTART_CHUNK_LIMITS,
+            "musetalk_target": MUSE_TARGET_CHARS_PER_CHUNK,
+            "musetalk_max": MUSE_MAX_CHARS_PER_CHUNK,
+        },
     )
 
 
 def intelligent_chunk_text_progressive(long_text: str, start_chunk_index: int = 0) -> list:
-    try:
-        if not long_text or not long_text.strip():
-            return []
-        remaining_text = re.sub(r'\s+', ' ', long_text).strip()
-        chunks = []
-        local_index = 0
-        while remaining_text:
-            target_chars, max_chars = get_musetalk_chunk_limits_for_index(start_chunk_index + local_index)
-            if len(remaining_text) <= max_chars:
-                final_chunk = remaining_text.strip()
-                if final_chunk:
-                    chunks.append(final_chunk)
-                break
-
-            split_at = _find_intelligent_split_point(remaining_text, target_chars, max_chars)
-            chunk_text = remaining_text[:split_at].strip()
-            if chunk_text:
-                chunks.append(chunk_text)
-            remaining_text = remaining_text[split_at:].lstrip()
-            local_index += 1
-
-        return [chunk for chunk in chunks if len(chunk) >= MIN_CHUNK_SIZE]
-    except Exception as e:
-        print(f"Error progressive chunking text: {e}")
-        target_chars, max_chars = get_musetalk_chunk_limits_for_index(start_chunk_index)
-        return intelligent_chunk_text(long_text, target_chars, max_chars)
+    return text_chunking.progressive_chunk_text(
+        long_text,
+        start_chunk_index=start_chunk_index,
+        limit_getter=get_musetalk_chunk_limits_for_index,
+        min_chunk_size=MIN_CHUNK_SIZE,
+        sentence_splitter=sent_tokenize,
+        logger=print,
+    )
 
 
 def sanitize_assistant_text_for_speech(text: str, *, preserve_emotion_tags: bool = False) -> str:
-    value = str(text or "")
-    if not value:
-        return ""
-
-    protected_bracket_tokens: dict[str, str] = {}
-    value, _ignored_visual_prompt = _strip_visual_reply_tail(value)
-    value = VISUAL_REPLY_TAG_RE.sub("", value)
-
-    def _protect_bracket_token(match):
-        token = f"BRACKETTOKEN{len(protected_bracket_tokens)}X"
-        protected_bracket_tokens[token] = match.group(0)
-        return token
-
-    # Remove markdown formatting that sounds awkward when spoken, while allowing
-    # the playback pipeline to preserve registered visual mood tags when needed.
-    value = re.sub(r"\[([^\]]+)\]\(([^)]+)\)", r"\1", value)
-    value = re.sub(r"`([^`]+)`", r"\1", value)
-    value = re.sub(
-        r"\[([^\]\n]+)\]",
-        lambda match: (
-            _protect_bracket_token(match)
-            if is_sound_tag(normalize_bracket_tag(match.group(0)))
-            else (
-                _protect_bracket_token(match)
-                if preserve_emotion_tags and is_emotion_tag(normalize_bracket_tag(match.group(0)))
-                else (
-                    ""
-                    if is_emotion_tag(normalize_bracket_tag(match.group(0)))
-                    else _protect_bracket_token(match)
-                )
-            )
-        ),
-        value,
+    # Keep the public engine helper stable while the text cleanup lives in the
+    # smaller speech-text module.
+    return speech_text.sanitize_assistant_text_for_speech(
+        text,
+        preserve_emotion_tags=preserve_emotion_tags,
+        strip_visual_tail=_strip_visual_reply_tail,
+        visual_reply_tag_re=VISUAL_REPLY_TAG_RE,
+        normalize_bracket_tag=normalize_bracket_tag,
+        is_sound_tag=is_sound_tag,
+        is_emotion_tag=is_emotion_tag,
     )
-    value = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", value)
-    value = re.sub(r"(?m)^\s*>\s*", "", value)
-    value = re.sub(r"(?m)^\s*[-*+]\s+", "", value)
 
-    # Remove emphasis markers while preserving their contents.
-    value = value.replace("**", "")
-    value = value.replace("__", "")
-    value = re.sub(r"(?<!\[)\*(?!\s)(.+?)(?<!\s)\*(?!\])", r"\1", value)
-    value = re.sub(r"(?<!\[)_(?!\s)(.+?)(?<!\s)_(?!\])", r"\1", value)
-
-    for token, original in protected_bracket_tokens.items():
-        value = value.replace(token, original)
-
-    value = re.sub(r"[ \t]+\n", "\n", value)
-    value = re.sub(r"\n{3,}", "\n\n", value)
-    value = re.sub(r"[ \t]{2,}", " ", value)
-    return value.strip()
-
-SOUND_TAGS = {
-    "[clear throat]", "[sigh]", "[shush]", "[groan]",
-    "[sniff]", "[gasp]", "[chuckle]", "[laugh]"
-}
-SOUND_TAG_NAMES = {tag.strip()[1:-1].strip().lower() for tag in SOUND_TAGS}
-CONTROL_TAG_TOKEN_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+SOUND_TAGS = text_tags.SOUND_TAGS
+SOUND_TAG_NAMES = text_tags.SOUND_TAG_NAMES
+CONTROL_TAG_TOKEN_RE = text_tags.CONTROL_TAG_TOKEN_RE
 
 DEFAULT_EMOTION_NAMES = {
     "neutral",
@@ -2458,232 +1767,105 @@ def get_available_emotion_tags(force_refresh=False):
 
 
 def normalize_bracket_tag(tag_text):
-    stripped = str(tag_text or "").strip()
-    if not (stripped.startswith("[") and stripped.endswith("]")):
-        return None
-    inner = stripped[1:-1].strip().lower()
-    return inner or None
+    return text_tags.normalize_bracket_tag(tag_text)
 
 
 def is_single_word_control_tag(tag_name):
-    value = str(tag_name or "").strip()
-    return bool(value and CONTROL_TAG_TOKEN_RE.fullmatch(value))
+    return text_tags.is_single_word_control_tag(tag_name)
 
 
 def is_sound_tag(tag_name):
-    return str(tag_name or "").strip().lower() in SOUND_TAG_NAMES
+    return text_tags.is_sound_tag(tag_name)
 
 
 def is_emotion_tag(tag_name, available_emotion_names=None):
-    normalized = str(tag_name or "").strip().lower()
-    if not is_single_word_control_tag(normalized):
-        return False
     names = available_emotion_names if available_emotion_names is not None else get_available_emotion_names()
-    return normalized in set(str(name or "").strip().lower() for name in names)
+    return text_tags.is_emotion_tag(tag_name, names)
 
 
 def _looks_like_control_tag_prefix(fragment):
-    value = str(fragment or "").strip()
-    if not value:
-        return False
-    if len(value) > 32:
-        return False
-    if re.fullmatch(r"[A-Za-z0-9_-]*", value):
-        return True
-    value_lower = value.lower()
-    for sound_name in SOUND_TAG_NAMES:
-        if sound_name.startswith(value_lower):
-            return True
-    return False
+    return text_tags.looks_like_control_tag_prefix(fragment)
 
 
 def _looks_like_visual_reply_tag_prefix(fragment):
-    value = str(fragment or "").strip().lower()
-    if not value:
-        return False
-    for starter in ("visualize", "image"):
-        if starter.startswith(value):
-            return True
-        if value.startswith(starter):
-            remainder = value[len(starter):]
-            if not remainder:
-                return True
-            if re.fullmatch(r"\s*:\s*[^\]\n]*", remainder):
-                return True
-    return False
+    return text_tags.looks_like_visual_reply_tag_prefix(fragment)
 
 
-VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGNORECASE)
-VISUAL_REPLY_TAG_START_RE = re.compile(r"\[(visualize|image):", re.IGNORECASE)
+VISUAL_REPLY_TAG_RE = visual_reply_runtime.VISUAL_REPLY_TAG_RE
+VISUAL_REPLY_TAG_START_RE = visual_reply_runtime.VISUAL_REPLY_TAG_START_RE
 VISUAL_REPLY_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "visual_replies"
 SENSORY_FEEDBACK_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "sensory_feedback"
-VISUAL_REPLY_XAI_BASE_URL = "https://api.x.ai/v1"
+VISUAL_REPLY_XAI_BASE_URL = visual_reply_runtime.VISUAL_REPLY_XAI_BASE_URL
 _sensory_feedback_lock = threading.Lock()
 _sensory_feedback_state = {}
 
 
 def _visual_reply_api_key():
-    provider = _visual_reply_provider()
-    if provider == "xai":
-        return str(
-            os.environ.get("NC_VISUAL_REPLY_XAI_API_KEY")
-            or os.environ.get("XAI_API_KEY")
-            or os.environ.get("NC_VISUAL_REPLY_API_KEY")
-            or ""
-        ).strip()
-    return str(os.environ.get("NC_VISUAL_REPLY_API_KEY") or os.environ.get("OPENAI_API_KEY") or "").strip()
+    return _visual_reply_runtime.api_key()
 
 
 def _visual_reply_base_url():
-    provider = _visual_reply_provider()
-    if provider == "xai":
-        return str(
-            os.environ.get("NC_VISUAL_REPLY_BASE_URL")
-            or os.environ.get("NC_VISUAL_REPLY_XAI_BASE_URL")
-            or VISUAL_REPLY_XAI_BASE_URL
-        ).strip()
-    return str(os.environ.get("NC_VISUAL_REPLY_BASE_URL") or "").strip()
+    return _visual_reply_runtime.base_url()
 
 
 def _visual_reply_provider():
-    provider = str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai").strip().lower()
-    return provider if provider in {"openai", "xai"} else "openai"
+    return _visual_reply_runtime.provider()
 
 
 def _visual_reply_mode():
-    mode = str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto").strip().lower()
-    return mode if mode in {"off", "auto"} else "auto"
+    return _visual_reply_runtime.mode()
 
 
 def _visual_reply_enabled():
-    if not bool(RUNTIME_CONFIG.get("visual_replies_enabled", True)):
-        return False
-    return _visual_reply_mode() != "off"
+    return _visual_reply_runtime.enabled()
 
 
 def _visual_reply_generation_available():
-    if not _visual_reply_enabled():
-        return False
-    if _visual_reply_provider() == "xai":
-        return bool(_visual_reply_api_key())
-    return bool(_visual_reply_api_key() or _visual_reply_base_url())
+    return _visual_reply_runtime.generation_available()
 
 
 def _visual_reply_story_mode_enabled():
-    return bool(RUNTIME_CONFIG.get("visual_reply_story_mode", False)) and _visual_reply_enabled()
+    return _visual_reply_runtime.story_mode_enabled()
 
 
 def _visual_reply_story_max_images():
-    try:
-        return max(1, int(RUNTIME_CONFIG.get("visual_reply_story_max_images", 3) or 3))
-    except Exception:
-        return 3
+    return _visual_reply_runtime.story_max_images()
 
 
 def _visual_reply_story_continuity_strength():
-    try:
-        strength = float(RUNTIME_CONFIG.get("visual_reply_story_continuity_strength", 0.8) or 0.8)
-    except Exception:
-        strength = 0.8
-    if strength > 1.0:
-        strength = strength / 100.0
-    return max(0.0, min(1.0, strength))
+    return _visual_reply_runtime.story_continuity_strength()
 
 
 def _visual_reply_story_theme_prompts():
-    raw = RUNTIME_CONFIG.get("visual_reply_story_theme_prompts", {})
-    if not isinstance(raw, dict):
-        raw = {}
-    defaults = _default_visual_reply_story_theme_prompts()
-    prompts = {}
-    for item in VISUAL_REPLY_STORY_THEME_PRESETS:
-        theme_id = str(item.get("id") or "").strip().lower()
-        if not theme_id:
-            continue
-        prompt = str(raw.get(theme_id, defaults.get(theme_id, item.get("prompt", ""))) or "").strip()
-        prompts[theme_id] = prompt or defaults.get(theme_id, str(item.get("prompt") or "").strip())
-    return prompts
+    return _visual_reply_runtime.story_theme_prompts()
 
 
 def _visual_reply_story_theme_enabled():
-    raw = RUNTIME_CONFIG.get("visual_reply_story_theme_enabled", [])
-    if isinstance(raw, (str, bytes)):
-        raw = [raw]
-    if not isinstance(raw, (list, tuple, set)):
-        raw = []
-    valid_ids = {str(item.get("id") or "").strip().lower() for item in VISUAL_REPLY_STORY_THEME_PRESETS}
-    enabled = []
-    seen = set()
-    for value in raw:
-        theme_id = str(value or "").strip().lower()
-        if not theme_id or theme_id not in valid_ids or theme_id in seen:
-            continue
-        enabled.append(theme_id)
-        seen.add(theme_id)
-    return enabled
+    return _visual_reply_runtime.story_theme_enabled()
 
 
 def _visual_reply_story_theme_suffix():
-    prompts = _visual_reply_story_theme_prompts()
-    parts = []
-    for theme_id in _visual_reply_story_theme_enabled():
-        prompt = str(prompts.get(theme_id, "") or "").strip()
-        if prompt:
-            parts.append(prompt)
-    if not parts:
-        return ""
-    return "Visual style: " + "; ".join(parts)
+    return _visual_reply_runtime.story_theme_suffix()
 
 
 def _visual_reply_master_style_prompt():
-    prompt = _normalize_visual_reply_prompt_text(RUNTIME_CONFIG.get("visual_reply_master_style_prompt", ""))
-    if len(prompt) > 420:
-        prompt = prompt[:420].rstrip(" \t\r\n,;:.-")
-    return prompt
+    return _visual_reply_runtime.master_style_prompt()
 
 
 def _visual_reply_master_style_suffix():
-    prompt = _visual_reply_master_style_prompt()
-    if not prompt:
-        return ""
-    return (
-        "Preserve the same art direction, recurring character identity, clothing, props, "
-        f"and world details from this reference image prompt: {prompt}"
-    )
+    return _visual_reply_runtime.master_style_suffix()
 
 
 def _visual_reply_master_prompt_safety_suffix():
-    if not bool(RUNTIME_CONFIG.get("visual_reply_master_prompt_safe", False)):
-        return ""
-    return (
-        "Depict only clearly adult people aged 21 or older. "
-        "Do not depict children, minors, teenagers, school-age people, or underage-looking persons."
-    )
+    return _visual_reply_runtime.master_prompt_safety_suffix()
 
 
 def _visual_reply_no_speech_bubbles_suffix():
-    if not bool(RUNTIME_CONFIG.get("visual_reply_master_prompt_no_speech_bubbles", False)):
-        return ""
-    return (
-        "No speech bubbles, dialogue balloons, comic bubbles, captions, subtitles, text overlays, or written text in the image."
-    )
+    return _visual_reply_runtime.no_speech_bubbles_suffix()
 
 
 def _apply_visual_reply_style_anchor(prompt_text: str):
-    prompt = str(prompt_text or "").strip()
-    if not prompt:
-        return ""
-    suffixes = [
-        _visual_reply_master_style_suffix(),
-        _visual_reply_master_prompt_safety_suffix(),
-        _visual_reply_no_speech_bubbles_suffix(),
-    ]
-    suffixes = [item for item in suffixes if str(item or "").strip()]
-    if suffixes:
-        prompt = f"{prompt}. {' '.join(suffixes)}"
-    if len(prompt) > 760:
-        prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
-    return prompt
+    return _visual_reply_runtime.apply_style_anchor(prompt_text)
 
 
 def _ensure_visual_reply_story_worker():
@@ -2917,35 +2099,15 @@ def _story_visual_reply_prompt_from_text(prompt_text: str, emotion: str = "", st
 
 
 def _visual_reply_model_name():
-    provider = _visual_reply_provider()
-    fallback = "grok-imagine-image" if provider == "xai" else "gpt-image-1"
-    return str(
-        RUNTIME_CONFIG.get("visual_reply_model")
-        or (os.environ.get("NC_VISUAL_REPLY_XAI_MODEL") if provider == "xai" else "")
-        or os.environ.get("NC_VISUAL_REPLY_MODEL")
-        or fallback
-    ).strip()
+    return _visual_reply_runtime.model_name()
 
 
 def _visual_reply_image_size():
-    allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}
-    value = str(
-        RUNTIME_CONFIG.get("visual_reply_size")
-        or os.environ.get("NC_VISUAL_REPLY_SIZE")
-        or "1024x1024"
-    ).strip().lower()
-    return value if value in allowed else "1024x1024"
+    return _visual_reply_runtime.image_size()
 
 
 def _visual_reply_xai_extra_body():
-    size = _visual_reply_image_size()
-    if size == "1024x1536":
-        return {"aspect_ratio": "2:3", "resolution": "1k"}
-    if size == "1536x1024":
-        return {"aspect_ratio": "3:2", "resolution": "1k"}
-    if size == "1024x1024":
-        return {"aspect_ratio": "1:1", "resolution": "1k"}
-    return {"aspect_ratio": "auto", "resolution": "1k"}
+    return _visual_reply_runtime.xai_extra_body()
 
 
 def _next_visual_reply_request_id():
@@ -2956,43 +2118,15 @@ def _next_visual_reply_request_id():
 
 
 def _normalize_visual_reply_prompt_text(prompt_text: str) -> str:
-    prompt = str(prompt_text or "")
-    if not prompt:
-        return ""
-    prompt = re.sub(r"\[[^\]]+\]", " ", prompt)
-    prompt = prompt.replace("]", " ")
-    prompt = re.sub(r"\s+", " ", prompt).strip()
-    prompt = prompt.strip(" \t\r\n'\"`.,;:()[]{}")
-    return prompt
+    return visual_reply_runtime.normalize_prompt_text(prompt_text)
 
 
 def _strip_visual_reply_tail(text: str):
-    value = str(text or "")
-    if not value:
-        return "", None
-    matches = list(VISUAL_REPLY_TAG_START_RE.finditer(value))
-    if not matches:
-        return value, None
-    last_match = matches[-1]
-    start_index = int(last_match.start())
-    cleaned = value[:start_index]
-    raw_tail = value[start_index:]
-    colon_index = raw_tail.find(":")
-    prompt_text = raw_tail[colon_index + 1:] if colon_index >= 0 else ""
-    prompt_text = _normalize_visual_reply_prompt_text(prompt_text)
-    return cleaned, (prompt_text or None)
+    return visual_reply_runtime.strip_visual_reply_tail(text)
 
 
 def extract_visual_reply_prompt(text: str):
-    value = str(text or "")
-    cleaned, prompt = _strip_visual_reply_tail(value)
-    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
-    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
-    cleaned = cleaned.strip()
-    if prompt and not cleaned:
-        cleaned = "Let me show you."
-    return cleaned, (prompt or None)
+    return visual_reply_runtime.extract_visual_reply_prompt(text)
 
 
 def _visual_reply_generation_instruction():
@@ -4144,364 +3278,30 @@ def finalize_assistant_reply(raw_text: str):
 
 
 def parse_text_segments(text):
-    current_emotion = "neutral"
-    segments = []
-    current_buffer = []
-    available_emotion_names = get_available_emotion_names()
-    parts = re.split(r'(\[[^\]]+\])', text)
-    for part in parts:
-        if not part:
-            continue
-        clean_part = part.strip()
-        if clean_part.startswith('[') and clean_part.endswith(']'):
-            normalized_tag = normalize_bracket_tag(clean_part)
-            if is_sound_tag(normalized_tag):
-                current_buffer.append(part)
-            elif is_emotion_tag(normalized_tag, available_emotion_names):
-                if current_buffer:
-                    full_segment = "".join(current_buffer)
-                    if full_segment.strip():
-                        segments.append((current_emotion, full_segment))
-                    current_buffer = []
-                current_emotion = normalized_tag
-            else:
-                current_buffer.append(part)
-        else:
-            current_buffer.append(part)
-    if current_buffer:
-        full_segment = "".join(current_buffer)
-        if full_segment.strip():
-            segments.append((current_emotion, full_segment))
-    return segments
+    return text_tags.parse_text_segments(text, get_available_emotion_names())
 
 
 def get_last_emotion_tag(text):
-    available_emotion_names = get_available_emotion_names()
-    matches = re.findall(r'(\[[^\]]+\])', text or "")
-    for match in reversed(matches):
-        normalized_tag = normalize_bracket_tag(match)
-        if is_emotion_tag(normalized_tag, available_emotion_names):
-            return normalized_tag
-    return None
+    return text_tags.get_last_emotion_tag(text, get_available_emotion_names())
 
 
-@dataclass
-class StreamingReplyState:
-    full_text: str = ""
-    error: str | None = None
-    done: threading.Event = field(default_factory=threading.Event)
-    cancel_requested: threading.Event = field(default_factory=threading.Event)
-    first_chunk_emitted: threading.Event = field(default_factory=threading.Event)
+StreamingReplyState = streaming_text.StreamingReplyState
 
 
-class StreamingChunkAssembler:
+class StreamingChunkAssembler(streaming_text.StreamingChunkAssembler):
     def __init__(self, target_chars, max_chars):
-        self.target_chars = max(MIN_CHUNK_SIZE, int(target_chars))
-        self.max_chars = max(self.target_chars + 20, int(max_chars))
-        self.buffer = ""
-        self.active_emotion = "neutral"
-        self.emission_count = 0
-        self.buffer_started_at = None
-        self.buffer_chars_received = 0
-
-    def feed(self, text, final=False, force=False):
-        if text:
-            if not self.buffer:
-                self.buffer_started_at = time.time()
-                self.buffer_chars_received = 0
-            self.buffer += text
-            self.buffer_chars_received += len(text)
-        emitted = []
-        while True:
-            decision = self._find_cut_index(final=final, force=force)
-            cut = int(decision.get("cut", 0) or 0)
-            if cut <= 0:
-                break
-            chunk_info = self._emit_chunk(cut, decision)
-            if chunk_info:
-                emitted.append(chunk_info)
-            if final:
-                break
-        return emitted
-
-    def _find_cut_index(self, final=False, force=False):
-        working = self.buffer
-        if not working.strip():
-            return {"cut": len(working) if final and working else 0, "quality": 0.0, "reason": "empty"}
-
-        effective_max = min(len(working), self.max_chars)
-        unmatched_open = working.rfind("[", 0, effective_max)
-        unmatched_close = working.rfind("]", 0, effective_max)
-        if unmatched_open > unmatched_close:
-            unmatched_fragment = working[unmatched_open + 1:effective_max]
-            if _looks_like_control_tag_prefix(unmatched_fragment) or _looks_like_visual_reply_tag_prefix(unmatched_fragment):
-                effective_max = unmatched_open
-
-        if final:
-            return self._emergency_force_cut(working, effective_max, MIN_CHUNK_SIZE, quality_floor=0.2, reason_prefix="final")
-        target_chars = self.target_chars
-        configured_first_min = int(RUNTIME_CONFIG.get("stream_first_chunk_min_chars", STREAM_FIRST_CHUNK_MIN_CHARS) or STREAM_FIRST_CHUNK_MIN_CHARS)
-        min_force_chars = configured_first_min if self.emission_count == 0 else max(MIN_CHUNK_SIZE, self.target_chars // 2)
-        if force and effective_max >= min_force_chars:
-            return self._emergency_force_cut(working, effective_max, min_force_chars)
-
-        if self.emission_count == 0:
-            target_chars = max(configured_first_min, min(self.target_chars, 48))
-
-        elapsed_time = 0.0
-        if self.buffer_started_at is not None:
-            elapsed_time = max(0.0, time.time() - self.buffer_started_at)
-        max_allowed_time = (
-            float(RUNTIME_CONFIG.get("stream_force_flush_seconds", STREAM_FORCE_FLUSH_SECONDS) or STREAM_FORCE_FLUSH_SECONDS)
-            if self.emission_count == 0
-            else float(RUNTIME_CONFIG.get("stream_force_flush_later_seconds", STREAM_FORCE_FLUSH_LATER_SECONDS) or STREAM_FORCE_FLUSH_LATER_SECONDS)
-        )
-
-        if elapsed_time > max_allowed_time and effective_max >= min_force_chars:
-            return self._emergency_force_cut(working, effective_max, min_force_chars, reason_prefix="timeout")
-
-        if effective_max < target_chars:
-            if effective_max >= min_force_chars and elapsed_time > 0.0:
-                cps = float(self.buffer_chars_received) / max(elapsed_time, 0.1)
-                chars_needed = max(0, target_chars - effective_max)
-                predicted_time_to_target = chars_needed / max(cps, 1.0)
-                max_patience = 0.75 if self.emission_count == 0 else 1.5
-                if predicted_time_to_target > max_patience:
-                    punct_decision = self._best_punctuation_cut(working, effective_max, min_force_chars)
-                    if punct_decision is not None:
-                        punct_decision["reason"] = f"cps_{punct_decision['reason']}"
-                        return punct_decision
-            return {"cut": 0, "quality": 0.0, "reason": "wait"}
-
-        pretarget_floor = max(
-            configured_first_min if self.emission_count == 0 else max(MIN_CHUNK_SIZE, target_chars // 2),
-            MIN_CHUNK_SIZE,
-        )
-
-        pretarget_strong_cut = self._find_last_boundary_cluster(
-            working,
-            effective_max - 1,
-            pretarget_floor - 1,
-            ".!?\n",
-        )
-        if pretarget_strong_cut is not None:
-            trailing_tail = re.sub(r"\s+", " ", working[pretarget_strong_cut:effective_max]).strip()
-            if trailing_tail and len(trailing_tail) <= STREAM_TINY_TAIL_CHARS:
-                quality = 0.9 if len(trailing_tail.split()) <= 3 else 0.7
-                return {"cut": pretarget_strong_cut, "quality": quality, "reason": "pretarget_strong"}
-
-        pretarget_weak_cut = self._find_last_boundary_cluster(
-            working,
-            effective_max - 1,
-            pretarget_floor - 1,
-            ",;:",
-        )
-        if pretarget_weak_cut is not None:
-            trailing_tail = re.sub(r"\s+", " ", working[pretarget_weak_cut:effective_max]).strip()
-            if trailing_tail and len(trailing_tail) <= max(10, STREAM_TINY_TAIL_CHARS // 2):
-                return {"cut": pretarget_weak_cut, "quality": 0.5, "reason": "pretarget_weak"}
-
-        strong_cut = self._find_last_boundary_cluster(
-            working,
-            effective_max - 1,
-            target_chars - 1,
-            ".!?\n",
-        )
-        if strong_cut is not None:
-            trailing_tail = re.sub(r"\s+", " ", working[strong_cut:effective_max]).strip()
-            if trailing_tail and len(trailing_tail) <= STREAM_TINY_TAIL_CHARS:
-                quality = 0.9 if len(trailing_tail.split()) <= 3 else 1.0
-                return {"cut": strong_cut, "quality": quality, "reason": "strong"}
-
-        if strong_cut is not None:
-            return {"cut": strong_cut, "quality": 1.0, "reason": "strong"}
-
-        weak_cut = self._find_last_boundary_cluster(
-            working,
-            effective_max - 1,
-            target_chars - 1,
-            ",;:",
-        )
-        if weak_cut is not None:
-            trailing_tail = re.sub(r"\s+", " ", working[weak_cut:effective_max]).strip()
-            if trailing_tail and len(trailing_tail) <= max(10, STREAM_TINY_TAIL_CHARS // 2):
-                return {"cut": weak_cut, "quality": 0.8, "reason": "weak"}
-            return {"cut": weak_cut, "quality": 0.8, "reason": "weak"}
-
-        if self.emission_count > 0:
-            punctuation_lookahead_cap = min(
-                self.max_chars,
-                target_chars + STREAM_WHITESPACE_FALLBACK_MARGIN + STREAM_POST_TARGET_PUNCTUATION_MARGIN,
-            )
-            punctuation_waiting_window = (
-                effective_max < punctuation_lookahead_cap
-                and elapsed_time < max_allowed_time
-                and elapsed_time < STREAM_POST_TARGET_PUNCTUATION_WAIT_SECONDS + (0.003 * max(0, effective_max - target_chars))
-            )
-            if punctuation_waiting_window:
-                return {"cut": 0, "quality": 0.0, "reason": "wait_punctuation"}
-
-        clause_cut = self._find_clause_fallback_cut(
-            working,
-            effective_max,
+        # Engine keeps the old constructor, while the cut-point logic lives in core.streaming_text.
+        super().__init__(
             target_chars,
-            min_force_chars,
+            max_chars,
+            min_chunk_size=MIN_CHUNK_SIZE,
+            config_getter=lambda key, default=None: RUNTIME_CONFIG.get(key, default),
+            available_emotion_tags_getter=get_available_emotion_tags,
+            last_emotion_getter=get_last_emotion_tag,
+            control_prefix_checker=_looks_like_control_tag_prefix,
+            visual_prefix_checker=_looks_like_visual_reply_tag_prefix,
+            clock=time.time,
         )
-        if clause_cut is not None:
-            clause_waiting_window = (
-                self.emission_count > 0
-                and effective_max < min(self.max_chars, target_chars + STREAM_CLAUSE_FALLBACK_MARGIN)
-                and elapsed_time < max_allowed_time
-                and elapsed_time < STREAM_CLAUSE_FALLBACK_WAIT_SECONDS + (0.003 * max(0, effective_max - target_chars))
-            )
-            if not clause_waiting_window:
-                return clause_cut
-
-        whitespace_fallback_ready = (
-            effective_max >= min(self.max_chars, target_chars + STREAM_WHITESPACE_FALLBACK_MARGIN)
-            or elapsed_time > (0.9 if self.emission_count == 0 else 1.8)
-        )
-        for index in range(effective_max - 1, target_chars - 1, -1):
-            if whitespace_fallback_ready and working[index].isspace():
-                return {"cut": index + 1, "quality": 0.2, "reason": "whitespace"}
-
-        if effective_max >= self.max_chars:
-            return {"cut": effective_max, "quality": 0.0, "reason": "max_chars"}
-        return {"cut": 0, "quality": 0.0, "reason": "wait"}
-
-    def _best_punctuation_cut(self, working, effective_max, min_force_chars):
-        strong_cut = self._find_last_boundary_cluster(working, effective_max - 1, min_force_chars - 1, ".!?\n")
-        if strong_cut is not None:
-            return {"cut": strong_cut, "quality": 0.7, "reason": "strong"}
-        weak_cut = self._find_last_boundary_cluster(working, effective_max - 1, min_force_chars - 1, ",;:")
-        if weak_cut is not None:
-            return {"cut": weak_cut, "quality": 0.5, "reason": "weak"}
-        return None
-
-    @staticmethod
-    def _normalize_boundary_word(value):
-        return re.sub(r"^[^A-Za-z0-9]+|[^A-Za-z0-9]+$", "", value or "").lower()
-
-    @staticmethod
-    def _split_boundary_words(value):
-        if not value:
-            return []
-        return re.findall(r"[A-Za-z0-9']+", value)
-
-    def _find_clause_fallback_cut(self, working, effective_max, target_chars, min_force_chars):
-        best_choice = None
-        best_score = STREAM_CLAUSE_FALLBACK_MIN_SCORE
-        search_start = max(target_chars - 1, min_force_chars - 1)
-        search_end = max(search_start, min(effective_max - 1, target_chars + STREAM_CLAUSE_FALLBACK_MARGIN))
-        for index in range(search_end, search_start - 1, -1):
-            if not working[index].isspace():
-                continue
-
-            left = working[:index].rstrip()
-            right = working[index + 1:effective_max].lstrip()
-            if len(left) < min_force_chars or len(right) < 2:
-                continue
-
-            left_words = self._split_boundary_words(left[-40:])
-            right_words = self._split_boundary_words(right[:40])
-            last_word = self._normalize_boundary_word(left_words[-1] if left_words else "")
-            next_word_raw = right_words[0] if right_words else ""
-            next_word = self._normalize_boundary_word(next_word_raw)
-            score = 0.0
-            reason = "clause_soft"
-
-            left_tail = left[-16:]
-            if left and left[-1] in "\"')]}»”’":
-                score += 0.55
-                reason = "clause_quote"
-            if left_tail.endswith(" --") or left_tail.endswith(" -") or left_tail.endswith(":") or left_tail.endswith(";"):
-                score += 0.7
-                reason = "clause_dash" if "-" in left_tail else "clause_soft"
-            elif re.search(r"[,:;]\s*[\"')\]}»”’]*$", left_tail):
-                score += 0.45
-
-            if re.search(r"[,:;]\s+[A-Z][^ ]*$", working[max(0, index - 24):effective_max]):
-                score += 0.45
-            if next_word in STREAM_CLAUSE_STARTERS:
-                score += 0.95
-                reason = "clause_starter"
-            elif next_word_raw[:1].isupper() and next_word_raw.lower() != next_word_raw:
-                score += 0.55
-                reason = "clause_capital"
-
-            if len(right_words) <= 4:
-                score -= 0.3
-            if last_word in STREAM_BAD_ENDING_WORDS:
-                score -= 1.1
-            elif len(last_word) <= 2:
-                score -= 0.25
-
-            overshoot = max(0, index - target_chars)
-            score += min(0.45, overshoot / 36.0)
-
-            if score > best_score:
-                quality = 0.55 if score >= 1.7 else 0.45
-                best_choice = {"cut": index + 1, "quality": quality, "reason": reason}
-                best_score = score
-        return best_choice
-
-    def _emergency_force_cut(self, working, effective_max, min_force_chars, quality_floor=0.0, reason_prefix="forced"):
-        punct_decision = self._best_punctuation_cut(working, effective_max, min_force_chars)
-        if punct_decision is not None:
-            punct_decision["quality"] = max(quality_floor, punct_decision["quality"])
-            punct_decision["reason"] = f"{reason_prefix}_{punct_decision['reason']}"
-            return punct_decision
-        for index in range(effective_max - 1, min_force_chars - 1, -1):
-            if working[index].isspace():
-                return {"cut": index + 1, "quality": max(quality_floor, 0.2), "reason": f"{reason_prefix}_whitespace"}
-        return {"cut": effective_max, "quality": 0.0, "reason": f"{reason_prefix}_panic"}
-
-    @staticmethod
-    def _find_last_boundary_cluster(text, start_index, min_index, boundary_chars):
-        for index in range(start_index, min_index - 1, -1):
-            if text[index] in boundary_chars:
-                cluster_end = index + 1
-                while cluster_end < len(text) and (
-                    text[cluster_end] in "\"')]}»”’"
-                    or text[cluster_end] in ".!?,;:-"
-                ):
-                    cluster_end += 1
-                return cluster_end
-        return None
-
-    def _emit_chunk(self, cut_index, decision):
-        raw = self.buffer[:cut_index]
-        self.buffer = self.buffer[cut_index:].lstrip()
-        chunk = re.sub(r"\s+", " ", raw).strip()
-        if not chunk:
-            return None
-
-        if self.active_emotion != "neutral":
-            starts_with_emotion = False
-            for tag in get_available_emotion_tags():
-                if chunk.lower().startswith(tag):
-                    starts_with_emotion = True
-                    break
-            if not starts_with_emotion:
-                chunk = f"[{self.active_emotion}] {chunk}"
-
-        last_emotion = get_last_emotion_tag(chunk)
-        if last_emotion:
-            self.active_emotion = last_emotion
-
-        self.emission_count += 1
-        if not self.buffer:
-            self.buffer_started_at = None
-            self.buffer_chars_received = 0
-        else:
-            self.buffer_started_at = time.time()
-            self.buffer_chars_received = 0
-        return {
-            "text": chunk,
-            "quality": float(decision.get("quality", 0.0) or 0.0),
-            "reason": str(decision.get("reason", "unknown") or "unknown"),
-            "chars": len(chunk),
-        }
 
 
 def coalesce_musetalk_leading_segments(segments):
@@ -5212,13 +4012,7 @@ def normalize_chunk_result(result, default_payload_path=None):
 
 
 def list_png_frames(frame_dir):
-    if not frame_dir or not os.path.isdir(frame_dir):
-        return []
-    return sorted(
-        os.path.join(frame_dir, name)
-        for name in os.listdir(frame_dir)
-        if name.lower().endswith(".png")
-    )
+    return runtime_files.list_png_frames(frame_dir)
 
 
 def estimate_displayed_musetalk_frames(state, now=None):
@@ -6424,27 +5218,11 @@ def speak_async_stream(text_queue, dry_run_reply_id=None) -> TTSController:
     return speak_async("", text_iterable=_iter_queue_text_chunks(text_queue, dry_run_reply_id=dry_run_reply_id), dry_run_reply_id=dry_run_reply_id)
 
 def safe_delete(file_path):
-    """Helper to handle deletion without crashing on race conditions."""
-    try:
-        if os.path.exists(file_path):
-            os.remove(file_path)
-    except Exception as e:
-        print(f"⚠️ [Cleanup] Could not remove {file_path}: {e}")
+    return runtime_files.safe_delete(file_path, logger=print)
 
 
 def safe_delete_with_retry(file_path, retries=5, delay=0.1):
-    """Attempts to delete a file, retrying if the file is locked by another process."""
-    if not file_path or not os.path.exists(file_path):
-        return
-
-    for i in range(retries):
-        try:
-            os.remove(file_path)
-            return  # Success
-        except OSError:
-            time.sleep(delay)  # Wait for the other process to finish
-
-    print(f"⚠️ [Cleanup] Final attempt failed for {os.path.basename(file_path)}")
+    return runtime_files.safe_delete_with_retry(file_path, retries=retries, delay=delay, logger=print)
 # ============================================================================
 # SPEECH RECOGNITION
 # ============================================================================
