@@ -80,6 +80,19 @@ def normalize_provider_id(provider_id: str | None, fallback: str = "vseeface") -
     return value or str(fallback or "vseeface").strip().lower()
 
 
+def adapter_provider_id(adapter: Any, fallback: str = "") -> str:
+    """Return the normalized provider id advertised by an adapter instance."""
+
+    return normalize_provider_id(getattr(adapter, "avatar_provider_id", ""), fallback=fallback)
+
+
+def adapter_matches_provider(adapter: Any, provider_id: str) -> bool:
+    """Check an adapter identity without importing provider-specific classes."""
+
+    expected = normalize_provider_id(provider_id, fallback="")
+    return bool(expected and adapter_provider_id(adapter, fallback="") == expected)
+
+
 def register_provider(
     *,
     provider_id: str,

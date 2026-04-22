@@ -32,6 +32,7 @@ class MuseTalkBridge:
         self._reader_thread = None
         self._lock = threading.Lock()
         self._pending_lock = threading.Lock()
+        self._stopping = False
 
     def _fail_pending_requests(self, error):
         payload = {"ok": False, "error": str(error or "MuseTalk worker stopped.")}
@@ -44,71 +45,93 @@ class MuseTalkBridge:
                 pass
 
     def start(self):
-        if self.process and self.process.poll() is None:
-            return
+        with self._lock:
+            if self._stopping:
+                raise RuntimeError("MuseTalk worker is stopping.")
+            if self.process and self.process.poll() is None:
+                return
 
-        if not os.path.exists(self.python_exe):
-            raise FileNotFoundError(f"MuseTalk Python not found: {self.python_exe}")
-        if not os.path.exists(self.worker_script):
-            raise FileNotFoundError(f"MuseTalk worker not found: {self.worker_script}")
-        os.makedirs(self.runtime_dir, exist_ok=True)
+            if not os.path.exists(self.python_exe):
+                raise FileNotFoundError(f"MuseTalk Python not found: {self.python_exe}")
+            if not os.path.exists(self.worker_script):
+                raise FileNotFoundError(f"MuseTalk worker not found: {self.worker_script}")
+            os.makedirs(self.runtime_dir, exist_ok=True)
 
-        command = [self.python_exe, self.worker_script]
-        vram_mode = str(self.worker_options.get("vram_mode", "") or "").strip()
-        if vram_mode:
-            command.extend(["--vram-mode", vram_mode])
+            command = [self.python_exe, self.worker_script]
+            vram_mode = str(self.worker_options.get("vram_mode", "") or "").strip()
+            if vram_mode:
+                command.extend(["--vram-mode", vram_mode])
 
-        self.process = subprocess.Popen(
-            command,
-            cwd=self.root_dir,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            bufsize=1,
-        )
-        print(f"[MuseTalkBridge] Worker process started: pid={self.process.pid}, command={os.path.basename(self.python_exe)} {os.path.basename(self.worker_script)}")
-        self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
-        self._reader_thread.start()
+            self.process = subprocess.Popen(
+                command,
+                cwd=self.root_dir,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+            print(f"[MuseTalkBridge] Worker process started: pid={self.process.pid}, command={os.path.basename(self.python_exe)} {os.path.basename(self.worker_script)}")
+            self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
+            self._reader_thread.start()
 
     def stop(self):
-        if not self.process:
+        with self._lock:
+            process = self.process
+            if not process:
+                self._stopping = False
+                return
+            if self._stopping:
+                return
+            self._stopping = True
+        if not process:
             return
         self._fail_pending_requests("MuseTalk worker stopping.")
         try:
-            self.request({"action": "shutdown"}, timeout=5)
+            if process.poll() is None and process.stdin:
+                process.stdin.write(json.dumps({"action": "shutdown", "request_id": str(uuid.uuid4())}) + "\n")
+                process.stdin.flush()
         except Exception:
             pass
         try:
-            if self.process.poll() is None:
-                self.process.terminate()
-                self.process.wait(timeout=5)
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=5)
         except Exception:
             pass
         try:
-            if self.process and self.process.poll() is None and os.name == "nt":
+            if process.poll() is None and os.name == "nt":
                 subprocess.run(
-                    ["taskkill", "/PID", str(self.process.pid), "/T", "/F"],
+                    ["taskkill", "/PID", str(process.pid), "/T", "/F"],
                     capture_output=True,
                     text=True,
                     timeout=10,
                 )
         except Exception:
             pass
+        reader = self._reader_thread
+        if reader and reader.is_alive():
+            try:
+                reader.join(timeout=1.0)
+            except RuntimeError:
+                pass
         try:
-            if self.process and self.process.stdin:
-                self.process.stdin.close()
+            if process.stdin:
+                process.stdin.close()
         except Exception:
             pass
         try:
-            if self.process and self.process.stdout:
-                self.process.stdout.close()
+            if process.stdout:
+                process.stdout.close()
         except Exception:
             pass
         self._fail_pending_requests("MuseTalk worker stopped.")
-        self.process = None
+        with self._lock:
+            self.process = None
+            self._reader_thread = None
+            self._stopping = False
 
     def request(self, payload, timeout=120):
         self.start()
@@ -120,6 +143,8 @@ class MuseTalkBridge:
         message["request_id"] = request_id
 
         with self._lock:
+            if self._stopping:
+                raise RuntimeError("MuseTalk worker is stopping.")
             if not self.process or self.process.poll() is not None:
                 raise RuntimeError("MuseTalk worker is not running.")
             self.process.stdin.write(json.dumps(message) + "\n")
@@ -153,8 +178,10 @@ class MuseTalkBridge:
         return response
 
     def _read_stdout(self):
-        while self.process and self.process.poll() is None:
-            line = self.process.stdout.readline()
+        process = self.process
+        stdout = process.stdout if process is not None else None
+        while process and process.poll() is None and stdout:
+            line = stdout.readline()
             if not line:
                 break
             line = line.strip()

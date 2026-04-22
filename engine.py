@@ -48,6 +48,7 @@ import shared_state
 from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
+from addons.vam_avatar import config as vam_avatar_config
 from pydub import AudioSegment
 
 
@@ -271,13 +272,11 @@ def reset_hotkeys_to_defaults():
 
 
 def _is_musetalk_avatar_adapter(adapter) -> bool:
-    """Recognize MuseTalk adapters created by either legacy wrappers or addons."""
-    return str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "musetalk"
+    return avatar_runtime.adapter_matches_provider(adapter, "musetalk")
 
 
 def _is_vam_avatar_adapter(adapter) -> bool:
-    """Recognize VaM adapters created by either legacy wrappers or addons."""
-    return str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() == "vam"
+    return avatar_runtime.adapter_matches_provider(adapter, "vam")
 
 
 PUSH_TO_TALK_MAX_SECONDS = 300.0
@@ -421,64 +420,32 @@ def _path_endswith_parts(path_value, *parts):
 
 
 def _detect_default_vam_root():
-    return runtime_paths.detect_default_vam_root(app_root=Path(__file__).resolve().parent, environ=os.environ)
+    return vam_avatar_config.detect_default_root()
 
 
 def derive_vam_bridge_root(vam_root):
-    return runtime_paths.derive_vam_bridge_root(vam_root, app_root=Path(__file__).resolve().parent)
+    return vam_avatar_config.derive_bridge_root(vam_root)
 
 
 def derive_vam_plugin_dir(vam_root):
-    return runtime_paths.derive_vam_plugin_dir(vam_root)
+    return vam_avatar_config.derive_plugin_dir(vam_root)
 
 
-DEFAULT_VAM_ROOT = _detect_default_vam_root()
-
-
-LEGACY_VAM_BRIDGE_ROOTS = tuple(
-    runtime_paths.legacy_vam_bridge_roots(app_root=Path(__file__).resolve().parent)
-)
+DEFAULT_VAM_ROOT = vam_avatar_config.DEFAULT_ROOT
+LEGACY_VAM_BRIDGE_ROOTS = vam_avatar_config.LEGACY_BRIDGE_ROOTS
 
 
 def normalize_vam_root(raw_value=None, migrate_legacy=True):
-    return runtime_paths.normalize_vam_root(
-        raw_value,
-        default_vam_root=DEFAULT_VAM_ROOT,
-        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
-        migrate_legacy=migrate_legacy,
-    )
+    return vam_avatar_config.normalize_root(raw_value, migrate_legacy=migrate_legacy)
 
 
 def normalize_vam_bridge_root(raw_value=None, migrate_legacy=True):
-    return runtime_paths.normalize_vam_bridge_root(
-        raw_value,
-        app_root=Path(__file__).resolve().parent,
-        default_vam_root=DEFAULT_VAM_ROOT,
-        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
-        migrate_legacy=migrate_legacy,
-    )
+    return vam_avatar_config.normalize_bridge_root(raw_value, migrate_legacy=migrate_legacy)
 
 
-DEFAULT_VAM_EMOTION_PRESET_MAP = {
-    "neutral": "nc_neutral",
-    "happy": "nc_happy",
-    "angry": "nc_angry",
-    "sad": "nc_sad",
-    "surprised": "nc_surprised",
-    "shy": "nc_shy",
-    "default": "nc_neutral",
-}
-
-DEFAULT_VAM_TIMELINE_CLIP_MAP = {
-    "happy": "talk_happy",
-    "angry": "talk_angry",
-    "sad": "talk_sad",
-    "surprised": "talk_surprised",
-    "shy": "talk_shy",
-    "default": "talk_default",
-}
-
-DEFAULT_VAM_BRIDGE_ROOT = derive_vam_bridge_root(DEFAULT_VAM_ROOT)
+DEFAULT_VAM_EMOTION_PRESET_MAP = vam_avatar_config.DEFAULT_EMOTION_PRESET_MAP
+DEFAULT_VAM_TIMELINE_CLIP_MAP = vam_avatar_config.DEFAULT_TIMELINE_CLIP_MAP
+DEFAULT_VAM_BRIDGE_ROOT = vam_avatar_config.DEFAULT_BRIDGE_ROOT
 
 VISUAL_REPLY_STORY_THEME_PRESETS = visual_reply_runtime.VISUAL_REPLY_STORY_THEME_PRESETS
 

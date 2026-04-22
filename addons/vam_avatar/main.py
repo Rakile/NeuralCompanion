@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.addons.base import BaseAddon
+from addons.vam_avatar import config as vam_config
 
 
 PROVIDER_ID = "vam"
@@ -50,11 +51,11 @@ class Addon(BaseAddon):
 
         return VaMAdapter(
             runtime_config=runtime_context.runtime_config,
-            normalize_vam_root=runtime_context.get("normalize_vam_root"),
-            derive_vam_bridge_root=runtime_context.get("derive_vam_bridge_root"),
-            default_vam_root=runtime_context.get("default_vam_root", ""),
-            default_emotion_preset_map=runtime_context.get("default_vam_emotion_preset_map", {}),
-            default_timeline_clip_map=runtime_context.get("default_vam_timeline_clip_map", {}),
+            normalize_vam_root=runtime_context.get("normalize_vam_root", vam_config.normalize_root),
+            derive_vam_bridge_root=runtime_context.get("derive_vam_bridge_root", vam_config.derive_bridge_root),
+            default_vam_root=runtime_context.get("default_vam_root", vam_config.DEFAULT_ROOT),
+            default_emotion_preset_map=runtime_context.get("default_vam_emotion_preset_map", vam_config.DEFAULT_EMOTION_PRESET_MAP),
+            default_timeline_clip_map=runtime_context.get("default_vam_timeline_clip_map", vam_config.DEFAULT_TIMELINE_CLIP_MAP),
             audio_segment_cls=runtime_context.get("audio_segment_cls"),
             avatar_profile=runtime_context.get("avatar_profile", {}),
             current_body_state=runtime_context.get("current_body_state", {}),

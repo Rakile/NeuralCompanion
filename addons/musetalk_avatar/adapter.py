@@ -193,13 +193,19 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         self.active_render_order = 0
         self._last_logged_emotion_registry_signature = None
         self._stop_requested = threading.Event()
+        self._stop_lock = threading.Lock()
+        self._stopped = True
 
     def _raise_if_start_cancelled(self):
         if self._stop_requested.is_set() or stop_flag.is_set():
             raise RuntimeError("MuseTalk startup cancelled.")
 
+    def _shutdown_requested(self):
+        return self._stop_requested.is_set() or stop_flag.is_set()
+
     def start(self):
         self._stop_requested.clear()
+        self._stopped = False
         print(f"🎬 [MuseTalk] Starting worker ({self.vram_mode})...")
         self.bridge.start()
         self._raise_if_start_cancelled()
@@ -255,11 +261,19 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             shutil.rmtree(warmup_frame_dir, ignore_errors=True)
 
     def stop(self):
-        self._stop_requested.set()
-        print("🛑 [MuseTalk] Stopping worker...")
-        self.previous_audio_tail = None
-        self.bridge.stop()
-        print("🔌 [MuseTalk] Disconnected.")
+        with self._stop_lock:
+            if self._stopped and self._stop_requested.is_set():
+                return
+            self._stop_requested.set()
+            self._stopped = True
+            self.reply_generation += 1
+            with self.render_order_condition:
+                self.active_render_order = self.next_render_order
+                self.render_order_condition.notify_all()
+            print("🛑 [MuseTalk] Stopping worker...")
+            self.previous_audio_tail = None
+            self.bridge.stop()
+            print("🔌 [MuseTalk] Disconnected.")
 
     def set_emotion(self, emotion_name: str):
         self.current_emotion = emotion_name
@@ -597,6 +611,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         return predicted_entry_index
 
     def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None):
+        if self._shutdown_requested():
+            return {"ok": False, "kind": "musetalk", "cancelled": True}
         requested_avatar_id = self._resolve_avatar_id_for_emotion(self.current_emotion)
         if requested_avatar_id:
             active_avatar_id = self._ensure_avatar_prepared(requested_avatar_id, allow_missing=True) or self.default_avatar_id
@@ -654,6 +670,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 overlap_prefix_frames=0,
                 start_timeline_idx=None,
             ):
+                if self._shutdown_requested():
+                    raise RuntimeError("MuseTalk render cancelled during shutdown.")
                 return self.bridge.request(
                     {
                         "action": "render_audio",
@@ -683,11 +701,11 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 return frame_index
 
             try:
-                if job_generation != self.reply_generation or stop_playback.is_set():
+                if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
                     result_holder["cancelled"] = True
                     return
                 self.render_slots.acquire()
-                if job_generation != self.reply_generation or stop_playback.is_set():
+                if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
                     result_holder["cancelled"] = True
                     return
                 with self.render_order_condition:
@@ -695,9 +713,10 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                         render_order != self.active_render_order
                         and job_generation == self.reply_generation
                         and not stop_playback.is_set()
+                        and not self._shutdown_requested()
                     ):
                         self.render_order_condition.wait(timeout=0.1)
-                    if job_generation != self.reply_generation or stop_playback.is_set():
+                    if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
                         result_holder["cancelled"] = True
                         return
                     has_render_turn = True
@@ -794,6 +813,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                         temp_audio_paths.append(overlap_audio_path)
                         combined_audio.export(overlap_audio_path, format="wav")
                         request_audio_path = overlap_audio_path
+                        if self._shutdown_requested():
+                            raise RuntimeError("MuseTalk render cancelled during shutdown.")
                         combined_count_result = self.bridge.request(
                             {
                                 "action": "estimate_frame_count",
@@ -804,6 +825,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                             },
                             timeout=120,
                         )
+                        if self._shutdown_requested():
+                            raise RuntimeError("MuseTalk render cancelled during shutdown.")
                         current_count_result = self.bridge.request(
                             {
                                 "action": "estimate_frame_count",
@@ -932,6 +955,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             return {"ok": False, "kind": "musetalk"}
 
     def get_idle_payload(self, avatar_id=None):
+        if self._shutdown_requested():
+            return None
         target_avatar_id = avatar_id or self.avatar_id or self.default_avatar_id
         self._ensure_avatar_prepared(target_avatar_id, allow_missing=False)
         avatar_path = self.prepared_avatars.get(target_avatar_id)
