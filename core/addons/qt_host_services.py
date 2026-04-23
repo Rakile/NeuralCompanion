@@ -89,6 +89,50 @@ class QtRuntimeStatusService:
         return "runtime: unavailable"
 
 
+class QtModelRefreshService:
+    def __init__(self, window):
+        self._window = window
+
+    def snapshot(self, provider_id: str | None = None):
+        current_provider = ""
+        try:
+            if hasattr(self._window, "_current_chat_provider_value"):
+                current_provider = str(self._window._current_chat_provider_value() or "")
+        except Exception:
+            current_provider = ""
+        provider = str(provider_id or current_provider or "").strip().lower()
+        model_combo = getattr(self._window, "model_combo", None)
+        items = []
+        selected_model = ""
+        if model_combo is not None:
+            try:
+                selected_model = str(model_combo.currentText() or "").strip()
+                items = [
+                    str(model_combo.itemText(index) or "").strip()
+                    for index in range(model_combo.count())
+                    if str(model_combo.itemText(index) or "").strip()
+                ]
+            except Exception:
+                items = []
+        return {
+            "provider": provider,
+            "selected_model": selected_model,
+            "models": items,
+            "in_flight": bool(getattr(self._window, "_model_refresh_in_flight", False)),
+            "refresh_provider": str(getattr(self._window, "_model_refresh_provider", "") or ""),
+            "refresh_available": hasattr(self._window, "request_model_list_refresh"),
+            "deferred": False,
+            "message": "Live model refresh is available.",
+            "source": "qt_app",
+        }
+
+    def refresh(self, provider_id: str | None = None, *, quiet: bool = True, wait_for_reachable: bool = False):
+        refresh = getattr(self._window, "request_model_list_refresh", None)
+        if callable(refresh):
+            refresh(quiet=bool(quiet), wait_for_reachable=bool(wait_for_reachable))
+        return self.snapshot(provider_id)
+
+
 class QtHotkeyService:
     def __init__(self, window):
         self._window = window

@@ -74,6 +74,7 @@ Current behavior:
 - Adds read-only addon mount placeholder tabs in the Designer shell.
 - Live-mounts the allowlisted low-risk addons.
 - Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
+- Binds the model Refresh button through a shell-local `qt.model_refresh` facade that reports refresh as deferred without calling provider handlers.
 - Binds preset/session controls in shell-local preview mode.
 - Binds engine lifecycle buttons in shell-local preview mode.
 - Prints a static-vs-addon tab comparison in the terminal.
@@ -125,7 +126,8 @@ Why these addons were chosen:
 
 Important:
 
-- The shell provides no replay, model, audio, or engine lifecycle host services yet.
+- The shell provides no replay, audio, or engine lifecycle host services yet.
+- The shell provides a model refresh facade, but it is intentionally deferred and never calls provider handlers.
 - Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
@@ -142,6 +144,7 @@ The Designer shell now binds the `Chat Runtime` card to shell-registered chat pr
 - `chat_provider_fields_layout` renders provider config fields such as API key, base URL, and API version.
 - `chat_provider_generation_fields_layout` renders provider-specific generation fields such as temperature, top-p, top-k, repetition penalty, and max tokens.
 - `model_combo` shows the saved model plus a deferred-refresh note.
+- `btn_model_refresh` is connected to the shell-local `qt.model_refresh` service and only reports that live provider refresh is deferred.
 - The Chat Runtime group title summarizes the selected provider and saved model.
 
 This is still shell-local:
@@ -336,6 +339,7 @@ Current handover boundary:
 - Shell mode can render addon tabs and preview Chat Runtime/preset state, but cannot start runtime systems.
 - Shell-local lifecycle buttons can simulate Initialize/Terminate/Reset, but they do not call real runtime functions.
 - Shell mode exposes a shell-local `qt.runtime_status` service. The normal Python-built app exposes the same service name through the addon host, backed by the current Qt window/runtime flags.
+- Shell mode exposes a shell-local `qt.model_refresh` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing model refresh path.
 - Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:

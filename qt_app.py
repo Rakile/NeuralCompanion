@@ -573,11 +573,52 @@ class _UiShellRuntimeStatusService:
         return self.snapshot().status_line()
 
 
+class _UiShellModelRefreshService:
+    """Shell-safe model refresh facade.
+
+    The Designer shell can bind refresh controls through the same host-service
+    name as the real app, but this implementation never calls provider handlers.
+    """
+
+    def __init__(self, window):
+        self._window = window
+        self._last_requested_provider = ""
+
+    def snapshot(self, provider_id=None):
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        provider = str(provider_id or session.get("chat_provider", "") or "").strip().lower()
+        model_name = str(session.get("model_name", "") or "").strip()
+        models = [model_name] if model_name else []
+        return {
+            "provider": provider,
+            "selected_model": model_name,
+            "models": models,
+            "in_flight": False,
+            "refresh_available": False,
+            "deferred": True,
+            "last_requested_provider": self._last_requested_provider,
+            "message": "Live model refresh is deferred in shell preview.",
+            "source": "ui_shell",
+        }
+
+    def refresh(self, provider_id=None, *, quiet=True, wait_for_reachable=False):
+        self._last_requested_provider = str(provider_id or "").strip().lower()
+        return self.snapshot(provider_id)
+
+
 def _ui_shell_runtime_status_service(window):
     service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
     if service is None:
         service = _UiShellRuntimeStatusService(window)
         setattr(window, "_nc_ui_shell_runtime_status_service", service)
+    return service
+
+
+def _ui_shell_model_refresh_service(window):
+    service = getattr(window, "_nc_ui_shell_model_refresh_service", None)
+    if service is None:
+        service = _UiShellModelRefreshService(window)
+        setattr(window, "_nc_ui_shell_model_refresh_service", service)
     return service
 
 
@@ -1823,6 +1864,8 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
     settings_label = _ui_shell_find_object(window, "provider_settings_label")
     generation_label = _ui_shell_find_object(window, "provider_generation_label")
     runtime_box = _ui_shell_find_object(window, "chat_runtime_box")
+    refresh_button = _ui_shell_find_object(window, "btn_model_refresh")
+    model_refresh = _ui_shell_model_refresh_service(window)
 
     if settings_layout is None or generation_layout is None:
         return {"bound": False, "providers": len(providers), "selected_provider": selected_provider_id}
@@ -1843,17 +1886,21 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
     def refresh_model_summary(provider_id):
         if model_combo is None or not hasattr(model_combo, "clear"):
             return
-        saved_model = str(session.get("model_name", "") or "").strip()
+        snapshot = dict(model_refresh.snapshot(provider_id) or {})
+        saved_model = str(snapshot.get("selected_model") or session.get("model_name", "") or "").strip()
+        models = [str(item or "").strip() for item in list(snapshot.get("models") or []) if str(item or "").strip()]
         model_combo.blockSignals(True)
         try:
             model_combo.clear()
-            if saved_model:
-                model_combo.addItem(saved_model)
+            for model in models:
+                model_combo.addItem(model)
+            if saved_model and saved_model not in models:
+                model_combo.insertItem(0, saved_model)
             model_combo.addItem("Model refresh deferred in shell preview")
             model_combo.setCurrentIndex(0)
         finally:
             model_combo.blockSignals(False)
-        _ui_shell_set_read_only_tooltip(model_combo, "Live model refresh remains deferred for this binding slice.")
+        _ui_shell_set_read_only_tooltip(model_combo, str(snapshot.get("message") or "Live model refresh remains deferred for this binding slice."))
 
     def refresh_runtime_title(provider_id):
         provider = provider_by_id.get(provider_id, {})
@@ -1959,6 +2006,16 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
         refresh_model_summary(provider_id)
         refresh_runtime_title(provider_id)
 
+    def on_refresh_clicked():
+        provider_id = _ui_shell_current_provider_id(combo, providers) if combo is not None else selected_provider_id
+        snapshot = model_refresh.refresh(provider_id, quiet=False, wait_for_reachable=True)
+        refresh_model_summary(provider_id)
+        if refresh_button is not None and hasattr(refresh_button, "setToolTip"):
+            refresh_button.setToolTip(str(snapshot.get("message") or "Live model refresh is deferred in shell preview."))
+        status_label = _ui_shell_find_object(window, "console_status")
+        if status_label is not None and hasattr(status_label, "setText"):
+            status_label.setText("Shell preview: model refresh requested, but live provider calls are deferred.")
+
     if combo is not None and hasattr(combo, "clear"):
         combo.blockSignals(True)
         try:
@@ -1978,6 +2035,14 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
                 render_provider(provider_id)
 
         combo.currentIndexChanged.connect(on_provider_changed)
+
+    if refresh_button is not None and hasattr(refresh_button, "clicked"):
+        refresh_button.setEnabled(True)
+        refresh_button.setText("Refresh")
+        refresh_button.setToolTip("Shell-local model refresh facade. No provider handlers are called.")
+        if not getattr(refresh_button, "_nc_ui_shell_model_refresh_bound", False):
+            refresh_button.clicked.connect(on_refresh_clicked)
+            setattr(refresh_button, "_nc_ui_shell_model_refresh_bound", True)
 
     render_provider(selected_provider_id)
     setattr(window, "_nc_ui_shell_chat_runtime_state", local_state)
@@ -2175,6 +2240,7 @@ def _ui_shell_mount_live_addons(window, report):
     host_services = {
         "qt.chat_providers": chat_provider_registry,
         "qt.hotkeys": _UiShellHotkeyService(),
+        "qt.model_refresh": _ui_shell_model_refresh_service(window),
         "qt.runtime_status": _ui_shell_runtime_status_service(window),
         "qt.shell": _UiShellShellService(),
         "qt.visual_reply": _UiShellVisualReplyService(window),
@@ -2772,7 +2838,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -8744,6 +8810,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 host_services={
                     "qt.dialogs": QtDialogService(self),
                     "qt.hotkeys": QtHotkeyService(self),
+                    "qt.model_refresh": QtModelRefreshService(self),
                     "qt.runtime_status": QtRuntimeStatusService(self),
                     "qt.shell": QtShellService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
