@@ -19,6 +19,8 @@ from collections import OrderedDict
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from core.runtime_status import build_runtime_status_snapshot
+
 
 UI_VALIDATION_REQUIRED_GROUPS = (
     (
@@ -444,6 +446,7 @@ def run_ui_shell_smoke(raw_path):
         "[UI Shell Smoke] Lifecycle shell-local controls: "
         + ", ".join(lifecycle_summary.get("bound") or ["none"])
     )
+    print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
@@ -540,13 +543,51 @@ def _ui_shell_binding_summary(window):
     }
 
 
+class _UiShellRuntimeStatusService:
+    """Read-only shell runtime status facade for Designer-bound UI code."""
+
+    def __init__(self, window):
+        self._window = window
+        self._running = False
+
+    def set_running(self, running):
+        self._running = bool(running)
+
+    def snapshot(self):
+        binding_summary = _ui_shell_binding_summary(self._window)
+        return build_runtime_status_snapshot(
+            _read_ui_shell_session_snapshot(),
+            running=self._running,
+            engine_connected=False,
+            shell_mode=True,
+            lifecycle_state="shell_running_preview" if self._running else "shell_preview",
+            source="ui_shell",
+            metadata={
+                "bindings_checked": int(binding_summary.get("checked", 0) or 0),
+                "bindings_bound": int(binding_summary.get("bound", 0) or 0),
+                "binding_issues": bool(binding_summary.get("missing") or binding_summary.get("mismatched")),
+            },
+        )
+
+    def status_line(self):
+        return self.snapshot().status_line()
+
+
+def _ui_shell_runtime_status_service(window):
+    service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
+    if service is None:
+        service = _UiShellRuntimeStatusService(window)
+        setattr(window, "_nc_ui_shell_runtime_status_service", service)
+    return service
+
+
 def _apply_ui_shell_preview_status(window):
     summary = _ui_shell_binding_summary(window)
+    runtime_status = _ui_shell_runtime_status_service(window).snapshot()
     lines = [
-        "Shell Preview",
-        "Runtime: not started",
-        "Addons: limited shell mounts only",
-        "Engine lifecycle: not connected",
+        runtime_status.status_line(),
+        "addons: limited shell mounts only",
+        "engine lifecycle: not connected",
         f"Bindings: {summary['bound']}/{summary['checked']} checked",
     ]
     if summary["missing"] or summary["mismatched"]:
@@ -760,6 +801,7 @@ def _bind_ui_shell_lifecycle_local_controls(window):
     console_status = _ui_shell_find_object(window, "console_status")
     chat_status = _ui_shell_find_object(window, "chat_status")
     mic_status = _ui_shell_find_object(window, "mic_status_label")
+    runtime_status = _ui_shell_runtime_status_service(window)
 
     state = {"running": False}
 
@@ -795,14 +837,16 @@ def _bind_ui_shell_lifecycle_local_controls(window):
 
     def start_preview():
         state["running"] = True
+        runtime_status.set_running(True)
         refresh_buttons()
-        set_status("Shell lifecycle preview | runtime simulated | engine not started")
+        set_status(runtime_status.status_line())
         append_console("[UI Shell] Initialize preview: no runtime systems were started.")
 
     def stop_preview():
         state["running"] = False
+        runtime_status.set_running(False)
         refresh_buttons()
-        set_status("Shell lifecycle preview | runtime stopped | engine was never started")
+        set_status(runtime_status.status_line())
         append_console("[UI Shell] Terminate preview: no runtime systems were stopped.")
 
     def reset_preview():
@@ -2131,6 +2175,7 @@ def _ui_shell_mount_live_addons(window, report):
     host_services = {
         "qt.chat_providers": chat_provider_registry,
         "qt.hotkeys": _UiShellHotkeyService(),
+        "qt.runtime_status": _ui_shell_runtime_status_service(window),
         "qt.shell": _UiShellShellService(),
         "qt.visual_reply": _UiShellVisualReplyService(window),
         "qt.audio_story_mode_shell_preview": True,
@@ -2633,6 +2678,7 @@ def run_ui_shell_preview(raw_path):
         "[UI Shell] Lifecycle shell-local controls: "
         + ", ".join(lifecycle_summary.get("bound") or ["none"])
     )
+    print(f"[UI Shell] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
     print(
         "[UI Shell] Chat Runtime binding: "
         + (
@@ -2726,7 +2772,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtMuseTalkUIService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -8613,6 +8659,36 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.status_timer.timeout.connect(self._poll_runtime_status)
         self.status_timer.start(120)
 
+    def build_runtime_status_snapshot(self):
+        config = dict(RUNTIME_CONFIG or {})
+        try:
+            if hasattr(self, "chat_provider_combo"):
+                config["chat_provider"] = self._current_chat_provider_value()
+            if hasattr(self, "model_combo"):
+                config["model_name"] = self.model_combo.currentText()
+            if hasattr(self, "tts_backend_combo"):
+                config["tts_backend"] = self._current_tts_backend_value()
+            if hasattr(self, "engine_combo"):
+                config["avatar_mode"] = self._current_avatar_mode_value()
+        except Exception:
+            pass
+        running = bool(getattr(self, "thread", None) and self.thread.is_alive())
+        listening = bool(getattr(engine, "listening_active", None) and engine.listening_active.is_set())
+        recording = bool(getattr(engine, "microphone_active", None) and engine.microphone_active.is_set())
+        paused = bool(getattr(engine, "playback_paused", None) and engine.playback_paused.is_set())
+        paused = paused or bool(getattr(engine, "pause_after_chunk", None) and engine.pause_after_chunk.is_set())
+        return build_runtime_status_snapshot(
+            config,
+            running=running,
+            engine_connected=running,
+            shell_mode=False,
+            lifecycle_state="running" if running else "stopped",
+            listening=listening,
+            recording=recording,
+            playback_paused=paused,
+            source="qt_app",
+        )
+
     def _build_addon_llm_snapshot(self):
         return {
             "chat_provider": self._current_chat_provider_value() if hasattr(self, "chat_provider_combo") else str(RUNTIME_CONFIG.get("chat_provider", "lmstudio") or "lmstudio"),
@@ -8668,6 +8744,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 host_services={
                     "qt.dialogs": QtDialogService(self),
                     "qt.hotkeys": QtHotkeyService(self),
+                    "qt.runtime_status": QtRuntimeStatusService(self),
                     "qt.shell": QtShellService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
@@ -9217,19 +9294,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._update_preset_reference_from_selection(selected)
 
     def _poll_runtime_status(self):
-        listening = bool(getattr(engine, "listening_active", None) and engine.listening_active.is_set())
-        recording = bool(getattr(engine, "microphone_active", None) and engine.microphone_active.is_set())
+        runtime_status = self.build_runtime_status_snapshot()
+        listening = bool(runtime_status.listening)
+        recording = bool(runtime_status.recording)
         if hasattr(self, "listen_diode"):
             self.listen_diode.setStyleSheet(self._status_diode_style(listening, "#39d98a", "#92f0bf"))
         if hasattr(self, "mic_diode"):
             self.mic_diode.setStyleSheet(self._status_diode_style(recording, "#ff4d5e", "#ff96a0"))
         if hasattr(self, "mic_status_label"):
-            if recording:
-                label = "Recording"
-            elif listening:
-                label = "Listening"
-            else:
-                label = "Microphone idle"
+            label = {"recording": "Recording", "listening": "Listening"}.get(runtime_status.microphone_state, "Microphone idle")
             self.mic_status_label.setText(label)
         if hasattr(self, "pipeline_telemetry_widget"):
             pipeline_snapshot = self._build_pipeline_visual_snapshot(
@@ -9239,8 +9312,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 pipeline_snapshot,
                 getattr(shared_state, "current_musetalk_frame_data", {}) or {},
             )
-        paused = bool(getattr(engine, "playback_paused", None) and engine.playback_paused.is_set())
-        paused = paused or bool(getattr(engine, "pause_after_chunk", None) and engine.pause_after_chunk.is_set())
+        paused = bool(runtime_status.playback_paused)
         if paused != self._chat_runtime_border_paused:
             self._chat_runtime_border_paused = paused
             border_style = "border: 2px solid #d84a4a; border-radius: 10px;" if paused else ""

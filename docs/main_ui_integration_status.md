@@ -52,6 +52,7 @@ Current behavior:
 - Live-registers chat provider addons through a shell-safe provider registry stub.
 - Prints a static-vs-addon tab comparison for likely duplicate/fake Designer tabs.
 - Reports whether the heavy `engine.py` module was imported; shell smoke is not ready if this regresses to `yes`.
+- Prints a read-only runtime status snapshot from `qt.runtime_status`, including lifecycle, chat provider/model, TTS backend, avatar engine, and microphone state.
 
 This mode does not start Flask, connect engine lifecycle actions, call provider model refresh, or start audio/image/transcription/model runtime systems.
 
@@ -334,6 +335,7 @@ Current handover boundary:
 - `python qt_app.py --ui-shell main.ui` is the safe Designer shell preview.
 - Shell mode can render addon tabs and preview Chat Runtime/preset state, but cannot start runtime systems.
 - Shell-local lifecycle buttons can simulate Initialize/Terminate/Reset, but they do not call real runtime functions.
+- Shell mode exposes a shell-local `qt.runtime_status` service. The normal Python-built app exposes the same service name through the addon host, backed by the current Qt window/runtime flags.
 - Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:
@@ -343,6 +345,7 @@ Why this should come next:
 - `sensory_feedback_tabs` is now clean after live-mounting `Clipboard Source` with shell-only clipboard capture disabled.
 - `right_tabs` is now clean after replacing the static `Audio Story Mode` tab with the addon shell adapter.
 - Console/chat local controls are now in place without starting runtime systems.
+- A small UI-facing runtime-status facade now exists, so future `main.ui` work can read lifecycle/provider/TTS/avatar/microphone state through one contract instead of directly touching `engine.py`.
 - `tts_runtime_addon_tabs` is now clean after live-mounting Chatterbox, Gemini TTS, and PocketTTS with shell-only backend/model/subprocess work disabled.
 - `musetalk_tabs` now live-mounts Loop Authoring with Wan2GP/subprocess/file actions disabled in shell mode, and Preprocess through a shell-only adapter.
 - All addon-owned tab surfaces currently report clean in shell smoke; remaining shell placeholders are provider-field metadata placeholders, not tab duplicates.

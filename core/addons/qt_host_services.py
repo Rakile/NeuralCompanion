@@ -74,6 +74,21 @@ class QtShellService:
             self._window.save_session()
 
 
+class QtRuntimeStatusService:
+    def __init__(self, window):
+        self._window = window
+
+    def snapshot(self):
+        if hasattr(self._window, "build_runtime_status_snapshot"):
+            return self._window.build_runtime_status_snapshot().to_dict()
+        return {}
+
+    def status_line(self) -> str:
+        if hasattr(self._window, "build_runtime_status_snapshot"):
+            return self._window.build_runtime_status_snapshot().status_line()
+        return "runtime: unavailable"
+
+
 class QtHotkeyService:
     def __init__(self, window):
         self._window = window
