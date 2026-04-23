@@ -76,6 +76,8 @@ Current behavior:
 - Adds read-only addon mount placeholder tabs in the Designer shell.
 - Live-mounts the allowlisted low-risk addons.
 - Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
+- Binds Avatar Engine selection from shell-registered avatar provider addon metadata without calling avatar factories.
+- Binds TTS Backend selection from shell-registered TTS addon service metadata without starting TTS services.
 - Binds the model Refresh button through a shell-local `qt.model_refresh` facade that reports refresh as deferred without calling provider handlers.
 - Binds preset/session controls in shell-local preview mode.
 - Binds engine lifecycle buttons through a shell-local `qt.engine_lifecycle` facade.
@@ -172,6 +174,36 @@ This is still shell-local:
 - Provider handlers are stored by the shell registry but never called.
 - Live model refresh remains deferred.
 - Real engine start/stop remains disconnected.
+
+## Avatar Runtime Shell Binding
+
+The Designer shell now binds the `Avatar Engine` selector to shell-registered avatar provider addon metadata:
+
+- `engine_combo` is populated from avatar provider addons registered through the shell-safe `qt.avatar_providers` service.
+- The saved session avatar mode is selected when it matches a registered provider.
+- Changing the combo only logs a shell preview message.
+
+This is still shell-local:
+
+- Avatar factories are stored as metadata but never called.
+- No VaM, MuseTalk, VSeeFace, VMC, worker process, or bridge runtime is started.
+- The selected value is not saved to `qt_session.json`.
+- `RUNTIME_CONFIG` is not changed.
+
+## TTS Runtime Shell Binding
+
+The Designer shell now binds the `TTS Backend` selector to shell-registered TTS addon service metadata:
+
+- `tts_backend_combo` is populated from addon services that register `metadata.kind == "tts"`.
+- The saved session TTS backend is selected when it matches a registered backend.
+- Changing the combo only logs a shell preview message and selects the matching TTS settings tab when possible.
+
+This is still shell-local:
+
+- TTS service objects may exist as addon metadata holders, but no backend generation is called.
+- Chatterbox model loading, PocketTTS subprocess startup, Gemini API calls, audio writes, and playback remain disabled by addon shell guards.
+- The selected value is not saved to `qt_session.json`.
+- `RUNTIME_CONFIG` is not changed.
 
 ## Preset/Session Shell Binding
 

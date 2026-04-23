@@ -461,6 +461,8 @@ def run_ui_shell_smoke(raw_path):
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
+    avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
+    tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
     preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
     chat_context_summary = _bind_ui_shell_chat_context_controls(window)
     print(
@@ -476,6 +478,22 @@ def run_ui_shell_smoke(raw_path):
         + (
             f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
             if preset_session_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell Smoke] Avatar Runtime binding: "
+        + (
+            f"{avatar_runtime_summary['providers']} provider(s), selected={avatar_runtime_summary['selected_provider'] or '<none>'}"
+            if avatar_runtime_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell Smoke] TTS Runtime binding: "
+        + (
+            f"{tts_runtime_summary['backends']} backend(s), selected={tts_runtime_summary['selected_backend'] or '<none>'}"
+            if tts_runtime_summary.get("bound")
             else "deferred"
         )
     )
@@ -2736,6 +2754,142 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
     }
 
 
+def _bind_ui_shell_avatar_runtime(window, avatar_providers, session_override=None):
+    providers = list(avatar_providers or [])
+    combo = _ui_shell_find_object(window, "engine_combo")
+    if combo is None or not hasattr(combo, "clear"):
+        return {"bound": False, "providers": len(providers), "selected_provider": ""}
+
+    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
+    saved_provider = str(session.get("avatar_mode", "") or "").strip().lower()
+    provider_ids = {
+        str(provider.get("id") or "").strip().lower()
+        for provider in providers
+        if str(provider.get("id") or "").strip()
+    }
+    selected_provider_id = saved_provider if saved_provider in provider_ids else ""
+    if not selected_provider_id and providers:
+        selected_provider_id = str(providers[0].get("id") or "").strip().lower()
+
+    combo.blockSignals(True)
+    try:
+        combo.clear()
+        for provider in providers:
+            provider_id = str(provider.get("id") or "").strip().lower()
+            if not provider_id:
+                continue
+            label = str(provider.get("label") or provider_id).strip() or provider_id
+            combo.addItem(label, provider_id)
+        if not providers:
+            combo.addItem("No avatar providers registered", "")
+        index = combo.findData(selected_provider_id)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+    finally:
+        combo.blockSignals(False)
+
+    if hasattr(combo, "setToolTip"):
+        combo.setToolTip("Shell-local avatar provider binding. Avatar factories are not called.")
+
+    def on_avatar_changed(_index=None):
+        provider_id = str(combo.currentData() or "").strip().lower()
+        label = str(combo.currentText() or provider_id or "Avatar").strip()
+        _ui_shell_append_console(
+            window,
+            f"[UI Shell] Avatar Engine preview: {label} selected; no avatar adapter was created.",
+        )
+
+    if hasattr(combo, "currentIndexChanged") and not getattr(combo, "_nc_ui_shell_avatar_runtime_bound", False):
+        combo.currentIndexChanged.connect(on_avatar_changed)
+        setattr(combo, "_nc_ui_shell_avatar_runtime_bound", True)
+
+    return {
+        "bound": True,
+        "providers": len(providers),
+        "selected_provider": str(combo.currentData() or selected_provider_id or "").strip().lower(),
+    }
+
+
+def _bind_ui_shell_tts_runtime(window, tts_backends, session_override=None):
+    backends = list(tts_backends or [])
+    combo = _ui_shell_find_object(window, "tts_backend_combo")
+    tabs = _ui_shell_find_object(window, "tts_runtime_addon_tabs")
+    if combo is None or not hasattr(combo, "clear"):
+        return {"bound": False, "backends": len(backends), "selected_backend": ""}
+
+    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
+    saved_backend = str(session.get("tts_backend", "") or "").strip().lower()
+    backend_ids = {
+        str(backend.get("id") or "").strip().lower()
+        for backend in backends
+        if str(backend.get("id") or "").strip()
+    }
+    selected_backend_id = saved_backend if saved_backend in backend_ids else ""
+    if not selected_backend_id and backends:
+        selected_backend_id = str(backends[0].get("id") or "").strip().lower()
+
+    combo.blockSignals(True)
+    try:
+        combo.clear()
+        for backend in backends:
+            backend_id = str(backend.get("id") or "").strip().lower()
+            if not backend_id:
+                continue
+            label = str(backend.get("label") or backend_id).strip() or backend_id
+            combo.addItem(label, backend_id)
+        if not backends:
+            combo.addItem("No TTS backends registered", "")
+        index = combo.findData(selected_backend_id)
+        combo.setCurrentIndex(index if index >= 0 else 0)
+    finally:
+        combo.blockSignals(False)
+
+    if hasattr(combo, "setToolTip"):
+        combo.setToolTip("Shell-local TTS backend binding. TTS backend services are not started.")
+
+    label_by_id = {
+        str(backend.get("id") or "").strip().lower(): str(backend.get("label") or backend.get("id") or "").strip()
+        for backend in backends
+    }
+
+    def select_backend_tab(backend_id):
+        if tabs is None or not hasattr(tabs, "count"):
+            return
+        label = str(label_by_id.get(str(backend_id or "").strip().lower()) or "").strip().lower()
+        if not label:
+            return
+        for index in range(tabs.count()):
+            try:
+                title = str(tabs.tabText(index) or "").strip().lower()
+            except Exception:
+                title = ""
+            if title == label or label in title or title in label:
+                try:
+                    tabs.setCurrentIndex(index)
+                except Exception:
+                    pass
+                return
+
+    def on_tts_changed(_index=None):
+        backend_id = str(combo.currentData() or "").strip().lower()
+        label = str(combo.currentText() or backend_id or "TTS").strip()
+        select_backend_tab(backend_id)
+        _ui_shell_append_console(
+            window,
+            f"[UI Shell] TTS Backend preview: {label} selected; no TTS service was started.",
+        )
+
+    if hasattr(combo, "currentIndexChanged") and not getattr(combo, "_nc_ui_shell_tts_runtime_bound", False):
+        combo.currentIndexChanged.connect(on_tts_changed)
+        setattr(combo, "_nc_ui_shell_tts_runtime_bound", True)
+
+    select_backend_tab(str(combo.currentData() or selected_backend_id or "").strip().lower())
+    return {
+        "bound": True,
+        "backends": len(backends),
+        "selected_backend": str(combo.currentData() or selected_backend_id or "").strip().lower(),
+    }
+
+
 def _ui_shell_tab_title_exists(tab_widget, title):
     if tab_widget is None or not hasattr(tab_widget, "count"):
         return False
@@ -2915,6 +3069,7 @@ def _ui_shell_mount_live_addons(window, report):
     failures = []
     live_refs = []
     live_tabs = []
+    tts_backends_by_id = OrderedDict()
     app_root = Path(__file__).resolve().parent
     storage_root = app_root / "runtime" / "addons" / "ui_shell"
     event_bus = AddonEventBus()
@@ -2972,6 +3127,7 @@ def _ui_shell_mount_live_addons(window, report):
             provider_ids_before = chat_provider_registry.provider_ids()
             avatar_provider_ids_before = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
             sensory_provider_ids_before = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
+            service_names_before = {str(item.get("name") or "").strip() for item in service_registry.list_entries()}
             module = _ui_shell_load_addon_module(row)
             addon_cls = getattr(module, "Addon", None)
             if addon_cls is None:
@@ -2982,8 +3138,32 @@ def _ui_shell_mount_live_addons(window, report):
             added_provider_ids = sorted(provider_ids_after - provider_ids_before)
             avatar_provider_ids_after = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
             sensory_provider_ids_after = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
+            service_entries_after = service_registry.list_entries()
+            service_names_after = {str(item.get("name") or "").strip() for item in service_entries_after}
             added_avatar_provider_ids = sorted(avatar_provider_ids_after - avatar_provider_ids_before)
             added_sensory_provider_ids = sorted(sensory_provider_ids_after - sensory_provider_ids_before)
+            added_tts_backend_summaries = []
+            for entry in service_entries_after:
+                service_name = str(entry.get("name") or "").strip()
+                if not service_name or service_name not in (service_names_after - service_names_before):
+                    continue
+                metadata = dict(entry.get("metadata") or {})
+                if str(metadata.get("kind") or "").strip().lower() != "tts":
+                    continue
+                backend_id = str(metadata.get("backend_id") or service_name).strip()
+                if not backend_id:
+                    continue
+                summary = {
+                    "id": backend_id,
+                    "service_name": service_name,
+                    "label": str(metadata.get("label") or backend_id).strip() or backend_id,
+                    "provider": str(metadata.get("provider") or "").strip(),
+                    "supports_streaming": bool(metadata.get("supports_streaming", False)),
+                    "owner_addon_id": str(entry.get("owner_addon_id") or "").strip(),
+                    "metadata": metadata,
+                }
+                tts_backends_by_id[backend_id] = summary
+                added_tts_backend_summaries.append(dict(summary))
             contributions = sorted(context.ui.get_tab_contributions(), key=lambda item: (int(item.order), str(item.title or item.id)))
             added_tabs = []
             for contribution in contributions:
@@ -3038,7 +3218,7 @@ def _ui_shell_mount_live_addons(window, report):
                 for provider in sensory_registry.list_providers()
                 if str(provider.get("id") or "").strip() in set(added_sensory_provider_ids)
             ]
-            if added_tabs or added_provider_summaries or added_avatar_provider_summaries or added_sensory_provider_summaries:
+            if added_tabs or added_provider_summaries or added_avatar_provider_summaries or added_sensory_provider_summaries or added_tts_backend_summaries:
                 details = []
                 if added_tabs:
                     details.append(", ".join(added_tabs))
@@ -3060,6 +3240,12 @@ def _ui_shell_mount_live_addons(window, report):
                         for provider in added_sensory_provider_summaries
                     )
                     details.append(labels)
+                if added_tts_backend_summaries:
+                    labels = ", ".join(
+                        f"tts_backend/{backend.get('label') or backend.get('id')}"
+                        for backend in added_tts_backend_summaries
+                    )
+                    details.append(labels)
                 mounted.append(f"{addon_id}: {'; '.join(details)}")
                 mounted_ids.append(addon_id)
                 live_refs.append({
@@ -3069,6 +3255,7 @@ def _ui_shell_mount_live_addons(window, report):
                     "providers": added_provider_ids,
                     "avatar_providers": added_avatar_provider_ids,
                     "sensory_providers": added_sensory_provider_ids,
+                    "tts_backends": [str(item.get("id") or "").strip() for item in added_tts_backend_summaries],
                 })
             else:
                 context.close()
@@ -3088,6 +3275,7 @@ def _ui_shell_mount_live_addons(window, report):
         "chat_providers": chat_provider_registry.list_providers(),
         "avatar_providers": avatar_provider_registry.list_providers(),
         "sensory_providers": sensory_registry.list_providers(),
+        "tts_backends": list(tts_backends_by_id.values()),
         "live_tabs": live_tabs,
     }
 
@@ -3448,6 +3636,8 @@ def run_ui_shell_preview(raw_path):
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
+    avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
+    tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
     preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
     chat_context_summary = _bind_ui_shell_chat_context_controls(window)
     placeholder_targets = _apply_ui_shell_addon_placeholders(
@@ -3504,6 +3694,22 @@ def run_ui_shell_preview(raw_path):
         + (
             f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
             if preset_session_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell] Avatar Runtime binding: "
+        + (
+            f"{avatar_runtime_summary['providers']} provider(s), selected={avatar_runtime_summary['selected_provider'] or '<none>'}"
+            if avatar_runtime_summary.get("bound")
+            else "deferred"
+        )
+    )
+    print(
+        "[UI Shell] TTS Runtime binding: "
+        + (
+            f"{tts_runtime_summary['backends']} backend(s), selected={tts_runtime_summary['selected_backend'] or '<none>'}"
+            if tts_runtime_summary.get("bound")
             else "deferred"
         )
     )
