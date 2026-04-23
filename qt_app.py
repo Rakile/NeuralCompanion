@@ -457,6 +457,7 @@ def run_ui_shell_smoke(raw_path):
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
     preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
+    chat_context_summary = _bind_ui_shell_chat_context_controls(window)
     print(
         "[UI Shell Smoke] Chat Runtime binding: "
         + (
@@ -472,6 +473,10 @@ def run_ui_shell_smoke(raw_path):
             if preset_session_summary.get("bound")
             else "deferred"
         )
+    )
+    print(
+        "[UI Shell Smoke] Chat context shell-local controls: "
+        + ", ".join(chat_context_summary.get("bound") or ["none"])
     )
     print(
         "[UI Shell Smoke] Live addon mounts: "
@@ -691,6 +696,46 @@ class _UiShellRuntimeControlService:
         return {**self.snapshot(), "accepted": False, "action": action_key}
 
 
+class _UiShellChatContextService:
+    """Shell-safe chat context facade.
+
+    File/session operations are intentionally not performed in the Designer shell.
+    """
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def snapshot(self):
+        return {
+            "last_action": self._last_action,
+            "shell_mode": True,
+            "file_operations_available": False,
+            "message": "Chat context file operations are deferred in shell preview.",
+            "source": "ui_shell",
+        }
+
+    def save_chat_context(self):
+        self._last_action = "save_chat_context"
+        return self.snapshot()
+
+    def load_chat_context(self):
+        self._last_action = "load_chat_context"
+        return self.snapshot()
+
+    def quick_save_chat_context(self):
+        self._last_action = "quick_save_chat_context"
+        return self.snapshot()
+
+    def quick_load_chat_context(self):
+        self._last_action = "quick_load_chat_context"
+        return self.snapshot()
+
+    def reset_chat_memory(self):
+        self._last_action = "reset_chat_memory"
+        return self.snapshot()
+
+
 def _ui_shell_runtime_status_service(window):
     service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
     if service is None:
@@ -704,6 +749,14 @@ def _ui_shell_model_refresh_service(window):
     if service is None:
         service = _UiShellModelRefreshService(window)
         setattr(window, "_nc_ui_shell_model_refresh_service", service)
+    return service
+
+
+def _ui_shell_chat_context_service(window):
+    service = getattr(window, "_nc_ui_shell_chat_context_service", None)
+    if service is None:
+        service = _UiShellChatContextService(window)
+        setattr(window, "_nc_ui_shell_chat_context_service", service)
     return service
 
 
@@ -907,11 +960,6 @@ def _bind_ui_shell_console_chat_local_controls(window):
             )
         )
 
-    for button in (quick_save_button, quick_load_button):
-        if button is not None:
-            button.setEnabled(False)
-            button.setToolTip("Disabled in the main.ui shell preview because file/session operations are deferred.")
-
     set_button_text(console_autoscroll_button, "Autoscroll", state["console_autoscroll"])
     set_button_text(chat_autoscroll_button, "Autoscroll", state["chat_autoscroll"])
     set_chat_editing(False)
@@ -930,7 +978,7 @@ def _bind_ui_shell_console_chat_local_controls(window):
                 ("chat_cancel_edit_button", chat_cancel_edit_button),
             ) if widget is not None
         ],
-        "deferred": ["chat_quick_save_button", "chat_quick_load_button"],
+        "deferred": [],
     }
 
 
@@ -1065,6 +1113,60 @@ def _bind_ui_shell_runtime_action_controls(window):
         "bound": bound,
         "mode": "shell-local",
         "actions": list(controls.SUPPORTED_ACTIONS),
+    }
+
+
+def _bind_ui_shell_chat_context_controls(window):
+    service = _ui_shell_chat_context_service(window)
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    chat_edit = _ui_shell_find_object(window, "chat_edit")
+    buttons = {
+        "chat_quick_save_button": ("Quick Save", service.quick_save_chat_context),
+        "chat_quick_load_button": ("Quick Load", service.quick_load_chat_context),
+        "btn_save_chat_session": ("Save Chat Context", service.save_chat_context),
+        "btn_load_chat_session": ("Load Chat Context", service.load_chat_context),
+        "btn_reset_chat_session": ("Reset Chat Memory", service.reset_chat_memory),
+    }
+    bound = []
+
+    def append_console(message):
+        if console_edit is None:
+            return
+        try:
+            if hasattr(console_edit, "appendPlainText"):
+                console_edit.appendPlainText(str(message))
+            elif hasattr(console_edit, "append"):
+                console_edit.append(str(message))
+        except Exception:
+            pass
+
+    def make_handler(label, callback, object_name):
+        def handler():
+            snapshot = callback()
+            if object_name == "btn_reset_chat_session" and chat_edit is not None and hasattr(chat_edit, "clear"):
+                try:
+                    chat_edit.clear()
+                except Exception:
+                    pass
+            append_console(f"[UI Shell] {label}: {snapshot.get('message')}")
+        return handler
+
+    for object_name, (label, callback) in buttons.items():
+        button = _ui_shell_find_object(window, object_name)
+        if button is None:
+            continue
+        bound.append(object_name)
+        if hasattr(button, "setEnabled"):
+            button.setEnabled(True)
+        if hasattr(button, "setToolTip"):
+            button.setToolTip("Shell-local chat context preview. No file/session data is read or written.")
+        if hasattr(button, "clicked") and not getattr(button, "_nc_ui_shell_chat_context_bound", False):
+            button.clicked.connect(make_handler(label, callback, object_name))
+            setattr(button, "_nc_ui_shell_chat_context_bound", True)
+
+    return {
+        "bound": bound,
+        "mode": "shell-local",
     }
 
 
@@ -2389,6 +2491,7 @@ def _ui_shell_mount_live_addons(window, report):
     chat_provider_registry = _UiShellChatProviderRegistry()
     host_services = {
         "qt.chat_providers": chat_provider_registry,
+        "qt.chat_context": _ui_shell_chat_context_service(window),
         "qt.engine_lifecycle": _ui_shell_engine_lifecycle_service(window),
         "qt.hotkeys": _UiShellHotkeyService(),
         "qt.model_refresh": _ui_shell_model_refresh_service(window),
@@ -2866,6 +2969,7 @@ def run_ui_shell_preview(raw_path):
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
     preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
+    chat_context_summary = _bind_ui_shell_chat_context_controls(window)
     placeholder_targets = _apply_ui_shell_addon_placeholders(
         window,
         addon_report,
@@ -2917,6 +3021,10 @@ def run_ui_shell_preview(raw_path):
             if preset_session_summary.get("bound")
             else "deferred"
         )
+    )
+    print(
+        "[UI Shell] Chat context shell-local controls: "
+        + ", ".join(chat_context_summary.get("bound") or ["none"])
     )
     print(
         f"[UI Shell] Addon manifests discovered: "
@@ -2995,7 +3103,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatContextService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -8965,6 +9073,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 tts_snapshot_getter=self._build_addon_tts_snapshot,
                 avatar_snapshot_getter=self._build_addon_avatar_snapshot,
                 host_services={
+                    "qt.chat_context": QtChatContextService(self),
                     "qt.dialogs": QtDialogService(self),
                     "qt.engine_lifecycle": QtEngineLifecycleService(self),
                     "qt.hotkeys": QtHotkeyService(self),

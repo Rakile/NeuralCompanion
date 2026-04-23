@@ -78,6 +78,7 @@ Current behavior:
 - Binds preset/session controls in shell-local preview mode.
 - Binds engine lifecycle buttons through a shell-local `qt.engine_lifecycle` facade.
 - Binds Operational View action buttons through a shell-local `qt.runtime_controls` facade.
+- Binds chat-context save/load buttons through a shell-local `qt.chat_context` facade.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -131,6 +132,7 @@ Important:
 - The shell provides a model refresh facade, but it is intentionally deferred and never calls provider handlers.
 - The shell provides an engine lifecycle facade, but it is intentionally shell-local and never starts/stops runtime systems.
 - The shell provides a runtime controls facade, but it is intentionally shell-local and never sends control actions to the engine.
+- The shell provides a chat context facade, but it is intentionally shell-local and never reads or writes chat context files.
 - Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
@@ -212,6 +214,24 @@ This is shell-local only:
 - Clicking a button only appends a preview message to the shell console.
 
 The normal Python-built app exposes the same `qt.runtime_controls` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing `trigger_control_action(...)` method.
+
+## Chat Context Shell Binding
+
+The Designer shell now binds chat context actions through `qt.chat_context`:
+
+- `chat_quick_save_button`
+- `chat_quick_load_button`
+- `btn_save_chat_session`
+- `btn_load_chat_session`
+- `btn_reset_chat_session`
+
+This is shell-local only:
+
+- No chat context file is read or written.
+- No runtime chat history/session state is imported or exported.
+- Reset clears only the shell chat widget.
+
+The normal Python-built app exposes the same `qt.chat_context` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing `save_chat_context()`, `load_chat_context()`, `quick_save_chat_context()`, `quick_load_chat_context()`, and `reset_chat_session()` methods.
 
 ## TTS Runtime Designer Layout
 
@@ -310,7 +330,7 @@ Behavior:
 - Chat font size changes only the preview `chat_edit` widget.
 - Chat edit/apply/cancel is shell-local and does not save or update runtime state.
 - Lifecycle start/stop/reset is shell-local and does not start or stop runtime systems.
-- `chat_quick_save_button` and `chat_quick_load_button` remain disabled because they touch file/session operations.
+- `chat_quick_save_button` and `chat_quick_load_button` are shell-local previews through `qt.chat_context`; they do not touch files in shell mode.
 
 ## Current Read-Only Preview Data
 
@@ -365,6 +385,7 @@ Current handover boundary:
 - Shell mode exposes a shell-local `qt.model_refresh` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing model refresh path.
 - Shell mode exposes a shell-local `qt.engine_lifecycle` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing engine lifecycle methods.
 - Shell mode exposes a shell-local `qt.runtime_controls` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing runtime control-action method.
+- Shell mode exposes a shell-local `qt.chat_context` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing chat context file/session methods.
 - Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:

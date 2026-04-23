@@ -220,6 +220,64 @@ class QtRuntimeControlService:
         return {**self.snapshot(), "accepted": accepted, "action": action_key}
 
 
+class QtChatContextService:
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def snapshot(self):
+        quick_path = None
+        try:
+            quick_path_fn = getattr(self._window, "_quick_chat_context_path", None)
+            if callable(quick_path_fn):
+                quick_path = str(quick_path_fn())
+        except Exception:
+            quick_path = None
+        return {
+            "last_action": self._last_action,
+            "shell_mode": False,
+            "file_operations_available": True,
+            "quick_context_path": quick_path,
+            "message": "Chat context file operations are available.",
+            "source": "qt_app",
+        }
+
+    def save_chat_context(self):
+        self._last_action = "save_chat_context"
+        handler = getattr(self._window, "save_chat_context", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
+    def load_chat_context(self):
+        self._last_action = "load_chat_context"
+        handler = getattr(self._window, "load_chat_context", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
+    def quick_save_chat_context(self):
+        self._last_action = "quick_save_chat_context"
+        handler = getattr(self._window, "quick_save_chat_context", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
+    def quick_load_chat_context(self):
+        self._last_action = "quick_load_chat_context"
+        handler = getattr(self._window, "quick_load_chat_context", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
+    def reset_chat_memory(self):
+        self._last_action = "reset_chat_memory"
+        handler = getattr(self._window, "reset_chat_session", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
+
 class QtHotkeyService:
     def __init__(self, window):
         self._window = window
