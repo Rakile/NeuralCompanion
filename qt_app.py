@@ -609,14 +609,24 @@ class _UiShellRuntimeStatusService:
     def __init__(self, window):
         self._window = window
         self._running = False
+        self._session_overrides = {}
 
     def set_running(self, running):
         self._running = bool(running)
 
+    def set_session_overrides(self, **values):
+        for key, value in values.items():
+            if value is None:
+                self._session_overrides.pop(str(key), None)
+            else:
+                self._session_overrides[str(key)] = value
+
     def snapshot(self):
         binding_summary = _ui_shell_binding_summary(self._window)
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        session.update(dict(self._session_overrides or {}))
         return build_runtime_status_snapshot(
-            _read_ui_shell_session_snapshot(),
+            session,
             running=self._running,
             engine_connected=False,
             shell_mode=True,
@@ -1114,6 +1124,18 @@ def _ui_shell_engine_lifecycle_service(window):
         service = _UiShellEngineLifecycleService(window)
         setattr(window, "_nc_ui_shell_engine_lifecycle_service", service)
     return service
+
+
+def _ui_shell_refresh_status_labels(window):
+    line = _ui_shell_runtime_status_service(window).status_line()
+    for label_name in ("console_status", "chat_status", "mic_status_label"):
+        label = _ui_shell_find_object(window, label_name)
+        if label is not None and hasattr(label, "setText"):
+            try:
+                label.setText(line)
+            except Exception:
+                pass
+    return line
 
 
 def _apply_ui_shell_preview_status(window):
@@ -2706,6 +2728,8 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
 
         refresh_model_summary(provider_id)
         refresh_runtime_title(provider_id)
+        _ui_shell_runtime_status_service(window).set_session_overrides(chat_provider=provider_id)
+        _ui_shell_refresh_status_labels(window)
 
     def on_refresh_clicked():
         provider_id = _ui_shell_current_provider_id(combo, providers) if combo is not None else selected_provider_id
@@ -2793,6 +2817,8 @@ def _bind_ui_shell_avatar_runtime(window, avatar_providers, session_override=Non
     def on_avatar_changed(_index=None):
         provider_id = str(combo.currentData() or "").strip().lower()
         label = str(combo.currentText() or provider_id or "Avatar").strip()
+        _ui_shell_runtime_status_service(window).set_session_overrides(avatar_mode=provider_id)
+        _ui_shell_refresh_status_labels(window)
         _ui_shell_append_console(
             window,
             f"[UI Shell] Avatar Engine preview: {label} selected; no avatar adapter was created.",
@@ -2802,6 +2828,10 @@ def _bind_ui_shell_avatar_runtime(window, avatar_providers, session_override=Non
         combo.currentIndexChanged.connect(on_avatar_changed)
         setattr(combo, "_nc_ui_shell_avatar_runtime_bound", True)
 
+    _ui_shell_runtime_status_service(window).set_session_overrides(
+        avatar_mode=str(combo.currentData() or selected_provider_id or "").strip().lower()
+    )
+    _ui_shell_refresh_status_labels(window)
     return {
         "bound": True,
         "providers": len(providers),
@@ -2873,6 +2903,8 @@ def _bind_ui_shell_tts_runtime(window, tts_backends, session_override=None):
         backend_id = str(combo.currentData() or "").strip().lower()
         label = str(combo.currentText() or backend_id or "TTS").strip()
         select_backend_tab(backend_id)
+        _ui_shell_runtime_status_service(window).set_session_overrides(tts_backend=backend_id)
+        _ui_shell_refresh_status_labels(window)
         _ui_shell_append_console(
             window,
             f"[UI Shell] TTS Backend preview: {label} selected; no TTS service was started.",
@@ -2883,6 +2915,10 @@ def _bind_ui_shell_tts_runtime(window, tts_backends, session_override=None):
         setattr(combo, "_nc_ui_shell_tts_runtime_bound", True)
 
     select_backend_tab(str(combo.currentData() or selected_backend_id or "").strip().lower())
+    _ui_shell_runtime_status_service(window).set_session_overrides(
+        tts_backend=str(combo.currentData() or selected_backend_id or "").strip().lower()
+    )
+    _ui_shell_refresh_status_labels(window)
     return {
         "bound": True,
         "backends": len(backends),

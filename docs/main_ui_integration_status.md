@@ -182,6 +182,7 @@ The Designer shell now binds the `Avatar Engine` selector to shell-registered av
 - `engine_combo` is populated from avatar provider addons registered through the shell-safe `qt.avatar_providers` service.
 - The saved session avatar mode is selected when it matches a registered provider.
 - Changing the combo only logs a shell preview message.
+- The shell runtime status line follows the shell-selected avatar provider.
 
 This is still shell-local:
 
@@ -197,6 +198,7 @@ The Designer shell now binds the `TTS Backend` selector to shell-registered TTS 
 - `tts_backend_combo` is populated from addon services that register `metadata.kind == "tts"`.
 - The saved session TTS backend is selected when it matches a registered backend.
 - Changing the combo only logs a shell preview message and selects the matching TTS settings tab when possible.
+- The shell runtime status line follows the shell-selected TTS backend.
 
 This is still shell-local:
 
