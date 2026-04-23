@@ -50,6 +50,8 @@ Current behavior:
 - Reports likely mount targets for addon tabs/services.
 - Live-mounts the current allowlisted low-risk addons, then cleans them up before exit.
 - Live-registers chat provider addons through a shell-safe provider registry stub.
+- Live-registers avatar provider addons through a shell-safe avatar provider registry stub.
+- Live-registers sensory providers/contributors through a shell-safe sensory registry stub.
 - Prints a static-vs-addon tab comparison for likely duplicate/fake Designer tabs.
 - Reports whether the heavy `engine.py` module was imported; shell smoke is not ready if this regresses to `yes`.
 - Prints a read-only runtime status snapshot from `qt.runtime_status`, including lifecycle, chat provider/model, TTS backend, avatar engine, and microphone state.
@@ -79,6 +81,7 @@ Current behavior:
 - Binds engine lifecycle buttons through a shell-local `qt.engine_lifecycle` facade.
 - Binds Operational View action buttons through a shell-local `qt.runtime_controls` facade.
 - Binds chat-context save/load buttons through a shell-local `qt.chat_context` facade.
+- Binds Tutorials tab list/description/start controls through a shell-local `qt.tutorials` facade backed by JSON files only.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -108,6 +111,10 @@ The shell preview now live-mounts these addons:
 - `nc.chat_provider_openai` -> shell chat provider registry as `OpenAI`
 - `nc.chat_provider_xai` -> shell chat provider registry as `xAI / Grok`
 - `nc.claude_provider` -> shell chat provider registry as `Claude`
+- `nc.no_avatar` -> shell avatar provider registry as `None`
+- `nc.musetalk_avatar` -> shell avatar provider registry as `MuseTalk`
+- `nc.vam_avatar` -> shell avatar provider registry as `VaM`
+- `nc.vseeface_avatar` -> shell avatar provider registry as `VSeeFace`
 
 Why these addons were chosen:
 
@@ -115,6 +122,8 @@ Why these addons were chosen:
 - Their shell behavior is local, inert, or limited to the shell-local addon context.
 - They exercise the real addon `initialize(...)`, `register_tab(...)`, and tab factory paths across multiple mount areas.
 - Chat provider addons only register metadata and callable handlers; shell mode stores those handlers but never calls them.
+- Avatar provider addons only register metadata and adapter factories; shell mode stores the factory presence but never calls the factories.
+- Sensory source/supervisor addons may register provider and prompt-contributor metadata; shell mode stores the metadata but never captures screen/webcam/clipboard/heart-rate input.
 - Hotkeys renders with a shell-only read-only hotkey service; capture and mutation controls are disabled in the Designer shell.
 - Visual Reply renders through a shell-only `qt.visual_reply` service; it does not replace the real image dock, generate images, mutate image history, or save settings.
 - Visual Story Settings can render its real host-settings UI through the shell-local Visual Reply config facade; it may update in-memory preview config while the shell is open, but shell notifications do not save session state or start runtime systems.
@@ -133,7 +142,11 @@ Important:
 - The shell provides an engine lifecycle facade, but it is intentionally shell-local and never starts/stops runtime systems.
 - The shell provides a runtime controls facade, but it is intentionally shell-local and never sends control actions to the engine.
 - The shell provides a chat context facade, but it is intentionally shell-local and never reads or writes chat context files.
-- Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
+- The shell provides a chat replay facade, but it is intentionally empty/no-op and never starts replay runtime.
+- The shell provides a tutorials facade, but Start Tutorial is intentionally shell-local and never creates an overlay.
+- The shell provides a dialogs facade, but native file/message dialogs are intentionally deferred and only logged.
+- The shell provides avatar and sensory registries, but factories/capture handlers are never invoked.
+- Shell-provided services are limited to metadata-only chat/avatar/sensory registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
 - Chat Runtime fields are rendered from provider metadata in shell mode, but provider model-list, connection-check, completion, and stream handlers are not invoked.
@@ -232,6 +245,24 @@ This is shell-local only:
 - Reset clears only the shell chat widget.
 
 The normal Python-built app exposes the same `qt.chat_context` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing `save_chat_context()`, `load_chat_context()`, `quick_save_chat_context()`, `quick_load_chat_context()`, and `reset_chat_session()` methods.
+
+## Replay And Tutorials Shell Binding
+
+The Designer shell now exposes a shell-local `qt.chat_replay` service for addons such as Chat Player:
+
+- replay snapshots return an empty conversation
+- replayable assistant messages return an empty list
+- replay/load actions are no-op previews
+- engine-running checks always return false
+
+The Designer shell also binds the Tutorials tab through `qt.tutorials`:
+
+- tutorials are listed from `tutorials/*.json`
+- tutorial descriptions are read from JSON
+- Refresh reloads JSON metadata only
+- Start Tutorial logs a shell preview and does not create an overlay
+
+The normal Python-built app exposes the same `qt.tutorials` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing tutorial framework/window methods.
 
 ## TTS Runtime Designer Layout
 
@@ -386,6 +417,9 @@ Current handover boundary:
 - Shell mode exposes a shell-local `qt.engine_lifecycle` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing engine lifecycle methods.
 - Shell mode exposes a shell-local `qt.runtime_controls` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing runtime control-action method.
 - Shell mode exposes a shell-local `qt.chat_context` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing chat context file/session methods.
+- Shell mode exposes a shell-local `qt.chat_replay` service for safe empty Chat Player previews. The normal Python-built app already exposes `qt.chat_replay` through the addon host, backed by the existing replay/runtime methods.
+- Shell mode exposes a shell-local `qt.tutorials` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing tutorial methods.
+- Shell mode exposes shell-local `qt.dialogs`, `qt.sensory`, and `qt.avatar_providers` services so addons can register or render safely without opening dialogs, capturing inputs, or creating avatar adapters.
 - Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:

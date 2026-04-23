@@ -167,11 +167,15 @@ UI_SHELL_LIVE_ADDON_IDS = {
     "nc.hotkeys",
     "nc.loop_authoring",
     "nc.mock_heart_rate",
+    "nc.musetalk_avatar",
     "nc.musetalk_preprocess",
+    "nc.no_avatar",
     "nc.pockettts",
     "nc.screen_supervisor",
+    "nc.vam_avatar",
     "nc.visual_reply",
     "nc.visual_story_settings",
+    "nc.vseeface_avatar",
     "nc.webcam_supervisor",
 }
 
@@ -452,6 +456,7 @@ def run_ui_shell_smoke(raw_path):
         + ", ".join(runtime_control_summary.get("bound") or ["none"])
     )
     print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
+    tutorial_summary = _bind_ui_shell_tutorial_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
@@ -479,6 +484,11 @@ def run_ui_shell_smoke(raw_path):
         + ", ".join(chat_context_summary.get("bound") or ["none"])
     )
     print(
+        "[UI Shell Smoke] Tutorial shell-local controls: "
+        + f"{tutorial_summary.get('tutorials', 0)} tutorial(s), "
+        + ", ".join(tutorial_summary.get("bound") or ["none"])
+    )
+    print(
         "[UI Shell Smoke] Live addon mounts: "
         + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
     )
@@ -490,6 +500,28 @@ def run_ui_shell_smoke(raw_path):
                 for provider in live_mount_report.get("chat_providers", [])
             )
             if live_mount_report.get("chat_providers")
+            else "none"
+        )
+    )
+    print(
+        "[UI Shell Smoke] Live avatar providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("avatar_providers", [])
+            )
+            if live_mount_report.get("avatar_providers")
+            else "none"
+        )
+    )
+    print(
+        "[UI Shell Smoke] Live sensory providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("sensory_providers", [])
+            )
+            if live_mount_report.get("sensory_providers")
             else "none"
         )
     )
@@ -736,6 +768,280 @@ class _UiShellChatContextService:
         return self.snapshot()
 
 
+class _UiShellChatReplayService:
+    """Shell-safe replay facade for Chat Player and related addons."""
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def snapshot_chat_session(self):
+        return {
+            "conversation_history": [],
+            "shell_mode": True,
+            "message": "Chat replay is not connected in shell preview.",
+        }
+
+    def replayable_assistant_entries(self):
+        return []
+
+    def replayable_assistant_messages(self):
+        return []
+
+    def is_engine_running(self) -> bool:
+        return False
+
+    def is_offline_replay_only(self) -> bool:
+        return False
+
+    def trigger_control_action(self, action: str) -> None:
+        self._last_action = str(action or "").strip()
+
+    def replay_latest_reply(self) -> None:
+        self._last_action = "replay_latest_reply"
+
+    def replay_chat_session(self) -> None:
+        self._last_action = "replay_chat_session"
+
+    def replay_chat_session_from_index(self, start_index: int) -> None:
+        self._last_action = f"replay_chat_session_from_index:{int(start_index or 0)}"
+
+    def load_chat_context(self) -> None:
+        _ui_shell_chat_context_service(self._window).load_chat_context()
+
+    def quick_load_chat_context(self) -> None:
+        _ui_shell_chat_context_service(self._window).quick_load_chat_context()
+
+    def save_chat_context(self) -> None:
+        _ui_shell_chat_context_service(self._window).save_chat_context()
+
+    def quick_save_chat_context(self) -> None:
+        _ui_shell_chat_context_service(self._window).quick_save_chat_context()
+
+
+class _UiShellTutorialService:
+    """Shell-safe tutorial browser facade backed only by tutorial JSON files."""
+
+    def __init__(self, window):
+        self._window = window
+        self._started_tutorial_id = ""
+
+    def _tutorials_dir(self):
+        return Path(__file__).resolve().parent / "tutorials"
+
+    def list_tutorials(self):
+        items = []
+        try:
+            for path in sorted(self._tutorials_dir().glob("*.json"), key=lambda item: item.stem.lower()):
+                payload = self.load_tutorial(path.stem)
+                if not payload:
+                    continue
+                items.append({
+                    "id": str(payload.get("id") or path.stem),
+                    "title": str(payload.get("title") or path.stem),
+                    "description": str(payload.get("description") or ""),
+                    "step_count": len(list(payload.get("steps") or [])),
+                })
+        except Exception:
+            pass
+        return items
+
+    def load_tutorial(self, tutorial_id: str):
+        key = str(tutorial_id or "").strip()
+        if not key:
+            return {}
+        path = self._tutorials_dir() / f"{key}.json"
+        try:
+            with path.open("r", encoding="utf-8") as handle:
+                payload = json.load(handle)
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def start_tutorial(self, tutorial_id: str):
+        self._started_tutorial_id = str(tutorial_id or "").strip()
+        return {
+            "started": bool(self._started_tutorial_id),
+            "tutorial_id": self._started_tutorial_id,
+            "shell_mode": True,
+            "message": "Tutorial start is shell-local; no overlay was created.",
+            "source": "ui_shell",
+        }
+
+    def snapshot(self):
+        return {
+            "tutorials": self.list_tutorials(),
+            "started_tutorial_id": self._started_tutorial_id,
+            "shell_mode": True,
+            "source": "ui_shell",
+        }
+
+
+class _UiShellDialogService:
+    """Shell-only dialog service: report intent without opening native dialogs."""
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def _log(self, message):
+        _ui_shell_append_console(self._window, f"[UI Shell] {message}")
+
+    def open_file(self, title: str, start_dir: str = "", file_filter: str = ""):
+        self._last_action = "open_file"
+        self._log(f"File dialog deferred: {title or 'Open File'}")
+        return "", str(file_filter or "")
+
+    def save_file(self, title: str, start_path: str = "", file_filter: str = ""):
+        self._last_action = "save_file"
+        self._log(f"Save dialog deferred: {title or 'Save File'}")
+        return "", str(file_filter or "")
+
+    def open_directory(self, title: str, start_dir: str = ""):
+        self._last_action = "open_directory"
+        self._log(f"Directory dialog deferred: {title or 'Open Directory'}")
+        return ""
+
+    def warning(self, title: str, message: str) -> None:
+        self._last_action = "warning"
+        self._log(f"Warning deferred: {title or 'Warning'} - {message or ''}")
+
+    def information(self, title: str, message: str) -> None:
+        self._last_action = "information"
+        self._log(f"Info deferred: {title or 'Information'} - {message or ''}")
+
+    def snapshot(self):
+        return {
+            "last_action": self._last_action,
+            "shell_mode": True,
+            "native_dialogs_available": False,
+            "source": "ui_shell",
+        }
+
+
+class _UiShellSensoryService:
+    """Shell-only sensory registry: accept metadata without capturing input."""
+
+    def __init__(self):
+        self._providers = OrderedDict()
+        self._contributors = OrderedDict()
+
+    def register_provider(
+        self,
+        *,
+        provider_id: str,
+        label: str,
+        instruction: str = "",
+        description: str = "",
+        order: int = 1000,
+        capture_handler=None,
+        metadata: dict | None = None,
+    ):
+        provider_id = str(provider_id or "").strip()
+        if not provider_id:
+            raise RuntimeError("Sensory provider id is required.")
+        summary = {
+            "id": provider_id,
+            "label": str(label or provider_id).strip() or provider_id,
+            "instruction": str(instruction or "").strip(),
+            "description": str(description or "").strip(),
+            "order": int(order or 1000),
+            "metadata": dict(metadata or {}),
+            "has_capture_handler": callable(capture_handler),
+            "shell_mode": True,
+        }
+        self._providers[provider_id] = summary
+        return dict(summary)
+
+    def unregister_provider(self, provider_id: str) -> bool:
+        return self._providers.pop(str(provider_id or "").strip(), None) is not None
+
+    def list_providers(self):
+        return [
+            dict(item)
+            for item in sorted(self._providers.values(), key=lambda row: (int(row.get("order", 1000)), str(row.get("label") or row.get("id") or "")))
+        ]
+
+    def register_prompt_contributor(
+        self,
+        *,
+        contributor_id: str,
+        source_id: str,
+        label: str,
+        prompt: str = "",
+        order: int = 1000,
+        metadata: dict | None = None,
+    ):
+        contributor_id = str(contributor_id or "").strip()
+        if not contributor_id:
+            raise RuntimeError("Sensory prompt contributor id is required.")
+        summary = {
+            "id": contributor_id,
+            "source_id": str(source_id or "").strip(),
+            "label": str(label or contributor_id).strip() or contributor_id,
+            "prompt": str(prompt or ""),
+            "order": int(order or 1000),
+            "metadata": dict(metadata or {}),
+            "shell_mode": True,
+        }
+        self._contributors[contributor_id] = summary
+        return dict(summary)
+
+    def unregister_prompt_contributor(self, contributor_id: str) -> bool:
+        return self._contributors.pop(str(contributor_id or "").strip(), None) is not None
+
+    def list_prompt_contributors(self, source_id: str | None = None):
+        source = str(source_id or "").strip()
+        rows = list(self._contributors.values())
+        if source:
+            rows = [row for row in rows if str(row.get("source_id") or "").strip() == source]
+        return [
+            dict(item)
+            for item in sorted(rows, key=lambda row: (int(row.get("order", 1000)), str(row.get("label") or row.get("id") or "")))
+        ]
+
+
+class _UiShellAvatarProviderService:
+    """Shell-only avatar provider registry: keep factories inert."""
+
+    def __init__(self):
+        self._providers = OrderedDict()
+
+    def register_provider(
+        self,
+        *,
+        provider_id: str,
+        label: str,
+        factory,
+        description: str = "",
+        order: int = 1000,
+        metadata: dict | None = None,
+    ):
+        provider_id = str(provider_id or "").strip()
+        if not provider_id:
+            raise RuntimeError("Avatar provider id is required.")
+        summary = {
+            "id": provider_id,
+            "label": str(label or provider_id).strip() or provider_id,
+            "description": str(description or "").strip(),
+            "order": int(order or 1000),
+            "metadata": dict(metadata or {}),
+            "has_factory": callable(factory),
+            "shell_mode": True,
+        }
+        self._providers[provider_id] = summary
+        return dict(summary)
+
+    def unregister_provider(self, provider_id: str) -> bool:
+        return self._providers.pop(str(provider_id or "").strip(), None) is not None
+
+    def list_providers(self):
+        return [
+            dict(item)
+            for item in sorted(self._providers.values(), key=lambda row: (int(row.get("order", 1000)), str(row.get("label") or row.get("id") or "")))
+        ]
+
+
 def _ui_shell_runtime_status_service(window):
     service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
     if service is None:
@@ -749,6 +1055,22 @@ def _ui_shell_model_refresh_service(window):
     if service is None:
         service = _UiShellModelRefreshService(window)
         setattr(window, "_nc_ui_shell_model_refresh_service", service)
+    return service
+
+
+def _ui_shell_chat_replay_service(window):
+    service = getattr(window, "_nc_ui_shell_chat_replay_service", None)
+    if service is None:
+        service = _UiShellChatReplayService(window)
+        setattr(window, "_nc_ui_shell_chat_replay_service", service)
+    return service
+
+
+def _ui_shell_tutorial_service(window):
+    service = getattr(window, "_nc_ui_shell_tutorial_service", None)
+    if service is None:
+        service = _UiShellTutorialService(window)
+        setattr(window, "_nc_ui_shell_tutorial_service", service)
     return service
 
 
@@ -1170,6 +1492,111 @@ def _bind_ui_shell_chat_context_controls(window):
     }
 
 
+def _bind_ui_shell_tutorial_controls(window):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtWidgets as _QtWidgets
+
+    service = _ui_shell_tutorial_service(window)
+    tutorials_list = _ui_shell_find_object(window, "tutorials_list")
+    description = _ui_shell_find_object(window, "tutorial_description")
+    refresh_button = _ui_shell_find_object(window, "btn_tutorial_refresh")
+    start_button = _ui_shell_find_object(window, "btn_tutorial_start")
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    bound = []
+
+    def append_console(message):
+        if console_edit is None:
+            return
+        try:
+            if hasattr(console_edit, "appendPlainText"):
+                console_edit.appendPlainText(str(message))
+            elif hasattr(console_edit, "append"):
+                console_edit.append(str(message))
+        except Exception:
+            pass
+
+    def selected_tutorial_id():
+        if tutorials_list is None or not hasattr(tutorials_list, "currentItem"):
+            return ""
+        item = tutorials_list.currentItem()
+        if item is None:
+            return ""
+        try:
+            return str(item.data(_QtCore.Qt.UserRole) or "").strip()
+        except Exception:
+            return ""
+
+    def render_description():
+        tutorial_id = selected_tutorial_id()
+        payload = service.load_tutorial(tutorial_id)
+        if description is not None and hasattr(description, "setPlainText"):
+            if payload:
+                text = (
+                    f"{payload.get('title', tutorial_id)}\n\n"
+                    f"{payload.get('description', '')}\n\n"
+                    f"Steps: {len(list(payload.get('steps') or []))}\n\n"
+                    "Shell preview: Start Tutorial logs a preview only; no overlay is created."
+                )
+                description.setPlainText(text.strip())
+            else:
+                description.setPlainText("Select a tutorial to see its description.")
+        if start_button is not None and hasattr(start_button, "setEnabled"):
+            start_button.setEnabled(bool(payload))
+
+    def refresh_list():
+        tutorials = service.list_tutorials()
+        if tutorials_list is not None and hasattr(tutorials_list, "clear"):
+            tutorials_list.blockSignals(True)
+            try:
+                tutorials_list.clear()
+                for item in tutorials:
+                    label = f"{item.get('title', item.get('id', 'Tutorial'))} ({int(item.get('step_count', 0) or 0)} steps)"
+                    list_item = _QtWidgets.QListWidgetItem(label)
+                    list_item.setData(_QtCore.Qt.UserRole, str(item.get("id") or ""))
+                    list_item.setToolTip(str(item.get("description") or ""))
+                    tutorials_list.addItem(list_item)
+                if tutorials:
+                    tutorials_list.setCurrentRow(0)
+            finally:
+                tutorials_list.blockSignals(False)
+        render_description()
+
+    def start_selected():
+        tutorial_id = selected_tutorial_id()
+        snapshot = service.start_tutorial(tutorial_id)
+        append_console(f"[UI Shell] Tutorial preview: {snapshot.get('message')} ({tutorial_id or 'none'})")
+
+    if tutorials_list is not None:
+        bound.append("tutorials_list")
+        if hasattr(tutorials_list, "currentRowChanged") and not getattr(tutorials_list, "_nc_ui_shell_tutorial_bound", False):
+            tutorials_list.currentRowChanged.connect(lambda _row: render_description())
+            setattr(tutorials_list, "_nc_ui_shell_tutorial_bound", True)
+    if description is not None:
+        bound.append("tutorial_description")
+        if hasattr(description, "setReadOnly"):
+            description.setReadOnly(True)
+    if refresh_button is not None:
+        bound.append("btn_tutorial_refresh")
+        refresh_button.setEnabled(True)
+        refresh_button.setToolTip("Shell-local tutorial list refresh from JSON files only.")
+        if hasattr(refresh_button, "clicked") and not getattr(refresh_button, "_nc_ui_shell_tutorial_bound", False):
+            refresh_button.clicked.connect(refresh_list)
+            setattr(refresh_button, "_nc_ui_shell_tutorial_bound", True)
+    if start_button is not None:
+        bound.append("btn_tutorial_start")
+        start_button.setToolTip("Shell-local tutorial preview. No overlay is created.")
+        if hasattr(start_button, "clicked") and not getattr(start_button, "_nc_ui_shell_tutorial_bound", False):
+            start_button.clicked.connect(start_selected)
+            setattr(start_button, "_nc_ui_shell_tutorial_bound", True)
+
+    refresh_list()
+    return {
+        "bound": bound,
+        "tutorials": len(service.list_tutorials()),
+        "mode": "shell-local",
+    }
+
+
 def _read_ui_shell_session_snapshot():
     session_path = Path(__file__).resolve().parent / "qt_session.json"
     try:
@@ -1226,11 +1653,15 @@ def _ui_shell_static_service_hints(addon_dir, manifest):
     hints = []
     if addon_id.startswith("nc.chat_provider_") or "chat provider" in name or addon_id == "nc.claude_provider":
         hints.append("chat_provider_registry")
+    if addon_id.endswith("_avatar") or "avatar provider" in name:
+        hints.append("avatar_provider_registry")
     main_path = Path(addon_dir) / "main.py"
     try:
         text = main_path.read_text(encoding="utf-8")
     except Exception:
         text = ""
+    if "qt.sensory" in text:
+        hints.append("sensory_registry")
     if "services.register" in text:
         if '"kind": "tts"' in text or "'kind': 'tts'" in text:
             hints.append("tts_backend_service")
@@ -2489,15 +2920,22 @@ def _ui_shell_mount_live_addons(window, report):
     event_bus = AddonEventBus()
     service_registry = AddonServiceRegistry()
     chat_provider_registry = _UiShellChatProviderRegistry()
+    sensory_registry = _UiShellSensoryService()
+    avatar_provider_registry = _UiShellAvatarProviderService()
     host_services = {
+        "qt.avatar_providers": avatar_provider_registry,
         "qt.chat_providers": chat_provider_registry,
         "qt.chat_context": _ui_shell_chat_context_service(window),
+        "qt.chat_replay": _ui_shell_chat_replay_service(window),
+        "qt.dialogs": _UiShellDialogService(window),
         "qt.engine_lifecycle": _ui_shell_engine_lifecycle_service(window),
         "qt.hotkeys": _UiShellHotkeyService(),
         "qt.model_refresh": _ui_shell_model_refresh_service(window),
         "qt.runtime_controls": _ui_shell_runtime_controls_service(window),
         "qt.runtime_status": _ui_shell_runtime_status_service(window),
+        "qt.sensory": sensory_registry,
         "qt.shell": _UiShellShellService(),
+        "qt.tutorials": _ui_shell_tutorial_service(window),
         "qt.visual_reply": _UiShellVisualReplyService(window),
         "qt.audio_story_mode_shell_preview": True,
         "qt.chatterbox_tts_shell_preview": True,
@@ -2532,6 +2970,8 @@ def _ui_shell_mount_live_addons(window, report):
                 host_services=host_services,
             )
             provider_ids_before = chat_provider_registry.provider_ids()
+            avatar_provider_ids_before = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
+            sensory_provider_ids_before = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
             module = _ui_shell_load_addon_module(row)
             addon_cls = getattr(module, "Addon", None)
             if addon_cls is None:
@@ -2540,6 +2980,10 @@ def _ui_shell_mount_live_addons(window, report):
             addon.initialize(context)
             provider_ids_after = chat_provider_registry.provider_ids()
             added_provider_ids = sorted(provider_ids_after - provider_ids_before)
+            avatar_provider_ids_after = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
+            sensory_provider_ids_after = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
+            added_avatar_provider_ids = sorted(avatar_provider_ids_after - avatar_provider_ids_before)
+            added_sensory_provider_ids = sorted(sensory_provider_ids_after - sensory_provider_ids_before)
             contributions = sorted(context.ui.get_tab_contributions(), key=lambda item: (int(item.order), str(item.title or item.id)))
             added_tabs = []
             for contribution in contributions:
@@ -2584,7 +3028,17 @@ def _ui_shell_mount_live_addons(window, report):
                 for provider in chat_provider_registry.list_providers()
                 if str(provider.get("id") or "").strip() in set(added_provider_ids)
             ]
-            if added_tabs or added_provider_summaries:
+            added_avatar_provider_summaries = [
+                provider
+                for provider in avatar_provider_registry.list_providers()
+                if str(provider.get("id") or "").strip() in set(added_avatar_provider_ids)
+            ]
+            added_sensory_provider_summaries = [
+                provider
+                for provider in sensory_registry.list_providers()
+                if str(provider.get("id") or "").strip() in set(added_sensory_provider_ids)
+            ]
+            if added_tabs or added_provider_summaries or added_avatar_provider_summaries or added_sensory_provider_summaries:
                 details = []
                 if added_tabs:
                     details.append(", ".join(added_tabs))
@@ -2594,21 +3048,46 @@ def _ui_shell_mount_live_addons(window, report):
                         for provider in added_provider_summaries
                     )
                     details.append(labels)
+                if added_avatar_provider_summaries:
+                    labels = ", ".join(
+                        f"avatar_provider/{provider.get('label') or provider.get('id')}"
+                        for provider in added_avatar_provider_summaries
+                    )
+                    details.append(labels)
+                if added_sensory_provider_summaries:
+                    labels = ", ".join(
+                        f"sensory_provider/{provider.get('label') or provider.get('id')}"
+                        for provider in added_sensory_provider_summaries
+                    )
+                    details.append(labels)
                 mounted.append(f"{addon_id}: {'; '.join(details)}")
                 mounted_ids.append(addon_id)
-                live_refs.append({"addon": addon, "context": context, "tabs": added_tabs, "providers": added_provider_ids})
+                live_refs.append({
+                    "addon": addon,
+                    "context": context,
+                    "tabs": added_tabs,
+                    "providers": added_provider_ids,
+                    "avatar_providers": added_avatar_provider_ids,
+                    "sensory_providers": added_sensory_provider_ids,
+                })
             else:
                 context.close()
                 failures.append(f"{addon_id}: no supported top-level tabs registered")
         except Exception as exc:
             failures.append(f"{addon_id}: {exc}")
     setattr(window, "_nc_ui_shell_live_addons", live_refs)
-    setattr(window, "_nc_ui_shell_live_services", {"chat_provider_registry": chat_provider_registry})
+    setattr(window, "_nc_ui_shell_live_services", {
+        "chat_provider_registry": chat_provider_registry,
+        "avatar_provider_registry": avatar_provider_registry,
+        "sensory_registry": sensory_registry,
+    })
     return {
         "mounted": mounted,
         "failures": failures,
         "mounted_ids": sorted(set(mounted_ids)),
         "chat_providers": chat_provider_registry.list_providers(),
+        "avatar_providers": avatar_provider_registry.list_providers(),
+        "sensory_providers": sensory_registry.list_providers(),
         "live_tabs": live_tabs,
     }
 
@@ -2965,6 +3444,7 @@ def run_ui_shell_preview(raw_path):
     console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
     lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
     runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
+    tutorial_summary = _bind_ui_shell_tutorial_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
@@ -3007,6 +3487,11 @@ def run_ui_shell_preview(raw_path):
     )
     print(f"[UI Shell] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
     print(
+        "[UI Shell] Tutorial shell-local controls: "
+        + f"{tutorial_summary.get('tutorials', 0)} tutorial(s), "
+        + ", ".join(tutorial_summary.get("bound") or ["none"])
+    )
+    print(
         "[UI Shell] Chat Runtime binding: "
         + (
             f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
@@ -3042,6 +3527,28 @@ def run_ui_shell_preview(raw_path):
                 for provider in live_mount_report.get("chat_providers", [])
             )
             if live_mount_report.get("chat_providers")
+            else "none"
+        )
+    )
+    print(
+        "[UI Shell] Live avatar providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("avatar_providers", [])
+            )
+            if live_mount_report.get("avatar_providers")
+            else "none"
+        )
+    )
+    print(
+        "[UI Shell] Live sensory providers: "
+        + (
+            ", ".join(
+                str(provider.get("label") or provider.get("id") or "")
+                for provider in live_mount_report.get("sensory_providers", [])
+            )
+            if live_mount_report.get("sensory_providers")
             else "none"
         )
     )
@@ -3103,7 +3610,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatContextService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatContextService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtTutorialService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -9081,6 +9588,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     "qt.runtime_controls": QtRuntimeControlService(self),
                     "qt.runtime_status": QtRuntimeStatusService(self),
                     "qt.shell": QtShellService(self),
+                    "qt.tutorials": QtTutorialService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
                     "qt.visual_reply": QtVisualReplyService(self),
                     "qt.avatar_providers": QtAvatarProviderService(self),

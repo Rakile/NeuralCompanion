@@ -278,6 +278,38 @@ class QtChatContextService:
         return self.snapshot()
 
 
+class QtTutorialService:
+    def __init__(self, window):
+        self._window = window
+
+    def list_tutorials(self):
+        import tutorial_framework
+
+        return list(tutorial_framework.list_tutorials() or [])
+
+    def load_tutorial(self, tutorial_id: str):
+        import tutorial_framework
+
+        return dict(tutorial_framework.load_tutorial(str(tutorial_id or "")) or {})
+
+    def start_tutorial(self, tutorial_id: str):
+        handler = getattr(self._window, "start_tutorial", None)
+        if callable(handler):
+            handler(str(tutorial_id or ""))
+        return {
+            "started": bool(str(tutorial_id or "").strip()),
+            "tutorial_id": str(tutorial_id or "").strip(),
+            "shell_mode": False,
+            "source": "qt_app",
+        }
+
+    def refresh_tutorials(self):
+        handler = getattr(self._window, "refresh_tutorial_list", None)
+        if callable(handler):
+            handler()
+        return self.list_tutorials()
+
+
 class QtHotkeyService:
     def __init__(self, window):
         self._window = window
