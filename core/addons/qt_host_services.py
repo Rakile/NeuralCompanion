@@ -133,6 +133,93 @@ class QtModelRefreshService:
         return self.snapshot(provider_id)
 
 
+class QtEngineLifecycleService:
+    def __init__(self, window):
+        self._window = window
+
+    def snapshot(self):
+        thread = getattr(self._window, "thread", None)
+        running = bool(thread and thread.is_alive())
+        runtime_status = {}
+        if hasattr(self._window, "build_runtime_status_snapshot"):
+            try:
+                runtime_status = self._window.build_runtime_status_snapshot().to_dict()
+            except Exception:
+                runtime_status = {}
+        return {
+            "running": running,
+            "shell_mode": False,
+            "engine_connected": running,
+            "runtime_status": runtime_status,
+            "message": "Engine lifecycle is available.",
+            "source": "qt_app",
+        }
+
+    def start_engine(self, *, offline_replay_only: bool = False):
+        start = getattr(self._window, "start_engine", None)
+        if callable(start):
+            start(offline_replay_only=bool(offline_replay_only))
+        return self.snapshot()
+
+    def stop_engine(self):
+        stop = getattr(self._window, "stop_engine", None)
+        if callable(stop):
+            stop()
+        return self.snapshot()
+
+    def reset_chat_memory(self):
+        reset = getattr(self._window, "reset_chat_session", None)
+        if callable(reset):
+            reset()
+        return self.snapshot()
+
+    def start(self, **kwargs):
+        return self.start_engine(**kwargs)
+
+    def stop(self):
+        return self.stop_engine()
+
+    def reset(self):
+        return self.reset_chat_memory()
+
+
+class QtRuntimeControlService:
+    SUPPORTED_ACTIONS = (
+        "regenerate_response",
+        "retry_user_input",
+        "pause_speech",
+        "skip_speech",
+        "skip_user_reply",
+        "replay_last_assistant",
+        "replay_chat_session",
+    )
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def snapshot(self):
+        return {
+            "actions": list(self.SUPPORTED_ACTIONS),
+            "last_action": self._last_action,
+            "shell_mode": False,
+            "runtime_connected": bool(getattr(self._window, "thread", None) and self._window.thread.is_alive()),
+            "message": "Runtime control actions are available.",
+            "source": "qt_app",
+        }
+
+    def trigger(self, action: str):
+        action_key = str(action or "").strip()
+        accepted = False
+        if action_key:
+            trigger = getattr(self._window, "trigger_control_action", None)
+            if callable(trigger):
+                trigger(action_key)
+                self._last_action = action_key
+                accepted = True
+        return {**self.snapshot(), "accepted": accepted, "action": action_key}
+
+
 class QtHotkeyService:
     def __init__(self, window):
         self._window = window

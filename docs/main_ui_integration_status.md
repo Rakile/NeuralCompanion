@@ -76,7 +76,8 @@ Current behavior:
 - Binds Chat Runtime provider/model/config/generation controls from shell-registered provider addon metadata without calling provider handlers.
 - Binds the model Refresh button through a shell-local `qt.model_refresh` facade that reports refresh as deferred without calling provider handlers.
 - Binds preset/session controls in shell-local preview mode.
-- Binds engine lifecycle buttons in shell-local preview mode.
+- Binds engine lifecycle buttons through a shell-local `qt.engine_lifecycle` facade.
+- Binds Operational View action buttons through a shell-local `qt.runtime_controls` facade.
 - Prints a static-vs-addon tab comparison in the terminal.
 - Binds local console/chat controls that only affect the shell preview.
 
@@ -126,8 +127,10 @@ Why these addons were chosen:
 
 Important:
 
-- The shell provides no replay, audio, or engine lifecycle host services yet.
+- The shell provides no replay or audio host services yet.
 - The shell provides a model refresh facade, but it is intentionally deferred and never calls provider handlers.
+- The shell provides an engine lifecycle facade, but it is intentionally shell-local and never starts/stops runtime systems.
+- The shell provides a runtime controls facade, but it is intentionally shell-local and never sends control actions to the engine.
 - Shell-provided services are limited to metadata-only chat provider registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
@@ -176,7 +179,7 @@ This keeps preset loading useful for validating Designer bindings while preservi
 
 ## Lifecycle Shell Binding
 
-The Designer shell now gives the main lifecycle buttons shell-local behavior:
+The Designer shell now gives the main lifecycle buttons shell-local behavior through `qt.engine_lifecycle`:
 
 - `btn_start_engine` switches the shell preview into a simulated running state and logs a shell-only Initialize message.
 - `btn_stop_engine` switches the shell preview back to a simulated stopped state and logs a shell-only Terminate message.
@@ -189,6 +192,26 @@ This is intentionally not the real engine lifecycle yet:
 - `shutdown_avatar_engine()` is not called.
 - No TTS/STT/audio/avatar/image/model runtime is started or stopped.
 - No session file, preset file, chat context, or `RUNTIME_CONFIG` value is mutated.
+
+The normal Python-built app exposes the same `qt.engine_lifecycle` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing `start_engine(...)`, `stop_engine()`, and `reset_chat_session()` methods.
+
+## Runtime Controls Shell Binding
+
+The Designer shell now binds Operational View action buttons through `qt.runtime_controls`:
+
+- `btn_regenerate`
+- `btn_retry`
+- `btn_pause`
+- `btn_skip`
+- `btn_skip_user`
+
+This is shell-local only:
+
+- No `trigger_control_action(...)` call is made in shell mode.
+- No replay, regeneration, pause, skip, or retry action is sent to the engine.
+- Clicking a button only appends a preview message to the shell console.
+
+The normal Python-built app exposes the same `qt.runtime_controls` service name to addons and future Designer bindings. In the normal app only, that service delegates to the existing `trigger_control_action(...)` method.
 
 ## TTS Runtime Designer Layout
 
@@ -340,6 +363,8 @@ Current handover boundary:
 - Shell-local lifecycle buttons can simulate Initialize/Terminate/Reset, but they do not call real runtime functions.
 - Shell mode exposes a shell-local `qt.runtime_status` service. The normal Python-built app exposes the same service name through the addon host, backed by the current Qt window/runtime flags.
 - Shell mode exposes a shell-local `qt.model_refresh` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing model refresh path.
+- Shell mode exposes a shell-local `qt.engine_lifecycle` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing engine lifecycle methods.
+- Shell mode exposes a shell-local `qt.runtime_controls` service. The normal Python-built app exposes the same service name through the addon host, backed by the existing runtime control-action method.
 - Real engine lifecycle should be the next deliberately planned phase, not a side effect of these preview bindings.
 
 Why this should come next:

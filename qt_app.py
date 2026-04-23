@@ -437,6 +437,7 @@ def run_ui_shell_smoke(raw_path):
     print("[UI Shell Smoke] Engine lifecycle connected: shell-local only")
     config_summary = _apply_ui_shell_read_only_config(window)
     lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
+    runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
     print(
         f"[UI Shell Smoke] Read-only session config: "
         f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
@@ -445,6 +446,10 @@ def run_ui_shell_smoke(raw_path):
     print(
         "[UI Shell Smoke] Lifecycle shell-local controls: "
         + ", ".join(lifecycle_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Runtime action shell-local controls: "
+        + ", ".join(runtime_control_summary.get("bound") or ["none"])
     )
     print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
     addon_report = _ui_shell_addon_mount_report(window)
@@ -606,6 +611,86 @@ class _UiShellModelRefreshService:
         return self.snapshot(provider_id)
 
 
+class _UiShellEngineLifecycleService:
+    """Shell-local lifecycle facade that never starts runtime systems."""
+
+    def __init__(self, window):
+        self._window = window
+        self._running = False
+
+    def snapshot(self):
+        status = _ui_shell_runtime_status_service(self._window)
+        return {
+            "running": bool(self._running),
+            "shell_mode": True,
+            "engine_connected": False,
+            "runtime_status": status.snapshot().to_dict(),
+            "message": "Engine lifecycle is shell-local only.",
+            "source": "ui_shell",
+        }
+
+    def start_engine(self, *, offline_replay_only=False):
+        self._running = True
+        _ui_shell_runtime_status_service(self._window).set_running(True)
+        return self.snapshot()
+
+    def stop_engine(self):
+        self._running = False
+        _ui_shell_runtime_status_service(self._window).set_running(False)
+        return self.snapshot()
+
+    def reset_chat_memory(self):
+        return {
+            "running": bool(self._running),
+            "shell_mode": True,
+            "engine_connected": False,
+            "message": "Shell-local chat reset only.",
+            "source": "ui_shell",
+        }
+
+    def start(self, **kwargs):
+        return self.start_engine(**kwargs)
+
+    def stop(self):
+        return self.stop_engine()
+
+    def reset(self):
+        return self.reset_chat_memory()
+
+
+class _UiShellRuntimeControlService:
+    """Shell-safe runtime controls facade for Operational View buttons."""
+
+    SUPPORTED_ACTIONS = (
+        "regenerate_response",
+        "retry_user_input",
+        "pause_speech",
+        "skip_speech",
+        "skip_user_reply",
+    )
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+
+    def snapshot(self):
+        return {
+            "actions": list(self.SUPPORTED_ACTIONS),
+            "last_action": self._last_action,
+            "shell_mode": True,
+            "runtime_connected": False,
+            "message": "Runtime control actions are shell-local only.",
+            "source": "ui_shell",
+        }
+
+    def trigger(self, action: str):
+        action_key = str(action or "").strip()
+        if action_key in self.SUPPORTED_ACTIONS:
+            self._last_action = action_key
+            return {**self.snapshot(), "accepted": True, "action": action_key}
+        return {**self.snapshot(), "accepted": False, "action": action_key}
+
+
 def _ui_shell_runtime_status_service(window):
     service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
     if service is None:
@@ -619,6 +704,22 @@ def _ui_shell_model_refresh_service(window):
     if service is None:
         service = _UiShellModelRefreshService(window)
         setattr(window, "_nc_ui_shell_model_refresh_service", service)
+    return service
+
+
+def _ui_shell_runtime_controls_service(window):
+    service = getattr(window, "_nc_ui_shell_runtime_controls_service", None)
+    if service is None:
+        service = _UiShellRuntimeControlService(window)
+        setattr(window, "_nc_ui_shell_runtime_controls_service", service)
+    return service
+
+
+def _ui_shell_engine_lifecycle_service(window):
+    service = getattr(window, "_nc_ui_shell_engine_lifecycle_service", None)
+    if service is None:
+        service = _UiShellEngineLifecycleService(window)
+        setattr(window, "_nc_ui_shell_engine_lifecycle_service", service)
     return service
 
 
@@ -843,6 +944,7 @@ def _bind_ui_shell_lifecycle_local_controls(window):
     chat_status = _ui_shell_find_object(window, "chat_status")
     mic_status = _ui_shell_find_object(window, "mic_status_label")
     runtime_status = _ui_shell_runtime_status_service(window)
+    lifecycle = _ui_shell_engine_lifecycle_service(window)
 
     state = {"running": False}
 
@@ -877,20 +979,21 @@ def _bind_ui_shell_lifecycle_local_controls(window):
             reset_button.setToolTip("Shell-local reset preview. Clears only the Designer shell chat widget.")
 
     def start_preview():
-        state["running"] = True
-        runtime_status.set_running(True)
+        snapshot = lifecycle.start_engine()
+        state["running"] = bool(snapshot.get("running"))
         refresh_buttons()
         set_status(runtime_status.status_line())
         append_console("[UI Shell] Initialize preview: no runtime systems were started.")
 
     def stop_preview():
-        state["running"] = False
-        runtime_status.set_running(False)
+        snapshot = lifecycle.stop_engine()
+        state["running"] = bool(snapshot.get("running"))
         refresh_buttons()
         set_status(runtime_status.status_line())
         append_console("[UI Shell] Terminate preview: no runtime systems were stopped.")
 
     def reset_preview():
+        lifecycle.reset_chat_memory()
         if chat_edit is not None and hasattr(chat_edit, "clear"):
             try:
                 chat_edit.clear()
@@ -915,6 +1018,53 @@ def _bind_ui_shell_lifecycle_local_controls(window):
             if widget is not None
         ],
         "mode": "shell-local",
+    }
+
+
+def _bind_ui_shell_runtime_action_controls(window):
+    controls = _ui_shell_runtime_controls_service(window)
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    action_buttons = {
+        "btn_regenerate": "regenerate_response",
+        "btn_retry": "retry_user_input",
+        "btn_pause": "pause_speech",
+        "btn_skip": "skip_speech",
+        "btn_skip_user": "skip_user_reply",
+    }
+    bound = []
+
+    def append_console(message):
+        if console_edit is None:
+            return
+        try:
+            if hasattr(console_edit, "appendPlainText"):
+                console_edit.appendPlainText(str(message))
+            elif hasattr(console_edit, "append"):
+                console_edit.append(str(message))
+        except Exception:
+            pass
+
+    for object_name, action in action_buttons.items():
+        button = _ui_shell_find_object(window, object_name)
+        if button is None:
+            continue
+        bound.append(object_name)
+        if hasattr(button, "setEnabled"):
+            button.setEnabled(True)
+        if hasattr(button, "setToolTip"):
+            button.setToolTip("Shell-local control preview. No runtime action is sent.")
+        if hasattr(button, "clicked") and not getattr(button, "_nc_ui_shell_runtime_control_bound", False):
+            button.clicked.connect(
+                lambda _checked=False, action_key=action: append_console(
+                    f"[UI Shell] Control preview: {controls.trigger(action_key).get('action')} not sent to runtime."
+                )
+            )
+            setattr(button, "_nc_ui_shell_runtime_control_bound", True)
+
+    return {
+        "bound": bound,
+        "mode": "shell-local",
+        "actions": list(controls.SUPPORTED_ACTIONS),
     }
 
 
@@ -2239,8 +2389,10 @@ def _ui_shell_mount_live_addons(window, report):
     chat_provider_registry = _UiShellChatProviderRegistry()
     host_services = {
         "qt.chat_providers": chat_provider_registry,
+        "qt.engine_lifecycle": _ui_shell_engine_lifecycle_service(window),
         "qt.hotkeys": _UiShellHotkeyService(),
         "qt.model_refresh": _ui_shell_model_refresh_service(window),
+        "qt.runtime_controls": _ui_shell_runtime_controls_service(window),
         "qt.runtime_status": _ui_shell_runtime_status_service(window),
         "qt.shell": _UiShellShellService(),
         "qt.visual_reply": _UiShellVisualReplyService(window),
@@ -2709,6 +2861,7 @@ def run_ui_shell_preview(raw_path):
     config_summary = _apply_ui_shell_read_only_config(window)
     console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
     lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
+    runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
@@ -2743,6 +2896,10 @@ def run_ui_shell_preview(raw_path):
     print(
         "[UI Shell] Lifecycle shell-local controls: "
         + ", ".join(lifecycle_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Runtime action shell-local controls: "
+        + ", ".join(runtime_control_summary.get("bound") or ["none"])
     )
     print(f"[UI Shell] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
     print(
@@ -2838,7 +2995,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -8809,8 +8966,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 avatar_snapshot_getter=self._build_addon_avatar_snapshot,
                 host_services={
                     "qt.dialogs": QtDialogService(self),
+                    "qt.engine_lifecycle": QtEngineLifecycleService(self),
                     "qt.hotkeys": QtHotkeyService(self),
                     "qt.model_refresh": QtModelRefreshService(self),
+                    "qt.runtime_controls": QtRuntimeControlService(self),
                     "qt.runtime_status": QtRuntimeStatusService(self),
                     "qt.shell": QtShellService(self),
                     "qt.musetalk_ui": QtMuseTalkUIService(self),
