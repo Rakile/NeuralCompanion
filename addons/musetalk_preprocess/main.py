@@ -21,10 +21,8 @@ class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
         self._shell_preview = bool(context.get_service("qt.musetalk_preprocess_shell_preview") if context is not None else False)
+        self._controller_cls = None
         self.controller = None
-        if not self._shell_preview:
-            controller_cls = _load_controller_class()
-            self.controller = controller_cls(context)
         context.ui.register_tab(
             id="musetalk_preprocess_tab",
             title="Preprocess",
@@ -38,13 +36,27 @@ class Addon(BaseAddon):
         context.events.subscribe("app.resources_refreshed", self._on_app_resources_refreshed)
         context.logger.info("MuseTalk Preprocess addon initialized.")
 
+    def _ensure_controller(self):
+        if getattr(self, "_shell_preview", False):
+            return None
+        controller = getattr(self, "controller", None)
+        if controller is not None:
+            return controller
+        controller_cls = getattr(self, "_controller_cls", None)
+        if controller_cls is None:
+            controller_cls = _load_controller_class()
+            self._controller_cls = controller_cls
+        controller = controller_cls(self.context)
+        self.controller = controller
+        return controller
+
     def _peek_controller(self):
         return getattr(self, "controller", None)
 
     def _build_tab(self, context):
         if getattr(self, "_shell_preview", False):
             return self._build_shell_preview_tab()
-        controller = self._peek_controller()
+        controller = self._ensure_controller()
         if controller is None:
             raise RuntimeError("MuseTalk preprocess controller is unavailable.")
         return controller.build_tab()
@@ -127,7 +139,7 @@ class Addon(BaseAddon):
         controller.refresh_musetalk_avatar_list()
 
     def invoke_capability(self, capability, payload=None):
-        controller = self._peek_controller()
+        controller = self._ensure_controller()
         if controller is None:
             return None
         if str(capability or "").strip() == "avatar_preprocess.set_source_path":
@@ -149,7 +161,7 @@ class Addon(BaseAddon):
         return self.export_session_state()
 
     def import_session_state(self, session):
-        controller = self._peek_controller()
+        controller = self._ensure_controller()
         if controller is None:
             return None
         return controller.import_session_state(session)
@@ -158,7 +170,7 @@ class Addon(BaseAddon):
         return self.import_session_state(preset)
 
     def shutdown(self):
-        controller = self._peek_controller()
+        controller = self.controller
         if controller is None:
             return None
         controller._stop_cached_musetalk_tool_bridge()

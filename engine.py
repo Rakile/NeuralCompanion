@@ -198,6 +198,8 @@ NON_SPEAKING_DURATION = 0.35
 PHRASE_THRESHOLD = 0.2
 AMBIENT_CALIBRATION_SECONDS = 0.6
 BARGE_IN_THRESHOLD = 500
+BARGE_IN_CONSECUTIVE_CHUNKS = 2
+BARGE_IN_RESET_SECONDS = 0.25
 keyboard = runtime_hotkeys.keyboard
 pynput_keyboard = runtime_hotkeys.pynput_keyboard
 DEFAULT_PUSH_TO_TALK_HOTKEY = runtime_hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY
@@ -684,6 +686,8 @@ audio_playing = threading.Event()
 listening_active = threading.Event()
 microphone_active = threading.Event()
 push_to_talk_gui_held = threading.Event()
+_barge_in_streak = 0
+_barge_in_last_sample_at = 0.0
 pause_after_chunk = threading.Event()
 playback_paused = threading.Event()
 last_resume_requested_at = 0.0
@@ -963,7 +967,7 @@ def check_interaction_status(source):
             return action
 
     input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
-    if input_mode == "push_to_talk" and is_push_to_talk_pressed():
+    if input_mode == "push_to_talk" and is_push_to_talk_held():
         LAST_INPUT_TIME = now
         return "push_to_talk"
 
@@ -1932,7 +1936,31 @@ def _data_url_for_local_image(image_path: str):
     return f"data:{mime_type};base64,{payload}"
 
 
-def _build_sensory_feedback_message_from_snapshot(snapshot):
+def _infer_model_supports_images(model_name):
+    value = str(model_name or "").strip().lower()
+    if not value:
+        return False
+    positive_fragments = (
+        "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
+        "minicpm-v", "internvl", "phi-3.5-vision", "phi-4-multimodal", "gemma-3", "gpt-4o",
+        "gpt-4.1", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
+    )
+    negative_fragments = (
+        "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"
+    )
+    if any(fragment in value for fragment in negative_fragments):
+        return False
+    return any(fragment in value for fragment in positive_fragments)
+
+
+def _current_model_supports_images():
+    explicit = RUNTIME_CONFIG.get("model_supports_images", None)
+    if explicit is not None:
+        return bool(explicit)
+    return _infer_model_supports_images(RUNTIME_CONFIG.get("model_name", ""))
+
+
+def _build_sensory_feedback_message_from_snapshot(snapshot, *, allow_images=True):
     if not isinstance(snapshot, dict):
         return None
     source = str(snapshot.get("source", "sensory") or "sensory")
@@ -1964,6 +1992,8 @@ def _build_sensory_feedback_message_from_snapshot(snapshot):
             "role": str(snapshot.get("role", "user") or "user"),
             "content": str(content),
         }
+    if not allow_images:
+        return None
     data_url = _data_url_for_local_image(snapshot.get("image_path", ""))
     if not data_url:
         return None
@@ -1991,15 +2021,23 @@ def _build_sensory_feedback_message_from_snapshot(snapshot):
 def _build_sensory_feedback_messages():
     snapshots = _maybe_refresh_sensory_feedback_snapshots(force=False)
     messages = []
+    allow_images = _current_model_supports_images()
     for snapshot in snapshots:
         source = str(snapshot.get("source", "sensory") or "sensory")
         captured_at = float(snapshot.get("captured_at", 0.0) or 0.0)
         timestamp_text = time.strftime("%H:%M:%S", time.localtime(captured_at)) if captured_at > 0 else "unknown"
+        image_path = str(snapshot.get("image_path", "") or "").strip()
+        if image_path and not allow_images:
+            print(
+                f"⚠️ [Sensory] Skipping hidden {source} image input for model "
+                f"{RUNTIME_CONFIG.get('model_name', '')!r} because it does not support image messages."
+            )
+            continue
         print(
             f"👁️ [Sensory] Injecting hidden {source} input into model request "
-            f"(captured {timestamp_text}, path={snapshot.get('image_path', '')})."
+            f"(captured {timestamp_text}, path={image_path})."
         )
-        message = _build_sensory_feedback_message_from_snapshot(snapshot)
+        message = _build_sensory_feedback_message_from_snapshot(snapshot, allow_images=allow_images)
         if message:
             messages.append(message)
     return messages
@@ -2464,9 +2502,13 @@ def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
 
 
 def _build_sensory_pingpong_messages(snapshots):
+    allow_images = _current_model_supports_images()
     ping_messages = [
         message
-        for message in (_build_sensory_feedback_message_from_snapshot(snapshot) for snapshot in list(snapshots or []))
+        for message in (
+            _build_sensory_feedback_message_from_snapshot(snapshot, allow_images=allow_images)
+            for snapshot in list(snapshots or [])
+        )
         if message is not None
     ]
     if not ping_messages:
@@ -5020,16 +5062,30 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
 
 
 def check_for_barge_in(source, energy_threshold=800, chunk_size=1024):
+    global _barge_in_streak, _barge_in_last_sample_at
     try:
         if source.stream is None:
+            _barge_in_streak = 0
             return False
         data = source.stream.read(chunk_size)
         if not data:
+            _barge_in_streak = 0
             return False
         audio_data = np.frombuffer(data, dtype=np.int16)
         energy = np.sqrt(np.mean(audio_data.astype(np.int64) ** 2))
-        if energy > energy_threshold:
-            return True
+        now = time.time()
+        if now - _barge_in_last_sample_at > BARGE_IN_RESET_SECONDS:
+            _barge_in_streak = 0
+        _barge_in_last_sample_at = now
+        calibrated_floor = float(getattr(recognizer, "energy_threshold", 0.0) or 0.0)
+        effective_threshold = max(float(energy_threshold), calibrated_floor * 1.6)
+        if energy > effective_threshold:
+            _barge_in_streak += 1
+            if _barge_in_streak >= BARGE_IN_CONSECUTIVE_CHUNKS:
+                _barge_in_streak = 0
+                return True
+        else:
+            _barge_in_streak = 0
     except Exception as e:
         pass
     return False
@@ -5899,14 +5955,6 @@ if __name__ == "__main__":
         run_companion()
     except KeyboardInterrupt:
         stop_flag.set()
-
-
-
-
-
-
-
-
 
 
 

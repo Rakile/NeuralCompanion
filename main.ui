@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
+﻿<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>CompanionQtMainWindow</class>
  <widget class="QMainWindow" name="CompanionQtMainWindow">
@@ -12,178 +12,186 @@
   </property>
   <property name="minimumSize">
    <size>
-    <width>740</width>
-    <height>670</height>
+    <width>890</width>
+    <height>780</height>
+   </size>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>16777215</width>
+    <height>1600</height>
    </size>
   </property>
   <property name="windowTitle">
    <string>Neural Interface Qt (Experimental)</string>
   </property>
-  <property name="dockOptions">
-   <set>QMainWindow::AnimatedDocks|QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::GroupedDragging</set>
-  </property>
   <property name="styleSheet">
-   <string notr="true">QMainWindow { background: #1f2022; }
-QWidget { color: #eceff3; font-family: &quot;Segoe UI&quot;; font-size: 12px; }
-QWidget#HeaderCard {
-    background: #26282c;
-    border: 1px solid #3a3d43;
-    border-radius: 10px;
+   <string notr="true">QMainWindow { background: #11161d; }
+QWidget { color: #e5e9f0; font-family: &quot;Segoe UI&quot;; font-size: 12px; }
+QFrame#Panel { background: #18202a; border: 1px solid #283342; border-radius: 14px; padding: 8px; }
+QFrame#HeaderCard { background: #131a23; border: 1px solid #243244; border-radius: 12px; padding: 4px; }
+QScrollArea { background: #18202a; border: 1px solid #273342; border-radius: 10px; padding: 6px; }
+QScrollArea &gt; QWidget &gt; QWidget { background: #18202a; color: #e5e9f0; }
+QScrollBar:vertical {
+    background: #131a23;
+    border: 1px solid #273342;
+    border-radius: 11px;
+    width: 22px;
+    margin: 2px 2px 2px 2px;
 }
-QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QComboBox, QSpinBox, QDoubleSpinBox {
-    background: #27292d;
-    border: 1px solid #3a3d43;
-    border-radius: 10px;
+QScrollBar::handle:vertical {
+    background: #3a516c;
+    border: 1px solid #4b6889;
+    border-radius: 9px;
+    min-height: 52px;
+    margin: 3px;
 }
-QScrollArea {
+QScrollBar::handle:vertical:hover {
+    background: #4a6788;
+}
+QScrollBar::handle:vertical:pressed {
+    background: #5b7ca2;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    background: #1a2430;
+    border: 0;
+    height: 16px;
+    subcontrol-origin: margin;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
     background: transparent;
-    border: none;
 }
-QTabWidget::pane {
-    background: #27292d;
-    border: none;
+QScrollBar:horizontal {
+    background: #131a23;
+    border: 1px solid #273342;
+    border-radius: 11px;
+    height: 22px;
+    margin: 2px 2px 2px 2px;
 }
-QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox {
-    min-width: 140px;
+QScrollBar::handle:horizontal {
+    background: #3a516c;
+    border: 1px solid #4b6889;
+    border-radius: 9px;
+    min-width: 52px;
+    margin: 3px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4a6788;
+}
+QScrollBar::handle:horizontal:pressed {
+    background: #5b7ca2;
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    background: #1a2430;
+    border: 0;
+    width: 16px;
+    subcontrol-origin: margin;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+QStackedWidget {
+    background: transparent;
+    padding: 4px;
+}
+QPushButton {
+    background: #223247;
+    border: 1px solid #324b69;
+    border-radius: 10px;
+    padding: 8px 12px;
+    font-weight: 600;
+}
+QPushButton:hover { background: #29405b; }
+QPushButton:disabled { color: #7f8791; background: #1a2028; border-color: #27303b; }
+QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleSpinBox, QGroupBox, QTabWidget::pane {
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-radius: 10px;
+}
+QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box {
+    margin-top: 18px;
+    padding-top: 12px;
+}
+QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 8px 0 8px;
+}
+QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator {
+    width: 0px;
+    height: 0px;
+}
+QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
+    color: #f2f5f9;
+    padding: 4px 8px;
 }
 QComboBox {
-    padding: 6px 34px 6px 10px;
-    min-height: 18px;
+    padding-right: 30px;
 }
 QComboBox::drop-down {
     subcontrol-origin: padding;
     subcontrol-position: top right;
     width: 24px;
-    border-left: 1px solid #4c5058;
-    background: #34373d;
+    background: #17212c;
+    border-left: 1px solid #273342;
     border-top-right-radius: 10px;
     border-bottom-right-radius: 10px;
 }
 QComboBox::drop-down:hover {
-    background: #444850;
+    background: #223247;
 }
-QComboBox::down-arrow {
-    width: 8px;
-    height: 8px;
+QComboBox::drop-down:pressed {
+    background: #29405b;
 }
-QSpinBox, QDoubleSpinBox {
-    padding-right: 34px;
-}
-QSpinBox::up-button, QSpinBox::down-button,
-QDoubleSpinBox::up-button, QDoubleSpinBox::down-button {
+QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSpinBox::down-button {
+    background: #17212c;
+    border-left: 1px solid #324055;
     width: 18px;
-    background: #34373d;
-    border-left: 1px solid #4c5058;
 }
-QSpinBox::up-button, QDoubleSpinBox::up-button {
-    subcontrol-origin: border;
-    subcontrol-position: top right;
-    border-top-right-radius: 10px;
+QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover, QSpinBox::up-button:hover, QSpinBox::down-button:hover {
+    background: #223247;
 }
-QSpinBox::down-button, QDoubleSpinBox::down-button {
-    subcontrol-origin: border;
-    subcontrol-position: bottom right;
-    border-bottom-right-radius: 10px;
+QComboBox QAbstractItemView, QListWidget {
+    background: #16202b;
+    color: #f2f5f9;
+    selection-background-color: #29405b;
+    selection-color: #ffffff;
+    border: 1px solid #324b69;
+    outline: 0;
 }
-QSpinBox::up-button:hover, QSpinBox::down-button:hover,
-QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover {
-    background: #444850;
+QMenu {
+    background: #16202b;
+    color: #f2f5f9;
+    border: 1px solid #324b69;
+    border-radius: 8px;
+    padding: 6px;
 }
-QSpinBox::up-arrow, QSpinBox::down-arrow,
-QDoubleSpinBox::up-arrow, QDoubleSpinBox::down-arrow {
-    width: 8px;
-    height: 8px;
-}
-QSlider {
+QMenu::item {
     background: transparent;
-    border: none;
-}
-QSlider::groove:horizontal {
-    background: #8d9198;
-    border: none;
-    height: 4px;
-    border-radius: 2px;
-}
-QSlider::sub-page:horizontal {
-    background: #2f83ff;
-    border: none;
-    height: 4px;
-    border-radius: 2px;
-}
-QSlider::add-page:horizontal {
-    background: #8d9198;
-    border: none;
-    height: 4px;
-    border-radius: 2px;
-}
-QSlider::handle:horizontal {
-    background: #2f83ff;
-    border: 1px solid #1d5ea8;
-    width: 10px;
-    height: 10px;
-    margin: -4px 0;
+    color: #f2f5f9;
+    padding: 6px 24px 6px 10px;
     border-radius: 6px;
 }
-QSlider::handle:horizontal:hover {
-    background: #4b9cff;
+QMenu::item:selected {
+    background: #29405b;
+    color: #ffffff;
 }
-QGroupBox {
-    background: #27292d;
-    border: 1px solid #31353b;
-    border-radius: 8px;
-    margin-top: 10px;
-    padding-top: 10px;
+QMenu::item:disabled {
+    color: #7f8791;
+    background: transparent;
 }
-QGroupBox::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 4px;
-}
-QPushButton {
-    background: #373a40;
-    border: 1px solid #4c5058;
-    border-radius: 10px;
-    padding: 8px 12px;
-    font-weight: 600;
-}
-QPushButton:hover { background: #464a52; }
-QPushButton:pressed { background: #2f3237; }
-QPushButton:disabled { color: #8f949c; background: #2a2c30; border-color: #3b3e44; }
-QPushButton#btn_start_engine,
-QPushButton#btn_stop_engine,
-QPushButton#btn_reset_chat {
-    min-height: 34px;
-    max-height: 38px;
-    padding: 6px 14px;
-    font-size: 12px;
-    font-weight: 700;
-}
-QPushButton#btn_start_engine {
-    background: #1f6e54;
-    border: 1px solid #2ca97d;
-}
-QPushButton#btn_start_engine:hover { background: #268062; }
-QPushButton#btn_start_engine:pressed { background: #195944; }
-QPushButton#btn_stop_engine {
-    background: #6d2929;
-    border: 1px solid #a94b4b;
-}
-QPushButton#btn_stop_engine:hover { background: #7d3131; }
-QPushButton#btn_stop_engine:pressed { background: #592121; }
-QPushButton#btn_reset_chat {
-    background: #343840;
-    border: 1px solid #535964;
-}
-QPushButton#btn_reset_chat:hover { background: #40454f; }
-QPushButton#btn_reset_chat:pressed { background: #2d3138; }
-QFrame#visual_reply_frame {
-    background: #27292d;
-    border: 1px solid #3a3d43;
-    border-radius: 10px;
+QMenu::separator {
+    height: 1px;
+    background: #2c3a4b;
+    margin: 6px 4px;
 }
 QTabBar::tab {
-    background: #2b2e33;
-    border: 1px solid #3b3f46;
+    background: #18202a;
+    border: 1px solid #2a3544;
     padding: 8px 12px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
@@ -191,148 +199,168 @@ QTabBar::tab {
     border-bottom-right-radius: 0px;
     margin-right: 4px;
 }
-QTabBar::tab:selected { background: #3b4047; }
+QTabBar::tab:selected { background: #233245; }
 QTabWidget#sensory_feedback_tabs::tab-bar,
 QTabWidget#vseeface_tabs::tab-bar,
 QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#tts_runtime_addon_tabs::tab-bar,
 QTabWidget#vam_setup_tabs::tab-bar,
 QTabWidget#right_tabs::tab-bar {
-    left: 0px;
+    left: 8px;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab,
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab,
 QTabWidget#vam_setup_tabs QTabBar::tab,
 QTabWidget#right_tabs QTabBar::tab {
+    background: #17212c;
+    border: 1px solid #273342;
+    min-width: 0px;
+    max-width: 16777215px;
+    min-height: 0px;
     padding: 8px 14px;
-    margin-right: 2px;
+    margin-right: 4px;
+    margin-bottom: -1px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
     border-bottom-left-radius: 0px;
     border-bottom-right-radius: 0px;
 }
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
+QTabWidget#vseeface_tabs QTabBar::tab:!selected,
+QTabWidget#musetalk_tabs QTabBar::tab:!selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected,
+QTabWidget#vam_setup_tabs QTabBar::tab:!selected,
+QTabWidget#right_tabs QTabBar::tab:!selected {
+    margin-top: 3px;
+}
 QTabWidget#sensory_feedback_tabs::pane,
 QTabWidget#vseeface_tabs::pane,
 QTabWidget#musetalk_tabs::pane,
+QTabWidget#tts_runtime_addon_tabs::pane,
 QTabWidget#vam_setup_tabs::pane,
 QTabWidget#right_tabs::pane {
     top: -1px;
-    background: #27292d;
-    border: 1px solid #32363c;
+    background: #0f141b;
+    border: 1px solid #273342;
     border-top-left-radius: 0px;
     border-top-right-radius: 0px;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+QTabWidget#sensory_feedback_tabs QStackedWidget,
+QTabWidget#vseeface_tabs QStackedWidget,
+QTabWidget#musetalk_tabs QStackedWidget,
+QTabWidget#tts_runtime_addon_tabs QStackedWidget,
+QTabWidget#vam_setup_tabs QStackedWidget,
+QTabWidget#right_tabs QStackedWidget {
+    padding: 8px;
+    background: transparent;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
 QTabWidget#vseeface_tabs QTabBar::tab:selected,
 QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected,
 QTabWidget#vam_setup_tabs QTabBar::tab:selected,
 QTabWidget#right_tabs QTabBar::tab:selected {
-    background: #27292d;
-    border-bottom-color: #27292d;
+    background: #0f141b;
+    border-color: #273342;
+    border-bottom-color: #0f141b;
     margin-bottom: -1px;
+    padding-bottom: 10px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
+QTabWidget#vseeface_tabs QTabBar::tab:hover,
+QTabWidget#musetalk_tabs QTabBar::tab:hover,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover,
+QTabWidget#vam_setup_tabs QTabBar::tab:hover,
+QTabWidget#right_tabs QTabBar::tab:hover {
+    background: #223247;
 }
 QTabWidget#host_settings_tabs QTabBar::tab,
 QTabWidget#left_tabs QTabBar::tab {
+    background: #18202a;
+    border: 1px solid #273342;
     min-width: 34px;
     max-width: 34px;
     min-height: 34px;
     padding: 3px 6px 13px 6px;
     margin-bottom: 4px;
+    margin-right: 0px;
     border-top-left-radius: 10px;
     border-bottom-left-radius: 10px;
     border-top-right-radius: 0px;
     border-bottom-right-radius: 0px;
 }
-QTabWidget#host_settings_tabs::pane {
-    margin-left: -1px;
-    background: #27292d;
-    border: 1px solid #32363c;
-}
+QTabWidget#host_settings_tabs::pane,
 QTabWidget#left_tabs::pane {
     margin-left: -1px;
-    background: #27292d;
-    border: 1px solid #32363c;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 6px;
+}
+QTabWidget#host_settings_tabs QStackedWidget,
+QTabWidget#left_tabs QStackedWidget {
+    padding: 0px;
+    background: transparent;
 }
 QTabWidget#host_settings_tabs QTabBar::tab:selected,
 QTabWidget#left_tabs QTabBar::tab:selected {
-    background: #27292d;
-    border-right-color: #27292d;
+    background: #0f141b;
+    border-right-color: #0f141b;
     margin-right: -1px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:hover,
+QTabWidget#left_tabs QTabBar::tab:hover {
+    background: #223247;
 }
 QTabWidget#host_settings_tabs QTabBar,
 QTabWidget#left_tabs QTabBar {
-    background: transparent;
+    background: #18202a;
+    border: 0;
+}
+QTabWidget#host_settings_tabs QTabBar {
+    margin-top: 0px;
+    padding-top: 4px;
 }
 QTabWidget#left_tabs QTabBar {
     margin-top: 0px;
+    padding-top: 4px;
 }
 QTabWidget#left_tabs::pane {
     margin-top: 0px;
     border-top-left-radius: 0px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
-}
-QTabWidget#host_settings_tabs::pane {
-    border-top-left-radius: 0px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
-}
-QTabWidget#sensory_feedback_tabs QTabBar::tab,
-QTabWidget#vseeface_tabs QTabBar::tab,
-QTabWidget#musetalk_tabs QTabBar::tab,
-QTabWidget#vam_setup_tabs QTabBar::tab,
-QTabWidget#right_tabs QTabBar::tab {
-    min-width: 0px;
-    max-width: 16777215px;
-    min-height: 0px;
-    padding: 8px 14px;
-    margin-right: 2px;
-    margin-bottom: 0px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 0px;
-    border-bottom-right-radius: 0px;
-}
-QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
-QTabWidget#vseeface_tabs QTabBar::tab:selected,
-QTabWidget#musetalk_tabs QTabBar::tab:selected,
-QTabWidget#vam_setup_tabs QTabBar::tab:selected,
-QTabWidget#right_tabs QTabBar::tab:selected {
-    background: #27292d;
-    border-bottom-color: #27292d;
-    border-right-color: #3b3f46;
-    margin-right: 0px;
-    margin-bottom: -1px;
-}
-QDockWidget::title {
-    text-align: left;
-    background: #32363d;
-    border-top: 1px solid #5a606b;
-    border-left: 1px solid #4d535d;
-    border-right: 1px solid #24282f;
-    border-bottom: 1px solid #1b1f25;
-    border-top-left-radius: 10px;
     border-top-right-radius: 10px;
-    border-bottom-left-radius: 6px;
-    border-bottom-right-radius: 6px;
-    padding: 7px 12px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QMessageBox, QDialog {
+    background: #11161d;
+}
+QMessageBox QLabel, QDialog QLabel {
+    color: #e5e9f0;
+}
+QMessageBox QPushButton, QDialog QPushButton {
+    min-width: 90px;
+}
+QGroupBox {
+    margin-top: 12px;
+    padding: 12px 10px 10px 10px;
     font-weight: 600;
-    color: #f1f4f8;
 }
-QProgressBar {
-    background: #2a2c31;
-    border: 1px solid #3b3f46;
-    border-radius: 6px;
-    text-align: center;
-}
-QProgressBar::chunk {
-    background: #7c8088;
-    border-radius: 5px;
+QGroupBox::title {
+    subcontrol-origin: margin;
+    left: 12px;
+    padding: 0 6px;
 }</string>
+  </property>
+  <property name="dockOptions">
+   <set>QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::AnimatedDocks|QMainWindow::GroupedDragging</set>
   </property>
   <widget class="QWidget" name="workspace_central">
    <property name="minimumSize">
@@ -351,8 +379,14 @@ QProgressBar::chunk {
   <widget class="QDockWidget" name="SystemShapingDock">
    <property name="minimumSize">
     <size>
-     <width>360</width>
-     <height>260</height>
+     <width>890</width>
+     <height>799</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
     </size>
    </property>
    <property name="windowTitle">
@@ -362,6 +396,18 @@ QProgressBar::chunk {
     <number>1</number>
    </attribute>
    <widget class="QWidget" name="system_shaping_panel">
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
+    </property>
     <layout class="QVBoxLayout" name="systemShapingOuterLayout">
      <property name="leftMargin">
       <number>0</number>
@@ -377,6 +423,81 @@ QProgressBar::chunk {
      </property>
      <item>
       <widget class="QScrollArea" name="system_shaping_scroll">
+       <property name="minimumSize">
+        <size>
+         <width>890</width>
+         <height>780</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">QTabWidget#right_tabs::pane,
+QTabWidget#sensory_feedback_tabs::pane,
+QTabWidget#vseeface_tabs::pane,
+QTabWidget#musetalk_tabs::pane,
+QTabWidget#tts_runtime_addon_tabs::pane {
+    top: -1px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+
+QTabWidget#right_tabs::tab-bar,
+QTabWidget#sensory_feedback_tabs::tab-bar,
+QTabWidget#vseeface_tabs::tab-bar,
+QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#tts_runtime_addon_tabs::tab-bar {
+    left: 8px;
+}
+
+QTabWidget#right_tabs QTabBar::tab,
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    background: #17212c;
+    border: 1px solid #273342;
+    padding: 8px 14px;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:!selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
+QTabWidget#vseeface_tabs QTabBar::tab:!selected,
+QTabWidget#musetalk_tabs QTabBar::tab:!selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
+    margin-top: 3px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    background: #0f141b;
+    border-color: #273342;
+    border-bottom-color: #0f141b;
+    margin-bottom: -1px;
+    padding-bottom: 10px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:hover,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
+QTabWidget#vseeface_tabs QTabBar::tab:hover,
+QTabWidget#musetalk_tabs QTabBar::tab:hover,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
+    background: #223247;
+}
+</string>
+       </property>
        <property name="widgetResizable">
         <bool>true</bool>
        </property>
@@ -386,8 +507,20 @@ QProgressBar::chunk {
           <x>0</x>
           <y>0</y>
           <width>890</width>
-          <height>1175</height>
+          <height>1360</height>
          </rect>
+        </property>
+        <property name="minimumSize">
+         <size>
+          <width>890</width>
+          <height>780</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>1360</height>
+         </size>
         </property>
         <layout class="QVBoxLayout" name="systemShapingLayout">
          <property name="spacing">
@@ -506,8 +639,14 @@ QProgressBar::chunk {
           <widget class="QTabWidget" name="host_settings_tabs">
            <property name="minimumSize">
             <size>
-             <width>0</width>
-             <height>0</height>
+             <width>840</width>
+             <height>700</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
             </size>
            </property>
            <property name="layoutDirection">
@@ -537,7 +676,7 @@ QProgressBar::chunk {
            <widget class="QWidget" name="host_settings_host_tab">
             <attribute name="icon">
              <iconset>
-              <normaloff>../../../New folder (3)/persona.png</normaloff>../../../New folder (3)/persona.png</iconset>
+              <normaloff>ui_icons/side_tabs/host.png</normaloff>ui_icons/side_tabs/host.png</iconset>
             </attribute>
             <attribute name="title">
              <string/>
@@ -799,7 +938,22 @@ QProgressBar::chunk {
                <property name="title">
                 <string>Chat Runtime</string>
                </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
                <layout class="QFormLayout" name="chatRuntimeForm">
+                <property name="fieldGrowthPolicy">
+                 <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                </property>
+                <property name="labelAlignment">
+                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+                </property>
+                <property name="formAlignment">
+                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+                </property>
                 <item row="0" column="0">
                  <widget class="QLabel" name="chat_provider_label">
                   <property name="text">
@@ -809,9 +963,15 @@ QProgressBar::chunk {
                 </item>
                 <item row="0" column="1">
                  <widget class="QComboBox" name="chat_provider_combo">
+                  <property name="minimumSize">
+                   <size>
+                    <width>260</width>
+                    <height>32</height>
+                   </size>
+                  </property>
                   <property name="maximumSize">
                    <size>
-                    <width>200</width>
+                    <width>420</width>
                     <height>16777215</height>
                    </size>
                   </property>
@@ -840,7 +1000,7 @@ QProgressBar::chunk {
                  </widget>
                 </item>
                 <item row="1" column="1">
-                 <widget class="QWidget" name="chat_provider_fields_widget">
+                 <widget class="QWidget" name="chat_provider_fields_widget" native="true">
                   <layout class="QFormLayout" name="chat_provider_fields_layout">
                    <property name="leftMargin">
                     <number>0</number>
@@ -876,9 +1036,15 @@ QProgressBar::chunk {
                 </item>
                 <item row="2" column="1">
                  <widget class="QComboBox" name="model_combo">
+                  <property name="minimumSize">
+                   <size>
+                    <width>260</width>
+                    <height>32</height>
+                   </size>
+                  </property>
                   <property name="maximumSize">
                    <size>
-                    <width>200</width>
+                    <width>420</width>
                     <height>16777215</height>
                    </size>
                   </property>
@@ -892,7 +1058,7 @@ QProgressBar::chunk {
                  </widget>
                 </item>
                 <item row="3" column="1">
-                 <widget class="QWidget" name="chat_provider_generation_fields_widget">
+                 <widget class="QWidget" name="chat_provider_generation_fields_widget" native="true">
                   <layout class="QFormLayout" name="chat_provider_generation_fields_layout">
                    <property name="leftMargin">
                     <number>0</number>
@@ -926,6 +1092,12 @@ QProgressBar::chunk {
               <widget class="QGroupBox" name="tts_runtime_box">
                <property name="title">
                 <string>TTS Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
                </property>
                <layout class="QVBoxLayout" name="ttsRuntimeLayout">
                 <property name="spacing">
@@ -990,8 +1162,14 @@ QProgressBar::chunk {
                  <widget class="QTabWidget" name="tts_runtime_addon_tabs">
                   <property name="minimumSize">
                    <size>
-                    <width>0</width>
+                    <width>760</width>
                     <height>420</height>
+                   </size>
+                  </property>
+                  <property name="maximumSize">
+                   <size>
+                    <width>16777215</width>
+                    <height>1360</height>
                    </size>
                   </property>
                   <property name="visible">
@@ -1523,12 +1701,24 @@ QProgressBar::chunk {
               <widget class="QTabWidget" name="sensory_feedback_tabs">
                <property name="minimumSize">
                 <size>
-                 <width>0</width>
-                 <height>0</height>
+                 <width>760</width>
+                 <height>620</height>
                 </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>16777215</width>
+                 <height>1360</height>
+                </size>
+               </property>
+               <property name="layoutDirection">
+                <enum>Qt::LeftToRight</enum>
                </property>
                <property name="tabPosition">
                 <enum>QTabWidget::North</enum>
+               </property>
+               <property name="tabShape">
+                <enum>QTabWidget::Rounded</enum>
                </property>
                <property name="currentIndex">
                 <number>0</number>
@@ -1575,19 +1765,7 @@ QProgressBar::chunk {
                        </widget>
                       </item>
                       <item row="0" column="1">
-                       <widget class="QWidget" name="sensory_feedback_sources_widget">
-                        <property name="minimumSize">
-                         <size>
-                          <width>142</width>
-                          <height>0</height>
-                         </size>
-                        </property>
-                        <property name="maximumSize">
-                         <size>
-                          <width>300</width>
-                          <height>16777215</height>
-                         </size>
-                        </property>
+                       <widget class="QWidget" name="sensory_feedback_sources_widget" native="true">
                         <layout class="QVBoxLayout" name="sensoryFeedbackSourcesWidgetLayout">
                          <property name="leftMargin">
                           <number>0</number>
@@ -2408,9 +2586,9 @@ QProgressBar::chunk {
                  <property name="text">
                   <string>Image Model</string>
                  </property>
-               </widget>
-              </item>
-              <item row="3" column="1">
+                </widget>
+               </item>
+               <item row="3" column="1">
                 <widget class="QLineEdit" name="visual_reply_model_edit">
                  <property name="minimumSize">
                   <size>
@@ -2693,6 +2871,27 @@ QProgressBar::chunk {
              </item>
             </layout>
            </widget>
+           <widget class="QWidget" name="host_settings_story_visuals_tab">
+            <attribute name="icon">
+             <iconset>
+              <normaloff>ui_icons/side_tabs/story_visuals.png</normaloff>ui_icons/side_tabs/story_visuals.png</iconset>
+            </attribute>
+            <attribute name="title">
+             <string/>
+            </attribute>
+            <attribute name="toolTip">
+             <string>Story Visuals</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="storyVisualsTabLayout">
+             <item>
+              <widget class="QPlainTextEdit" name="story_visuals_placeholder">
+               <property name="plainText">
+                <string>Story Visuals addon placeholder.</string>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
           </widget>
          </item>
         </layout>
@@ -2705,9 +2904,84 @@ QProgressBar::chunk {
   <widget class="QDockWidget" name="WorkspaceTabsDock">
    <property name="minimumSize">
     <size>
-     <width>360</width>
-     <height>260</height>
+     <width>890</width>
+     <height>799</height>
     </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
+    </size>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QTabWidget#right_tabs::pane,
+QTabWidget#sensory_feedback_tabs::pane,
+QTabWidget#vseeface_tabs::pane,
+QTabWidget#musetalk_tabs::pane,
+QTabWidget#tts_runtime_addon_tabs::pane {
+    top: -1px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+
+QTabWidget#right_tabs::tab-bar,
+QTabWidget#sensory_feedback_tabs::tab-bar,
+QTabWidget#vseeface_tabs::tab-bar,
+QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#tts_runtime_addon_tabs::tab-bar {
+    left: 8px;
+}
+
+QTabWidget#right_tabs QTabBar::tab,
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    background: #17212c;
+    border: 1px solid #273342;
+    padding: 8px 14px;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:!selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
+QTabWidget#vseeface_tabs QTabBar::tab:!selected,
+QTabWidget#musetalk_tabs QTabBar::tab:!selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
+    margin-top: 3px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    background: #0f141b;
+    border-color: #273342;
+    border-bottom-color: #0f141b;
+    margin-bottom: -1px;
+    padding-bottom: 10px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:hover,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
+QTabWidget#vseeface_tabs QTabBar::tab:hover,
+QTabWidget#musetalk_tabs QTabBar::tab:hover,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
+    background: #223247;
+}
+</string>
    </property>
    <property name="windowTitle">
     <string>Workspace Tabs</string>
@@ -2721,6 +2995,18 @@ QProgressBar::chunk {
       <horstretch>0</horstretch>
       <verstretch>0</verstretch>
      </sizepolicy>
+    </property>
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
     </property>
     <layout class="QVBoxLayout" name="workspaceTabsLayout">
      <property name="spacing">
@@ -2748,12 +3034,21 @@ QProgressBar::chunk {
        </property>
        <property name="minimumSize">
         <size>
-         <width>0</width>
-         <height>0</height>
+         <width>840</width>
+         <height>700</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>1360</height>
         </size>
        </property>
        <property name="tabPosition">
         <enum>QTabWidget::West</enum>
+       </property>
+       <property name="currentIndex">
+        <number>5</number>
        </property>
        <property name="iconSize">
         <size>
@@ -2864,12 +3159,21 @@ QProgressBar::chunk {
           <widget class="QTabWidget" name="vseeface_tabs">
            <property name="minimumSize">
             <size>
-             <width>0</width>
-             <height>0</height>
+             <width>760</width>
+             <height>620</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
             </size>
            </property>
            <property name="tabPosition">
             <enum>QTabWidget::North</enum>
+           </property>
+           <property name="currentIndex">
+            <number>1</number>
            </property>
            <widget class="QWidget" name="body_tab">
             <attribute name="title">
@@ -3223,8 +3527,14 @@ QProgressBar::chunk {
           <widget class="QTabWidget" name="musetalk_tabs">
            <property name="minimumSize">
             <size>
-             <width>0</width>
-             <height>0</height>
+             <width>760</width>
+             <height>620</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
             </size>
            </property>
            <property name="tabPosition">
@@ -4132,8 +4442,14 @@ QProgressBar::chunk {
   <widget class="QDockWidget" name="OperationalViewDock">
    <property name="minimumSize">
     <size>
-     <width>360</width>
-     <height>260</height>
+     <width>890</width>
+     <height>799</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
     </size>
    </property>
    <property name="windowTitle">
@@ -4143,6 +4459,18 @@ QProgressBar::chunk {
     <number>2</number>
    </attribute>
    <widget class="QWidget" name="operational_view_panel">
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
+    </property>
     <layout class="QVBoxLayout" name="operationalOuterLayout">
      <property name="leftMargin">
       <number>0</number>
@@ -4158,6 +4486,12 @@ QProgressBar::chunk {
      </property>
      <item>
       <widget class="QScrollArea" name="operational_scroll">
+       <property name="minimumSize">
+        <size>
+         <width>890</width>
+         <height>780</height>
+        </size>
+       </property>
        <property name="widgetResizable">
         <bool>true</bool>
        </property>
@@ -4167,10 +4501,22 @@ QProgressBar::chunk {
           <x>0</x>
           <y>0</y>
           <width>890</width>
-          <height>1185</height>
+          <height>780</height>
          </rect>
         </property>
-        <layout class="QVBoxLayout" name="operationalLayout" stretch="0,0,0,0,0">
+        <property name="minimumSize">
+         <size>
+          <width>890</width>
+          <height>780</height>
+         </size>
+        </property>
+        <property name="maximumSize">
+         <size>
+          <width>16777215</width>
+          <height>1360</height>
+         </size>
+        </property>
+        <layout class="QVBoxLayout" name="operationalLayout" stretch="0,0,0,0">
          <property name="spacing">
           <number>12</number>
          </property>
@@ -4188,6 +4534,12 @@ QProgressBar::chunk {
          </property>
          <item>
           <widget class="QGroupBox" name="pipeline_telemetry_box">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>120</height>
+            </size>
+           </property>
            <property name="title">
             <string>Buffer Race</string>
            </property>
@@ -4229,8 +4581,14 @@ QProgressBar::chunk {
            </property>
            <property name="minimumSize">
             <size>
-             <width>0</width>
-             <height>0</height>
+             <width>840</width>
+             <height>620</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
             </size>
            </property>
            <property name="tabPosition">
@@ -4837,6 +5195,18 @@ QProgressBar::chunk {
    </widget>
   </widget>
   <widget class="QDockWidget" name="PreviewDock">
+   <property name="minimumSize">
+    <size>
+     <width>890</width>
+     <height>799</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
+    </size>
+   </property>
    <property name="visible">
     <bool>true</bool>
    </property>
@@ -4847,9 +5217,27 @@ QProgressBar::chunk {
     <number>2</number>
    </attribute>
    <widget class="QWidget" name="preview_dock_content">
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
+    </property>
     <layout class="QVBoxLayout" name="previewDockLayout">
      <item>
       <widget class="QLabel" name="preview_placeholder_label">
+       <property name="minimumSize">
+        <size>
+         <width>840</width>
+         <height>560</height>
+        </size>
+       </property>
        <property name="text">
         <string>MuseTalk preview panel placeholder</string>
        </property>
@@ -4862,6 +5250,18 @@ QProgressBar::chunk {
    </widget>
   </widget>
   <widget class="QDockWidget" name="VisualReplyDock">
+   <property name="minimumSize">
+    <size>
+     <width>890</width>
+     <height>799</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
+    </size>
+   </property>
    <property name="visible">
     <bool>true</bool>
    </property>
@@ -4872,6 +5272,18 @@ QProgressBar::chunk {
     <number>2</number>
    </attribute>
    <widget class="QWidget" name="visual_reply_panel">
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
+    </property>
     <layout class="QVBoxLayout" name="visualReplyLayout" stretch="0,0,0,0,0">
      <property name="spacing">
       <number>10</number>
@@ -4980,8 +5392,14 @@ QProgressBar::chunk {
       <widget class="QFrame" name="visual_reply_frame">
        <property name="minimumSize">
         <size>
-         <width>360</width>
-         <height>360</height>
+         <width>840</width>
+         <height>560</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>1360</height>
         </size>
        </property>
        <property name="frameShape">

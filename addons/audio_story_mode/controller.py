@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import re
 import threading
@@ -18,9 +19,27 @@ try:
 except Exception:
     QtMultimedia = None
 
-from core import chat_providers
-import engine
-import shared_state
+
+class _LazyModuleProxy:
+    def __init__(self, module_name: str):
+        self._module_name = str(module_name)
+        self._module = None
+
+    def _resolve(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def is_loaded(self) -> bool:
+        return self._module is not None
+
+    def __getattr__(self, item):
+        return getattr(self._resolve(), str(item))
+
+
+engine = _LazyModuleProxy("engine")
+shared_state = _LazyModuleProxy("shared_state")
+chat_providers = _LazyModuleProxy("core.chat_providers")
 
 
 class _AudioStoryNoWheelComboBox(QtWidgets.QComboBox):
@@ -526,9 +545,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_path_edit = QtWidgets.QLineEdit()
         self.audio_story_path_edit.setReadOnly(True)
         self.audio_story_path_edit.setPlaceholderText("Import an audiobook or story audio file...")
+        self.audio_story_path_edit.setToolTip("Shows the currently imported audiobook or story audio file used by Audio Story Mode.")
         path_row.addWidget(self.audio_story_path_edit, 1)
         self.audio_story_import_button = QtWidgets.QPushButton("Import Audio")
         self.audio_story_import_button.setStyleSheet(compact_button_style)
+        self.audio_story_import_button.setToolTip("Choose the source audio file that Audio Story Mode will transcribe and play back.")
         self.audio_story_import_button.clicked.connect(self._choose_audio_file)
         path_row.addWidget(self.audio_story_import_button)
         source_layout.addLayout(path_row)
@@ -539,6 +560,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_playback_mode_combo = _AudioStoryNoWheelComboBox()
         self.audio_story_playback_mode_combo.addItems(["Play Imported Audio", "Use TTS Narration"])
+        self.audio_story_playback_mode_combo.setToolTip("Choose whether playback uses the original imported audio or generated TTS narration.")
         self.audio_story_playback_mode_combo.currentTextChanged.connect(self._on_playback_mode_changed)
         combo_index = self.audio_story_playback_mode_combo.findText(str(self._stored_playback_mode_label or "").strip())
         if combo_index >= 0:
@@ -615,10 +637,12 @@ class AudioStoryModeController(QtCore.QObject):
             button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
             button.setCheckable(True)
             button.setStyleSheet(style_button_style)
+            button.setToolTip(f"Enable or disable the {str(style_def.get('label') or style_id.title())} visual style during Audio Story playback.")
             button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
             edit = QtWidgets.QLineEdit()
             edit.setClearButtonEnabled(True)
             edit.setMinimumWidth(160)
+            edit.setToolTip(f"Customize the prompt text used when the {str(style_def.get('label') or style_id.title())} style is active.")
             edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
             style_layout.addWidget(button, button_row, column)
             style_layout.addWidget(edit, edit_row, column)
@@ -628,6 +652,7 @@ class AudioStoryModeController(QtCore.QObject):
         options_form.addRow("Styles", style_widget)
 
         self.audio_story_style_live_checkbox = QtWidgets.QCheckBox("Change Style Live")
+        self.audio_story_style_live_checkbox.setToolTip("Allow Audio Story Mode to switch active styles while playback is already running.")
         self.audio_story_style_live_checkbox.toggled.connect(self._on_audio_story_style_live_changed)
         options_form.addRow("", self.audio_story_style_live_checkbox)
 
@@ -721,6 +746,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_transcribe_button = QtWidgets.QPushButton("Transcribe Audio")
         self.audio_story_transcribe_button.setStyleSheet(compact_button_style)
+        self.audio_story_transcribe_button.setToolTip("Run local Whisper transcription on the imported audio and rebuild the story windows for this session.")
         self.audio_story_transcribe_button.clicked.connect(self._start_transcription)
         source_layout.addWidget(self.audio_story_transcribe_button, 0, QtCore.Qt.AlignLeft)
 
@@ -758,16 +784,19 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_pin_location_button = QtWidgets.QPushButton("Pin Location")
         self.audio_story_pin_location_button.setCheckable(True)
         self.audio_story_pin_location_button.setStyleSheet(compact_button_style)
+        self.audio_story_pin_location_button.setToolTip("Keep the detected location anchored across later story images until you unpin it.")
         self.audio_story_pin_location_button.toggled.connect(self._on_pin_location_toggled)
         location_row.addWidget(self.audio_story_pin_location_button, 0)
         self.audio_story_force_fresh_button = QtWidgets.QPushButton("Force Fresh Scene")
         self.audio_story_force_fresh_button.setCheckable(True)
         self.audio_story_force_fresh_button.setStyleSheet(compact_button_style)
+        self.audio_story_force_fresh_button.setToolTip("Tell Audio Story Mode to treat the current scene as a hard reset instead of continuing prior continuity.")
         self.audio_story_force_fresh_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("fresh", checked))
         location_row.addWidget(self.audio_story_force_fresh_button, 0)
         self.audio_story_force_continuation_button = QtWidgets.QPushButton("Force Continuation")
         self.audio_story_force_continuation_button.setCheckable(True)
         self.audio_story_force_continuation_button.setStyleSheet(compact_button_style)
+        self.audio_story_force_continuation_button.setToolTip("Tell Audio Story Mode to preserve the current scene continuity even if the transcript suggests a transition.")
         self.audio_story_force_continuation_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("continuation", checked))
         location_row.addWidget(self.audio_story_force_continuation_button, 0)
         location_row.addStretch(1)
@@ -780,9 +809,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_scene_anchor_edit.setPlaceholderText("Edit the extracted anchor text for the current scene...")
         self.audio_story_scene_anchor_edit.setMaximumBlockCount(10)
         self.audio_story_scene_anchor_edit.setMinimumHeight(72)
+        self.audio_story_scene_anchor_edit.setToolTip("Edit the scene anchor text that will feed continuity and future image prompts for the selected scene.")
         anchor_row.addWidget(self.audio_story_scene_anchor_edit, 1)
         self.audio_story_scene_anchor_apply_button = QtWidgets.QPushButton("Apply Anchor")
         self.audio_story_scene_anchor_apply_button.setStyleSheet(compact_button_style)
+        self.audio_story_scene_anchor_apply_button.setToolTip("Apply the edited scene anchor text to the current scene override.")
         self.audio_story_scene_anchor_apply_button.clicked.connect(self._apply_scene_anchor_override)
         anchor_row.addWidget(self.audio_story_scene_anchor_apply_button)
         anchor_widget = QtWidgets.QWidget()
@@ -807,14 +838,17 @@ class AudioStoryModeController(QtCore.QObject):
         controls_row.setSpacing(6)
         self.audio_story_play_button = QtWidgets.QPushButton("Play")
         self.audio_story_play_button.setStyleSheet(compact_button_style)
+        self.audio_story_play_button.setToolTip("Start or resume Audio Story Mode playback from the current timeline position.")
         self.audio_story_play_button.clicked.connect(self._play_story)
         controls_row.addWidget(self.audio_story_play_button)
         self.audio_story_pause_button = QtWidgets.QPushButton("Pause")
         self.audio_story_pause_button.setStyleSheet(compact_button_style)
+        self.audio_story_pause_button.setToolTip("Pause playback while keeping the current timeline position and active image.")
         self.audio_story_pause_button.clicked.connect(self._pause_story)
         controls_row.addWidget(self.audio_story_pause_button)
         self.audio_story_stop_button = QtWidgets.QPushButton("Stop")
         self.audio_story_stop_button.setStyleSheet(compact_button_style)
+        self.audio_story_stop_button.setToolTip("Stop playback and reset Audio Story Mode to the beginning of the current source.")
         self.audio_story_stop_button.clicked.connect(self._stop_story)
         controls_row.addWidget(self.audio_story_stop_button)
         controls_row.addStretch(1)
@@ -825,6 +859,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_position_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_position_slider.setRange(0, 0)
+        self.audio_story_position_slider.setToolTip("Scrub through the current audio story timeline and update the synced image position.")
         self.audio_story_position_slider.sliderPressed.connect(self._on_slider_pressed)
         self.audio_story_position_slider.sliderReleased.connect(self._on_slider_released)
         self.audio_story_position_slider.sliderMoved.connect(self._on_slider_moved)
@@ -853,6 +888,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_transcript_edit = QtWidgets.QPlainTextEdit()
         self.audio_story_transcript_edit.setReadOnly(True)
         self.audio_story_transcript_edit.setMinimumHeight(220)
+        self.audio_story_transcript_edit.setToolTip("Read-only transcript windows generated from the imported audio and used for Audio Story prompts.")
         transcript_layout.addWidget(self.audio_story_transcript_edit, 1)
         layout.addWidget(transcript_box, 1)
 
@@ -862,7 +898,6 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_path_edit.setText(str(self.imported_audio_path))
 
         self.audio_story_tab_widget = scroll
-        self._ensure_player()
         self._sync_transcribe_seconds_slider()
         self._sync_image_frequency_slider()
         self._sync_continuity_slider()
@@ -1028,7 +1063,8 @@ class AudioStoryModeController(QtCore.QObject):
             self._visual_refresh_timer.stop()
         except Exception:
             pass
-        self._sync_story_generated_master_prompt(refresh_visuals=False)
+        if engine.is_loaded():
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
         self._stop_story()
         return None
 
@@ -1542,6 +1578,7 @@ class AudioStoryModeController(QtCore.QObject):
         if QtMultimedia is None:
             self._show_warning("Audio Story Mode", "Qt Multimedia is not available in this environment.")
             return
+        self._ensure_player()
         if not self.transcript_chunks:
             self._show_warning("Audio Story Mode", "Transcribe the imported audio first.")
             return
@@ -1578,6 +1615,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._set_status("Playback stopped.")
 
     def _prepare_source_media(self):
+        self._ensure_player()
         if self.audio_player is None:
             return False
         path = str(self.imported_audio_path or "").strip()
@@ -1592,6 +1630,7 @@ class AudioStoryModeController(QtCore.QObject):
         return True
 
     def _prepare_tts_media(self):
+        self._ensure_player()
         if self.audio_player is None:
             return False
         if not self._tts_bundle:

@@ -19,6 +19,8 @@ from collections import OrderedDict
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
+from core.musetalk_avatar_packs import discover_avatar_packs
+from core.runtime_paths import derive_vam_bridge_root as _derive_vam_bridge_root_safe, legacy_vam_bridge_roots as _legacy_vam_bridge_roots_safe, normalize_vam_root as _normalize_vam_root_safe
 from core.runtime_status import build_runtime_status_snapshot
 
 
@@ -117,6 +119,164 @@ UI_VALIDATION_DYNAMIC_OWNED_PREFIXES = (
     "audio_story_",
 )
 
+UI_SHELL_DEFAULT_LOCAL_VAM_ROOT = r"I:\wam\VaM 1.20.0.6"
+UI_SHELL_BODY_EMOTIONS = ("Neutral", "Happy", "Sad", "Angry", "Shy", "Surprised")
+
+WORKSPACE_VIEW_MIN_WIDTH = 890
+WORKSPACE_VIEW_MIN_HEIGHT = 780
+WORKSPACE_VIEW_MAX_HEIGHT = 1360
+WORKSPACE_WINDOW_MAX_HEIGHT = 1600
+WORKSPACE_DOCKED_AUX_MIN_HEIGHT = 420
+WORKSPACE_INNER_MIN_WIDTH = 840
+WORKSPACE_INNER_MIN_HEIGHT = 700
+WORKSPACE_PREVIEW_FRAME_MIN_HEIGHT = 560
+
+UI_SHELL_DEFAULT_CHUNKING_VALUES = {
+    "chunk_target_chars": 100,
+    "chunk_max_chars": 200,
+    "musetalk_chunk_target_chars": 110,
+    "musetalk_chunk_max_chars": 220,
+    "musetalk_quickstart_1_target_chars": 170,
+    "musetalk_quickstart_1_max_chars": 320,
+    "musetalk_quickstart_2_target_chars": 130,
+    "musetalk_quickstart_2_max_chars": 240,
+    "stream_chunk_target_chars": 85,
+    "stream_chunk_max_chars": 170,
+    "stream_first_chunk_min_chars": 28,
+    "stream_force_flush_seconds": 0.9,
+    "stream_force_flush_later_seconds": 1.4,
+}
+
+UI_SHELL_MUSE_VRAM_MODE_LABELS = OrderedDict([
+    ("quality", "Quality"),
+    ("balanced", "Balanced"),
+    ("low", "Low VRAM"),
+    ("very_low", "Very Low VRAM"),
+])
+
+UI_SHELL_CHUNKING_SPECS = OrderedDict([
+    ("chunk_target_chars", {
+        "widget": "chunk_target_chars_slider",
+        "label": "chunk_target_chars_label",
+        "title": "Target Chars",
+        "minimum": 40,
+        "maximum": 220,
+        "default": 100,
+    }),
+    ("chunk_max_chars", {
+        "widget": "chunk_max_chars_slider",
+        "label": "chunk_max_chars_label",
+        "title": "Max Chars",
+        "minimum": 60,
+        "maximum": 320,
+        "default": 200,
+    }),
+    ("musetalk_chunk_target_chars", {
+        "widget": "musetalk_chunk_target_chars_slider",
+        "label": "musetalk_chunk_target_chars_label",
+        "title": "Target Chars",
+        "minimum": 60,
+        "maximum": 220,
+        "default": 110,
+    }),
+    ("musetalk_chunk_max_chars", {
+        "widget": "musetalk_chunk_max_chars_slider",
+        "label": "musetalk_chunk_max_chars_label",
+        "title": "Max Chars",
+        "minimum": 80,
+        "maximum": 320,
+        "default": 220,
+    }),
+    ("musetalk_quickstart_1_target_chars", {
+        "widget": "musetalk_quickstart_1_target_chars_slider",
+        "label": "musetalk_quickstart_1_target_chars_label",
+        "title": "Quickstart 1 Target",
+        "minimum": 60,
+        "maximum": 260,
+        "default": 170,
+    }),
+    ("stream_chunk_target_chars", {
+        "widget": "stream_chunk_target_chars_slider",
+        "label": "stream_chunk_target_chars_label",
+        "title": "Target Chars",
+        "minimum": 40,
+        "maximum": 220,
+        "default": 85,
+    }),
+    ("stream_chunk_max_chars", {
+        "widget": "stream_chunk_max_chars_slider",
+        "label": "stream_chunk_max_chars_label",
+        "title": "Max Chars",
+        "minimum": 60,
+        "maximum": 320,
+        "default": 170,
+    }),
+    ("stream_first_chunk_min_chars", {
+        "widget": "stream_first_chunk_min_chars_slider",
+        "label": "stream_first_chunk_min_chars_label",
+        "title": "First Chunk Min",
+        "minimum": 10,
+        "maximum": 80,
+        "default": 28,
+    }),
+])
+UI_SHELL_BODY_POSE_SPECS = OrderedDict([
+    ("idle_fwd_left", {
+        "widget": "idle_fwd_left_slider",
+        "label": "idle_fwd_left_label",
+        "title": "L Depth",
+        "minimum": -200.0,
+        "maximum": 200.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("idle_fwd_right", {
+        "widget": "idle_fwd_right_slider",
+        "label": "idle_fwd_right_label",
+        "title": "R Depth",
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("idle_arm_down", {
+        "widget": "idle_arm_down_slider",
+        "label": "idle_arm_down_label",
+        "title": "Shoulder Down",
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("eye_activity", {
+        "widget": "eye_activity_slider",
+        "label": "eye_activity_label",
+        "title": "Eye Activity",
+        "minimum": 0.0,
+        "maximum": 3.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("breath_speed", {
+        "widget": "breath_speed_slider",
+        "label": "breath_speed_label",
+        "title": "Breath Speed",
+        "minimum": 0.1,
+        "maximum": 4.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("shoulder_lift", {
+        "widget": "shoulder_lift_slider",
+        "label": "shoulder_lift_label",
+        "title": "Shoulder Lift",
+        "minimum": 0.0,
+        "maximum": 5.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+])
+
 UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
     "story_mode_button",
     "visual_master_prompt_label",
@@ -151,6 +311,44 @@ UI_VALIDATION_DYNAMIC_OWNED_NAMES = {
     "theme_storybook",
     "theme_storybook_edit",
 }
+
+UI_REAL_PREVIEW_ONLY_ROOTS = (
+    {
+        "object_name": "audio_story_mode_tab",
+        "adopted_target": "right_tabs",
+        "adopted_title": "Audio Story Mode",
+        "reason": "Static Designer Audio Story placeholder. The live addon-owned Audio Story surface is mounted here in --ui-real.",
+    },
+    {
+        "object_name": "host_settings_visuals_tab",
+        "adopted_target": "host_settings_tabs",
+        "adopted_title": "Visuals",
+        "reason": "Static Designer Visuals placeholder. The live addon-owned Visuals surface is mounted here in --ui-real.",
+    },
+    {
+        "object_name": "host_settings_story_visuals_tab",
+        "adopted_target": "host_settings_tabs",
+        "adopted_title": "Story Visuals",
+        "reason": "Static Designer Story Visuals placeholder. The live addon-owned Story Visuals surface is mounted here in --ui-real.",
+    },
+    {
+        "object_name": "tts_chatterbox_tab",
+        "adopted_target": "tts_runtime_addon_tabs",
+        "adopted_title": "Chatterbox",
+        "reason": "Static Designer Chatterbox placeholder. The live TTS runtime addon tab is mounted here in --ui-real.",
+    },
+    {
+        "object_name": "tts_pockettts_tab",
+        "adopted_target": "tts_runtime_addon_tabs",
+        "adopted_title": "PocketTTS",
+        "reason": "Static Designer PocketTTS placeholder. The live TTS runtime addon tab is mounted here in --ui-real.",
+    },
+    {
+        "object_name": "visual_reply_panel_legacy",
+        "runtime_flag": "_visual_reply_runtime_redirected",
+        "reason": "Legacy Visual Reply Designer panel. The live Visual Reply runtime panel is mounted in the dock in --ui-real.",
+    },
+)
 
 UI_SHELL_LIVE_ADDON_IDS = {
     "nc.audio_story_mode",
@@ -314,7 +512,7 @@ def validate_ui_file(raw_path):
             object_name.startswith(prefix) for prefix in UI_VALIDATION_DYNAMIC_OWNED_PREFIXES
         ):
             dynamic_owned.append((object_name, objects[object_name]))
-    print("[UI Validation] Dynamic addon-owned UI present in main.ui; keep as preview/static shell until later binding:")
+    print("[UI Validation] Addon-owned preview/non-target UI intentionally present in main.ui; keep these as Designer preview surfaces and do not wire them directly in --ui-real:")
     if dynamic_owned:
         for object_name, object_class in dynamic_owned:
             print(f"  - {object_name} ({object_class})")
@@ -333,12 +531,41 @@ if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--validate-
     sys.exit(validate_ui_file(ui_arg))
 
 
+def _install_no_wheel_input_guard(app):
+    from PySide6 import QtCore as _QtCore
+    from PySide6 import QtWidgets as _QtWidgets
+
+    if app is None:
+        return None
+    existing_guard = getattr(app, "_nc_no_wheel_input_guard", None)
+    if existing_guard is not None:
+        return existing_guard
+
+    class _NoWheelInputGuard(_QtCore.QObject):
+        def eventFilter(self, watched, event):
+            if event is None or watched is None or event.type() != _QtCore.QEvent.Wheel:
+                return False
+            if isinstance(watched, (_QtWidgets.QComboBox, _QtWidgets.QAbstractSpinBox)):
+                event.ignore()
+                return True
+            if isinstance(watched, _QtWidgets.QAbstractSlider) and not isinstance(watched, _QtWidgets.QScrollBar):
+                event.ignore()
+                return True
+            return False
+
+    guard = _NoWheelInputGuard(app)
+    setattr(app, "_nc_no_wheel_input_guard", guard)
+    app.installEventFilter(guard)
+    return guard
+
+
 def _load_ui_shell_for_smoke(ui_path):
     from PySide6 import QtCore as _QtCore
     from PySide6 import QtUiTools as _QtUiTools
     from PySide6 import QtWidgets as _QtWidgets
 
     app = _QtWidgets.QApplication.instance() or _QtWidgets.QApplication(sys.argv)
+    _install_no_wheel_input_guard(app)
     ui_file = _QtCore.QFile(str(ui_path))
     if not ui_file.open(_QtCore.QIODevice.ReadOnly):
         raise RuntimeError(f"Could not open UI file: {ui_path}")
@@ -423,27 +650,16 @@ def run_ui_shell_smoke(raw_path):
         for object_name, expected_class, actual_class in group_mismatched:
             print(f"  TYPE {object_name}: expected {expected_class}, found {actual_class}")
 
-    deferred_controls = (
-        "import_audio_button",
-        "transcribe_audio_button",
-    )
-    present_deferred = [
-        name for name in deferred_controls
-        if _ui_shell_find_object(window, name) is not None
-    ]
     print(f"[UI Shell Smoke] Total checked bindings: {bound_total}")
-    print(
-        "[UI Shell Smoke] Deferred runtime controls found but intentionally not connected: "
-        + (", ".join(present_deferred) if present_deferred else "none")
-    )
     print("[UI Shell Smoke] Runtime started: no")
     print("[UI Shell Smoke] Broad addons initialized: no")
     print("[UI Shell Smoke] Engine lifecycle connected: shell-local only")
     config_summary = _apply_ui_shell_read_only_config(window)
     lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
     runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
+    input_action_summary = _bind_ui_shell_input_action_controls(window)
     print(
-        f"[UI Shell Smoke] Read-only session config: "
+        f"[UI Shell Smoke] Session-backed shell config: "
         f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
         f"({len(config_summary['applied'])} widget(s) populated)"
     )
@@ -455,11 +671,51 @@ def run_ui_shell_smoke(raw_path):
         "[UI Shell Smoke] Runtime action shell-local controls: "
         + ", ".join(runtime_control_summary.get("bound") or ["none"])
     )
-    print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
+    print(
+        "[UI Shell Smoke] Input/action shell-local controls: "
+        + ", ".join(input_action_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Input/action deferred controls: "
+        + ", ".join(input_action_summary.get("deferred") or ["none"])
+    )
+    print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_compose_status_line(window)}")
     tutorial_summary = _bind_ui_shell_tutorial_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     _print_ui_shell_addon_mount_report(addon_report)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    host_core_summary = _bind_ui_shell_host_core_controls(window, sensory_providers=live_mount_report.get("sensory_providers", []))
+    chunking_profile_summary = _bind_ui_shell_chunking_profile_controls(window)
+    dry_run_summary = _bind_ui_shell_dry_run_controls(window)
+    persona_avatar_summary = _bind_ui_shell_persona_body_vam_controls(window)
+    print(
+        "[UI Shell Smoke] Host/Core shell-local controls: "
+        + ", ".join(host_core_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Chunking/profile shell-local controls: "
+        + ", ".join(chunking_profile_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Chunking/profile deferred controls: "
+        + ", ".join(chunking_profile_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Dry Run shell-local controls: "
+        + ", ".join(dry_run_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Dry Run deferred controls: "
+        + ", ".join(dry_run_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Persona/body/VaM shell-local controls: "
+        + ", ".join(persona_avatar_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell Smoke] Persona/body/VaM deferred controls: "
+        + ", ".join(persona_avatar_summary.get("deferred") or ["none"])
+    )
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
     avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
     tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
@@ -796,6 +1052,584 @@ class _UiShellChatContextService:
         return self.snapshot()
 
 
+class _UiShellInputSettingsService:
+    """Shell-safe input/session settings facade for future `main.ui` runtime wiring."""
+
+    def __init__(self, window):
+        self._window = window
+
+    def _combo(self, name: str):
+        return _ui_shell_find_object(self._window, str(name))
+
+    def _spin(self, name: str):
+        return _ui_shell_find_object(self._window, str(name))
+
+    def _checkbox(self, name: str):
+        return _ui_shell_find_object(self._window, str(name))
+
+    def _combo_text(self, name: str, default: str = "") -> str:
+        widget = self._combo(name)
+        if widget is not None and hasattr(widget, "currentText"):
+            try:
+                text = str(widget.currentText() or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _combo_items(self, name: str) -> list[str]:
+        widget = self._combo(name)
+        if widget is None or not hasattr(widget, "count"):
+            return []
+        items = []
+        try:
+            for index in range(widget.count()):
+                text = str(widget.itemText(index) or "").strip()
+                if text:
+                    items.append(text)
+        except Exception:
+            return []
+        return items
+
+    def _spin_value(self, name: str, default):
+        widget = self._spin(name)
+        if widget is not None and hasattr(widget, "value"):
+            try:
+                return widget.value()
+            except Exception:
+                pass
+        return default
+
+    def _checked(self, name: str, default: bool = False) -> bool:
+        widget = self._checkbox(name)
+        if widget is not None and hasattr(widget, "isChecked"):
+            try:
+                return bool(widget.isChecked())
+            except Exception:
+                pass
+        return bool(default)
+
+    def _set_combo_text(self, name: str, value) -> None:
+        widget = self._combo(name)
+        if widget is None:
+            return
+        _ui_shell_combo_select_label(widget, value)
+
+    def _set_spin_value(self, name: str, value) -> None:
+        widget = self._spin(name)
+        if widget is None:
+            return
+        if isinstance(value, float):
+            _ui_shell_set_double_value(widget, value)
+        else:
+            _ui_shell_set_spin_value(widget, value)
+
+    def _set_checked(self, name: str, value) -> None:
+        widget = self._checkbox(name)
+        if widget is None:
+            return
+        _ui_shell_set_checked(widget, value)
+
+    def snapshot(self):
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        audio_devices = _ui_shell_audio_device_labels()
+        return {
+            "audio_input_device": self._combo_text("audio_input_device_combo", session.get("audio_input_device", "Default Input")),
+            "audio_output_device": self._combo_text("audio_output_device_combo", session.get("audio_output_device", "Default Output")),
+            "audio_input_options": list(audio_devices.get("inputs") or ["Default Input"]),
+            "audio_output_options": list(audio_devices.get("outputs") or ["Default Output"]),
+            "input_mode": self._combo_text("input_mode_combo", session.get("input_mode", "Voice Activation")),
+            "input_role": self._combo_text("input_role_combo", session.get("input_message_role", "User Message")),
+            "stream_mode": self._combo_text("stream_mode_combo", session.get("stream_mode", "Off")),
+            "allow_proactive_replies": self._checked("allow_proactive_checkbox", session.get("allow_proactive_replies", True)),
+            "require_first_user_before_proactive": self._checked("require_first_user_checkbox", session.get("require_first_user_before_proactive", False)),
+            "listen_idle_window_seconds": float(self._spin_value("listen_idle_window_spin", session.get("listen_idle_window_seconds", 5.0))),
+            "proactive_delay_seconds": float(self._spin_value("proactive_delay_spin", session.get("proactive_delay_seconds", 10.0))),
+            "chat_context_window_messages": int(self._spin_value("chat_context_window_spin", session.get("chat_context_window_messages", 20))),
+            "stored_chat_history_limit": int(self._spin_value("stored_chat_history_limit_spin", session.get("stored_chat_history_limit", 0))),
+            "chat_context_overflow_policy": self._combo_text("chat_overflow_policy_combo", "Rolling Window"),
+            "limit_response_length": self._checked("limit_response_checkbox", session.get("limit_response_length", False)),
+            "max_response_tokens": int(self._spin_value("max_response_tokens_spin", session.get("max_response_tokens", 600))),
+            "shell_mode": True,
+            "message": "Input/session settings are shell-local only.",
+            "source": "ui_shell",
+        }
+
+    def apply(self, updates: dict | None = None, **kwargs):
+        payload = dict(updates or {})
+        payload.update(kwargs)
+        if "audio_input_device" in payload:
+            self._set_combo_text("audio_input_device_combo", payload.get("audio_input_device"))
+        if "audio_output_device" in payload:
+            self._set_combo_text("audio_output_device_combo", payload.get("audio_output_device"))
+        if "input_mode" in payload:
+            self._set_combo_text("input_mode_combo", payload.get("input_mode"))
+        if "input_role" in payload:
+            value = payload.get("input_role")
+            self._set_combo_text("input_role_combo", value)
+        if "stream_mode" in payload:
+            value = payload.get("stream_mode")
+            label = value if isinstance(value, str) else ("On" if bool(value) else "Off")
+            self._set_combo_text("stream_mode_combo", label)
+        if "allow_proactive_replies" in payload:
+            self._set_checked("allow_proactive_checkbox", payload.get("allow_proactive_replies"))
+        if "require_first_user_before_proactive" in payload:
+            self._set_checked("require_first_user_checkbox", payload.get("require_first_user_before_proactive"))
+        if "listen_idle_window_seconds" in payload:
+            self._set_spin_value("listen_idle_window_spin", float(payload.get("listen_idle_window_seconds") or 5.0))
+        if "proactive_delay_seconds" in payload:
+            self._set_spin_value("proactive_delay_spin", float(payload.get("proactive_delay_seconds") or 10.0))
+        if "chat_context_window_messages" in payload:
+            self._set_spin_value("chat_context_window_spin", int(payload.get("chat_context_window_messages") or 20))
+        if "stored_chat_history_limit" in payload:
+            self._set_spin_value("stored_chat_history_limit_spin", int(payload.get("stored_chat_history_limit") or 0))
+        if "chat_context_overflow_policy" in payload:
+            self._set_combo_text("chat_overflow_policy_combo", payload.get("chat_context_overflow_policy"))
+        if "limit_response_length" in payload:
+            self._set_checked("limit_response_checkbox", payload.get("limit_response_length"))
+        if "max_response_tokens" in payload:
+            self._set_spin_value("max_response_tokens_spin", int(payload.get("max_response_tokens") or 600))
+        return self.snapshot()
+
+
+class _UiShellPerformanceProfileService:
+    """Shell-safe performance-profile facade backed by local JSON files only."""
+
+    def __init__(self, window):
+        self._window = window
+
+    def snapshot(self):
+        selected_chunking = _ui_shell_profile_selected_name(self._window, "chunking")
+        selected_performance = _ui_shell_profile_selected_name(self._window, "dry_run")
+        profiles = _ui_shell_list_performance_profiles()
+        return {
+            "profiles": profiles,
+            "profile_names": [str(item.get("name") or "") for item in profiles if str(item.get("name") or "").strip()],
+            "selected_chunking_profile": selected_chunking,
+            "selected_performance_profile": selected_performance,
+            "current_chunking": _ui_shell_current_chunking_values(self._window),
+            "shell_mode": True,
+            "load_available": bool(profiles),
+            "refresh_available": True,
+            "reset_available": True,
+            "save_available": False,
+            "delete_available": False,
+            "message": "Performance profile refresh/load is shell-local only. Save/delete remains deferred.",
+            "source": "ui_shell",
+        }
+
+    def refresh_profiles(self, preferred_name: str = ""):
+        _ui_shell_refresh_performance_profile_combos(self._window, preferred_name=preferred_name)
+        return self.snapshot()
+
+    def load_profile(self, name: str = "", *, source: str = "dry_run"):
+        result = _ui_shell_load_profile_preview(self._window, name=name, source=source)
+        payload = self.snapshot()
+        payload.update(result)
+        return payload
+
+    def reset_chunking_defaults(self):
+        result = _ui_shell_reset_chunking_defaults(self._window)
+        payload = self.snapshot()
+        payload.update(result)
+        return payload
+
+    def save_profile(self, *args, **kwargs):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": "save_profile",
+            "message": "Saving performance profiles is deferred in shell preview.",
+        })
+        return payload
+
+    def delete_profile(self, *args, **kwargs):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": "delete_profile",
+            "message": "Deleting performance profiles is deferred in shell preview.",
+        })
+        return payload
+
+
+class _UiShellDryRunService:
+    """Shell-safe Dry Run facade that never starts profiling sessions."""
+
+    def __init__(self, window):
+        self._window = window
+        self._preview_state = "idle"
+        self._last_action = ""
+
+    def snapshot(self):
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        latest = _ui_shell_latest_performance_profile_payload()
+        recommendation = dict((latest.get("recommendation") or {}).get("settings") or {})
+        target_widget = _ui_shell_find_object(self._window, "dry_run_target_spin")
+        auto_widget = _ui_shell_find_object(self._window, "dry_run_auto_replies_checkbox")
+        target = int(target_widget.value()) if target_widget is not None and hasattr(target_widget, "value") else int(session.get("dry_run_target_samples", 0) or 0)
+        auto_replies = bool(auto_widget.isChecked()) if auto_widget is not None and hasattr(auto_widget, "isChecked") else bool(session.get("dry_run_auto_replies", True))
+        return {
+            "state": self._preview_state,
+            "last_action": self._last_action,
+            "target_samples": target,
+            "auto_replies": auto_replies,
+            "latest_profile_name": str(latest.get("saved_name") or latest.get("display_name") or "").strip(),
+            "has_recommendation": bool(recommendation),
+            "recommendation_settings": recommendation,
+            "summary_text": _ui_shell_dry_run_summary_text(latest, target_samples=target, auto_replies=auto_replies, preview_state=self._preview_state),
+            "status_text": _ui_shell_dry_run_status_text(latest, target_samples=target, auto_replies=auto_replies, preview_state=self._preview_state),
+            "shell_mode": True,
+            "message": "Dry Run actions are shell-safe previews only.",
+            "source": "ui_shell",
+        }
+
+    def refresh_preview(self):
+        return self.snapshot()
+
+    def start_session(self):
+        self._preview_state = "armed"
+        self._last_action = "start_session"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "message": "Dry Run session start is deferred in shell preview.",
+        })
+        return payload
+
+    def stop_session(self):
+        self._preview_state = "idle"
+        self._last_action = "stop_session"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "message": "Dry Run session stop is deferred in shell preview.",
+        })
+        return payload
+
+    def apply_recommendation(self):
+        self._last_action = "apply_recommendation"
+        latest = _ui_shell_latest_performance_profile_payload()
+        recommendation = dict((latest.get("recommendation") or {}).get("settings") or {})
+        applied = []
+        deferred = []
+        if recommendation:
+            applied, deferred = _ui_shell_apply_profile_settings(self._window, recommendation)
+            _ui_shell_refresh_host_core_status(self._window)
+        payload = self.snapshot()
+        payload.update({
+            "accepted": bool(recommendation),
+            "applied": bool(recommendation),
+            "applied_keys": applied,
+            "deferred_keys": deferred,
+            "message": "Dry Run recommendation applied to the shell-visible subset only." if recommendation else "No saved Dry Run recommendation is available in shell preview.",
+        })
+        return payload
+
+
+class _UiShellPersonaAvatarService:
+    """Shell-safe persona/body/VaM facade for future main.ui runtime wiring."""
+
+    def __init__(self, window):
+        self._window = window
+
+    def snapshot(self):
+        return {
+            "voice_file": _ui_shell_current_voice_file(self._window),
+            "voice_options": _ui_shell_voice_options(self._window),
+            "emotional_instructions": _ui_shell_plain_text_value(self._window, "emotional_text"),
+            "system_prompt": _ui_shell_plain_text_value(self._window, "system_prompt_text"),
+            "body_presets": _ui_shell_list_body_configs(),
+            "selected_body": _ui_shell_selected_body_name(self._window),
+            "emotion": _ui_shell_combo_text_value(self._window, "emotion_combo", "Neutral"),
+            "live_sync": _ui_shell_checkbox_value(self._window, "live_sync_checkbox", False),
+            "pose_values": _ui_shell_current_body_pose_values(self._window),
+            "vam_settings": _ui_shell_current_vam_settings(self._window),
+            "shell_mode": True,
+            "message": "Persona/body/VaM controls are shell-local previews only.",
+            "source": "ui_shell",
+        }
+
+    def refresh_body_list(self, preferred_name: str = ""):
+        _ui_shell_refresh_body_combo(self._window, preferred_name=preferred_name)
+        return self.snapshot()
+
+    def load_body(self, name: str = ""):
+        result = _ui_shell_load_body_preview(self._window, name=name)
+        payload = self.snapshot()
+        payload.update(result)
+        return payload
+
+    def apply_persona(self):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "applied": True,
+            "message": "Persona/body/VaM preview applied locally in shell mode only.",
+        })
+        return payload
+
+    def save_body(self):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": "save_body",
+            "message": "Body save is deferred in shell preview.",
+        })
+        return payload
+
+    def delete_body(self):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": "delete_body",
+            "message": "Body delete is deferred in shell preview.",
+        })
+        return payload
+
+    def launch_vam(self, target: str = "desktop"):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": f"launch_vam:{str(target or 'desktop').strip().lower()}",
+            "message": "VaM launch is deferred in shell preview.",
+        })
+        return payload
+
+    def open_external_avatar_view(self, mode: str = "vseeface"):
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "action": f"external_avatar_view:{str(mode or 'vseeface').strip().lower()}",
+            "message": "External avatar focus is deferred in shell preview.",
+        })
+        return payload
+
+
+class _UiShellInputActionService:
+    """Shell-safe input/runtime-adjacent control facade."""
+
+    AUDIO_STORY_PLAYBACK_MODES = ("Play Imported Audio", "Use TTS Narration")
+    AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS = 8
+    AUDIO_STORY_PREVIEW_TOTAL_SECONDS = 60
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+        self._push_to_talk_held = False
+        self._audio_story_playback_state = "stopped"
+        self._audio_story_seek_percent = 0
+
+    def _audio_story_path(self) -> str:
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        return _ui_shell_line_edit_value(self._window, "audio_file_path_edit", str(session.get("audio_story_mode_audio_path", "") or ""))
+
+    def _audio_story_playback_mode(self) -> str:
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        stored = str(session.get("audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio")
+        return _ui_shell_combo_text_value(self._window, "audio_story_playback_combo", stored) or "Play Imported Audio"
+
+    def _audio_story_transcribe_seconds(self) -> int:
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        slider = _ui_shell_find_object(self._window, "transcribe_seconds_slider")
+        if slider is not None and hasattr(slider, "value"):
+            try:
+                return max(1, int(slider.value()))
+            except Exception:
+                pass
+        return max(1, int(session.get("audio_story_mode_transcribe_seconds", self.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS) or self.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS))
+
+    def _push_to_talk_enabled(self) -> bool:
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        input_mode = _ui_shell_combo_text_value(self._window, "input_mode_combo", str(session.get("input_mode", "Voice Activation") or "Voice Activation"))
+        dry_run_state = str(_ui_shell_dry_run_service(self._window).snapshot().get("state") or "idle").strip().lower()
+        return input_mode == "Push-to-Talk" and dry_run_state != "armed"
+
+    def _push_to_talk_hotkey(self) -> str:
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        return str(session.get("push_to_talk_hotkey", "Right Ctrl") or "Right Ctrl").strip() or "Right Ctrl"
+
+    def _position_text(self, seek_percent: int) -> str:
+        total_seconds = int(self.AUDIO_STORY_PREVIEW_TOTAL_SECONDS)
+        current_seconds = int(round(total_seconds * max(0, min(100, int(seek_percent or 0))) / 100.0))
+        return f"{_ui_shell_format_clock_seconds(current_seconds)} / {_ui_shell_format_clock_seconds(total_seconds)}"
+
+    def snapshot(self):
+        push_enabled = self._push_to_talk_enabled()
+        if not push_enabled:
+            self._push_to_talk_held = False
+        audio_path = self._audio_story_path()
+        has_audio = bool(audio_path)
+        playback_state = str(self._audio_story_playback_state or "stopped").strip().lower()
+        if playback_state not in {"playing", "paused", "stopped"}:
+            playback_state = "stopped"
+        if not has_audio:
+            playback_state = "stopped"
+            self._audio_story_seek_percent = 0
+        seek_widget = _ui_shell_find_object(self._window, "audio_story_seek_slider")
+        if seek_widget is not None and hasattr(seek_widget, "value"):
+            try:
+                self._audio_story_seek_percent = max(0, min(100, int(seek_widget.value())))
+            except Exception:
+                self._audio_story_seek_percent = 0
+        seek_percent = 0 if not has_audio else max(0, min(100, int(self._audio_story_seek_percent or 0)))
+        return {
+            "last_action": self._last_action,
+            "push_to_talk_enabled": push_enabled,
+            "push_to_talk_held": bool(self._push_to_talk_held and push_enabled),
+            "push_to_talk_hotkey": self._push_to_talk_hotkey(),
+            "audio_story_audio_path": audio_path,
+            "audio_story_has_audio": has_audio,
+            "audio_story_playback_mode": self._audio_story_playback_mode(),
+            "audio_story_transcribe_seconds": self._audio_story_transcribe_seconds(),
+            "audio_story_playback_state": playback_state,
+            "audio_story_seek_percent": seek_percent,
+            "audio_story_position_text": self._position_text(seek_percent),
+            "shell_mode": True,
+            "message": "Input/runtime-adjacent actions are shell-local previews only.",
+            "source": "ui_shell",
+        }
+
+    def set_push_to_talk_hold(self, held: bool):
+        self._last_action = "push_to_talk_press" if held else "push_to_talk_release"
+        if held and not self._push_to_talk_enabled():
+            self._push_to_talk_held = False
+            payload = self.snapshot()
+            payload.update({
+                "accepted": False,
+                "deferred": True,
+                "message": "Push-to-Talk preview is available only when Input Mode is Push-to-Talk and Dry Run preview is idle.",
+            })
+            return payload
+        self._push_to_talk_held = bool(held) and self._push_to_talk_enabled()
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "deferred": True,
+            "message": "Push-to-Talk hold preview toggled locally only. No microphone capture started." if held else "Push-to-Talk released in shell preview. No microphone capture was active.",
+        })
+        return payload
+
+    def set_audio_file_path(self, path: str):
+        value = str(path or "").strip()
+        self._last_action = "set_audio_file_path"
+        if not value:
+            self._audio_story_playback_state = "stopped"
+            self._audio_story_seek_percent = 0
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "audio_story_audio_path": value,
+            "message": "Audio Story preview path updated locally only." if value else "Audio Story preview path cleared.",
+        })
+        return payload
+
+    def request_audio_import(self):
+        self._last_action = "request_audio_import"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "message": "Audio import dialog is deferred in shell preview. Paste a local audio path into the field to preview this surface.",
+        })
+        return payload
+
+    def request_audio_transcription(self):
+        self._last_action = "request_audio_transcription"
+        payload = self.snapshot()
+        if not payload.get("audio_story_has_audio"):
+            payload.update({
+                "accepted": False,
+                "deferred": True,
+                "message": "Transcription preview needs an audio path first. No Whisper/STT runtime was started.",
+            })
+            return payload
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "message": "Audio transcription remains deferred in shell preview. No Whisper/STT runtime was started.",
+        })
+        return payload
+
+    def play_audio_story(self):
+        self._last_action = "play_audio_story"
+        payload = self.snapshot()
+        if not payload.get("audio_story_has_audio"):
+            payload.update({
+                "accepted": False,
+                "deferred": True,
+                "message": "Audio Story playback preview needs an audio path first.",
+            })
+            return payload
+        self._audio_story_playback_state = "playing"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "deferred": True,
+            "message": "Audio Story playback preview started locally only. No media player or TTS narration was started.",
+        })
+        return payload
+
+    def pause_audio_story(self):
+        self._last_action = "pause_audio_story"
+        payload = self.snapshot()
+        if payload.get("audio_story_playback_state") != "playing":
+            payload.update({
+                "accepted": False,
+                "deferred": True,
+                "message": "Audio Story pause preview is only available while the shell preview is marked as playing.",
+            })
+            return payload
+        self._audio_story_playback_state = "paused"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "deferred": True,
+            "message": "Audio Story playback preview paused locally only.",
+        })
+        return payload
+
+    def stop_audio_story(self):
+        self._last_action = "stop_audio_story"
+        self._audio_story_playback_state = "stopped"
+        self._audio_story_seek_percent = 0
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "deferred": True,
+            "message": "Audio Story playback preview stopped locally only. No audio runtime was active.",
+        })
+        return payload
+
+    def seek_audio_story(self, position_percent: int):
+        self._last_action = "seek_audio_story"
+        payload = self.snapshot()
+        if not payload.get("audio_story_has_audio"):
+            payload.update({
+                "accepted": False,
+                "deferred": True,
+                "message": "Audio Story seek preview needs an audio path first.",
+            })
+            return payload
+        self._audio_story_seek_percent = max(0, min(100, int(position_percent or 0)))
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "deferred": True,
+            "message": f"Audio Story seek preview moved to {payload.get('audio_story_seek_percent', 0)}%.",
+        })
+        return payload
+
+
 class _UiShellChatReplayService:
     """Shell-safe replay facade for Chat Player and related addons."""
 
@@ -1110,6 +1944,46 @@ def _ui_shell_chat_context_service(window):
     return service
 
 
+def _ui_shell_input_settings_service(window):
+    service = getattr(window, "_nc_ui_shell_input_settings_service", None)
+    if service is None:
+        service = _UiShellInputSettingsService(window)
+        setattr(window, "_nc_ui_shell_input_settings_service", service)
+    return service
+
+
+def _ui_shell_performance_profile_service(window):
+    service = getattr(window, "_nc_ui_shell_performance_profile_service", None)
+    if service is None:
+        service = _UiShellPerformanceProfileService(window)
+        setattr(window, "_nc_ui_shell_performance_profile_service", service)
+    return service
+
+
+def _ui_shell_dry_run_service(window):
+    service = getattr(window, "_nc_ui_shell_dry_run_service", None)
+    if service is None:
+        service = _UiShellDryRunService(window)
+        setattr(window, "_nc_ui_shell_dry_run_service", service)
+    return service
+
+
+def _ui_shell_persona_avatar_service(window):
+    service = getattr(window, "_nc_ui_shell_persona_avatar_service", None)
+    if service is None:
+        service = _UiShellPersonaAvatarService(window)
+        setattr(window, "_nc_ui_shell_persona_avatar_service", service)
+    return service
+
+
+def _ui_shell_input_actions_service(window):
+    service = getattr(window, "_nc_ui_shell_input_actions_service", None)
+    if service is None:
+        service = _UiShellInputActionService(window)
+        setattr(window, "_nc_ui_shell_input_actions_service", service)
+    return service
+
+
 def _ui_shell_runtime_controls_service(window):
     service = getattr(window, "_nc_ui_shell_runtime_controls_service", None)
     if service is None:
@@ -1126,8 +2000,214 @@ def _ui_shell_engine_lifecycle_service(window):
     return service
 
 
+def _ui_shell_append_console(window, message):
+    console_edit = _ui_shell_find_object(window, "console_edit")
+    if console_edit is None:
+        return
+    try:
+        if hasattr(console_edit, "appendPlainText"):
+            console_edit.appendPlainText(str(message))
+        elif hasattr(console_edit, "append"):
+            console_edit.append(str(message))
+    except Exception:
+        pass
+
+
+def _ui_shell_stream_mode_enabled(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "on", "stream", "enabled"}
+
+
+def _ui_shell_audio_device_labels():
+    labels = {
+        "inputs": ["Default Input"],
+        "outputs": ["Default Output"],
+    }
+    try:
+        from PySide6 import QtMultimedia as _QtMultimedia
+
+        inputs = []
+        for device in list(_QtMultimedia.QMediaDevices.audioInputs() or []):
+            description = str(device.description() if hasattr(device, "description") else "").strip()
+            if description and description not in inputs:
+                inputs.append(description)
+        outputs = []
+        for device in list(_QtMultimedia.QMediaDevices.audioOutputs() or []):
+            description = str(device.description() if hasattr(device, "description") else "").strip()
+            if description and description not in outputs:
+                outputs.append(description)
+        if inputs:
+            labels["inputs"].extend(inputs)
+        if outputs:
+            labels["outputs"].extend(outputs)
+    except Exception:
+        pass
+    return labels
+
+
+def _ui_shell_parse_sensory_source_values(value, available_provider_ids=None):
+    available = {
+        str(item or "").strip().lower()
+        for item in list(available_provider_ids or [])
+        if str(item or "").strip()
+    }
+    if value is None:
+        return []
+    raw_values = value if isinstance(value, (list, tuple, set)) else str(value).split(",")
+    selected = []
+    seen = set()
+    for item in raw_values:
+        token = str(item or "").strip().lower()
+        if not token or token == "off" or token in seen:
+            continue
+        if available and token not in available:
+            continue
+        selected.append(token)
+        seen.add(token)
+    return selected
+
+
+def _ui_shell_sensory_source_options(sensory_providers=None, selected_value=None):
+    providers = [
+        {
+            "id": str(item.get("id") or "").strip().lower(),
+            "label": str(item.get("label") or item.get("id") or "").strip(),
+        }
+        for item in list(sensory_providers or [])
+        if str(item.get("id") or "").strip()
+    ]
+    labels_by_id = {item["id"]: item["label"] or item["id"] for item in providers}
+    selected = _ui_shell_parse_sensory_source_values(selected_value, labels_by_id.keys())
+    options = [("Off", "off")]
+    for item in providers:
+        options.append((item["label"] or item["id"], item["id"]))
+    if len(selected) > 1:
+        selected_labels = [labels_by_id.get(item, item) for item in selected]
+        summary = " + ".join(selected_labels[:2])
+        if len(selected_labels) > 2:
+            summary = f"{len(selected_labels)} sources selected"
+        options.insert(1, (summary, ",".join(selected)))
+    return options
+
+
+def _ui_shell_musetalk_avatar_pack_options(session=None):
+    payload = dict(session or _read_ui_shell_session_snapshot() or {})
+    default_avatar_id = str(payload.get("musetalk_avatar_id", "default_avatar") or "default_avatar").strip() or "default_avatar"
+    options = []
+    try:
+        packs = discover_avatar_packs(
+            default_avatar_id=default_avatar_id,
+            include_legacy=False,
+            include_standalone=False,
+        )
+    except Exception:
+        packs = {}
+    for pack_id, pack in packs.items():
+        clean_pack_id = str(pack_id or "").strip()
+        if not clean_pack_id:
+            continue
+        label = f"{str(pack.display_name or clean_pack_id).strip() or clean_pack_id} | {str(pack.default_avatar_id or 'default_avatar').strip()} [{str(pack.source or 'manifest').strip() or 'manifest'}]"
+        options.append({"id": clean_pack_id, "label": label})
+    return options
+
+
+def _ui_shell_host_core_state(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+
+    def combo_text(name, fallback=""):
+        widget = _ui_shell_find_object(window, name)
+        if widget is not None and hasattr(widget, "currentText"):
+            text = str(widget.currentText() or "").strip()
+            if text:
+                return text
+        return str(fallback or "").strip()
+
+    def combo_data(name, fallback=""):
+        widget = _ui_shell_find_object(window, name)
+        if widget is not None and hasattr(widget, "currentData"):
+            data = widget.currentData()
+            if data is not None and str(data or "").strip():
+                return str(data).strip()
+        return str(fallback or "").strip()
+
+    def spin_value(name, fallback=0):
+        widget = _ui_shell_find_object(window, name)
+        if widget is not None and hasattr(widget, "value"):
+            try:
+                return int(widget.value())
+            except Exception:
+                pass
+        try:
+            return int(fallback)
+        except Exception:
+            return 0
+
+    overflow_value = str(session.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip()
+    overflow_label = {
+        "rolling_window": "Rolling Window",
+        "truncate_middle": "Truncate Middle",
+        "stop_at_limit": "Stop At Limit",
+    }.get(overflow_value, overflow_value.replace("_", " ").title())
+
+    input_mode = combo_text("input_mode_combo", session.get("input_mode", "Voice Activation"))
+    input_role = combo_text("input_role_combo", session.get("input_message_role", "User Message"))
+    stream_text = combo_text("stream_mode_combo", "On" if _ui_shell_stream_mode_enabled(session.get("stream_mode", False)) else "Off")
+    return {
+        "audio_input_device": combo_text("audio_input_device_combo", session.get("audio_input_device", "Default Input")),
+        "audio_output_device": combo_text("audio_output_device_combo", session.get("audio_output_device", "Default Output")),
+        "input_mode": input_mode,
+        "input_message_role": input_role,
+        "stream_mode": str(stream_text).strip().lower() == "on",
+        "stream_mode_label": "On" if str(stream_text).strip().lower() == "on" else "Off",
+        "musetalk_vram_mode": combo_text(
+            "musetalk_vram_combo",
+            str(session.get("musetalk_vram_mode", "quality") or "quality").replace("_", " ").title().replace("Vram", "VRAM"),
+        ),
+        "musetalk_avatar_pack_id": combo_data("musetalk_avatar_pack_combo", session.get("musetalk_avatar_pack_id", "")),
+        "musetalk_avatar_pack_label": combo_text("musetalk_avatar_pack_combo", session.get("musetalk_avatar_pack_id", "")),
+        "chat_context_window_messages": spin_value("chat_context_window_spin", session.get("chat_context_window_messages", 20) or 20),
+        "stored_chat_history_limit": spin_value("stored_chat_history_limit_spin", session.get("stored_chat_history_limit", 0) or 0),
+        "chat_context_overflow_policy": combo_text("chat_overflow_policy_combo", overflow_label),
+        "allow_proactive_replies": bool(
+            _ui_shell_find_object(window, "allow_proactive_checkbox").isChecked()
+        ) if _ui_shell_find_object(window, "allow_proactive_checkbox") is not None and hasattr(_ui_shell_find_object(window, "allow_proactive_checkbox"), "isChecked") else bool(session.get("allow_proactive_replies", True)),
+        "require_first_user_before_proactive": bool(
+            _ui_shell_find_object(window, "require_first_user_checkbox").isChecked()
+        ) if _ui_shell_find_object(window, "require_first_user_checkbox") is not None and hasattr(_ui_shell_find_object(window, "require_first_user_checkbox"), "isChecked") else bool(session.get("require_first_user_before_proactive", False)),
+    }
+
+
+def _ui_shell_refresh_host_core_status(window):
+    state = _ui_shell_host_core_state(window)
+    _ui_shell_runtime_status_service(window).set_session_overrides(
+        input_mode=state.get("input_mode", ""),
+        input_message_role=state.get("input_message_role", ""),
+        stream_mode=bool(state.get("stream_mode", False)),
+        audio_input_device=state.get("audio_input_device", ""),
+        audio_output_device=state.get("audio_output_device", ""),
+        musetalk_vram_mode=state.get("musetalk_vram_mode", ""),
+        musetalk_avatar_pack_id=state.get("musetalk_avatar_pack_id", ""),
+        chat_context_window_messages=int(state.get("chat_context_window_messages", 20) or 20),
+        stored_chat_history_limit=int(state.get("stored_chat_history_limit", 0) or 0),
+        chat_context_overflow_policy=state.get("chat_context_overflow_policy", ""),
+    )
+    return _ui_shell_refresh_status_labels(window)
+
+
+def _ui_shell_compose_status_line(window):
+    runtime_line = _ui_shell_runtime_status_service(window).status_line()
+    state = _ui_shell_host_core_state(window)
+    return (
+        f"{runtime_line} | "
+        f"{state['input_mode']} / {state['input_message_role']} / {'stream' if state['stream_mode'] else 'non-stream'} | "
+        f"ctx {state['chat_context_window_messages']} / {state['chat_context_overflow_policy']}"
+    )
+
+
 def _ui_shell_refresh_status_labels(window):
-    line = _ui_shell_runtime_status_service(window).status_line()
+    line = _ui_shell_compose_status_line(window)
     for label_name in ("console_status", "chat_status", "mic_status_label"):
         label = _ui_shell_find_object(window, label_name)
         if label is not None and hasattr(label, "setText"):
@@ -1142,7 +2222,7 @@ def _apply_ui_shell_preview_status(window):
     summary = _ui_shell_binding_summary(window)
     runtime_status = _ui_shell_runtime_status_service(window).snapshot()
     lines = [
-        runtime_status.status_line(),
+        _ui_shell_compose_status_line(window),
         "addons: limited shell mounts only",
         "engine lifecycle: not connected",
         f"Bindings: {summary['bound']}/{summary['checked']} checked",
@@ -1193,6 +2273,101 @@ def _ui_shell_text_line_count(widget):
     else:
         text = ""
     return len([line for line in str(text or "").splitlines() if line.strip()])
+
+
+def _apply_workspace_widget_bounds(widget, *, min_width=None, min_height=None, max_height=None):
+    if widget is None:
+        return
+    try:
+        if min_width is not None and hasattr(widget, "setMinimumWidth"):
+            widget.setMinimumWidth(max(int(min_width), int(getattr(widget, "minimumWidth", lambda: 0)() or 0)))
+        if min_height is not None and hasattr(widget, "setMinimumHeight"):
+            widget.setMinimumHeight(max(int(min_height), int(getattr(widget, "minimumHeight", lambda: 0)() or 0)))
+        if max_height is not None and hasattr(widget, "setMaximumHeight"):
+            current_max = int(getattr(widget, "maximumHeight", lambda: 16777215)() or 16777215)
+            widget.setMaximumHeight(int(max_height) if current_max <= 0 or current_max >= 16777215 else min(current_max, int(max_height)))
+    except Exception:
+        pass
+
+
+def _apply_workspace_view_constraints(window, *, extra_widgets=None):
+    from PySide6 import QtWidgets as _QtWidgets
+
+    if window is None:
+        return
+    _apply_workspace_widget_bounds(
+        window,
+        min_width=WORKSPACE_VIEW_MIN_WIDTH,
+        min_height=WORKSPACE_VIEW_MIN_HEIGHT,
+        max_height=WORKSPACE_WINDOW_MAX_HEIGHT,
+    )
+
+    dock_specs = {
+        "SystemShapingDock": WORKSPACE_VIEW_MIN_HEIGHT,
+        "WorkspaceTabsDock": WORKSPACE_VIEW_MIN_HEIGHT,
+        "OperationalViewDock": WORKSPACE_VIEW_MIN_HEIGHT,
+        "MuseTalkPreviewDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
+        "PreviewDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
+        "VisualReplyDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
+    }
+    for object_name, docked_min_height in dock_specs.items():
+        dock = _ui_shell_find_object(window, object_name)
+        if dock is None or not isinstance(dock, _QtWidgets.QDockWidget):
+            continue
+        min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else docked_min_height
+        _apply_workspace_widget_bounds(
+            dock,
+            min_width=WORKSPACE_VIEW_MIN_WIDTH,
+            min_height=min_height,
+            max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+        )
+        content = dock.widget() if hasattr(dock, "widget") else None
+        if content is not None:
+            content_min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else max(docked_min_height, 360)
+            _apply_workspace_widget_bounds(
+                content,
+                min_width=WORKSPACE_VIEW_MIN_WIDTH,
+                min_height=content_min_height,
+                max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+            )
+
+    container_specs = (
+        ("system_shaping_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("system_shaping_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("system_shaping_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("workspace_tabs_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("host_settings_tabs", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_INNER_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("left_tabs", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_INNER_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("vseeface_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("musetalk_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("tts_runtime_addon_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("sensory_feedback_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("operational_view_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("operational_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("operational_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("right_tabs", WORKSPACE_INNER_MIN_WIDTH, 620, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("audio_story_mode_tab", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("preview_dock_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("visual_reply_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("visual_reply_frame", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_PREVIEW_FRAME_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("console_edit", 0, 280, WORKSPACE_VIEW_MAX_HEIGHT),
+        ("chat_edit", 0, 280, WORKSPACE_VIEW_MAX_HEIGHT),
+    )
+    for object_name, min_width, min_height, max_height in container_specs:
+        _apply_workspace_widget_bounds(
+            _ui_shell_find_object(window, object_name),
+            min_width=min_width,
+            min_height=min_height,
+            max_height=max_height,
+        )
+
+    for widget in tuple(extra_widgets or ()):
+        _apply_workspace_widget_bounds(
+            widget,
+            min_width=WORKSPACE_VIEW_MIN_WIDTH,
+            min_height=WORKSPACE_VIEW_MIN_HEIGHT,
+            max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+        )
 
 
 def _bind_ui_shell_console_chat_local_controls(window):
@@ -3119,8 +4294,13 @@ def _ui_shell_mount_live_addons(window, report):
         "qt.chat_context": _ui_shell_chat_context_service(window),
         "qt.chat_replay": _ui_shell_chat_replay_service(window),
         "qt.dialogs": _UiShellDialogService(window),
+        "qt.dry_run": _ui_shell_dry_run_service(window),
         "qt.engine_lifecycle": _ui_shell_engine_lifecycle_service(window),
         "qt.hotkeys": _UiShellHotkeyService(),
+        "qt.input_actions": _ui_shell_input_actions_service(window),
+        "qt.input_settings": _ui_shell_input_settings_service(window),
+        "qt.persona_avatar": _ui_shell_persona_avatar_service(window),
+        "qt.performance_profiles": _ui_shell_performance_profile_service(window),
         "qt.model_refresh": _ui_shell_model_refresh_service(window),
         "qt.runtime_controls": _ui_shell_runtime_controls_service(window),
         "qt.runtime_status": _ui_shell_runtime_status_service(window),
@@ -3495,6 +4675,22 @@ def _ui_shell_set_spin_value(widget, value):
             pass
 
 
+def _ui_shell_set_slider_value(widget, value):
+    if widget is None or not hasattr(widget, "setValue"):
+        return False
+    try:
+        widget.blockSignals(True)
+        widget.setValue(int(value))
+        return True
+    except Exception:
+        return False
+    finally:
+        try:
+            widget.blockSignals(False)
+        except Exception:
+            pass
+
+
 def _ui_shell_set_double_value(widget, value):
     if widget is None or not hasattr(widget, "setValue"):
         return False
@@ -3534,8 +4730,753 @@ def _ui_shell_set_read_only_tooltip(widget, detail=""):
     widget.setToolTip(f"Read-only shell preview. Changes are not saved or applied.{suffix}")
 
 
+def _ui_shell_performance_profiles_dir():
+    return Path(__file__).resolve().parent / "performance_profiles"
+
+
+def _ui_shell_body_configs_dir():
+    return Path(__file__).resolve().parent / "body_configs"
+
+
+def _ui_shell_load_json(path: Path, default=None):
+    fallback = {} if default is None else default
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+        return payload if isinstance(payload, type(fallback)) else fallback
+    except Exception:
+        return fallback
+
+
+def _ui_shell_list_performance_profiles():
+    root = _ui_shell_performance_profiles_dir()
+    items = []
+    try:
+        paths = sorted(
+            [path for path in root.glob("*.json") if path.is_file()],
+            key=lambda item: item.stat().st_mtime,
+            reverse=True,
+        )
+    except Exception:
+        paths = []
+    for path in paths:
+        payload = _ui_shell_load_json(path, {})
+        name = str(path.stem or "").strip()
+        settings = dict(payload.get("settings_to_apply") or {})
+        items.append({
+            "name": name,
+            "display_name": str(payload.get("display_name", payload.get("saved_name", name)) or name),
+            "description": str(payload.get("description", "") or ""),
+            "bundled": bool(payload.get("bundled", False)),
+            "recommended": bool(payload.get("recommended", False)),
+            "path": str(path),
+            "updated_at": float(payload.get("updated_at", path.stat().st_mtime) or path.stat().st_mtime),
+            "stream_mode": bool(settings.get("stream_mode", False)),
+            "tts_backend": str(settings.get("tts_backend", "") or ""),
+            "musetalk_vram_mode": str(settings.get("musetalk_vram_mode", "") or ""),
+            "confidence": float(payload.get("confidence", 0.0) or 0.0),
+            "stability": float(payload.get("stability", 0.0) or 0.0),
+            "sample_count": int(payload.get("sample_count", 0) or 0),
+        })
+    return items
+
+
+def _ui_shell_performance_profile_label(item):
+    name = str(item.get("display_name") or item.get("name") or "Profile").strip() or "Profile"
+    prefix = "Recommended: " if item.get("recommended") else ("Starter: " if item.get("bundled") else "")
+    backend = str(item.get("tts_backend") or "").title()
+    vram = str(item.get("musetalk_vram_mode") or "").replace("_", " ").title()
+    stream_label = "Stream" if bool(item.get("stream_mode")) else "Non-stream"
+    confidence = float(item.get("confidence", 0.0) or 0.0)
+    return f"{prefix}{name} | {stream_label} | {backend} | {vram} | c={confidence:.2f}"
+
+
+def _ui_shell_performance_profile_payload(name):
+    key = str(name or "").strip()
+    if not key:
+        return {}
+    path = _ui_shell_performance_profiles_dir() / f"{key}.json"
+    if not path.exists():
+        return {}
+    payload = _ui_shell_load_json(path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _ui_shell_latest_performance_profile_payload():
+    profiles = _ui_shell_list_performance_profiles()
+    if not profiles:
+        return {}
+    return _ui_shell_performance_profile_payload(str((profiles[0] or {}).get("name") or ""))
+
+
+def _ui_shell_list_body_configs():
+    root = _ui_shell_body_configs_dir()
+    items = []
+    try:
+        paths = sorted([path for path in root.glob("*.json") if path.is_file()], key=lambda item: item.stem.lower())
+    except Exception:
+        paths = []
+    for path in paths:
+        items.append(str(path.stem or "").strip())
+    return [item for item in items if item]
+
+
+def _ui_shell_body_config_payload(name):
+    key = str(name or "").strip()
+    if not key:
+        return {}
+    path = _ui_shell_body_configs_dir() / f"{key}.json"
+    if not path.exists():
+        return {}
+    payload = _ui_shell_load_json(path, {})
+    return payload if isinstance(payload, dict) else {}
+
+
+def _ui_shell_voice_options(window=None):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    names = []
+    try:
+        for path in sorted((Path(__file__).resolve().parent / "voices").glob("*.wav"), key=lambda item: item.name.lower()):
+            names.append(path.name)
+    except Exception:
+        names = []
+    selected = str(session.get("voice_file", "") or "").strip()
+    if selected and selected not in names:
+        names.append(selected)
+    return names or ["No .wav found"]
+
+
+def _ui_shell_combo_text_value(window, object_name, default=""):
+    widget = _ui_shell_find_object(window, object_name)
+    if widget is not None and hasattr(widget, "currentText"):
+        try:
+            text = str(widget.currentText() or "").strip()
+            if text:
+                return text
+        except Exception:
+            pass
+    return str(default or "").strip()
+
+
+def _ui_shell_checkbox_value(window, object_name, default=False):
+    widget = _ui_shell_find_object(window, object_name)
+    if widget is not None and hasattr(widget, "isChecked"):
+        try:
+            return bool(widget.isChecked())
+        except Exception:
+            pass
+    return bool(default)
+
+
+def _ui_shell_line_edit_value(window, object_name, default=""):
+    widget = _ui_shell_find_object(window, object_name)
+    if widget is not None and hasattr(widget, "text"):
+        try:
+            return str(widget.text() or "").strip()
+        except Exception:
+            pass
+    return str(default or "").strip()
+
+
+def _ui_shell_plain_text_value(window, object_name, default=""):
+    widget = _ui_shell_find_object(window, object_name)
+    if widget is not None and hasattr(widget, "toPlainText"):
+        try:
+            return str(widget.toPlainText() or "").strip()
+        except Exception:
+            pass
+    return str(default or "").strip()
+
+
+def _ui_shell_format_clock_seconds(seconds) -> str:
+    total = max(0, int(seconds or 0))
+    minutes, secs = divmod(total, 60)
+    return f"{minutes:02d}:{secs:02d}"
+
+
+def _ui_shell_selected_body_name(window):
+    combo = _ui_shell_find_object(window, "body_combo")
+    if combo is None or not hasattr(combo, "currentText"):
+        return ""
+    try:
+        return str(combo.currentText() or "").strip()
+    except Exception:
+        return ""
+
+
+def _ui_shell_current_voice_file(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    return _ui_shell_combo_text_value(window, "voice_combo", str(session.get("voice_file", "") or ""))
+
+
+def _ui_shell_body_pose_spec(key):
+    return dict(UI_SHELL_BODY_POSE_SPECS.get(str(key), {}) or {})
+
+
+def _ui_shell_body_slider_widget(window, key):
+    spec = _ui_shell_body_pose_spec(key)
+    return _ui_shell_find_object(window, spec.get("widget", ""))
+
+
+def _ui_shell_body_label_widget(window, key):
+    spec = _ui_shell_body_pose_spec(key)
+    return _ui_shell_find_object(window, spec.get("label", ""))
+
+
+def _ui_shell_body_value_to_slider_raw(key, value):
+    spec = _ui_shell_body_pose_spec(key)
+    scale = int(spec.get("scale", 1) or 1)
+    try:
+        return int(round(float(value) * scale))
+    except Exception:
+        return 0
+
+
+def _ui_shell_body_slider_raw_to_value(key, raw_value):
+    spec = _ui_shell_body_pose_spec(key)
+    scale = float(spec.get("scale", 1) or 1)
+    try:
+        value = float(raw_value) / scale
+    except Exception:
+        value = float(spec.get("default", 0.0) or 0.0)
+    if int(spec.get("scale", 1) or 1) == 1:
+        return int(round(value))
+    return round(value, 2)
+
+
+def _ui_shell_format_body_value(key, value):
+    spec = _ui_shell_body_pose_spec(key)
+    if int(spec.get("scale", 1) or 1) == 1:
+        try:
+            return str(int(round(float(value))))
+        except Exception:
+            return str(value)
+    try:
+        return f"{float(value):.2f}"
+    except Exception:
+        return str(value)
+
+
+def _ui_shell_update_body_label(window, key, value=None):
+    label = _ui_shell_body_label_widget(window, key)
+    if label is None or not hasattr(label, "setText"):
+        return
+    spec = _ui_shell_body_pose_spec(key)
+    base_text = str(getattr(label, "_nc_ui_shell_base_text", "") or "").strip()
+    if not base_text:
+        base_text = str(label.text() or spec.get("title") or str(key)).strip() or str(key)
+        setattr(label, "_nc_ui_shell_base_text", base_text)
+    current = value
+    if current is None:
+        slider = _ui_shell_body_slider_widget(window, key)
+        if slider is not None and hasattr(slider, "value"):
+            try:
+                current = _ui_shell_body_slider_raw_to_value(key, slider.value())
+            except Exception:
+                current = spec.get("default", 0.0)
+    label.setText(f"{base_text}: {_ui_shell_format_body_value(key, current)}")
+
+
+def _ui_shell_configure_body_slider(window, key, value=None):
+    spec = _ui_shell_body_pose_spec(key)
+    slider = _ui_shell_body_slider_widget(window, key)
+    if slider is None:
+        return False
+    scale = int(spec.get("scale", 1) or 1)
+    initial_value = spec.get("default", 0.0) if value is None else value
+    minimum = _ui_shell_body_value_to_slider_raw(key, spec.get("minimum", 0.0))
+    maximum = _ui_shell_body_value_to_slider_raw(key, spec.get("maximum", 0.0))
+    raw_value = _ui_shell_body_value_to_slider_raw(key, initial_value)
+    try:
+        slider.blockSignals(True)
+        if hasattr(slider, "setRange"):
+            slider.setRange(minimum, maximum)
+        if hasattr(slider, "setSingleStep"):
+            slider.setSingleStep(max(1, scale // 10 if scale > 1 else 1))
+        if hasattr(slider, "setPageStep"):
+            page_step = max(1, int((maximum - minimum) / 10))
+            slider.setPageStep(page_step)
+        if hasattr(slider, "setValue"):
+            slider.setValue(max(minimum, min(maximum, raw_value)))
+        if hasattr(slider, "setToolTip"):
+            slider.setToolTip("Shell-local body-pose preview. Changes are not saved or applied to runtime.")
+    except Exception:
+        return False
+    finally:
+        try:
+            slider.blockSignals(False)
+        except Exception:
+            pass
+    _ui_shell_update_body_label(window, key, initial_value)
+    return True
+
+
+def _ui_shell_current_body_pose_values(window):
+    values = {}
+    for key, spec in UI_SHELL_BODY_POSE_SPECS.items():
+        slider = _ui_shell_body_slider_widget(window, key)
+        if slider is not None and hasattr(slider, "value"):
+            try:
+                values[key] = _ui_shell_body_slider_raw_to_value(key, slider.value())
+                continue
+            except Exception:
+                pass
+        values[key] = spec.get("default", 0.0)
+    return values
+
+
+def _ui_shell_selected_body_profile(window):
+    payload = getattr(window, "_nc_ui_shell_body_profile_payload", None)
+    if isinstance(payload, dict):
+        return payload
+    return {}
+
+
+def _ui_shell_set_selected_body_profile(window, payload):
+    setattr(window, "_nc_ui_shell_body_profile_payload", dict(payload or {}))
+
+
+def _ui_shell_apply_body_profile_for_emotion(window, emotion_label=None):
+    emotion = str(emotion_label or _ui_shell_combo_text_value(window, "emotion_combo", "Neutral")).strip().lower() or "neutral"
+    payload = _ui_shell_selected_body_profile(window)
+    profile = dict(payload.get("profile") or payload or {})
+    emotion_values = dict(profile.get(emotion) or profile.get("neutral") or {})
+    applied = []
+    for key in UI_SHELL_BODY_POSE_SPECS:
+        if _ui_shell_configure_body_slider(window, key, value=emotion_values.get(key, UI_SHELL_BODY_POSE_SPECS[key].get("default", 0.0))):
+            applied.append(key)
+    return applied
+
+
+def _ui_shell_refresh_body_combo(window, preferred_name=""):
+    configs = _ui_shell_list_body_configs()
+    combo = _ui_shell_find_object(window, "body_combo")
+    if combo is None or not hasattr(combo, "addItem"):
+        return configs
+    preferred = str(preferred_name or _ui_shell_selected_body_name(window) or "").strip()
+    combo.blockSignals(True)
+    try:
+        combo.clear()
+        if configs:
+            for name in configs:
+                combo.addItem(name)
+            target_index = 0
+            if preferred and preferred in configs:
+                target_index = configs.index(preferred)
+            combo.setCurrentIndex(target_index)
+        else:
+            combo.addItem("No Configs")
+            combo.setCurrentIndex(0)
+        combo.setToolTip("Shell-local body preset list. Reads body_configs/*.json only.")
+    finally:
+        combo.blockSignals(False)
+    return configs
+
+
+def _ui_shell_load_body_preview(window, name=""):
+    target = str(name or "").strip() or _ui_shell_selected_body_name(window)
+    if not target or target == "No Configs":
+        return {
+            "accepted": False,
+            "loaded": False,
+            "body_name": "",
+            "message": "No body preset selected.",
+        }
+    payload = _ui_shell_body_config_payload(target)
+    if not payload:
+        return {
+            "accepted": False,
+            "loaded": False,
+            "body_name": target,
+            "message": f"Could not load body preset: {target}",
+        }
+    _ui_shell_set_selected_body_profile(window, payload)
+    _ui_shell_refresh_body_combo(window, preferred_name=target)
+    applied = _ui_shell_apply_body_profile_for_emotion(window)
+    return {
+        "accepted": True,
+        "loaded": True,
+        "body_name": target,
+        "applied_keys": applied,
+        "message": f"Loaded shell preview for body preset: {target}",
+    }
+
+
+def _ui_shell_normalize_vam_root(raw_value=""):
+    app_root = Path(__file__).resolve().parent
+    default_root = str(_read_ui_shell_session_snapshot().get("vam_root", "") or UI_SHELL_DEFAULT_LOCAL_VAM_ROOT).strip()
+    legacy_roots = _legacy_vam_bridge_roots_safe(app_root=app_root)
+    return _normalize_vam_root_safe(raw_value, default_vam_root=default_root, legacy_roots=legacy_roots, migrate_legacy=True)
+
+
+def _ui_shell_derive_vam_bridge_root(vam_root):
+    return _derive_vam_bridge_root_safe(vam_root, app_root=Path(__file__).resolve().parent)
+
+
+def _ui_shell_current_vam_settings(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    vam_root = _ui_shell_line_edit_value(window, "vam_root_edit", str(session.get("vam_root", "") or UI_SHELL_DEFAULT_LOCAL_VAM_ROOT))
+    normalized_root = _ui_shell_normalize_vam_root(vam_root)
+    return {
+        "vam_root": normalized_root,
+        "vam_bridge_root": _ui_shell_line_edit_value(window, "vam_bridge_root_edit", _ui_shell_derive_vam_bridge_root(normalized_root)),
+        "vam_target_atom_uid": _ui_shell_line_edit_value(window, "vam_target_atom_uid_edit", str(session.get("vam_target_atom_uid", "Person") or "Person")),
+        "vam_target_storable_id": _ui_shell_line_edit_value(window, "vam_target_storable_id_edit", str(session.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge")),
+        "vam_vmc_host": _ui_shell_line_edit_value(window, "vam_vmc_host_edit", str(session.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1")),
+        "vam_vmc_port": int(_ui_shell_find_object(window, "vam_vmc_port_spin").value()) if _ui_shell_find_object(window, "vam_vmc_port_spin") is not None and hasattr(_ui_shell_find_object(window, "vam_vmc_port_spin"), "value") else int(session.get("vam_vmc_port", 39539) or 39539),
+        "vam_vmc_enabled": _ui_shell_checkbox_value(window, "vam_vmc_enabled_checkbox", bool(session.get("vam_vmc_enabled", True))),
+        "vam_bridge_enabled": _ui_shell_checkbox_value(window, "vam_bridge_enabled_checkbox", bool(session.get("vam_bridge_enabled", True))),
+        "vam_play_audio_in_vam": _ui_shell_checkbox_value(window, "vam_play_audio_in_vam_checkbox", bool(session.get("vam_play_audio_in_vam", False))),
+        "vam_timeline_auto_resume": _ui_shell_checkbox_value(window, "vam_timeline_auto_resume_checkbox", bool(session.get("vam_timeline_auto_resume", True))),
+    }
+
+
+def _ui_shell_refresh_vam_status_labels(window):
+    settings = _ui_shell_current_vam_settings(window)
+    runtime_label = _ui_shell_find_object(window, "vam_runtime_label")
+    bridge_status_label = _ui_shell_find_object(window, "vam_bridge_status_label")
+    bridge_detail_label = _ui_shell_find_object(window, "vam_bridge_detail_label")
+    runtime_text = "Runtime: shell preview only"
+    bridge_modes = []
+    if settings.get("vam_vmc_enabled"):
+        bridge_modes.append("VMC on")
+    if settings.get("vam_bridge_enabled"):
+        bridge_modes.append("Bridge on")
+    bridge_text = ", ".join(bridge_modes) if bridge_modes else "all off"
+    if runtime_label is not None and hasattr(runtime_label, "setText"):
+        runtime_label.setText(runtime_text)
+    if bridge_status_label is not None and hasattr(bridge_status_label, "setText"):
+        bridge_status_label.setText(f"Bridge status: {bridge_text}")
+    if bridge_detail_label is not None and hasattr(bridge_detail_label, "setText"):
+        bridge_detail_label.setText(
+            f"Root: {settings.get('vam_root') or '<unset>'} | Bridge: {settings.get('vam_bridge_root') or '<unset>'}"
+        )
+    return settings
+
+
+def _ui_shell_dry_run_status_text(latest, *, target_samples=0, auto_replies=True, preview_state="idle"):
+    latest = dict(latest or {})
+    if preview_state == "armed":
+        target_text = "Auto" if int(target_samples or 0) <= 0 else str(int(target_samples))
+        return f"Dry Run shell preview armed for {target_text} sample(s)." + (" Hands-free preview enabled." if auto_replies else "")
+    if latest:
+        confidence = float(latest.get("confidence", 0.0) or 0.0)
+        stability = float(latest.get("stability", 0.0) or 0.0)
+        return f"Dry Run idle. Last saved profile confidence {confidence:.2f}, stability {stability:.2f}."
+    return "Dry Run idle."
+
+
+def _ui_shell_dry_run_summary_text(latest, *, target_samples=0, auto_replies=True, preview_state="idle"):
+    latest = dict(latest or {})
+    if preview_state == "armed":
+        target_text = "Auto" if int(target_samples or 0) <= 0 else str(int(target_samples))
+        return (
+            "Shell preview only.\n"
+            f"- Requested target samples: {target_text}\n"
+            f"- Hands-free preview: {'enabled' if auto_replies else 'disabled'}\n"
+            "- Starting a real Dry Run session remains deferred in --ui-shell.\n"
+            "- No engine, model, or profiling worker was started."
+        )
+    if not latest:
+        return "Arm a Dry Run to collect reply samples and generate machine-specific recommendations."
+    summary = dict(latest.get("summary") or {})
+    recommendation = dict(latest.get("recommendation") or {})
+    settings = dict(recommendation.get("settings") or {})
+    lines = [
+        "Latest saved Dry Run profile:",
+        f"- Name: {str(latest.get('saved_name') or latest.get('display_name') or '<unnamed>').strip()}",
+        f"- Sample count: {int(latest.get('sample_count', 0) or 0)}",
+        f"- Confidence: {float(latest.get('confidence', 0.0) or 0.0):.2f}",
+        f"- Stability: {float(latest.get('stability', 0.0) or 0.0):.2f}",
+    ]
+    updated_at = latest.get("updated_at")
+    try:
+        lines.append(f"- Updated: {time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(float(updated_at)))}")
+    except Exception:
+        pass
+    if summary:
+        lines.extend([
+            "",
+            "Measured startup profile:",
+            f"- Avg first audio chunk: {float(summary.get('avg_first_audio_chunk_ms', 0.0) or 0.0):.1f} ms",
+            f"- Avg first visual buffer wait: {float(summary.get('avg_buffer_wait_ms', 0.0) or 0.0):.1f} ms",
+            f"- Avg chunk quality: {float(summary.get('avg_chunk_quality', 0.0) or 0.0):.2f}",
+            f"- Avg emitted chunk chars: {float(summary.get('avg_chunk_chars', 0.0) or 0.0):.1f}",
+        ])
+    if settings:
+        lines.extend([
+            "",
+            "Recommended visible settings:",
+            f"- Stream mode: {'On' if bool(settings.get('stream_mode')) else 'Off'}",
+            f"- MuseTalk VRAM: {UI_SHELL_MUSE_VRAM_MODE_LABELS.get(str(settings.get('musetalk_vram_mode') or '').strip().lower(), 'Quality')}",
+        ])
+        for key in (
+            "stream_chunk_target_chars",
+            "stream_chunk_max_chars",
+            "stream_first_chunk_min_chars",
+            "musetalk_chunk_target_chars",
+            "musetalk_chunk_max_chars",
+            "musetalk_quickstart_1_target_chars",
+        ):
+            if key in settings:
+                title = str(_ui_shell_chunking_slider_spec(key).get("title") or key).strip()
+                lines.append(f"- {title}: {_ui_shell_format_chunking_value(settings.get(key))}")
+        lines.extend([
+            "",
+            "Use Apply Recommendation to preview the shell-visible subset only.",
+        ])
+    else:
+        lines.extend([
+            "",
+            "No saved recommendation settings were found in the latest profile.",
+        ])
+    lines.extend([
+        "",
+        "Shell preview note:",
+        "- Dry Run start/stop remains deferred here.",
+    ])
+    return "\n".join(lines)
+
+
+def _ui_shell_chunking_slider_spec(key):
+    return dict(UI_SHELL_CHUNKING_SPECS.get(str(key), {}) or {})
+
+
+def _ui_shell_chunking_slider_widget(window, key):
+    spec = _ui_shell_chunking_slider_spec(key)
+    return _ui_shell_find_object(window, spec.get("widget", ""))
+
+
+def _ui_shell_chunking_label_widget(window, key):
+    spec = _ui_shell_chunking_slider_spec(key)
+    return _ui_shell_find_object(window, spec.get("label", ""))
+
+
+def _ui_shell_format_chunking_value(value):
+    try:
+        return str(int(round(float(value))))
+    except Exception:
+        return str(value)
+
+
+def _ui_shell_update_chunking_label(window, key, value=None):
+    label = _ui_shell_chunking_label_widget(window, key)
+    if label is None or not hasattr(label, "setText"):
+        return
+    spec = _ui_shell_chunking_slider_spec(key)
+    base_text = str(getattr(label, "_nc_ui_shell_base_text", "") or "").strip()
+    if not base_text:
+        base_text = str(label.text() or spec.get("title") or str(key)).strip() or str(key)
+        setattr(label, "_nc_ui_shell_base_text", base_text)
+    current = value
+    if current is None:
+        widget = _ui_shell_chunking_slider_widget(window, key)
+        if widget is not None and hasattr(widget, "value"):
+            try:
+                current = widget.value()
+            except Exception:
+                current = spec.get("default")
+    label.setText(f"{base_text}: {_ui_shell_format_chunking_value(current)}")
+
+
+def _ui_shell_configure_chunking_slider(window, key, *, value=None):
+    spec = _ui_shell_chunking_slider_spec(key)
+    slider = _ui_shell_chunking_slider_widget(window, key)
+    if slider is None:
+        return False
+    initial_value = value if value is not None else spec.get("default", 0)
+    try:
+        slider.blockSignals(True)
+        if hasattr(slider, "setRange"):
+            slider.setRange(int(spec.get("minimum", 0) or 0), int(spec.get("maximum", 100) or 100))
+        if hasattr(slider, "setSingleStep"):
+            slider.setSingleStep(1)
+        if hasattr(slider, "setPageStep"):
+            slider.setPageStep(max(1, int((int(spec.get("maximum", 100) or 100) - int(spec.get("minimum", 0) or 0)) / 10)))
+        if hasattr(slider, "setValue"):
+            slider.setValue(int(round(float(initial_value))))
+        if hasattr(slider, "setToolTip"):
+            slider.setToolTip("Shell-local chunking preview. Changes are not saved or applied to runtime.")
+    except Exception:
+        return False
+    finally:
+        try:
+            slider.blockSignals(False)
+        except Exception:
+            pass
+    _ui_shell_update_chunking_label(window, key, initial_value)
+    return True
+
+
+def _ui_shell_current_chunking_values(window):
+    values = {}
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    for key, spec in UI_SHELL_CHUNKING_SPECS.items():
+        slider = _ui_shell_chunking_slider_widget(window, key)
+        default = session.get(key, spec.get("default", 0))
+        if slider is not None and hasattr(slider, "value"):
+            try:
+                values[key] = int(slider.value())
+                continue
+            except Exception:
+                pass
+        values[key] = int(round(float(default)))
+    return values
+
+
+def _ui_shell_apply_chunking_values(window, values):
+    applied = []
+    for key, spec in UI_SHELL_CHUNKING_SPECS.items():
+        target_value = values.get(key, UI_SHELL_DEFAULT_CHUNKING_VALUES.get(key, spec.get("default", 0)))
+        if _ui_shell_configure_chunking_slider(window, key, value=target_value):
+            applied.append(key)
+    return applied
+
+
+def _ui_shell_profile_selected_name(window, source="dry_run"):
+    combo_name = "chunking_profile_combo" if str(source or "").strip().lower() == "chunking" else "performance_profile_combo"
+    combo = _ui_shell_find_object(window, combo_name)
+    if combo is None or not hasattr(combo, "currentData"):
+        return ""
+    try:
+        return str(combo.currentData() or "").strip()
+    except Exception:
+        return ""
+
+
+def _ui_shell_refresh_performance_profile_combos(window, preferred_name=""):
+    profiles = _ui_shell_list_performance_profiles()
+    combos = []
+    for object_name in ("performance_profile_combo", "chunking_profile_combo"):
+        combo = _ui_shell_find_object(window, object_name)
+        if combo is not None and hasattr(combo, "addItem"):
+            combos.append(combo)
+    preferred = str(preferred_name or "").strip()
+    if not preferred:
+        for combo in combos:
+            try:
+                preferred = str(combo.currentData() or "").strip()
+            except Exception:
+                preferred = ""
+            if preferred:
+                break
+    for combo in combos:
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            if not profiles:
+                combo.addItem("No Saved Profiles", "")
+            else:
+                for item in profiles:
+                    combo.addItem(_ui_shell_performance_profile_label(item), str(item.get("name") or ""))
+                target_index = 0
+                if preferred:
+                    for index in range(combo.count()):
+                        if str(combo.itemData(index) or "").strip() == preferred:
+                            target_index = index
+                            break
+                combo.setCurrentIndex(target_index)
+            combo.setToolTip("Shell-local performance profile list. Reads performance_profiles/*.json only.")
+        finally:
+            combo.blockSignals(False)
+    has_profiles = bool(profiles)
+    for object_name in ("btn_profile_load", "btn_chunking_profile_load"):
+        button = _ui_shell_find_object(window, object_name)
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(has_profiles)
+    for object_name in ("btn_profile_refresh", "btn_chunking_profile_refresh"):
+        button = _ui_shell_find_object(window, object_name)
+        if button is not None and hasattr(button, "setToolTip"):
+            button.setToolTip("Shell-local profile refresh. Reads performance_profiles/*.json only.")
+    for object_name in ("btn_profile_load", "btn_chunking_profile_load"):
+        button = _ui_shell_find_object(window, object_name)
+        if button is not None and hasattr(button, "setToolTip"):
+            button.setToolTip("Shell-local profile preview. Applies only the visible shell-safe subset.")
+    for object_name in ("btn_profile_save_latest", "btn_chunking_profile_save", "btn_profile_delete", "btn_chunking_profile_delete"):
+        button = _ui_shell_find_object(window, object_name)
+        if button is not None and hasattr(button, "setToolTip"):
+            button.setToolTip("Deferred in shell preview. File-mutation profile actions remain disabled.")
+    return profiles
+
+
+def _ui_shell_apply_profile_settings(window, settings):
+    applied = []
+    deferred = []
+    settings = dict(settings or {})
+
+    for key in PERFORMANCE_PROFILE_APPLY_KEYS:
+        if key not in settings:
+            continue
+        if key in UI_SHELL_CHUNKING_SPECS:
+            if _ui_shell_configure_chunking_slider(window, key, value=settings.get(key)):
+                applied.append(key)
+            else:
+                deferred.append(key)
+            continue
+        if key == "stream_mode":
+            combo = _ui_shell_find_object(window, "stream_mode_combo")
+            if combo is not None and _ui_shell_combo_select_label(combo, "On" if bool(settings.get(key)) else "Off"):
+                applied.append(key)
+            else:
+                deferred.append(key)
+            continue
+        if key == "musetalk_vram_mode":
+            combo = _ui_shell_find_object(window, "musetalk_vram_combo")
+            label = UI_SHELL_MUSE_VRAM_MODE_LABELS.get(str(settings.get(key) or "").strip().lower(), "Quality")
+            if combo is not None and _ui_shell_combo_select_label(combo, label):
+                applied.append(key)
+            else:
+                deferred.append(key)
+            continue
+        deferred.append(key)
+    return applied, deferred
+
+
+def _ui_shell_load_profile_preview(window, name="", source="dry_run"):
+    target_name = str(name or "").strip() or _ui_shell_profile_selected_name(window, source=source)
+    if not target_name:
+        return {
+            "accepted": False,
+            "loaded": False,
+            "profile_name": "",
+            "message": "No performance profile selected.",
+        }
+    payload = _ui_shell_performance_profile_payload(target_name)
+    if not payload:
+        return {
+            "accepted": False,
+            "loaded": False,
+            "profile_name": target_name,
+            "message": f"Could not load performance profile: {target_name}",
+        }
+    _ui_shell_refresh_performance_profile_combos(window, preferred_name=target_name)
+    applied, deferred = _ui_shell_apply_profile_settings(window, payload.get("settings_to_apply") or {})
+    _ui_shell_refresh_host_core_status(window)
+    return {
+        "accepted": True,
+        "loaded": True,
+        "profile_name": target_name,
+        "applied_keys": applied,
+        "deferred_keys": deferred,
+        "message": f"Loaded shell preview for performance profile: {target_name}",
+    }
+
+
+def _ui_shell_reset_chunking_defaults(window):
+    applied = _ui_shell_apply_chunking_values(window, UI_SHELL_DEFAULT_CHUNKING_VALUES)
+    _ui_shell_refresh_host_core_status(window)
+    return {
+        "accepted": True,
+        "action": "reset_chunking_defaults",
+        "applied_keys": applied,
+        "message": "Chunking defaults restored in shell preview.",
+    }
+
+
 def _apply_ui_shell_read_only_config(window):
     session = _read_ui_shell_session_snapshot()
+    audio_devices = _ui_shell_audio_device_labels()
+    avatar_pack_options = _ui_shell_musetalk_avatar_pack_options(session)
     provider_labels = {
         "lmstudio": "LM Studio",
         "openai": "OpenAI",
@@ -3561,6 +5502,8 @@ def _apply_ui_shell_read_only_config(window):
     applied = []
 
     combo_specs = (
+        ("audio_input_device_combo", list(audio_devices.get("inputs") or ["Default Input"]), session.get("audio_input_device", "Default Input")),
+        ("audio_output_device_combo", list(audio_devices.get("outputs") or ["Default Output"]), session.get("audio_output_device", "Default Output")),
         ("engine_combo", list(avatar_labels.values()), avatar_labels.get(str(session.get("avatar_mode", "")).strip().lower(), session.get("avatar_mode", ""))),
         ("input_mode_combo", ["Voice Activation", "Push-to-Talk"], session.get("input_mode", "")),
         ("input_role_combo", ["User Message", "System Message", "Assistant Message"], session.get("input_message_role", "")),
@@ -3568,7 +5511,27 @@ def _apply_ui_shell_read_only_config(window):
         ("tts_backend_combo", list(tts_labels.values()), tts_labels.get(str(session.get("tts_backend", "")).strip().lower(), session.get("tts_backend", ""))),
         ("chat_provider_combo", list(provider_labels.values()), provider_labels.get(str(session.get("chat_provider", "")).strip().lower(), session.get("chat_provider", ""))),
         ("musetalk_vram_combo", ["Quality", "Balanced", "Low VRAM", "Very Low VRAM"], str(session.get("musetalk_vram_mode", "") or "").replace("_", " ").title().replace("Vram", "VRAM")),
-        ("musetalk_avatar_pack_combo", [str(session.get("musetalk_avatar_pack_id", "") or "No avatar pack saved")], session.get("musetalk_avatar_pack_id", "")),
+        (
+            "musetalk_avatar_pack_combo",
+            [str(item.get("label") or "").strip() for item in avatar_pack_options] or [str(session.get("musetalk_avatar_pack_id", "") or "No avatar packs found")],
+            next(
+                (
+                    str(item.get("label") or "").strip()
+                    for item in avatar_pack_options
+                    if str(item.get("id") or "").strip() == str(session.get("musetalk_avatar_pack_id", "") or "").strip()
+                ),
+                session.get("musetalk_avatar_pack_id", ""),
+            ),
+        ),
+        (
+            "chat_overflow_policy_combo",
+            ["Rolling Window", "Truncate Middle", "Stop At Limit"],
+            {
+                "rolling_window": "Rolling Window",
+                "truncate_middle": "Truncate Middle",
+                "stop_at_limit": "Stop At Limit",
+            }.get(str(session.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip(), session.get("chat_context_overflow_policy", "")),
+        ),
         ("visual_reply_mode_combo", ["Off", "Manual", "Auto"], visual_mode_labels.get(str(session.get("visual_reply_mode", "")).strip().lower(), session.get("visual_reply_mode", ""))),
         ("visual_reply_provider_combo", ["OpenAI", "xAI / Grok"], provider_labels.get(str(session.get("visual_reply_provider", "")).strip().lower(), session.get("visual_reply_provider", ""))),
         ("visual_reply_size_combo", ["1024x1024", "1024x1792", "1792x1024"], session.get("visual_reply_size", "")),
@@ -3601,6 +5564,8 @@ def _apply_ui_shell_read_only_config(window):
         applied.append("visual_reply_model_edit")
 
     numeric_specs = (
+        ("chat_context_window_spin", session.get("chat_context_window_messages")),
+        ("stored_chat_history_limit_spin", session.get("stored_chat_history_limit")),
         ("musetalk_loop_fade_spin", session.get("musetalk_loop_fade_ms")),
         ("tts_seed_spin", session.get("tts_seed")),
     )
@@ -3650,6 +5615,1133 @@ def _apply_ui_shell_read_only_config(window):
     }
 
 
+def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    audio_devices = _ui_shell_audio_device_labels()
+    avatar_pack_options = _ui_shell_musetalk_avatar_pack_options(session)
+    visual_reply_service = _UiShellVisualReplyService(window)
+    visual_reply_snapshot = dict(visual_reply_service.settings_snapshot() or {})
+    sensory_options = _ui_shell_sensory_source_options(sensory_providers=sensory_providers, selected_value=session.get("sensory_feedback_source", "off"))
+    default_max_response_tokens = 600
+
+    audio_input_combo = _ui_shell_find_object(window, "audio_input_device_combo")
+    audio_output_combo = _ui_shell_find_object(window, "audio_output_device_combo")
+    input_mode_combo = _ui_shell_find_object(window, "input_mode_combo")
+    input_role_combo = _ui_shell_find_object(window, "input_role_combo")
+    stream_mode_combo = _ui_shell_find_object(window, "stream_mode_combo")
+    musetalk_vram_combo = _ui_shell_find_object(window, "musetalk_vram_combo")
+    musetalk_avatar_pack_combo = _ui_shell_find_object(window, "musetalk_avatar_pack_combo")
+    context_window_spin = _ui_shell_find_object(window, "chat_context_window_spin")
+    stored_history_spin = _ui_shell_find_object(window, "stored_chat_history_limit_spin")
+    overflow_combo = _ui_shell_find_object(window, "chat_overflow_policy_combo")
+    allow_proactive_checkbox = _ui_shell_find_object(window, "allow_proactive_checkbox")
+    require_first_user_checkbox = _ui_shell_find_object(window, "require_first_user_checkbox")
+    listen_idle_window_spin = _ui_shell_find_object(window, "listen_idle_window_spin")
+    proactive_delay_spin = _ui_shell_find_object(window, "proactive_delay_spin")
+    limit_response_checkbox = _ui_shell_find_object(window, "limit_response_checkbox")
+    max_response_tokens_spin = _ui_shell_find_object(window, "max_response_tokens_spin")
+    sensory_feedback_source_combo = _ui_shell_find_object(window, "sensory_feedback_source_combo")
+    sensory_feedback_interval_spin = _ui_shell_find_object(window, "sensory_feedback_interval_spin")
+    sensory_pingpong_checkbox = _ui_shell_find_object(window, "sensory_pingpong_checkbox")
+    sensory_allow_hidden_proactive_checkbox = _ui_shell_find_object(window, "sensory_allow_hidden_proactive_checkbox")
+    sensory_allow_hidden_visual_checkbox = _ui_shell_find_object(window, "sensory_allow_hidden_visual_checkbox")
+    sensory_pingpong_history_spin = _ui_shell_find_object(window, "sensory_pingpong_history_spin")
+    visual_reply_mode_combo = _ui_shell_find_object(window, "visual_reply_mode_combo")
+    visual_reply_provider_combo = _ui_shell_find_object(window, "visual_reply_provider_combo")
+    visual_reply_size_combo = _ui_shell_find_object(window, "visual_reply_size_combo")
+    visual_reply_model_edit = _ui_shell_find_object(window, "visual_reply_model_edit")
+    visual_reply_auto_show_checkbox = _ui_shell_find_object(window, "visual_reply_auto_show_checkbox")
+    visual_reply_hint = _ui_shell_find_object(window, "visual_reply_hint")
+
+    if audio_input_combo is not None:
+        _ui_shell_combo_set_items(audio_input_combo, list(audio_devices.get("inputs") or ["Default Input"]))
+        _ui_shell_combo_select_label(audio_input_combo, session.get("audio_input_device", "Default Input"))
+        audio_input_combo.setToolTip("Shell-local audio input preview. No microphone capture is started.")
+    if audio_output_combo is not None:
+        _ui_shell_combo_set_items(audio_output_combo, list(audio_devices.get("outputs") or ["Default Output"]))
+        _ui_shell_combo_select_label(audio_output_combo, session.get("audio_output_device", "Default Output"))
+        audio_output_combo.setToolTip("Shell-local audio output preview. No playback device is opened.")
+    if input_mode_combo is not None and hasattr(input_mode_combo, "setToolTip"):
+        input_mode_combo.setToolTip("Shell-local input-mode preview. Changes update only the shell status line.")
+    if input_role_combo is not None and hasattr(input_role_combo, "setToolTip"):
+        input_role_combo.setToolTip("Shell-local input-role preview. Changes update only the shell status line.")
+    if stream_mode_combo is not None and hasattr(stream_mode_combo, "setToolTip"):
+        stream_mode_combo.setToolTip("Shell-local stream-mode preview. Changes update only the shell status line.")
+    if musetalk_vram_combo is not None and hasattr(musetalk_vram_combo, "setToolTip"):
+        musetalk_vram_combo.setToolTip("Shell-local MuseTalk VRAM preview. No runtime adapter is reconfigured.")
+    if musetalk_avatar_pack_combo is not None and hasattr(musetalk_avatar_pack_combo, "clear"):
+        saved_pack_id = str(session.get("musetalk_avatar_pack_id", "") or "").strip()
+        musetalk_avatar_pack_combo.blockSignals(True)
+        try:
+            musetalk_avatar_pack_combo.clear()
+            for item in avatar_pack_options:
+                label = str(item.get("label") or item.get("id") or "").strip()
+                pack_id = str(item.get("id") or "").strip()
+                if not label:
+                    continue
+                musetalk_avatar_pack_combo.addItem(label, pack_id)
+            if musetalk_avatar_pack_combo.count() <= 0:
+                musetalk_avatar_pack_combo.addItem("No avatar packs found", "")
+            index = musetalk_avatar_pack_combo.findData(saved_pack_id)
+            musetalk_avatar_pack_combo.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            musetalk_avatar_pack_combo.blockSignals(False)
+        musetalk_avatar_pack_combo.setToolTip("Shell-local MuseTalk avatar-pack preview. No adapter or worker is started.")
+    if context_window_spin is not None and hasattr(context_window_spin, "setToolTip"):
+        context_window_spin.setToolTip("Shell-local chat-context preview. Changes are not saved or applied to runtime.")
+    if stored_history_spin is not None and hasattr(stored_history_spin, "setToolTip"):
+        stored_history_spin.setToolTip("Shell-local stored-history preview. Changes are not saved or applied to runtime.")
+    if overflow_combo is not None and hasattr(overflow_combo, "setToolTip"):
+        overflow_combo.setToolTip("Shell-local overflow-policy preview. Changes are not saved or applied to runtime.")
+    if allow_proactive_checkbox is not None:
+        _ui_shell_set_checked(allow_proactive_checkbox, session.get("allow_proactive_replies", True))
+        allow_proactive_checkbox.setToolTip("Shell-local proactive-reply preview. Changes are not saved or applied to runtime.")
+    if require_first_user_checkbox is not None:
+        _ui_shell_set_checked(require_first_user_checkbox, session.get("require_first_user_before_proactive", False))
+        require_first_user_checkbox.setToolTip("Shell-local proactive gating preview. Changes are not saved or applied to runtime.")
+    if _ui_shell_set_double_value(listen_idle_window_spin, session.get("listen_idle_window_seconds", 5.0)) and listen_idle_window_spin is not None:
+        listen_idle_window_spin.setToolTip("Shell-local idle-window preview. Changes are not saved or applied to runtime.")
+    if _ui_shell_set_double_value(proactive_delay_spin, session.get("proactive_delay_seconds", 10.0)) and proactive_delay_spin is not None:
+        proactive_delay_spin.setToolTip("Shell-local proactive-delay preview. Changes are not saved or applied to runtime.")
+    if limit_response_checkbox is not None:
+        _ui_shell_set_checked(limit_response_checkbox, session.get("limit_response_length", False))
+        limit_response_checkbox.setToolTip("Shell-local response-length preview. Changes are not saved or applied to runtime.")
+    if _ui_shell_set_spin_value(max_response_tokens_spin, session.get("max_response_tokens", default_max_response_tokens)) and max_response_tokens_spin is not None:
+        max_response_tokens_spin.setToolTip("Shell-local max-response preview. Changes are not saved or applied to runtime.")
+        try:
+            max_response_tokens_spin.setEnabled(bool(limit_response_checkbox.isChecked()) if limit_response_checkbox is not None and hasattr(limit_response_checkbox, "isChecked") else False)
+        except Exception:
+            pass
+    if sensory_feedback_source_combo is not None:
+        sensory_feedback_source_combo.blockSignals(True)
+        try:
+            sensory_feedback_source_combo.clear()
+            for label, value in sensory_options:
+                sensory_feedback_source_combo.addItem(label, value)
+            requested = str(session.get("sensory_feedback_source", "off") or "off").strip().lower()
+            index = sensory_feedback_source_combo.findData(requested)
+            sensory_feedback_source_combo.setCurrentIndex(index if index >= 0 else 0)
+        finally:
+            sensory_feedback_source_combo.blockSignals(False)
+        sensory_feedback_source_combo.setToolTip("Shell-local sensory-source preview. Capture and hidden-loop delivery remain deferred.")
+    if _ui_shell_set_double_value(sensory_feedback_interval_spin, session.get("sensory_feedback_interval_seconds", 7.0)) and sensory_feedback_interval_spin is not None:
+        sensory_feedback_interval_spin.setToolTip("Shell-local sensory refresh preview. Changes are not saved or applied to runtime.")
+    if sensory_pingpong_checkbox is not None:
+        _ui_shell_set_checked(sensory_pingpong_checkbox, session.get("sensory_pingpong_enabled", False))
+        sensory_pingpong_checkbox.setToolTip("Shell-local hidden PING/PONG preview. No hidden runtime loop is started.")
+    if sensory_allow_hidden_proactive_checkbox is not None:
+        _ui_shell_set_checked(sensory_allow_hidden_proactive_checkbox, session.get("sensory_allow_hidden_proactive_speech", False))
+        sensory_allow_hidden_proactive_checkbox.setToolTip("Shell-local sensory speech preview. Changes are not saved or applied to runtime.")
+    if sensory_allow_hidden_visual_checkbox is not None:
+        _ui_shell_set_checked(sensory_allow_hidden_visual_checkbox, session.get("sensory_allow_hidden_visual_generation", False))
+        sensory_allow_hidden_visual_checkbox.setToolTip("Shell-local sensory image-generation preview. Changes are not saved or applied to runtime.")
+    if _ui_shell_set_spin_value(sensory_pingpong_history_spin, session.get("sensory_pingpong_history_depth", 3)) and sensory_pingpong_history_spin is not None:
+        sensory_pingpong_history_spin.setToolTip("Shell-local PING/PONG history preview. Changes are not saved or applied to runtime.")
+    if visual_reply_mode_combo is not None:
+        _ui_shell_combo_set_items(visual_reply_mode_combo, list(visual_reply_service.mode_labels()))
+        _ui_shell_combo_select_label(visual_reply_mode_combo, visual_reply_service.mode_label_from_value(visual_reply_snapshot.get("mode_value", "auto")))
+    if visual_reply_provider_combo is not None:
+        _ui_shell_combo_set_items(visual_reply_provider_combo, list(visual_reply_service.provider_labels()))
+        _ui_shell_combo_select_label(visual_reply_provider_combo, visual_reply_service.provider_label_from_value(visual_reply_snapshot.get("provider_value", "openai")))
+    if visual_reply_size_combo is not None:
+        _ui_shell_combo_set_items(visual_reply_size_combo, list(visual_reply_service.size_labels()))
+        _ui_shell_combo_select_label(visual_reply_size_combo, visual_reply_service.size_label_from_value(visual_reply_snapshot.get("size_value", "1024x1024")))
+    if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "setText"):
+        visual_reply_model_edit.setText(str(visual_reply_snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"))
+    if visual_reply_auto_show_checkbox is not None:
+        _ui_shell_set_checked(visual_reply_auto_show_checkbox, visual_reply_snapshot.get("auto_show", True))
+    visual_reply_service.attach_settings_widgets(
+        mode_combo=visual_reply_mode_combo,
+        provider_combo=visual_reply_provider_combo,
+        size_combo=visual_reply_size_combo,
+        model_edit=visual_reply_model_edit,
+        auto_show_checkbox=visual_reply_auto_show_checkbox,
+        hint_label=visual_reply_hint,
+    )
+    visual_reply_service.refresh_hint()
+
+    def refresh_status():
+        return _ui_shell_refresh_host_core_status(window)
+
+    bound = []
+
+    def bind_combo(combo, attr_name, message_factory, on_changed=None):
+        if combo is None or not hasattr(combo, "currentIndexChanged"):
+            return
+        bound.append(str(combo.objectName() if hasattr(combo, "objectName") else attr_name))
+        if getattr(combo, attr_name, False):
+            return
+        on_changed_callback = on_changed
+
+        def handle(_index=None):
+            if callable(on_changed_callback):
+                on_changed_callback(_index)
+            refresh_status()
+            _ui_shell_append_console(window, message_factory())
+
+        combo.currentIndexChanged.connect(handle)
+        setattr(combo, attr_name, True)
+
+    def bind_spin(widget, attr_name, message_factory):
+        if widget is None or not hasattr(widget, "valueChanged"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_changed(_value=None):
+            refresh_status()
+            _ui_shell_append_console(window, message_factory())
+
+        widget.valueChanged.connect(on_changed)
+        setattr(widget, attr_name, True)
+
+    def bind_check(widget, attr_name, message_factory, on_changed=None):
+        if widget is None or not hasattr(widget, "toggled"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def handle(_checked=False):
+            if callable(on_changed):
+                on_changed(bool(widget.isChecked()) if hasattr(widget, "isChecked") else bool(_checked))
+            refresh_status()
+            _ui_shell_append_console(window, message_factory())
+
+        widget.toggled.connect(handle)
+        setattr(widget, attr_name, True)
+
+    bind_combo(
+        audio_input_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Audio input preview: {str(audio_input_combo.currentText() or 'Default Input').strip()} selected; capture remains deferred.",
+    )
+    bind_combo(
+        audio_output_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Audio output preview: {str(audio_output_combo.currentText() or 'Default Output').strip()} selected; playback remains deferred.",
+    )
+    bind_combo(
+        input_mode_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Input Mode preview: {str(input_mode_combo.currentText() or 'Voice Activation').strip()} selected; runtime input handling remains disconnected.",
+    )
+    bind_combo(
+        input_role_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Input Role preview: {str(input_role_combo.currentText() or 'User Message').strip()} selected; runtime message routing remains disconnected.",
+    )
+    bind_combo(
+        stream_mode_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Stream Mode preview: {str(stream_mode_combo.currentText() or 'Off').strip()} selected; live provider streaming remains deferred.",
+    )
+    bind_combo(
+        musetalk_vram_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] MuseTalk VRAM preview: {str(musetalk_vram_combo.currentText() or 'Quality').strip()} selected; no runtime reconfiguration was applied.",
+    )
+    bind_combo(
+        musetalk_avatar_pack_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] MuseTalk avatar pack preview: {str(musetalk_avatar_pack_combo.currentText() or 'No avatar packs found').strip()} selected; no adapter was rebuilt.",
+    )
+    bind_combo(
+        overflow_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Chat overflow preview: {str(overflow_combo.currentText() or 'Rolling Window').strip()} selected; chat-context files and runtime limits remain unchanged.",
+    )
+    bind_spin(
+        context_window_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Chat context window preview: {int(context_window_spin.value()) if hasattr(context_window_spin, 'value') else 20} message(s); runtime context remains unchanged.",
+    )
+    bind_spin(
+        stored_history_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Stored history preview: {int(stored_history_spin.value()) if hasattr(stored_history_spin, 'value') else 0} message(s); no session file was updated.",
+    )
+    bind_check(
+        allow_proactive_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Proactive replies preview: {'enabled' if allow_proactive_checkbox.isChecked() else 'disabled'}; runtime behavior remains unchanged.",
+    )
+    bind_check(
+        require_first_user_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] First-user gate preview: {'enabled' if require_first_user_checkbox.isChecked() else 'disabled'}; runtime behavior remains unchanged.",
+    )
+    bind_spin(
+        listen_idle_window_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Idle wait preview: {float(listen_idle_window_spin.value()) if hasattr(listen_idle_window_spin, 'value') else 5.0:.1f}s; runtime behavior remains unchanged.",
+    )
+    bind_spin(
+        proactive_delay_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Proactive delay preview: {float(proactive_delay_spin.value()) if hasattr(proactive_delay_spin, 'value') else 10.0:.1f}s; runtime behavior remains unchanged.",
+    )
+    bind_check(
+        limit_response_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Response limit preview: {'enabled' if limit_response_checkbox.isChecked() else 'disabled'}; runtime behavior remains unchanged.",
+        on_changed=lambda checked: max_response_tokens_spin.setEnabled(bool(checked)) if max_response_tokens_spin is not None and hasattr(max_response_tokens_spin, "setEnabled") else None,
+    )
+    bind_spin(
+        max_response_tokens_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Max response preview: {int(max_response_tokens_spin.value()) if hasattr(max_response_tokens_spin, 'value') else default_max_response_tokens} token(s); runtime behavior remains unchanged.",
+    )
+    bind_combo(
+        sensory_feedback_source_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Sensory source preview: {str(sensory_feedback_source_combo.currentText() or 'Off').strip()} selected; capture remains deferred.",
+    )
+    bind_spin(
+        sensory_feedback_interval_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Sensory refresh preview: {float(sensory_feedback_interval_spin.value()) if hasattr(sensory_feedback_interval_spin, 'value') else 7.0:.1f}s; hidden capture remains deferred.",
+    )
+    bind_check(
+        sensory_pingpong_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Hidden PING/PONG preview: {'enabled' if sensory_pingpong_checkbox.isChecked() else 'disabled'}; no hidden loop was started.",
+    )
+    bind_check(
+        sensory_allow_hidden_proactive_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Hidden proactive speech preview: {'enabled' if sensory_allow_hidden_proactive_checkbox.isChecked() else 'disabled'}; no runtime behavior changed.",
+    )
+    bind_check(
+        sensory_allow_hidden_visual_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Hidden visual generation preview: {'enabled' if sensory_allow_hidden_visual_checkbox.isChecked() else 'disabled'}; no runtime behavior changed.",
+    )
+    bind_spin(
+        sensory_pingpong_history_spin,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Hidden PING/PONG history preview: {int(sensory_pingpong_history_spin.value()) if hasattr(sensory_pingpong_history_spin, 'value') else 3}; runtime behavior remains unchanged.",
+    )
+    bind_combo(
+        visual_reply_mode_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Visual Reply mode preview: {str(visual_reply_mode_combo.currentText() or 'Auto').strip()} selected; no image generation was started.",
+        on_changed=lambda _checked=None: (visual_reply_service.apply_mode(visual_reply_mode_combo.currentText()), visual_reply_service.refresh_hint()),
+    )
+    bind_combo(
+        visual_reply_provider_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Visual Reply provider preview: {str(visual_reply_provider_combo.currentText() or 'OpenAI').strip()} selected; no network call was made.",
+        on_changed=lambda _checked=None: (visual_reply_service.apply_provider(visual_reply_provider_combo.currentText()), visual_reply_service.refresh_hint()),
+    )
+    bind_combo(
+        visual_reply_size_combo,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Visual Reply size preview: {str(visual_reply_size_combo.currentText() or '1024x1024').strip()} selected; no image generation was started.",
+        on_changed=lambda _checked=None: (visual_reply_service.apply_size(visual_reply_size_combo.currentText()), visual_reply_service.refresh_hint()),
+    )
+    bind_check(
+        visual_reply_auto_show_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Visual Reply auto-show preview: {'enabled' if visual_reply_auto_show_checkbox.isChecked() else 'disabled'}; dock behavior remains shell-local.",
+        on_changed=lambda checked: (visual_reply_service.apply_auto_show(checked), visual_reply_service.refresh_hint()),
+    )
+    if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "editingFinished"):
+        bound.append(str(visual_reply_model_edit.objectName() if hasattr(visual_reply_model_edit, "objectName") else "visual_reply_model_edit"))
+        if not getattr(visual_reply_model_edit, "_nc_ui_shell_host_core_bound", False):
+            def on_visual_model_changed():
+                visual_reply_service.apply_model()
+                refresh_status()
+                _ui_shell_append_console(window, f"[UI Shell] Visual Reply model preview: {str(visual_reply_model_edit.text() or 'gpt-image-1').strip()} selected; no image generation was started.")
+            visual_reply_model_edit.editingFinished.connect(on_visual_model_changed)
+            setattr(visual_reply_model_edit, "_nc_ui_shell_host_core_bound", True)
+
+    refresh_status()
+    return {
+        "bound": bound,
+        "audio_inputs": max(0, len(list(audio_devices.get("inputs") or [])) - 1),
+        "audio_outputs": max(0, len(list(audio_devices.get("outputs") or [])) - 1),
+        "avatar_packs": len(avatar_pack_options),
+        "sensory_providers": len(list(sensory_providers or [])),
+    }
+
+
+def _bind_ui_shell_chunking_profile_controls(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    service = _ui_shell_performance_profile_service(window)
+    applied_defaults = _ui_shell_apply_chunking_values(window, session)
+    profiles = _ui_shell_refresh_performance_profile_combos(window)
+    bound = []
+    deferred = [
+        "btn_chunking_profile_save",
+        "btn_profile_save_latest",
+        "btn_chunking_profile_delete",
+        "btn_profile_delete",
+    ]
+
+    reset_button = _ui_shell_find_object(window, "btn_reset_chunking_defaults")
+    chunking_combo = _ui_shell_find_object(window, "chunking_profile_combo")
+    performance_combo = _ui_shell_find_object(window, "performance_profile_combo")
+    chunking_refresh = _ui_shell_find_object(window, "btn_chunking_profile_refresh")
+    performance_refresh = _ui_shell_find_object(window, "btn_profile_refresh")
+    chunking_load = _ui_shell_find_object(window, "btn_chunking_profile_load")
+    performance_load = _ui_shell_find_object(window, "btn_profile_load")
+    chunking_save = _ui_shell_find_object(window, "btn_chunking_profile_save")
+    performance_save = _ui_shell_find_object(window, "btn_profile_save_latest")
+    chunking_delete = _ui_shell_find_object(window, "btn_chunking_profile_delete")
+    performance_delete = _ui_shell_find_object(window, "btn_profile_delete")
+
+    if reset_button is not None and hasattr(reset_button, "setToolTip"):
+        reset_button.setToolTip("Shell-local chunking reset. Restores visible defaults only.")
+
+    def bind_slider(key):
+        slider = _ui_shell_chunking_slider_widget(window, key)
+        if slider is None or not hasattr(slider, "valueChanged"):
+            return
+        object_name = str(slider.objectName() if hasattr(slider, "objectName") else key)
+        bound.append(object_name)
+        if getattr(slider, "_nc_ui_shell_chunking_bound", False):
+            return
+
+        def on_changed(value):
+            _ui_shell_update_chunking_label(window, key, value)
+            _ui_shell_refresh_host_core_status(window)
+            title = str(_ui_shell_chunking_slider_spec(key).get("title") or key).strip()
+            _ui_shell_append_console(window, f"[UI Shell] Chunking preview: {title} -> {_ui_shell_format_chunking_value(value)}; runtime chunking remains unchanged.")
+
+        slider.valueChanged.connect(on_changed)
+        setattr(slider, "_nc_ui_shell_chunking_bound", True)
+
+    def bind_combo(combo, source, label):
+        if combo is None or not hasattr(combo, "currentIndexChanged"):
+            return
+        object_name = str(combo.objectName() if hasattr(combo, "objectName") else f"{source}_profile_combo")
+        bound.append(object_name)
+        if getattr(combo, "_nc_ui_shell_chunking_profile_bound", False):
+            return
+
+        def on_changed(_index=None):
+            profile_name = _ui_shell_profile_selected_name(window, source=source)
+            if profile_name:
+                _ui_shell_append_console(window, f"[UI Shell] {label} selected: {profile_name}. Use Load Profile to apply the shell-safe subset.")
+
+        combo.currentIndexChanged.connect(on_changed)
+        setattr(combo, "_nc_ui_shell_chunking_profile_bound", True)
+
+    def bind_button(button, attr_name, handler):
+        if button is None or not hasattr(button, "clicked"):
+            return
+        object_name = str(button.objectName() if hasattr(button, "objectName") else attr_name)
+        bound.append(object_name)
+        if getattr(button, attr_name, False):
+            return
+
+        def on_clicked(_checked=False):
+            handler()
+
+        button.clicked.connect(on_clicked)
+        setattr(button, attr_name, True)
+
+    for key in UI_SHELL_CHUNKING_SPECS:
+        bind_slider(key)
+
+    bind_combo(chunking_combo, "chunking", "Chunking profile")
+    bind_combo(performance_combo, "dry_run", "Performance profile")
+
+    bind_button(
+        reset_button,
+        "_nc_ui_shell_chunking_profile_bound",
+        lambda: (
+            service.reset_chunking_defaults(),
+            _ui_shell_append_console(window, "[UI Shell] Chunking defaults restored in shell preview; no runtime configuration was changed."),
+        ),
+    )
+    bind_button(
+        chunking_refresh,
+        "_nc_ui_shell_chunking_profile_bound",
+        lambda: (
+            service.refresh_profiles(preferred_name=_ui_shell_profile_selected_name(window, "chunking")),
+            _ui_shell_append_console(window, f"[UI Shell] Performance profiles refreshed for chunking preview: {len(_ui_shell_list_performance_profiles())} JSON profile(s) found."),
+        ),
+    )
+    bind_button(
+        performance_refresh,
+        "_nc_ui_shell_chunking_profile_bound",
+        lambda: (
+            service.refresh_profiles(preferred_name=_ui_shell_profile_selected_name(window, "dry_run")),
+            _ui_shell_append_console(window, f"[UI Shell] Performance profiles refreshed for Dry Run preview: {len(_ui_shell_list_performance_profiles())} JSON profile(s) found."),
+        ),
+    )
+
+    def load_profile(source, label):
+        result = service.load_profile(source=source)
+        if result.get("loaded"):
+            deferred_keys = [str(key) for key in list(result.get("deferred_keys") or []) if str(key).strip()]
+            deferred_suffix = f" Deferred keys: {', '.join(deferred_keys)}." if deferred_keys else ""
+            _ui_shell_append_console(window, f"[UI Shell] {label} loaded in shell preview: {result.get('profile_name')}.{deferred_suffix}")
+        else:
+            _ui_shell_append_console(window, f"[UI Shell] {result.get('message') or 'No performance profile selected.'}")
+
+    bind_button(chunking_load, "_nc_ui_shell_chunking_profile_bound", lambda: load_profile("chunking", "Chunking profile"))
+    bind_button(performance_load, "_nc_ui_shell_chunking_profile_bound", lambda: load_profile("dry_run", "Performance profile"))
+
+    def deferred_action(action_label):
+        deferred.append(action_label)
+        _ui_shell_append_console(window, f"[UI Shell] {action_label} is deferred in shell preview; no profile files were modified.")
+
+    bind_button(chunking_save, "_nc_ui_shell_chunking_profile_bound", lambda: deferred_action("Chunking profile save"))
+    bind_button(performance_save, "_nc_ui_shell_chunking_profile_bound", lambda: deferred_action("Performance profile save"))
+    bind_button(chunking_delete, "_nc_ui_shell_chunking_profile_bound", lambda: deferred_action("Chunking profile delete"))
+    bind_button(performance_delete, "_nc_ui_shell_chunking_profile_bound", lambda: deferred_action("Performance profile delete"))
+
+    _ui_shell_refresh_host_core_status(window)
+    return {
+        "bound": bound,
+        "profiles": len(profiles),
+        "chunking_controls": len(applied_defaults),
+        "deferred": sorted(set(deferred)),
+    }
+
+
+def _bind_ui_shell_dry_run_controls(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    service = _ui_shell_dry_run_service(window)
+    bound = []
+    deferred = ["btn_dry_run_start", "btn_dry_run_stop"]
+
+    target_spin = _ui_shell_find_object(window, "dry_run_target_spin")
+    auto_replies_checkbox = _ui_shell_find_object(window, "dry_run_auto_replies_checkbox")
+    start_button = _ui_shell_find_object(window, "btn_dry_run_start")
+    stop_button = _ui_shell_find_object(window, "btn_dry_run_stop")
+    apply_button = _ui_shell_find_object(window, "btn_dry_run_apply")
+    status_label = _ui_shell_find_object(window, "dry_run_status_label")
+    summary_edit = _ui_shell_find_object(window, "dry_run_summary")
+
+    if target_spin is not None:
+        _ui_shell_set_spin_value(target_spin, int(session.get("dry_run_target_samples", 0) or 0))
+        if hasattr(target_spin, "setToolTip"):
+            target_spin.setToolTip("Shell-local Dry Run preview target. No profiling session is started.")
+    if auto_replies_checkbox is not None:
+        _ui_shell_set_checked(auto_replies_checkbox, bool(session.get("dry_run_auto_replies", True)))
+        if hasattr(auto_replies_checkbox, "setToolTip"):
+            auto_replies_checkbox.setToolTip("Shell-local Dry Run hands-free preview. No profiling session is started.")
+    if summary_edit is not None:
+        try:
+            summary_edit.setReadOnly(True)
+        except Exception:
+            pass
+        if hasattr(summary_edit, "setToolTip"):
+            summary_edit.setToolTip("Shell-local Dry Run preview summary. No profiling metrics are collected here.")
+
+    def refresh_preview():
+        snapshot = service.refresh_preview()
+        if status_label is not None and hasattr(status_label, "setText"):
+            status_label.setText(str(snapshot.get("status_text") or "Dry Run idle."))
+        if summary_edit is not None and hasattr(summary_edit, "setPlainText"):
+            summary_edit.setPlainText(str(snapshot.get("summary_text") or ""))
+        if stop_button is not None and hasattr(stop_button, "setEnabled"):
+            stop_button.setEnabled(str(snapshot.get("state") or "idle") == "armed")
+        if start_button is not None and hasattr(start_button, "setEnabled"):
+            start_button.setEnabled(str(snapshot.get("state") or "idle") != "armed")
+        if apply_button is not None and hasattr(apply_button, "setEnabled"):
+            apply_button.setEnabled(bool(snapshot.get("has_recommendation")))
+        return snapshot
+
+    def bind_spin(widget, attr_name, on_log):
+        if widget is None or not hasattr(widget, "valueChanged"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def handle(_value=None):
+            refresh_preview()
+            _ui_shell_append_console(window, on_log())
+
+        widget.valueChanged.connect(handle)
+        setattr(widget, attr_name, True)
+
+    def bind_check(widget, attr_name, on_log):
+        if widget is None or not hasattr(widget, "toggled"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def handle(_checked=False):
+            refresh_preview()
+            _ui_shell_append_console(window, on_log())
+
+        widget.toggled.connect(handle)
+        setattr(widget, attr_name, True)
+
+    def bind_button(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "clicked"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def handle(_checked=False):
+            handler()
+
+        widget.clicked.connect(handle)
+        setattr(widget, attr_name, True)
+
+    bind_spin(
+        target_spin,
+        "_nc_ui_shell_dry_run_bound",
+        lambda: f"[UI Shell] Dry Run target preview: {int(target_spin.value()) if hasattr(target_spin, 'value') else 0} sample(s); no profiling session was started.",
+    )
+    bind_check(
+        auto_replies_checkbox,
+        "_nc_ui_shell_dry_run_bound",
+        lambda: f"[UI Shell] Dry Run hands-free preview: {'enabled' if auto_replies_checkbox.isChecked() else 'disabled'}; no profiling session was started.",
+    )
+    bind_button(
+        start_button,
+        "_nc_ui_shell_dry_run_bound",
+        lambda: (
+            service.start_session(),
+            refresh_preview(),
+            _ui_shell_append_console(window, "[UI Shell] Dry Run arm request deferred; no engine, model, or profiling worker was started."),
+        ),
+    )
+    bind_button(
+        stop_button,
+        "_nc_ui_shell_dry_run_bound",
+        lambda: (
+            service.stop_session(),
+            refresh_preview(),
+            _ui_shell_append_console(window, "[UI Shell] Dry Run stop request deferred; no profiling session was running."),
+        ),
+    )
+
+    def apply_recommendation():
+        result = service.apply_recommendation()
+        refresh_preview()
+        if result.get("applied"):
+            deferred_keys = [str(key) for key in list(result.get("deferred_keys") or []) if str(key).strip()]
+            deferred_suffix = f" Deferred keys: {', '.join(deferred_keys)}." if deferred_keys else ""
+            _ui_shell_append_console(window, f"[UI Shell] Dry Run recommendation preview applied to the shell-visible subset only.{deferred_suffix}")
+        else:
+            _ui_shell_append_console(window, f"[UI Shell] {result.get('message') or 'No saved Dry Run recommendation is available.'}")
+
+    bind_button(apply_button, "_nc_ui_shell_dry_run_bound", apply_recommendation)
+
+    refresh_preview()
+    return {
+        "bound": bound,
+        "deferred": sorted(set(deferred)),
+        "has_recommendation": bool(service.snapshot().get("has_recommendation")),
+    }
+
+
+def _bind_ui_shell_persona_body_vam_controls(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    service = _ui_shell_persona_avatar_service(window)
+    bound = []
+    deferred = [
+        "btn_body_save",
+        "btn_body_save_as",
+        "btn_body_delete",
+        "btn_hand_doctor",
+        "btn_vseeface_hide_interface",
+        "btn_start_vam_desktop",
+        "btn_start_vam_vr",
+        "btn_vam_hide_interface",
+    ]
+
+    voice_combo = _ui_shell_find_object(window, "voice_combo")
+    emotional_text = _ui_shell_find_object(window, "emotional_text")
+    system_prompt_text = _ui_shell_find_object(window, "system_prompt_text")
+    apply_text_button = _ui_shell_find_object(window, "btn_apply_text_config")
+    body_combo = _ui_shell_find_object(window, "body_combo")
+    emotion_combo = _ui_shell_find_object(window, "emotion_combo")
+    live_sync_checkbox = _ui_shell_find_object(window, "live_sync_checkbox")
+    btn_body_load = _ui_shell_find_object(window, "btn_body_load")
+    btn_body_save = _ui_shell_find_object(window, "btn_body_save")
+    btn_body_save_as = _ui_shell_find_object(window, "btn_body_save_as")
+    btn_body_delete = _ui_shell_find_object(window, "btn_body_delete")
+    btn_hand_doctor = _ui_shell_find_object(window, "btn_hand_doctor")
+    btn_vseeface_hide_interface = _ui_shell_find_object(window, "btn_vseeface_hide_interface")
+    vam_root_edit = _ui_shell_find_object(window, "vam_root_edit")
+    vam_bridge_root_edit = _ui_shell_find_object(window, "vam_bridge_root_edit")
+    vam_target_atom_uid_edit = _ui_shell_find_object(window, "vam_target_atom_uid_edit")
+    vam_target_storable_id_edit = _ui_shell_find_object(window, "vam_target_storable_id_edit")
+    vam_vmc_host_edit = _ui_shell_find_object(window, "vam_vmc_host_edit")
+    vam_vmc_port_spin = _ui_shell_find_object(window, "vam_vmc_port_spin")
+    vam_vmc_enabled_checkbox = _ui_shell_find_object(window, "vam_vmc_enabled_checkbox")
+    vam_bridge_enabled_checkbox = _ui_shell_find_object(window, "vam_bridge_enabled_checkbox")
+    vam_play_audio_in_vam_checkbox = _ui_shell_find_object(window, "vam_play_audio_in_vam_checkbox")
+    vam_timeline_auto_resume_checkbox = _ui_shell_find_object(window, "vam_timeline_auto_resume_checkbox")
+    btn_start_vam_desktop = _ui_shell_find_object(window, "btn_start_vam_desktop")
+    btn_start_vam_vr = _ui_shell_find_object(window, "btn_start_vam_vr")
+    btn_vam_hide_interface = _ui_shell_find_object(window, "btn_vam_hide_interface")
+
+    if voice_combo is not None:
+        _ui_shell_combo_set_items(voice_combo, _ui_shell_voice_options(window))
+        _ui_shell_combo_select_label(voice_combo, str(session.get("voice_file", "") or ""))
+        voice_combo.setToolTip("Shell-local voice preview. No TTS backend is reloaded.")
+    if emotional_text is not None and hasattr(emotional_text, "setPlainText"):
+        emotional_text.setPlainText(str(session.get("emotional_instructions", "") or ""))
+        emotional_text.setToolTip("Shell-local persona preview. Changes are not saved or applied to runtime.")
+    if system_prompt_text is not None and hasattr(system_prompt_text, "setPlainText"):
+        system_prompt_text.setPlainText(str(session.get("system_prompt", "") or ""))
+        system_prompt_text.setToolTip("Shell-local system-prompt preview. Changes are not saved or applied to runtime.")
+
+    configs = _ui_shell_refresh_body_combo(window, preferred_name=str(session.get("last_body", "") or ""))
+    if emotion_combo is not None:
+        _ui_shell_combo_set_items(emotion_combo, list(UI_SHELL_BODY_EMOTIONS))
+        _ui_shell_combo_select_label(emotion_combo, "Neutral")
+        emotion_combo.setToolTip("Shell-local emotion preview. Changes update only the visible shell sliders.")
+    if live_sync_checkbox is not None:
+        _ui_shell_set_checked(live_sync_checkbox, bool(session.get("live_sync", False)))
+        live_sync_checkbox.setToolTip("Shell-local body sync preview. No avatar runtime mode changes occur.")
+    for key in UI_SHELL_BODY_POSE_SPECS:
+        _ui_shell_configure_body_slider(window, key)
+    selected_body = str(session.get("last_body", "") or "").strip()
+    if selected_body and selected_body in configs:
+        _ui_shell_load_body_preview(window, selected_body)
+    else:
+        _ui_shell_set_selected_body_profile(window, {})
+        _ui_shell_apply_body_profile_for_emotion(window)
+
+    initial_vam_root = _ui_shell_normalize_vam_root(str(session.get("vam_root", "") or UI_SHELL_DEFAULT_LOCAL_VAM_ROOT))
+    if vam_root_edit is not None and hasattr(vam_root_edit, "setText"):
+        vam_root_edit.setText(initial_vam_root)
+        vam_root_edit.setToolTip("Shell-local VaM root preview. Launch and bridge behavior remain deferred.")
+    if vam_bridge_root_edit is not None and hasattr(vam_bridge_root_edit, "setText"):
+        vam_bridge_root_edit.setText(_ui_shell_derive_vam_bridge_root(initial_vam_root))
+        vam_bridge_root_edit.setReadOnly(True)
+        vam_bridge_root_edit.setToolTip("Derived from VaM Root in shell preview.")
+    if vam_target_atom_uid_edit is not None and hasattr(vam_target_atom_uid_edit, "setText"):
+        vam_target_atom_uid_edit.setText(str(session.get("vam_target_atom_uid", "Person") or "Person"))
+        vam_target_atom_uid_edit.setToolTip("Shell-local VaM target preview. Changes are not saved or applied to runtime.")
+    if vam_target_storable_id_edit is not None and hasattr(vam_target_storable_id_edit, "setText"):
+        vam_target_storable_id_edit.setText(str(session.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
+        vam_target_storable_id_edit.setToolTip("Shell-local VaM target preview. Changes are not saved or applied to runtime.")
+    if vam_vmc_host_edit is not None and hasattr(vam_vmc_host_edit, "setText"):
+        vam_vmc_host_edit.setText(str(session.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
+        vam_vmc_host_edit.setToolTip("Shell-local VaM VMC host preview. No socket is opened.")
+    if vam_vmc_port_spin is not None:
+        _ui_shell_set_spin_value(vam_vmc_port_spin, int(session.get("vam_vmc_port", 39539) or 39539))
+        vam_vmc_port_spin.setToolTip("Shell-local VaM VMC port preview. No socket is opened.")
+    for object_name, default_value, detail in (
+        ("vam_vmc_enabled_checkbox", bool(session.get("vam_vmc_enabled", True)), "Shell-local VaM VMC preview. No runtime connector is started."),
+        ("vam_bridge_enabled_checkbox", bool(session.get("vam_bridge_enabled", True)), "Shell-local VaM bridge preview. No file bridge is started."),
+        ("vam_play_audio_in_vam_checkbox", bool(session.get("vam_play_audio_in_vam", False)), "Shell-local VaM audio preview. No audio routing changes occur."),
+        ("vam_timeline_auto_resume_checkbox", bool(session.get("vam_timeline_auto_resume", True)), "Shell-local VaM timeline preview. No runtime bridge is started."),
+    ):
+        widget = _ui_shell_find_object(window, object_name)
+        if widget is not None:
+            _ui_shell_set_checked(widget, default_value)
+            widget.setToolTip(detail)
+
+    _ui_shell_refresh_vam_status_labels(window)
+
+    def bind_combo(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "currentIndexChanged"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_changed(_index=None):
+            handler()
+
+        widget.currentIndexChanged.connect(on_changed)
+        setattr(widget, attr_name, True)
+
+    def bind_spin(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "valueChanged"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_changed(_value=None):
+            handler()
+
+        widget.valueChanged.connect(on_changed)
+        setattr(widget, attr_name, True)
+
+    def bind_check(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "toggled"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_changed(_checked=False):
+            handler()
+
+        widget.toggled.connect(on_changed)
+        setattr(widget, attr_name, True)
+
+    def bind_button(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "clicked"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_clicked(_checked=False):
+            handler()
+
+        widget.clicked.connect(on_clicked)
+        setattr(widget, attr_name, True)
+
+    def bind_edit(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "editingFinished"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_finished():
+            handler()
+
+        widget.editingFinished.connect(on_finished)
+        setattr(widget, attr_name, True)
+
+    bind_combo(
+        voice_combo,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: _ui_shell_append_console(window, f"[UI Shell] Voice preview: {_ui_shell_current_voice_file(window) or 'No .wav found'} selected; no TTS backend was reloaded."),
+    )
+    bind_button(
+        apply_text_button,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: (
+            service.apply_persona(),
+            _ui_shell_append_console(window, f"[UI Shell] Persona/body/VaM preview applied locally only. Voice={_ui_shell_current_voice_file(window) or '<none>'}, body={_ui_shell_selected_body_name(window) or '<none>'}."),
+        ),
+    )
+    bind_combo(
+        body_combo,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: _ui_shell_append_console(window, f"[UI Shell] Body preset selected: {_ui_shell_selected_body_name(window) or 'No Configs'}. Use Load to apply the shell-safe preview."),
+    )
+    bind_button(
+        btn_body_load,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: (
+            _ui_shell_append_console(window, f"[UI Shell] {_ui_shell_load_body_preview(window).get('message') or 'No body preset selected.'}")
+        ),
+    )
+    bind_button(btn_body_save, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Body save is deferred in shell preview; no files were written."))
+    bind_button(btn_body_save_as, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Body save-as is deferred in shell preview; no files were written."))
+    bind_button(btn_body_delete, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Body delete is deferred in shell preview; no files were removed."))
+    bind_combo(
+        emotion_combo,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: (
+            _ui_shell_apply_body_profile_for_emotion(window),
+            _ui_shell_append_console(window, f"[UI Shell] Body emotion preview: {_ui_shell_combo_text_value(window, 'emotion_combo', 'Neutral')} selected; visible shell sliders were updated."),
+        ),
+    )
+    bind_check(
+        live_sync_checkbox,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: _ui_shell_append_console(window, f"[UI Shell] Live Sync preview: {'enabled' if _ui_shell_checkbox_value(window, 'live_sync_checkbox', False) else 'disabled'}; avatar runtime mode remains unchanged."),
+    )
+    bind_button(btn_hand_doctor, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Hand Doctor is deferred in shell preview; no debugger window was opened."))
+    bind_button(btn_vseeface_hide_interface, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] VSeeFace interface-hide action is deferred in shell preview."))
+
+    for key in UI_SHELL_BODY_POSE_SPECS:
+        slider = _ui_shell_body_slider_widget(window, key)
+        bind_spin(
+            slider,
+            "_nc_ui_shell_persona_avatar_bound",
+            lambda key_name=key, slider_widget=slider: (
+                _ui_shell_update_body_label(window, key_name, _ui_shell_body_slider_raw_to_value(key_name, slider_widget.value() if slider_widget is not None and hasattr(slider_widget, 'value') else 0)),
+                _ui_shell_append_console(window, f"[UI Shell] Body pose preview: {str(_ui_shell_body_pose_spec(key_name).get('title') or key_name)} -> {_ui_shell_format_body_value(key_name, _ui_shell_body_slider_raw_to_value(key_name, slider_widget.value() if slider_widget is not None and hasattr(slider_widget, 'value') else 0))}; runtime pose state remains unchanged."),
+            ),
+        )
+
+    def on_vam_root_changed():
+        normalized_root = _ui_shell_normalize_vam_root(_ui_shell_line_edit_value(window, "vam_root_edit", UI_SHELL_DEFAULT_LOCAL_VAM_ROOT))
+        if vam_root_edit is not None and hasattr(vam_root_edit, "setText"):
+            vam_root_edit.setText(normalized_root)
+        if vam_bridge_root_edit is not None and hasattr(vam_bridge_root_edit, "setText"):
+            vam_bridge_root_edit.setText(_ui_shell_derive_vam_bridge_root(normalized_root))
+        _ui_shell_refresh_vam_status_labels(window)
+        _ui_shell_append_console(window, f"[UI Shell] VaM root preview: {normalized_root or '<unset>'}; bridge path was derived locally only.")
+
+    def on_vam_text_changed(label, object_name):
+        _ui_shell_refresh_vam_status_labels(window)
+        _ui_shell_append_console(window, f"[UI Shell] {label} preview: {_ui_shell_line_edit_value(window, object_name)}; runtime bridge settings remain unchanged.")
+
+    def on_vam_check_changed(label, object_name):
+        _ui_shell_refresh_vam_status_labels(window)
+        _ui_shell_append_console(window, f"[UI Shell] {label} preview: {'enabled' if _ui_shell_checkbox_value(window, object_name, False) else 'disabled'}; no VaM connector was started.")
+
+    bind_edit(vam_root_edit, "_nc_ui_shell_persona_avatar_bound", on_vam_root_changed)
+    bind_edit(vam_target_atom_uid_edit, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_text_changed("VaM target atom UID", "vam_target_atom_uid_edit"))
+    bind_edit(vam_target_storable_id_edit, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_text_changed("VaM target storable ID", "vam_target_storable_id_edit"))
+    bind_edit(vam_vmc_host_edit, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_text_changed("VaM VMC host", "vam_vmc_host_edit"))
+    bind_spin(
+        vam_vmc_port_spin,
+        "_nc_ui_shell_persona_avatar_bound",
+        lambda: (
+            _ui_shell_refresh_vam_status_labels(window),
+            _ui_shell_append_console(window, f"[UI Shell] VaM VMC port preview: {int(vam_vmc_port_spin.value()) if vam_vmc_port_spin is not None and hasattr(vam_vmc_port_spin, 'value') else 39539}; no socket was opened."),
+        ),
+    )
+    bind_check(vam_vmc_enabled_checkbox, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_check_changed("VaM VMC", "vam_vmc_enabled_checkbox"))
+    bind_check(vam_bridge_enabled_checkbox, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_check_changed("VaM file bridge", "vam_bridge_enabled_checkbox"))
+    bind_check(vam_play_audio_in_vam_checkbox, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_check_changed("VaM in-engine audio", "vam_play_audio_in_vam_checkbox"))
+    bind_check(vam_timeline_auto_resume_checkbox, "_nc_ui_shell_persona_avatar_bound", lambda: on_vam_check_changed("VaM timeline auto-resume", "vam_timeline_auto_resume_checkbox"))
+    bind_button(btn_start_vam_desktop, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Start VaM Desktop is deferred in shell preview; no process was launched."))
+    bind_button(btn_start_vam_vr, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] Start VaM VR is deferred in shell preview; no process was launched."))
+    bind_button(btn_vam_hide_interface, "_nc_ui_shell_persona_avatar_bound", lambda: _ui_shell_append_console(window, "[UI Shell] VaM interface-hide action is deferred in shell preview."))
+
+    return {
+        "bound": bound,
+        "deferred": sorted(set(deferred)),
+        "voices": len([item for item in _ui_shell_voice_options(window) if item != "No .wav found"]),
+        "body_configs": len(configs),
+    }
+
+
+def _bind_ui_shell_input_action_controls(window):
+    session = dict(_read_ui_shell_session_snapshot() or {})
+    service = _ui_shell_input_actions_service(window)
+    bound = []
+    deferred = [
+        "btn_push_to_talk",
+        "import_audio_button",
+        "transcribe_audio_button",
+        "audio_story_play_button",
+        "audio_story_pause_button",
+        "audio_story_stop_button",
+    ]
+
+    input_mode_combo = _ui_shell_find_object(window, "input_mode_combo")
+    push_to_talk_button = _ui_shell_find_object(window, "btn_push_to_talk")
+    audio_file_path_edit = _ui_shell_find_object(window, "audio_file_path_edit")
+    import_audio_button = _ui_shell_find_object(window, "import_audio_button")
+    audio_story_playback_combo = _ui_shell_find_object(window, "audio_story_playback_combo")
+    transcribe_seconds_label = _ui_shell_find_object(window, "transcribe_seconds_label")
+    transcribe_seconds_slider = _ui_shell_find_object(window, "transcribe_seconds_slider")
+    transcribe_audio_button = _ui_shell_find_object(window, "transcribe_audio_button")
+    audio_story_play_button = _ui_shell_find_object(window, "audio_story_play_button")
+    audio_story_pause_button = _ui_shell_find_object(window, "audio_story_pause_button")
+    audio_story_stop_button = _ui_shell_find_object(window, "audio_story_stop_button")
+    audio_story_seek_slider = _ui_shell_find_object(window, "audio_story_seek_slider")
+    audio_story_position_label = _ui_shell_find_object(window, "audio_story_position_label")
+
+    if audio_file_path_edit is not None:
+        if hasattr(audio_file_path_edit, "setReadOnly"):
+            audio_file_path_edit.setReadOnly(False)
+        if hasattr(audio_file_path_edit, "setText"):
+            audio_file_path_edit.setText(str(session.get("audio_story_mode_audio_path", "") or ""))
+        if hasattr(audio_file_path_edit, "setToolTip"):
+            audio_file_path_edit.setToolTip("Shell-local Audio Story path preview. Paste a local path here; no file is opened or saved.")
+
+    if audio_story_playback_combo is not None:
+        _ui_shell_combo_set_items(audio_story_playback_combo, list(_UiShellInputActionService.AUDIO_STORY_PLAYBACK_MODES))
+        _ui_shell_combo_select_label(audio_story_playback_combo, str(session.get("audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio"))
+        audio_story_playback_combo.setToolTip("Shell-local Audio Story playback mode preview. No player or TTS narration is started.")
+
+    if transcribe_seconds_slider is not None:
+        try:
+            transcribe_seconds_slider.setRange(1, 60)
+        except Exception:
+            pass
+        _ui_shell_set_slider_value(transcribe_seconds_slider, int(session.get("audio_story_mode_transcribe_seconds", _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS) or _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS))
+        transcribe_seconds_slider.setToolTip("Shell-local transcription-window preview. No Whisper/STT runtime is started.")
+
+    if audio_story_seek_slider is not None:
+        try:
+            audio_story_seek_slider.setRange(0, 100)
+        except Exception:
+            pass
+        _ui_shell_set_slider_value(audio_story_seek_slider, 0)
+        audio_story_seek_slider.setToolTip("Shell-local Audio Story seek preview. No playback runtime is connected.")
+
+    def refresh_preview():
+        snapshot = service.snapshot()
+        if push_to_talk_button is not None:
+            if hasattr(push_to_talk_button, "setEnabled"):
+                push_to_talk_button.setEnabled(bool(snapshot.get("push_to_talk_enabled")))
+            if hasattr(push_to_talk_button, "setText"):
+                push_to_talk_button.setText("Talking..." if snapshot.get("push_to_talk_held") else "Hold To Talk")
+            if hasattr(push_to_talk_button, "setToolTip"):
+                if snapshot.get("push_to_talk_enabled"):
+                    push_to_talk_button.setToolTip(
+                        f"Shell-local push-to-talk preview. Hotkey: {snapshot.get('push_to_talk_hotkey') or 'Right Ctrl'}. No microphone capture is started."
+                    )
+                else:
+                    push_to_talk_button.setToolTip("Switch Input Mode to Push-to-Talk to preview this button. No microphone capture is started.")
+
+        base_transcribe_label = ""
+        if transcribe_seconds_label is not None and hasattr(transcribe_seconds_label, "setText"):
+            base_transcribe_label = str(getattr(transcribe_seconds_label, "_nc_ui_shell_base_text", "") or "").strip()
+            if not base_transcribe_label:
+                base_transcribe_label = str(transcribe_seconds_label.text() or "Transcribe Seconds").strip() or "Transcribe Seconds"
+                setattr(transcribe_seconds_label, "_nc_ui_shell_base_text", base_transcribe_label)
+            transcribe_seconds_label.setText(f"{base_transcribe_label} ({int(snapshot.get('audio_story_transcribe_seconds', 0) or 0)}s)")
+
+        has_audio = bool(snapshot.get("audio_story_has_audio"))
+        playback_state = str(snapshot.get("audio_story_playback_state") or "stopped").strip().lower()
+        seek_percent = int(snapshot.get("audio_story_seek_percent", 0) or 0)
+        if import_audio_button is not None and hasattr(import_audio_button, "setEnabled"):
+            import_audio_button.setEnabled(True)
+        if import_audio_button is not None and hasattr(import_audio_button, "setToolTip"):
+            import_audio_button.setToolTip("Shell-local preview only. The import dialog remains deferred; paste a path into the field to simulate import.")
+        if transcribe_audio_button is not None and hasattr(transcribe_audio_button, "setEnabled"):
+            transcribe_audio_button.setEnabled(has_audio)
+        if transcribe_audio_button is not None and hasattr(transcribe_audio_button, "setToolTip"):
+            transcribe_audio_button.setToolTip("Shell-local preview only. No Whisper/STT runtime is started.")
+        if audio_story_play_button is not None and hasattr(audio_story_play_button, "setEnabled"):
+            audio_story_play_button.setEnabled(has_audio and playback_state != "playing")
+        if audio_story_play_button is not None and hasattr(audio_story_play_button, "setToolTip"):
+            audio_story_play_button.setToolTip("Shell-local playback preview only. No media player or TTS narration is started.")
+        if audio_story_pause_button is not None and hasattr(audio_story_pause_button, "setEnabled"):
+            audio_story_pause_button.setEnabled(has_audio and playback_state == "playing")
+        if audio_story_pause_button is not None and hasattr(audio_story_pause_button, "setToolTip"):
+            audio_story_pause_button.setToolTip("Shell-local playback preview only.")
+        if audio_story_stop_button is not None and hasattr(audio_story_stop_button, "setEnabled"):
+            audio_story_stop_button.setEnabled(has_audio and (playback_state in {"playing", "paused"} or seek_percent > 0))
+        if audio_story_stop_button is not None and hasattr(audio_story_stop_button, "setToolTip"):
+            audio_story_stop_button.setToolTip("Shell-local playback preview only.")
+        if audio_story_seek_slider is not None:
+            if hasattr(audio_story_seek_slider, "setEnabled"):
+                audio_story_seek_slider.setEnabled(has_audio)
+            if not (hasattr(audio_story_seek_slider, "isSliderDown") and audio_story_seek_slider.isSliderDown()):
+                _ui_shell_set_slider_value(audio_story_seek_slider, seek_percent)
+        if audio_story_position_label is not None and hasattr(audio_story_position_label, "setText"):
+            audio_story_position_label.setText(str(snapshot.get("audio_story_position_text") or "00:00 / 01:00"))
+        return snapshot
+
+    def append_service_message(result):
+        message = str(result.get("message") or "").strip()
+        if message:
+            _ui_shell_append_console(window, f"[UI Shell] {message}")
+
+    def bind_line_edit(widget, attr_name):
+        if widget is None:
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        text_attr = f"{attr_name}_text_changed"
+        finished_attr = f"{attr_name}_editing_finished"
+        if hasattr(widget, "textChanged") and not getattr(widget, text_attr, False):
+            widget.textChanged.connect(lambda *_args: refresh_preview())
+            setattr(widget, text_attr, True)
+        if hasattr(widget, "editingFinished") and not getattr(widget, finished_attr, False):
+            widget.editingFinished.connect(
+                lambda: (
+                    append_service_message(service.set_audio_file_path(_ui_shell_line_edit_value(window, "audio_file_path_edit", ""))),
+                    refresh_preview(),
+                )
+            )
+            setattr(widget, finished_attr, True)
+
+    def bind_combo(widget, attr_name, on_log):
+        if widget is None or not hasattr(widget, "currentIndexChanged"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+
+        def on_changed(_index=None):
+            snapshot = refresh_preview()
+            _ui_shell_append_console(window, on_log(snapshot))
+
+        widget.currentIndexChanged.connect(on_changed)
+        setattr(widget, attr_name, True)
+
+    def bind_slider(widget, attr_name, on_change=None, on_release=None):
+        if widget is None:
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        change_attr = f"{attr_name}_value_changed"
+        release_attr = f"{attr_name}_slider_released"
+        if hasattr(widget, "valueChanged") and not getattr(widget, change_attr, False):
+            widget.valueChanged.connect(lambda value=None: on_change(value) if callable(on_change) else refresh_preview())
+            setattr(widget, change_attr, True)
+        if hasattr(widget, "sliderReleased") and callable(on_release) and not getattr(widget, release_attr, False):
+            widget.sliderReleased.connect(on_release)
+            setattr(widget, release_attr, True)
+
+    def bind_click(widget, attr_name, handler):
+        if widget is None or not hasattr(widget, "clicked"):
+            return
+        bound.append(str(widget.objectName() if hasattr(widget, "objectName") else attr_name))
+        if getattr(widget, attr_name, False):
+            return
+        widget.clicked.connect(lambda _checked=False: handler())
+        setattr(widget, attr_name, True)
+
+    if push_to_talk_button is not None:
+        bound.append(str(push_to_talk_button.objectName() if hasattr(push_to_talk_button, "objectName") else "btn_push_to_talk"))
+        if hasattr(push_to_talk_button, "pressed") and not getattr(push_to_talk_button, "_nc_ui_shell_push_to_talk_press_bound", False):
+            push_to_talk_button.pressed.connect(
+                lambda: (
+                    append_service_message(service.set_push_to_talk_hold(True)),
+                    refresh_preview(),
+                )
+            )
+            setattr(push_to_talk_button, "_nc_ui_shell_push_to_talk_press_bound", True)
+        if hasattr(push_to_talk_button, "released") and not getattr(push_to_talk_button, "_nc_ui_shell_push_to_talk_release_bound", False):
+            push_to_talk_button.released.connect(
+                lambda: (
+                    append_service_message(service.set_push_to_talk_hold(False)),
+                    refresh_preview(),
+                )
+            )
+            setattr(push_to_talk_button, "_nc_ui_shell_push_to_talk_release_bound", True)
+
+    if input_mode_combo is not None and hasattr(input_mode_combo, "currentIndexChanged") and not getattr(input_mode_combo, "_nc_ui_shell_push_to_talk_mode_refresh_bound", False):
+        input_mode_combo.currentIndexChanged.connect(lambda _index=None: refresh_preview())
+        setattr(input_mode_combo, "_nc_ui_shell_push_to_talk_mode_refresh_bound", True)
+
+    bind_line_edit(audio_file_path_edit, "_nc_ui_shell_audio_story_path_bound")
+    bind_combo(
+        audio_story_playback_combo,
+        "_nc_ui_shell_audio_story_playback_bound",
+        lambda snapshot: f"Audio Story playback preview mode: {snapshot.get('audio_story_playback_mode') or 'Play Imported Audio'}. No audio runtime changed.",
+    )
+    bind_slider(
+        transcribe_seconds_slider,
+        "_nc_ui_shell_audio_story_transcribe_slider_bound",
+        on_change=lambda _value=None: refresh_preview(),
+        on_release=lambda: _ui_shell_append_console(
+            window,
+            f"[UI Shell] Audio Story transcribe window preview: {int(service.snapshot().get('audio_story_transcribe_seconds', 0) or 0)} second(s). No STT runtime changed.",
+        ),
+    )
+    bind_click(import_audio_button, "_nc_ui_shell_import_audio_bound", lambda: (append_service_message(service.request_audio_import()), refresh_preview()))
+    bind_click(transcribe_audio_button, "_nc_ui_shell_transcribe_audio_bound", lambda: (append_service_message(service.request_audio_transcription()), refresh_preview()))
+    bind_click(audio_story_play_button, "_nc_ui_shell_audio_story_play_bound", lambda: (append_service_message(service.play_audio_story()), refresh_preview()))
+    bind_click(audio_story_pause_button, "_nc_ui_shell_audio_story_pause_bound", lambda: (append_service_message(service.pause_audio_story()), refresh_preview()))
+    bind_click(audio_story_stop_button, "_nc_ui_shell_audio_story_stop_bound", lambda: (append_service_message(service.stop_audio_story()), refresh_preview()))
+    bind_slider(
+        audio_story_seek_slider,
+        "_nc_ui_shell_audio_story_seek_bound",
+        on_change=lambda value=None: (
+            service.seek_audio_story(0 if value is None else int(value)),
+            refresh_preview(),
+        ),
+        on_release=lambda: _ui_shell_append_console(
+            window,
+            f"[UI Shell] Audio Story seek preview: {int(service.snapshot().get('audio_story_seek_percent', 0) or 0)}%. No playback runtime was moved.",
+        ),
+    )
+
+    snapshot = refresh_preview()
+    return {
+        "bound": bound,
+        "deferred": sorted(set(deferred)),
+        "push_to_talk_enabled": bool(snapshot.get("push_to_talk_enabled")),
+        "audio_story_has_audio": bool(snapshot.get("audio_story_has_audio")),
+        "audio_story_playback_state": str(snapshot.get("audio_story_playback_state") or "stopped"),
+    }
+
+
 def run_ui_shell_preview(raw_path):
     from PySide6 import QtCore as _QtCore
     from PySide6 import QtWidgets as _QtWidgets
@@ -3668,9 +6760,14 @@ def run_ui_shell_preview(raw_path):
     console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
     lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
     runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
+    input_action_summary = _bind_ui_shell_input_action_controls(window)
     tutorial_summary = _bind_ui_shell_tutorial_controls(window)
     addon_report = _ui_shell_addon_mount_report(window)
     live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
+    host_core_summary = _bind_ui_shell_host_core_controls(window, sensory_providers=live_mount_report.get("sensory_providers", []))
+    chunking_profile_summary = _bind_ui_shell_chunking_profile_controls(window)
+    dry_run_summary = _bind_ui_shell_dry_run_controls(window)
+    persona_avatar_summary = _bind_ui_shell_persona_body_vam_controls(window)
     chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
     avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
     tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
@@ -3691,9 +6788,37 @@ def run_ui_shell_preview(raw_path):
     print("[UI Shell] Engine lifecycle connected: shell-local only")
     print(f"[UI Shell] Bindings checked: {summary['bound']}/{summary['checked']}")
     print(
-        f"[UI Shell] Read-only session config: "
+        f"[UI Shell] Session-backed shell config: "
         f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
         f"({len(config_summary['applied'])} widget(s) populated)"
+    )
+    print(
+        "[UI Shell] Host/Core shell-local controls: "
+        + ", ".join(host_core_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Chunking/profile shell-local controls: "
+        + ", ".join(chunking_profile_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Chunking/profile deferred controls: "
+        + ", ".join(chunking_profile_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell] Dry Run shell-local controls: "
+        + ", ".join(dry_run_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Dry Run deferred controls: "
+        + ", ".join(dry_run_summary.get("deferred") or ["none"])
+    )
+    print(
+        "[UI Shell] Persona/body/VaM shell-local controls: "
+        + ", ".join(persona_avatar_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Persona/body/VaM deferred controls: "
+        + ", ".join(persona_avatar_summary.get("deferred") or ["none"])
     )
     print(
         "[UI Shell] Console/chat shell-local controls: "
@@ -3711,7 +6836,15 @@ def run_ui_shell_preview(raw_path):
         "[UI Shell] Runtime action shell-local controls: "
         + ", ".join(runtime_control_summary.get("bound") or ["none"])
     )
-    print(f"[UI Shell] Runtime status snapshot: {_ui_shell_runtime_status_service(window).status_line()}")
+    print(
+        "[UI Shell] Input/action shell-local controls: "
+        + ", ".join(input_action_summary.get("bound") or ["none"])
+    )
+    print(
+        "[UI Shell] Input/action deferred controls: "
+        + ", ".join(input_action_summary.get("deferred") or ["none"])
+    )
+    print(f"[UI Shell] Runtime status snapshot: {_ui_shell_compose_status_line(window)}")
     print(
         "[UI Shell] Tutorial shell-local controls: "
         + f"{tutorial_summary.get('tutorials', 0)} tutorial(s), "
@@ -3815,13 +6948,24 @@ if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--ui-shell"
         sys.exit(run_ui_shell_smoke(ui_arg))
     sys.exit(run_ui_shell_preview(ui_arg))
 
+_ui_shell_enable_stdio_unicode_fallback()
+
 import dry_run
 import tutorial_framework
 import loop_authoring
-import cv2
+try:
+    import cv2
+except Exception:
+    cv2 = None
 import numpy as np
-from flask import Flask, jsonify
-from flask_cors import CORS
+try:
+    from flask import Flask, jsonify
+    from flask_cors import CORS
+except Exception:
+    Flask = None
+    CORS = None
+    def jsonify(payload):
+        return payload
 from PySide6 import QtCore, QtGui, QtWidgets
 from PIL import Image
 
@@ -3852,7 +6996,7 @@ import engine
 import shared_state
 from core import avatar_runtime, sensory, chat_providers
 from core.addons import AddonManager
-from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatContextService, QtChatProviderService, QtChatReplayService, QtDialogService, QtEngineLifecycleService, QtHotkeyService, QtModelRefreshService, QtMuseTalkUIService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtTutorialService, QtVisualReplyService
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtAvatarProviderService, QtChatContextService, QtChatProviderService, QtChatReplayService, QtDialogService, QtDryRunService, QtEngineLifecycleService, QtHotkeyService, QtInputActionService, QtInputSettingsService, QtModelRefreshService, QtMuseTalkUIService, QtPerformanceProfileService, QtPersonaAvatarService, QtRuntimeControlService, QtRuntimeStatusService, QtSensoryService, QtShellService, QtTutorialService, QtVisualReplyService
 from musetalk_bridge import MuseTalkBridge
 from engine import (
     AVATAR_PROFILE,
@@ -4037,13 +7181,79 @@ PERFORMANCE_PROFILE_APPLY_KEYS = {
     "stream_force_flush_seconds",
     "stream_force_flush_later_seconds",
 }
-APP_STYLESHEET = """
+APP_STYLESHEET_FALLBACK = """
 QMainWindow { background: #11161d; }
 QWidget { color: #e5e9f0; font-family: "Segoe UI"; font-size: 12px; }
-QFrame#Panel { background: #18202a; border: 1px solid #283342; border-radius: 14px; }
-QFrame#HeaderCard { background: #131a23; border: 1px solid #243244; border-radius: 12px; }
-QScrollArea { background: #18202a; border: 1px solid #273342; border-radius: 10px; }
+QFrame#Panel { background: #18202a; border: 1px solid #283342; border-radius: 14px; padding: 8px; }
+QFrame#HeaderCard { background: #131a23; border: 1px solid #243244; border-radius: 12px; padding: 4px; }
+QScrollArea { background: #18202a; border: 1px solid #273342; border-radius: 10px; padding: 6px; }
 QScrollArea > QWidget > QWidget { background: #18202a; color: #e5e9f0; }
+QScrollBar:vertical {
+    background: #131a23;
+    border: 1px solid #273342;
+    border-radius: 11px;
+    width: 22px;
+    margin: 2px 2px 2px 2px;
+}
+QScrollBar::handle:vertical {
+    background: #3a516c;
+    border: 1px solid #4b6889;
+    border-radius: 9px;
+    min-height: 52px;
+    margin: 3px;
+}
+QScrollBar::handle:vertical:hover {
+    background: #4a6788;
+}
+QScrollBar::handle:vertical:pressed {
+    background: #5b7ca2;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    background: #1a2430;
+    border: 0;
+    height: 16px;
+    subcontrol-origin: margin;
+}
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: transparent;
+}
+QScrollBar:horizontal {
+    background: #131a23;
+    border: 1px solid #273342;
+    border-radius: 11px;
+    height: 22px;
+    margin: 2px 2px 2px 2px;
+}
+QScrollBar::handle:horizontal {
+    background: #3a516c;
+    border: 1px solid #4b6889;
+    border-radius: 9px;
+    min-width: 52px;
+    margin: 3px;
+}
+QScrollBar::handle:horizontal:hover {
+    background: #4a6788;
+}
+QScrollBar::handle:horizontal:pressed {
+    background: #5b7ca2;
+}
+QScrollBar::add-line:horizontal,
+QScrollBar::sub-line:horizontal {
+    background: #1a2430;
+    border: 0;
+    width: 16px;
+    subcontrol-origin: margin;
+}
+QScrollBar::add-page:horizontal,
+QScrollBar::sub-page:horizontal {
+    background: transparent;
+}
+QStackedWidget {
+    background: transparent;
+    padding: 4px;
+}
 QPushButton {
     background: #223247;
     border: 1px solid #324b69;
@@ -4058,9 +7268,40 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border: 1px solid #273342;
     border-radius: 10px;
 }
+QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box {
+    margin-top: 18px;
+    padding-top: 12px;
+}
+QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title {
+    subcontrol-origin: margin;
+    left: 10px;
+    padding: 0 8px 0 8px;
+}
+QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator {
+    width: 0px;
+    height: 0px;
+}
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
+}
+QComboBox {
+    padding-right: 30px;
+}
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top right;
+    width: 24px;
+    background: #17212c;
+    border-left: 1px solid #273342;
+    border-top-right-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QComboBox::drop-down:hover {
+    background: #223247;
+}
+QComboBox::drop-down:pressed {
+    background: #29405b;
 }
 QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSpinBox::down-button {
     background: #17212c;
@@ -4110,9 +7351,150 @@ QTabBar::tab {
     padding: 8px 12px;
     border-top-left-radius: 8px;
     border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
     margin-right: 4px;
 }
 QTabBar::tab:selected { background: #233245; }
+QTabWidget#sensory_feedback_tabs::tab-bar,
+QTabWidget#vseeface_tabs::tab-bar,
+QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#tts_runtime_addon_tabs::tab-bar,
+QTabWidget#vam_setup_tabs::tab-bar,
+QTabWidget#right_tabs::tab-bar {
+    left: 8px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab,
+QTabWidget#vam_setup_tabs QTabBar::tab,
+QTabWidget#right_tabs QTabBar::tab {
+    background: #17212c;
+    border: 1px solid #273342;
+    min-width: 0px;
+    max-width: 16777215px;
+    min-height: 0px;
+    padding: 8px 14px;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
+QTabWidget#vseeface_tabs QTabBar::tab:!selected,
+QTabWidget#musetalk_tabs QTabBar::tab:!selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected,
+QTabWidget#vam_setup_tabs QTabBar::tab:!selected,
+QTabWidget#right_tabs QTabBar::tab:!selected {
+    margin-top: 3px;
+}
+QTabWidget#sensory_feedback_tabs::pane,
+QTabWidget#vseeface_tabs::pane,
+QTabWidget#musetalk_tabs::pane,
+QTabWidget#tts_runtime_addon_tabs::pane,
+QTabWidget#vam_setup_tabs::pane,
+QTabWidget#right_tabs::pane {
+    top: -1px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+QTabWidget#sensory_feedback_tabs QStackedWidget,
+QTabWidget#vseeface_tabs QStackedWidget,
+QTabWidget#musetalk_tabs QStackedWidget,
+QTabWidget#tts_runtime_addon_tabs QStackedWidget,
+QTabWidget#vam_setup_tabs QStackedWidget,
+QTabWidget#right_tabs QStackedWidget {
+    padding: 8px;
+    background: transparent;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected,
+QTabWidget#vam_setup_tabs QTabBar::tab:selected,
+QTabWidget#right_tabs QTabBar::tab:selected {
+    background: #0f141b;
+    border-color: #273342;
+    border-bottom-color: #0f141b;
+    margin-bottom: -1px;
+    padding-bottom: 10px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
+QTabWidget#vseeface_tabs QTabBar::tab:hover,
+QTabWidget#musetalk_tabs QTabBar::tab:hover,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover,
+QTabWidget#vam_setup_tabs QTabBar::tab:hover,
+QTabWidget#right_tabs QTabBar::tab:hover {
+    background: #223247;
+}
+QTabWidget#host_settings_tabs QTabBar::tab,
+QTabWidget#left_tabs QTabBar::tab {
+    background: #18202a;
+    border: 1px solid #273342;
+    min-width: 34px;
+    max-width: 34px;
+    min-height: 34px;
+    padding: 3px 6px 13px 6px;
+    margin-bottom: 4px;
+    margin-right: 0px;
+    border-top-left-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-top-right-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#host_settings_tabs::pane,
+QTabWidget#left_tabs::pane {
+    margin-left: -1px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 6px;
+}
+QTabWidget#host_settings_tabs QStackedWidget,
+QTabWidget#left_tabs QStackedWidget {
+    padding: 0px;
+    background: transparent;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:selected,
+QTabWidget#left_tabs QTabBar::tab:selected {
+    background: #0f141b;
+    border-right-color: #0f141b;
+    margin-right: -1px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:hover,
+QTabWidget#left_tabs QTabBar::tab:hover {
+    background: #223247;
+}
+QTabWidget#host_settings_tabs QTabBar,
+QTabWidget#left_tabs QTabBar {
+    background: #18202a;
+    border: 0;
+}
+QTabWidget#host_settings_tabs QTabBar {
+    margin-top: 0px;
+    padding-top: 4px;
+}
+QTabWidget#left_tabs QTabBar {
+    margin-top: 0px;
+    padding-top: 4px;
+}
+QTabWidget#left_tabs::pane {
+    margin-top: 0px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
 QMessageBox, QDialog {
     background: #11161d;
 }
@@ -4123,33 +7505,513 @@ QMessageBox QPushButton, QDialog QPushButton {
     min-width: 90px;
 }
 QGroupBox {
-    margin-top: 10px;
-    padding-top: 10px;
+    margin-top: 12px;
+    padding: 12px 10px 10px 10px;
     font-weight: 600;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 4px;
+    left: 12px;
+    padding: 0 6px;
 }
 """
 
 
-flask_app = Flask(__name__)
-CORS(flask_app)
+def _load_main_ui_stylesheet(ui_path: Path, fallback: str) -> str:
+    try:
+        tree = ET.parse(str(ui_path))
+        root = tree.getroot()
+        widget = root.find("./widget[@class='QMainWindow']")
+        if widget is None:
+            return str(fallback or "")
+        for prop in widget.findall("./property[@name='styleSheet']"):
+            string_node = prop.find("string")
+            if string_node is None:
+                continue
+            value = str(string_node.text or "")
+            if value.strip():
+                return value
+    except Exception:
+        pass
+    return str(fallback or "")
 
 
-@flask_app.route("/get-expression")
-def get_expression():
-    return jsonify(shared_state.current_expression_data)
+APP_STYLESHEET = _load_main_ui_stylesheet(
+    Path(__file__).resolve().with_name("main.ui"),
+    APP_STYLESHEET_FALLBACK,
+)
+
+APP_THEME_PRESET_LABELS = {
+    "light_gray": "Light Gray",
+    "gray": "Gray",
+    "dark_gray": "Dark Gray",
+    "slate_blue": "Slate Blue",
+    "warm_sand": "Warm Sand",
+    "forest": "Forest",
+    "ocean": "Ocean",
+    "rose_smoke": "Rose Smoke",
+    "midnight": "Midnight",
+}
+
+APP_THEME_PRESET_WIDGETS = (
+    ("light_gray", "theme_light_gray_button", "theme_light_gray_edit"),
+    ("gray", "theme_gray_button", "theme_gray_edit"),
+    ("dark_gray", "theme_dark_gray_button", "theme_dark_gray_edit"),
+    ("slate_blue", "theme_slate_blue_button", "theme_slate_blue_edit"),
+    ("warm_sand", "theme_warm_sand_button", "theme_warm_sand_edit"),
+    ("forest", "theme_forest_button", "theme_forest_edit"),
+    ("ocean", "theme_ocean_button", "theme_ocean_edit"),
+    ("rose_smoke", "theme_rose_smoke_button", "theme_rose_smoke_edit"),
+    ("midnight", "theme_midnight_button", "theme_midnight_edit"),
+)
+
+DEFAULT_APP_THEME_PRESET = "dark_gray"
+
+APP_THEME_STYLESHEET_BASE_TOKENS = {
+    "#11161d": "window_bg",
+    "#18202a": "panel_bg",
+    "#131a23": "header_bg",
+    "#1a2430": "scroll_button_bg",
+    "#283342": "panel_border",
+    "#243244": "header_border",
+    "#273342": "surface_border",
+    "#223247": "button_bg",
+    "#324b69": "button_border",
+    "#29405b": "button_hover",
+    "#1a2028": "disabled_bg",
+    "#27303b": "disabled_border",
+    "#17212c": "spin_bg",
+    "#324055": "spin_border",
+    "#16202b": "menu_bg",
+    "#2c3a4b": "menu_separator",
+    "#2a3544": "tab_border",
+    "#233245": "tab_selected_bg",
+    "#3a516c": "scroll_handle_bg",
+    "#4b6889": "scroll_handle_border",
+    "#4a6788": "scroll_handle_hover",
+    "#5b7ca2": "scroll_handle_pressed",
+    "#4d8dff": "accent_bg",
+    "#6ea4ff": "accent_border",
+    "#6a95ff": "accent_border",
+    "#0f141b": "field_bg",
+    "#e5e9f0": "text",
+    "#f2f5f9": "text_strong",
+    "#7f8791": "text_disabled",
+    "#5b6675": "status_neutral_bg",
+    "#8ea3b8": "text_muted",
+    "#9fb3c8": "text_soft",
+    "#cbd5e1": "text_soft",
+    "#d8dee9": "text_title",
+    "#dfe3e8": "text_title",
+    "#81a1c1": "text_soft",
+    "#88c0d0": "accent_info",
+}
+
+def _resolve_app_theme_palette(preset_id=None):
+    resolved_preset = _normalize_app_theme_preset_id(
+        preset_id if preset_id is not None else RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET)
+    )
+    palette = dict(APP_THEME_PRESET_PALETTES.get(DEFAULT_APP_THEME_PRESET, {}) or {})
+    palette.update(dict(APP_THEME_PRESET_PALETTES.get(resolved_preset, {}) or {}))
+    palette.setdefault("scroll_button_bg", palette.get("header_bg", "#131a23"))
+    palette.setdefault("scroll_handle_bg", palette.get("button_bg", "#3a516c"))
+    palette.setdefault("scroll_handle_border", palette.get("button_border", "#4b6889"))
+    palette.setdefault("scroll_handle_hover", palette.get("button_hover", "#4a6788"))
+    palette.setdefault("scroll_handle_pressed", palette.get("tab_selected_bg", "#5b7ca2"))
+    palette.setdefault("status_neutral_bg", palette.get("spin_border", palette.get("text_disabled", "#5b6675")))
+    palette.setdefault("text_muted", palette.get("text_disabled", "#8ea3b8"))
+    palette.setdefault("text_soft", palette.get("text", "#9fb3c8"))
+    palette.setdefault("text_title", palette.get("text_strong", "#d8dee9"))
+    palette.setdefault("accent_bg", palette.get("button_border", "#4d8dff"))
+    palette.setdefault("accent_border", palette.get("tab_selected_bg", palette.get("button_border", "#6a95ff")))
+    palette.setdefault("accent_info", palette.get("button_border", "#88c0d0"))
+    return palette
 
 
-@flask_app.route("/get-musetalk-preview")
-def get_musetalk_preview():
-    return jsonify(shared_state.current_musetalk_frame_data)
+def _replace_theme_colors_in_stylesheet(stylesheet, palette):
+    themed = str(stylesheet or "")
+    if not themed.strip():
+        return themed
+    for source, token_name in APP_THEME_STYLESHEET_BASE_TOKENS.items():
+        replacement = str(palette.get(token_name, source) or source)
+        themed = themed.replace(source, replacement)
+        themed = themed.replace(source.upper(), replacement)
+    return themed
+
+
+def _canonical_theme_base_stylesheet(stylesheet):
+    canonical = str(stylesheet or "")
+    if not canonical.strip():
+        return canonical
+    token_base_sources = {}
+    for source, token_name in APP_THEME_STYLESHEET_BASE_TOKENS.items():
+        token_base_sources.setdefault(str(token_name or ""), str(source or ""))
+    replacement_pairs = []
+    for token_name, base_source in token_base_sources.items():
+        if not token_name or not base_source:
+            continue
+        for preset_id in APP_THEME_PRESET_LABELS:
+            themed_value = str(_resolve_app_theme_palette(preset_id).get(token_name, "") or "").strip()
+            if themed_value and themed_value.lower() != base_source.lower():
+                replacement_pairs.append((themed_value, base_source))
+    seen_pairs = set()
+    for themed_value, base_source in replacement_pairs:
+        pair_key = (themed_value.lower(), base_source.lower())
+        if pair_key in seen_pairs:
+            continue
+        seen_pairs.add(pair_key)
+        canonical = re.sub(re.escape(themed_value), base_source, canonical, flags=re.IGNORECASE)
+    return canonical
+
+
+def _apply_inline_theme_styles(root, palette):
+    if root is None:
+        return
+    skip_object_names = {name for _preset, button_name, edit_name in APP_THEME_PRESET_WIDGETS for name in (button_name, edit_name)}
+    widgets = [root]
+    find_children = getattr(root, "findChildren", None)
+    if callable(find_children):
+        try:
+            widgets.extend(list(find_children(QtCore.QObject)))
+        except Exception:
+            pass
+    for widget in widgets:
+        if widget is None or not hasattr(widget, "styleSheet") or not hasattr(widget, "setStyleSheet"):
+            continue
+        try:
+            object_name = str(widget.objectName() or "").strip()
+        except Exception:
+            object_name = ""
+        if object_name in skip_object_names or object_name.startswith("theme_"):
+            continue
+        try:
+            base_stylesheet = widget.property("nc_base_stylesheet")
+        except Exception:
+            base_stylesheet = None
+        if not base_stylesheet:
+            try:
+                current_stylesheet = str(widget.styleSheet() or "")
+            except Exception:
+                current_stylesheet = ""
+            if not current_stylesheet.strip():
+                continue
+            base_stylesheet = _canonical_theme_base_stylesheet(current_stylesheet)
+            try:
+                widget.setProperty("nc_base_stylesheet", base_stylesheet)
+            except Exception:
+                pass
+        else:
+            base_stylesheet = _canonical_theme_base_stylesheet(str(base_stylesheet or ""))
+            try:
+                widget.setProperty("nc_base_stylesheet", base_stylesheet)
+            except Exception:
+                pass
+        themed_stylesheet = _replace_theme_colors_in_stylesheet(str(base_stylesheet or ""), palette)
+        try:
+            if str(widget.styleSheet() or "") != themed_stylesheet:
+                widget.setStyleSheet(themed_stylesheet)
+        except Exception:
+            continue
+
+
+def _apply_engine_action_button_accents(root):
+    if root is None or not hasattr(root, "findChild"):
+        return
+    accent_styles = {
+        "btn_start_engine": (
+            "QPushButton { background: #1d6e52; border: 1px solid #2cc985; color: #f4fffa; "
+            "border-radius: 10px; padding: 8px 12px; font-weight: 700; min-height: 44px; }"
+            "QPushButton:hover { background: #238462; border-color: #46dda0; }"
+            "QPushButton:pressed { background: #195d46; border-color: #22b679; }"
+            "QPushButton:disabled { background: #1d3a31; border: 1px solid #355e51; color: #a9c6ba; }"
+        ),
+        "btn_stop_engine": (
+            "QPushButton { background: #7a2626; border: 1px solid #d64a4a; color: #fff5f5; "
+            "border-radius: 10px; padding: 8px 12px; font-weight: 700; min-height: 44px; }"
+            "QPushButton:hover { background: #923131; border-color: #ef6767; }"
+            "QPushButton:pressed { background: #671f1f; border-color: #c43d3d; }"
+            "QPushButton:disabled { background: #402525; border: 1px solid #6f4848; color: #d2bbbb; }"
+        ),
+    }
+    for object_name, stylesheet in accent_styles.items():
+        try:
+            button = root.findChild(QtWidgets.QPushButton, object_name)
+        except Exception:
+            button = None
+        if button is None:
+            continue
+        try:
+            button.setStyleSheet(stylesheet)
+        except Exception:
+            continue
+
+
+def _split_collapsible_section_text(text, fallback_title):
+    raw = str(text or "").strip()
+    if not raw:
+        return str(fallback_title or "").strip(), ""
+    separator = "  -  "
+    if separator in raw:
+        title, summary = raw.split(separator, 1)
+        return str(title or fallback_title or "").strip(), str(summary or "").strip()
+    return raw, ""
+
+
+APP_THEME_PRESET_PALETTES = {
+    "light_gray": {
+        "window_bg": "#e7ebef",
+        "panel_bg": "#f5f6f8",
+        "header_bg": "#eef1f4",
+        "panel_border": "#b9bec7",
+        "header_border": "#c5cad2",
+        "surface_border": "#c3c9d1",
+        "button_bg": "#d8dde4",
+        "button_border": "#aab2bc",
+        "button_hover": "#cfd6de",
+        "disabled_bg": "#dde1e6",
+        "disabled_border": "#c2c8cf",
+        "spin_bg": "#d7dde4",
+        "spin_border": "#aab2bc",
+        "menu_bg": "#edf1f5",
+        "menu_separator": "#c7ced6",
+        "tab_border": "#bcc4cd",
+        "tab_selected_bg": "#dce2e9",
+        "field_bg": "#ffffff",
+        "preview_bg": "#f3f5f8",
+        "text": "#20242a",
+        "text_strong": "#111418",
+        "text_disabled": "#717882",
+    },
+    "gray": {
+        "window_bg": "#737780",
+        "panel_bg": "#8b8e95",
+        "header_bg": "#81858c",
+        "panel_border": "#70737a",
+        "header_border": "#6b6f76",
+        "surface_border": "#7b7f87",
+        "button_bg": "#d3d5d9",
+        "button_border": "#7b7f87",
+        "button_hover": "#c2c6cc",
+        "disabled_bg": "#767981",
+        "disabled_border": "#666a72",
+        "spin_bg": "#c8ccd1",
+        "spin_border": "#838892",
+        "menu_bg": "#eceef1",
+        "menu_separator": "#9ca1a9",
+        "tab_border": "#6f737b",
+        "tab_selected_bg": "#a0a4ab",
+        "field_bg": "#eceef1",
+        "preview_bg": "#e2e5ea",
+        "text": "#1f2227",
+        "text_strong": "#16181c",
+        "text_disabled": "#5a5e66",
+    },
+    "dark_gray": {
+        "window_bg": "#11161d",
+        "panel_bg": "#18202a",
+        "header_bg": "#131a23",
+        "panel_border": "#283342",
+        "header_border": "#243244",
+        "surface_border": "#273342",
+        "button_bg": "#223247",
+        "button_border": "#324b69",
+        "button_hover": "#29405b",
+        "disabled_bg": "#1a2028",
+        "disabled_border": "#27303b",
+        "spin_bg": "#17212c",
+        "spin_border": "#324055",
+        "menu_bg": "#16202b",
+        "menu_separator": "#2c3a4b",
+        "tab_border": "#2a3544",
+        "tab_selected_bg": "#233245",
+        "field_bg": "#0f141b",
+        "preview_bg": "#18202a",
+        "text": "#e5e9f0",
+        "text_strong": "#f2f5f9",
+        "text_disabled": "#7f8791",
+    },
+    "slate_blue": {
+        "window_bg": "#566376",
+        "panel_bg": "#6d7789",
+        "header_bg": "#627082",
+        "panel_border": "#556071",
+        "header_border": "#5c6778",
+        "surface_border": "#6d7c93",
+        "button_bg": "#dbe5f5",
+        "button_border": "#6d7c93",
+        "button_hover": "#cbd8ed",
+        "disabled_bg": "#627081",
+        "disabled_border": "#4d596b",
+        "spin_bg": "#d4def0",
+        "spin_border": "#6d7c93",
+        "menu_bg": "#edf3fd",
+        "menu_separator": "#8291a7",
+        "tab_border": "#596578",
+        "tab_selected_bg": "#7b8799",
+        "field_bg": "#edf3fd",
+        "preview_bg": "#dfe7f4",
+        "text": "#172133",
+        "text_strong": "#111824",
+        "text_disabled": "#576579",
+    },
+    "warm_sand": {
+        "window_bg": "#b9aa93",
+        "panel_bg": "#c6b8a2",
+        "header_bg": "#b7a690",
+        "panel_border": "#9f927f",
+        "header_border": "#a89882",
+        "surface_border": "#a28f72",
+        "button_bg": "#f4ead9",
+        "button_border": "#a28f72",
+        "button_hover": "#eadcbf",
+        "disabled_bg": "#b7a890",
+        "disabled_border": "#978772",
+        "spin_bg": "#ebdfc9",
+        "spin_border": "#a28f72",
+        "menu_bg": "#fbf4ea",
+        "menu_separator": "#b39f82",
+        "tab_border": "#998a78",
+        "tab_selected_bg": "#d2c2a8",
+        "field_bg": "#fbf4ea",
+        "preview_bg": "#efe2cf",
+        "text": "#2f2417",
+        "text_strong": "#2a2117",
+        "text_disabled": "#6d6253",
+    },
+    "forest": {
+        "window_bg": "#263830",
+        "panel_bg": "#31463d",
+        "header_bg": "#293d34",
+        "panel_border": "#486256",
+        "header_border": "#42594f",
+        "surface_border": "#678677",
+        "button_bg": "#496457",
+        "button_border": "#678677",
+        "button_hover": "#58786a",
+        "disabled_bg": "#24342d",
+        "disabled_border": "#3d554b",
+        "spin_bg": "#3b5247",
+        "spin_border": "#678677",
+        "menu_bg": "#3a5147",
+        "menu_separator": "#587468",
+        "tab_border": "#42594f",
+        "tab_selected_bg": "#415a4d",
+        "field_bg": "#3a5147",
+        "preview_bg": "#4a6457",
+        "text": "#edf4ef",
+        "text_strong": "#f5fbf6",
+        "text_disabled": "#a4b6aa",
+    },
+    "ocean": {
+        "window_bg": "#2c4e5e",
+        "panel_bg": "#355d70",
+        "header_bg": "#304f60",
+        "panel_border": "#4a7f97",
+        "header_border": "#426f84",
+        "surface_border": "#69a1bc",
+        "button_bg": "#47778e",
+        "button_border": "#69a1bc",
+        "button_hover": "#5689a2",
+        "disabled_bg": "#2a4656",
+        "disabled_border": "#3f6b81",
+        "spin_bg": "#406d81",
+        "spin_border": "#69a1bc",
+        "menu_bg": "#3f6e82",
+        "menu_separator": "#5f90a6",
+        "tab_border": "#436f85",
+        "tab_selected_bg": "#4a7c92",
+        "field_bg": "#3f6e82",
+        "preview_bg": "#4e8198",
+        "text": "#eef8fb",
+        "text_strong": "#ffffff",
+        "text_disabled": "#b5c9d3",
+    },
+    "rose_smoke": {
+        "window_bg": "#67575c",
+        "panel_bg": "#7b686d",
+        "header_bg": "#6f5d62",
+        "panel_border": "#9a858b",
+        "header_border": "#8e797f",
+        "surface_border": "#bca4aa",
+        "button_bg": "#a2868d",
+        "button_border": "#bca4aa",
+        "button_hover": "#b0939b",
+        "disabled_bg": "#65555a",
+        "disabled_border": "#896f77",
+        "spin_bg": "#8c767d",
+        "spin_border": "#bca4aa",
+        "menu_bg": "#8c767d",
+        "menu_separator": "#a28990",
+        "tab_border": "#8b757d",
+        "tab_selected_bg": "#947e86",
+        "field_bg": "#8c767d",
+        "preview_bg": "#a18b93",
+        "text": "#fff5f7",
+        "text_strong": "#ffffff",
+        "text_disabled": "#d7c5ca",
+    },
+    "midnight": {
+        "window_bg": "#10141b",
+        "panel_bg": "#151b24",
+        "header_bg": "#111720",
+        "panel_border": "#283244",
+        "header_border": "#223048",
+        "surface_border": "#40536f",
+        "button_bg": "#253247",
+        "button_border": "#40536f",
+        "button_hover": "#31425d",
+        "disabled_bg": "#121820",
+        "disabled_border": "#253347",
+        "spin_bg": "#1a2330",
+        "spin_border": "#40536f",
+        "menu_bg": "#1d2837",
+        "menu_separator": "#34465f",
+        "tab_border": "#28374b",
+        "tab_selected_bg": "#233245",
+        "field_bg": "#1d2837",
+        "preview_bg": "#253247",
+        "text": "#edf2fb",
+        "text_strong": "#ffffff",
+        "text_disabled": "#9fa9b9",
+    },
+}
+
+
+def _normalize_app_theme_preset_id(preset_id):
+    normalized = str(preset_id or "").strip().lower()
+    if normalized in APP_THEME_PRESET_LABELS:
+        return normalized
+    return DEFAULT_APP_THEME_PRESET
+
+
+def _build_app_stylesheet_for_preset(preset_id):
+    palette = _resolve_app_theme_palette(preset_id)
+    return _replace_theme_colors_in_stylesheet(APP_STYLESHEET, palette)
+
+
+def _app_theme_palette(preset_id=None):
+    return _resolve_app_theme_palette(preset_id)
+
+flask_app = Flask(__name__) if Flask is not None else None
+if flask_app is not None and callable(CORS):
+    CORS(flask_app)
+
+
+if flask_app is not None:
+    @flask_app.route("/get-expression")
+    def get_expression():
+        return jsonify(shared_state.current_expression_data)
+
+
+    @flask_app.route("/get-musetalk-preview")
+    def get_musetalk_preview():
+        return jsonify(shared_state.current_musetalk_frame_data)
 
 
 def start_api():
+    if flask_app is None:
+        print("[API] Flask is unavailable in this environment; expression API server not started.")
+        return
     log = logging.getLogger("werkzeug")
     log.setLevel(logging.ERROR)
     flask_app.run(port=5005, debug=False, use_reloader=False)
@@ -5456,6 +9318,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.image_scroll.zoomRequested.connect(self._handle_scroll_zoom_request)
         self._root_layout.addLayout(top_row)
         self._root_layout.addWidget(self.image_scroll, 1)
+        self.apply_theme_palette()
 
         self.current_sync_time = 0.0
         self.frame_paths = []
@@ -5526,16 +9389,36 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.poll_timer.timeout.connect(self.poll_state)
         self.poll_timer.start(16)
 
+    def apply_theme_palette(self):
+        palette = _app_theme_palette()
+        self.preview_label.setStyleSheet(f"font-weight: 600; color: {palette.get('text_strong', '#f2f5f9')};")
+        self._apply_image_scroll_theme()
+
+    def _apply_image_scroll_theme(self):
+        palette = _app_theme_palette()
+        if self.focus_mode_active:
+            background = palette.get("window_bg", "#11161d")
+            border = "transparent"
+            radius = "0"
+            border_width = "0"
+        else:
+            background = palette.get("field_bg", "#0f141b")
+            border = palette.get("surface_border", "#273342")
+            radius = "10px"
+            border_width = "1px"
+        self.image_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {background}; border: {border_width} solid {border}; border-radius: {radius}; }}"
+        )
+
     def set_focus_mode(self, enabled):
         self.focus_mode_active = bool(enabled)
         self.focus_mode_button.setText("Exit Avatar Focus" if self.focus_mode_active else "Avatar Focus")
         self.preview_label.setVisible(not self.focus_mode_active)
         if self.focus_mode_active:
             self._root_layout.setContentsMargins(4, 4, 4, 4)
-            self.image_scroll.setStyleSheet("QScrollArea { background: #05070a; border: 0; border-radius: 0; }")
         else:
             self._root_layout.setContentsMargins(10, 10, 10, 10)
-            self.image_scroll.setStyleSheet("QScrollArea { background: #0f141b; border: 1px solid #273342; border-radius: 10px; }")
+        self._apply_image_scroll_theme()
         self._refresh_displayed_pixmap()
         return True
 
@@ -6682,7 +10565,7 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
 
         self.caption_label = QtWidgets.QLabel("")
         self.caption_label.setWordWrap(True)
-        self.caption_label.setStyleSheet("color: #9fb3c8; font-size: 11px; padding: 2px 2px 0 2px;")
+        self.caption_label.setStyleSheet("font-size: 11px; padding: 2px 2px 0 2px;")
         self.caption_label.hide()
 
         layout.addWidget(self.status_label)
@@ -6702,10 +10585,28 @@ class QtVisualReplyPanel(QtWidgets.QWidget):
         self.image_scroll.viewport().installEventFilter(self)
         self.clear_visual_reply()
         self._refresh_storage_summary()
+        self.apply_theme_palette()
 
         self.poll_timer = QtCore.QTimer(self)
         self.poll_timer.timeout.connect(self.poll_state)
         self.poll_timer.start(250)
+
+    def apply_theme_palette(self):
+        palette = _app_theme_palette()
+        self.status_label.setStyleSheet(f"font-weight: 600; color: {palette.get('text_strong', '#f2f5f9')};")
+        self.storage_label.setStyleSheet(f"color: {palette.get('text', '#e5e9f0')}; font-size: 11px;")
+        self.placeholder.setStyleSheet(
+            f"background: {palette.get('field_bg', '#0f141b')}; "
+            f"border: 1px solid {palette.get('surface_border', '#273342')}; "
+            f"border-radius: 10px; color: {palette.get('text', '#e5e9f0')}; padding: 18px;"
+        )
+        self.image_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {palette.get('field_bg', '#0f141b')}; "
+            f"border: 1px solid {palette.get('surface_border', '#273342')}; border-radius: 10px; }}"
+        )
+        self.caption_label.setStyleSheet(
+            f"color: {palette.get('text', '#e5e9f0')}; font-size: 11px; padding: 2px 2px 0 2px;"
+        )
 
     def eventFilter(self, watched, event):
         if watched is self.image_label or watched is self.image_scroll or watched is self.image_scroll.viewport():
@@ -7215,6 +11116,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._pending_preset_clean_provider = ""
         self._pending_preset_clean_model = ""
         self._restoring_session = False
+        self._active_app_theme_preset = _normalize_app_theme_preset_id(RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+        self._theme_apply_in_progress = False
         self._chat_runtime_border_paused = None
         self._console_bridge = QtConsoleBridge()
         self._console_redirect = QtTextRedirector(self._console_bridge, mirror_stream=sys.__stdout__)
@@ -7229,10 +11132,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self._build_ui()
         self._build_preview_dock()
+        self._apply_workspace_view_constraints()
+        _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
+        _apply_engine_action_button_accents(self)
         self._connect_console_bridge()
         self._build_status_timer()
         self._build_ui_hotkey_timer()
         self._initialize_addons()
+        _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
+        _apply_engine_action_button_accents(self)
 
         os.makedirs("presets", exist_ok=True)
         os.makedirs("voices", exist_ok=True)
@@ -7246,9 +11154,42 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.refresh_tutorial_list()
         QtCore.QTimer.singleShot(250, self.maybe_prompt_first_run_tutorial)
 
+    def current_app_theme_preset(self):
+        return _normalize_app_theme_preset_id(getattr(self, "_active_app_theme_preset", DEFAULT_APP_THEME_PRESET))
+
+    def apply_app_theme_preset(self, preset_id, *, save_session=True):
+        resolved_preset = _normalize_app_theme_preset_id(preset_id)
+        if bool(getattr(self, "_theme_apply_in_progress", False)):
+            self._active_app_theme_preset = resolved_preset
+            update_runtime_config("ui_theme_preset", resolved_preset)
+            return resolved_preset
+        self._theme_apply_in_progress = True
+        stylesheet = _build_app_stylesheet_for_preset(resolved_preset)
+        try:
+            self.setStyleSheet(stylesheet)
+            self._active_app_theme_preset = resolved_preset
+            update_runtime_config("ui_theme_preset", resolved_preset)
+            _apply_inline_theme_styles(self, _app_theme_palette(resolved_preset))
+            _apply_engine_action_button_accents(self)
+            for widget in (
+                getattr(self, "embedded_musetalk_preview", None),
+                getattr(self, "visual_reply_panel", None),
+            ):
+                if widget is not None and hasattr(widget, "apply_theme_palette"):
+                    try:
+                        widget.apply_theme_palette()
+                    except Exception:
+                        pass
+            if save_session:
+                self.save_session()
+            print(f"[QtGUI] Applied UI theme: {APP_THEME_PRESET_LABELS.get(resolved_preset, resolved_preset.title())}")
+            return resolved_preset
+        finally:
+            self._theme_apply_in_progress = False
+
     def _build_ui(self):
         self.setDockNestingEnabled(True)
-        self.setStyleSheet(APP_STYLESHEET)
+        self.setStyleSheet(_build_app_stylesheet_for_preset(self.current_app_theme_preset()))
 
         central = QtWidgets.QWidget()
         central.setObjectName("workspace_central")
@@ -7320,7 +11261,21 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             dock.topLevelChanged.connect(lambda _floating, d=dock: self._schedule_dock_owner_refresh(d))
         except Exception:
             pass
+        try:
+            dock.topLevelChanged.connect(lambda _floating: QtCore.QTimer.singleShot(0, self._apply_workspace_view_constraints))
+        except Exception:
+            pass
         self._schedule_dock_owner_refresh(dock)
+        QtCore.QTimer.singleShot(0, self._apply_workspace_view_constraints)
+
+    def _apply_workspace_view_constraints(self):
+        _apply_workspace_view_constraints(
+            self,
+            extra_widgets=(
+                getattr(self, "embedded_musetalk_preview", None),
+                getattr(self, "visual_reply_panel", None),
+            ),
+        )
 
     def _schedule_dock_owner_refresh(self, dock):
         if dock is None or not _WIN32_DOCK_OWNER_SUPPORTED:
@@ -8382,6 +12337,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
         self.tts_runtime_addon_tabs = QtWidgets.QTabWidget()
         self.tts_runtime_addon_tabs.setDocumentMode(True)
+        self.tts_runtime_addon_tabs.setMinimumHeight(420)
+        self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.tts_runtime_addon_tabs.currentChanged.connect(self._on_tts_runtime_addon_tab_changed)
         self.tts_runtime_addon_tabs.setVisible(False)
         inner_layout.addWidget(self.tts_runtime_addon_tabs)
@@ -9824,8 +13781,13 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 host_services={
                     "qt.chat_context": QtChatContextService(self),
                     "qt.dialogs": QtDialogService(self),
+                    "qt.dry_run": QtDryRunService(self),
                     "qt.engine_lifecycle": QtEngineLifecycleService(self),
                     "qt.hotkeys": QtHotkeyService(self),
+                    "qt.input_actions": QtInputActionService(self),
+                    "qt.input_settings": QtInputSettingsService(self),
+                    "qt.persona_avatar": QtPersonaAvatarService(self),
+                    "qt.performance_profiles": QtPerformanceProfileService(self),
                     "qt.model_refresh": QtModelRefreshService(self),
                     "qt.runtime_controls": QtRuntimeControlService(self),
                     "qt.runtime_status": QtRuntimeStatusService(self),
@@ -12048,7 +16010,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self.save_session()
 
     def on_model_selection_changed(self, choice):
-        update_runtime_config("model_name", str(choice or "").strip())
+        selected_model = str(choice or "").strip()
+        update_runtime_config("model_name", selected_model)
+        update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
         self._advisor_context_manual_override = False
         self.update_model_budget_hint()
         self._refresh_chat_runtime_summary()
@@ -12943,7 +16907,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
             "minicpm-v", "internvl", "phi-3.5-vision", "phi-4-multimodal", "gemma-3", "gpt-4o",
             "gpt-4.1", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
-            "grok-"
         )
         negative_fragments = (
             "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"
@@ -12951,6 +16914,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         if any(fragment in value for fragment in negative_fragments):
             return False
         return any(fragment in value for fragment in positive_fragments)
+
+    def _current_model_supports_images_value(self, model_name=None):
+        selected_model = str(model_name or (self.model_combo.currentText() if hasattr(self, "model_combo") else "") or "").strip()
+        if not selected_model:
+            return False
+        for entry in list(getattr(self, "_all_model_catalog", []) or []):
+            if str(entry.get("id") or "").strip() != selected_model:
+                continue
+            return bool(entry.get("supports_images", False))
+        return self._infer_model_supports_images(selected_model)
 
     def _set_model_catalog(self, items):
         catalog = []
@@ -13077,6 +17050,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         selected_model = str(self.model_combo.currentText() or "").strip()
         if selected_model:
             update_runtime_config("model_name", selected_model)
+            update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
         if pending_wanted and selected_model == pending_wanted:
             self._pending_restored_model_name = ""
@@ -14338,12 +18312,11 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             print(f"CRITICAL ERROR: {exc}")
         finally:
-            if self._closing:
-                return
-            try:
-                QtCore.QMetaObject.invokeMethod(self, "reset_ui", QtCore.Qt.QueuedConnection)
-            except RuntimeError:
-                pass
+            if not self._closing:
+                try:
+                    QtCore.QMetaObject.invokeMethod(self, "reset_ui", QtCore.Qt.QueuedConnection)
+                except RuntimeError:
+                    pass
 
     @QtCore.Slot()
     def reset_ui(self):
@@ -14636,7 +18609,10 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             return
         session = {
             "first_run": bool(self.first_run),
+            "ui_theme_preset": self.current_app_theme_preset(),
             "avatar_mode": self._current_avatar_mode_value(),
+            "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input"),
+            "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"),
             "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
@@ -14768,6 +18744,9 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._restoring_session = True
         try:
             self.first_run = bool(session.get("first_run", True))
+            ui_theme_preset = session.get("ui_theme_preset")
+            if ui_theme_preset is not None:
+                self.apply_app_theme_preset(ui_theme_preset, save_session=False)
             geometry = session.get("geometry")
             if geometry and len(geometry) == 4:
                 self.setGeometry(*geometry)
@@ -14791,6 +18770,24 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             if str(engine_choice or "").strip().lower() == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox"):
                 self.vam_play_audio_in_vam_checkbox.setChecked(True)
                 self.on_vam_play_audio_in_vam_changed(True)
+            audio_input_device = session.get("audio_input_device")
+            if audio_input_device is not None:
+                update_runtime_config("audio_input_device", str(audio_input_device or "Default Input") or "Default Input")
+                if hasattr(self, "audio_input_device_combo"):
+                    index = self.audio_input_device_combo.findText(str(audio_input_device))
+                    if index >= 0:
+                        self.audio_input_device_combo.setCurrentIndex(index)
+                    elif hasattr(self.audio_input_device_combo, "setCurrentText"):
+                        self.audio_input_device_combo.setCurrentText(str(audio_input_device))
+            audio_output_device = session.get("audio_output_device")
+            if audio_output_device is not None:
+                update_runtime_config("audio_output_device", str(audio_output_device or "Default Output") or "Default Output")
+                if hasattr(self, "audio_output_device_combo"):
+                    index = self.audio_output_device_combo.findText(str(audio_output_device))
+                    if index >= 0:
+                        self.audio_output_device_combo.setCurrentIndex(index)
+                    elif hasattr(self.audio_output_device_combo, "setCurrentText"):
+                        self.audio_output_device_combo.setCurrentText(str(audio_output_device))
             input_mode = session.get("input_mode")
             if input_mode:
                 index = self.input_mode_combo.findText(input_mode)
@@ -15178,10 +19175,3006 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         super().closeEvent(event)
 
 
+class MainUiRealRuntimeBridge(QtCore.QObject):
+    """Opt-in runtime-backed `main.ui` front-end backed by a hidden legacy window."""
+
+    POLL_INTERVAL_MS = 180
+
+    def __init__(self, raw_ui_path):
+        super().__init__()
+        self.ui_path = _resolve_ui_path(raw_ui_path)
+        if not self.ui_path.exists():
+            raise FileNotFoundError(f"UI file not found: {self.ui_path}")
+        self._closing = False
+        self.backend = CompanionQtMainWindow()
+        self.backend.first_run = False
+        self.backend.hide()
+        self.window = _load_ui_preview_window(self.ui_path)
+        if not isinstance(self.window, QtWidgets.QMainWindow):
+            raise RuntimeError(f"`--ui-real` requires a QMainWindow root UI: {self.ui_path}")
+        self.window.installEventFilter(self)
+        self.window.setWindowTitle(f"{APP_TITLE} [main.ui Runtime]")
+        self.window.setProperty("nc_ui_real_runtime", True)
+        self.window.setDockNestingEnabled(True)
+        self.window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
+        setattr(self.window, "_nc_ui_real_bridge", self)
+        self._app = QtWidgets.QApplication.instance()
+        if self._app is not None:
+            self._app.installEventFilter(self)
+
+        self._engine_lifecycle_service = QtEngineLifecycleService(self.backend)
+        self._runtime_control_service = QtRuntimeControlService(self.backend)
+        self._chat_context_service = QtChatContextService(self.backend)
+        self._input_action_service = QtInputActionService(self.backend)
+        self._model_refresh_service = QtModelRefreshService(self.backend)
+        self._runtime_status_service = QtRuntimeStatusService(self.backend)
+        self._provider_runtime_redirected = False
+        self._chat_session_runtime_redirected = False
+        self._sensory_runtime_redirected = False
+        self._musetalk_preview_runtime_redirected = False
+        self._visual_reply_runtime_redirected = False
+        self._adopted_runtime_tabs = {}
+        self._frontend_theme_apply_in_progress = False
+        self._frontend_system_prompt_commit_timer = QtCore.QTimer(self.window)
+        self._frontend_system_prompt_commit_timer.setSingleShot(True)
+        self._frontend_system_prompt_commit_timer.timeout.connect(self._commit_frontend_system_prompt_to_runtime)
+
+        self._bind_frontend_workspace_constraint_hooks()
+        self._configure_frontend_runtime_slice()
+        self._sync_backend_to_ui(force=True)
+        self._poll_timer = QtCore.QTimer(self)
+        self._poll_timer.setInterval(self.POLL_INTERVAL_MS)
+        self._poll_timer.timeout.connect(self._poll_backend_state)
+        self._poll_timer.start()
+
+        print("[UI Real] Loaded runtime-backed main.ui front-end.")
+        print("[UI Real] Stable default app startup remains python qt_app.py.")
+        print("[UI Real] Phase 5 slice is live: engine lifecycle, runtime controls, chat-context actions, status, and console/chat mirroring.")
+
+    def eventFilter(self, watched, event):
+        if event is not None and self._watched_belongs_to_frontend(watched):
+            try:
+                if self._consume_frontend_push_to_talk_event(event):
+                    return True
+            except Exception:
+                pass
+        if watched is self.window and event is not None:
+            try:
+                if event.type() == QtCore.QEvent.Close:
+                    self.close()
+            except Exception:
+                pass
+        return super().eventFilter(watched, event)
+
+    def show(self):
+        self.window.show()
+
+    def close(self):
+        if self._closing:
+            return
+        self._closing = True
+        try:
+            timer = getattr(self, "_poll_timer", None)
+            if timer is not None:
+                timer.stop()
+        except Exception:
+            pass
+        try:
+            self.window.removeEventFilter(self)
+        except Exception:
+            pass
+        try:
+            if self._app is not None:
+                self._app.removeEventFilter(self)
+        except Exception:
+            pass
+        try:
+            if self.backend is not None:
+                self.backend.close()
+        except Exception:
+            pass
+
+    def smoke_summary(self):
+        return {
+            "ui_path": str(self.ui_path),
+            "window_class": self.window.__class__.__name__,
+            "backend_hidden": bool(self.backend is not None and not self.backend.isVisible()),
+            "lifecycle_buttons": [
+                name
+                for name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat")
+                if self._ui_object(name) is not None
+            ],
+            "runtime_action_buttons": [
+                name
+                for name in ("btn_regenerate", "btn_retry", "btn_pause", "btn_skip", "btn_skip_user")
+                if self._ui_object(name) is not None
+            ],
+            "chat_context_buttons": [
+                name
+                for name in (
+                    "chat_quick_save_button",
+                    "chat_quick_load_button",
+                    "btn_save_chat_session",
+                    "btn_load_chat_session",
+                    "btn_reset_chat_session",
+                )
+                if self._ui_object(name) is not None
+            ],
+            "console_chat_bound": bool(self._ui_object("console_edit") is not None and self._ui_object("chat_edit") is not None),
+            "runtime_status": self._runtime_status_service.status_line(),
+            "provider_runtime_redirected": bool(self._provider_runtime_redirected),
+            "chat_session_runtime_redirected": bool(self._chat_session_runtime_redirected),
+            "sensory_runtime_redirected": bool(self._sensory_runtime_redirected),
+            "musetalk_preview_runtime_redirected": bool(self._musetalk_preview_runtime_redirected),
+            "visual_reply_runtime_redirected": bool(self._visual_reply_runtime_redirected),
+            "visual_reply_panel_class": (
+                getattr(getattr(self, "_frontend_visual_reply_panel", None), "__class__", type(None)).__name__
+                if getattr(self, "_frontend_visual_reply_panel", None) is not None
+                else ""
+            ),
+            "adopted_runtime_tabs": {
+                target: list(titles or [])
+                for target, titles in dict(self._adopted_runtime_tabs or {}).items()
+                if titles
+            },
+            "sensory_runtime_tabs": self._tab_titles(self._ui_object("sensory_feedback_tabs")),
+        }
+
+    def _ui_object(self, object_name):
+        return _ui_shell_find_object(self.window, object_name)
+
+    def _watched_belongs_to_frontend(self, watched):
+        if watched is None:
+            return False
+        if watched is self.window:
+            return True
+        current = watched
+        visited = set()
+        while current is not None and id(current) not in visited:
+            visited.add(id(current))
+            if current is self.window:
+                return True
+            try:
+                current = current.parent()
+            except Exception:
+                current = None
+        return False
+
+    def _frontend_push_to_talk_mode_active(self):
+        input_mode_combo = self._ui_object("input_mode_combo")
+        if input_mode_combo is None or not hasattr(input_mode_combo, "currentText"):
+            return False
+        try:
+            return str(input_mode_combo.currentText() or "").strip().lower() == "push-to-talk"
+        except Exception:
+            return False
+
+    def _frontend_hotkey_pressed_names(self, event):
+        names = set()
+        if event is None:
+            return names
+        try:
+            scan_code = int(event.nativeScanCode() or 0)
+        except Exception:
+            scan_code = 0
+        if scan_code:
+            for name, codes in dict(getattr(engine, "EXACT_HOTKEY_SCAN_CODES", {}) or {}).items():
+                try:
+                    if scan_code in tuple(int(code) for code in (codes or ())):
+                        names.add(str(name or "").strip().lower())
+                except Exception:
+                    continue
+        try:
+            modifiers = event.modifiers()
+        except Exception:
+            modifiers = QtCore.Qt.NoModifier
+        if modifiers & QtCore.Qt.ControlModifier:
+            names.update({"ctrl", "control"})
+        if modifiers & QtCore.Qt.AltModifier:
+            names.add("alt")
+        if modifiers & QtCore.Qt.ShiftModifier:
+            names.add("shift")
+        if modifiers & QtCore.Qt.MetaModifier:
+            names.update({"windows", "win"})
+        key_map = {
+            QtCore.Qt.Key_Control: {"ctrl", "control"},
+            QtCore.Qt.Key_Alt: {"alt"},
+            QtCore.Qt.Key_Shift: {"shift"},
+            QtCore.Qt.Key_Meta: {"windows", "win"},
+            QtCore.Qt.Key_Return: {"return", "enter"},
+            QtCore.Qt.Key_Enter: {"enter", "return"},
+            QtCore.Qt.Key_Space: {"space"},
+            QtCore.Qt.Key_Tab: {"tab"},
+            QtCore.Qt.Key_Backtab: {"tab"},
+            QtCore.Qt.Key_Escape: {"escape", "esc"},
+            QtCore.Qt.Key_Backspace: {"backspace"},
+            QtCore.Qt.Key_Delete: {"delete"},
+        }
+        try:
+            names.update(key_map.get(event.key(), set()))
+        except Exception:
+            pass
+        try:
+            text = str(event.text() or "").strip()
+        except Exception:
+            text = ""
+        if text:
+            normalized = str(engine.normalize_hotkey_text(text) or "").strip().lower()
+            if normalized:
+                names.add(normalized)
+        return names
+
+    def _consume_frontend_push_to_talk_event(self, event):
+        if event is None:
+            return False
+        event_type = event.type()
+        if event_type not in (QtCore.QEvent.ShortcutOverride, QtCore.QEvent.KeyPress, QtCore.QEvent.KeyRelease):
+            return False
+        if not self._frontend_push_to_talk_mode_active():
+            return False
+        binding = str(engine.get_push_to_talk_hotkey() or "").strip()
+        if not binding:
+            return False
+        pressed_names = self._frontend_hotkey_pressed_names(event)
+        if not engine.runtime_hotkeys._binding_matches_pressed_names(binding, pressed_names):
+            return False
+        if event_type == QtCore.QEvent.ShortcutOverride:
+            event.accept()
+            return True
+        if event_type == QtCore.QEvent.KeyPress:
+            if not bool(getattr(event, "isAutoRepeat", lambda: False)()):
+                self._input_action_service.set_push_to_talk_hold(True)
+            event.accept()
+            return True
+        if not bool(getattr(event, "isAutoRepeat", lambda: False)()):
+            self._input_action_service.set_push_to_talk_hold(False)
+        event.accept()
+        return True
+
+    def _backend_widget(self, name):
+        widget = getattr(self.backend, str(name), None)
+        if widget is not None:
+            return widget
+        try:
+            return self.backend.findChild(QtCore.QObject, str(name))
+        except Exception:
+            return None
+
+    def _configure_frontend_runtime_slice(self):
+        self._apply_theme_to_frontend_window()
+        self._configure_frontend_runtime_group_boxes()
+        self._redirect_backend_provider_runtime_surface()
+        self._redirect_backend_chat_session_runtime_surface()
+        self._redirect_backend_pipeline_telemetry_surface()
+        self._redirect_backend_sensory_runtime_surface()
+        self._redirect_backend_musetalk_preview_runtime_surface()
+        self._redirect_backend_visual_reply_runtime_surface()
+        self._adopt_backend_runtime_tabs()
+        self._cleanup_frontend_preview_only_roots()
+        self._disable_unwired_phase5_controls()
+        self._prime_frontend_audio_device_controls()
+        self._bind_basic_runtime_mirrors()
+        self._bind_lifecycle_controls()
+        self._bind_runtime_action_controls()
+        self._bind_chat_context_controls()
+        self._bind_model_refresh_control()
+        self._bind_push_to_talk_control()
+        self._bind_chat_edit_controls()
+        self._bind_dry_run_controls()
+        self._bind_response_length_runtime_controls()
+        self._bind_host_input_runtime_controls()
+        self._bind_musetalk_visual_runtime_controls()
+        self._bind_avatar_body_vam_runtime_controls()
+        self._bind_profile_utility_runtime_controls()
+        self._bind_frontend_theme_controls()
+        self._bind_chat_session_runtime_controls()
+        self._bind_sensory_runtime_controls()
+        self._bind_audio_story_duplicate_controls()
+        self._bind_musetalk_preview_controls()
+        self._bind_visual_reply_controls()
+        self._bind_provider_model_workflow_controls()
+        self._bind_frontend_to_backend_sync()
+        self._configure_phase5_placeholders()
+        self._apply_theme_to_runtime_panels()
+        self._apply_frontend_workspace_view_constraints()
+        self._refresh_frontend_theme_controls()
+
+    def _bind_frontend_workspace_constraint_hooks(self):
+        for object_name in ("SystemShapingDock", "WorkspaceTabsDock", "OperationalViewDock", "PreviewDock", "VisualReplyDock"):
+            dock = self._ui_object(object_name)
+            if dock is None or not hasattr(dock, "topLevelChanged"):
+                continue
+            try:
+                dock.topLevelChanged.connect(lambda _floating: QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints))
+            except Exception:
+                continue
+
+    def _apply_frontend_workspace_view_constraints(self):
+        _apply_workspace_view_constraints(
+            self.window,
+            extra_widgets=(
+                getattr(self.backend, "embedded_musetalk_preview", None),
+                getattr(self.backend, "visual_reply_panel", None),
+                getattr(self, "_frontend_visual_reply_panel", None),
+            ),
+        )
+
+    def _disable_unwired_phase5_controls(self):
+        tooltip = "Deferred in --ui-real Phase 5. This still belongs to a later runtime migration slice."
+        for object_name in (
+        ):
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "setEnabled"):
+                continue
+            widget.setEnabled(False)
+            if hasattr(widget, "setToolTip"):
+                widget.setToolTip(tooltip)
+
+    def _mark_frontend_widget_preview_only(self, object_name, reason, *, hide=True):
+        widget = self._ui_object(object_name)
+        if widget is None:
+            return False
+        legacy_name = str(object_name or "").strip()
+        if legacy_name and not legacy_name.endswith("_legacy") and hasattr(widget, "setObjectName"):
+            try:
+                widget.setObjectName(f"{legacy_name}_legacy")
+            except Exception:
+                pass
+        if hasattr(widget, "setProperty"):
+            try:
+                widget.setProperty("nc_preview_only_non_target", True)
+            except Exception:
+                pass
+        for method_name in ("setToolTip", "setStatusTip", "setWhatsThis"):
+            method = getattr(widget, method_name, None)
+            if callable(method):
+                try:
+                    method(reason)
+                except Exception:
+                    pass
+        if hasattr(widget, "setEnabled"):
+            try:
+                widget.setEnabled(False)
+            except Exception:
+                pass
+        if hide and hasattr(widget, "hide"):
+            try:
+                widget.hide()
+            except Exception:
+                pass
+        return True
+
+    def _cleanup_frontend_preview_only_roots(self):
+        adopted_report = dict(getattr(self, "_adopted_runtime_tabs", {}) or {})
+        for entry in UI_REAL_PREVIEW_ONLY_ROOTS:
+            object_name = str(entry.get("object_name") or "").strip()
+            if not object_name:
+                continue
+            runtime_flag = str(entry.get("runtime_flag") or "").strip()
+            if runtime_flag and not bool(getattr(self, runtime_flag, False)):
+                continue
+            adopted_target = str(entry.get("adopted_target") or "").strip()
+            adopted_title = str(entry.get("adopted_title") or "").strip()
+            if adopted_target and adopted_title:
+                adopted_titles = list(adopted_report.get(adopted_target) or [])
+                if adopted_title not in adopted_titles:
+                    continue
+            self._mark_frontend_widget_preview_only(
+                object_name,
+                str(entry.get("reason") or "Static Designer preview surface; not the live runtime owner."),
+            )
+
+    def _set_layout_item_tree_visible(self, layout, visible):
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            widget = item.widget()
+            if widget is not None:
+                try:
+                    widget.setVisible(bool(visible))
+                except Exception:
+                    pass
+                continue
+            child_layout = item.layout()
+            if child_layout is not None:
+                self._set_layout_item_tree_visible(child_layout, visible)
+
+    def _update_frontend_collapsible_group_title(self, group_box):
+        if group_box is None or not hasattr(group_box, "setTitle"):
+            return
+        try:
+            base_title = str(group_box.property("nc_collapsible_base_title") or group_box.title() or "").strip()
+        except Exception:
+            base_title = str(group_box.title() or "").strip()
+        try:
+            summary = str(group_box.property("nc_collapsible_summary") or "").strip()
+        except Exception:
+            summary = ""
+        expanded = True
+        if hasattr(group_box, "isChecked"):
+            try:
+                expanded = bool(group_box.isChecked())
+            except Exception:
+                expanded = True
+        arrow = "▼" if expanded else "▶"
+        title = f"{arrow} {base_title}".strip()
+        if summary:
+            title = f"{title}  -  {summary}"
+        try:
+            group_box.setTitle(title)
+        except Exception:
+            pass
+
+    def _apply_frontend_collapsible_group_state(self, group_box, expanded):
+        if group_box is None:
+            return
+        layout = getattr(group_box, "layout", lambda: None)()
+        self._set_layout_item_tree_visible(layout, bool(expanded))
+        try:
+            group_box.setFlat(not bool(expanded))
+        except Exception:
+            pass
+        self._update_frontend_collapsible_group_title(group_box)
+        QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
+
+    def _set_frontend_collapsible_group_summary(self, group_box, text, fallback_title):
+        if group_box is None:
+            return
+        title, summary = _split_collapsible_section_text(text, fallback_title)
+        try:
+            object_name = str(group_box.objectName() or "").strip()
+        except Exception:
+            object_name = ""
+        if object_name == "tts_runtime_box" and summary:
+            summary = str(summary.split("/", 1)[0] or summary).strip()
+        try:
+            group_box.setProperty("nc_collapsible_base_title", title)
+            group_box.setProperty("nc_collapsible_summary", summary)
+            group_box.setToolTip(str(text or title or "").strip())
+        except Exception:
+            pass
+        self._update_frontend_collapsible_group_title(group_box)
+
+    def _configure_frontend_runtime_group_boxes(self):
+        group_specs = (
+            ("chat_runtime_box", "Chat Runtime"),
+            ("tts_runtime_box", "TTS Runtime"),
+        )
+        for object_name, fallback_title in group_specs:
+            group_box = self._ui_object(object_name)
+            if group_box is None:
+                continue
+            try:
+                group_box.setCheckable(True)
+                group_box.setChecked(True)
+                group_box.setProperty("nc_collapsible_base_title", fallback_title)
+                group_box.setProperty("nc_collapsible_summary", "")
+                group_box.setToolTip(f"Click to collapse or expand {fallback_title.lower()}.")
+                group_box.toggled.connect(
+                    lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked)
+                )
+            except Exception:
+                continue
+            self._apply_frontend_collapsible_group_state(group_box, True)
+
+    def _configure_phase5_placeholders(self):
+        provider_placeholder = self._ui_object("chat_provider_fields_placeholder")
+        if provider_placeholder is not None and hasattr(provider_placeholder, "setText"):
+            provider_placeholder.setText(
+                "Phase 5 --ui-real note:\n"
+                "Provider-specific runtime editors are now rendered into the real Designer surface through the hidden backend."
+            )
+        generation_placeholder = self._ui_object("chat_provider_generation_fields_placeholder")
+        if generation_placeholder is not None and hasattr(generation_placeholder, "setText"):
+            generation_placeholder.setText(
+                "Phase 5 --ui-real note:\n"
+                "Provider generation-field editors are now rendered into the real Designer surface through the hidden backend."
+            )
+
+    def _redirect_backend_provider_runtime_surface(self):
+        fields_layout = self._ui_object("chat_provider_fields_layout")
+        generation_layout = self._ui_object("chat_provider_generation_fields_layout")
+        fields_widget = self._ui_object("chat_provider_fields_widget")
+        generation_widget = self._ui_object("chat_provider_generation_fields_widget")
+        if fields_layout is None or generation_layout is None:
+            return
+        self.backend.chat_provider_fields_widget = fields_widget
+        self.backend.chat_provider_fields_layout = fields_layout
+        self.backend.chat_provider_generation_fields_widget = generation_widget
+        self.backend.chat_provider_generation_fields_layout = generation_layout
+        try:
+            self.backend._refresh_chat_provider_card()
+            self.backend._refresh_chat_runtime_summary()
+            self._provider_runtime_redirected = True
+        except Exception as exc:
+            print(f"[UI Real] Provider runtime surface redirect failed: {exc}")
+
+    def _redirect_backend_chat_session_runtime_surface(self):
+        frontend_widgets = {
+            "allow_proactive_checkbox": self._ui_object("allow_proactive_checkbox"),
+            "require_first_user_checkbox": self._ui_object("require_first_user_checkbox"),
+            "listen_idle_window_spin": self._ui_object("listen_idle_window_spin"),
+            "proactive_delay_spin": self._ui_object("proactive_delay_spin"),
+            "chat_context_window_spin": self._ui_object("chat_context_window_spin"),
+            "stored_chat_history_limit_spin": self._ui_object("stored_chat_history_limit_spin"),
+            "chat_overflow_policy_combo": self._ui_object("chat_overflow_policy_combo"),
+            "chat_session_hint": self._ui_object("chat_session_hint"),
+            "system_prompt_text": self._ui_object("system_prompt_text"),
+        }
+        if frontend_widgets["chat_session_hint"] is None:
+            return
+        redirected = False
+        for attribute_name, widget in frontend_widgets.items():
+            if widget is None:
+                continue
+            setattr(self.backend, attribute_name, widget)
+            redirected = True
+        if not redirected:
+            return
+        try:
+            self.backend._refresh_chat_session_hint()
+            self._chat_session_runtime_redirected = True
+        except Exception as exc:
+            print(f"[UI Real] Chat/session runtime surface redirect failed: {exc}")
+
+    def _redirect_backend_pipeline_telemetry_surface(self):
+        frontend_box = self._ui_object("pipeline_telemetry_box")
+        telemetry_widget = getattr(self.backend, "pipeline_telemetry_widget", None)
+        if frontend_box is None or telemetry_widget is None:
+            return
+        layout = frontend_box.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(frontend_box)
+            layout.setContentsMargins(10, 12, 10, 10)
+            layout.setSpacing(8)
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            if widget is None:
+                continue
+            try:
+                widget.setParent(None)
+            except Exception:
+                pass
+            try:
+                widget.deleteLater()
+            except Exception:
+                pass
+        try:
+            old_parent = telemetry_widget.parentWidget()
+            if old_parent is not None and old_parent.layout() is not None:
+                old_parent.layout().removeWidget(telemetry_widget)
+        except Exception:
+            pass
+        telemetry_widget.setParent(None)
+        telemetry_widget.setObjectName("pipeline_telemetry_widget")
+        layout.addWidget(telemetry_widget)
+        self.backend.pipeline_telemetry_box = frontend_box
+        self.backend.pipeline_telemetry_widget = telemetry_widget
+
+    def _redirect_backend_sensory_runtime_surface(self):
+        frontend_tabs = self._ui_object("sensory_feedback_tabs")
+        frontend_sources_widget = self._ui_object("sensory_feedback_sources_widget")
+        frontend_sources_layout = self._ui_object("sensoryFeedbackSourcesWidgetLayout")
+        frontend_interval_spin = self._ui_object("sensory_feedback_interval_spin")
+        frontend_pingpong_checkbox = self._ui_object("sensory_pingpong_checkbox")
+        frontend_hidden_proactive_checkbox = self._ui_object("sensory_allow_hidden_proactive_checkbox")
+        frontend_hidden_visual_checkbox = self._ui_object("sensory_allow_hidden_visual_checkbox")
+        frontend_history_spin = self._ui_object("sensory_pingpong_history_spin")
+        frontend_prompt_text = self._ui_object("sensory_pingpong_prompt_text")
+        frontend_hint_label = self._ui_object("sensory_feedback_hint")
+        if frontend_sources_layout is None and frontend_sources_widget is not None and hasattr(frontend_sources_widget, "layout"):
+            try:
+                frontend_sources_layout = frontend_sources_widget.layout()
+            except Exception:
+                frontend_sources_layout = None
+        if frontend_tabs is None or frontend_sources_widget is None or frontend_sources_layout is None:
+            return
+        self.backend.sensory_feedback_tabs = frontend_tabs
+        self.backend.sensory_feedback_sources_widget = frontend_sources_widget
+        self.backend.sensory_feedback_sources_layout = frontend_sources_layout
+        if frontend_interval_spin is not None:
+            self.backend.sensory_feedback_interval_spin = frontend_interval_spin
+        if frontend_pingpong_checkbox is not None:
+            self.backend.sensory_pingpong_checkbox = frontend_pingpong_checkbox
+        if frontend_hidden_proactive_checkbox is not None:
+            self.backend.sensory_allow_hidden_proactive_checkbox = frontend_hidden_proactive_checkbox
+        if frontend_hidden_visual_checkbox is not None:
+            self.backend.sensory_allow_hidden_visual_checkbox = frontend_hidden_visual_checkbox
+        if frontend_history_spin is not None:
+            self.backend.sensory_pingpong_history_spin = frontend_history_spin
+        if frontend_prompt_text is not None:
+            self.backend.sensory_pingpong_prompt_text = frontend_prompt_text
+        if frontend_hint_label is not None:
+            self.backend.sensory_feedback_hint = frontend_hint_label
+        try:
+            self.backend.refresh_sensory_feedback_source_options()
+            self.backend._refresh_sensory_feedback_hint()
+            self._sensory_runtime_redirected = True
+        except Exception as exc:
+            print(f"[UI Real] Sensory runtime surface redirect failed: {exc}")
+
+    def _build_ui_real_visual_reply_panel(self):
+        panel_class = QtVisualReplyPanel
+        capability_bridge = AddonCapabilityBridgeService(lambda: getattr(self.backend, "_addon_manager", None))
+        controller_path = Path(__file__).resolve().parent / "addons" / "visual_reply" / "controller.py"
+        try:
+            spec = importlib.util.spec_from_file_location("nc_ui_real_visual_reply_controller", controller_path)
+            if spec is None or spec.loader is None:
+                raise RuntimeError(f"Could not load Visual Reply controller from {controller_path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            loaded_class = getattr(module, "AddonVisualReplyPanel", None)
+            if loaded_class is not None:
+                panel_class = loaded_class
+        except Exception as exc:
+            print(f"[UI Real] Visual Reply panel addon import failed, using fallback panel: {exc}")
+        try:
+            panel = panel_class(capability_bridge=capability_bridge)
+        except TypeError:
+            panel = panel_class()
+        panel.setObjectName("visual_reply_panel")
+        object_map = (
+            ("status_label", "visual_reply_status"),
+            ("storage_label", "visual_reply_storage_label"),
+            ("prev_button", "visual_reply_previous_button"),
+            ("load_button", "visual_reply_load_button"),
+            ("next_button", "visual_reply_next_button"),
+            ("load_story_button", "visual_reply_load_current_story_button"),
+            ("use_style_button", "visual_reply_use_current_style_button"),
+            ("caption_button", "visual_reply_caption_button"),
+            ("delete_button", "visual_reply_delete_button"),
+            ("clear_button", "visual_reply_clear_button"),
+            ("delete_all_button", "visual_reply_delete_all_button"),
+            ("image_label", "visual_reply_image_label"),
+            ("caption_label", "visual_reply_caption_label"),
+        )
+        for attribute_name, object_name in object_map:
+            widget = getattr(panel, attribute_name, None)
+            if widget is not None and hasattr(widget, "setObjectName"):
+                widget.setObjectName(object_name)
+        return panel
+
+    def _redirect_backend_musetalk_preview_runtime_surface(self):
+        frontend_dock = self._ui_object("PreviewDock")
+        if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
+            return
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if panel is None:
+            return
+        old_widget = None
+        try:
+            old_widget = frontend_dock.widget()
+        except Exception:
+            old_widget = None
+        container = QtWidgets.QWidget()
+        container.setObjectName("preview_dock_content")
+        layout = QtWidgets.QVBoxLayout(container)
+        layout.setObjectName("previewDockLayout")
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        try:
+            old_parent = panel.parentWidget()
+            if old_parent is not None and old_parent.layout() is not None:
+                old_parent.layout().removeWidget(panel)
+        except Exception:
+            pass
+        panel.setParent(None)
+        layout.addWidget(panel)
+        try:
+            focus_signal = getattr(panel, "focusModeRequested", None)
+            if focus_signal is not None:
+                focus_signal.disconnect()
+                focus_signal.connect(self._toggle_frontend_musetalk_avatar_focus)
+        except Exception:
+            pass
+        try:
+            show_interface_signal = getattr(panel, "showInterfaceRequested", None)
+            if show_interface_signal is not None:
+                show_interface_signal.disconnect()
+                show_interface_signal.connect(self._show_frontend_main_interface_from_musetalk_focus)
+        except Exception:
+            pass
+        stage_window = None
+        try:
+            stage_window = self.backend._ensure_musetalk_stage_window()
+        except Exception:
+            stage_window = None
+        if stage_window is not None:
+            try:
+                stage_window.closeRequested.connect(self._show_frontend_main_interface_from_musetalk_focus)
+            except Exception:
+                pass
+        try:
+            frontend_dock.setWidget(container)
+            self.backend.preview_dock = frontend_dock
+            self.backend.preview_dock_container = container
+            self.backend.preview_dock_layout = layout
+            self.backend.embedded_musetalk_preview = panel
+            self._frontend_musetalk_preview_panel = panel
+            setattr(self.window, "show_musetalk_preview", self._show_frontend_musetalk_preview)
+            setattr(self.window, "toggle_musetalk_avatar_focus", self._toggle_frontend_musetalk_avatar_focus)
+            setattr(self.window, "show_main_interface_from_musetalk_focus", self._show_frontend_main_interface_from_musetalk_focus)
+            setattr(self.window, "stop_musetalk_preview", self._stop_frontend_musetalk_preview)
+            self._musetalk_preview_runtime_redirected = True
+        except Exception as exc:
+            print(f"[UI Real] MuseTalk preview runtime surface redirect failed: {exc}")
+            return
+        if old_widget is not None and old_widget is not container:
+            try:
+                old_widget.deleteLater()
+            except Exception:
+                pass
+
+    def _redirect_backend_visual_reply_runtime_surface(self):
+        frontend_dock = self._ui_object("VisualReplyDock")
+        if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
+            return
+        old_widget = None
+        try:
+            old_widget = frontend_dock.widget()
+        except Exception:
+            old_widget = None
+        if old_widget is not None and hasattr(old_widget, "setObjectName"):
+            try:
+                old_widget.setObjectName("visual_reply_panel_legacy")
+            except Exception:
+                pass
+            for legacy_name in (
+                "visual_reply_status",
+                "visual_reply_storage_label",
+                "visual_reply_previous_button",
+                "visual_reply_load_button",
+                "visual_reply_next_button",
+                "visual_reply_load_current_story_button",
+                "visual_reply_use_current_style_button",
+                "visual_reply_caption_button",
+                "visual_reply_delete_button",
+                "visual_reply_clear_button",
+                "visual_reply_delete_all_button",
+                "visual_reply_frame",
+                "visual_reply_image_label",
+            ):
+                try:
+                    child = old_widget.findChild(QtCore.QObject, legacy_name)
+                except Exception:
+                    child = None
+                if child is not None and hasattr(child, "setObjectName"):
+                    try:
+                        child.setObjectName(f"{legacy_name}_legacy")
+                    except Exception:
+                        pass
+        panel = self._build_ui_real_visual_reply_panel()
+        try:
+            load_signal = getattr(panel, "loadRequested", None)
+            if load_signal is not None:
+                load_signal.connect(self.backend.prompt_visual_reply_image)
+        except Exception:
+            pass
+        try:
+            caption_signal = getattr(panel, "captionRequested", None)
+            if caption_signal is not None:
+                caption_signal.connect(self.backend.prompt_visual_reply_caption)
+        except Exception:
+            pass
+        try:
+            clear_signal = getattr(panel, "clearRequested", None)
+            if clear_signal is not None:
+                clear_signal.connect(lambda: self.backend.clear_visual_reply(auto_show=False))
+        except Exception:
+            pass
+        try:
+            frontend_dock.setWidget(panel)
+            self.backend.visual_reply_dock = frontend_dock
+            self.backend.visual_reply_panel = panel
+            self._frontend_visual_reply_panel = panel
+            setattr(self.window, "show_visual_reply_dock", self._show_frontend_visual_reply_dock)
+            self._visual_reply_runtime_redirected = True
+        except Exception as exc:
+            print(f"[UI Real] Visual Reply runtime surface redirect failed: {exc}")
+            return
+        if old_widget is not None and old_widget is not panel:
+            try:
+                old_widget.deleteLater()
+            except Exception:
+                pass
+
+    def _tab_titles(self, tabs):
+        titles = []
+        if tabs is None or not hasattr(tabs, "count"):
+            return titles
+        for index in range(tabs.count()):
+            try:
+                title = str(tabs.tabText(index) or "").strip()
+            except Exception:
+                title = ""
+            if title:
+                titles.append(title)
+        return titles
+
+    def _current_frontend_tab_title(self, object_name):
+        tabs = self._ui_object(object_name)
+        if tabs is None or not hasattr(tabs, "currentIndex") or not hasattr(tabs, "tabText"):
+            return ""
+        try:
+            index = int(tabs.currentIndex())
+        except Exception:
+            return ""
+        if index < 0:
+            return ""
+        try:
+            title = str(tabs.tabText(index) or "").strip()
+        except Exception:
+            title = ""
+        if title:
+            return title
+        try:
+            return str(tabs.tabToolTip(index) or "").strip()
+        except Exception:
+            return ""
+
+    def _audio_story_controller(self):
+        try:
+            return self.backend._get_addon_controller("nc.audio_story_mode")
+        except Exception:
+            return None
+
+    def _tab_contribution_titles(self, area):
+        manager = getattr(self.backend, "_addon_manager", None)
+        if manager is None:
+            return set()
+        titles = set()
+        for contribution in list(manager.get_tab_contributions(area=area) or []):
+            if str(getattr(contribution, "parent_tab_id", "") or "").strip():
+                continue
+            title = str(getattr(contribution, "title", "") or "").strip()
+            if title:
+                titles.add(title)
+        return titles
+
+    def _take_matching_tabs(self, source_tabs, target_tabs, titles):
+        adopted = []
+        if source_tabs is None or target_tabs is None or not titles:
+            return adopted
+        matches = []
+        for index in range(source_tabs.count()):
+            try:
+                title = str(source_tabs.tabText(index) or "").strip()
+            except Exception:
+                title = ""
+            if title not in titles:
+                continue
+            matches.append(
+                {
+                    "index": index,
+                    "title": title,
+                    "widget": source_tabs.widget(index),
+                    "tooltip": str(source_tabs.tabToolTip(index) or "").strip(),
+                    "icon": source_tabs.tabIcon(index),
+                }
+            )
+        for item in reversed(matches):
+            try:
+                source_tabs.removeTab(int(item["index"]))
+            except Exception:
+                continue
+        for item in matches:
+            widget = item.get("widget")
+            title = str(item.get("title") or "").strip()
+            if widget is None or not title:
+                continue
+            target_index = -1
+            preserved_title = ""
+            preserved_tooltip = ""
+            preserved_icon = None
+            for index in range(target_tabs.count()):
+                try:
+                    target_title = str(target_tabs.tabText(index) or "").strip()
+                    if not target_title:
+                        target_title = str(target_tabs.tabToolTip(index) or "").strip()
+                    if target_title == title:
+                        target_index = index
+                        preserved_title = str(target_tabs.tabText(index) or "").strip()
+                        preserved_tooltip = str(target_tabs.tabToolTip(index) or "").strip()
+                        preserved_icon = target_tabs.tabIcon(index)
+                        break
+                except Exception:
+                    continue
+            if target_index >= 0:
+                try:
+                    old_widget = target_tabs.widget(target_index)
+                    target_tabs.removeTab(target_index)
+                    if old_widget is not None and old_widget is not widget:
+                        old_widget.setParent(None)
+                        old_widget.deleteLater()
+                except Exception:
+                    pass
+                insert_title = preserved_title
+                new_index = target_tabs.insertTab(target_index, widget, insert_title)
+            else:
+                new_index = target_tabs.addTab(widget, title)
+            tooltip = preserved_tooltip or str(item.get("tooltip") or "").strip()
+            if tooltip:
+                try:
+                    target_tabs.setTabToolTip(new_index, tooltip)
+                except Exception:
+                    pass
+            icon = preserved_icon if preserved_icon is not None and not preserved_icon.isNull() else item.get("icon")
+            try:
+                if icon is not None and not icon.isNull():
+                    target_tabs.setTabIcon(new_index, icon)
+            except Exception:
+                pass
+            adopted.append(title)
+        try:
+            target_tabs.setVisible(target_tabs.count() > 0)
+        except Exception:
+            pass
+        return adopted
+
+    def _take_tabs_after_index(self, source_tabs, target_tabs, start_index=0):
+        adopted = []
+        if source_tabs is None or target_tabs is None:
+            return adopted
+        matches = []
+        for index in range(max(int(start_index), 0), source_tabs.count()):
+            try:
+                title = str(source_tabs.tabText(index) or "").strip()
+            except Exception:
+                title = ""
+            if not title:
+                continue
+            matches.append(
+                {
+                    "index": index,
+                    "title": title,
+                    "widget": source_tabs.widget(index),
+                    "tooltip": str(source_tabs.tabToolTip(index) or "").strip(),
+                    "icon": source_tabs.tabIcon(index),
+                }
+            )
+        if not matches:
+            return adopted
+        for item in reversed(matches):
+            try:
+                source_tabs.removeTab(int(item["index"]))
+            except Exception:
+                continue
+        for item in matches:
+            widget = item.get("widget")
+            title = str(item.get("title") or "").strip()
+            if widget is None or not title:
+                continue
+            target_index = -1
+            for index in range(target_tabs.count()):
+                try:
+                    if str(target_tabs.tabText(index) or "").strip() == title:
+                        target_index = index
+                        break
+                except Exception:
+                    continue
+            if target_index >= 0:
+                try:
+                    old_widget = target_tabs.widget(target_index)
+                    target_tabs.removeTab(target_index)
+                    if old_widget is not None and old_widget is not widget:
+                        old_widget.setParent(None)
+                        old_widget.deleteLater()
+                except Exception:
+                    pass
+                new_index = target_tabs.insertTab(target_index, widget, title)
+            else:
+                new_index = target_tabs.addTab(widget, title)
+            tooltip = str(item.get("tooltip") or "").strip()
+            if tooltip:
+                try:
+                    target_tabs.setTabToolTip(new_index, tooltip)
+                except Exception:
+                    pass
+            icon = item.get("icon")
+            try:
+                if icon is not None and not icon.isNull():
+                    target_tabs.setTabIcon(new_index, icon)
+            except Exception:
+                pass
+            adopted.append(title)
+        try:
+            target_tabs.setVisible(target_tabs.count() > 0)
+        except Exception:
+            pass
+        return adopted
+
+    def _adopt_backend_runtime_tabs(self):
+        mappings = (
+            {
+                "area": "top_level",
+                "source_name": "tabs",
+                "target_name": "left_tabs",
+                "mode": "titles",
+            },
+            {
+                "area": "host_settings",
+                "source_name": "host_settings_tabs",
+                "target_name": "host_settings_tabs",
+                "mode": "titles",
+            },
+            {
+                "area": "operational_view",
+                "source_name": "right_tabs",
+                "target_name": "right_tabs",
+                "mode": "titles",
+            },
+            {
+                "area": "musetalk",
+                "source_name": "musetalk_tabs",
+                "target_name": "musetalk_tabs",
+                "mode": "titles",
+            },
+            {
+                "area": "tts_runtime",
+                "source_name": "tts_runtime_addon_tabs",
+                "target_name": "tts_runtime_addon_tabs",
+                "mode": "titles",
+            },
+        )
+        adopted_report = {}
+        for mapping in mappings:
+            source_name = str(mapping.get("source_name") or "").strip()
+            target_name = str(mapping.get("target_name") or "").strip()
+            source_tabs = getattr(self.backend, source_name, None)
+            target_tabs = self._ui_object(target_name)
+            if str(mapping.get("mode") or "").strip() == "after_index":
+                adopted = self._take_tabs_after_index(
+                    source_tabs,
+                    target_tabs,
+                    start_index=int(mapping.get("start_index", 0) or 0),
+                )
+            else:
+                titles = self._tab_contribution_titles(mapping.get("area"))
+                adopted = self._take_matching_tabs(source_tabs, target_tabs, titles)
+            if adopted:
+                adopted_report[target_name] = adopted
+        self._adopted_runtime_tabs = adopted_report
+        frontend_left_tabs = self._ui_object("left_tabs")
+        if frontend_left_tabs is not None:
+            self.backend.tabs = frontend_left_tabs
+            setattr(self.backend, "left_tabs", frontend_left_tabs)
+        for target_name in (
+            "host_settings_tabs",
+            "right_tabs",
+            "musetalk_tabs",
+            "tts_runtime_addon_tabs",
+            "sensory_feedback_tabs",
+        ):
+            frontend_tabs = self._ui_object(target_name)
+            if frontend_tabs is not None:
+                setattr(self.backend, target_name, frontend_tabs)
+        if frontend_left_tabs is not None and hasattr(frontend_left_tabs, "currentChanged"):
+            frontend_left_tabs.currentChanged.connect(self._on_frontend_left_tab_changed)
+        frontend_right_tabs = self._ui_object("right_tabs")
+        if frontend_right_tabs is not None and hasattr(frontend_right_tabs, "currentChanged"):
+            frontend_right_tabs.currentChanged.connect(self.backend._on_right_tab_changed)
+        frontend_tts_tabs = self._ui_object("tts_runtime_addon_tabs")
+        if frontend_tts_tabs is not None and hasattr(frontend_tts_tabs, "currentChanged"):
+            frontend_tts_tabs.currentChanged.connect(self.backend._on_tts_runtime_addon_tab_changed)
+        frontend_host_tabs = self._ui_object("host_settings_tabs")
+        if frontend_host_tabs is not None and hasattr(frontend_host_tabs, "currentChanged"):
+            frontend_host_tabs.currentChanged.connect(lambda _index, tabs=frontend_host_tabs: self.backend._sync_tab_widget_height(tabs))
+        frontend_sensory_tabs = self._ui_object("sensory_feedback_tabs")
+        if frontend_sensory_tabs is not None and hasattr(frontend_sensory_tabs, "currentChanged"):
+            frontend_sensory_tabs.currentChanged.connect(lambda _index, tabs=frontend_sensory_tabs: self.backend._sync_tab_widget_height(tabs))
+        try:
+            self.backend._refresh_tts_runtime_card(activate_tab=True)
+        except Exception:
+            pass
+
+    def _on_frontend_left_tab_changed(self, index):
+        try:
+            self.backend._on_left_tab_changed(index)
+        except Exception:
+            pass
+        tabs = self._ui_object("left_tabs")
+        if tabs is not None:
+            try:
+                self.backend._sync_tab_widget_height(tabs)
+            except Exception:
+                pass
+        current_title = self._current_frontend_tab_title("left_tabs")
+        if current_title == "Hotkeys":
+            controller = None
+            try:
+                controller = self.backend._get_addon_controller("nc.hotkeys")
+            except Exception:
+                controller = None
+            if controller is not None and hasattr(controller, "refresh_state"):
+                try:
+                    controller.refresh_state()
+                except Exception:
+                    pass
+
+    def _bind_basic_runtime_mirrors(self):
+        bindings = {
+            "console_autoscroll_button": getattr(self.backend, "toggle_console_autoscroll", None),
+            "console_clear_button": getattr(self.backend, "clear_console", None),
+            "chat_autoscroll_button": getattr(self.backend, "toggle_chat_autoscroll", None),
+            "chat_clear_button": getattr(self.backend, "clear_chat", None),
+        }
+        for object_name, handler in bindings.items():
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "clicked") or not callable(handler):
+                continue
+            widget.clicked.connect(handler)
+
+    def _bind_lifecycle_controls(self):
+        start_button = self._ui_object("btn_start_engine")
+        if start_button is not None and hasattr(start_button, "clicked"):
+            start_button.clicked.connect(self._start_engine_from_ui_real)
+        stop_button = self._ui_object("btn_stop_engine")
+        if stop_button is not None and hasattr(stop_button, "clicked"):
+            stop_button.clicked.connect(self._engine_lifecycle_service.stop_engine)
+        reset_button = self._ui_object("btn_reset_chat")
+        if reset_button is not None and hasattr(reset_button, "clicked"):
+            reset_button.clicked.connect(self._engine_lifecycle_service.reset_chat_memory)
+
+    def _bind_runtime_action_controls(self):
+        button_actions = {
+            "btn_regenerate": "regenerate_response",
+            "btn_retry": "retry_user_input",
+            "btn_pause": "pause_speech",
+            "btn_skip": "skip_speech",
+            "btn_skip_user": "skip_user_reply",
+        }
+        for object_name, action_name in button_actions.items():
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "clicked"):
+                continue
+            widget.clicked.connect(lambda _checked=False, action=action_name: self._runtime_control_service.trigger(action))
+
+    def _bind_chat_context_controls(self):
+        bindings = {
+            "chat_quick_save_button": self._chat_context_service.quick_save_chat_context,
+            "chat_quick_load_button": self._chat_context_service.quick_load_chat_context,
+            "btn_save_chat_session": self._chat_context_service.save_chat_context,
+            "btn_load_chat_session": self._chat_context_service.load_chat_context,
+            "btn_reset_chat_session": self._chat_context_service.reset_chat_memory,
+        }
+        for object_name, handler in bindings.items():
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "clicked"):
+                continue
+            widget.clicked.connect(handler)
+
+    def _bind_model_refresh_control(self):
+        refresh_button = self._ui_object("btn_model_refresh")
+        if refresh_button is not None and hasattr(refresh_button, "clicked"):
+            refresh_button.clicked.connect(self._request_model_refresh_from_ui_real)
+
+    def _bind_push_to_talk_control(self):
+        button = self._ui_object("btn_push_to_talk")
+        if button is None:
+            return
+        if hasattr(button, "pressed"):
+            button.pressed.connect(lambda: self._input_action_service.set_push_to_talk_hold(True))
+        if hasattr(button, "released"):
+            button.released.connect(lambda: self._input_action_service.set_push_to_talk_hold(False))
+
+    def _bind_chat_edit_controls(self):
+        edit_button = self._ui_object("chat_edit_mode_button")
+        if edit_button is not None and hasattr(edit_button, "clicked"):
+            edit_button.clicked.connect(self._enter_chat_edit_mode_from_ui_real)
+        apply_button = self._ui_object("chat_apply_edit_button")
+        if apply_button is not None and hasattr(apply_button, "clicked"):
+            apply_button.clicked.connect(self._apply_chat_edit_mode_from_ui_real)
+        cancel_button = self._ui_object("chat_cancel_edit_button")
+        if cancel_button is not None and hasattr(cancel_button, "clicked"):
+            cancel_button.clicked.connect(self._cancel_chat_edit_mode_from_ui_real)
+
+    def _bind_dry_run_controls(self):
+        bindings = {
+            "btn_dry_run_start": getattr(self.backend, "start_dry_run_session", None),
+            "btn_dry_run_stop": getattr(self.backend, "stop_dry_run_session", None),
+            "btn_dry_run_apply": getattr(self.backend, "apply_dry_run_recommendation", None),
+        }
+        for object_name, handler in bindings.items():
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "clicked") or not callable(handler):
+                continue
+            widget.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
+
+    def _bind_response_length_runtime_controls(self):
+        limit_response_checkbox = self._ui_object("limit_response_checkbox")
+        if limit_response_checkbox is not None and hasattr(limit_response_checkbox, "toggled"):
+            limit_response_checkbox.toggled.connect(self._on_frontend_limit_response_length_changed)
+        max_response_tokens_spin = self._ui_object("max_response_tokens_spin")
+        if max_response_tokens_spin is not None and hasattr(max_response_tokens_spin, "valueChanged"):
+            max_response_tokens_spin.valueChanged.connect(self._on_frontend_max_response_tokens_changed)
+
+    def _bind_host_input_runtime_controls(self):
+        combo_bindings = (
+            ("audio_input_device_combo", self._on_frontend_audio_input_device_changed),
+            ("audio_output_device_combo", self._on_frontend_audio_output_device_changed),
+            ("engine_combo", self._on_frontend_engine_changed),
+            ("input_mode_combo", self._on_frontend_input_mode_changed),
+            ("input_role_combo", self._on_frontend_input_role_changed),
+            ("stream_mode_combo", self._on_frontend_stream_mode_changed),
+            ("tts_backend_combo", self._on_frontend_tts_backend_changed),
+        )
+        for object_name, handler in combo_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "currentIndexChanged"):
+                continue
+            widget.currentIndexChanged.connect(handler)
+
+    def _bind_musetalk_visual_runtime_controls(self):
+        combo_bindings = (
+            ("musetalk_vram_combo", self._on_frontend_musetalk_vram_changed),
+            ("musetalk_avatar_pack_combo", self._on_frontend_musetalk_avatar_pack_changed),
+            ("visual_reply_mode_combo", self._on_frontend_visual_reply_mode_changed),
+            ("visual_reply_provider_combo", self._on_frontend_visual_reply_provider_changed),
+            ("visual_reply_size_combo", self._on_frontend_visual_reply_size_changed),
+            ("sensory_feedback_source_combo", self._on_frontend_sensory_feedback_source_changed),
+            ("chat_font_size_combo", self._on_frontend_chat_font_size_changed),
+        )
+        for object_name, handler in combo_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "currentIndexChanged"):
+                continue
+            widget.currentIndexChanged.connect(handler)
+
+    def _bind_avatar_body_vam_runtime_controls(self):
+        combo_bindings = (
+            ("voice_combo", self._on_frontend_voice_changed),
+            ("body_combo", self._on_frontend_body_selection_changed),
+            ("emotion_combo", self._on_frontend_emotion_changed),
+        )
+        for object_name, handler in combo_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "currentIndexChanged"):
+                continue
+            widget.currentIndexChanged.connect(handler)
+        checkbox_bindings = (
+            ("live_sync_checkbox", self._on_frontend_live_sync_changed),
+            ("vam_vmc_enabled_checkbox", self._on_frontend_vam_vmc_enabled_changed),
+            ("vam_bridge_enabled_checkbox", self._on_frontend_vam_bridge_enabled_changed),
+            ("vam_play_audio_in_vam_checkbox", self._on_frontend_vam_play_audio_changed),
+            ("vam_timeline_auto_resume_checkbox", self._on_frontend_vam_timeline_auto_resume_changed),
+        )
+        for object_name, handler in checkbox_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "toggled"):
+                continue
+            widget.toggled.connect(handler)
+        vam_vmc_port_spin = self._ui_object("vam_vmc_port_spin")
+        if vam_vmc_port_spin is not None and hasattr(vam_vmc_port_spin, "valueChanged"):
+            vam_vmc_port_spin.valueChanged.connect(self._on_frontend_vam_vmc_port_changed)
+        edit_bindings = (
+            ("vam_root_edit", self._on_frontend_vam_root_changed),
+            ("vam_target_atom_uid_edit", self._on_frontend_vam_target_atom_uid_changed),
+            ("vam_target_storable_id_edit", self._on_frontend_vam_target_storable_id_changed),
+            ("vam_vmc_host_edit", self._on_frontend_vam_vmc_host_changed),
+        )
+        for object_name, handler in edit_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "editingFinished"):
+                continue
+            widget.editingFinished.connect(handler)
+
+    def _bind_profile_utility_runtime_controls(self):
+        combo_bindings = (
+            ("chunking_profile_combo", self._on_frontend_chunking_profile_changed),
+            ("performance_profile_combo", self._on_frontend_performance_profile_changed),
+        )
+        for object_name, handler in combo_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "currentIndexChanged"):
+                continue
+            widget.currentIndexChanged.connect(handler)
+        dry_run_auto_replies_checkbox = self._ui_object("dry_run_auto_replies_checkbox")
+        if dry_run_auto_replies_checkbox is not None and hasattr(dry_run_auto_replies_checkbox, "toggled"):
+            dry_run_auto_replies_checkbox.toggled.connect(self._on_frontend_dry_run_auto_replies_changed)
+        spin_bindings = (
+            ("dry_run_target_spin", self._on_frontend_dry_run_target_changed),
+            ("musetalk_loop_fade_spin", self._on_frontend_musetalk_loop_fade_changed),
+        )
+        for object_name, handler in spin_bindings:
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "valueChanged"):
+                continue
+            widget.valueChanged.connect(handler)
+        visual_reply_model_edit = self._ui_object("visual_reply_model_edit")
+        if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "editingFinished"):
+            visual_reply_model_edit.editingFinished.connect(self._on_frontend_visual_reply_model_changed)
+
+    def _bind_frontend_theme_controls(self):
+        for preset_id, button_name, _edit_name in APP_THEME_PRESET_WIDGETS:
+            button = self._ui_object(button_name)
+            if button is None or not hasattr(button, "clicked"):
+                continue
+            if hasattr(button, "setCheckable"):
+                try:
+                    button.setCheckable(True)
+                except Exception:
+                    pass
+            button.clicked.connect(lambda _checked=False, wanted=preset_id: self._apply_frontend_theme_preset(wanted))
+
+    def _theme_stylesheet_for_current_preset(self):
+        current_preset = _normalize_app_theme_preset_id(
+            getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+        )
+        return _build_app_stylesheet_for_preset(current_preset)
+
+    def _apply_theme_to_frontend_window(self):
+        stylesheet = self._theme_stylesheet_for_current_preset()
+        palette = _app_theme_palette(
+            getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+        )
+        if self.window is not None and hasattr(self.window, "setStyleSheet"):
+            try:
+                self.window.setStyleSheet(stylesheet)
+            except Exception:
+                pass
+            try:
+                _apply_inline_theme_styles(self.window, palette)
+                _apply_engine_action_button_accents(self.window)
+            except Exception:
+                pass
+
+    def _apply_theme_to_runtime_panels(self):
+        palette = _app_theme_palette(
+            getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+        )
+        preview_bg = palette.get("preview_bg", palette.get("panel_bg", palette.get("field_bg", "#18202a")))
+        field_bg = palette.get("field_bg", "#0f141b")
+        border = palette.get("surface_border", "#273342")
+        text = palette.get("text", "#e5e9f0")
+        text_strong = palette.get("text_strong", "#f2f5f9")
+
+        for panel in (
+            getattr(self, "_frontend_musetalk_preview_panel", None),
+            getattr(self.backend, "embedded_musetalk_preview", None),
+        ):
+            if panel is None:
+                continue
+            label = getattr(panel, "preview_label", None)
+            if label is not None and hasattr(label, "setStyleSheet"):
+                try:
+                    label.setStyleSheet(f"font-weight: 600; color: {text_strong};")
+                except Exception:
+                    pass
+            scroll = getattr(panel, "image_scroll", None)
+            if scroll is not None and hasattr(scroll, "setStyleSheet"):
+                try:
+                    focus_mode = bool(getattr(panel, "focus_mode_active", False))
+                    if focus_mode:
+                        scroll.setStyleSheet(
+                            f"QScrollArea {{ background: {palette.get('window_bg', '#11161d')}; border: 0; border-radius: 0; }}"
+                        )
+                    else:
+                        scroll.setStyleSheet(
+                            f"QScrollArea {{ background: {preview_bg}; border: 1px solid {border}; border-radius: 10px; }}"
+                        )
+                except Exception:
+                    pass
+
+        for panel in (
+            getattr(self, "_frontend_visual_reply_panel", None),
+            getattr(self.backend, "visual_reply_panel", None),
+        ):
+            if panel is None:
+                continue
+            status_label = getattr(panel, "status_label", None)
+            if status_label is not None and hasattr(status_label, "setStyleSheet"):
+                try:
+                    status_label.setStyleSheet(f"font-weight: 600; color: {text_strong};")
+                except Exception:
+                    pass
+            storage_label = getattr(panel, "storage_label", None)
+            if storage_label is not None and hasattr(storage_label, "setStyleSheet"):
+                try:
+                    storage_label.setStyleSheet(f"color: {text}; font-size: 11px;")
+                except Exception:
+                    pass
+            caption_label = getattr(panel, "caption_label", None)
+            if caption_label is not None and hasattr(caption_label, "setStyleSheet"):
+                try:
+                    caption_label.setStyleSheet(f"color: {text}; font-size: 11px; padding: 2px 2px 0 2px;")
+                except Exception:
+                    pass
+            placeholder = getattr(panel, "placeholder", None)
+            if placeholder is not None and hasattr(placeholder, "setStyleSheet"):
+                try:
+                    placeholder.setStyleSheet(
+                        f"background: {preview_bg}; border: 1px solid {border}; border-radius: 10px; color: {text}; padding: 18px;"
+                    )
+                except Exception:
+                    pass
+            scroll = getattr(panel, "image_scroll", None)
+            if scroll is not None and hasattr(scroll, "setStyleSheet"):
+                try:
+                    scroll.setStyleSheet(
+                        f"QScrollArea {{ background: {preview_bg}; border: 1px solid {border}; border-radius: 10px; }}"
+                    )
+                except Exception:
+                    pass
+
+    def _refresh_frontend_theme_controls(self):
+        active_preset = _normalize_app_theme_preset_id(
+            getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+        )
+        for preset_id, button_name, edit_name in APP_THEME_PRESET_WIDGETS:
+            button = self._ui_object(button_name)
+            edit = self._ui_object(edit_name)
+            if edit is not None and hasattr(edit, "setToolTip"):
+                edit.setToolTip("Theme note for this preset. The Apply button now switches the live app theme.")
+            if button is None:
+                continue
+            label = APP_THEME_PRESET_LABELS.get(preset_id, preset_id.replace("_", " ").title())
+            if hasattr(button, "blockSignals"):
+                button.blockSignals(True)
+            try:
+                if hasattr(button, "setCheckable"):
+                    button.setCheckable(True)
+                if hasattr(button, "setChecked"):
+                    button.setChecked(preset_id == active_preset)
+                if hasattr(button, "setText"):
+                    button.setText(f"Applied {label}" if preset_id == active_preset else f"Apply {label}")
+                if hasattr(button, "setToolTip"):
+                    button.setToolTip(
+                        f"Currently active theme preset: {label}." if preset_id == active_preset else f"Apply the {label} theme preset."
+                    )
+            finally:
+                if hasattr(button, "blockSignals"):
+                    button.blockSignals(False)
+
+    def _apply_frontend_theme_preset(self, preset_id):
+        if bool(getattr(self, "_frontend_theme_apply_in_progress", False)):
+            return
+        self._frontend_theme_apply_in_progress = True
+        callback = getattr(self.backend, "apply_app_theme_preset", None)
+        try:
+            if callable(callback):
+                callback(preset_id, save_session=True)
+            self._apply_theme_to_frontend_window()
+            self._apply_theme_to_runtime_panels()
+            self._refresh_frontend_theme_controls()
+        finally:
+            self._frontend_theme_apply_in_progress = False
+
+    def _bind_chat_session_runtime_controls(self):
+        allow_proactive_checkbox = self._ui_object("allow_proactive_checkbox")
+        if allow_proactive_checkbox is not None and hasattr(allow_proactive_checkbox, "toggled"):
+            allow_proactive_checkbox.toggled.connect(self._on_frontend_allow_proactive_changed)
+        require_first_user_checkbox = self._ui_object("require_first_user_checkbox")
+        if require_first_user_checkbox is not None and hasattr(require_first_user_checkbox, "toggled"):
+            require_first_user_checkbox.toggled.connect(self._on_frontend_require_first_user_changed)
+        listen_idle_window_spin = self._ui_object("listen_idle_window_spin")
+        if listen_idle_window_spin is not None and hasattr(listen_idle_window_spin, "valueChanged"):
+            listen_idle_window_spin.valueChanged.connect(self._on_frontend_listen_idle_window_changed)
+        proactive_delay_spin = self._ui_object("proactive_delay_spin")
+        if proactive_delay_spin is not None and hasattr(proactive_delay_spin, "valueChanged"):
+            proactive_delay_spin.valueChanged.connect(self._on_frontend_proactive_delay_changed)
+        chat_context_window_spin = self._ui_object("chat_context_window_spin")
+        if chat_context_window_spin is not None and hasattr(chat_context_window_spin, "valueChanged"):
+            chat_context_window_spin.valueChanged.connect(self._on_frontend_chat_context_window_changed)
+        stored_chat_history_limit_spin = self._ui_object("stored_chat_history_limit_spin")
+        if stored_chat_history_limit_spin is not None and hasattr(stored_chat_history_limit_spin, "valueChanged"):
+            stored_chat_history_limit_spin.valueChanged.connect(self._on_frontend_stored_chat_history_limit_changed)
+        chat_overflow_policy_combo = self._ui_object("chat_overflow_policy_combo")
+        if chat_overflow_policy_combo is not None and hasattr(chat_overflow_policy_combo, "currentTextChanged"):
+            chat_overflow_policy_combo.currentTextChanged.connect(self._on_frontend_chat_overflow_policy_changed)
+        system_prompt_text = self._ui_object("system_prompt_text")
+        if system_prompt_text is not None and hasattr(system_prompt_text, "textChanged"):
+            system_prompt_text.textChanged.connect(self._on_frontend_system_prompt_changed)
+
+    def _bind_sensory_runtime_controls(self):
+        interval_spin = self._ui_object("sensory_feedback_interval_spin")
+        if interval_spin is not None and hasattr(interval_spin, "valueChanged"):
+            interval_spin.valueChanged.connect(self._on_frontend_sensory_interval_changed)
+        pingpong_checkbox = self._ui_object("sensory_pingpong_checkbox")
+        if pingpong_checkbox is not None and hasattr(pingpong_checkbox, "toggled"):
+            pingpong_checkbox.toggled.connect(self._on_frontend_sensory_pingpong_toggled)
+        hidden_proactive_checkbox = self._ui_object("sensory_allow_hidden_proactive_checkbox")
+        if hidden_proactive_checkbox is not None and hasattr(hidden_proactive_checkbox, "toggled"):
+            hidden_proactive_checkbox.toggled.connect(self._on_frontend_sensory_hidden_proactive_toggled)
+        hidden_visual_checkbox = self._ui_object("sensory_allow_hidden_visual_checkbox")
+        if hidden_visual_checkbox is not None and hasattr(hidden_visual_checkbox, "toggled"):
+            hidden_visual_checkbox.toggled.connect(self._on_frontend_sensory_hidden_visual_toggled)
+        history_spin = self._ui_object("sensory_pingpong_history_spin")
+        if history_spin is not None and hasattr(history_spin, "valueChanged"):
+            history_spin.valueChanged.connect(self._on_frontend_sensory_history_changed)
+        prompt_text = self._ui_object("sensory_pingpong_prompt_text")
+        if prompt_text is not None and hasattr(prompt_text, "textChanged"):
+            prompt_text.textChanged.connect(self._on_frontend_sensory_prompt_changed)
+        prompt_reset = self._ui_object("btn_sensory_pingpong_prompt_reset")
+        if prompt_reset is not None and hasattr(prompt_reset, "clicked"):
+            prompt_reset.clicked.connect(self._reset_frontend_sensory_prompt_to_default)
+
+    def _bind_audio_story_duplicate_controls(self):
+        import_button = self._ui_object("import_audio_button")
+        if import_button is not None and hasattr(import_button, "clicked"):
+            import_button.clicked.connect(lambda: self._invoke_audio_story_controller("_choose_audio_file"))
+        transcribe_button = self._ui_object("transcribe_audio_button")
+        if transcribe_button is not None and hasattr(transcribe_button, "clicked"):
+            transcribe_button.clicked.connect(lambda: self._invoke_audio_story_controller("_start_transcription"))
+        play_button = self._ui_object("audio_story_play_button")
+        if play_button is not None and hasattr(play_button, "clicked"):
+            play_button.clicked.connect(lambda: self._invoke_audio_story_controller("_play_story"))
+        pause_button = self._ui_object("audio_story_pause_button")
+        if pause_button is not None and hasattr(pause_button, "clicked"):
+            pause_button.clicked.connect(lambda: self._invoke_audio_story_controller("_pause_story"))
+        stop_button = self._ui_object("audio_story_stop_button")
+        if stop_button is not None and hasattr(stop_button, "clicked"):
+            stop_button.clicked.connect(lambda: self._invoke_audio_story_controller("_stop_story"))
+        playback_combo = self._ui_object("audio_story_playback_combo")
+        if playback_combo is not None and hasattr(playback_combo, "currentIndexChanged"):
+            playback_combo.currentIndexChanged.connect(lambda _index: self._sync_audio_story_frontend_combo_to_controller())
+        transcribe_slider = self._ui_object("transcribe_seconds_slider")
+        if transcribe_slider is not None and hasattr(transcribe_slider, "valueChanged"):
+            transcribe_slider.valueChanged.connect(lambda value: self._sync_audio_story_frontend_slider_to_controller(value))
+        seek_slider = self._ui_object("audio_story_seek_slider")
+        if seek_slider is not None and hasattr(seek_slider, "sliderReleased"):
+            seek_slider.sliderReleased.connect(self._apply_audio_story_seek_from_frontend)
+
+    def _bind_musetalk_preview_controls(self):
+        preview_button = self._ui_object("btn_musetalk_preview")
+        if preview_button is not None and hasattr(preview_button, "clicked"):
+            preview_button.clicked.connect(self._show_frontend_musetalk_preview)
+        focus_button = self._ui_object("btn_musetalk_avatar_focus")
+        if focus_button is not None and hasattr(focus_button, "clicked"):
+            focus_button.clicked.connect(self._toggle_frontend_musetalk_avatar_focus)
+
+    def _bind_visual_reply_controls(self):
+        show_button = self._ui_object("btn_visual_reply")
+        if show_button is not None and hasattr(show_button, "clicked"):
+            show_button.clicked.connect(self._show_frontend_visual_reply_dock)
+
+    def _bind_provider_model_workflow_controls(self):
+        provider_combo = self._ui_object("chat_provider_combo")
+        if provider_combo is not None and hasattr(provider_combo, "currentIndexChanged"):
+            provider_combo.currentIndexChanged.connect(self._on_frontend_chat_provider_changed)
+        model_combo = self._ui_object("model_combo")
+        if model_combo is not None and hasattr(model_combo, "currentIndexChanged"):
+            model_combo.currentIndexChanged.connect(self._on_frontend_model_selection_changed)
+        vision_checkbox = self._ui_object("model_requires_vision_checkbox")
+        if vision_checkbox is not None and hasattr(vision_checkbox, "toggled"):
+            vision_checkbox.toggled.connect(self._on_frontend_model_requires_vision_changed)
+        preset_combo = self._ui_object("preset_combo")
+        if preset_combo is not None and hasattr(preset_combo, "currentIndexChanged"):
+            preset_combo.currentIndexChanged.connect(self._on_frontend_preset_selection_changed)
+        preset_bindings = {
+            "btn_preset_load": getattr(self.backend, "load_preset", None),
+            "btn_preset_save": getattr(self.backend, "save_current_preset", None),
+            "btn_preset_save_as": getattr(self.backend, "save_preset_dialog", None),
+            "btn_preset_delete": getattr(self.backend, "delete_current_preset", None),
+        }
+        for object_name, handler in preset_bindings.items():
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "clicked") or not callable(handler):
+                continue
+            widget.clicked.connect(lambda _checked=False, callback=handler: self._invoke_provider_model_callback(callback))
+
+    def _invoke_runtime_callback(self, callback):
+        try:
+            callback()
+        finally:
+            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _invoke_audio_story_controller(self, method_name):
+        controller = self._audio_story_controller()
+        if controller is None:
+            return
+        callback = getattr(controller, str(method_name or ""), None)
+        if not callable(callback):
+            return
+        try:
+            callback()
+        finally:
+            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _invoke_provider_model_callback(self, callback):
+        try:
+            callback()
+        finally:
+            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _prime_frontend_audio_device_controls(self):
+        session = dict(_read_ui_shell_session_snapshot() or {})
+        audio_devices = _ui_shell_audio_device_labels()
+        combo_specs = (
+            ("audio_input_device_combo", list(audio_devices.get("inputs") or ["Default Input"]), str(RUNTIME_CONFIG.get("audio_input_device", session.get("audio_input_device", "Default Input")) or "Default Input")),
+            ("audio_output_device_combo", list(audio_devices.get("outputs") or ["Default Output"]), str(RUNTIME_CONFIG.get("audio_output_device", session.get("audio_output_device", "Default Output")) or "Default Output")),
+        )
+        for object_name, options, selected in combo_specs:
+            widget = self._ui_object(object_name)
+            if widget is None:
+                continue
+            _ui_shell_combo_set_items(widget, options or [selected])
+            _ui_shell_combo_select_label(widget, selected)
+
+    def _refresh_response_length_runtime_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_host_input_runtime_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_musetalk_visual_runtime_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_avatar_body_vam_runtime_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_profile_utility_runtime_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_musetalk_preview_frontend(self):
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _commit_frontend_audio_device_selection(self, object_name, config_key, default_label):
+        widget = self._ui_object(object_name)
+        if widget is None or not hasattr(widget, "currentText"):
+            return
+        choice = str(widget.currentText() or "").strip() or str(default_label or "").strip()
+        update_runtime_config(str(config_key), choice)
+        self.backend.save_session()
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_limit_response_length_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("limit_response_checkbox")
+        self._refresh_response_length_runtime_frontend()
+
+    def _on_frontend_max_response_tokens_changed(self, _value):
+        self._sync_single_spin_to_backend("max_response_tokens_spin")
+        self._refresh_response_length_runtime_frontend()
+
+    def _on_frontend_audio_input_device_changed(self, _index=None):
+        self._commit_frontend_audio_device_selection("audio_input_device_combo", "audio_input_device", "Default Input")
+
+    def _on_frontend_audio_output_device_changed(self, _index=None):
+        self._commit_frontend_audio_device_selection("audio_output_device_combo", "audio_output_device", "Default Output")
+
+    def _on_frontend_engine_changed(self, _index=None):
+        self._sync_single_combo_to_backend("engine_combo")
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_input_mode_changed(self, _index=None):
+        self._sync_single_combo_to_backend("input_mode_combo")
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_input_role_changed(self, _index=None):
+        self._sync_single_combo_to_backend("input_role_combo")
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_stream_mode_changed(self, _index=None):
+        self._sync_single_combo_to_backend("stream_mode_combo")
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_tts_backend_changed(self, _index=None):
+        self._sync_single_combo_to_backend("tts_backend_combo")
+        self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_musetalk_vram_changed(self, _index=None):
+        self._sync_single_combo_to_backend("musetalk_vram_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_musetalk_avatar_pack_changed(self, _index=None):
+        self._sync_single_combo_to_backend("musetalk_avatar_pack_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_visual_reply_mode_changed(self, _index=None):
+        self._sync_single_combo_to_backend("visual_reply_mode_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_visual_reply_provider_changed(self, _index=None):
+        self._sync_single_combo_to_backend("visual_reply_provider_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_visual_reply_size_changed(self, _index=None):
+        self._sync_single_combo_to_backend("visual_reply_size_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_sensory_feedback_source_changed(self, _index=None):
+        self._sync_single_combo_to_backend("sensory_feedback_source_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_chat_font_size_changed(self, _index=None):
+        self._sync_single_combo_to_backend("chat_font_size_combo")
+        self._refresh_musetalk_visual_runtime_frontend()
+
+    def _on_frontend_voice_changed(self, _index=None):
+        self._sync_single_combo_to_backend("voice_combo")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_body_selection_changed(self, _index=None):
+        self._sync_single_combo_to_backend("body_combo")
+        callback = getattr(self.backend, "load_body_config_from_combo", None)
+        if callable(callback):
+            callback()
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_emotion_changed(self, _index=None):
+        self._sync_single_combo_to_backend("emotion_combo")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_live_sync_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("live_sync_checkbox")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_vmc_enabled_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("vam_vmc_enabled_checkbox")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_bridge_enabled_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("vam_bridge_enabled_checkbox")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_play_audio_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("vam_play_audio_in_vam_checkbox")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_timeline_auto_resume_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("vam_timeline_auto_resume_checkbox")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_vmc_port_changed(self, _value):
+        self._sync_single_spin_to_backend("vam_vmc_port_spin")
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_root_changed(self):
+        self._sync_single_line_edit_to_backend("vam_root_edit")
+        callback = getattr(self.backend, "on_vam_root_changed", None)
+        if callable(callback):
+            callback()
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_target_atom_uid_changed(self):
+        self._sync_single_line_edit_to_backend("vam_target_atom_uid_edit")
+        callback = getattr(self.backend, "on_vam_target_atom_uid_changed", None)
+        if callable(callback):
+            callback()
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_target_storable_id_changed(self):
+        self._sync_single_line_edit_to_backend("vam_target_storable_id_edit")
+        callback = getattr(self.backend, "on_vam_target_storable_id_changed", None)
+        if callable(callback):
+            callback()
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_vam_vmc_host_changed(self):
+        self._sync_single_line_edit_to_backend("vam_vmc_host_edit")
+        callback = getattr(self.backend, "on_vam_vmc_host_changed", None)
+        if callable(callback):
+            callback()
+        self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _on_frontend_chunking_profile_changed(self, _index=None):
+        self._sync_single_combo_to_backend("chunking_profile_combo")
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_performance_profile_changed(self, _index=None):
+        self._sync_single_combo_to_backend("performance_profile_combo")
+        self.backend.save_session()
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_dry_run_auto_replies_changed(self, _checked):
+        self._sync_single_checkbox_to_backend("dry_run_auto_replies_checkbox")
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_dry_run_target_changed(self, _value):
+        self._sync_single_spin_to_backend("dry_run_target_spin")
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_musetalk_loop_fade_changed(self, _value):
+        self._sync_single_spin_to_backend("musetalk_loop_fade_spin")
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_visual_reply_model_changed(self):
+        self._sync_single_line_edit_to_backend("visual_reply_model_edit")
+        callback = getattr(self.backend, "on_visual_reply_model_changed", None)
+        if callable(callback):
+            callback()
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _refresh_chat_session_runtime_frontend(self):
+        try:
+            self.backend._refresh_chat_session_hint()
+        except Exception:
+            pass
+        try:
+            self.backend._update_chat_status(self.backend._console_redirect.chat_line_count, int(self.backend.chat_auto_scroll))
+        except Exception:
+            pass
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _on_frontend_allow_proactive_changed(self, checked):
+        try:
+            self.backend.on_allow_proactive_replies_changed(bool(checked))
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_require_first_user_changed(self, checked):
+        try:
+            self.backend.on_require_first_user_before_proactive_changed(bool(checked))
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_listen_idle_window_changed(self, value):
+        try:
+            self.backend.on_listen_idle_window_changed(value)
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_proactive_delay_changed(self, value):
+        try:
+            self.backend.on_proactive_delay_changed(value)
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_chat_context_window_changed(self, value):
+        try:
+            self.backend.on_chat_context_window_changed(int(value))
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_stored_chat_history_limit_changed(self, value):
+        try:
+            self.backend.on_stored_chat_history_limit_changed(int(value))
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_chat_overflow_policy_changed(self, choice):
+        try:
+            self.backend.on_chat_overflow_policy_changed(str(choice or ""))
+        finally:
+            self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_system_prompt_changed(self):
+        try:
+            self._frontend_system_prompt_commit_timer.start(250)
+        except Exception:
+            self._commit_frontend_system_prompt_to_runtime()
+
+    def _commit_frontend_system_prompt_to_runtime(self):
+        system_prompt_text = self._ui_object("system_prompt_text")
+        if system_prompt_text is None or not hasattr(system_prompt_text, "toPlainText"):
+            return
+        try:
+            update_runtime_config("system_prompt", str(system_prompt_text.toPlainText() or "").strip())
+            self.backend.save_session()
+        finally:
+            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _refresh_sensory_runtime_frontend(self):
+        try:
+            self.backend._refresh_sensory_feedback_hint()
+        except Exception:
+            pass
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _on_frontend_sensory_interval_changed(self, value):
+        try:
+            self.backend.on_sensory_feedback_interval_changed(value)
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_sensory_pingpong_toggled(self, checked):
+        try:
+            self.backend.on_sensory_pingpong_enabled_changed(bool(checked))
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_sensory_hidden_proactive_toggled(self, checked):
+        try:
+            self.backend.on_sensory_allow_hidden_proactive_changed(bool(checked))
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_sensory_hidden_visual_toggled(self, checked):
+        try:
+            self.backend.on_sensory_allow_hidden_visual_changed(bool(checked))
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_sensory_history_changed(self, value):
+        try:
+            self.backend.on_sensory_pingpong_history_depth_changed(int(value))
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_sensory_prompt_changed(self):
+        try:
+            self.backend.on_sensory_pingpong_prompt_changed()
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _reset_frontend_sensory_prompt_to_default(self):
+        try:
+            self.backend.reset_sensory_pingpong_prompt_to_default()
+        finally:
+            self._refresh_sensory_runtime_frontend()
+
+    def _on_frontend_chat_provider_changed(self, _index=None):
+        frontend_combo = self._ui_object("chat_provider_combo")
+        backend_combo = self._backend_widget("chat_provider_combo")
+        if frontend_combo is None or backend_combo is None:
+            return
+        self._sync_combo_like_widget(frontend_combo, backend_combo)
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+    def _on_frontend_model_selection_changed(self, _index=None):
+        frontend_combo = self._ui_object("model_combo")
+        backend_combo = self._backend_widget("model_combo")
+        if frontend_combo is None or backend_combo is None:
+            return
+        self._sync_combo_like_widget(frontend_combo, backend_combo)
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _on_frontend_model_requires_vision_changed(self, checked):
+        backend_checkbox = self._backend_widget("model_requires_vision_checkbox")
+        if backend_checkbox is None or not hasattr(backend_checkbox, "setChecked"):
+            return
+        try:
+            backend_checkbox.setChecked(bool(checked))
+        except Exception:
+            return
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
+    def _on_frontend_preset_selection_changed(self, _index=None):
+        frontend_combo = self._ui_object("preset_combo")
+        backend_combo = self._backend_widget("preset_combo")
+        if frontend_combo is None or backend_combo is None:
+            return
+        self._sync_combo_like_widget(frontend_combo, backend_combo)
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _enter_chat_edit_mode_from_ui_real(self):
+        self._sync_backend_to_ui(force=True)
+        try:
+            self.backend.enter_chat_edit_mode()
+        finally:
+            self._sync_backend_to_ui(force=True)
+
+    def _cancel_chat_edit_mode_from_ui_real(self):
+        try:
+            self.backend.cancel_chat_edit_mode()
+        finally:
+            self._sync_backend_to_ui(force=True)
+
+    def _apply_chat_edit_mode_from_ui_real(self):
+        frontend_chat = self._ui_object("chat_edit")
+        backend_chat = self._backend_widget("chat_edit")
+        if frontend_chat is not None and backend_chat is not None and hasattr(frontend_chat, "toPlainText") and hasattr(backend_chat, "setPlainText"):
+            try:
+                backend_chat.setPlainText(str(frontend_chat.toPlainText() or ""))
+            except Exception:
+                pass
+        try:
+            self.backend.apply_chat_edit_mode()
+        finally:
+            self._sync_backend_to_ui(force=True)
+
+    def _sync_audio_story_frontend_combo_to_controller(self):
+        controller = self._audio_story_controller()
+        frontend_combo = self._ui_object("audio_story_playback_combo")
+        backend_combo = getattr(controller, "audio_story_playback_mode_combo", None) if controller is not None else None
+        if frontend_combo is None or backend_combo is None:
+            return
+        self._sync_combo_like_widget(frontend_combo, backend_combo)
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _sync_audio_story_frontend_slider_to_controller(self, value):
+        controller = self._audio_story_controller()
+        backend_slider = getattr(controller, "audio_story_transcribe_seconds_slider", None) if controller is not None else None
+        if backend_slider is None or not hasattr(backend_slider, "setValue"):
+            return
+        try:
+            backend_slider.setValue(int(value))
+        except Exception:
+            return
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _apply_audio_story_seek_from_frontend(self):
+        controller = self._audio_story_controller()
+        frontend_slider = self._ui_object("audio_story_seek_slider")
+        backend_slider = getattr(controller, "audio_story_position_slider", None) if controller is not None else None
+        if frontend_slider is None or backend_slider is None or not hasattr(frontend_slider, "value") or not hasattr(backend_slider, "setValue"):
+            return
+        try:
+            backend_slider.setValue(int(frontend_slider.value()))
+        except Exception:
+            return
+        callback = getattr(controller, "_on_slider_released", None)
+        if callable(callback):
+            try:
+                callback()
+            finally:
+                QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _set_frontend_musetalk_focus_button_text(self, text):
+        focus_button = self._ui_object("btn_musetalk_avatar_focus")
+        if focus_button is not None and hasattr(focus_button, "setText"):
+            try:
+                focus_button.setText(str(text or "Avatar Focus"))
+            except Exception:
+                pass
+
+    def _show_frontend_musetalk_preview(self):
+        if self.backend._current_avatar_mode_value() != "musetalk":
+            return
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if bool(getattr(self.backend, "_musetalk_avatar_focus_active", False)):
+            stage_window = self.backend._ensure_musetalk_stage_window()
+            self.backend._attach_musetalk_preview_to_host("stage")
+            stage_window.show()
+            stage_window.raise_()
+            stage_window.activateWindow()
+        else:
+            self.backend._attach_musetalk_preview_to_host("dock")
+            preview_dock = self._ui_object("PreviewDock")
+            if preview_dock is not None:
+                preview_dock.show()
+                preview_dock.raise_()
+        if panel is not None:
+            panel.show()
+            if hasattr(panel, "set_focus_mode"):
+                panel.set_focus_mode(bool(getattr(self.backend, "_musetalk_avatar_focus_active", False)))
+        self._refresh_musetalk_preview_frontend()
+
+    def _enter_frontend_musetalk_avatar_focus(self):
+        if self.backend._current_avatar_mode_value() != "musetalk":
+            return
+        self.backend._musetalk_avatar_focus_active = True
+        self.backend._musetalk_main_window_was_maximized = bool(self.window.isMaximized())
+        self.backend._musetalk_main_window_was_fullscreen = bool(self.window.isFullScreen())
+        self._set_frontend_musetalk_focus_button_text("Exit Avatar Focus")
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if panel is not None and hasattr(panel, "set_focus_mode"):
+            panel.set_focus_mode(True)
+        self.backend._attach_musetalk_preview_to_host("stage")
+        preview_dock = self._ui_object("PreviewDock")
+        if preview_dock is not None:
+            preview_dock.hide()
+        stage_window = self.backend._ensure_musetalk_stage_window()
+        self.backend._sync_musetalk_stage_window_geometry_from_preview()
+        stage_window.show()
+        stage_window.raise_()
+        stage_window.activateWindow()
+        self.window.hide()
+        self._refresh_musetalk_preview_frontend()
+
+    def _exit_frontend_musetalk_avatar_focus(self, *, raise_main=False):
+        was_active = bool(getattr(self.backend, "_musetalk_avatar_focus_active", False))
+        self.backend._musetalk_avatar_focus_active = False
+        self._set_frontend_musetalk_focus_button_text("Avatar Focus")
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if panel is not None and hasattr(panel, "set_focus_mode"):
+            panel.set_focus_mode(False)
+        self.backend._attach_musetalk_preview_to_host("dock")
+        stage_window = getattr(self.backend, "_musetalk_stage_window", None)
+        if stage_window is not None:
+            try:
+                stage_window.allow_internal_close(True)
+                stage_window.hide()
+                stage_window.allow_internal_close(False)
+            except Exception:
+                pass
+        preview_dock = self._ui_object("PreviewDock")
+        if preview_dock is not None:
+            preview_dock.show()
+        visual_reply_dock = self._ui_object("VisualReplyDock")
+        if preview_dock is not None and visual_reply_dock is not None:
+            try:
+                self.window.tabifyDockWidget(preview_dock, visual_reply_dock)
+            except Exception:
+                pass
+        if raise_main or was_active or not self.window.isVisible():
+            if bool(getattr(self.backend, "_musetalk_main_window_was_fullscreen", False)):
+                self.window.showFullScreen()
+            elif bool(getattr(self.backend, "_musetalk_main_window_was_maximized", False)):
+                self.window.showMaximized()
+            else:
+                self.window.showNormal()
+            self.window.raise_()
+            self.window.activateWindow()
+        self._refresh_musetalk_preview_frontend()
+
+    def _toggle_frontend_musetalk_avatar_focus(self):
+        if bool(getattr(self.backend, "_musetalk_avatar_focus_active", False)):
+            self._exit_frontend_musetalk_avatar_focus(raise_main=True)
+        else:
+            self._enter_frontend_musetalk_avatar_focus()
+
+    def _show_frontend_main_interface_from_musetalk_focus(self):
+        self._exit_frontend_musetalk_avatar_focus(raise_main=True)
+
+    def _stop_frontend_musetalk_preview(self):
+        self._exit_frontend_musetalk_avatar_focus(raise_main=False)
+        preview_dock = self._ui_object("PreviewDock")
+        if preview_dock is not None:
+            preview_dock.hide()
+        stage_window = getattr(self.backend, "_musetalk_stage_window", None)
+        if stage_window is not None:
+            try:
+                stage_window.allow_internal_close(True)
+                stage_window.hide()
+                stage_window.allow_internal_close(False)
+            except Exception:
+                pass
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if panel is not None and hasattr(panel, "reset_preview"):
+            panel.reset_preview()
+        self._refresh_musetalk_preview_frontend()
+
+    def _show_frontend_visual_reply_dock(self):
+        dock = self._ui_object("VisualReplyDock")
+        if dock is None:
+            return
+        try:
+            dock.show()
+            dock.raise_()
+        except Exception:
+            pass
+
+    def _sync_combo_like_widget(self, source, target):
+        if source is None or target is None:
+            return False
+        source_data = None
+        if hasattr(source, "currentData"):
+            try:
+                source_data = source.currentData()
+            except Exception:
+                source_data = None
+        if source_data is not None and hasattr(target, "findData") and hasattr(target, "setCurrentIndex"):
+            try:
+                index = target.findData(source_data)
+            except Exception:
+                index = -1
+            if index >= 0:
+                target.setCurrentIndex(index)
+                return True
+        if hasattr(source, "currentText"):
+            try:
+                text = str(source.currentText() or "").strip()
+            except Exception:
+                text = ""
+            if text and hasattr(target, "findText") and hasattr(target, "setCurrentIndex"):
+                try:
+                    index = target.findText(text)
+                except Exception:
+                    index = -1
+                if index >= 0:
+                    target.setCurrentIndex(index)
+                    return True
+            if text and hasattr(target, "setCurrentText"):
+                try:
+                    target.setCurrentText(text)
+                    return True
+                except Exception:
+                    return False
+        return False
+
+    def _bind_frontend_to_backend_sync(self):
+        for object_name in self._combo_sync_names():
+            if object_name in {
+                "audio_input_device_combo",
+                "audio_output_device_combo",
+                "engine_combo",
+                "input_mode_combo",
+                "input_role_combo",
+                "stream_mode_combo",
+                "tts_backend_combo",
+                "musetalk_vram_combo",
+                "musetalk_avatar_pack_combo",
+                "chat_provider_combo",
+                "model_combo",
+                "preset_combo",
+                "visual_reply_mode_combo",
+                "visual_reply_provider_combo",
+                "visual_reply_size_combo",
+                "sensory_feedback_source_combo",
+                "chat_font_size_combo",
+                "voice_combo",
+                "body_combo",
+                "emotion_combo",
+                "chat_overflow_policy_combo",
+                "chunking_profile_combo",
+                "performance_profile_combo",
+            }:
+                continue
+            front = self._ui_object(object_name)
+            if front is not None and hasattr(front, "currentIndexChanged"):
+                front.currentIndexChanged.connect(lambda _index, name=object_name: self._sync_single_combo_to_backend(name))
+        for object_name in self._checkbox_sync_names():
+            if object_name in {
+                "limit_response_checkbox",
+                "model_requires_vision_checkbox",
+                "allow_proactive_checkbox",
+                "require_first_user_checkbox",
+                "sensory_pingpong_checkbox",
+                "sensory_allow_hidden_proactive_checkbox",
+                "sensory_allow_hidden_visual_checkbox",
+                "live_sync_checkbox",
+                "vam_vmc_enabled_checkbox",
+                "vam_bridge_enabled_checkbox",
+                "vam_play_audio_in_vam_checkbox",
+                "vam_timeline_auto_resume_checkbox",
+                "dry_run_auto_replies_checkbox",
+            }:
+                continue
+            front = self._ui_object(object_name)
+            if front is not None and hasattr(front, "toggled"):
+                front.toggled.connect(lambda _checked, name=object_name: self._sync_single_checkbox_to_backend(name))
+        for object_name in self._spin_sync_names():
+            if object_name in {
+                "max_response_tokens_spin",
+                "chat_context_window_spin",
+                "stored_chat_history_limit_spin",
+                "listen_idle_window_spin",
+                "proactive_delay_spin",
+                "sensory_feedback_interval_spin",
+                "sensory_pingpong_history_spin",
+                "vam_vmc_port_spin",
+                "dry_run_target_spin",
+                "musetalk_loop_fade_spin",
+            }:
+                continue
+            front = self._ui_object(object_name)
+            if front is not None and hasattr(front, "valueChanged"):
+                front.valueChanged.connect(lambda _value, name=object_name: self._sync_single_spin_to_backend(name))
+        for object_name in self._line_edit_sync_names():
+            if object_name in {
+                "vam_root_edit",
+                "vam_bridge_root_edit",
+                "vam_target_atom_uid_edit",
+                "vam_target_storable_id_edit",
+                "vam_vmc_host_edit",
+                "visual_reply_model_edit",
+            }:
+                continue
+            front = self._ui_object(object_name)
+            if front is not None and hasattr(front, "editingFinished"):
+                front.editingFinished.connect(lambda name=object_name: self._sync_single_line_edit_to_backend(name))
+
+    def _combo_sync_names(self):
+        return (
+            "audio_input_device_combo",
+            "audio_output_device_combo",
+            "engine_combo",
+            "input_mode_combo",
+            "input_role_combo",
+            "stream_mode_combo",
+            "tts_backend_combo",
+            "musetalk_vram_combo",
+            "musetalk_avatar_pack_combo",
+            "preset_combo",
+            "chat_provider_combo",
+            "model_combo",
+            "model_requires_vision_checkbox",
+            "visual_reply_mode_combo",
+            "visual_reply_provider_combo",
+            "visual_reply_size_combo",
+            "sensory_feedback_source_combo",
+            "chat_font_size_combo",
+            "voice_combo",
+            "body_combo",
+            "emotion_combo",
+            "chat_overflow_policy_combo",
+            "chunking_profile_combo",
+            "performance_profile_combo",
+        )
+
+    def _checkbox_sync_names(self):
+        return (
+            "limit_response_checkbox",
+            "allow_proactive_checkbox",
+            "require_first_user_checkbox",
+            "sensory_pingpong_checkbox",
+            "sensory_allow_hidden_proactive_checkbox",
+            "sensory_allow_hidden_visual_checkbox",
+            "live_sync_checkbox",
+            "vam_vmc_enabled_checkbox",
+            "vam_bridge_enabled_checkbox",
+            "vam_play_audio_in_vam_checkbox",
+            "vam_timeline_auto_resume_checkbox",
+            "dry_run_auto_replies_checkbox",
+        )
+
+    def _spin_sync_names(self):
+        return (
+            "max_response_tokens_spin",
+            "chat_context_window_spin",
+            "stored_chat_history_limit_spin",
+            "listen_idle_window_spin",
+            "proactive_delay_spin",
+            "musetalk_loop_fade_spin",
+            "sensory_feedback_interval_spin",
+            "sensory_pingpong_history_spin",
+            "vam_vmc_port_spin",
+            "dry_run_target_spin",
+        )
+
+    def _line_edit_sync_names(self):
+        return (
+            "visual_reply_model_edit",
+            "vam_root_edit",
+            "vam_bridge_root_edit",
+            "vam_target_atom_uid_edit",
+            "vam_target_storable_id_edit",
+            "vam_vmc_host_edit",
+        )
+
+    def _sync_frontend_to_backend(self):
+        for object_name in self._combo_sync_names():
+            self._sync_single_combo_to_backend(object_name)
+        for object_name in self._checkbox_sync_names():
+            self._sync_single_checkbox_to_backend(object_name)
+        for object_name in self._spin_sync_names():
+            self._sync_single_spin_to_backend(object_name)
+        for object_name in self._line_edit_sync_names():
+            self._sync_single_line_edit_to_backend(object_name)
+        self._sync_plain_text_to_backend("system_prompt_text")
+        self._sync_plain_text_to_backend("sensory_pingpong_prompt_text")
+
+    def _sync_single_combo_to_backend(self, object_name):
+        front = self._ui_object(object_name)
+        back = self._backend_widget(object_name)
+        if front is None or back is None or not hasattr(front, "currentText") or not hasattr(back, "setCurrentIndex"):
+            return False
+        front_data = None
+        if hasattr(front, "currentData"):
+            try:
+                front_data = front.currentData()
+            except Exception:
+                front_data = None
+        if front_data is not None and hasattr(back, "findData"):
+            try:
+                index = back.findData(front_data)
+            except Exception:
+                index = -1
+            if index >= 0:
+                back.setCurrentIndex(index)
+                return True
+        text = str(front.currentText() or "").strip()
+        if not text:
+            return False
+        if hasattr(back, "findText"):
+            try:
+                index = back.findText(text)
+            except Exception:
+                index = -1
+            if index >= 0:
+                back.setCurrentIndex(index)
+                return True
+        if hasattr(back, "setCurrentText"):
+            try:
+                back.setCurrentText(text)
+                return True
+            except Exception:
+                return False
+        return False
+
+    def _sync_single_checkbox_to_backend(self, object_name):
+        front = self._ui_object(object_name)
+        back = self._backend_widget(object_name)
+        if front is None or back is None or not hasattr(front, "isChecked") or not hasattr(back, "setChecked"):
+            return False
+        try:
+            back.setChecked(bool(front.isChecked()))
+            return True
+        except Exception:
+            return False
+
+    def _sync_single_spin_to_backend(self, object_name):
+        front = self._ui_object(object_name)
+        back = self._backend_widget(object_name)
+        if front is None or back is None or not hasattr(front, "value") or not hasattr(back, "setValue"):
+            return False
+        try:
+            back.setValue(front.value())
+            return True
+        except Exception:
+            return False
+
+    def _sync_single_line_edit_to_backend(self, object_name):
+        front = self._ui_object(object_name)
+        back = self._backend_widget(object_name)
+        if front is None or back is None or not hasattr(front, "text") or not hasattr(back, "setText"):
+            return False
+        try:
+            back.setText(str(front.text() or ""))
+            return True
+        except Exception:
+            return False
+
+    def _sync_plain_text_to_backend(self, object_name):
+        front = self._ui_object(object_name)
+        back = self._backend_widget(object_name)
+        if front is None or back is None or not hasattr(front, "toPlainText") or not hasattr(back, "setPlainText"):
+            return False
+        try:
+            back.setPlainText(str(front.toPlainText() or ""))
+            return True
+        except Exception:
+            return False
+
+    def _copy_combo_state(self, source, target):
+        if source is None or target is None or not hasattr(source, "count") or not hasattr(target, "clear"):
+            return False
+        items = []
+        selected_data = None
+        selected_text = ""
+        try:
+            if hasattr(source, "currentData"):
+                selected_data = source.currentData()
+        except Exception:
+            selected_data = None
+        try:
+            selected_text = str(source.currentText() or "").strip()
+        except Exception:
+            selected_text = ""
+        for index in range(source.count()):
+            try:
+                items.append((str(source.itemText(index) or ""), source.itemData(index) if hasattr(source, "itemData") else None))
+            except Exception:
+                continue
+        target.blockSignals(True)
+        try:
+            target.clear()
+            for text, data in items:
+                if hasattr(target, "addItem"):
+                    target.addItem(text, data)
+            applied = False
+            if selected_data is not None and hasattr(target, "findData"):
+                try:
+                    index = target.findData(selected_data)
+                except Exception:
+                    index = -1
+                if index >= 0:
+                    target.setCurrentIndex(index)
+                    applied = True
+            if not applied and selected_text:
+                try:
+                    index = target.findText(selected_text)
+                except Exception:
+                    index = -1
+                if index >= 0:
+                    target.setCurrentIndex(index)
+                    applied = True
+            if not applied and target.count():
+                target.setCurrentIndex(min(max(source.currentIndex(), 0), target.count() - 1))
+        finally:
+            target.blockSignals(False)
+        return True
+
+    def _copy_text_state(self, source, target):
+        if source is None or target is None:
+            return False
+        if hasattr(source, "toPlainText") and hasattr(target, "setPlainText"):
+            text = str(source.toPlainText() or "")
+            current = str(target.toPlainText() or "") if hasattr(target, "toPlainText") else ""
+            if current != text:
+                target.setPlainText(text)
+            return True
+        if hasattr(source, "text") and hasattr(target, "setText"):
+            text = str(source.text() or "")
+            current = str(target.text() or "") if hasattr(target, "text") else ""
+            if current != text:
+                target.setText(text)
+            return True
+        return False
+
+    def _copy_checkbox_state(self, source, target):
+        if source is None or target is None or not hasattr(source, "isChecked") or not hasattr(target, "setChecked"):
+            return False
+        try:
+            target.blockSignals(True)
+            target.setChecked(bool(source.isChecked()))
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                target.blockSignals(False)
+            except Exception:
+                pass
+
+    def _copy_spin_state(self, source, target):
+        if source is None or target is None or not hasattr(source, "value") or not hasattr(target, "setValue"):
+            return False
+        try:
+            target.blockSignals(True)
+            target.setValue(source.value())
+            return True
+        except Exception:
+            return False
+        finally:
+            try:
+                target.blockSignals(False)
+            except Exception:
+                pass
+
+    def _set_readonly_text_if_changed(self, target, text):
+        if target is None:
+            return False
+        value = str(text or "")
+        current = ""
+        try:
+            if hasattr(target, "toPlainText"):
+                current = str(target.toPlainText() or "")
+            elif hasattr(target, "text"):
+                current = str(target.text() or "")
+        except Exception:
+            current = ""
+        if current == value:
+            return False
+        if hasattr(target, "setPlainText"):
+            try:
+                if hasattr(target, "blockSignals"):
+                    target.blockSignals(True)
+                target.setPlainText(value)
+                return True
+            finally:
+                try:
+                    target.blockSignals(False)
+                except Exception:
+                    pass
+        if hasattr(target, "setText"):
+            target.setText(value)
+            return True
+        return False
+
+    def _sync_backend_to_ui(self, *, force=False):
+        for object_name in self._combo_sync_names():
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            if force or not getattr(front, "hasFocus", lambda: False)():
+                self._copy_combo_state(back, front)
+        for object_name in self._checkbox_sync_names():
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            self._copy_checkbox_state(back, front)
+        for object_name in self._spin_sync_names():
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            self._copy_spin_state(back, front)
+        for object_name in self._line_edit_sync_names():
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            if force or not getattr(front, "hasFocus", lambda: False)():
+                self._copy_text_state(back, front)
+        for object_name in ("system_prompt_text",):
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            if force or not getattr(front, "hasFocus", lambda: False)():
+                self._copy_text_state(back, front)
+        self._mirror_runtime_text_views()
+        self._mirror_runtime_status_widgets()
+        self._mirror_runtime_button_state()
+        self._mirror_runtime_selection_widgets()
+        self._mirror_provider_runtime_labels()
+        self._refresh_frontend_theme_controls()
+
+    def _mirror_runtime_text_views(self):
+        backend_console = self._backend_widget("console_edit")
+        frontend_console = self._ui_object("console_edit")
+        if backend_console is not None and frontend_console is not None and hasattr(backend_console, "toPlainText"):
+            if hasattr(frontend_console, "setReadOnly"):
+                try:
+                    frontend_console.setReadOnly(True)
+                except Exception:
+                    pass
+            changed = self._set_readonly_text_if_changed(frontend_console, backend_console.toPlainText())
+            if changed and bool(getattr(self.backend, "console_auto_scroll", True)):
+                QtCore.QTimer.singleShot(0, lambda w=frontend_console: self._scroll_text_to_bottom(w))
+        backend_chat = self._backend_widget("chat_edit")
+        frontend_chat = self._ui_object("chat_edit")
+        if backend_chat is not None and frontend_chat is not None and hasattr(backend_chat, "toPlainText"):
+            if hasattr(frontend_chat, "setReadOnly") and not bool(getattr(self.backend, "chat_edit_mode", False)):
+                try:
+                    frontend_chat.setReadOnly(True)
+                except Exception:
+                    pass
+            if not bool(getattr(self.backend, "chat_edit_mode", False)):
+                changed = self._set_readonly_text_if_changed(frontend_chat, backend_chat.toPlainText())
+                if changed and bool(getattr(self.backend, "chat_auto_scroll", True)):
+                    QtCore.QTimer.singleShot(0, lambda w=frontend_chat: self._scroll_text_to_bottom(w))
+
+    def _mirror_runtime_status_widgets(self):
+        for object_name in ("console_status", "chat_status", "mic_status_label"):
+            backend_widget = self._backend_widget(object_name)
+            frontend_widget = self._ui_object(object_name)
+            if backend_widget is None or frontend_widget is None or not hasattr(backend_widget, "text") or not hasattr(frontend_widget, "setText"):
+                continue
+            try:
+                frontend_widget.setText(str(backend_widget.text() or ""))
+            except Exception:
+                continue
+            if hasattr(frontend_widget, "setStyleSheet") and hasattr(backend_widget, "styleSheet"):
+                try:
+                    frontend_widget.setStyleSheet(str(backend_widget.styleSheet() or ""))
+                except Exception:
+                    pass
+        for object_name in ("listen_diode", "mic_diode"):
+            backend_widget = self._backend_widget(object_name)
+            frontend_widget = self._ui_object(object_name)
+            if backend_widget is None or frontend_widget is None or not hasattr(frontend_widget, "setStyleSheet"):
+                continue
+            try:
+                frontend_widget.setStyleSheet(str(backend_widget.styleSheet() or ""))
+            except Exception:
+                pass
+
+    def _mirror_runtime_button_state(self):
+        for object_name in (
+            "btn_start_engine",
+            "btn_stop_engine",
+            "btn_reset_chat",
+            "btn_regenerate",
+            "btn_retry",
+            "btn_pause",
+            "btn_skip",
+            "btn_skip_user",
+            "btn_push_to_talk",
+            "btn_model_refresh",
+            "btn_preset_load",
+            "btn_preset_save",
+            "btn_preset_save_as",
+            "btn_preset_delete",
+            "btn_dry_run_start",
+            "btn_dry_run_stop",
+            "btn_dry_run_apply",
+            "btn_body_load",
+            "btn_body_save",
+            "btn_body_save_as",
+            "btn_body_delete",
+            "btn_hand_doctor",
+            "btn_musetalk_preview",
+            "btn_musetalk_avatar_focus",
+            "btn_start_vam_desktop",
+            "btn_start_vam_vr",
+            "btn_vam_hide_interface",
+        ):
+            backend_widget = self._backend_widget(object_name)
+            frontend_widget = self._ui_object(object_name)
+            if backend_widget is None or frontend_widget is None:
+                continue
+            if hasattr(frontend_widget, "setEnabled") and hasattr(backend_widget, "isEnabled"):
+                try:
+                    frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
+                except Exception:
+                    pass
+            if hasattr(frontend_widget, "setText") and hasattr(backend_widget, "text"):
+                try:
+                    frontend_widget.setText(str(backend_widget.text() or ""))
+                except Exception:
+                    pass
+        self._mirror_chat_edit_state()
+        self._mirror_dry_run_widgets()
+        self._mirror_audio_story_duplicate_widgets()
+        self._mirror_provider_model_widgets()
+
+    def _mirror_chat_edit_state(self):
+        frontend_chat = self._ui_object("chat_edit")
+        if frontend_chat is not None and hasattr(frontend_chat, "setReadOnly"):
+            try:
+                frontend_chat.setReadOnly(not bool(getattr(self.backend, "chat_edit_mode", False)))
+            except Exception:
+                pass
+        edit_button = self._ui_object("chat_edit_mode_button")
+        if edit_button is not None and hasattr(edit_button, "setVisible"):
+            try:
+                edit_button.setVisible(not bool(getattr(self.backend, "chat_edit_mode", False)))
+            except Exception:
+                pass
+        apply_button = self._ui_object("chat_apply_edit_button")
+        if apply_button is not None and hasattr(apply_button, "setVisible"):
+            try:
+                apply_button.setVisible(bool(getattr(self.backend, "chat_edit_mode", False)))
+            except Exception:
+                pass
+        cancel_button = self._ui_object("chat_cancel_edit_button")
+        if cancel_button is not None and hasattr(cancel_button, "setVisible"):
+            try:
+                cancel_button.setVisible(bool(getattr(self.backend, "chat_edit_mode", False)))
+            except Exception:
+                pass
+
+    def _mirror_dry_run_widgets(self):
+        backend_status = self._backend_widget("dry_run_status_label")
+        frontend_status = self._ui_object("dry_run_status_label")
+        if backend_status is not None and frontend_status is not None and hasattr(backend_status, "text") and hasattr(frontend_status, "setText"):
+            try:
+                frontend_status.setText(str(backend_status.text() or ""))
+            except Exception:
+                pass
+        backend_summary = self._backend_widget("dry_run_summary")
+        frontend_summary = self._ui_object("dry_run_summary")
+        if backend_summary is not None and frontend_summary is not None:
+            self._copy_text_state(backend_summary, frontend_summary)
+
+    def _mirror_provider_model_widgets(self):
+        backend_budget = self._backend_widget("model_budget_label")
+        frontend_budget = self._ui_object("model_budget_label")
+        if backend_budget is not None and frontend_budget is not None and hasattr(backend_budget, "text") and hasattr(frontend_budget, "setText"):
+            try:
+                frontend_budget.setText(str(backend_budget.text() or ""))
+            except Exception:
+                pass
+        backend_vision = self._backend_widget("model_requires_vision_checkbox")
+        frontend_vision = self._ui_object("model_requires_vision_checkbox")
+        if backend_vision is not None and frontend_vision is not None:
+            self._copy_checkbox_state(backend_vision, frontend_vision)
+        for object_name in ("btn_preset_save", "btn_preset_save_as"):
+            backend_button = self._backend_widget(object_name)
+            frontend_button = self._ui_object(object_name)
+            if backend_button is None or frontend_button is None:
+                continue
+            if hasattr(frontend_button, "setStyleSheet") and hasattr(backend_button, "styleSheet"):
+                try:
+                    frontend_button.setStyleSheet(str(backend_button.styleSheet() or ""))
+                except Exception:
+                    pass
+
+    def _mirror_runtime_selection_widgets(self):
+        for object_name in (
+            "limit_response_checkbox",
+            "max_response_tokens_spin",
+            "engine_combo",
+            "input_mode_combo",
+            "input_role_combo",
+            "stream_mode_combo",
+            "tts_backend_combo",
+            "musetalk_vram_combo",
+            "musetalk_avatar_pack_combo",
+            "visual_reply_mode_combo",
+            "visual_reply_provider_combo",
+            "visual_reply_size_combo",
+            "sensory_feedback_source_combo",
+            "chat_font_size_combo",
+            "voice_combo",
+            "body_combo",
+            "emotion_combo",
+            "live_sync_checkbox",
+            "vam_vmc_enabled_checkbox",
+            "vam_bridge_enabled_checkbox",
+            "vam_play_audio_in_vam_checkbox",
+            "vam_timeline_auto_resume_checkbox",
+            "vam_vmc_port_spin",
+            "chunking_profile_combo",
+            "performance_profile_combo",
+            "dry_run_auto_replies_checkbox",
+            "dry_run_target_spin",
+            "musetalk_loop_fade_spin",
+            "visual_reply_model_edit",
+            "vam_root_edit",
+            "vam_bridge_root_edit",
+            "vam_target_atom_uid_edit",
+            "vam_target_storable_id_edit",
+            "vam_vmc_host_edit",
+        ):
+            backend_widget = self._backend_widget(object_name)
+            frontend_widget = self._ui_object(object_name)
+            if backend_widget is None or frontend_widget is None:
+                continue
+            if hasattr(frontend_widget, "setEnabled") and hasattr(backend_widget, "isEnabled"):
+                try:
+                    frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
+                except Exception:
+                    pass
+
+    def _mirror_audio_story_duplicate_widgets(self):
+        controller = self._audio_story_controller()
+        if controller is None:
+            return
+        frontend_path = self._ui_object("audio_file_path_edit")
+        backend_path = getattr(controller, "audio_story_path_edit", None)
+        if frontend_path is not None and backend_path is not None:
+            self._copy_text_state(backend_path, frontend_path)
+            if hasattr(frontend_path, "setReadOnly"):
+                try:
+                    frontend_path.setReadOnly(True)
+                except Exception:
+                    pass
+        frontend_combo = self._ui_object("audio_story_playback_combo")
+        backend_combo = getattr(controller, "audio_story_playback_mode_combo", None)
+        if frontend_combo is not None and backend_combo is not None:
+            self._copy_combo_state(backend_combo, frontend_combo)
+            if hasattr(frontend_combo, "setEnabled") and hasattr(backend_combo, "isEnabled"):
+                try:
+                    frontend_combo.setEnabled(bool(backend_combo.isEnabled()))
+                except Exception:
+                    pass
+        frontend_transcribe_slider = self._ui_object("transcribe_seconds_slider")
+        backend_transcribe_slider = getattr(controller, "audio_story_transcribe_seconds_slider", None)
+        if frontend_transcribe_slider is not None and backend_transcribe_slider is not None:
+            if hasattr(frontend_transcribe_slider, "setRange") and hasattr(backend_transcribe_slider, "minimum") and hasattr(backend_transcribe_slider, "maximum"):
+                try:
+                    frontend_transcribe_slider.setRange(int(backend_transcribe_slider.minimum()), int(backend_transcribe_slider.maximum()))
+                except Exception:
+                    pass
+            if not (hasattr(frontend_transcribe_slider, "isSliderDown") and frontend_transcribe_slider.isSliderDown()):
+                self._copy_spin_state(backend_transcribe_slider, frontend_transcribe_slider)
+            if hasattr(frontend_transcribe_slider, "setEnabled") and hasattr(backend_transcribe_slider, "isEnabled"):
+                try:
+                    frontend_transcribe_slider.setEnabled(bool(backend_transcribe_slider.isEnabled()))
+                except Exception:
+                    pass
+        button_pairs = (
+            ("import_audio_button", "audio_story_import_button"),
+            ("transcribe_audio_button", "audio_story_transcribe_button"),
+            ("audio_story_play_button", "audio_story_play_button"),
+            ("audio_story_pause_button", "audio_story_pause_button"),
+            ("audio_story_stop_button", "audio_story_stop_button"),
+        )
+        for frontend_name, backend_name in button_pairs:
+            frontend_widget = self._ui_object(frontend_name)
+            backend_widget = getattr(controller, backend_name, None)
+            if frontend_widget is None or backend_widget is None:
+                continue
+            if hasattr(frontend_widget, "setEnabled") and hasattr(backend_widget, "isEnabled"):
+                try:
+                    frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
+                except Exception:
+                    pass
+            if hasattr(frontend_widget, "setText") and hasattr(backend_widget, "text"):
+                try:
+                    frontend_widget.setText(str(backend_widget.text() or ""))
+                except Exception:
+                    pass
+        frontend_seek = self._ui_object("audio_story_seek_slider")
+        backend_seek = getattr(controller, "audio_story_position_slider", None)
+        if frontend_seek is not None and backend_seek is not None:
+            if hasattr(frontend_seek, "setRange") and hasattr(backend_seek, "minimum") and hasattr(backend_seek, "maximum"):
+                try:
+                    frontend_seek.setRange(int(backend_seek.minimum()), int(backend_seek.maximum()))
+                except Exception:
+                    pass
+            if not (hasattr(frontend_seek, "isSliderDown") and frontend_seek.isSliderDown()):
+                self._copy_spin_state(backend_seek, frontend_seek)
+            if hasattr(frontend_seek, "setEnabled") and hasattr(backend_seek, "isEnabled"):
+                try:
+                    frontend_seek.setEnabled(bool(backend_seek.isEnabled()))
+                except Exception:
+                    pass
+        frontend_position = self._ui_object("audio_story_position_label")
+        backend_time = getattr(controller, "audio_story_time_label", None)
+        backend_status = getattr(controller, "audio_story_status_label", None)
+        if frontend_position is not None and backend_time is not None and hasattr(backend_time, "text") and hasattr(frontend_position, "setText"):
+            try:
+                frontend_position.setText(str(backend_time.text() or ""))
+            except Exception:
+                pass
+        if frontend_position is not None and backend_status is not None and hasattr(backend_status, "text") and hasattr(frontend_position, "setToolTip"):
+            try:
+                frontend_position.setToolTip(str(backend_status.text() or ""))
+            except Exception:
+                pass
+
+    def _mirror_provider_runtime_labels(self):
+        settings_label = self._ui_object("provider_settings_label")
+        generation_label = self._ui_object("provider_generation_label")
+        fields_placeholder = self._ui_object("chat_provider_fields_placeholder")
+        generation_placeholder = self._ui_object("chat_provider_generation_fields_placeholder")
+        runtime_box = self._ui_object("chat_runtime_box")
+        tts_runtime_box = self._ui_object("tts_runtime_box")
+        backend_settings_section = getattr(self.backend, "chat_provider_settings_section", None)
+        backend_generation_section = getattr(self.backend, "chat_provider_generation_section", None)
+        backend_runtime_section = getattr(self.backend, "chat_runtime_section", None)
+        backend_tts_runtime_section = getattr(self.backend, "tts_runtime_section", None)
+        backend_hint_label = getattr(self.backend, "chat_provider_hint_label", None)
+        if settings_label is not None and backend_settings_section is not None and hasattr(backend_settings_section, "toggle_button"):
+            try:
+                full_text = str(backend_settings_section.toggle_button.text() or "Provider Settings")
+                base_title, summary = _split_collapsible_section_text(full_text, "Provider Settings")
+                settings_label.setText(base_title or "Provider Settings")
+                settings_label.setToolTip(full_text)
+                if summary and fields_placeholder is not None and hasattr(fields_placeholder, "setToolTip"):
+                    fields_placeholder.setToolTip(summary)
+            except Exception:
+                pass
+        if generation_label is not None and backend_generation_section is not None and hasattr(backend_generation_section, "toggle_button"):
+            try:
+                full_text = str(backend_generation_section.toggle_button.text() or "Generation Settings")
+                base_title, summary = _split_collapsible_section_text(full_text, "Generation Settings")
+                generation_label.setText(base_title or "Generation Settings")
+                generation_label.setToolTip(full_text)
+                if summary and generation_placeholder is not None and hasattr(generation_placeholder, "setToolTip"):
+                    generation_placeholder.setToolTip(summary)
+            except Exception:
+                pass
+        if runtime_box is not None and hasattr(runtime_box, "setTitle") and backend_runtime_section is not None and hasattr(backend_runtime_section, "toggle_button"):
+            try:
+                self._set_frontend_collapsible_group_summary(
+                    runtime_box,
+                    str(backend_runtime_section.toggle_button.text() or "Chat Runtime"),
+                    "Chat Runtime",
+                )
+            except Exception:
+                pass
+        if tts_runtime_box is not None and hasattr(tts_runtime_box, "setTitle") and backend_tts_runtime_section is not None and hasattr(backend_tts_runtime_section, "toggle_button"):
+            try:
+                self._set_frontend_collapsible_group_summary(
+                    tts_runtime_box,
+                    str(backend_tts_runtime_section.toggle_button.text() or "TTS Runtime"),
+                    "TTS Runtime",
+                )
+            except Exception:
+                pass
+        if fields_placeholder is not None and backend_hint_label is not None and hasattr(backend_hint_label, "text"):
+            try:
+                fields_placeholder.setText(str(backend_hint_label.text() or ""))
+            except Exception:
+                pass
+        if generation_placeholder is not None and hasattr(generation_placeholder, "setText"):
+            try:
+                generation_placeholder.setText("Live runtime generation fields are mounted above.")
+            except Exception:
+                pass
+
+    def _scroll_text_to_bottom(self, widget):
+        if widget is None or not hasattr(widget, "verticalScrollBar"):
+            return
+        try:
+            scrollbar = widget.verticalScrollBar()
+            scrollbar.setValue(scrollbar.maximum())
+        except Exception:
+            pass
+
+    def _poll_backend_state(self):
+        if self._closing:
+            return
+        self._sync_backend_to_ui(force=False)
+
+    def _start_engine_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        self._engine_lifecycle_service.start_engine()
+        QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+
+    def _request_model_refresh_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        self._model_refresh_service.refresh(quiet=False, wait_for_reachable=False)
+        QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+        QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+
+
 def main():
     argv = list(sys.argv[1:])
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    _install_no_wheel_input_guard(app)
     if len(argv) >= 1 and str(argv[0] or "").strip().lower() in {"--ui-preview", "--ui-file"}:
         ui_path = _resolve_ui_path(argv[1] if len(argv) >= 2 else "main.ui")
         if not ui_path.exists():
@@ -15193,6 +22186,41 @@ def main():
             _configure_main_window_docking(window)
             window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
         window.show()
+        sys.exit(app.exec())
+    if len(argv) >= 1 and str(argv[0] or "").strip().lower() == "--ui-real":
+        ui_arg = argv[1] if len(argv) >= 2 and not str(argv[1] or "").startswith("--") else "main.ui"
+        runtime_smoke = any(str(item or "").strip().lower() == "--runtime-smoke" for item in argv[1:])
+        bridge = MainUiRealRuntimeBridge(ui_arg)
+        if runtime_smoke:
+            summary = bridge.smoke_summary()
+            print(f"[UI Real Smoke] File: {summary['ui_path']}")
+            print(f"[UI Real Smoke] Window class: {summary['window_class']}")
+            print(f"[UI Real Smoke] Hidden backend runtime window: {'yes' if summary['backend_hidden'] else 'no'}")
+            print("[UI Real Smoke] Lifecycle buttons: " + ", ".join(summary["lifecycle_buttons"] or ["none"]))
+            print("[UI Real Smoke] Runtime action buttons: " + ", ".join(summary["runtime_action_buttons"] or ["none"]))
+            print("[UI Real Smoke] Chat-context buttons: " + ", ".join(summary["chat_context_buttons"] or ["none"]))
+            print(f"[UI Real Smoke] Console/chat mirroring bound: {'yes' if summary['console_chat_bound'] else 'no'}")
+            print(f"[UI Real Smoke] Provider runtime redirected: {'yes' if summary['provider_runtime_redirected'] else 'no'}")
+            print(f"[UI Real Smoke] Chat/session runtime redirected: {'yes' if summary['chat_session_runtime_redirected'] else 'no'}")
+            print(f"[UI Real Smoke] Sensory runtime redirected: {'yes' if summary['sensory_runtime_redirected'] else 'no'}")
+            print(
+                "[UI Real Smoke] Visual Reply runtime redirected: "
+                + ("yes" if summary["visual_reply_runtime_redirected"] else "no")
+                + (
+                    f" ({summary['visual_reply_panel_class']})"
+                    if summary.get("visual_reply_panel_class")
+                    else ""
+                )
+            )
+            if summary["adopted_runtime_tabs"]:
+                print("[UI Real Smoke] Adopted runtime tabs:")
+                for target_name, titles in summary["adopted_runtime_tabs"].items():
+                    print(f"  - {target_name}: {', '.join(titles)}")
+            print("[UI Real Smoke] Sensory runtime tabs: " + ", ".join(summary["sensory_runtime_tabs"] or ["none"]))
+            print(f"[UI Real Smoke] Runtime status line: {summary['runtime_status']}")
+            bridge.close()
+            sys.exit(0)
+        bridge.show()
         sys.exit(app.exec())
     window = CompanionQtMainWindow()
     window.show()

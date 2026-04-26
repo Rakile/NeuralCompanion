@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -8,13 +9,32 @@ import threading
 import time
 from pathlib import Path
 
-import cv2
-import engine
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from core.musetalk_avatar_packs import discover_avatar_packs
-from musetalk_bridge import MuseTalkBridge
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
+
+
+class _LazyModuleProxy:
+    def __init__(self, module_name: str):
+        self._module_name = str(module_name)
+        self._module = None
+
+    def _resolve(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def is_loaded(self) -> bool:
+        return self._module is not None
+
+    def __getattr__(self, item):
+        return getattr(self._resolve(), str(item))
+
+
+cv2 = _LazyModuleProxy("cv2")
+engine = _LazyModuleProxy("engine")
+musetalk_bridge = _LazyModuleProxy("musetalk_bridge")
 
 MUSE_AVATAR_RESULTS_DIR = Path("MuseTalk") / "results" / "v15" / "avatars"
 MUSE_AVATAR_PACKS_DIR = Path("MuseTalk") / "results" / "v15" / "avatar_packs"
@@ -75,6 +95,14 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if callable(notifier):
             notifier()
 
+    def _runtime_config_value(self, key, default=None):
+        if not engine.is_loaded():
+            return default
+        try:
+            return engine.RUNTIME_CONFIG.get(str(key), default)
+        except Exception:
+            return default
+
     def _normalize_musetalk_enabled_pack_emotions(self, raw_value):
         mapping = {}
         if not isinstance(raw_value, dict):
@@ -96,7 +124,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         return mapping
 
     def _get_musetalk_enabled_pack_emotions(self):
-        return self._normalize_musetalk_enabled_pack_emotions(engine.RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
+        return self._normalize_musetalk_enabled_pack_emotions(self._runtime_config_value("musetalk_enabled_pack_emotions", {}))
 
     def _set_musetalk_enabled_pack_emotions(self, mapping, notify=True):
         normalized = self._normalize_musetalk_enabled_pack_emotions(mapping)
@@ -107,9 +135,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
     def _discover_musetalk_pack_catalog(self):
         try:
             return discover_avatar_packs(
-                default_avatar_id=str(engine.RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
-                legacy_map=engine.MUSE_EMOTION_AVATAR_MAP,
-                legacy_transitions=engine.MUSE_AVATAR_TRANSITIONS,
+                default_avatar_id=str(self._runtime_config_value("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+                legacy_map=getattr(engine, "MUSE_EMOTION_AVATAR_MAP", {}) if engine.is_loaded() else {},
+                legacy_transitions=getattr(engine, "MUSE_AVATAR_TRANSITIONS", {}) if engine.is_loaded() else {},
                 avatars_dir=MUSE_AVATAR_RESULTS_DIR,
                 packs_dir=MUSE_AVATAR_PACKS_DIR,
                 include_legacy=False,
@@ -296,7 +324,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             selected = str(combo.currentData() or "").strip()
             if selected:
                 return selected
-        runtime_pack_id = str(engine.RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+        runtime_pack_id = str(self._runtime_config_value("musetalk_avatar_pack_id", "") or "").strip()
         if runtime_pack_id and (MUSE_AVATAR_PACKS_DIR / runtime_pack_id).is_dir():
             return runtime_pack_id
         return MUSE_STANDALONE_TARGET_PACK_ID
@@ -1648,7 +1676,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 self._musetalk_tool_bridge_mode = None
                 bridge = None
             if bridge is None:
-                bridge = MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": requested_mode})
+                bridge = musetalk_bridge.MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": requested_mode})
                 bridge.start()
                 self._musetalk_tool_bridge = bridge
                 self._musetalk_tool_bridge_mode = requested_mode
@@ -1722,7 +1750,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                     bridge = live_adapter.bridge
                     result["used_live_bridge"] = True
                 else:
-                    bridge = MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": vram_mode})
+                    bridge = musetalk_bridge.MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": vram_mode})
                     bridge.start()
                 response = bridge.request(
                     {

@@ -2,6 +2,31 @@
 
 This document tracks the safe `main.ui` transition work currently present in this branch.
 
+## Latest Continuation Docs
+
+After reading this file, also read:
+
+- `docs/main_ui_plan_continuation_2026-04-23.md`
+- `docs/main_ui_phase_2026-04-23_01.md`
+- `docs/main_ui_phase_2026-04-23_02.md`
+- `docs/main_ui_phase_2026-04-23_03.md`
+- `docs/main_ui_phase_2026-04-23_04.md`
+- `docs/main_ui_phase_2026-04-23_05.md`
+- `docs/main_ui_phase_2026-04-24_06.md`
+- `docs/main_ui_phase_2026-04-24_07.md`
+- `docs/main_ui_phase_2026-04-24_08.md`
+- `docs/main_ui_phase_2026-04-24_09.md`
+- `docs/main_ui_phase_2026-04-24_10.md`
+- `docs/main_ui_phase_2026-04-24_11.md`
+- `docs/main_ui_phase_2026-04-24_12.md`
+- `docs/main_ui_phase_2026-04-24_13.md`
+- `docs/main_ui_phase_2026-04-24_14.md`
+- `docs/main_ui_phase_2026-04-24_15.md`
+- `docs/main_ui_phase_2026-04-24_16.md`
+- `docs/main_ui_phase_2026-04-24_17.md`
+- `docs/main_ui_phase_2026-04-24_18.md`
+- `docs/main_ui_phase_2026-04-24_19.md`
+
 ## Stable Default
 
 The normal app startup remains:
@@ -88,6 +113,44 @@ Current behavior:
 - Binds local console/chat controls that only affect the shell preview.
 
 This mode does not start runtime systems or mutate saved state.
+
+### Opt-In Real Runtime Mode
+
+```powershell
+.\.venv\Scripts\python.exe qt_app.py --ui-real main.ui
+```
+
+This mode now exists as the first real runtime-backed `main.ui` slice.
+
+Current behavior:
+
+- Loads the real Designer `main.ui` window.
+- Keeps the existing Python-built `CompanionQtMainWindow` hidden as the actual runtime owner.
+- Routes lifecycle/runtime/chat-context/model-refresh/push-to-talk actions into the real runtime.
+- Mirrors console/chat/status output from the hidden backend into the Designer window.
+- Automated offscreen `INIT` / `TERMINATE` verification now passes against the runtime-backed bridge.
+- Renders provider-specific chat runtime/editor fields into the real Designer layouts.
+- Shows adopted runtime addon tabs directly in the Designer window for `Hotkeys`, `Chat Player`, `Visuals`, `Story Visuals`, `Audio Story Mode`, `Preprocess`, `Loop Authoring`, `Chatterbox`, `Gemini TTS`, and `PocketTTS`.
+- Redirects the sensory runtime source surface into the real Designer `sensory_feedback_tabs` and `sensory_feedback_sources_widget`.
+- Builds runtime sensory provider tabs directly in the Designer surface when sources are enabled.
+- Chat edit mode is now live in `--ui-real`.
+- Dry Run start/stop/apply controls are now live in `--ui-real`.
+- The adopted `Hotkeys` tab now refreshes explicitly when selected on the real left tab strip.
+- Provider selection is now a more direct runtime-backed workflow in `--ui-real`.
+- Preset selection and preset action buttons are now a more direct runtime-backed workflow in `--ui-real`.
+- Provider/model runtime status now mirrors more explicitly into the Designer surface.
+- The Visual Reply dock/panel now renders as a live runtime surface in the real Designer window, including `Show Visual Reply` and the visible image/history/story actions.
+- The sensory hidden-loop core controls now update through explicit real runtime handlers in the Designer window, and frontend source selection still builds runtime sensory tabs there.
+- The visible chat/session flow controls in the Designer window now execute through explicit runtime-backed handlers instead of generic live bridge sync, and runtime smoke now reports `Chat/session runtime redirected: yes`.
+- The visible response-length and host/input/runtime selection controls in the Designer window now execute through explicit real-mode handlers instead of the passive generic bridge sync path, and audio input/output selection now persists explicitly in `--ui-real`.
+- The visible MuseTalk/visual selection widgets in the Designer window now execute through explicit real-mode handlers instead of the passive generic combo-sync path.
+- The visible avatar/body/VaM controls in the Designer window now execute through explicit real-mode handlers instead of the passive generic sync listeners, and body preset selection now executes as an explicit runtime action in `--ui-real`.
+- The remaining visible profile/utility widgets in the Designer window now execute through explicit real-mode handlers instead of the passive generic bridge listeners.
+- Keeps the stable default startup path unchanged.
+
+Current non-goals in this first real mode:
+
+- remaining static duplicate or placeholder Designer surfaces are still present even where the live runtime/addon surface is mounted elsewhere
 
 ## Low-Risk Live Addon Mounts
 

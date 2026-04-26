@@ -2,6 +2,29 @@
 
 This handover is for continuing the NeuralCompanion `main.ui` transition while keeping the existing Python-built UI stable.
 
+Latest continuation docs created after this handover:
+
+- `docs/main_ui_plan_continuation_2026-04-23.md`
+- `docs/main_ui_phase_2026-04-23_01.md`
+- `docs/main_ui_phase_2026-04-23_02.md`
+- `docs/main_ui_phase_2026-04-23_03.md`
+- `docs/main_ui_phase_2026-04-23_04.md`
+- `docs/main_ui_phase_2026-04-23_05.md`
+- `docs/main_ui_phase_2026-04-24_06.md`
+- `docs/main_ui_phase_2026-04-24_07.md`
+- `docs/main_ui_phase_2026-04-24_08.md`
+- `docs/main_ui_phase_2026-04-24_09.md`
+- `docs/main_ui_phase_2026-04-24_10.md`
+- `docs/main_ui_phase_2026-04-24_11.md`
+- `docs/main_ui_phase_2026-04-24_12.md`
+- `docs/main_ui_phase_2026-04-24_13.md`
+- `docs/main_ui_phase_2026-04-24_14.md`
+- `docs/main_ui_phase_2026-04-24_15.md`
+- `docs/main_ui_phase_2026-04-24_16.md`
+- `docs/main_ui_phase_2026-04-24_17.md`
+- `docs/main_ui_phase_2026-04-24_18.md`
+- `docs/main_ui_phase_2026-04-24_19.md`
+
 ## Repositories And Folders
 
 - Developer working folder: `E:\Tools\Python_Scripts\NeuralInterface`
@@ -36,6 +59,12 @@ The shell smoke check is:
 E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui --shell-smoke
 ```
 
+There is now also an opt-in real runtime-backed Designer path:
+
+```powershell
+.\.venv\Scripts\python.exe qt_app.py --ui-real main.ui
+```
+
 The shell currently:
 
 - Loads `main.ui`.
@@ -48,6 +77,42 @@ The shell currently:
 - Binds preset preview, tutorials, chat context, console/chat local controls, lifecycle preview buttons, and Operational View preview actions.
 - Keeps engine, audio, model loading, transcription, image generation, and avatar runtimes disconnected.
 - Must keep reporting `Heavy engine imported: no` in shell smoke.
+
+The new `--ui-real main.ui` path currently:
+
+- loads the real Designer window
+- keeps the Python-built `CompanionQtMainWindow` hidden as the real runtime owner
+- routes lifecycle/runtime/chat-context/model-refresh/push-to-talk actions into the real runtime
+- mirrors console/chat/status from the hidden backend into `main.ui`
+- has automated offscreen `INIT` / `TERMINATE` verification passing against the real runtime-backed bridge
+- now renders provider-specific chat runtime/editor forms into the real Designer layouts
+- now adopts these runtime addon tabs directly into the real Designer window:
+  - `Hotkeys`
+  - `Chat Player`
+  - `Visuals`
+  - `Story Visuals`
+  - `Audio Story Mode`
+  - `Preprocess`
+  - `Loop Authoring`
+  - `Chatterbox`
+  - `Gemini TTS`
+  - `PocketTTS`
+- now redirects the sensory runtime source surface into the real Designer widgets and builds source tabs there when enabled
+- chat edit mode is now live in the real Designer window
+- Dry Run controls are now live in the real Designer window
+- the adopted `Hotkeys` tab now refreshes explicitly on the real left tab strip and was verified populated offscreen
+- provider selection is now a more direct runtime-backed workflow in the real Designer window
+- preset selection and preset action buttons are now a more direct runtime-backed workflow in the real Designer window
+- provider/model runtime status now mirrors more explicitly into the Designer surface
+- the Visual Reply dock/panel now lives on the real Designer surface, and `Show Visual Reply` plus the visible image/history/story actions now target that frontend runtime panel
+- the sensory hidden-loop core controls now execute through explicit runtime handlers on the real Designer surface, and frontend source selection was verified to create runtime sensory tabs there
+- the visible chat/session flow controls now execute through explicit runtime-backed handlers on the real Designer surface, and runtime smoke now reports `Chat/session runtime redirected: yes`
+- the visible response-length and host/input/runtime selection controls now execute through explicit real-mode handlers on the real Designer surface, and audio input/output selection now saves/restores explicitly in `--ui-real`
+- the visible MuseTalk/visual selection widgets now execute through explicit real-mode handlers on the real Designer surface instead of passive generic combo sync
+- the visible avatar/body/VaM controls now execute through explicit real-mode handlers on the real Designer surface instead of passive generic sync, and body preset selection now executes as a runtime action
+- the remaining visible profile/utility widgets now execute through explicit real-mode handlers on the real Designer surface instead of passive generic bridge sync
+- the remaining visible cleanup target is now mainly the static duplicate or placeholder Designer surfaces that still exist beside adopted runtime/addon surfaces
+- still does not yet move every bridge-owned runtime workflow out of the hidden backend
 
 ## Current Safety Boundary
 
@@ -91,6 +156,15 @@ Addon mount placeholders: none
 
 Before pushing, copy changed files to the Git sync folder, then run the same validation there.
 
+For the current checkout, the repo-local venv was used for the new real-mode validation:
+
+```powershell
+.\.venv\Scripts\python.exe -m py_compile qt_app.py core\addons\qt_host_services.py
+.\.venv\Scripts\python.exe qt_app.py --validate-ui main.ui
+.\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui --shell-smoke
+.\.venv\Scripts\python.exe qt_app.py --ui-real main.ui --runtime-smoke
+```
+
 ## One-Button Autonomous Prompt For Codex
 
 Use this prompt if you want Codex to work for a long unattended run:
@@ -116,11 +190,10 @@ Rules:
 - Never use git reset --hard or destructive checkout.
 
 Suggested next work:
-1. Finish shell-local bindings for remaining static Host/Core controls.
-2. Add real host-service contracts for controls that need normal-app support.
-3. Move static Designer tabs that duplicate addon-owned UI behind live addon mount boundaries.
-4. Only after shell boundaries are clean, create an opt-in real main.ui runtime mode.
-5. Keep the normal Python-built UI working after each commit.
+1. Manually verify INIT/TERMINATE in `--ui-real main.ui`.
+2. Move the remaining top-level and sensory runtime addon surfaces out of the hidden backend and into the real Designer window.
+3. Reduce the remaining hidden-backend-owned controls in the bridge.
+4. Keep the normal Python-built UI working after each commit.
 
 At the end, provide:
 - commits pushed
@@ -392,12 +465,11 @@ E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-re
 The next safest task is:
 
 ```text
-Bind remaining Host/Core shell controls from saved session and addon metadata, keeping them shell-local and updating the shell runtime-status line. Do not connect real runtime actions.
+Begin Phase 5 by introducing an opt-in --ui-real main.ui path on top of the now-split addon/controller boundaries.
 ```
 
 After that:
 
 ```text
-Add one new normal-app host service at a time for the controls that will eventually need real `main.ui` runtime behavior.
+Wire the real runtime workflows onto that opt-in path one group at a time, starting with lifecycle, console/chat updates, and input handling.
 ```
-

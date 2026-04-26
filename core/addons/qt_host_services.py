@@ -89,6 +89,741 @@ class QtRuntimeStatusService:
         return "runtime: unavailable"
 
 
+class QtInputSettingsService:
+    def __init__(self, window):
+        self._window = window
+
+    def _combo(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _spin(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _checkbox(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _combo_text(self, name: str, default: str = "") -> str:
+        widget = self._combo(name)
+        if widget is not None and hasattr(widget, "currentText"):
+            try:
+                text = str(widget.currentText() or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _combo_items(self, name: str) -> list[str]:
+        widget = self._combo(name)
+        if widget is None or not hasattr(widget, "count"):
+            return []
+        items = []
+        try:
+            for index in range(widget.count()):
+                text = str(widget.itemText(index) or "").strip()
+                if text:
+                    items.append(text)
+        except Exception:
+            return []
+        return items
+
+    def _spin_value(self, name: str, default):
+        widget = self._spin(name)
+        if widget is not None and hasattr(widget, "value"):
+            try:
+                return widget.value()
+            except Exception:
+                pass
+        return default
+
+    def _checked(self, name: str, default: bool = False) -> bool:
+        widget = self._checkbox(name)
+        if widget is not None and hasattr(widget, "isChecked"):
+            try:
+                return bool(widget.isChecked())
+            except Exception:
+                pass
+        return bool(default)
+
+    def _set_combo_text(self, name: str, value) -> None:
+        widget = self._combo(name)
+        if widget is None or not hasattr(widget, "setCurrentText"):
+            return
+        text = str(value or "").strip()
+        if not text:
+            return
+        try:
+            widget.setCurrentText(text)
+        except Exception:
+            pass
+
+    def _set_spin_value(self, name: str, value) -> None:
+        widget = self._spin(name)
+        if widget is None or not hasattr(widget, "setValue"):
+            return
+        try:
+            widget.setValue(value)
+        except Exception:
+            pass
+
+    def _set_checked(self, name: str, value) -> None:
+        widget = self._checkbox(name)
+        if widget is None or not hasattr(widget, "setChecked"):
+            return
+        try:
+            widget.setChecked(bool(value))
+        except Exception:
+            pass
+
+    def snapshot(self):
+        import engine
+
+        runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+        overflow_label_fn = getattr(self._window, "_chat_overflow_policy_label_from_value", None)
+        overflow_label = (
+            overflow_label_fn(runtime.get("chat_context_overflow_policy", "rolling_window"))
+            if callable(overflow_label_fn)
+            else str(runtime.get("chat_context_overflow_policy", "rolling_window") or "rolling_window")
+        )
+        return {
+            "audio_input_device": self._combo_text("audio_input_device_combo", "Default Input"),
+            "audio_output_device": self._combo_text("audio_output_device_combo", "Default Output"),
+            "audio_input_options": self._combo_items("audio_input_device_combo") or ["Default Input"],
+            "audio_output_options": self._combo_items("audio_output_device_combo") or ["Default Output"],
+            "input_mode": self._combo_text("input_mode_combo", str(runtime.get("input_mode", "Voice Activation") or "Voice Activation")),
+            "input_role": self._combo_text("input_role_combo", str(runtime.get("input_message_role", "User Message") or "User Message")),
+            "stream_mode": self._combo_text("stream_mode_combo", "On" if bool(runtime.get("stream_mode", False)) else "Off"),
+            "allow_proactive_replies": self._checked("allow_proactive_checkbox", bool(runtime.get("allow_proactive_replies", True))),
+            "require_first_user_before_proactive": self._checked("require_first_user_checkbox", bool(runtime.get("require_first_user_before_proactive", False))),
+            "listen_idle_window_seconds": float(self._spin_value("listen_idle_window_spin", float(runtime.get("listen_idle_window_seconds", 5.0) or 5.0))),
+            "proactive_delay_seconds": float(self._spin_value("proactive_delay_spin", float(runtime.get("proactive_delay_seconds", 10.0) or 10.0))),
+            "chat_context_window_messages": int(self._spin_value("chat_context_window_spin", int(runtime.get("chat_context_window_messages", 20) or 20))),
+            "stored_chat_history_limit": int(self._spin_value("stored_chat_history_limit_spin", int(runtime.get("stored_chat_history_limit", 0) or 0))),
+            "chat_context_overflow_policy": self._combo_text("chat_overflow_policy_combo", overflow_label),
+            "limit_response_length": self._checked("limit_response_checkbox", bool(runtime.get("limit_response_length", False))),
+            "max_response_tokens": int(self._spin_value("max_response_tokens_spin", int(runtime.get("max_response_tokens", 600) or 600))),
+            "shell_mode": False,
+            "message": "Input/session settings are available.",
+            "source": "qt_app",
+        }
+
+    def apply(self, updates: dict | None = None, **kwargs):
+        payload = dict(updates or {})
+        payload.update(kwargs)
+        if "audio_input_device" in payload:
+            self._set_combo_text("audio_input_device_combo", payload.get("audio_input_device"))
+        if "audio_output_device" in payload:
+            self._set_combo_text("audio_output_device_combo", payload.get("audio_output_device"))
+        if "input_mode" in payload:
+            self._set_combo_text("input_mode_combo", payload.get("input_mode"))
+        if "input_role" in payload:
+            value = payload.get("input_role")
+            label_fn = getattr(self._window, "_input_role_label_from_value", None)
+            self._set_combo_text("input_role_combo", label_fn(value) if callable(label_fn) else value)
+        if "stream_mode" in payload:
+            value = payload.get("stream_mode")
+            label = "On" if bool(value) and str(value).strip().lower() not in {"off", "false", "0"} else "Off"
+            if isinstance(value, str) and value.strip():
+                label = value
+            self._set_combo_text("stream_mode_combo", label)
+        if "allow_proactive_replies" in payload:
+            self._set_checked("allow_proactive_checkbox", payload.get("allow_proactive_replies"))
+        if "require_first_user_before_proactive" in payload:
+            self._set_checked("require_first_user_checkbox", payload.get("require_first_user_before_proactive"))
+        if "listen_idle_window_seconds" in payload:
+            self._set_spin_value("listen_idle_window_spin", float(payload.get("listen_idle_window_seconds") or 5.0))
+        if "proactive_delay_seconds" in payload:
+            self._set_spin_value("proactive_delay_spin", float(payload.get("proactive_delay_seconds") or 10.0))
+        if "chat_context_window_messages" in payload:
+            self._set_spin_value("chat_context_window_spin", int(payload.get("chat_context_window_messages") or 20))
+        if "stored_chat_history_limit" in payload:
+            self._set_spin_value("stored_chat_history_limit_spin", int(payload.get("stored_chat_history_limit") or 0))
+        if "chat_context_overflow_policy" in payload:
+            value = payload.get("chat_context_overflow_policy")
+            label_fn = getattr(self._window, "_chat_overflow_policy_label_from_value", None)
+            self._set_combo_text("chat_overflow_policy_combo", label_fn(value) if callable(label_fn) else value)
+        if "limit_response_length" in payload:
+            self._set_checked("limit_response_checkbox", payload.get("limit_response_length"))
+        if "max_response_tokens" in payload:
+            self._set_spin_value("max_response_tokens_spin", int(payload.get("max_response_tokens") or 600))
+        return self.snapshot()
+
+
+class QtInputActionService:
+    AUDIO_STORY_PREVIEW_TOTAL_SECONDS = 60
+
+    def __init__(self, window):
+        self._window = window
+        self._last_action = ""
+        self._push_to_talk_held = False
+
+    def _widget(self, name: str):
+        widget = getattr(self._window, str(name), None)
+        if widget is not None:
+            return widget
+        if hasattr(self._window, "findChild"):
+            try:
+                return self._window.findChild(QtCore.QObject, str(name))
+            except Exception:
+                return None
+        return None
+
+    def _combo_text(self, name: str, default: str = "") -> str:
+        widget = self._widget(name)
+        if widget is not None and hasattr(widget, "currentText"):
+            try:
+                text = str(widget.currentText() or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _line_value(self, name: str, default: str = "") -> str:
+        widget = self._widget(name)
+        if widget is not None and hasattr(widget, "text"):
+            try:
+                return str(widget.text() or "").strip()
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _slider_value(self, name: str, default: int = 0) -> int:
+        widget = self._widget(name)
+        if widget is not None and hasattr(widget, "value"):
+            try:
+                return int(widget.value())
+            except Exception:
+                pass
+        return int(default)
+
+    def _format_clock_seconds(self, seconds: int) -> str:
+        total = max(0, int(seconds or 0))
+        minutes, secs = divmod(total, 60)
+        return f"{minutes:02d}:{secs:02d}"
+
+    def _push_to_talk_enabled(self) -> bool:
+        input_mode = self._combo_text("input_mode_combo", "Voice Activation")
+        dry_run_active = False
+        dry_run_check = getattr(self._window, "_dry_run_is_active", None)
+        if callable(dry_run_check):
+            try:
+                dry_run_active = bool(dry_run_check())
+            except Exception:
+                dry_run_active = False
+        running = bool(getattr(self._window, "thread", None) and self._window.thread.is_alive())
+        return running and input_mode == "Push-to-Talk" and not dry_run_active
+
+    def snapshot(self):
+        try:
+            import engine
+            push_to_talk_hotkey = str(engine.get_push_to_talk_hotkey() or "Right Ctrl").strip() or "Right Ctrl"
+        except Exception:
+            push_to_talk_hotkey = "Right Ctrl"
+        push_enabled = self._push_to_talk_enabled()
+        if not push_enabled:
+            self._push_to_talk_held = False
+        audio_path = self._line_value("audio_file_path_edit", "")
+        seek_percent = max(0, min(100, self._slider_value("audio_story_seek_slider", 0)))
+        total_seconds = int(self.AUDIO_STORY_PREVIEW_TOTAL_SECONDS)
+        current_seconds = int(round(total_seconds * seek_percent / 100.0))
+        return {
+            "last_action": self._last_action,
+            "push_to_talk_enabled": push_enabled,
+            "push_to_talk_held": bool(self._push_to_talk_held and push_enabled),
+            "push_to_talk_hotkey": push_to_talk_hotkey,
+            "audio_story_audio_path": audio_path,
+            "audio_story_has_audio": bool(audio_path),
+            "audio_story_playback_mode": self._combo_text("audio_story_playback_combo", "Play Imported Audio"),
+            "audio_story_transcribe_seconds": max(1, self._slider_value("transcribe_seconds_slider", 8)),
+            "audio_story_playback_state": "unavailable",
+            "audio_story_seek_percent": seek_percent,
+            "audio_story_position_text": f"{self._format_clock_seconds(current_seconds)} / {self._format_clock_seconds(total_seconds)}",
+            "shell_mode": False,
+            "push_to_talk_runtime_available": True,
+            "audio_story_runtime_available": self._widget("transcribe_audio_button") is not None,
+            "message": "Input/runtime-adjacent actions are available when the owning UI/runtime exists.",
+            "source": "qt_app",
+        }
+
+    def set_push_to_talk_hold(self, held: bool):
+        self._last_action = "push_to_talk_press" if held else "push_to_talk_release"
+        if held and not self._push_to_talk_enabled():
+            self._push_to_talk_held = False
+            payload = self.snapshot()
+            payload.update({
+                "accepted": False,
+                "message": "Push-to-Talk is not currently enabled.",
+            })
+            return payload
+        accepted = False
+        try:
+            import engine
+            engine.set_push_to_talk_hold(bool(held))
+            self._push_to_talk_held = bool(held)
+            accepted = True
+        except Exception:
+            self._push_to_talk_held = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Push-to-Talk hold changed." if accepted else "Push-to-Talk runtime action was unavailable.",
+        })
+        return payload
+
+    def set_audio_file_path(self, path: str):
+        self._last_action = "set_audio_file_path"
+        widget = self._widget("audio_file_path_edit")
+        accepted = False
+        if widget is not None and hasattr(widget, "setText"):
+            try:
+                widget.setText(str(path or "").strip())
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio Story path updated." if accepted else "Audio Story path field is unavailable in this UI mode.",
+        })
+        return payload
+
+    def request_audio_import(self):
+        self._last_action = "request_audio_import"
+        payload = self.snapshot()
+        payload.update({
+            "accepted": False,
+            "deferred": True,
+            "message": "Audio import remains owned by the runtime Audio Story surface.",
+        })
+        return payload
+
+    def request_audio_transcription(self):
+        self._last_action = "request_audio_transcription"
+        button = self._widget("transcribe_audio_button")
+        accepted = False
+        if button is not None and hasattr(button, "click"):
+            try:
+                button.click()
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio transcription requested." if accepted else "Audio transcription is unavailable in this UI mode.",
+        })
+        return payload
+
+    def play_audio_story(self):
+        self._last_action = "play_audio_story"
+        button = self._widget("audio_story_play_button")
+        accepted = False
+        if button is not None and hasattr(button, "click"):
+            try:
+                button.click()
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio Story play requested." if accepted else "Audio Story play is unavailable in this UI mode.",
+        })
+        return payload
+
+    def pause_audio_story(self):
+        self._last_action = "pause_audio_story"
+        button = self._widget("audio_story_pause_button")
+        accepted = False
+        if button is not None and hasattr(button, "click"):
+            try:
+                button.click()
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio Story pause requested." if accepted else "Audio Story pause is unavailable in this UI mode.",
+        })
+        return payload
+
+    def stop_audio_story(self):
+        self._last_action = "stop_audio_story"
+        button = self._widget("audio_story_stop_button")
+        accepted = False
+        if button is not None and hasattr(button, "click"):
+            try:
+                button.click()
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio Story stop requested." if accepted else "Audio Story stop is unavailable in this UI mode.",
+        })
+        return payload
+
+    def seek_audio_story(self, position_percent: int):
+        self._last_action = "seek_audio_story"
+        slider = self._widget("audio_story_seek_slider")
+        accepted = False
+        if slider is not None and hasattr(slider, "setValue"):
+            try:
+                slider.setValue(max(0, min(100, int(position_percent or 0))))
+                accepted = True
+            except Exception:
+                accepted = False
+        payload = self.snapshot()
+        payload.update({
+            "accepted": accepted,
+            "message": "Audio Story seek updated." if accepted else "Audio Story seek is unavailable in this UI mode.",
+        })
+        return payload
+
+
+class QtPerformanceProfileService:
+    def __init__(self, window):
+        self._window = window
+
+    def _selected_name(self, source: str = "dry_run") -> str:
+        if source == "chunking":
+            combo = getattr(self._window, "chunking_profile_combo", None)
+        else:
+            combo = getattr(self._window, "performance_profile_combo", None)
+        if combo is None or not hasattr(combo, "currentData"):
+            return ""
+        try:
+            return str(combo.currentData() or "").strip()
+        except Exception:
+            return ""
+
+    def _current_chunking(self) -> dict:
+        sliders = dict(getattr(self._window, "chunking_sliders", {}) or {})
+        values = {}
+        for key, slider in sliders.items():
+            try:
+                values[str(key)] = slider.value()
+            except Exception:
+                continue
+        return values
+
+    def snapshot(self):
+        combo = getattr(self._window, "performance_profile_combo", None)
+        profiles = []
+        if combo is not None and hasattr(combo, "count"):
+            try:
+                for index in range(combo.count()):
+                    name = str(combo.itemData(index) or "").strip()
+                    label = str(combo.itemText(index) or "").strip()
+                    if name:
+                        profiles.append({"name": name, "label": label})
+            except Exception:
+                profiles = []
+        return {
+            "profiles": profiles,
+            "selected_chunking_profile": self._selected_name("chunking"),
+            "selected_performance_profile": self._selected_name("dry_run"),
+            "current_chunking": self._current_chunking(),
+            "shell_mode": False,
+            "load_available": hasattr(self._window, "load_performance_profile_by_id"),
+            "refresh_available": hasattr(self._window, "refresh_performance_profile_list"),
+            "reset_available": hasattr(self._window, "reset_chunking_defaults"),
+            "save_available": hasattr(self._window, "save_latest_performance_profile") or hasattr(self._window, "save_current_chunking_profile"),
+            "delete_available": hasattr(self._window, "delete_selected_performance_profile") or hasattr(self._window, "delete_selected_chunking_profile"),
+            "message": "Performance profiles are available.",
+            "source": "qt_app",
+        }
+
+    def refresh_profiles(self, preferred_name: str = ""):
+        refresh = getattr(self._window, "refresh_performance_profile_list", None)
+        if callable(refresh):
+            refresh()
+        return self.snapshot()
+
+    def load_profile(self, name: str = "", *, source: str = "dry_run"):
+        target_name = str(name or "").strip() or self._selected_name(source)
+        loaded = False
+        load = getattr(self._window, "load_performance_profile_by_id", None)
+        if target_name and callable(load):
+            loaded = bool(load(target_name))
+        payload = self.snapshot()
+        payload.update({
+            "accepted": bool(loaded),
+            "loaded": bool(loaded),
+            "profile_name": target_name,
+        })
+        return payload
+
+    def reset_chunking_defaults(self):
+        reset = getattr(self._window, "reset_chunking_defaults", None)
+        if callable(reset):
+            reset()
+        payload = self.snapshot()
+        payload.update({
+            "accepted": True,
+            "action": "reset_chunking_defaults",
+        })
+        return payload
+
+    def save_profile(self, *, source: str = "dry_run"):
+        if source == "chunking":
+            save = getattr(self._window, "save_current_chunking_profile", None)
+        else:
+            save = getattr(self._window, "save_latest_performance_profile", None)
+        if callable(save):
+            save()
+        payload = self.snapshot()
+        payload.update({
+            "accepted": callable(save),
+            "action": "save_profile",
+            "source_kind": source,
+        })
+        return payload
+
+    def delete_profile(self, *, source: str = "dry_run"):
+        if source == "chunking":
+            delete = getattr(self._window, "delete_selected_chunking_profile", None)
+        else:
+            delete = getattr(self._window, "delete_selected_performance_profile", None)
+        if callable(delete):
+            delete()
+        payload = self.snapshot()
+        payload.update({
+            "accepted": callable(delete),
+            "action": "delete_profile",
+            "source_kind": source,
+        })
+        return payload
+
+
+class QtDryRunService:
+    def __init__(self, window):
+        self._window = window
+
+    def _status(self):
+        try:
+            import dry_run
+            return dry_run.get_status() or {}
+        except Exception:
+            return {}
+
+    def _latest(self):
+        try:
+            import dry_run
+            return dry_run.get_latest_profile() or {}
+        except Exception:
+            return {}
+
+    def snapshot(self):
+        status = dict(self._status() or {})
+        latest = dict(self._latest() or {})
+        target_widget = getattr(self._window, "dry_run_target_spin", None)
+        auto_widget = getattr(self._window, "dry_run_auto_replies_checkbox", None)
+        target = int(target_widget.value()) if target_widget is not None and hasattr(target_widget, "value") else 0
+        auto_replies = bool(auto_widget.isChecked()) if auto_widget is not None and hasattr(auto_widget, "isChecked") else True
+        recommendation = dict(status.get("recommendation") or (latest.get("recommendation") or {}) or {})
+        return {
+            "status": status,
+            "latest_profile": latest,
+            "target_samples": target,
+            "auto_replies": auto_replies,
+            "active": bool(status.get("active")),
+            "complete": bool(status.get("complete")),
+            "has_recommendation": bool(recommendation.get("settings")),
+            "shell_mode": False,
+            "message": "Dry Run controls are available.",
+            "source": "qt_app",
+        }
+
+    def refresh(self):
+        refresh = getattr(self._window, "refresh_dry_run_status", None)
+        if callable(refresh):
+            refresh()
+        return self.snapshot()
+
+    def start_session(self):
+        start = getattr(self._window, "start_dry_run_session", None)
+        if callable(start):
+            start()
+        return self.snapshot()
+
+    def stop_session(self):
+        stop = getattr(self._window, "stop_dry_run_session", None)
+        if callable(stop):
+            stop()
+        return self.snapshot()
+
+    def apply_recommendation(self):
+        apply = getattr(self._window, "apply_dry_run_recommendation", None)
+        if callable(apply):
+            apply()
+        return self.snapshot()
+
+
+class QtPersonaAvatarService:
+    def __init__(self, window):
+        self._window = window
+
+    def _combo(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _checkbox(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _line_edit(self, name: str):
+        return getattr(self._window, str(name), None)
+
+    def _combo_text(self, name: str, default: str = "") -> str:
+        widget = self._combo(name)
+        if widget is not None and hasattr(widget, "currentText"):
+            try:
+                text = str(widget.currentText() or "").strip()
+                if text:
+                    return text
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _combo_items(self, name: str) -> list[str]:
+        widget = self._combo(name)
+        if widget is None or not hasattr(widget, "count"):
+            return []
+        items = []
+        try:
+            for index in range(widget.count()):
+                text = str(widget.itemText(index) or "").strip()
+                if text:
+                    items.append(text)
+        except Exception:
+            return []
+        return items
+
+    def _checked(self, name: str, default: bool = False) -> bool:
+        widget = self._checkbox(name)
+        if widget is not None and hasattr(widget, "isChecked"):
+            try:
+                return bool(widget.isChecked())
+            except Exception:
+                pass
+        return bool(default)
+
+    def _line_value(self, name: str, default: str = "") -> str:
+        widget = self._line_edit(name)
+        if widget is not None and hasattr(widget, "text"):
+            try:
+                return str(widget.text() or "").strip()
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def _pose_values(self) -> dict:
+        sliders = dict(getattr(self._window, "pose_sliders", {}) or {})
+        values = {}
+        for key, slider in sliders.items():
+            try:
+                values[str(key)] = slider.value()
+            except Exception:
+                continue
+        return values
+
+    def snapshot(self):
+        emotional = getattr(self._window, "emotional_text", None)
+        system_prompt = getattr(self._window, "system_prompt_text", None)
+        return {
+            "voice_file": self._combo_text("voice_combo"),
+            "voice_options": self._combo_items("voice_combo"),
+            "emotional_instructions": str(emotional.toPlainText().strip()) if emotional is not None and hasattr(emotional, "toPlainText") else "",
+            "system_prompt": str(system_prompt.toPlainText().strip()) if system_prompt is not None and hasattr(system_prompt, "toPlainText") else "",
+            "body_presets": self._combo_items("body_combo"),
+            "selected_body": self._combo_text("body_combo"),
+            "emotion": self._combo_text("emotion_combo", "Neutral"),
+            "live_sync": self._checked("live_sync_checkbox", False),
+            "pose_values": self._pose_values(),
+            "vam_settings": {
+                "vam_root": self._line_value("vam_root_edit"),
+                "vam_bridge_root": self._line_value("vam_bridge_root_edit"),
+                "vam_target_atom_uid": self._line_value("vam_target_atom_uid_edit", "Person"),
+                "vam_target_storable_id": self._line_value("vam_target_storable_id_edit"),
+                "vam_vmc_host": self._line_value("vam_vmc_host_edit", "127.0.0.1"),
+                "vam_vmc_port": int(getattr(self._window, "vam_vmc_port_spin", None).value()) if hasattr(getattr(self._window, "vam_vmc_port_spin", None), "value") else 39539,
+                "vam_vmc_enabled": self._checked("vam_vmc_enabled_checkbox", True),
+                "vam_bridge_enabled": self._checked("vam_bridge_enabled_checkbox", True),
+                "vam_play_audio_in_vam": self._checked("vam_play_audio_in_vam_checkbox", False),
+                "vam_timeline_auto_resume": self._checked("vam_timeline_auto_resume_checkbox", True),
+            },
+            "shell_mode": False,
+            "message": "Persona/body/VaM controls are available.",
+            "source": "qt_app",
+        }
+
+    def refresh_body_list(self):
+        refresh = getattr(self._window, "refresh_body_list", None)
+        if callable(refresh):
+            refresh()
+        return self.snapshot()
+
+    def load_body(self, name: str = ""):
+        target = str(name or "").strip()
+        combo = getattr(self._window, "body_combo", None)
+        if target and combo is not None and hasattr(combo, "findText"):
+            index = combo.findText(target)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+        load = getattr(self._window, "load_body_config_from_combo", None)
+        if callable(load):
+            load()
+        return self.snapshot()
+
+    def save_body(self, name: str = ""):
+        target = str(name or "").strip()
+        if target:
+            save_named = getattr(self._window, "save_body_config", None)
+            if callable(save_named):
+                save_named(target)
+        else:
+            save_current = getattr(self._window, "save_current_body", None)
+            if callable(save_current):
+                save_current()
+        return self.snapshot()
+
+    def delete_body(self):
+        delete = getattr(self._window, "delete_current_body", None)
+        if callable(delete):
+            delete()
+        return self.snapshot()
+
+    def apply_persona(self):
+        apply = getattr(self._window, "apply_text_config", None)
+        if callable(apply):
+            apply()
+        return self.snapshot()
+
+    def launch_vam(self, target: str = "desktop"):
+        mode = str(target or "desktop").strip().lower()
+        if mode == "vr":
+            launch = getattr(self._window, "on_start_vam_vr_clicked", None)
+        else:
+            launch = getattr(self._window, "on_start_vam_desktop_clicked", None)
+        if callable(launch):
+            launch()
+        return self.snapshot()
+
+    def open_external_avatar_view(self, mode: str = "vseeface"):
+        value = str(mode or "vseeface").strip().lower()
+        if value == "vam":
+            handler = getattr(self._window, "enter_external_avatar_focus", None)
+            if callable(handler):
+                handler("VaM")
+        else:
+            handler = getattr(self._window, "enter_external_avatar_focus", None)
+            if callable(handler):
+                handler("VSeeFace")
+        return self.snapshot()
+
+
 class QtModelRefreshService:
     def __init__(self, window):
         self._window = window
