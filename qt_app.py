@@ -11235,6 +11235,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._preset_reference_name = ""
         self._preset_reference_signature = ""
         self._preset_dirty_state = None
+        self._preset_dirty_tracking_ready = False
         self._pending_preset_clean_name = ""
         self._pending_preset_clean_provider = ""
         self._pending_preset_clean_model = ""
@@ -14385,6 +14386,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def _refresh_preset_dirty_state(self):
         if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
             return
+        if not bool(getattr(self, "_preset_dirty_tracking_ready", False)):
+            return
         if bool(getattr(self, "_restoring_session", False)):
             return
         current_signature = self._preset_payload_signature(self._build_preset_payload())
@@ -14416,6 +14419,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
             else:
                 self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        self._preset_dirty_tracking_ready = True
         self._refresh_preset_dirty_state()
 
     def _update_preset_reference_from_current_state(self, preset_name=None):
@@ -14425,6 +14429,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         else:
             self._preset_reference_name = name
         self._preset_reference_signature = self._preset_payload_signature(self._build_preset_payload())
+        self._preset_dirty_tracking_ready = True
         self._refresh_preset_dirty_state()
 
     def _queue_preset_clean_after_model_refresh(self, preset_name, provider_id="", model_name=""):
@@ -14455,7 +14460,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
     def _finalize_session_restore_dirty_state(self):
         self._restoring_session = False
-        self._update_preset_reference_from_selection(self.preset_combo.currentText() if hasattr(self, "preset_combo") else "")
+        self._update_preset_reference_from_current_state(self.preset_combo.currentText() if hasattr(self, "preset_combo") else "")
         self._refresh_preset_dirty_state()
 
     def on_preset_selection_changed(self, text):
@@ -18733,6 +18738,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
     def save_session(self):
         if bool(getattr(self, "_suspend_session_save", False)):
             return
+        preserved_main_ui_real_layout = None
+        try:
+            if SESSION_PATH.exists():
+                previous_session = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
+                if isinstance(previous_session, dict):
+                    preserved_main_ui_real_layout = previous_session.get("main_ui_real_layout")
+        except Exception:
+            preserved_main_ui_real_layout = None
         session = {
             "first_run": bool(self.first_run),
             "ui_theme_preset": self.current_app_theme_preset(),
@@ -18831,6 +18844,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 else ""
             ),
         }
+        if isinstance(preserved_main_ui_real_layout, dict):
+            session["main_ui_real_layout"] = preserved_main_ui_real_layout
         if self._addon_manager is not None:
             session.update(self._addon_manager.export_session_state())
         SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
@@ -19305,6 +19320,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
     """Opt-in runtime-backed `main.ui` front-end backed by a hidden legacy window."""
 
     POLL_INTERVAL_MS = 180
+    FRONTEND_LAYOUT_SESSION_KEY = "main_ui_real_layout"
 
     def __init__(self, raw_ui_path):
         super().__init__()
@@ -19312,6 +19328,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if not self.ui_path.exists():
             raise FileNotFoundError(f"UI file not found: {self.ui_path}")
         self._closing = False
+        self._restoring_frontend_layout = False
         self.backend = CompanionQtMainWindow()
         self.backend.first_run = False
         self.backend.hide()
@@ -19344,9 +19361,15 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._frontend_system_prompt_commit_timer = QtCore.QTimer(self.window)
         self._frontend_system_prompt_commit_timer.setSingleShot(True)
         self._frontend_system_prompt_commit_timer.timeout.connect(self._commit_frontend_system_prompt_to_runtime)
+        self._frontend_layout_save_timer = QtCore.QTimer(self.window)
+        self._frontend_layout_save_timer.setSingleShot(True)
+        self._frontend_layout_save_timer.setInterval(650)
+        self._frontend_layout_save_timer.timeout.connect(self._save_frontend_layout_state)
 
         self._bind_frontend_workspace_constraint_hooks()
         self._configure_frontend_runtime_slice()
+        self._bind_frontend_layout_persistence_hooks()
+        self._restore_frontend_layout_state()
         self._sync_backend_to_ui(force=True)
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(self.POLL_INTERVAL_MS)
@@ -19367,7 +19390,10 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if watched is self.window and event is not None:
             try:
                 if event.type() == QtCore.QEvent.Close:
+                    self._save_frontend_layout_state()
                     self.close()
+                elif event.type() in {QtCore.QEvent.Move, QtCore.QEvent.Resize, QtCore.QEvent.WindowStateChange}:
+                    self._schedule_frontend_layout_save()
             except Exception:
                 pass
         return super().eventFilter(watched, event)
@@ -19379,6 +19405,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if self._closing:
             return
         self._closing = True
+        self._save_frontend_layout_state()
         try:
             timer = getattr(self, "_poll_timer", None)
             if timer is not None:
@@ -19399,6 +19426,167 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 self.backend.close()
         except Exception:
             pass
+
+    def _load_frontend_session_payload(self):
+        if not SESSION_PATH.exists():
+            return {}
+        try:
+            payload = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
+            return payload if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def _write_frontend_session_payload(self, payload):
+        try:
+            SESSION_PATH.write_text(json.dumps(payload or {}, indent=4), encoding="utf-8")
+        except Exception as exc:
+            print(f"[UI Real] Failed to save frontend layout: {exc}")
+
+    def _frontend_dock_layout_snapshot(self):
+        docks = {}
+        for dock in self.window.findChildren(QtWidgets.QDockWidget):
+            object_name = str(dock.objectName() or "").strip()
+            if not object_name:
+                continue
+            geometry = dock.geometry()
+            floating_geometry = dock.frameGeometry()
+            docks[object_name] = {
+                "visible": bool(dock.isVisible()),
+                "floating": bool(dock.isFloating()),
+                "geometry": [geometry.x(), geometry.y(), geometry.width(), geometry.height()],
+                "floating_geometry": [
+                    floating_geometry.x(),
+                    floating_geometry.y(),
+                    floating_geometry.width(),
+                    floating_geometry.height(),
+                ],
+            }
+        return docks
+
+    def _save_frontend_layout_state(self):
+        if bool(getattr(self, "_restoring_frontend_layout", False)):
+            return
+        if self.window is None:
+            return
+        if self._frontend_dock_drag_active():
+            self._schedule_frontend_layout_save(delay_ms=1200)
+            return
+        try:
+            geometry = self.window.geometry()
+            layout_state = {
+                "version": 1,
+                "ui_path": str(self.ui_path),
+                "geometry": [geometry.x(), geometry.y(), geometry.width(), geometry.height()],
+                "window_geometry": base64.b64encode(self.window.saveGeometry().data()).decode("ascii"),
+                "window_state": base64.b64encode(self.window.saveState().data()).decode("ascii"),
+                "docks": self._frontend_dock_layout_snapshot(),
+            }
+            payload = self._load_frontend_session_payload()
+            payload[self.FRONTEND_LAYOUT_SESSION_KEY] = layout_state
+            self._write_frontend_session_payload(payload)
+        except Exception as exc:
+            print(f"[UI Real] Failed to capture frontend layout: {exc}")
+
+    def _restore_frontend_layout_state(self):
+        payload = self._load_frontend_session_payload()
+        layout_state = payload.get(self.FRONTEND_LAYOUT_SESSION_KEY)
+        if not isinstance(layout_state, dict):
+            return
+        self._restoring_frontend_layout = True
+        try:
+            window_geometry = str(layout_state.get("window_geometry") or "").strip()
+            if window_geometry:
+                try:
+                    self.window.restoreGeometry(QtCore.QByteArray.fromBase64(window_geometry.encode("ascii")))
+                except Exception:
+                    pass
+            else:
+                geometry = layout_state.get("geometry")
+                if isinstance(geometry, list) and len(geometry) == 4:
+                    try:
+                        self.window.setGeometry(*[int(item) for item in geometry])
+                    except Exception:
+                        pass
+            window_state = str(layout_state.get("window_state") or "").strip()
+            if window_state:
+                try:
+                    self.window.restoreState(QtCore.QByteArray.fromBase64(window_state.encode("ascii")))
+                except Exception:
+                    pass
+            docks = layout_state.get("docks")
+            if isinstance(docks, dict):
+                for object_name, dock_state in docks.items():
+                    dock = self._ui_object(str(object_name))
+                    if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
+                        continue
+                    try:
+                        dock.setFloating(bool(dock_state.get("floating", False)))
+                        if dock.isFloating():
+                            geometry = dock_state.get("floating_geometry") or dock_state.get("geometry")
+                            if isinstance(geometry, list) and len(geometry) == 4:
+                                dock.setGeometry(*[int(item) for item in geometry])
+                        dock.setVisible(bool(dock_state.get("visible", True)))
+                    except Exception:
+                        continue
+            QtCore.QTimer.singleShot(0, self._ensure_frontend_window_on_screen)
+            QtCore.QTimer.singleShot(100, self._ensure_frontend_window_on_screen)
+        finally:
+            self._restoring_frontend_layout = False
+
+    def _ensure_frontend_window_on_screen(self):
+        if self.window is None:
+            return
+        screen = self.window.screen() or QtWidgets.QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        frame = self.window.frameGeometry()
+        client = self.window.geometry()
+        width = min(max(client.width(), 320), max(available.width(), 320))
+        height = min(max(client.height(), 240), max(available.height(), 240))
+        x = frame.x()
+        y = frame.y()
+        if x < available.left():
+            x = available.left()
+        if y < available.top():
+            y = available.top()
+        if x + width > available.right() + 1:
+            x = max(available.left(), available.right() - width + 1)
+        if y + height > available.bottom() + 1:
+            y = max(available.top(), available.bottom() - height + 1)
+        self.window.setGeometry(x, y, width, height)
+        self.window.move(x, y)
+
+    def _frontend_dock_drag_active(self):
+        try:
+            buttons = QtWidgets.QApplication.mouseButtons()
+            return bool(buttons & (QtCore.Qt.LeftButton | QtCore.Qt.RightButton | QtCore.Qt.MiddleButton))
+        except Exception:
+            return False
+
+    def _schedule_frontend_layout_save(self, delay_ms=None):
+        if bool(getattr(self, "_restoring_frontend_layout", False)) or bool(getattr(self, "_closing", False)):
+            return
+        timer = getattr(self, "_frontend_layout_save_timer", None)
+        if timer is not None:
+            if delay_ms is not None:
+                timer.setInterval(max(650, int(delay_ms)))
+            elif self._frontend_dock_drag_active():
+                timer.setInterval(1200)
+            else:
+                timer.setInterval(650)
+            timer.start()
+
+    def _bind_frontend_layout_persistence_hooks(self):
+        for dock in self.window.findChildren(QtWidgets.QDockWidget):
+            for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged"):
+                signal = getattr(dock, signal_name, None)
+                if signal is None:
+                    continue
+                try:
+                    signal.connect(lambda *args: self._schedule_frontend_layout_save(delay_ms=1200))
+                except Exception:
+                    pass
 
     def smoke_summary(self):
         return {
@@ -19611,11 +19799,14 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             if dock is None or not hasattr(dock, "topLevelChanged"):
                 continue
             try:
-                dock.topLevelChanged.connect(lambda _floating: QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints))
+                dock.topLevelChanged.connect(lambda _floating: QtCore.QTimer.singleShot(900, self._apply_frontend_workspace_view_constraints))
             except Exception:
                 continue
 
     def _apply_frontend_workspace_view_constraints(self):
+        if self._frontend_dock_drag_active():
+            QtCore.QTimer.singleShot(900, self._apply_frontend_workspace_view_constraints)
+            return
         _apply_workspace_view_constraints(
             self.window,
             extra_widgets=(
@@ -21753,10 +21944,38 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         except Exception:
             return False
 
+    def _combo_popup_is_open(self, combo):
+        if combo is None or not hasattr(combo, "view"):
+            return False
+        try:
+            view = combo.view()
+            if view is not None and view.isVisible():
+                return True
+            popup_window = view.window() if view is not None and hasattr(view, "window") else None
+            return bool(popup_window is not None and popup_window.isVisible())
+        except Exception:
+            return False
+
+    def _combo_items_snapshot(self, combo):
+        if combo is None or not hasattr(combo, "count"):
+            return []
+        items = []
+        for index in range(combo.count()):
+            try:
+                text = str(combo.itemText(index) or "")
+                data = combo.itemData(index) if hasattr(combo, "itemData") else None
+                items.append((text, data))
+            except Exception:
+                continue
+        return items
+
     def _copy_combo_state(self, source, target):
         if source is None or target is None or not hasattr(source, "count") or not hasattr(target, "clear"):
             return False
-        items = []
+        if self._combo_popup_is_open(target):
+            return False
+        items = self._combo_items_snapshot(source)
+        existing_items = self._combo_items_snapshot(target)
         selected_data = None
         selected_text = ""
         try:
@@ -21768,36 +21987,36 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             selected_text = str(source.currentText() or "").strip()
         except Exception:
             selected_text = ""
-        for index in range(source.count()):
-            try:
-                items.append((str(source.itemText(index) or ""), source.itemData(index) if hasattr(source, "itemData") else None))
-            except Exception:
-                continue
         target.blockSignals(True)
         try:
-            target.clear()
-            for text, data in items:
-                if hasattr(target, "addItem"):
-                    target.addItem(text, data)
+            if existing_items != items:
+                target.clear()
+                for text, data in items:
+                    if hasattr(target, "addItem"):
+                        target.addItem(text, data)
             applied = False
             if selected_data is not None and hasattr(target, "findData"):
                 try:
                     index = target.findData(selected_data)
                 except Exception:
                     index = -1
-                if index >= 0:
+                if index >= 0 and target.currentIndex() != index:
                     target.setCurrentIndex(index)
+                if index >= 0:
                     applied = True
             if not applied and selected_text:
                 try:
                     index = target.findText(selected_text)
                 except Exception:
                     index = -1
-                if index >= 0:
+                if index >= 0 and target.currentIndex() != index:
                     target.setCurrentIndex(index)
+                if index >= 0:
                     applied = True
             if not applied and target.count():
-                target.setCurrentIndex(min(max(source.currentIndex(), 0), target.count() - 1))
+                fallback_index = min(max(source.currentIndex(), 0), target.count() - 1)
+                if target.currentIndex() != fallback_index:
+                    target.setCurrentIndex(fallback_index)
         finally:
             target.blockSignals(False)
         return True
@@ -21884,6 +22103,8 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             front = self._ui_object(object_name)
             back = self._backend_widget(object_name)
             if front is None or back is None:
+                continue
+            if self._combo_popup_is_open(front):
                 continue
             if force or not getattr(front, "hasFocus", lambda: False)():
                 self._copy_combo_state(back, front)
