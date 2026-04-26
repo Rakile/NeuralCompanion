@@ -128,6 +128,30 @@ QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator {
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
+    selection-background-color: #4d8dff;
+    selection-color: #ffffff;
+}
+QComboBox QLabel,
+QComboBox QLineEdit,
+QAbstractSpinBox QLineEdit {
+    color: #f2f5f9;
+    background: transparent;
+    selection-background-color: #4d8dff;
+    selection-color: #ffffff;
+}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
+    color: #b7c1ce;
+}
+QComboBox:disabled QLabel,
+QComboBox:disabled QLineEdit,
+QAbstractSpinBox:disabled QLineEdit {
+    color: #b7c1ce;
+}
+QLineEdit[readOnly="true"], QComboBox[editable="true"] QLineEdit[readOnly="true"] {
+    color: #f2f5f9;
+}
+QLineEdit::placeholder, QComboBox QLineEdit::placeholder {
+    color: #8ea3b8;
 }
 QComboBox {
     padding-right: 30px;
@@ -162,6 +186,21 @@ QComboBox QAbstractItemView, QListWidget {
     selection-color: #ffffff;
     border: 1px solid #324b69;
     outline: 0;
+    alternate-background-color: #1b2836;
+}
+QComboBox QAbstractItemView::item, QListWidget::item {
+    color: #f2f5f9;
+    background: transparent;
+    min-height: 24px;
+    padding: 4px 8px;
+}
+QComboBox QAbstractItemView::item:selected, QListWidget::item:selected {
+    color: #ffffff;
+    background: #29405b;
+}
+QComboBox QAbstractItemView::item:hover, QListWidget::item:hover {
+    color: #ffffff;
+    background: #223247;
 }
 QMenu {
     background: #16202b;
@@ -4807,6 +4846,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item row="0" column="1">
                    <widget class="QComboBox" name="audio_story_playback_combo">
+                    <property name="toolTip">
+                     <string>Playback source. Imported Audio is cheapest and fastest; TTS Narration renders a local narration track from the transcript before playing.</string>
+                    </property>
                     <item>
                      <property name="text">
                       <string>Play Imported Audio</string>
@@ -4828,6 +4870,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item row="1" column="1">
                    <widget class="QSlider" name="transcribe_seconds_slider">
+                    <property name="toolTip">
+                     <string>Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze.</string>
+                    </property>
                     <property name="orientation">
                      <enum>Qt::Horizontal</enum>
                     </property>
@@ -4835,9 +4880,12 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                  </layout>
                 </item>
-                <item>
-                 <widget class="QPushButton" name="transcribe_audio_button">
-                  <property name="text">
+             <item>
+              <widget class="QPushButton" name="transcribe_audio_button">
+               <property name="toolTip">
+                <string>Run local Whisper transcription, then build story windows, scene metadata, and image prompts.</string>
+               </property>
+               <property name="text">
                    <string>Transcribe Audio</string>
                   </property>
                  </widget>
@@ -4855,6 +4903,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  <layout class="QHBoxLayout" name="audioStoryButtons">
                   <item>
                    <widget class="QPushButton" name="audio_story_play_button">
+                    <property name="toolTip">
+                     <string>Start or resume playback and sync the active story image to the audio timeline.</string>
+                    </property>
                     <property name="text">
                      <string>Play</string>
                     </property>
@@ -4862,6 +4913,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item>
                    <widget class="QPushButton" name="audio_story_pause_button">
+                    <property name="toolTip">
+                     <string>Pause playback without clearing the current timeline position or active image.</string>
+                    </property>
                     <property name="text">
                      <string>Pause</string>
                     </property>
@@ -4869,6 +4923,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item>
                    <widget class="QPushButton" name="audio_story_stop_button">
+                    <property name="toolTip">
+                     <string>Stop playback, return to the beginning, and show the first story image when available.</string>
+                    </property>
                     <property name="text">
                      <string>Stop</string>
                     </property>
@@ -4896,12 +4953,56 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                  </layout>
                 </item>
-                <item>
+               <item>
                  <widget class="QSlider" name="audio_story_seek_slider">
+                  <property name="toolTip">
+                   <string>Scrub through the audio story timeline. The preview jumps to the image window for the selected time.</string>
+                  </property>
                   <property name="orientation">
                    <enum>Qt::Horizontal</enum>
                   </property>
                  </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="audioStorySettingsPresetRow">
+                  <item>
+                   <widget class="QLabel" name="audio_story_settings_preset_label">
+                    <property name="text">
+                     <string>Settings Preset</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QComboBox" name="audio_story_settings_preset_combo">
+                    <property name="editable">
+                     <bool>true</bool>
+                    </property>
+                    <property name="toolTip">
+                     <string>Choose or type an Audio Story settings preset name. Presets save timing, prompt, style, analysis provider/model, and playback settings.</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_settings_preset_save_button">
+                    <property name="toolTip">
+                     <string>Save the current Audio Story settings to the selected preset name.</string>
+                    </property>
+                    <property name="text">
+                     <string>Save</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_settings_preset_load_button">
+                    <property name="toolTip">
+                     <string>Load the selected Audio Story settings preset and rebuild loaded transcript windows if needed.</string>
+                    </property>
+                    <property name="text">
+                     <string>Load</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
                 </item>
                 <item>
                  <layout class="QFormLayout" name="audioStoryPlaybackForm">
@@ -4914,34 +5015,70 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item row="0" column="1">
                    <widget class="QSlider" name="image_frequency_slider">
+                    <property name="toolTip">
+                     <string>Fixed-seconds image cadence, capped at 60 seconds. Lower values create more image prompts and can increase image API cost.</string>
+                    </property>
+                    <property name="maximum">
+                     <number>60</number>
+                    </property>
                     <property name="orientation">
                      <enum>Qt::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
                   <item row="1" column="0">
+                   <widget class="QLabel" name="image_timing_label">
+                    <property name="text">
+                     <string>Image Timing</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QComboBox" name="image_timing_combo">
+                    <property name="toolTip">
+                     <string>Fixed Seconds uses the cadence slider; Scene Changes groups transcript chunks by detected scene boundaries to avoid unnecessary image changes.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Fixed Seconds</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Scene Changes</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
                    <widget class="QLabel" name="audio_story_continuity_label">
                     <property name="text">
                      <string>Continuity</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="1" column="1">
+                  <item row="2" column="1">
                    <widget class="QSlider" name="audio_story_continuity_slider">
+                    <property name="toolTip">
+                     <string>Continuity strength. Higher values preserve recurring characters, outfits, props, and locations more aggressively.</string>
+                    </property>
                     <property name="orientation">
                      <enum>Qt::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
-                  <item row="2" column="0">
+                  <item row="3" column="0">
                    <widget class="QLabel" name="generate_ahead_label">
                     <property name="text">
                      <string>Generate Ahead</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="2" column="1">
+                  <item row="3" column="1">
                    <widget class="QSpinBox" name="generate_ahead_spin">
+                    <property name="toolTip">
+                     <string>How many future story images to prepare ahead of playback. Higher values reduce waiting but may spend image API calls earlier.</string>
+                    </property>
                     <property name="minimum">
                      <number>1</number>
                     </property>
@@ -4968,6 +5105,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  <layout class="QHBoxLayout" name="audioStoryMasterPromptRow">
                   <item>
                    <widget class="QPushButton" name="audio_story_master_prompt_from_story_button">
+                    <property name="toolTip">
+                     <string>Temporarily drive the global Visuals master prompt from this story, then restore it when disabled when possible.</string>
+                    </property>
                     <property name="text">
                      <string>Visuals Master Prompt From Story</string>
                     </property>
@@ -4975,6 +5115,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item>
                    <widget class="QComboBox" name="audio_story_master_prompt_strength_combo">
+                    <property name="toolTip">
+                     <string>How forcefully the story-generated master prompt anchors visual identity. Stronger modes improve consistency but lengthen prompts.</string>
+                    </property>
                     <item>
                      <property name="text">
                       <string>Simple</string>
@@ -5065,10 +5208,69 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </item>
                 <item>
                  <widget class="QCheckBox" name="audio_story_change_style_live_checkbox">
+                  <property name="toolTip">
+                   <string>Allow style changes during playback. When off, style edits avoid regenerating visuals while the story is actively playing.</string>
+                  </property>
                   <property name="text">
                    <string>Change Style Live</string>
                   </property>
                  </widget>
+                </item>
+                <item>
+                 <layout class="QFormLayout" name="audioStoryAnalysisProviderForm">
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="audio_story_analysis_provider_label">
+                    <property name="toolTip">
+                     <string>Choose where transcript analysis and image-prompt planning runs. Use Local LM Studio to keep text analysis local.</string>
+                    </property>
+                    <property name="text">
+                     <string>Analysis Provider</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="audio_story_analysis_provider_combo">
+                    <property name="toolTip">
+                     <string>Current Chat Provider follows the main chat backend. Local LM Studio keeps analysis local while xAI/OpenAI can still generate final images.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Current Chat Provider</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Local LM Studio</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="audio_story_analysis_model_label">
+                    <property name="toolTip">
+                     <string>Choose the model used only for Audio Story transcript analysis and image-prompt planning.</string>
+                    </property>
+                    <property name="text">
+                     <string>Analysis Model</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QComboBox" name="audio_story_analysis_model_combo">
+                    <property name="editable">
+                     <bool>true</bool>
+                    </property>
+                    <property name="toolTip">
+                     <string>Auto uses the current runtime model for Current Chat Provider, or the first available LM Studio model for Local LM Studio. You can type a model id manually.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Auto</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                 </layout>
                 </item>
                </layout>
               </widget>

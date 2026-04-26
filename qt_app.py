@@ -7284,6 +7284,30 @@ QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator {
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
+    selection-background-color: #4d8dff;
+    selection-color: #ffffff;
+}
+QComboBox QLabel,
+QComboBox QLineEdit,
+QAbstractSpinBox QLineEdit {
+    color: #f2f5f9;
+    background: transparent;
+    selection-background-color: #4d8dff;
+    selection-color: #ffffff;
+}
+QComboBox:disabled, QLineEdit:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
+    color: #b7c1ce;
+}
+QComboBox:disabled QLabel,
+QComboBox:disabled QLineEdit,
+QAbstractSpinBox:disabled QLineEdit {
+    color: #b7c1ce;
+}
+QLineEdit[readOnly="true"], QComboBox[editable="true"] QLineEdit[readOnly="true"] {
+    color: #f2f5f9;
+}
+QLineEdit::placeholder, QComboBox QLineEdit::placeholder {
+    color: #8ea3b8;
 }
 QComboBox {
     padding-right: 30px;
@@ -7318,6 +7342,21 @@ QComboBox QAbstractItemView, QListWidget {
     selection-color: #ffffff;
     border: 1px solid #324b69;
     outline: 0;
+    alternate-background-color: #1b2836;
+}
+QComboBox QAbstractItemView::item, QListWidget::item {
+    color: #f2f5f9;
+    background: transparent;
+    min-height: 24px;
+    padding: 4px 8px;
+}
+QComboBox QAbstractItemView::item:selected, QListWidget::item:selected {
+    color: #ffffff;
+    background: #29405b;
+}
+QComboBox QAbstractItemView::item:hover, QListWidget::item:hover {
+    color: #ffffff;
+    background: #223247;
 }
 QMenu {
     background: #16202b;
@@ -7597,6 +7636,7 @@ APP_THEME_STYLESHEET_BASE_TOKENS = {
     "#e5e9f0": "text",
     "#f2f5f9": "text_strong",
     "#7f8791": "text_disabled",
+    "#b7c1ce": "text_muted",
     "#5b6675": "status_neutral_bg",
     "#8ea3b8": "text_muted",
     "#9fb3c8": "text_soft",
@@ -7710,6 +7750,48 @@ def _apply_inline_theme_styles(root, palette):
         try:
             if str(widget.styleSheet() or "") != themed_stylesheet:
                 widget.setStyleSheet(themed_stylesheet)
+        except Exception:
+            continue
+
+
+def _apply_readable_input_palettes(root, palette):
+    if root is None or not hasattr(root, "findChildren"):
+        return
+    text = QtGui.QColor(str(palette.get("text_strong", palette.get("text", "#f2f5f9")) or "#f2f5f9"))
+    soft_text = QtGui.QColor(str(palette.get("text", "#e5e9f0") or "#e5e9f0"))
+    disabled_text = QtGui.QColor(str(palette.get("text_muted", palette.get("text_disabled", "#b7c1ce")) or "#b7c1ce"))
+    highlight = QtGui.QColor(str(palette.get("accent_bg", "#4d8dff") or "#4d8dff"))
+    highlighted_text = QtGui.QColor("#ffffff")
+    widgets = []
+    try:
+        widgets.extend(root.findChildren(QtWidgets.QComboBox))
+        widgets.extend(root.findChildren(QtWidgets.QLineEdit))
+        widgets.extend(root.findChildren(QtWidgets.QAbstractSpinBox))
+    except Exception:
+        return
+    for widget in widgets:
+        try:
+            pal = widget.palette()
+            for group in (QtGui.QPalette.Active, QtGui.QPalette.Inactive):
+                pal.setColor(group, QtGui.QPalette.Text, text)
+                pal.setColor(group, QtGui.QPalette.WindowText, soft_text)
+                pal.setColor(group, QtGui.QPalette.ButtonText, text)
+                pal.setColor(group, QtGui.QPalette.Highlight, highlight)
+                pal.setColor(group, QtGui.QPalette.HighlightedText, highlighted_text)
+                if hasattr(QtGui.QPalette, "PlaceholderText"):
+                    pal.setColor(group, QtGui.QPalette.PlaceholderText, disabled_text)
+            for role in (QtGui.QPalette.Text, QtGui.QPalette.WindowText, QtGui.QPalette.ButtonText):
+                pal.setColor(QtGui.QPalette.Disabled, role, disabled_text)
+            if hasattr(QtGui.QPalette, "PlaceholderText"):
+                pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.PlaceholderText, disabled_text)
+            widget.setPalette(pal)
+            if isinstance(widget, QtWidgets.QComboBox):
+                view = widget.view()
+                if view is not None:
+                    view.setPalette(pal)
+                line_edit = widget.lineEdit() if widget.isEditable() else None
+                if line_edit is not None:
+                    line_edit.setPalette(pal)
         except Exception:
             continue
 
@@ -11134,12 +11216,14 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._build_preview_dock()
         self._apply_workspace_view_constraints()
         _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
+        _apply_readable_input_palettes(self, _app_theme_palette(self.current_app_theme_preset()))
         _apply_engine_action_button_accents(self)
         self._connect_console_bridge()
         self._build_status_timer()
         self._build_ui_hotkey_timer()
         self._initialize_addons()
         _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
+        _apply_readable_input_palettes(self, _app_theme_palette(self.current_app_theme_preset()))
         _apply_engine_action_button_accents(self)
 
         os.makedirs("presets", exist_ok=True)
@@ -11170,6 +11254,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self._active_app_theme_preset = resolved_preset
             update_runtime_config("ui_theme_preset", resolved_preset)
             _apply_inline_theme_styles(self, _app_theme_palette(resolved_preset))
+            _apply_readable_input_palettes(self, _app_theme_palette(resolved_preset))
             _apply_engine_action_button_accents(self)
             for widget in (
                 getattr(self, "embedded_musetalk_preview", None),
@@ -20518,6 +20603,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 pass
             try:
                 _apply_inline_theme_styles(self.window, palette)
+                _apply_readable_input_palettes(self.window, palette)
                 _apply_engine_action_button_accents(self.window)
             except Exception:
                 pass

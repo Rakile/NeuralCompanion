@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 import uuid
+import copy
 from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
@@ -69,6 +70,110 @@ _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
 }
 
 _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT = 1800
+
+
+def _audio_story_cost_profiles():
+    return [
+        {
+            "id": "economy",
+            "label": "Economy",
+            "description": "Lowest API cost. Fewer images, no LLM story analysis, shorter prompts.",
+            "transcribe_seconds": 12,
+            "image_frequency_seconds": 20,
+            "image_timing_mode": "fixed",
+            "generate_ahead_frames": 1,
+            "continuity_strength": 0.6,
+            "master_prompt_enabled": False,
+            "master_prompt_mode": "simple",
+            "use_llm_story_analysis": False,
+            "story_analysis_provider_mode": "current",
+            "prompt_block_limits": {
+                "characters": 260,
+                "location": 220,
+                "props": 140,
+                "style": 180,
+                "world": 180,
+                "continuity": 220,
+                "preserve": 180,
+                "avoid": 140,
+            },
+            "prompt_safety_cap": 1000,
+        },
+        {
+            "id": "balanced",
+            "label": "Balanced",
+            "description": "Default tradeoff. Reuses cached images well and avoids extra LLM analysis costs.",
+            "transcribe_seconds": 8,
+            "image_frequency_seconds": 12,
+            "image_timing_mode": "fixed",
+            "generate_ahead_frames": 3,
+            "continuity_strength": 0.8,
+            "master_prompt_enabled": False,
+            "master_prompt_mode": "medium",
+            "use_llm_story_analysis": False,
+            "story_analysis_provider_mode": "current",
+            "prompt_block_limits": dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS),
+            "prompt_safety_cap": _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT,
+        },
+        {
+            "id": "detailed",
+            "label": "Detailed",
+            "description": "Higher precision. Uses LLM story analysis and denser image changes for better scene anchoring.",
+            "transcribe_seconds": 8,
+            "image_frequency_seconds": 8,
+            "image_timing_mode": "scene_changes",
+            "generate_ahead_frames": 4,
+            "continuity_strength": 0.88,
+            "master_prompt_enabled": True,
+            "master_prompt_mode": "strong",
+            "use_llm_story_analysis": True,
+            "story_analysis_provider_mode": "lmstudio",
+            "prompt_block_limits": {
+                "characters": 520,
+                "location": 420,
+                "props": 280,
+                "style": 420,
+                "world": 320,
+                "continuity": 460,
+                "preserve": 340,
+                "avoid": 220,
+            },
+            "prompt_safety_cap": 2400,
+        },
+        {
+            "id": "cinematic",
+            "label": "Cinematic",
+            "description": "Maximum scene precision. Most expensive because prompts are larger and new images arrive more often.",
+            "transcribe_seconds": 6,
+            "image_frequency_seconds": 6,
+            "image_timing_mode": "scene_changes",
+            "generate_ahead_frames": 6,
+            "continuity_strength": 0.95,
+            "master_prompt_enabled": True,
+            "master_prompt_mode": "strongest",
+            "use_llm_story_analysis": True,
+            "story_analysis_provider_mode": "lmstudio",
+            "prompt_block_limits": {
+                "characters": 680,
+                "location": 520,
+                "props": 340,
+                "style": 560,
+                "world": 420,
+                "continuity": 620,
+                "preserve": 420,
+                "avoid": 260,
+            },
+            "prompt_safety_cap": 3200,
+        },
+    ]
+
+
+def _audio_story_cost_profile_definition(profile_id: str):
+    normalized = str(profile_id or "").strip().lower()
+    for item in _audio_story_cost_profiles():
+        if str(item.get("id") or "").strip().lower() == normalized:
+            return dict(item)
+    return {}
 
 
 def _audio_story_style_presets():
@@ -435,15 +540,19 @@ class AudioStoryModeController(QtCore.QObject):
         self._current_chunk_index = -1
         self._stored_transcribe_seconds = 8
         self._stored_image_frequency_seconds = 12
+        self._stored_image_timing_mode = "fixed"
         self._stored_generate_ahead_frames = 3
         self._stored_continuity_strength = 0.8
         self._stored_style_change_live = False
         self._stored_style_prompts = {item["id"]: item["prompt"] for item in _audio_story_style_presets()}
         self._stored_style_enabled = []
         self._stored_playback_mode_label = "Play Imported Audio"
+        self._stored_cost_profile_id = "balanced"
         self._stored_story_master_prompt_enabled = False
         self._stored_story_master_prompt_mode = "medium"
         self._stored_use_llm_story_analysis = False
+        self._stored_story_analysis_provider_mode = "current"
+        self._stored_story_analysis_model = ""
         self._stored_prompt_block_limits = dict(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS)
         self._stored_prompt_safety_cap = _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT
         self._story_generated_master_prompt = ""
@@ -454,6 +563,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._tts_signature = ""
         self._image_cache = {}
         self._prompt_image_cache = {}
+        self._llm_story_analysis_cache = {}
         self._visual_client = None
         self._visual_client_signature = ""
         self._raw_transcript_segments = []
@@ -481,10 +591,17 @@ class AudioStoryModeController(QtCore.QObject):
         self._lock = threading.RLock()
         self._cache_root = self.context.storage.resolve("cache") if self.context is not None else (Path("runtime") / "audio_story_mode")
         self._cache_root.mkdir(parents=True, exist_ok=True)
+        self._preset_root = self.context.storage.resolve("presets") if self.context is not None else (Path("runtime") / "audio_story_mode" / "presets")
+        self._preset_root.mkdir(parents=True, exist_ok=True)
         self._visual_refresh_timer = QtCore.QTimer(self)
         self._visual_refresh_timer.setSingleShot(True)
         self._visual_refresh_timer.setInterval(220)
         self._visual_refresh_timer.timeout.connect(self._flush_scheduled_visual_refresh)
+        self._story_rebuild_timer = QtCore.QTimer(self)
+        self._story_rebuild_timer.setSingleShot(True)
+        self._story_rebuild_timer.setInterval(420)
+        self._story_rebuild_timer.timeout.connect(self._flush_scheduled_story_payload_rebuild)
+        self._pending_story_rebuild_status_text = ""
         self.transcriptionFinished.connect(self._on_transcription_finished)
         self.transcriptionFailed.connect(self._on_transcription_failed)
         self.ttsRenderFinished.connect(self._on_tts_render_finished)
@@ -545,11 +662,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_path_edit = QtWidgets.QLineEdit()
         self.audio_story_path_edit.setReadOnly(True)
         self.audio_story_path_edit.setPlaceholderText("Import an audiobook or story audio file...")
-        self.audio_story_path_edit.setToolTip("Shows the currently imported audiobook or story audio file used by Audio Story Mode.")
+        self.audio_story_path_edit.setToolTip("Current source audio for Audio Story Mode. Import a file, then transcribe it before playback or image generation can run.")
         path_row.addWidget(self.audio_story_path_edit, 1)
         self.audio_story_import_button = QtWidgets.QPushButton("Import Audio")
         self.audio_story_import_button.setStyleSheet(compact_button_style)
-        self.audio_story_import_button.setToolTip("Choose the source audio file that Audio Story Mode will transcribe and play back.")
+        self.audio_story_import_button.setToolTip("Choose the audiobook or story audio file. Importing a new file clears the current transcript, images, and cached story timing.")
         self.audio_story_import_button.clicked.connect(self._choose_audio_file)
         path_row.addWidget(self.audio_story_import_button)
         source_layout.addLayout(path_row)
@@ -560,18 +677,47 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_playback_mode_combo = _AudioStoryNoWheelComboBox()
         self.audio_story_playback_mode_combo.addItems(["Play Imported Audio", "Use TTS Narration"])
-        self.audio_story_playback_mode_combo.setToolTip("Choose whether playback uses the original imported audio or generated TTS narration.")
+        self.audio_story_playback_mode_combo.setToolTip("Playback source. Imported Audio is cheapest and fastest; TTS Narration renders a new local narration track from the transcript before playing.")
         self.audio_story_playback_mode_combo.currentTextChanged.connect(self._on_playback_mode_changed)
         combo_index = self.audio_story_playback_mode_combo.findText(str(self._stored_playback_mode_label or "").strip())
         if combo_index >= 0:
             self.audio_story_playback_mode_combo.setCurrentIndex(combo_index)
         options_form.addRow("Playback", self.audio_story_playback_mode_combo)
 
+        self.audio_story_cost_profile_combo = _AudioStoryNoWheelComboBox()
+        for profile in _audio_story_cost_profiles():
+            self.audio_story_cost_profile_combo.addItem(str(profile.get("label") or str(profile.get("id") or "").title()), str(profile.get("id") or "").strip().lower())
+        self.audio_story_cost_profile_combo.addItem("Custom", "custom")
+        self.audio_story_cost_profile_combo.setToolTip(
+            "Overall cost/quality preset. Economy avoids extra LLM analysis and makes fewer images; Detailed/Cinematic use scene-change timing, larger prompts, and local/selected LLM analysis for better image relevance."
+        )
+        self.audio_story_cost_profile_combo.currentIndexChanged.connect(self._on_audio_story_cost_profile_changed)
+        options_form.addRow("Precision", self.audio_story_cost_profile_combo)
+
+        preset_row = QtWidgets.QHBoxLayout()
+        self.audio_story_settings_preset_combo = _AudioStoryNoWheelComboBox()
+        self.audio_story_settings_preset_combo.setEditable(True)
+        self.audio_story_settings_preset_combo.setToolTip("Choose or type a reusable Audio Story settings preset name. Presets save timing, styles, prompt limits, analysis provider/model, and playback mode, but not the imported audio file.")
+        preset_row.addWidget(self.audio_story_settings_preset_combo, 1)
+        self.audio_story_settings_preset_save_button = QtWidgets.QPushButton("Save")
+        self.audio_story_settings_preset_save_button.setStyleSheet(compact_button_style)
+        self.audio_story_settings_preset_save_button.setToolTip("Save the current Audio Story Mode settings to the selected preset name. Existing presets with the same name are overwritten.")
+        self.audio_story_settings_preset_save_button.clicked.connect(self._save_audio_story_settings_preset)
+        preset_row.addWidget(self.audio_story_settings_preset_save_button, 0)
+        self.audio_story_settings_preset_load_button = QtWidgets.QPushButton("Load")
+        self.audio_story_settings_preset_load_button.setStyleSheet(compact_button_style)
+        self.audio_story_settings_preset_load_button.setToolTip("Load the selected Audio Story Mode settings preset. If a transcript is already loaded, story windows and prompts are rebuilt with the loaded settings.")
+        self.audio_story_settings_preset_load_button.clicked.connect(self._load_audio_story_settings_preset)
+        preset_row.addWidget(self.audio_story_settings_preset_load_button, 0)
+        preset_widget = QtWidgets.QWidget()
+        preset_widget.setLayout(preset_row)
+        options_form.addRow("Settings Preset", preset_widget)
+
         transcribe_seconds_row = QtWidgets.QHBoxLayout()
         self.audio_story_transcribe_seconds_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_transcribe_seconds_slider.setRange(1, max(8, int(self._stored_transcribe_seconds or 8)))
         self.audio_story_transcribe_seconds_slider.setValue(max(1, int(self._stored_transcribe_seconds or 8)))
-        self.audio_story_transcribe_seconds_slider.setToolTip("Group transcript text into story windows of this many seconds before building visual prompts.")
+        self.audio_story_transcribe_seconds_slider.setToolTip("Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze; changes rebuild the story windows after a short debounce.")
         self.audio_story_transcribe_seconds_slider.valueChanged.connect(self._on_transcribe_seconds_changed)
         transcribe_seconds_row.addWidget(self.audio_story_transcribe_seconds_slider, 1)
         self.audio_story_transcribe_seconds_value_label = QtWidgets.QLabel()
@@ -585,9 +731,9 @@ class AudioStoryModeController(QtCore.QObject):
 
         image_frequency_row = QtWidgets.QHBoxLayout()
         self.audio_story_image_frequency_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
-        self.audio_story_image_frequency_slider.setRange(1, max(12, int(self._stored_image_frequency_seconds or 12)))
-        self.audio_story_image_frequency_slider.setValue(max(1, int(self._stored_image_frequency_seconds or 12)))
-        self.audio_story_image_frequency_slider.setToolTip("How often Audio Story Mode should switch to a new image during playback.")
+        self.audio_story_image_frequency_slider.setRange(1, 60)
+        self.audio_story_image_frequency_slider.setValue(max(1, min(60, int(self._stored_image_frequency_seconds or 12))))
+        self.audio_story_image_frequency_slider.setToolTip("Fixed-seconds image cadence, capped at 60 seconds. Lower values create more image prompts and can increase API image cost; changes rebuild timing after a short debounce.")
         self.audio_story_image_frequency_slider.valueChanged.connect(self._on_image_frequency_changed)
         image_frequency_row.addWidget(self.audio_story_image_frequency_slider, 1)
         self.audio_story_image_frequency_value_label = QtWidgets.QLabel()
@@ -599,13 +745,22 @@ class AudioStoryModeController(QtCore.QObject):
         image_frequency_widget.setLayout(image_frequency_row)
         options_form.addRow("Generate Image Every", image_frequency_widget)
 
+        self.audio_story_image_timing_combo = _AudioStoryNoWheelComboBox()
+        self.audio_story_image_timing_combo.addItem("Fixed Seconds", "fixed")
+        self.audio_story_image_timing_combo.addItem("Scene Changes", "scene_changes")
+        self.audio_story_image_timing_combo.setToolTip(
+            "Image timing mode. Fixed Seconds uses the cadence slider; Scene Changes groups transcript chunks by detected scene boundaries to reduce unnecessary images during continuous scenes."
+        )
+        self.audio_story_image_timing_combo.currentIndexChanged.connect(self._on_image_timing_mode_changed)
+        options_form.addRow("Image Timing", self.audio_story_image_timing_combo)
+
         continuity_row = QtWidgets.QHBoxLayout()
         self.audio_story_continuity_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_continuity_slider.setRange(0, 100)
         self.audio_story_continuity_slider.setSingleStep(1)
         self.audio_story_continuity_slider.setPageStep(5)
         self.audio_story_continuity_slider.setValue(int(round(float(self._stored_continuity_strength or 0.8) * 100.0)))
-        self.audio_story_continuity_slider.setToolTip("How aggressively Audio Story Mode should preserve the same characters, outfits, and locations across the sequence.")
+        self.audio_story_continuity_slider.setToolTip("Continuity strength. Higher values preserve recurring characters, outfits, props, and locations more aggressively, but may make major scene changes less flexible.")
         self.audio_story_continuity_slider.valueChanged.connect(self._on_continuity_strength_changed)
         continuity_row.addWidget(self.audio_story_continuity_slider, 1)
         self.audio_story_continuity_value_label = QtWidgets.QLabel()
@@ -637,12 +792,12 @@ class AudioStoryModeController(QtCore.QObject):
             button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
             button.setCheckable(True)
             button.setStyleSheet(style_button_style)
-            button.setToolTip(f"Enable or disable the {str(style_def.get('label') or style_id.title())} visual style during Audio Story playback.")
+            button.setToolTip(f"Toggle the {str(style_def.get('label') or style_id.title())} style tag for story image prompts. Style changes reuse cached images when the resulting prompt matches a cached prompt.")
             button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
             edit = QtWidgets.QLineEdit()
             edit.setClearButtonEnabled(True)
             edit.setMinimumWidth(160)
-            edit.setToolTip(f"Customize the prompt text used when the {str(style_def.get('label') or style_id.title())} style is active.")
+            edit.setToolTip(f"Prompt text injected when the {str(style_def.get('label') or style_id.title())} style is active. Editing this can invalidate matching image-prompt cache entries.")
             edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
             style_layout.addWidget(button, button_row, column)
             style_layout.addWidget(edit, edit_row, column)
@@ -652,7 +807,7 @@ class AudioStoryModeController(QtCore.QObject):
         options_form.addRow("Styles", style_widget)
 
         self.audio_story_style_live_checkbox = QtWidgets.QCheckBox("Change Style Live")
-        self.audio_story_style_live_checkbox.setToolTip("Allow Audio Story Mode to switch active styles while playback is already running.")
+        self.audio_story_style_live_checkbox.setToolTip("Allow style changes during playback. When off, style edits update saved settings but avoid regenerating visuals while the story is actively playing.")
         self.audio_story_style_live_checkbox.toggled.connect(self._on_audio_story_style_live_changed)
         options_form.addRow("", self.audio_story_style_live_checkbox)
 
@@ -660,7 +815,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_master_prompt_button = QtWidgets.QPushButton("Visuals Master Prompt From Story")
         self.audio_story_master_prompt_button.setCheckable(True)
         self.audio_story_master_prompt_button.setChecked(bool(self._stored_story_master_prompt_enabled))
-        self.audio_story_master_prompt_button.setToolTip("Generate and maintain the global Visuals master prompt from this story transcript.")
+        self.audio_story_master_prompt_button.setToolTip("Temporarily drive the global Visuals master prompt from this story. Turning it off restores the previous Visuals master prompt when possible.")
         self.audio_story_master_prompt_button.setStyleSheet(style_button_style)
         self.audio_story_master_prompt_button.toggled.connect(self._on_story_master_prompt_toggled)
         story_master_prompt_row.addWidget(self.audio_story_master_prompt_button, 0)
@@ -671,7 +826,7 @@ class AudioStoryModeController(QtCore.QObject):
         if current_mode_index >= 0:
             self.audio_story_master_prompt_mode_combo.setCurrentIndex(current_mode_index)
         self.audio_story_master_prompt_mode_combo.currentIndexChanged.connect(self._on_story_master_prompt_mode_changed)
-        self.audio_story_master_prompt_mode_combo.setToolTip("Controls how detailed and forceful the story-generated master prompt should be.")
+        self.audio_story_master_prompt_mode_combo.setToolTip("How forcefully the story-generated master prompt should anchor visual identity. Stronger modes improve consistency but can make prompts longer and less flexible.")
         story_master_prompt_row.addWidget(self.audio_story_master_prompt_mode_combo, 0)
         story_master_prompt_row.addStretch(1)
         story_master_prompt_widget = QtWidgets.QWidget()
@@ -680,10 +835,31 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_llm_analysis_checkbox = QtWidgets.QCheckBox("Use LLM Story Analysis")
         self.audio_story_llm_analysis_checkbox.setToolTip(
-            "Use the current Chat Provider and LLM model to extract structured story, character, location, and scene continuity metadata after transcription."
+            "Use an LLM to extract story bible, character/location anchors, scene boundaries, and ready image-prompt fragments. Improves relevance; use Local LM Studio to keep this text analysis local."
         )
         self.audio_story_llm_analysis_checkbox.toggled.connect(self._on_llm_story_analysis_toggled)
         options_form.addRow("Story Analysis", self.audio_story_llm_analysis_checkbox)
+
+        self.audio_story_analysis_provider_combo = _AudioStoryNoWheelComboBox()
+        self.audio_story_analysis_provider_combo.addItem("Current Chat Provider", "current")
+        self.audio_story_analysis_provider_combo.addItem("Local LM Studio", "lmstudio")
+        self.audio_story_analysis_provider_combo.setToolTip(
+            "Where transcript analysis and prompt planning runs. Current Chat Provider follows the main chat backend; Local LM Studio keeps analysis local while xAI/OpenAI can still be used only for final image generation."
+        )
+        self.audio_story_analysis_provider_combo.currentIndexChanged.connect(self._on_story_analysis_provider_mode_changed)
+        options_form.addRow("Analysis Provider", self.audio_story_analysis_provider_combo)
+
+        self.audio_story_analysis_model_combo = _AudioStoryNoWheelComboBox()
+        self.audio_story_analysis_model_combo.setEditable(True)
+        self.audio_story_analysis_model_combo.addItem("Auto", "")
+        self.audio_story_analysis_model_combo.setToolTip(
+            "Model used only for Audio Story analysis and prompt planning. Auto uses the current chat model for Current Chat Provider, or the first available LM Studio model for Local LM Studio. You can type a model id manually."
+        )
+        self.audio_story_analysis_model_combo.currentIndexChanged.connect(self._on_story_analysis_model_changed)
+        line_edit = self.audio_story_analysis_model_combo.lineEdit()
+        if line_edit is not None:
+            line_edit.editingFinished.connect(self._on_story_analysis_model_edit_finished)
+        options_form.addRow("Analysis Model", self.audio_story_analysis_model_combo)
 
         self.audio_story_prompt_limit_spins = {}
         prompt_limits_widget = QtWidgets.QWidget()
@@ -701,7 +877,7 @@ class AudioStoryModeController(QtCore.QObject):
             spin.setSingleStep(20)
             spin.setValue(int(self._stored_prompt_block_limits.get(limit_key, default_value) or default_value))
             spin.setSuffix(" chars")
-            spin.setToolTip(f"Maximum characters for the {limit_key.replace('_', ' ')} prompt block.")
+            spin.setToolTip(f"Maximum characters allowed for the {limit_key.replace('_', ' ')} prompt block. Lower values reduce prompt size and image cost risk; higher values preserve more detail.")
             spin.valueChanged.connect(lambda value, limit_key=limit_key: self._on_prompt_block_limit_changed(limit_key, value))
             prompt_limits_layout.addWidget(label, row, column)
             prompt_limits_layout.addWidget(spin, row, column + 1)
@@ -719,7 +895,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_prompt_safety_cap_spin.setSingleStep(100)
         self.audio_story_prompt_safety_cap_spin.setValue(int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT))
         self.audio_story_prompt_safety_cap_spin.setSuffix(" chars")
-        self.audio_story_prompt_safety_cap_spin.setToolTip("Maximum length of the final composed story prompt after all prompt blocks are assembled.")
+        self.audio_story_prompt_safety_cap_spin.setToolTip("Hard cap for the final prompt sent to the image provider. Lower caps reduce token/payload size; higher caps preserve more continuity and scene detail.")
         self.audio_story_prompt_safety_cap_spin.valueChanged.connect(self._on_prompt_safety_cap_changed)
         safety_cap_row.addWidget(self.audio_story_prompt_safety_cap_spin, 0)
         safety_cap_row.addStretch(1)
@@ -731,7 +907,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_generate_ahead_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_generate_ahead_slider.setRange(0, 12)
         self.audio_story_generate_ahead_slider.setValue(max(0, int(self._stored_generate_ahead_frames or 3)))
-        self.audio_story_generate_ahead_slider.setToolTip("How many future story images should be generated ahead of the current playback position.")
+        self.audio_story_generate_ahead_slider.setToolTip("How many future story images to prepare ahead of playback. Higher values reduce visible waiting but can spend image API calls earlier.")
         self.audio_story_generate_ahead_slider.valueChanged.connect(self._on_generate_ahead_frames_changed)
         generate_ahead_row.addWidget(self.audio_story_generate_ahead_slider, 1)
         self.audio_story_generate_ahead_value_label = QtWidgets.QLabel()
@@ -746,7 +922,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_transcribe_button = QtWidgets.QPushButton("Transcribe Audio")
         self.audio_story_transcribe_button.setStyleSheet(compact_button_style)
-        self.audio_story_transcribe_button.setToolTip("Run local Whisper transcription on the imported audio and rebuild the story windows for this session.")
+        self.audio_story_transcribe_button.setToolTip("Run local Whisper transcription on the imported audio, then build story windows, scene metadata, and image prompts for this session.")
         self.audio_story_transcribe_button.clicked.connect(self._start_transcription)
         source_layout.addWidget(self.audio_story_transcribe_button, 0, QtCore.Qt.AlignLeft)
 
@@ -784,19 +960,19 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_pin_location_button = QtWidgets.QPushButton("Pin Location")
         self.audio_story_pin_location_button.setCheckable(True)
         self.audio_story_pin_location_button.setStyleSheet(compact_button_style)
-        self.audio_story_pin_location_button.setToolTip("Keep the detected location anchored across later story images until you unpin it.")
+        self.audio_story_pin_location_button.setToolTip("Pin the current detected location as a continuity anchor for later images. Useful when the story stays in one place but the transcript stops naming it.")
         self.audio_story_pin_location_button.toggled.connect(self._on_pin_location_toggled)
         location_row.addWidget(self.audio_story_pin_location_button, 0)
         self.audio_story_force_fresh_button = QtWidgets.QPushButton("Force Fresh Scene")
         self.audio_story_force_fresh_button.setCheckable(True)
         self.audio_story_force_fresh_button.setStyleSheet(compact_button_style)
-        self.audio_story_force_fresh_button.setToolTip("Tell Audio Story Mode to treat the current scene as a hard reset instead of continuing prior continuity.")
+        self.audio_story_force_fresh_button.setToolTip("Force this image window to start as a new scene. Use when the automatic detector keeps continuing a scene after the story has moved location/time/action.")
         self.audio_story_force_fresh_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("fresh", checked))
         location_row.addWidget(self.audio_story_force_fresh_button, 0)
         self.audio_story_force_continuation_button = QtWidgets.QPushButton("Force Continuation")
         self.audio_story_force_continuation_button.setCheckable(True)
         self.audio_story_force_continuation_button.setStyleSheet(compact_button_style)
-        self.audio_story_force_continuation_button.setToolTip("Tell Audio Story Mode to preserve the current scene continuity even if the transcript suggests a transition.")
+        self.audio_story_force_continuation_button.setToolTip("Force this image window to continue the previous scene. Use when the detector creates too many scene changes during the same location/action.")
         self.audio_story_force_continuation_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("continuation", checked))
         location_row.addWidget(self.audio_story_force_continuation_button, 0)
         location_row.addStretch(1)
@@ -809,11 +985,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_scene_anchor_edit.setPlaceholderText("Edit the extracted anchor text for the current scene...")
         self.audio_story_scene_anchor_edit.setMaximumBlockCount(10)
         self.audio_story_scene_anchor_edit.setMinimumHeight(72)
-        self.audio_story_scene_anchor_edit.setToolTip("Edit the scene anchor text that will feed continuity and future image prompts for the selected scene.")
+        self.audio_story_scene_anchor_edit.setToolTip("Override the selected scene's visual anchor text. This becomes the primary scene focus for future prompts and can improve story relevance for a bad automatic scene.")
         anchor_row.addWidget(self.audio_story_scene_anchor_edit, 1)
         self.audio_story_scene_anchor_apply_button = QtWidgets.QPushButton("Apply Anchor")
         self.audio_story_scene_anchor_apply_button.setStyleSheet(compact_button_style)
-        self.audio_story_scene_anchor_apply_button.setToolTip("Apply the edited scene anchor text to the current scene override.")
+        self.audio_story_scene_anchor_apply_button.setToolTip("Apply this anchor override and refresh matching prompts/images for the selected scene.")
         self.audio_story_scene_anchor_apply_button.clicked.connect(self._apply_scene_anchor_override)
         anchor_row.addWidget(self.audio_story_scene_anchor_apply_button)
         anchor_widget = QtWidgets.QWidget()
@@ -838,17 +1014,17 @@ class AudioStoryModeController(QtCore.QObject):
         controls_row.setSpacing(6)
         self.audio_story_play_button = QtWidgets.QPushButton("Play")
         self.audio_story_play_button.setStyleSheet(compact_button_style)
-        self.audio_story_play_button.setToolTip("Start or resume Audio Story Mode playback from the current timeline position.")
+        self.audio_story_play_button.setToolTip("Start or resume playback from the current timeline position and sync the active story image to the audio.")
         self.audio_story_play_button.clicked.connect(self._play_story)
         controls_row.addWidget(self.audio_story_play_button)
         self.audio_story_pause_button = QtWidgets.QPushButton("Pause")
         self.audio_story_pause_button.setStyleSheet(compact_button_style)
-        self.audio_story_pause_button.setToolTip("Pause playback while keeping the current timeline position and active image.")
+        self.audio_story_pause_button.setToolTip("Pause playback without clearing the current timeline position or active image.")
         self.audio_story_pause_button.clicked.connect(self._pause_story)
         controls_row.addWidget(self.audio_story_pause_button)
         self.audio_story_stop_button = QtWidgets.QPushButton("Stop")
         self.audio_story_stop_button.setStyleSheet(compact_button_style)
-        self.audio_story_stop_button.setToolTip("Stop playback and reset Audio Story Mode to the beginning of the current source.")
+        self.audio_story_stop_button.setToolTip("Stop playback, return to the beginning, and show the first story image when available.")
         self.audio_story_stop_button.clicked.connect(self._stop_story)
         controls_row.addWidget(self.audio_story_stop_button)
         controls_row.addStretch(1)
@@ -859,7 +1035,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_position_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
         self.audio_story_position_slider.setRange(0, 0)
-        self.audio_story_position_slider.setToolTip("Scrub through the current audio story timeline and update the synced image position.")
+        self.audio_story_position_slider.setToolTip("Scrub through the current audio story timeline. The preview jumps to the image window that matches the selected time.")
         self.audio_story_position_slider.sliderPressed.connect(self._on_slider_pressed)
         self.audio_story_position_slider.sliderReleased.connect(self._on_slider_released)
         self.audio_story_position_slider.sliderMoved.connect(self._on_slider_moved)
@@ -888,7 +1064,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_transcript_edit = QtWidgets.QPlainTextEdit()
         self.audio_story_transcript_edit.setReadOnly(True)
         self.audio_story_transcript_edit.setMinimumHeight(220)
-        self.audio_story_transcript_edit.setToolTip("Read-only transcript windows generated from the imported audio and used for Audio Story prompts.")
+        self.audio_story_transcript_edit.setToolTip("Read-only transcript windows used for scene detection and prompt generation. Adjust Transcribe Seconds or Image Timing, then rebuild to change these windows.")
         transcript_layout.addWidget(self.audio_story_transcript_edit, 1)
         layout.addWidget(transcript_box, 1)
 
@@ -900,6 +1076,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_tab_widget = scroll
         self._sync_transcribe_seconds_slider()
         self._sync_image_frequency_slider()
+        self._sync_image_timing_mode_controls()
         self._sync_continuity_slider()
         self._sync_generate_ahead_slider()
         self._sync_audio_story_style_controls()
@@ -907,6 +1084,8 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_llm_story_analysis_controls()
         self._sync_prompt_block_limit_controls()
         self._sync_prompt_safety_cap_control()
+        self._sync_audio_story_cost_profile_controls()
+        self._refresh_audio_story_settings_presets()
         self._refresh_controls()
         return scroll
 
@@ -932,19 +1111,344 @@ class AudioStoryModeController(QtCore.QObject):
         self.character_anchors = {}
         self.location_anchors = {}
 
+    def _normalize_image_timing_mode(self, value=None):
+        normalized = str(value if value is not None else self._stored_image_timing_mode or "fixed").strip().lower()
+        return normalized if normalized in {"fixed", "scene_changes"} else "fixed"
+
+    def _image_timing_mode(self):
+        self._stored_image_timing_mode = self._normalize_image_timing_mode()
+        return str(self._stored_image_timing_mode or "fixed")
+
+    def _sync_image_timing_mode_controls(self):
+        combo = getattr(self, "audio_story_image_timing_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        try:
+            target_index = combo.findData(self._image_timing_mode())
+            if target_index >= 0:
+                combo.setCurrentIndex(target_index)
+        finally:
+            combo.blockSignals(False)
+
+    def _normalize_image_frequency_seconds(self, value=None):
+        try:
+            seconds = int(value if value is not None else self._stored_image_frequency_seconds or 12)
+        except Exception:
+            seconds = 12
+        return max(1, min(60, seconds))
+
+    def _audio_story_cost_profile_snapshot(self, profile_def=None):
+        profile = dict(profile_def or {})
+        return {
+            "transcribe_seconds": max(1, int(profile.get("transcribe_seconds", self._stored_transcribe_seconds) or self._stored_transcribe_seconds or 8)),
+            "image_frequency_seconds": self._normalize_image_frequency_seconds(profile.get("image_frequency_seconds", self._stored_image_frequency_seconds)),
+            "image_timing_mode": self._normalize_image_timing_mode(profile.get("image_timing_mode", self._stored_image_timing_mode)),
+            "generate_ahead_frames": max(0, int(profile.get("generate_ahead_frames", self._stored_generate_ahead_frames) or self._stored_generate_ahead_frames or 0)),
+            "continuity_strength": round(float(self._normalize_continuity_strength(profile.get("continuity_strength", self._stored_continuity_strength))), 3),
+            "master_prompt_enabled": bool(profile.get("master_prompt_enabled", self._stored_story_master_prompt_enabled)),
+            "master_prompt_mode": str(profile.get("master_prompt_mode", self._stored_story_master_prompt_mode or "medium") or self._stored_story_master_prompt_mode or "medium").strip().lower(),
+            "use_llm_story_analysis": bool(profile.get("use_llm_story_analysis", self._stored_use_llm_story_analysis)),
+            "story_analysis_provider_mode": self._normalize_story_analysis_provider_mode(profile.get("story_analysis_provider_mode", self._stored_story_analysis_provider_mode)),
+            "prompt_block_limits": self._normalize_prompt_block_limits(profile.get("prompt_block_limits", self._stored_prompt_block_limits)),
+            "prompt_safety_cap": int(self._normalize_prompt_safety_cap(profile.get("prompt_safety_cap", self._stored_prompt_safety_cap))),
+        }
+
+    def _current_audio_story_cost_profile_snapshot(self):
+        return {
+            "transcribe_seconds": max(1, int(self._stored_transcribe_seconds or 8)),
+            "image_frequency_seconds": self._normalize_image_frequency_seconds(),
+            "image_timing_mode": self._image_timing_mode(),
+            "generate_ahead_frames": max(0, int(self._stored_generate_ahead_frames or 0)),
+            "continuity_strength": round(float(self._normalize_continuity_strength(self._stored_continuity_strength)), 3),
+            "master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
+            "master_prompt_mode": self._audio_story_master_prompt_mode(),
+            "use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "story_analysis_provider_mode": self._story_analysis_provider_mode(),
+            "prompt_block_limits": self._normalize_prompt_block_limits(self._stored_prompt_block_limits),
+            "prompt_safety_cap": int(self._normalize_prompt_safety_cap(self._stored_prompt_safety_cap)),
+        }
+
+    def _detect_audio_story_cost_profile_id(self):
+        current = self._current_audio_story_cost_profile_snapshot()
+        for profile in _audio_story_cost_profiles():
+            if current == self._audio_story_cost_profile_snapshot(profile):
+                return str(profile.get("id") or "").strip().lower()
+        return "custom"
+
+    def _sync_audio_story_cost_profile_controls(self):
+        combo = getattr(self, "audio_story_cost_profile_combo", None)
+        if combo is None:
+            return
+        resolved_profile = self._detect_audio_story_cost_profile_id()
+        self._stored_cost_profile_id = resolved_profile if resolved_profile != "custom" else str(self._stored_cost_profile_id or "custom")
+        combo.blockSignals(True)
+        try:
+            target_index = combo.findData(resolved_profile)
+            if target_index < 0:
+                target_index = combo.findData("custom")
+            if target_index >= 0:
+                combo.setCurrentIndex(target_index)
+            description = ""
+            if resolved_profile != "custom":
+                description = str(_audio_story_cost_profile_definition(resolved_profile).get("description", "") or "").strip()
+            combo.setToolTip(
+                description
+                or "Custom mix of Audio Story precision settings. Choose a named profile again to snap back to a preset."
+            )
+        finally:
+            combo.blockSignals(False)
+
+    def _apply_audio_story_cost_profile(self, profile_id: str, *, rebuild_story: bool = True):
+        profile = _audio_story_cost_profile_definition(profile_id)
+        if not profile:
+            self._sync_audio_story_cost_profile_controls()
+            return False
+        snapshot = self._audio_story_cost_profile_snapshot(profile)
+        self._stored_cost_profile_id = str(profile.get("id") or "balanced").strip().lower() or "balanced"
+        self._stored_transcribe_seconds = int(snapshot["transcribe_seconds"])
+        self._stored_image_frequency_seconds = int(snapshot["image_frequency_seconds"])
+        self._stored_image_timing_mode = str(snapshot["image_timing_mode"] or "fixed")
+        self._stored_generate_ahead_frames = int(snapshot["generate_ahead_frames"])
+        self._stored_continuity_strength = float(snapshot["continuity_strength"])
+        self._stored_story_master_prompt_enabled = bool(snapshot["master_prompt_enabled"])
+        self._stored_story_master_prompt_mode = str(snapshot["master_prompt_mode"] or "medium").strip().lower() or "medium"
+        self._stored_use_llm_story_analysis = bool(snapshot["use_llm_story_analysis"])
+        self._stored_story_analysis_provider_mode = str(snapshot["story_analysis_provider_mode"] or "current").strip().lower() or "current"
+        self._stored_prompt_block_limits = dict(snapshot["prompt_block_limits"] or {})
+        self._stored_prompt_safety_cap = int(snapshot["prompt_safety_cap"])
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._sync_image_timing_mode_controls()
+        self._sync_continuity_slider()
+        self._sync_generate_ahead_slider()
+        self._sync_story_master_prompt_controls()
+        self._sync_llm_story_analysis_controls()
+        self._sync_story_analysis_provider_controls()
+        self._sync_prompt_block_limit_controls()
+        self._sync_prompt_safety_cap_control()
+        self._sync_audio_story_cost_profile_controls()
+        if rebuild_story and self._raw_transcript_segments:
+            status_text = (
+                f"Analyzing story with {self._story_analysis_provider_status_label()}..."
+                if self._stored_use_llm_story_analysis
+                else "Rebuilding audio story analysis..."
+            )
+            self._start_story_payload_rebuild_job(status_text=status_text)
+        else:
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._refresh_controls()
+        return True
+
+    def _on_audio_story_cost_profile_changed(self, _index: int):
+        combo = getattr(self, "audio_story_cost_profile_combo", None)
+        if combo is None:
+            return
+        profile_id = str(combo.currentData() or "").strip().lower()
+        if not profile_id or profile_id == "custom":
+            self._sync_audio_story_cost_profile_controls()
+            return
+        self._apply_audio_story_cost_profile(profile_id, rebuild_story=True)
+
+    def _audio_story_settings_preset_payload(self):
+        return {
+            "version": 1,
+            "transcribe_seconds": max(1, int(self._stored_transcribe_seconds or 8)),
+            "image_frequency_seconds": self._normalize_image_frequency_seconds(),
+            "image_timing_mode": self._image_timing_mode(),
+            "generate_ahead_frames": max(0, int(self._stored_generate_ahead_frames or 0)),
+            "continuity_strength": float(self._normalize_continuity_strength(self._stored_continuity_strength)),
+            "cost_profile": str(self._detect_audio_story_cost_profile_id() or self._stored_cost_profile_id or "balanced"),
+            "style_prompts": dict(self._stored_style_prompts or {}),
+            "style_enabled": list(self._stored_style_enabled or []),
+            "style_change_live": bool(self._stored_style_change_live),
+            "story_master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
+            "story_master_prompt_mode": self._audio_story_master_prompt_mode(),
+            "use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "story_analysis_provider_mode": self._story_analysis_provider_mode(),
+            "story_analysis_model": self._story_analysis_model_override(),
+            "prompt_block_limits": self._prompt_block_limits(),
+            "prompt_safety_cap": int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT),
+            "playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else str(self._stored_playback_mode_label or "Play Imported Audio"),
+        }
+
+    def _apply_audio_story_settings_preset_payload(self, payload, *, rebuild_story: bool = True):
+        data = dict(payload or {})
+        try:
+            self._stored_transcribe_seconds = max(1, int(data.get("transcribe_seconds", self._stored_transcribe_seconds) or self._stored_transcribe_seconds or 8))
+        except Exception:
+            pass
+        self._stored_image_frequency_seconds = self._normalize_image_frequency_seconds(data.get("image_frequency_seconds", self._stored_image_frequency_seconds))
+        self._stored_image_timing_mode = self._normalize_image_timing_mode(data.get("image_timing_mode", self._stored_image_timing_mode))
+        try:
+            self._stored_generate_ahead_frames = max(0, int(data.get("generate_ahead_frames", self._stored_generate_ahead_frames) or 0))
+        except Exception:
+            pass
+        self._stored_continuity_strength = self._normalize_continuity_strength(data.get("continuity_strength", self._stored_continuity_strength))
+        if isinstance(data.get("style_prompts"), dict):
+            for style_def in _audio_story_style_presets():
+                style_id = str(style_def.get("id") or "").strip().lower()
+                if style_id:
+                    self._stored_style_prompts[style_id] = str(data["style_prompts"].get(style_id, self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))) or "").strip()
+        if isinstance(data.get("style_enabled"), (list, tuple, set)):
+            valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
+            self._stored_style_enabled = [str(item or "").strip().lower() for item in data.get("style_enabled", []) if str(item or "").strip().lower() in valid_ids]
+        if data.get("style_change_live") is not None:
+            self._stored_style_change_live = bool(data.get("style_change_live"))
+        if data.get("story_master_prompt_enabled") is not None:
+            self._stored_story_master_prompt_enabled = bool(data.get("story_master_prompt_enabled"))
+        story_master_prompt_mode = str(data.get("story_master_prompt_mode") or "").strip().lower()
+        if story_master_prompt_mode in {value for value, _label in _audio_story_master_prompt_modes()}:
+            self._stored_story_master_prompt_mode = story_master_prompt_mode
+        if data.get("use_llm_story_analysis") is not None:
+            self._stored_use_llm_story_analysis = bool(data.get("use_llm_story_analysis"))
+        if data.get("story_analysis_provider_mode") is not None:
+            self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(data.get("story_analysis_provider_mode"))
+        if data.get("story_analysis_model") is not None:
+            self._stored_story_analysis_model = self._normalize_story_analysis_model(data.get("story_analysis_model"))
+        if isinstance(data.get("prompt_block_limits"), dict):
+            self._stored_prompt_block_limits = self._normalize_prompt_block_limits(data.get("prompt_block_limits"))
+        if data.get("prompt_safety_cap") is not None:
+            self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(data.get("prompt_safety_cap"))
+        playback_mode = str(data.get("playback_mode") or "").strip()
+        if playback_mode:
+            self._stored_playback_mode_label = playback_mode
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._sync_image_timing_mode_controls()
+        self._sync_continuity_slider()
+        self._sync_generate_ahead_slider()
+        self._sync_audio_story_style_controls()
+        self._sync_story_master_prompt_controls()
+        self._sync_llm_story_analysis_controls()
+        self._sync_story_analysis_provider_controls()
+        self._sync_story_analysis_model_controls()
+        self._sync_prompt_block_limit_controls()
+        self._sync_prompt_safety_cap_control()
+        if hasattr(self, "audio_story_playback_mode_combo") and playback_mode:
+            index = self.audio_story_playback_mode_combo.findText(playback_mode)
+            if index >= 0:
+                self.audio_story_playback_mode_combo.setCurrentIndex(index)
+        self._sync_audio_story_cost_profile_controls()
+        if rebuild_story and self._raw_transcript_segments:
+            status_text = (
+                f"Analyzing story with {self._story_analysis_provider_status_label()}..."
+                if self._stored_use_llm_story_analysis
+                else "Rebuilding audio story analysis..."
+            )
+            self._start_story_payload_rebuild_job(status_text=status_text)
+        else:
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+        self._refresh_controls()
+
+    def _audio_story_preset_slug(self, name: str):
+        slug = re.sub(r"[^A-Za-z0-9_. -]+", "_", str(name or "").strip()).strip(" ._")
+        return slug or "audio_story_preset"
+
+    def _audio_story_settings_preset_path(self, name: str):
+        return self._preset_root / f"{self._audio_story_preset_slug(name)}.json"
+
+    def _audio_story_settings_preset_names(self):
+        names = []
+        try:
+            for path in sorted(self._preset_root.glob("*.json"), key=lambda item: item.stem.lower()):
+                names.append(path.stem)
+        except Exception:
+            return []
+        return names
+
+    def _refresh_audio_story_settings_presets(self):
+        combo = getattr(self, "audio_story_settings_preset_combo", None)
+        if combo is None:
+            return
+        current = str(combo.currentText() or "").strip()
+        names = self._audio_story_settings_preset_names()
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItems(names)
+            if current:
+                index = combo.findText(current)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+                elif combo.isEditable():
+                    combo.setEditText(current)
+        finally:
+            combo.blockSignals(False)
+        load_button = getattr(self, "audio_story_settings_preset_load_button", None)
+        if load_button is not None:
+            load_button.setEnabled(bool(names))
+
+    def _selected_audio_story_settings_preset_name(self):
+        combo = getattr(self, "audio_story_settings_preset_combo", None)
+        return str(combo.currentText() if combo is not None else "").strip()
+
+    def _save_audio_story_settings_preset(self):
+        name = self._selected_audio_story_settings_preset_name()
+        if not name:
+            name, accepted = QtWidgets.QInputDialog.getText(
+                self.audio_story_tab_widget if self.audio_story_tab_widget is not None else None,
+                "Save Audio Story Preset",
+                "Preset name:",
+                text="Audio Story Preset",
+            )
+            if not accepted:
+                return
+            name = str(name or "").strip()
+        if not name:
+            return
+        path = self._audio_story_settings_preset_path(name)
+        payload = self._audio_story_settings_preset_payload()
+        payload["name"] = name
+        payload["saved_at"] = time.strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            self._preset_root.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+            self._set_status(f"Saved Audio Story preset: {name}")
+        except Exception as exc:
+            self._set_status(f"Failed to save Audio Story preset: {exc}")
+            return
+        self._refresh_audio_story_settings_presets()
+        combo = getattr(self, "audio_story_settings_preset_combo", None)
+        if combo is not None:
+            index = combo.findText(path.stem)
+            if index >= 0:
+                combo.setCurrentIndex(index)
+
+    def _load_audio_story_settings_preset(self):
+        name = self._selected_audio_story_settings_preset_name()
+        if not name:
+            self._set_status("Choose an Audio Story preset to load.")
+            return
+        path = self._audio_story_settings_preset_path(name)
+        if not path.exists():
+            self._set_status(f"Audio Story preset not found: {name}")
+            return
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            self._set_status(f"Failed to load Audio Story preset: {exc}")
+            return
+        self._apply_audio_story_settings_preset_payload(payload, rebuild_story=True)
+        self._set_status(f"Loaded Audio Story preset: {name}")
+
     def export_session_state(self):
         return {
             "audio_story_mode_audio_path": str(self.imported_audio_path or "").strip(),
             "audio_story_mode_transcribe_seconds": int(self.audio_story_transcribe_seconds_slider.value()) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8),
-            "audio_story_mode_image_frequency_seconds": int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else int(self._stored_image_frequency_seconds or 12),
+            "audio_story_mode_image_frequency_seconds": self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else self._stored_image_frequency_seconds),
+            "audio_story_mode_image_timing_mode": self._image_timing_mode(),
             "audio_story_mode_generate_ahead_frames": int(self._stored_generate_ahead_frames or 3),
             "audio_story_mode_continuity_strength": float(self._stored_continuity_strength or 0.8),
+            "audio_story_mode_cost_profile": str(self._detect_audio_story_cost_profile_id() or self._stored_cost_profile_id or "balanced"),
             "audio_story_mode_style_prompts": dict(self._stored_style_prompts or {}),
             "audio_story_mode_style_enabled": list(self._stored_style_enabled or []),
             "audio_story_mode_style_change_live": bool(self._stored_style_change_live),
             "audio_story_mode_story_master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
             "audio_story_mode_story_master_prompt_mode": str(self._stored_story_master_prompt_mode or "medium"),
             "audio_story_mode_use_llm_story_analysis": bool(self._stored_use_llm_story_analysis),
+            "audio_story_mode_story_analysis_provider_mode": self._story_analysis_provider_mode(),
+            "audio_story_mode_story_analysis_model": self._story_analysis_model_override(),
             "audio_story_mode_prompt_block_limits": self._prompt_block_limits(),
             "audio_story_mode_prompt_safety_cap": int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT),
             "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
@@ -973,10 +1477,14 @@ class AudioStoryModeController(QtCore.QObject):
         image_frequency_value = payload.get("audio_story_mode_image_frequency_seconds")
         if image_frequency_value is not None:
             try:
-                self._stored_image_frequency_seconds = max(1, int(image_frequency_value or 12))
+                self._stored_image_frequency_seconds = self._normalize_image_frequency_seconds(image_frequency_value)
                 self._sync_image_frequency_slider()
             except Exception:
                 pass
+        image_timing_mode = payload.get("audio_story_mode_image_timing_mode")
+        if image_timing_mode is not None:
+            self._stored_image_timing_mode = self._normalize_image_timing_mode(image_timing_mode)
+            self._sync_image_timing_mode_controls()
         generate_ahead_value = payload.get("audio_story_mode_generate_ahead_frames")
         if generate_ahead_value is not None:
             try:
@@ -991,6 +1499,9 @@ class AudioStoryModeController(QtCore.QObject):
                 self._sync_continuity_slider()
             except Exception:
                 pass
+        cost_profile = str(payload.get("audio_story_mode_cost_profile") or "").strip().lower()
+        if cost_profile in {str(item.get("id") or "").strip().lower() for item in _audio_story_cost_profiles()}:
+            self._stored_cost_profile_id = cost_profile
         style_prompts = payload.get("audio_story_mode_style_prompts")
         if isinstance(style_prompts, dict):
             for style_def in _audio_story_style_presets():
@@ -1013,6 +1524,14 @@ class AudioStoryModeController(QtCore.QObject):
         if payload.get("audio_story_mode_use_llm_story_analysis") is not None:
             self._stored_use_llm_story_analysis = bool(payload.get("audio_story_mode_use_llm_story_analysis"))
         self._sync_llm_story_analysis_controls()
+        analysis_provider_mode = payload.get("audio_story_mode_story_analysis_provider_mode")
+        if analysis_provider_mode is not None:
+            self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(analysis_provider_mode)
+        self._sync_story_analysis_provider_controls()
+        analysis_model = payload.get("audio_story_mode_story_analysis_model")
+        if analysis_model is not None:
+            self._stored_story_analysis_model = self._normalize_story_analysis_model(analysis_model)
+        self._sync_story_analysis_model_controls()
         prompt_block_limits = payload.get("audio_story_mode_prompt_block_limits")
         if isinstance(prompt_block_limits, dict):
             self._stored_prompt_block_limits = self._normalize_prompt_block_limits(prompt_block_limits)
@@ -1021,6 +1540,7 @@ class AudioStoryModeController(QtCore.QObject):
         if prompt_safety_cap is not None:
             self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(prompt_safety_cap)
         self._sync_prompt_safety_cap_control()
+        self._sync_audio_story_cost_profile_controls()
         playback_mode = str(payload.get("audio_story_mode_playback_mode") or "").strip()
         if playback_mode:
             self._stored_playback_mode_label = playback_mode
@@ -1061,6 +1581,10 @@ class AudioStoryModeController(QtCore.QObject):
         self._pending_play_request = None
         try:
             self._visual_refresh_timer.stop()
+        except Exception:
+            pass
+        try:
+            self._story_rebuild_timer.stop()
         except Exception:
             pass
         if engine.is_loaded():
@@ -1145,7 +1669,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._transcription_job_id += 1
         job_id = self._transcription_job_id
         chunk_seconds = max(1, int(self.audio_story_transcribe_seconds_slider.value())) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8)
-        image_frequency_seconds = max(1, int(self.audio_story_image_frequency_slider.value())) if hasattr(self, "audio_story_image_frequency_slider") else int(self._stored_image_frequency_seconds or 12)
+        image_frequency_seconds = self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value())) if hasattr(self, "audio_story_image_frequency_slider") else self._normalize_image_frequency_seconds()
         continuity_strength = float(self._stored_continuity_strength or 0.8)
         self._set_status("Transcribing audio with the local Whisper model...")
         self.audio_story_transcribe_button.setEnabled(False)
@@ -1271,7 +1795,9 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _build_story_payload(self, *, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
         transcript_windows = self._build_transcript_chunks(raw_segments, audio_duration, float(chunk_seconds))
-        image_chunks = self._build_image_chunks(raw_segments, audio_duration, float(image_frequency_seconds))
+        image_timing_mode = self._image_timing_mode()
+        image_chunk_seconds = float(chunk_seconds if image_timing_mode == "scene_changes" else image_frequency_seconds)
+        image_chunks = self._build_image_chunks(raw_segments, audio_duration, image_chunk_seconds)
         if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > 0.0:
             image_chunks[0]["start_seconds"] = 0.0
         full_text = " ".join(str(item.get("text", "") or "").strip() for item in image_chunks).strip()
@@ -1383,6 +1909,13 @@ class AudioStoryModeController(QtCore.QObject):
             )
             scene_plan.append(scene_entry)
             previous_scene = scene_entry
+        if image_timing_mode == "scene_changes":
+            image_chunks, scene_plan = self._collapse_story_chunks_to_scene_changes(
+                image_chunks,
+                scene_plan,
+                story_bible=story_bible,
+                story_style_guide=story_style_guide,
+            )
         character_anchors = {}
         for entity_id, entity in dict(story_bible.get("characters", {}) or {}).items():
             existing_anchor = dict(self.character_anchors.get(entity_id) or {})
@@ -1401,6 +1934,7 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_duration_seconds": audio_duration,
             "chunk_seconds": int(chunk_seconds),
             "image_frequency_seconds": int(image_frequency_seconds),
+            "image_timing_mode": image_timing_mode,
             "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
             "transcript_chunks": image_chunks,
             "transcript_windows": transcript_windows,
@@ -1413,6 +1947,102 @@ class AudioStoryModeController(QtCore.QObject):
             "raw_segments": list(raw_segments or []),
         }
 
+    def _collapse_story_chunks_to_scene_changes(self, image_chunks, scene_plan, *, story_bible: dict, story_style_guide: str):
+        paired = []
+        for index, chunk in enumerate(list(image_chunks or [])):
+            scene_entry = dict(list(scene_plan or [])[index] or {}) if index < len(list(scene_plan or [])) else {}
+            paired.append((dict(chunk or {}), scene_entry))
+        if not paired:
+            return list(image_chunks or []), list(scene_plan or [])
+        groups = []
+        current_group = []
+        current_scene_id = ""
+        for chunk, scene_entry in paired:
+            scene_id = str(scene_entry.get("scene_id", "") or "").strip() or f"chunk_{len(groups)}"
+            starts_new_group = not current_group or scene_id != current_scene_id
+            if starts_new_group:
+                if current_group:
+                    groups.append(current_group)
+                current_group = []
+                current_scene_id = scene_id
+            current_group.append((chunk, scene_entry))
+        if current_group:
+            groups.append(current_group)
+        collapsed_chunks = []
+        collapsed_scenes = []
+        previous_scene = None
+        for new_index, group in enumerate(groups):
+            group_chunks = [dict(item[0] or {}) for item in group]
+            group_scenes = [dict(item[1] or {}) for item in group]
+            first_chunk = group_chunks[0]
+            last_chunk = group_chunks[-1]
+            first_scene = dict(group_scenes[0] or {})
+            combined_text = " ".join(str(chunk.get("text", "") or "").strip() for chunk in group_chunks if str(chunk.get("text", "") or "").strip()).strip()
+            first_scene["chunk_index"] = int(new_index)
+            first_scene["is_new_scene"] = True
+            first_scene["continuation_of_scene_id"] = str(dict(previous_scene or {}).get("scene_id", "") or "")
+            first_scene["active_character_ids"] = _audio_story_unique_keep_order(
+                character_id
+                for scene in group_scenes
+                for character_id in list(scene.get("active_character_ids", []) or [])
+            )
+            first_scene["prop_ids"] = _audio_story_unique_keep_order(
+                prop_id
+                for scene in group_scenes
+                for prop_id in list(scene.get("prop_ids", []) or [])
+            )
+            first_scene["continuity_priority"] = _audio_story_unique_keep_order(
+                priority
+                for scene in group_scenes
+                for priority in list(scene.get("continuity_priority", []) or [])
+            )
+            first_scene["key_action"] = _audio_story_truncate(
+                str(first_scene.get("key_action", "") or first_scene.get("summary", "") or combined_text).strip(),
+                420,
+            )
+            first_scene["summary"] = _audio_story_truncate(
+                str(first_scene.get("summary", "") or combined_text).strip(),
+                420,
+            )
+            first_scene["reference_image_paths"] = self._story_reference_image_paths(first_scene, previous_scene=previous_scene)
+            first_scene["generation_mode"] = self._choose_generation_mode(first_scene, previous_scene=previous_scene).get("mode", "fresh")
+            collapsed_chunk = dict(first_chunk)
+            collapsed_chunk.update(
+                {
+                    "index": int(new_index),
+                    "start_seconds": max(0.0, float(first_chunk.get("start_seconds", 0.0) or 0.0)),
+                    "end_seconds": max(0.0, float(last_chunk.get("end_seconds", first_chunk.get("end_seconds", 0.0)) or 0.0)),
+                    "text": combined_text,
+                    "scene_id": str(first_scene.get("scene_id", "") or "").strip(),
+                    "scene_index": int(first_scene.get("scene_index", new_index + 1) or new_index + 1),
+                    "location_id": str(first_scene.get("location_id", "") or "").strip(),
+                    "location_label": str(first_scene.get("location_label", "") or "").strip(),
+                    "active_character_ids": list(first_scene.get("active_character_ids", []) or []),
+                    "prop_ids": list(first_scene.get("prop_ids", []) or []),
+                    "mood": str(first_scene.get("mood", "") or "").strip(),
+                    "time_of_day": str(first_scene.get("time_of_day", "") or "").strip(),
+                    "camera": str(first_scene.get("camera", "") or "").strip(),
+                    "is_scene_continuation": False,
+                    "continuity_priority": list(first_scene.get("continuity_priority", []) or []),
+                    "scene_summary": str(first_scene.get("summary", "") or "").strip(),
+                    "generation_mode": str(first_scene.get("generation_mode", "") or "fresh").strip(),
+                    "reference_image_paths": list(first_scene.get("reference_image_paths", []) or []),
+                    "tts_start_seconds": None,
+                    "tts_end_seconds": None,
+                }
+            )
+            collapsed_chunk["prompt"] = self._build_story_image_prompt(
+                combined_text,
+                story_style_guide,
+                scene_entry=first_scene,
+                story_bible=story_bible,
+                previous_scene=previous_scene,
+            )
+            collapsed_chunks.append(collapsed_chunk)
+            collapsed_scenes.append(first_scene)
+            previous_scene = first_scene
+        return collapsed_chunks, collapsed_scenes
+
     def _apply_story_payload(self, payload):
         self.imported_audio_path = str(payload.get("audio_path", "") or "").strip()
         self.imported_audio_duration_seconds = max(0.0, float(payload.get("audio_duration_seconds", 0.0) or 0.0))
@@ -1420,7 +2050,8 @@ class AudioStoryModeController(QtCore.QObject):
         self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
         self.story_style_guide = str(payload.get("story_style_guide", "") or "").strip()
         self._stored_transcribe_seconds = max(1, int(payload.get("chunk_seconds", self._stored_transcribe_seconds) or self._stored_transcribe_seconds))
-        self._stored_image_frequency_seconds = max(1, int(payload.get("image_frequency_seconds", self._stored_image_frequency_seconds) or self._stored_image_frequency_seconds))
+        self._stored_image_frequency_seconds = self._normalize_image_frequency_seconds(payload.get("image_frequency_seconds", self._stored_image_frequency_seconds))
+        self._stored_image_timing_mode = self._normalize_image_timing_mode(payload.get("image_timing_mode", self._stored_image_timing_mode))
         self._stored_continuity_strength = self._normalize_continuity_strength(payload.get("continuity_strength", self._stored_continuity_strength))
         self._raw_transcript_segments = list(payload.get("raw_segments", []) or [])
         self._last_transcription_audio_duration = self.imported_audio_duration_seconds
@@ -1436,6 +2067,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.location_anchors = dict(payload.get("location_anchors", {}) or {})
         self._sync_transcribe_seconds_slider()
         self._sync_image_frequency_slider()
+        self._sync_image_timing_mode_controls()
         self._sync_continuity_slider()
         self._sync_generate_ahead_slider()
         self._sync_audio_story_style_controls()
@@ -1449,9 +2081,9 @@ class AudioStoryModeController(QtCore.QObject):
                 f"Audio duration: {self._format_seconds(self.imported_audio_duration_seconds)}\n"
                 f"Image windows: {len(self.transcript_chunks)}\n"
                 f"Scenes: {scene_count}\n"
-                f"Generate image every: {self._format_slider_seconds(self._stored_image_frequency_seconds)}\n"
+                f"Image timing: {'Scene changes' if self._image_timing_mode() == 'scene_changes' else self._format_slider_seconds(self._stored_image_frequency_seconds)}\n"
                 f"Continuity: {int(round(self._stored_continuity_strength * 100.0))}%\n"
-                f"Story analysis: {'LLM' if self.story_bible.get('analysis_source') == 'llm' else 'heuristic'}\n"
+                f"Story analysis: {self._story_analysis_summary_text()}\n"
                 f"Story master prompt: {'on' if self._stored_story_master_prompt_enabled else 'off'} ({str(self._stored_story_master_prompt_mode or 'medium').title()})\n"
                 f"Playback mode: {self.audio_story_playback_mode_combo.currentText() if hasattr(self, 'audio_story_playback_mode_combo') else 'Play Imported Audio'}"
             )
@@ -1531,7 +2163,7 @@ class AudioStoryModeController(QtCore.QObject):
                 float(self._last_transcription_audio_duration or 0.0),
                 [dict(item or {}) for item in list(self._raw_transcript_segments or [])],
                 int(self._stored_transcribe_seconds or 8),
-                int(self._stored_image_frequency_seconds or 12),
+                self._normalize_image_frequency_seconds(),
                 float(self._stored_continuity_strength or 0.8),
             ),
             daemon=True,
@@ -2243,8 +2875,8 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _image_frequency_slider_maximum(self):
         if self.imported_audio_duration_seconds > 0:
-            return max(1, int(round(self.imported_audio_duration_seconds)))
-        return max(12, int(self._stored_image_frequency_seconds or 12))
+            return max(1, min(60, int(round(self.imported_audio_duration_seconds))))
+        return 60
 
     def _sync_transcribe_seconds_slider(self):
         slider = getattr(self, "audio_story_transcribe_seconds_slider", None)
@@ -2354,6 +2986,93 @@ class AudioStoryModeController(QtCore.QObject):
             checkbox.blockSignals(True)
             checkbox.setChecked(bool(self._stored_use_llm_story_analysis))
             checkbox.blockSignals(False)
+        self._sync_story_analysis_provider_controls()
+
+    def _normalize_story_analysis_provider_mode(self, value=None):
+        normalized = str(value if value is not None else self._stored_story_analysis_provider_mode or "current").strip().lower()
+        return normalized if normalized in {"current", "lmstudio"} else "current"
+
+    def _story_analysis_provider_mode(self):
+        self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode()
+        return str(self._stored_story_analysis_provider_mode or "current")
+
+    def _story_analysis_provider_id(self):
+        runtime_provider = chat_providers.normalize_provider_id(
+            engine.RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            fallback=chat_providers.DEFAULT_PROVIDER_ID,
+        )
+        if self._story_analysis_provider_mode() == "lmstudio":
+            return chat_providers.normalize_provider_id("lmstudio", fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        return runtime_provider
+
+    def _story_analysis_provider_status_label(self):
+        return "local LM Studio" if self._story_analysis_provider_mode() == "lmstudio" else "the current Chat Provider"
+
+    def _story_analysis_summary_text(self):
+        if dict(self.story_bible or {}).get("analysis_source") != "llm":
+            return "heuristic"
+        provider_label = str(dict(self.story_bible or {}).get("analysis_provider", "") or "").strip()
+        model_label = str(dict(self.story_bible or {}).get("analysis_model", "") or "").strip()
+        label = provider_label or self._story_analysis_provider_status_label()
+        if model_label:
+            return f"LLM ({label} / {model_label})"
+        return f"LLM ({label})"
+
+    def _sync_story_analysis_provider_controls(self):
+        combo = getattr(self, "audio_story_analysis_provider_combo", None)
+        if combo is None:
+            return
+        combo.blockSignals(True)
+        try:
+            target_index = combo.findData(self._story_analysis_provider_mode())
+            if target_index >= 0:
+                combo.setCurrentIndex(target_index)
+        finally:
+            combo.blockSignals(False)
+        self._sync_story_analysis_model_controls()
+
+    def _normalize_story_analysis_model(self, value=None):
+        text = str(value if value is not None else self._stored_story_analysis_model or "").strip()
+        return "" if text.lower() in {"", "auto", "automatic"} else text
+
+    def _story_analysis_model_override(self):
+        self._stored_story_analysis_model = self._normalize_story_analysis_model()
+        return str(self._stored_story_analysis_model or "").strip()
+
+    def _story_analysis_model_candidates(self, provider: str):
+        if self._story_analysis_provider_mode() != "lmstudio":
+            runtime_model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
+            return [runtime_model] if runtime_model else []
+        try:
+            error_placeholder = chat_providers.provider_model_error(provider)
+            return [
+                str(item or "").strip()
+                for item in list(chat_providers.list_models(provider, quiet=True) or [])
+                if str(item or "").strip() and str(item or "").strip() != error_placeholder
+            ]
+        except Exception:
+            return []
+
+    def _sync_story_analysis_model_controls(self):
+        combo = getattr(self, "audio_story_analysis_model_combo", None)
+        if combo is None:
+            return
+        provider = self._story_analysis_provider_id()
+        selected_model = self._story_analysis_model_override()
+        models = self._story_analysis_model_candidates(provider)
+        combo.blockSignals(True)
+        try:
+            combo.clear()
+            combo.addItem("Auto", "")
+            for model in models:
+                combo.addItem(model, model)
+            target_index = combo.findData(selected_model)
+            if selected_model and target_index < 0:
+                combo.addItem(selected_model, selected_model)
+                target_index = combo.findData(selected_model)
+            combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+        finally:
+            combo.blockSignals(False)
 
     def _normalize_prompt_block_limits(self, limits=None):
         source = dict(limits or self._stored_prompt_block_limits or {})
@@ -2480,11 +3199,14 @@ class AudioStoryModeController(QtCore.QObject):
         return prompt
 
     def _active_story_analysis_chat_provider(self):
-        provider = chat_providers.normalize_provider_id(
+        runtime_provider = chat_providers.normalize_provider_id(
             engine.RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
             fallback=chat_providers.DEFAULT_PROVIDER_ID,
         )
-        model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
+        provider = self._story_analysis_provider_id()
+        model = self._story_analysis_model_override()
+        if not model and provider == runtime_provider:
+            model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
         if not model:
             try:
                 error_placeholder = chat_providers.provider_model_error(provider)
@@ -2501,13 +3223,25 @@ class AudioStoryModeController(QtCore.QObject):
     def _build_llm_story_analysis(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float, fallback_story_bible: dict):
         provider, model = self._active_story_analysis_chat_provider()
         if not provider or not model:
-            raise RuntimeError("No active Chat Provider model is available for LLM story analysis.")
+            raise RuntimeError(f"No {self._story_analysis_provider_status_label()} model is available for LLM story analysis.")
         prompt_payload = self._llm_story_analysis_prompt_payload(
             full_text=full_text,
             image_chunks=image_chunks,
             story_style_guide=story_style_guide,
             continuity_strength=continuity_strength,
         )
+        cache_payload = {
+            "provider": str(provider or "").strip().lower(),
+            "model": str(model or "").strip(),
+            "provider_mode": self._story_analysis_provider_mode(),
+            "prompt_payload": prompt_payload,
+            "fallback_story_bible": fallback_story_bible,
+        }
+        cache_key = hashlib.sha1(json.dumps(cache_payload, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+        with self._lock:
+            cached = copy.deepcopy(dict(self._llm_story_analysis_cache.get(cache_key) or {}))
+        if cached.get("scenes") and cached.get("story_bible"):
+            return cached
         raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload)
         try:
             parsed = self._parse_llm_json_object(raw_text)
@@ -2524,9 +3258,18 @@ class AudioStoryModeController(QtCore.QObject):
         if not scenes:
             raise RuntimeError("LLM story analysis returned no usable scenes.")
         story_bible["analysis_source"] = "llm"
+        story_bible["analysis_provider_mode"] = self._story_analysis_provider_mode()
         story_bible["analysis_provider"] = chat_providers.provider_label(provider)
         story_bible["analysis_model"] = model
-        return {"story_bible": story_bible, "scenes": scenes}
+        result = {"story_bible": story_bible, "scenes": scenes}
+        with self._lock:
+            self._llm_story_analysis_cache[cache_key] = copy.deepcopy(result)
+            while len(self._llm_story_analysis_cache) > 24:
+                try:
+                    self._llm_story_analysis_cache.pop(next(iter(self._llm_story_analysis_cache)))
+                except Exception:
+                    break
+        return result
 
     def _llm_story_analysis_prompt_payload(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float):
         per_chunk_limit = max(180, min(520, int(14000 / max(1, len(image_chunks or [])))))
@@ -2578,6 +3321,7 @@ class AudioStoryModeController(QtCore.QObject):
             '    "active_character_ids": ["char_stable_id"],\n'
             '    "prop_ids": ["prop_stable_id"],\n'
             '    "scene_focus": "visual focus, not raw transcript",\n'
+            '    "image_prompt": "ready visual image prompt for this chunk, no raw transcript",\n'
             '    "key_action": "what should be pictured now",\n'
             '    "environment": "specific visible setting facts",\n'
             '    "mood": "mood",\n'
@@ -2593,10 +3337,11 @@ class AudioStoryModeController(QtCore.QObject):
             "- Return one scene object for every input chunk_index.\n"
             "- Use the exact same ids for recurring characters, locations, and props.\n"
             "- Scene text must be cleaned visual facts, not copied raw transcript.\n"
+            "- image_prompt must be the local ready-to-use visual prompt fragment for the image model.\n"
             "- If a chunk continues the same place/action, set is_new_scene=false and reuse scene_id.\n"
             "- If a new location, time jump, or major action shift occurs, set is_new_scene=true.\n"
             "- Keep all fields concise and useful for image prompting.\n\n"
-            "Return compact minified JSON. Keep each text field under 160 characters.\n\n"
+            "Return compact minified JSON. Keep image_prompt under 360 characters and other text fields under 160 characters.\n\n"
             "Input JSON:\n"
             f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
         )
@@ -2881,6 +3626,7 @@ class AudioStoryModeController(QtCore.QObject):
             location_entry = dict((story_bible.get("locations", {}) or {}).get(location_id) or {})
             location_label = str(location_entry.get("label", "") or "").strip()
         scene_focus = str(llm_scene.get("scene_focus") or llm_scene.get("summary") or "").strip()
+        image_prompt = str(llm_scene.get("image_prompt") or llm_scene.get("prompt") or "").strip()
         key_action = str(llm_scene.get("key_action") or llm_scene.get("action") or scene_focus or chunk.get("text", "") or "").strip()
         summary = str(llm_scene.get("summary") or scene_focus or key_action or "").strip()
         scene_entry = {
@@ -2903,6 +3649,7 @@ class AudioStoryModeController(QtCore.QObject):
             "transition_reasons": ["llm_new_scene"] if requested_new_scene or not previous_scene else ["llm_continuation"],
             "analysis_source": "llm",
             "llm_scene_focus": scene_focus,
+            "llm_image_prompt": _audio_story_truncate(image_prompt, 520),
             "llm_environment": str(llm_scene.get("environment", "") or "").strip(),
             "llm_style": str(llm_scene.get("style", "") or llm_scene.get("style_anchor", "") or "").strip(),
             "llm_world": str(llm_scene.get("world", "") or llm_scene.get("world_anchor", "") or "").strip(),
@@ -3284,7 +4031,11 @@ class AudioStoryModeController(QtCore.QObject):
                 props.append(f"{label}: {anchor_text}".strip(": ").strip())
         scene_id = str(scene_entry.get("scene_id", "") or "").strip()
         anchor_override = str(dict(self.scene_overrides.get("scene_anchor_overrides", {}) or {}).get(scene_id, "") or "").strip()
-        action = _audio_story_truncate(anchor_override or str(scene_entry.get("llm_scene_focus", "") or scene_entry.get("key_action", "") or "").strip(), 320)
+        llm_image_prompt = str(scene_entry.get("llm_image_prompt", "") or "").strip()
+        action = _audio_story_truncate(
+            anchor_override or llm_image_prompt or str(scene_entry.get("llm_scene_focus", "") or scene_entry.get("key_action", "") or "").strip(),
+            520 if llm_image_prompt and not anchor_override else 320,
+        )
         environment = str(scene_entry.get("llm_environment", "") or "").strip()
         camera = str(scene_entry.get("camera", "") or "").strip()
         continuity = self._build_continuity_block(scene_entry, story_bible, previous_scene=previous_scene)
@@ -3305,7 +4056,7 @@ class AudioStoryModeController(QtCore.QObject):
             avoid_bits.insert(0, str(scene_entry.get("llm_avoid", "") or "").strip())
         blocks = [
             "Story illustration.",
-            f"Scene focus: {action}" if action else "",
+            f"Image prompt: {action}" if llm_image_prompt and not anchor_override else f"Scene focus: {action}" if action else "",
             f"Shot: {camera}" if camera else "",
             f"Characters: {_audio_story_truncate(character_text, block_limits['characters'])}" if character_text else "",
             f"Location: {_audio_story_truncate(location_text, block_limits['location'])}" if location_text else "",
@@ -3658,6 +4409,27 @@ class AudioStoryModeController(QtCore.QObject):
             self._apply_live_prompt_changes()
             return True
 
+    def _schedule_story_payload_rebuild(self, *, status_text: str = "Updating audio story timing..."):
+        if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
+            return False
+        self._pending_story_rebuild_status_text = str(status_text or "Updating audio story timing...").strip()
+        self._set_status(self._pending_story_rebuild_status_text)
+        try:
+            self._story_rebuild_timer.start()
+            return True
+        except Exception:
+            self._flush_scheduled_story_payload_rebuild()
+            return True
+
+    def _flush_scheduled_story_payload_rebuild(self):
+        if not self._raw_transcript_segments or self._last_transcription_audio_duration <= 0.0:
+            return
+        status_text = str(self._pending_story_rebuild_status_text or "Updating audio story timing...").strip()
+        if status_text:
+            self._set_status(status_text)
+        self._rebuild_story_payload_from_cached_segments()
+        self._pending_story_rebuild_status_text = ""
+
     def _flush_scheduled_visual_refresh(self):
         if not self.transcript_chunks:
             return
@@ -3710,29 +4482,40 @@ class AudioStoryModeController(QtCore.QObject):
         label = getattr(self, "audio_story_transcribe_seconds_value_label", None)
         if label is not None:
             label.setText(self._format_seconds(self._stored_transcribe_seconds))
+        self._sync_audio_story_cost_profile_controls()
         if self._raw_transcript_segments:
-            self._rebuild_story_payload_from_cached_segments()
+            self._schedule_story_payload_rebuild(status_text="Updating transcript windows...")
 
     def _on_image_frequency_changed(self, value: int):
-        maximum = self._image_frequency_slider_maximum()
-        self._stored_image_frequency_seconds = max(1, min(maximum, int(value or 1)))
+        self._stored_image_frequency_seconds = self._normalize_image_frequency_seconds(value)
         label = getattr(self, "audio_story_image_frequency_value_label", None)
         if label is not None:
             label.setText(self._format_slider_seconds(self._stored_image_frequency_seconds))
+        self._sync_audio_story_cost_profile_controls()
         if self._raw_transcript_segments:
-            self._rebuild_story_payload_from_cached_segments()
+            self._schedule_story_payload_rebuild(status_text="Updating image timing windows...")
+
+    def _on_image_timing_mode_changed(self, _index: int):
+        combo = getattr(self, "audio_story_image_timing_combo", None)
+        if combo is not None:
+            self._stored_image_timing_mode = self._normalize_image_timing_mode(combo.currentData() or combo.currentText())
+        self._sync_audio_story_cost_profile_controls()
+        if self._raw_transcript_segments:
+            self._schedule_story_payload_rebuild(status_text="Updating image timing mode...")
 
     def _on_continuity_strength_changed(self, value: int):
         self._stored_continuity_strength = self._normalize_continuity_strength(value)
         label = getattr(self, "audio_story_continuity_value_label", None)
         if label is not None:
             label.setText(f"{int(round(self._stored_continuity_strength * 100.0))}%")
+        self._sync_audio_story_cost_profile_controls()
         if self._raw_transcript_segments:
             self._schedule_visual_refresh()
 
     def _on_generate_ahead_frames_changed(self, value: int):
         self._stored_generate_ahead_frames = max(0, int(value or 0))
         self._sync_generate_ahead_slider()
+        self._sync_audio_story_cost_profile_controls()
         if self.transcript_chunks:
             self._restart_visual_generation_from_position(self._player_position_seconds())
 
@@ -3768,6 +4551,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _on_story_master_prompt_toggled(self, checked: bool):
         self._stored_story_master_prompt_enabled = bool(checked)
+        self._sync_audio_story_cost_profile_controls()
         if self.transcript_chunks:
             self._schedule_visual_refresh()
         else:
@@ -3780,6 +4564,7 @@ class AudioStoryModeController(QtCore.QObject):
             value = str(combo.currentData() or combo.currentText() or "").strip().lower()
             if value in {mode for mode, _label in _audio_story_master_prompt_modes()}:
                 self._stored_story_master_prompt_mode = value
+        self._sync_audio_story_cost_profile_controls()
         if self.transcript_chunks and self._stored_story_master_prompt_enabled:
             self._schedule_visual_refresh()
         else:
@@ -3788,11 +4573,42 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _on_llm_story_analysis_toggled(self, checked: bool):
         self._stored_use_llm_story_analysis = bool(checked)
+        self._sync_audio_story_cost_profile_controls()
         if self._raw_transcript_segments:
             self._start_story_payload_rebuild_job(
-                status_text="Analyzing story with the current Chat Provider..." if self._stored_use_llm_story_analysis else "Rebuilding audio story analysis..."
+                status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}..." if self._stored_use_llm_story_analysis else "Rebuilding audio story analysis..."
             )
         self._refresh_controls()
+
+    def _on_story_analysis_provider_mode_changed(self, _index: int):
+        combo = getattr(self, "audio_story_analysis_provider_combo", None)
+        if combo is not None:
+            self._stored_story_analysis_provider_mode = self._normalize_story_analysis_provider_mode(combo.currentData() or combo.currentText())
+        self._sync_story_analysis_provider_controls()
+        self._stored_story_analysis_model = ""
+        self._sync_story_analysis_model_controls()
+        self._sync_audio_story_cost_profile_controls()
+        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
+            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
+        self._refresh_controls()
+
+    def _on_story_analysis_model_changed(self, _index: int):
+        combo = getattr(self, "audio_story_analysis_model_combo", None)
+        if combo is not None:
+            self._stored_story_analysis_model = self._normalize_story_analysis_model(combo.currentData() or combo.currentText())
+        self._sync_audio_story_cost_profile_controls()
+        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
+            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
+
+    def _on_story_analysis_model_edit_finished(self):
+        combo = getattr(self, "audio_story_analysis_model_combo", None)
+        if combo is None:
+            return
+        self._stored_story_analysis_model = self._normalize_story_analysis_model(combo.currentText())
+        self._sync_story_analysis_model_controls()
+        self._sync_audio_story_cost_profile_controls()
+        if self._stored_use_llm_story_analysis and self._raw_transcript_segments:
+            self._start_story_payload_rebuild_job(status_text=f"Analyzing story with {self._story_analysis_provider_status_label()}...")
 
     def _on_prompt_block_limit_changed(self, limit_key: str, value: int):
         key = str(limit_key or "").strip().lower()
@@ -3801,12 +4617,14 @@ class AudioStoryModeController(QtCore.QObject):
         limits = self._prompt_block_limits()
         limits[key] = max(40, min(1600, int(value or _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS[key])))
         self._stored_prompt_block_limits = self._normalize_prompt_block_limits(limits)
+        self._sync_audio_story_cost_profile_controls()
         if self.transcript_chunks:
             self._schedule_visual_refresh()
 
     def _on_prompt_safety_cap_changed(self, value: int):
         self._stored_prompt_safety_cap = self._normalize_prompt_safety_cap(value)
         self._sync_prompt_safety_cap_control()
+        self._sync_audio_story_cost_profile_controls()
         if self.transcript_chunks:
             self._schedule_visual_refresh()
 
@@ -4216,6 +5034,10 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_master_prompt_mode_combo.setEnabled(bool(has_transcript and self._stored_story_master_prompt_enabled))
         if hasattr(self, "audio_story_llm_analysis_checkbox"):
             self.audio_story_llm_analysis_checkbox.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_analysis_provider_combo"):
+            self.audio_story_analysis_provider_combo.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_analysis_model_combo"):
+            self.audio_story_analysis_model_combo.setEnabled(has_audio_path and not is_playing and not is_paused)
         for spin in dict(getattr(self, "audio_story_prompt_limit_spins", {}) or {}).values():
             spin.setEnabled(bool(has_transcript))
         for button in dict(getattr(self, "audio_story_style_buttons", {}) or {}).values():
