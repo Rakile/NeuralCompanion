@@ -4810,7 +4810,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
             <attribute name="title">
              <string>Audio Story Mode</string>
             </attribute>
-            <layout class="QVBoxLayout" name="audioStoryModeLayout" stretch="0,0,0,1">
+            <layout class="QVBoxLayout" name="audioStoryModeLayout" stretch="0,0,0,0,1">
              <item>
               <widget class="QGroupBox" name="audio_story_source_box">
                <property name="title">
@@ -4862,16 +4862,55 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                    </widget>
                   </item>
                   <item row="1" column="0">
+                   <widget class="QLabel" name="audio_story_precision_label">
+                    <property name="text">
+                     <string>Precision</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QComboBox" name="audio_story_cost_profile_combo">
+                    <property name="toolTip">
+                     <string>Overall cost/quality preset. Economy makes fewer image requests; Detailed and Cinematic favor scene-change timing, richer prompts, and stronger story analysis.</string>
+                    </property>
+                    <item>
+                     <property name="text">
+                      <string>Economy</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Balanced</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Detailed</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Cinematic</string>
+                     </property>
+                    </item>
+                    <item>
+                     <property name="text">
+                      <string>Custom</string>
+                     </property>
+                    </item>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
                    <widget class="QLabel" name="transcribe_seconds_label">
                     <property name="text">
                      <string>Transcribe Seconds</string>
                     </property>
                    </widget>
                   </item>
-                  <item row="1" column="1">
+                  <item row="2" column="1">
                    <widget class="QSlider" name="transcribe_seconds_slider">
                     <property name="toolTip">
-                     <string>Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze.</string>
+                     <string>Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze; live runtime rebuilds story windows after a short debounce.</string>
                     </property>
                     <property name="orientation">
                      <enum>Qt::Horizontal</enum>
@@ -5075,18 +5114,21 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                    </widget>
                   </item>
                   <item row="3" column="1">
-                   <widget class="QSpinBox" name="generate_ahead_spin">
+                   <widget class="QSlider" name="audio_story_generate_ahead_slider">
                     <property name="toolTip">
                      <string>How many future story images to prepare ahead of playback. Higher values reduce waiting but may spend image API calls earlier.</string>
                     </property>
                     <property name="minimum">
-                     <number>1</number>
+                     <number>0</number>
                     </property>
                     <property name="maximum">
                      <number>12</number>
                     </property>
                     <property name="value">
                      <number>3</number>
+                    </property>
+                    <property name="orientation">
+                     <enum>Qt::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
@@ -5217,6 +5259,16 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </widget>
                 </item>
                 <item>
+                 <widget class="QCheckBox" name="audio_story_llm_analysis_checkbox">
+                  <property name="toolTip">
+                   <string>Use an LLM to extract story bible, character/location anchors, scene boundaries, and ready image-prompt fragments. Use Local LM Studio to keep text analysis local.</string>
+                  </property>
+                  <property name="text">
+                   <string>Use LLM Story Analysis</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
                  <layout class="QFormLayout" name="audioStoryAnalysisProviderForm">
                   <item row="0" column="0">
                    <widget class="QLabel" name="audio_story_analysis_provider_label">
@@ -5268,6 +5320,230 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                       <string>Auto</string>
                      </property>
                     </item>
+                   </widget>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="audio_story_prompt_blocks_label">
+                    <property name="text">
+                     <string>Prompt Blocks</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <layout class="QGridLayout" name="audioStoryPromptBlocksGrid">
+                    <item row="0" column="0">
+                     <widget class="QLabel" name="audio_story_prompt_characters_label">
+                      <property name="text">
+                       <string>Characters</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="0" column="1">
+                     <widget class="QSpinBox" name="audio_story_prompt_characters_spin">
+                      <property name="toolTip">
+                       <string>Maximum characters allowed for the character prompt block.</string>
+                      </property>
+                      <property name="minimum">
+                       <number>40</number>
+                      </property>
+                      <property name="maximum">
+                       <number>1600</number>
+                      </property>
+                      <property name="singleStep">
+                       <number>20</number>
+                      </property>
+                      <property name="value">
+                       <number>420</number>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="0" column="2">
+                     <widget class="QLabel" name="audio_story_prompt_location_label">
+                      <property name="text">
+                       <string>Location</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="0" column="3">
+                     <widget class="QSpinBox" name="audio_story_prompt_location_spin">
+                      <property name="toolTip">
+                       <string>Maximum characters allowed for the location prompt block.</string>
+                      </property>
+                      <property name="minimum">
+                       <number>40</number>
+                      </property>
+                      <property name="maximum">
+                       <number>1600</number>
+                      </property>
+                      <property name="singleStep">
+                       <number>20</number>
+                      </property>
+                      <property name="value">
+                       <number>320</number>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="1" column="0">
+                     <widget class="QLabel" name="audio_story_prompt_style_label">
+                      <property name="text">
+                       <string>Style</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="1" column="1">
+                     <widget class="QSpinBox" name="audio_story_prompt_style_spin">
+                      <property name="toolTip">
+                       <string>Maximum characters allowed for the style prompt block.</string>
+                      </property>
+                      <property name="minimum">
+                       <number>40</number>
+                      </property>
+                      <property name="maximum">
+                       <number>1600</number>
+                      </property>
+                      <property name="singleStep">
+                       <number>20</number>
+                      </property>
+                      <property name="value">
+                       <number>300</number>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="1" column="2">
+                     <widget class="QLabel" name="audio_story_prompt_continuity_label">
+                      <property name="text">
+                       <string>Continuity</string>
+                      </property>
+                     </widget>
+                    </item>
+                    <item row="1" column="3">
+                     <widget class="QSpinBox" name="audio_story_prompt_continuity_spin">
+                      <property name="toolTip">
+                       <string>Maximum characters allowed for the continuity prompt block.</string>
+                      </property>
+                      <property name="minimum">
+                       <number>40</number>
+                      </property>
+                      <property name="maximum">
+                       <number>1600</number>
+                      </property>
+                      <property name="singleStep">
+                       <number>20</number>
+                      </property>
+                      <property name="value">
+                       <number>360</number>
+                      </property>
+                     </widget>
+                    </item>
+                   </layout>
+                  </item>
+                  <item row="3" column="0">
+                   <widget class="QLabel" name="audio_story_prompt_cap_label">
+                    <property name="text">
+                     <string>Prompt Cap</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="3" column="1">
+                   <widget class="QSpinBox" name="audio_story_prompt_safety_cap_spin">
+                    <property name="toolTip">
+                     <string>Hard cap for the final prompt sent to the image provider. Lower caps reduce payload size; higher caps preserve more continuity and scene detail.</string>
+                    </property>
+                    <property name="minimum">
+                     <number>400</number>
+                    </property>
+                    <property name="maximum">
+                     <number>6000</number>
+                    </property>
+                    <property name="singleStep">
+                     <number>100</number>
+                    </property>
+                    <property name="value">
+                     <number>1800</number>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+               </layout>
+              </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="audio_story_scene_overrides_box">
+               <property name="title">
+                <string>Scene Overrides</string>
+               </property>
+               <layout class="QVBoxLayout" name="audioStorySceneOverridesLayout">
+                <item>
+                 <widget class="QLabel" name="audio_story_scene_status_label">
+                  <property name="text">
+                   <string>No scene selected yet.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="audioStorySceneOverrideButtons">
+                  <item>
+                   <widget class="QPushButton" name="audio_story_pin_location_button">
+                    <property name="toolTip">
+                     <string>Pin the current detected location as a continuity anchor for later images.</string>
+                    </property>
+                    <property name="text">
+                     <string>Pin Location</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_force_fresh_button">
+                    <property name="toolTip">
+                     <string>Force this image window to start as a new scene.</string>
+                    </property>
+                    <property name="text">
+                     <string>Force Fresh Scene</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_force_continuation_button">
+                    <property name="toolTip">
+                     <string>Force this image window to continue the previous scene.</string>
+                    </property>
+                    <property name="text">
+                     <string>Force Continuation</string>
+                    </property>
+                   </widget>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <layout class="QHBoxLayout" name="audioStorySceneAnchorRow">
+                  <item>
+                   <widget class="QPlainTextEdit" name="audio_story_scene_anchor_edit">
+                    <property name="minimumSize">
+                     <size>
+                      <width>0</width>
+                      <height>72</height>
+                     </size>
+                    </property>
+                    <property name="toolTip">
+                     <string>Override the selected scene visual anchor text used for future prompts.</string>
+                    </property>
+                    <property name="placeholderText">
+                     <string>Edit the extracted anchor text for the current scene...</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
+                    <property name="toolTip">
+                     <string>Apply this anchor override and refresh matching prompts/images for the selected scene.</string>
+                    </property>
+                    <property name="text">
+                     <string>Apply Anchor</string>
+                    </property>
                    </widget>
                   </item>
                  </layout>

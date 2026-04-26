@@ -13,7 +13,7 @@ from collections import Counter
 from contextlib import ExitStack
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 try:
     from PySide6 import QtMultimedia
@@ -602,12 +602,278 @@ class AudioStoryModeController(QtCore.QObject):
         self._story_rebuild_timer.setInterval(420)
         self._story_rebuild_timer.timeout.connect(self._flush_scheduled_story_payload_rebuild)
         self._pending_story_rebuild_status_text = ""
+        self._theme_refresh_timer = QtCore.QTimer(self)
+        self._theme_refresh_timer.setSingleShot(True)
+        self._theme_refresh_timer.setInterval(0)
+        self._theme_refresh_timer.timeout.connect(self.apply_theme_palette)
         self.transcriptionFinished.connect(self._on_transcription_finished)
         self.transcriptionFailed.connect(self._on_transcription_failed)
         self.ttsRenderFinished.connect(self._on_tts_render_finished)
         self.ttsRenderFailed.connect(self._on_tts_render_failed)
         self.imageReady.connect(self._on_image_ready)
         self.imageFailed.connect(self._on_image_failed)
+
+    def eventFilter(self, watched, event):
+        root = getattr(self, "audio_story_tab_widget", None)
+        if root is not None and watched is root:
+            event_type = event.type() if event is not None else None
+            qevent_type = getattr(QtCore.QEvent, "Type", QtCore.QEvent)
+            theme_event_types = {
+                getattr(qevent_type, "ApplicationPaletteChange", None),
+                getattr(qevent_type, "PaletteChange", None),
+                getattr(qevent_type, "Polish", None),
+                getattr(qevent_type, "Show", None),
+                getattr(qevent_type, "StyleChange", None),
+            }
+            if event_type in theme_event_types:
+                self._schedule_theme_palette_refresh()
+        return super().eventFilter(watched, event)
+
+    def _schedule_theme_palette_refresh(self):
+        timer = getattr(self, "_theme_refresh_timer", None)
+        if timer is not None and not timer.isActive():
+            timer.start()
+
+    def _audio_story_color_luminance(self, color):
+        if not isinstance(color, QtGui.QColor):
+            color = QtGui.QColor(str(color or "#000000"))
+        if not color.isValid():
+            color = QtGui.QColor("#000000")
+        red = color.redF()
+        green = color.greenF()
+        blue = color.blueF()
+        return (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+
+    def _audio_story_contrast_text(self, color, *, light="#111827", dark="#ffffff"):
+        return light if self._audio_story_color_luminance(QtGui.QColor(str(color))) > 0.56 else dark
+
+    def _audio_story_theme_colors(self, palette_data=None):
+        if isinstance(palette_data, dict):
+            panel_color = QtGui.QColor(
+                str(
+                    palette_data.get(
+                        "panel_bg",
+                        palette_data.get("window_bg", palette_data.get("field_bg", "#101923")),
+                    )
+                    or "#101923"
+                )
+            )
+            field_value = str(palette_data.get("field_bg", palette_data.get("base", "#101923")) or "#101923")
+            is_dark = self._audio_story_color_luminance(panel_color) < 0.48
+            if is_dark:
+                return {
+                    "text": str(palette_data.get("text_strong", palette_data.get("text", "#f5f8fc")) or "#f5f8fc"),
+                    "muted": str(palette_data.get("text", "#c2cedc") or "#c2cedc"),
+                    "subtle": str(palette_data.get("text_muted", "#93a7bc") or "#93a7bc"),
+                    "field_bg": field_value,
+                    "menu_bg": str(palette_data.get("menu_bg", palette_data.get("field_bg", "#162232")) or "#162232"),
+                    "button_bg": str(palette_data.get("button_bg", "#22344c") or "#22344c"),
+                    "button_hover": str(palette_data.get("button_hover", "#2a4160") or "#2a4160"),
+                    "button_pressed": str(palette_data.get("button_pressed", "#1d2e43") or "#1d2e43"),
+                    "disabled_bg": str(palette_data.get("disabled_bg", "#17212e") or "#17212e"),
+                    "disabled_text": str(palette_data.get("text_disabled", palette_data.get("text_muted", "#7f91a7")) or "#7f91a7"),
+                    "border": str(palette_data.get("button_border", palette_data.get("surface_border", "#35506c")) or "#35506c"),
+                    "accent": str(palette_data.get("accent_bg", "#4d8dff") or "#4d8dff"),
+                    "accent_border": str(palette_data.get("accent_border", palette_data.get("button_border", "#6a95ff")) or "#6a95ff"),
+                    "accent_text": "#ffffff",
+                }
+            return {
+                "text": str(palette_data.get("text_strong", palette_data.get("text", "#15110c")) or "#15110c"),
+                "muted": str(palette_data.get("text", "#4e4435") or "#4e4435"),
+                "subtle": str(palette_data.get("text_muted", "#665942") or "#665942"),
+                "field_bg": field_value,
+                "menu_bg": str(palette_data.get("menu_bg", palette_data.get("field_bg", "#f3e7d6")) or "#f3e7d6"),
+                "button_bg": str(palette_data.get("button_bg", "#eadcc8") or "#eadcc8"),
+                "button_hover": str(palette_data.get("button_hover", "#dfcfb9") or "#dfcfb9"),
+                "button_pressed": str(palette_data.get("button_pressed", "#d2bea2") or "#d2bea2"),
+                "disabled_bg": str(palette_data.get("disabled_bg", "#d8ccb8") or "#d8ccb8"),
+                "disabled_text": str(palette_data.get("text_disabled", palette_data.get("text_muted", "#7d705e")) or "#7d705e"),
+                "border": str(palette_data.get("button_border", palette_data.get("surface_border", "#a89372")) or "#a89372"),
+                "accent": str(palette_data.get("accent_bg", "#806847") or "#806847"),
+                "accent_border": str(palette_data.get("accent_border", palette_data.get("button_border", "#a18a66")) or "#a18a66"),
+                "accent_text": "#ffffff",
+            }
+        root = getattr(self, "audio_story_tab_widget", None)
+        palette = root.palette() if root is not None else QtWidgets.QApplication.palette()
+        window_color = palette.color(QtGui.QPalette.Window)
+        base_color = palette.color(QtGui.QPalette.Base)
+        is_dark = self._audio_story_color_luminance(window_color) < 0.48
+        if is_dark:
+            return {
+                "text": "#f5f8fc",
+                "muted": "#c2cedc",
+                "subtle": "#93a7bc",
+                "field_bg": base_color.name() if self._audio_story_color_luminance(base_color) < 0.5 else "#101923",
+                "menu_bg": "#162232",
+                "button_bg": "#22344c",
+                "button_hover": "#2a4160",
+                "button_pressed": "#1d2e43",
+                "disabled_bg": "#17212e",
+                "disabled_text": "#7f91a7",
+                "border": "#35506c",
+                "accent": "#4d8dff",
+                "accent_border": "#6a95ff",
+                "accent_text": "#ffffff",
+            }
+        return {
+            "text": "#15110c",
+            "muted": "#4e4435",
+            "subtle": "#665942",
+            "field_bg": "#fbf4ea",
+            "menu_bg": "#f3e7d6",
+            "button_bg": "#eadcc8",
+            "button_hover": "#dfcfb9",
+            "button_pressed": "#d2bea2",
+            "disabled_bg": "#d8ccb8",
+            "disabled_text": "#7d705e",
+            "border": "#a89372",
+            "accent": "#806847",
+            "accent_border": "#a18a66",
+            "accent_text": "#ffffff",
+        }
+
+    def apply_theme_palette(self, palette_data=None):
+        root = getattr(self, "audio_story_tab_widget", None)
+        if root is None:
+            return
+        colors = self._audio_story_theme_colors(palette_data)
+        text = colors["text"]
+        muted = colors["muted"]
+        subtle = colors["subtle"]
+        field_bg = colors["field_bg"]
+        menu_bg = colors["menu_bg"]
+        button_bg = colors["button_bg"]
+        button_hover = colors["button_hover"]
+        button_pressed = colors["button_pressed"]
+        disabled_bg = colors["disabled_bg"]
+        disabled_text = colors["disabled_text"]
+        border = colors["border"]
+        accent = colors["accent"]
+        accent_border = colors["accent_border"]
+        accent_text = colors["accent_text"]
+        button_text = self._audio_story_contrast_text(button_bg, light=text, dark="#ffffff")
+        input_style = (
+            "background: {field_bg}; color: {text}; border: 1px solid {border}; "
+            "border-radius: 8px; padding: 4px 8px; selection-background-color: {accent}; "
+            "selection-color: {accent_text};"
+        ).format(field_bg=field_bg, text=text, border=border, accent=accent, accent_text=accent_text)
+        disabled_input_style = (
+            "background: {disabled_bg}; color: {disabled_text}; border: 1px solid {border};"
+        ).format(disabled_bg=disabled_bg, disabled_text=disabled_text, border=border)
+        combo_style = (
+            "QComboBox {{ {input_style} min-height: 24px; }}"
+            "QComboBox:disabled {{ {disabled_input_style} }}"
+            "QComboBox::drop-down {{ width: 28px; border-left: 1px solid {border}; border-top-right-radius: 8px; border-bottom-right-radius: 8px; background: {button_bg}; }}"
+            "QComboBox::down-arrow {{ width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 7px solid {button_text}; margin-right: 8px; }}"
+            "QComboBox QAbstractItemView {{ background: {menu_bg}; color: {text}; border: 1px solid {border}; outline: 0; selection-background-color: {accent}; selection-color: {accent_text}; }}"
+            "QComboBox QAbstractItemView::item {{ min-height: 24px; padding: 4px 8px; color: {text}; background: {menu_bg}; }}"
+            "QComboBox QAbstractItemView::item:selected {{ background: {accent}; color: {accent_text}; }}"
+        ).format(
+            input_style=input_style,
+            disabled_input_style=disabled_input_style,
+            border=border,
+            button_bg=button_bg,
+            button_text=button_text,
+            menu_bg=menu_bg,
+            text=text,
+            accent=accent,
+            accent_text=accent_text,
+        )
+        line_style = (
+            "QLineEdit {{ {input_style} min-height: 24px; }}"
+            "QLineEdit:disabled {{ {disabled_input_style} }}"
+        ).format(input_style=input_style, disabled_input_style=disabled_input_style)
+        plain_style = (
+            "QPlainTextEdit {{ {input_style} }}"
+            "QPlainTextEdit:disabled {{ {disabled_input_style} }}"
+        ).format(input_style=input_style, disabled_input_style=disabled_input_style)
+        spin_style = (
+            "QSpinBox {{ {input_style} min-height: 24px; }}"
+            "QSpinBox:disabled {{ {disabled_input_style} }}"
+            "QSpinBox::up-button, QSpinBox::down-button {{ background: {button_bg}; border-left: 1px solid {border}; width: 18px; }}"
+        ).format(input_style=input_style, disabled_input_style=disabled_input_style, button_bg=button_bg, border=border)
+        button_style = (
+            "QPushButton {{ padding: 6px 12px; min-height: 30px; border-radius: 10px; "
+            "background: {button_bg}; border: 1px solid {border}; color: {button_text}; font-weight: 600; }}"
+            "QPushButton:hover {{ background: {button_hover}; border: 1px solid {accent_border}; }}"
+            "QPushButton:pressed {{ background: {button_pressed}; }}"
+            "QPushButton:checked {{ background: {accent}; color: {accent_text}; border: 1px solid {accent_border}; }}"
+            "QPushButton:disabled {{ background: {disabled_bg}; color: {disabled_text}; border: 1px solid {border}; }}"
+        ).format(
+            button_bg=button_bg,
+            border=border,
+            button_text=button_text,
+            button_hover=button_hover,
+            accent_border=accent_border,
+            button_pressed=button_pressed,
+            accent=accent,
+            accent_text=accent_text,
+            disabled_bg=disabled_bg,
+            disabled_text=disabled_text,
+        )
+        checkbox_style = (
+            "QCheckBox {{ color: {text}; spacing: 6px; }}"
+            "QCheckBox:disabled {{ color: {disabled_text}; }}"
+            "QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 4px; border: 1px solid {border}; background: {field_bg}; }}"
+            "QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent_border}; }}"
+        ).format(text=text, disabled_text=disabled_text, border=border, field_bg=field_bg, accent=accent, accent_border=accent_border)
+        try:
+            for label in root.findChildren(QtWidgets.QLabel):
+                existing = str(label.styleSheet() or "")
+                if "font-weight: 700" in existing:
+                    label.setStyleSheet(f"font-size: 13px; font-weight: 700; color: {text};")
+                elif "font-size: 11px" in existing:
+                    label.setStyleSheet(f"color: {subtle}; font-size: 11px;")
+                elif label in {
+                    getattr(self, "audio_story_transcribe_seconds_value_label", None),
+                    getattr(self, "audio_story_image_frequency_value_label", None),
+                    getattr(self, "audio_story_continuity_value_label", None),
+                    getattr(self, "audio_story_generate_ahead_value_label", None),
+                    getattr(self, "audio_story_time_label", None),
+                    getattr(self, "audio_story_status_label", None),
+                    getattr(self, "audio_story_summary_label", None),
+                }:
+                    label.setStyleSheet(f"color: {muted};")
+                else:
+                    label.setStyleSheet(f"color: {text};")
+            for checkbox in root.findChildren(QtWidgets.QCheckBox):
+                checkbox.setStyleSheet(checkbox_style)
+            for button in root.findChildren(QtWidgets.QPushButton):
+                button.setStyleSheet(button_style)
+            for edit in root.findChildren(QtWidgets.QLineEdit):
+                edit.setStyleSheet(line_style)
+                edit.setPalette(root.palette())
+            for plain_edit in root.findChildren(QtWidgets.QPlainTextEdit):
+                plain_edit.setStyleSheet(plain_style)
+                plain_edit.setPalette(root.palette())
+            for spin in root.findChildren(QtWidgets.QSpinBox):
+                spin.setStyleSheet(spin_style)
+                spin.setPalette(root.palette())
+            for combo in root.findChildren(QtWidgets.QComboBox):
+                combo.setStyleSheet(combo_style)
+                combo.setPalette(root.palette())
+                line_edit = combo.lineEdit() if combo.isEditable() else None
+                if line_edit is not None:
+                    line_edit.setStyleSheet(line_style)
+                    line_edit.setPalette(root.palette())
+                view = combo.view()
+                if view is not None:
+                    view.setStyleSheet(
+                        "QListView {{ background: {menu_bg}; color: {text}; border: 1px solid {border}; outline: 0; }}"
+                        "QListView::item {{ background: {menu_bg}; color: {text}; min-height: 24px; padding: 4px 8px; }}"
+                        "QListView::item:selected {{ background: {accent}; color: {accent_text}; }}"
+                    .format(menu_bg=menu_bg, text=text, border=border, accent=accent, accent_text=accent_text))
+                    view.setPalette(root.palette())
+                model = combo.model()
+                if model is not None:
+                    foreground = QtGui.QBrush(QtGui.QColor(text))
+                    background = QtGui.QBrush(QtGui.QColor(menu_bg))
+                    for row in range(int(combo.count())):
+                        index = model.index(row, 0)
+                        model.setData(index, foreground, QtCore.Qt.ForegroundRole)
+                        model.setData(index, background, QtCore.Qt.BackgroundRole)
+        except RuntimeError:
+            return
 
     def build_tab(self):
         existing = self.audio_story_tab_widget
@@ -633,6 +899,7 @@ class AudioStoryModeController(QtCore.QObject):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setMinimumSize(0, 0)
+        scroll.installEventFilter(self)
 
         container = QtWidgets.QWidget()
         scroll.setWidget(container)
@@ -1087,6 +1354,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_audio_story_cost_profile_controls()
         self._refresh_audio_story_settings_presets()
         self._refresh_controls()
+        self.apply_theme_palette()
         return scroll
 
     def _reset_story_consistency_state(self):
@@ -4740,6 +5008,7 @@ class AudioStoryModeController(QtCore.QObject):
             anchor_edit.blockSignals(True)
             anchor_edit.setPlainText(anchor_text)
             anchor_edit.blockSignals(False)
+        self.apply_theme_palette()
 
     def _scene_override_refresh_after_change(self, *, refresh_visuals: bool = True):
         if not self.transcript_chunks:

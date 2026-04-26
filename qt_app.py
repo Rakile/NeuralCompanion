@@ -7760,8 +7760,29 @@ def _apply_readable_input_palettes(root, palette):
     text = QtGui.QColor(str(palette.get("text_strong", palette.get("text", "#f2f5f9")) or "#f2f5f9"))
     soft_text = QtGui.QColor(str(palette.get("text", "#e5e9f0") or "#e5e9f0"))
     disabled_text = QtGui.QColor(str(palette.get("text_muted", palette.get("text_disabled", "#b7c1ce")) or "#b7c1ce"))
+    field_bg = QtGui.QColor(str(palette.get("field_bg", "#0f141b") or "#0f141b"))
+    menu_bg = QtGui.QColor(str(palette.get("menu_bg", palette.get("field_bg", "#16202b")) or "#16202b"))
+    border = str(palette.get("button_border", palette.get("surface_border", "#324b69")) or "#324b69")
+    hover = str(palette.get("button_hover", palette.get("tab_selected_bg", "#223247")) or "#223247")
     highlight = QtGui.QColor(str(palette.get("accent_bg", "#4d8dff") or "#4d8dff"))
     highlighted_text = QtGui.QColor("#ffffff")
+    popup_stylesheet = (
+        "QListView { "
+        f"background: {menu_bg.name()}; color: {text.name()}; "
+        f"selection-background-color: {highlight.name()}; selection-color: {highlighted_text.name()}; "
+        f"border: 1px solid {border}; outline: 0; "
+        "}"
+        "QListView::item { "
+        f"background: {menu_bg.name()}; color: {text.name()}; "
+        "min-height: 24px; padding: 4px 8px; "
+        "}"
+        "QListView::item:selected { "
+        f"background: {highlight.name()}; color: {highlighted_text.name()}; "
+        "}"
+        "QListView::item:hover { "
+        f"background: {hover}; color: {highlighted_text.name()}; "
+        "}"
+    )
     widgets = []
     try:
         widgets.extend(root.findChildren(QtWidgets.QComboBox))
@@ -7776,6 +7797,8 @@ def _apply_readable_input_palettes(root, palette):
                 pal.setColor(group, QtGui.QPalette.Text, text)
                 pal.setColor(group, QtGui.QPalette.WindowText, soft_text)
                 pal.setColor(group, QtGui.QPalette.ButtonText, text)
+                pal.setColor(group, QtGui.QPalette.Base, field_bg)
+                pal.setColor(group, QtGui.QPalette.Window, field_bg)
                 pal.setColor(group, QtGui.QPalette.Highlight, highlight)
                 pal.setColor(group, QtGui.QPalette.HighlightedText, highlighted_text)
                 if hasattr(QtGui.QPalette, "PlaceholderText"):
@@ -7786,9 +7809,20 @@ def _apply_readable_input_palettes(root, palette):
                 pal.setColor(QtGui.QPalette.Disabled, QtGui.QPalette.PlaceholderText, disabled_text)
             widget.setPalette(pal)
             if isinstance(widget, QtWidgets.QComboBox):
+                model = widget.model()
+                if model is not None:
+                    text_brush = QtGui.QBrush(text)
+                    bg_brush = QtGui.QBrush(menu_bg)
+                    for row in range(int(widget.count())):
+                        try:
+                            model.setData(model.index(row, 0), text_brush, QtCore.Qt.ForegroundRole)
+                            model.setData(model.index(row, 0), bg_brush, QtCore.Qt.BackgroundRole)
+                        except Exception:
+                            continue
                 view = widget.view()
                 if view is not None:
                     view.setPalette(pal)
+                    view.setStyleSheet(popup_stylesheet)
                 line_edit = widget.lineEdit() if widget.isEditable() else None
                 if line_edit is not None:
                     line_edit.setPalette(pal)
@@ -8271,6 +8305,13 @@ class NoWheelDoubleSpinBox(QtWidgets.QDoubleSpinBox):
 class NoWheelComboBox(QtWidgets.QComboBox):
     def wheelEvent(self, event):
         event.ignore()
+
+    def showPopup(self):
+        try:
+            _apply_readable_input_palettes(self.window(), _app_theme_palette())
+        except Exception:
+            pass
+        super().showPopup()
 
 
 class CollapsibleSection(QtWidgets.QWidget):
@@ -20685,6 +20726,12 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                     )
                 except Exception:
                     pass
+        audio_story_controller = self._audio_story_controller()
+        if audio_story_controller is not None and hasattr(audio_story_controller, "apply_theme_palette"):
+            try:
+                audio_story_controller.apply_theme_palette(palette)
+            except Exception:
+                pass
 
     def _refresh_frontend_theme_controls(self):
         active_preset = _normalize_app_theme_preset_id(
