@@ -147,7 +147,7 @@ QComboBox:disabled QLineEdit,
 QAbstractSpinBox:disabled QLineEdit {
     color: #b7c1ce;
 }
-QLineEdit[readOnly="true"], QComboBox[editable="true"] QLineEdit[readOnly="true"] {
+QLineEdit[readOnly=&quot;true&quot;], QComboBox[editable=&quot;true&quot;] QLineEdit[readOnly=&quot;true&quot;] {
     color: #f2f5f9;
 }
 QLineEdit::placeholder, QComboBox QLineEdit::placeholder {
@@ -544,9 +544,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
         <property name="geometry">
          <rect>
           <x>0</x>
-          <y>0</y>
+          <y>-198</y>
           <width>890</width>
-          <height>1360</height>
+          <height>1422</height>
          </rect>
         </property>
         <property name="minimumSize">
@@ -558,7 +558,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
         <property name="maximumSize">
          <size>
           <width>16777215</width>
-          <height>1360</height>
+          <height>16777215</height>
          </size>
         </property>
         <layout class="QVBoxLayout" name="systemShapingLayout">
@@ -984,6 +984,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 <bool>true</bool>
                </property>
                <layout class="QFormLayout" name="chatRuntimeForm">
+                <property name="sizeConstraint">
+                 <enum>QLayout::SetDefaultConstraint</enum>
+                </property>
                 <property name="fieldGrowthPolicy">
                  <enum>QFormLayout::ExpandingFieldsGrow</enum>
                 </property>
@@ -1141,6 +1144,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                <layout class="QVBoxLayout" name="ttsRuntimeLayout">
                 <property name="spacing">
                  <number>10</number>
+                </property>
+                <property name="sizeConstraint">
+                 <enum>QLayout::SetDefaultConstraint</enum>
                 </property>
                 <item>
                  <layout class="QFormLayout" name="ttsBackendSelectorForm">
@@ -4919,12 +4925,12 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                  </layout>
                 </item>
-             <item>
-              <widget class="QPushButton" name="transcribe_audio_button">
-               <property name="toolTip">
-                <string>Run local Whisper transcription, then build story windows, scene metadata, and image prompts.</string>
-               </property>
-               <property name="text">
+                <item>
+                 <widget class="QPushButton" name="transcribe_audio_button">
+                  <property name="toolTip">
+                   <string>Run local Whisper transcription, then build story windows, scene metadata, and image prompts.</string>
+                  </property>
+                  <property name="text">
                    <string>Transcribe Audio</string>
                   </property>
                  </widget>
@@ -4992,7 +4998,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                  </layout>
                 </item>
-               <item>
+                <item>
                  <widget class="QSlider" name="audio_story_seek_slider">
                   <property name="toolTip">
                    <string>Scrub through the audio story timeline. The preview jumps to the image window for the selected time.</string>
@@ -5013,11 +5019,11 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item>
                    <widget class="QComboBox" name="audio_story_settings_preset_combo">
-                    <property name="editable">
-                     <bool>true</bool>
-                    </property>
                     <property name="toolTip">
                      <string>Choose or type an Audio Story settings preset name. Presets save timing, prompt, style, analysis provider/model, and playback settings.</string>
+                    </property>
+                    <property name="editable">
+                     <bool>true</bool>
                     </property>
                    </widget>
                   </item>
@@ -5309,11 +5315,11 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   </item>
                   <item row="1" column="1">
                    <widget class="QComboBox" name="audio_story_analysis_model_combo">
-                    <property name="editable">
-                     <bool>true</bool>
-                    </property>
                     <property name="toolTip">
                      <string>Auto uses the current runtime model for Current Chat Provider, or the first available LM Studio model for Local LM Studio. You can type a model id manually.</string>
+                    </property>
+                    <property name="editable">
+                     <bool>true</bool>
                     </property>
                     <item>
                      <property name="text">
@@ -5929,6 +5935,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
     <string>Reset Workspace Layout</string>
    </property>
   </action>
+  <zorder>SystemShapingDock</zorder>
  </widget>
  <resources/>
  <connections/>

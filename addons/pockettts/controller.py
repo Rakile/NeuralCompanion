@@ -155,10 +155,10 @@ class PocketTTSController:
         info.setWordWrap(True)
         card_layout.addWidget(info)
 
-        self._advanced_toggle = QtWidgets.QPushButton("Show Advanced PocketTTS Override")
-        self._advanced_toggle.setCheckable(True)
-        self._advanced_toggle.toggled.connect(self._toggle_advanced)
-        card_layout.addWidget(self._advanced_toggle)
+        #self._advanced_toggle = QtWidgets.QPushButton("Show Advanced PocketTTS Override")
+        #self._advanced_toggle.setCheckable(True)
+        #self._advanced_toggle.toggled.connect(self._toggle_advanced)
+        #card_layout.addWidget(self._advanced_toggle)
 
         self._advanced_group = QtWidgets.QGroupBox("Advanced PocketTTS Override")
         advanced_layout = QtWidgets.QVBoxLayout(self._advanced_group)
@@ -186,7 +186,7 @@ class PocketTTSController:
         bundled_button = QtWidgets.QPushButton("Use Bundled PocketTTS")
         bundled_button.clicked.connect(self._reset_to_default)
         advanced_layout.addWidget(bundled_button)
-        self._advanced_group.setVisible(False)
+        self._advanced_group.setVisible(True)
         card_layout.addWidget(self._advanced_group)
 
         note_text = "Shell preview: PocketTTS settings are local only. No subprocess, backend, or audio path is started."

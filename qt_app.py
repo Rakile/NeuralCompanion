@@ -126,6 +126,7 @@ WORKSPACE_VIEW_MIN_WIDTH = 890
 WORKSPACE_VIEW_MIN_HEIGHT = 780
 WORKSPACE_VIEW_MAX_HEIGHT = 1360
 WORKSPACE_WINDOW_MAX_HEIGHT = 1600
+WORKSPACE_DOCKED_VIEW_MIN_WIDTH = 360
 WORKSPACE_DOCKED_AUX_MIN_HEIGHT = 420
 WORKSPACE_INNER_MIN_WIDTH = 840
 WORKSPACE_INNER_MIN_HEIGHT = 700
@@ -2275,17 +2276,42 @@ def _ui_shell_text_line_count(widget):
     return len([line for line in str(text or "").splitlines() if line.strip()])
 
 
-def _apply_workspace_widget_bounds(widget, *, min_width=None, min_height=None, max_height=None):
+def _apply_workspace_widget_bounds(widget, *, min_width=None, min_height=None, max_height=None, allow_shrink=False):
     if widget is None:
         return
     try:
         if min_width is not None and hasattr(widget, "setMinimumWidth"):
-            widget.setMinimumWidth(max(int(min_width), int(getattr(widget, "minimumWidth", lambda: 0)() or 0)))
+            if allow_shrink:
+                widget.setMinimumWidth(max(0, int(min_width)))
+            else:
+                widget.setMinimumWidth(max(int(min_width), int(getattr(widget, "minimumWidth", lambda: 0)() or 0)))
         if min_height is not None and hasattr(widget, "setMinimumHeight"):
-            widget.setMinimumHeight(max(int(min_height), int(getattr(widget, "minimumHeight", lambda: 0)() or 0)))
+            if allow_shrink:
+                widget.setMinimumHeight(max(0, int(min_height)))
+            else:
+                widget.setMinimumHeight(max(int(min_height), int(getattr(widget, "minimumHeight", lambda: 0)() or 0)))
         if max_height is not None and hasattr(widget, "setMaximumHeight"):
             current_max = int(getattr(widget, "maximumHeight", lambda: 16777215)() or 16777215)
             widget.setMaximumHeight(int(max_height) if current_max <= 0 or current_max >= 16777215 else min(current_max, int(max_height)))
+    except Exception:
+        pass
+
+
+def _relax_docked_workspace_minimums(dock, *, min_width=WORKSPACE_DOCKED_VIEW_MIN_WIDTH):
+    """Keep docked panels movable by preventing oversized child minimums from forcing tabification."""
+    if dock is None:
+        return
+    try:
+        if hasattr(dock, "setMinimumWidth"):
+            dock.setMinimumWidth(max(0, int(min_width)))
+        content = dock.widget() if hasattr(dock, "widget") else None
+        if content is None:
+            return
+        if hasattr(content, "setMinimumWidth"):
+            content.setMinimumWidth(max(0, int(min_width)))
+        for child in content.findChildren(QtWidgets.QWidget):
+            if hasattr(child, "setMinimumWidth"):
+                child.setMinimumWidth(0)
     except Exception:
         pass
 
@@ -2315,20 +2341,23 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
         if dock is None or not isinstance(dock, _QtWidgets.QDockWidget):
             continue
         min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else docked_min_height
+        min_width = WORKSPACE_VIEW_MIN_WIDTH if dock.isFloating() else WORKSPACE_DOCKED_VIEW_MIN_WIDTH
         _apply_workspace_widget_bounds(
             dock,
-            min_width=WORKSPACE_VIEW_MIN_WIDTH,
+            min_width=min_width,
             min_height=min_height,
             max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+            allow_shrink=not dock.isFloating(),
         )
         content = dock.widget() if hasattr(dock, "widget") else None
         if content is not None:
             content_min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else max(docked_min_height, 360)
             _apply_workspace_widget_bounds(
                 content,
-                min_width=WORKSPACE_VIEW_MIN_WIDTH,
+                min_width=min_width,
                 min_height=content_min_height,
                 max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+                allow_shrink=not dock.isFloating(),
             )
 
     container_specs = (
@@ -2368,6 +2397,11 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
             min_height=WORKSPACE_VIEW_MIN_HEIGHT,
             max_height=WORKSPACE_VIEW_MAX_HEIGHT,
         )
+
+    for object_name in dock_specs:
+        dock = _ui_shell_find_object(window, object_name)
+        if dock is not None and isinstance(dock, _QtWidgets.QDockWidget) and not dock.isFloating():
+            _relax_docked_workspace_minimums(dock)
 
 
 def _bind_ui_shell_console_chat_local_controls(window):
@@ -11173,6 +11207,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
         self.resize(1400, 980)
+        self.frontend_layout_resync_callback = None
         self.thread = None
         self._closing = False
         self.musetalk_preview_process = None
@@ -12857,6 +12892,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         except Exception:
             pass
 
+    def _request_frontend_layout_resync(self):
+        callback = getattr(self, "frontend_layout_resync_callback", None)
+        if callback is None:
+            return
+
+        try:
+            QtCore.QTimer.singleShot(10, callback)
+        except Exception:
+            pass
+
     def _refresh_chat_provider_generation_card(self):
         if not hasattr(self, "chat_provider_generation_fields_layout"):
             return
@@ -12874,6 +12919,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             hint.setWordWrap(True)
             self.chat_provider_generation_fields_layout.addRow("", hint)
+            self._sync_chat_provider_generation_fields_height()
             if hasattr(self, "chat_provider_generation_section"):
                 self.chat_provider_generation_section.setSummary("legacy fallback controls")
             return
@@ -12938,17 +12984,320 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             tooltip = str(field.get("description") or "").strip()
             if tooltip:
                 editor.setToolTip(tooltip)
+            if kind != "note":
+                try:
+                    editor.setMinimumWidth(260)
+                    editor.setMinimumHeight(34)
+                    editor.setMaximumWidth(16777215)
+                    if kind in {"int", "float"} and hasattr(editor, "setFixedHeight"):
+                        editor.setFixedHeight(34)
+                except Exception:
+                    pass
             self.chat_provider_generation_fields_layout.addRow(label, editor)
             if kind != "note":
                 self._chat_provider_generation_field_widgets[field_id] = editor
                 self._chat_provider_generation_field_meta[field_id] = dict(field)
                 active_labels.append(label or str(field.get("label") or field_id))
 
+        self._sync_chat_provider_generation_fields_height()
+        try:
+            QtCore.QTimer.singleShot(0, self._sync_chat_provider_generation_fields_height)
+        except Exception:
+            pass
+
+        #self._request_frontend_layout_resync()
+
         if hasattr(self, "chat_provider_generation_section"):
             summary = ", ".join(active_labels[:3])
             if len(active_labels) > 3:
                 summary += f", +{len(active_labels) - 3}"
             self.chat_provider_generation_section.setSummary(summary)
+
+    def _sync_chat_provider_generation_fields_height(self):
+        try:
+            """runtime_box = getattr(self, "chat_runtime_box", None)
+            if runtime_box and not runtime_box.isChecked():
+                # Card is collapsed. Erase minimums and abort math.
+                runtime_box.setMinimumHeight(0)
+                return"""
+            widget = getattr(self, "chat_provider_generation_fields_widget", None)
+            if not widget:
+                return
+
+            # 1. SHATTER THE GLASS CEILING
+            # Walk up the entire widget tree and delete the 1360px maximum limits
+            # so the QScrollArea is finally allowed to expand!
+            current = widget
+            while current:
+                if current.maximumHeight() < 16777215:
+                    current.setMaximumHeight(16777215)
+
+                # Erase the strict SetMinAndMaxSize constraint from the .ui file
+                layout = current.layout()
+                if layout and hasattr(layout, "sizeConstraint"):
+                    if layout.sizeConstraint() == QtWidgets.QLayout.SetMinAndMaxSize:
+                        layout.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+
+                current = current.parentWidget()
+
+            # 2. MAKE THE CARDS STUBBORN
+            # Force the Chat and TTS boxes to refuse to be squished.
+            runtime_box = getattr(self, "chat_runtime_box", None)
+            tts_box = getattr(self, "tts_runtime_box", None)
+
+            for box in filter(None, [runtime_box, tts_box, widget]):
+                policy = box.sizePolicy()
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                box.setSizePolicy(policy)
+
+                # Tell the box layout to wrap its children perfectly
+                if box.layout():
+                    box.layout().setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+
+            # 3. Allow Qt to draw the newly added LM Studio sliders
+            QtWidgets.QApplication.processEvents()
+
+            # 4. KICK THE LAYOUT ENGINE
+            # Start from the sliders and push outwards, forcing every parent to recalculate
+            current = widget
+            while current:
+                if current.layout():
+                    current.layout().invalidate()
+                    current.layout().activate()
+                if hasattr(current, "updateGeometry"):
+                    current.updateGeometry()
+                current = current.parentWidget()
+
+        except Exception as e:
+            # print(f"[DEBUG] Layout error: {e}")
+            pass
+
+    def _sync_tts_runtime_fields_height(self):
+        try:
+            """tts_box = getattr(self, "tts_runtime_box", None)
+            if tts_box and not tts_box.isChecked():
+                # Card is collapsed. Erase minimums and abort math.
+                tts_box.setMinimumHeight(0)
+                tabs = getattr(self, "tts_runtime_addon_tabs", None)
+                if tabs:
+                    tabs.setMinimumHeight(0)
+                return"""
+            tabs = getattr(self, "tts_runtime_addon_tabs", None)
+            tts_box = getattr(self, "tts_runtime_box", None)
+
+            if not tabs or not tts_box:
+                return
+
+            # 0. Strip the 420px hardcoded minimum from the .ui file
+            tts_box.setMinimumHeight(0)
+            tabs.setMinimumHeight(0)
+
+            # 1. THE QSTACKEDWIDGET HACK
+            # Qt's QTabWidget uses a hidden QStackedWidget that caches the largest tab.
+            # We must aggressively hide/show policies to break that cache.
+            current_idx = tabs.currentIndex()
+            active_page = None
+
+            for i in range(tabs.count()):
+                page = tabs.widget(i)
+                if not page:
+                    continue
+
+                policy = page.sizePolicy()
+                if i == current_idx:
+                    active_page = page
+                    # The active tab is allowed to shrink to its true size
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                    policy.setRetainSizeWhenHidden(False)
+                    page.setMinimumHeight(0)
+                    if page.layout():
+                        page.layout().setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+                else:
+                    # Hidden tabs must be explicitly told NOT to retain their size
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Ignored)
+                    policy.setRetainSizeWhenHidden(False)
+
+                page.setSizePolicy(policy)
+
+                # CRITICAL: Adjust the hidden widgets so they physically report 0 height
+                if i != current_idx:
+                    page.adjustSize()
+
+                    # 2. FORCE THE TAB WIDGET TO RECALCULATE
+            if active_page:
+                # Force the specific active page layout to re-math itself immediately
+                if active_page.layout():
+                    active_page.layout().invalidate()
+                    active_page.layout().activate()
+
+                # Now that the hidden tabs are truly ignored, grab the true required height
+                true_height = active_page.sizeHint().height()
+
+                # Because the QStackedWidget refuses to shrink naturally, we will forcefully
+                # clamp the QTabWidget's maximum height down to the exact size of the active tab
+                # plus roughly ~40px for the tab bar itself.
+                tabs.setMaximumHeight(true_height + 100)
+
+            # 3. SHATTER THE GLASS CEILING
+            current = tabs.parentWidget()
+            while current and current.objectName() != "host_settings_host_tab":
+                if current.maximumHeight() < 16777215:
+                    current.setMaximumHeight(16777215)
+
+                layout = current.layout()
+                if layout and hasattr(layout, "sizeConstraint"):
+                    if layout.sizeConstraint() == QtWidgets.QLayout.SetMinAndMaxSize:
+                        layout.setSizeConstraint(QtWidgets.QLayout.SetDefaultConstraint)
+
+                current = current.parentWidget()
+
+            # 4. MAKE THE TTS BOX STUBBORN
+            for box in [tts_box]:
+                policy = box.sizePolicy()
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                box.setSizePolicy(policy)
+
+                if box.layout():
+                    box.layout().setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+
+            # 5. KICK THE LAYOUT ENGINE UPWARDS
+            current = tabs
+            while current:
+                if current.layout():
+                    current.layout().invalidate()
+                    current.layout().activate()
+                if hasattr(current, "updateGeometry"):
+                    current.updateGeometry()
+                current = current.parentWidget()
+
+        except Exception as e:
+            # print(f"[DEBUG] TTS Layout error: {e}")
+            pass
+    def _sync_chat_provider_generation_fields_height_xx(self):
+        widget = getattr(self, "chat_provider_generation_fields_widget", None)
+        layout = getattr(self, "chat_provider_generation_fields_layout", None)
+        if widget is None or layout is None:
+            return
+
+        try:
+            # 1. Reset any old constraints so Qt can breathe
+            widget.setMinimumHeight(0)
+            widget.setMaximumHeight(16777215)
+
+            # Find the main Chat Runtime card
+            runtime_box = getattr(self, "chat_runtime_box", None)
+            if not runtime_box:
+                parent = widget.parentWidget()
+                while parent:
+                    if str(parent.objectName() or "") == "chat_runtime_box":
+                        runtime_box = parent
+                        break
+                    parent = parent.parentWidget()
+
+            if runtime_box:
+                runtime_box.setMinimumHeight(0)
+                runtime_box.setMaximumHeight(16777215)
+
+            # 2. CRITICAL: Force Qt to process the UI queue so the new fields actually "exist"
+            QtWidgets.QApplication.processEvents()
+
+            # 3. Calculate and lock the exact height needed for the inner fields
+            layout.invalidate()
+            layout.activate()
+            inner_ideal = layout.sizeHint().height()
+            widget.setMinimumHeight(inner_ideal)
+
+            # 4. Calculate and lock the exact height needed for the OUTER box
+            if runtime_box:
+                box_layout = runtime_box.layout()
+                if box_layout:
+                    box_layout.invalidate()
+                    box_layout.activate()
+
+                # Because we reset constraints and processed events, sizeHint() will
+                # now naturally include the space needed for the new sliders!
+                box_ideal = runtime_box.sizeHint().height()
+                runtime_box.setMinimumHeight(box_ideal)
+
+                # Make the box stubborn so the master ScrollArea doesn't crush it
+                try:
+                    policy = runtime_box.sizePolicy()
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                    runtime_box.setSizePolicy(policy)
+                except Exception:
+                    pass
+
+            # 5. Kick every parent up the chain to tell the Scrollbar to adjust
+            current = widget.parentWidget()
+            while current:
+                if hasattr(current, "updateGeometry"):
+                    current.updateGeometry()
+                if current.layout():
+                    current.layout().activate()
+                current = current.parentWidget()
+
+        except Exception as e:
+            # print(f"[DEBUG] Error resizing layout: {e}")
+            pass
+
+    def _sync_chat_provider_generation_fields_height_old(self):
+        widget = getattr(self, "chat_provider_generation_fields_widget", None)
+        layout = getattr(self, "chat_provider_generation_fields_layout", None)
+        if widget is None or layout is None:
+            return
+        try:
+            row_count = max(1, int(layout.rowCount() or 0))
+            spacing = int(layout.verticalSpacing() if hasattr(layout, "verticalSpacing") else 6)
+            if spacing < 0:
+                spacing = 6
+            spacing = max(6, spacing)
+            margins = layout.contentsMargins()
+            layout.setVerticalSpacing(spacing)
+            row_height = 40
+            height = (
+                int(margins.top())
+                + int(margins.bottom())
+                + (row_count * row_height)
+                + (max(0, row_count - 1) * spacing)
+                + 8
+            )
+            widget.setMinimumHeight(height)
+            widget.setMaximumHeight(16777215)
+            try:
+                widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.MinimumExpanding)
+            except Exception:
+                pass
+            widget.updateGeometry()
+            runtime_box = None
+            parent = widget.parentWidget()
+            while parent is not None:
+                if str(parent.objectName() or "") == "chat_runtime_box":
+                    runtime_box = parent
+                    break
+                parent = parent.parentWidget()
+            if runtime_box is None:
+                runtime_box = getattr(self, "chat_runtime_box", None)
+            runtime_layout = runtime_box.layout() if runtime_box is not None and hasattr(runtime_box, "layout") else None
+            if runtime_box is not None:
+                box_height = max(
+                    int(runtime_box.minimumHeight() or 0),
+                    int(runtime_layout.sizeHint().height() if runtime_layout is not None else 0),
+                    height + 150,
+                )
+                runtime_box.setMinimumHeight(box_height)
+                runtime_box.setMaximumHeight(16777215)
+                try:
+                    runtime_box.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.MinimumExpanding)
+                except Exception:
+                    pass
+                runtime_box.updateGeometry()
+            parent = widget.parentWidget()
+            while parent is not None:
+                if hasattr(parent, "updateGeometry"):
+                    parent.updateGeometry()
+                parent = parent.parentWidget()
+        except Exception:
+            pass
 
     def _refresh_chat_provider_card(self):
         if not hasattr(self, "chat_provider_fields_layout"):
@@ -13072,6 +13421,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                     f"Backend '{backend_label}' does not have a mounted addon tab right now; core fallback settings may be in use."
                 )
         self._refresh_tts_runtime_summary()
+        print(f"[UI Real] tts_sync _refresh_tts_runtime_card")
+        QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
 
     def _available_tts_backend_options(self):
         options = []
@@ -13208,6 +13559,7 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         self._set_current_chat_provider_generation_settings_for(provider_id, settings)
         self._apply_legacy_generation_mirror(field_id, value)
         self.save_session()
+        self._refresh_preset_dirty_state()
 
     def _visual_reply_mode_label_from_value(self, value):
         return "Off" if str(value or "auto").strip().lower() == "off" else "Auto"
@@ -14262,6 +14614,16 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             self.tts_runtime_addon_tabs.setVisible(self.tts_runtime_addon_tabs.count() > 0)
         self._refresh_tts_runtime_card()
 
+    def _on_tts_runtime_addon_tab_changed_old(self, index):
+        if not hasattr(self, "tts_runtime_addon_tabs"):
+            return
+        current = self.tts_runtime_addon_tabs.widget(index)
+        if current is None:
+            return
+        backend_id = str(current.property("backend_id") or current.objectName() or "").strip().lower()
+        if backend_id:
+            self._tts_runtime_tab_index_by_backend[backend_id] = index
+
     def _on_tts_runtime_addon_tab_changed(self, index):
         if not hasattr(self, "tts_runtime_addon_tabs"):
             return
@@ -14271,6 +14633,15 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         backend_id = str(current.property("backend_id") or current.objectName() or "").strip().lower()
         if backend_id:
             self._tts_runtime_tab_index_by_backend[backend_id] = index
+
+        # NEW: Re-calculate the layout bounds for the newly selected tab
+        sync_func = getattr(self, "_sync_tts_runtime_fields_height", None)
+        if not sync_func:
+            backend = getattr(self, "backend", None)
+            sync_func = getattr(backend, "_sync_tts_runtime_fields_height", None)
+
+        if sync_func:
+            QtCore.QTimer.singleShot(10, sync_func)
 
     def _sync_existing_host_settings_child_tabs(self, host_tab_id, children):
         host_tab_id = str(host_tab_id or "").strip()
@@ -19330,6 +19701,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._closing = False
         self._restoring_frontend_layout = False
         self.backend = CompanionQtMainWindow()
+        self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
         self.backend.first_run = False
         self.backend.hide()
         self.window = _load_ui_preview_window(self.ui_path)
@@ -19368,9 +19740,15 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
 
         self._bind_frontend_workspace_constraint_hooks()
         self._configure_frontend_runtime_slice()
+        self._normalize_frontend_chat_runtime_editor_widths()
         self._bind_frontend_layout_persistence_hooks()
         self._restore_frontend_layout_state()
         self._sync_backend_to_ui(force=True)
+
+        # Fix Designer-loaded scroll/content/tab sizing after runtime state has populated the UI.
+        #self._fix_system_shaping_scroll_content_size()
+        #QtCore.QTimer.singleShot(0, self._fix_system_shaping_scroll_content_size)
+
         self._poll_timer = QtCore.QTimer(self)
         self._poll_timer.setInterval(self.POLL_INTERVAL_MS)
         self._poll_timer.timeout.connect(self._poll_backend_state)
@@ -19379,6 +19757,82 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         print("[UI Real] Loaded runtime-backed main.ui front-end.")
         print("[UI Real] Stable default app startup remains python qt_app.py.")
         print("[UI Real] Phase 5 slice is live: engine lifecycle, runtime controls, chat-context actions, status, and console/chat mirroring.")
+
+    def _ui(self, name, cls=None):
+        if not hasattr(self, "window") or self.window is None:
+            return None
+        return self.window.findChild(cls or QtWidgets.QWidget, name)
+
+    def _fix_system_shaping_scroll_content_size(self):
+        scroll = self._ui("system_shaping_scroll", QtWidgets.QScrollArea)
+        content = self._ui("system_shaping_content", QtWidgets.QWidget)
+        tabs = self._ui("host_settings_tabs", QtWidgets.QTabWidget)
+        host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
+
+        chat_box = self._ui("chat_runtime_box", QtWidgets.QGroupBox)
+        tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
+        perf_box = self._ui("performance_guidance_box", QtWidgets.QGroupBox)
+
+        if scroll is not None:
+            scroll.setWidgetResizable(True)
+            scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+            scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+
+        for w in (content, tabs, host_tab, chat_box, tts_box, perf_box):
+            if w is None:
+                continue
+
+            w.setMinimumHeight(0)
+            w.setMaximumHeight(16777215)
+
+            policy = w.sizePolicy()
+            policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
+            policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
+            w.setSizePolicy(policy)
+
+        for w in (content, host_tab):
+            if w is None or w.layout() is None:
+                continue
+
+            layout = w.layout()
+            layout.setSizeConstraint(QtWidgets.QLayout.SetMinAndMaxSize)
+            layout.setAlignment(QtCore.Qt.AlignTop)
+            layout.invalidate()
+            layout.activate()
+
+        if host_tab is not None:
+            host_tab.adjustSize()
+            host_tab.updateGeometry()
+
+        if tabs is not None:
+            page = tabs.currentWidget()
+            if page is not None:
+                if page.layout() is not None:
+                    page.layout().invalidate()
+                    page.layout().activate()
+
+                page.adjustSize()
+                page.updateGeometry()
+
+                wanted = (
+                        page.sizeHint().height()
+                        + tabs.tabBar().sizeHint().height()
+                        + 24
+                )
+
+                tabs.setMinimumHeight(wanted)
+                tabs.setMaximumHeight(16777215)
+
+            tabs.adjustSize()
+            tabs.updateGeometry()
+
+        if content is not None:
+            content.adjustSize()
+            content.updateGeometry()
+
+        if scroll is not None:
+            scroll.updateGeometry()
+            scroll.viewport().update()
 
     def eventFilter(self, watched, event):
         if event is not None and self._watched_belongs_to_frontend(watched):
@@ -19816,6 +20270,29 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             ),
         )
 
+    def _normalize_frontend_chat_runtime_editor_widths(self):
+        for object_name in ("chat_provider_combo", "model_combo", "preset_combo"):
+            widget = self._ui_object(object_name)
+            if widget is None:
+                continue
+            try:
+                widget.setMinimumWidth(260 if object_name != "preset_combo" else 320)
+                widget.setMaximumWidth(16777215)
+                if hasattr(widget, "setSizeAdjustPolicy"):
+                    widget.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+                if hasattr(widget, "setMinimumContentsLength"):
+                    widget.setMinimumContentsLength(18 if object_name == "chat_provider_combo" else 34)
+            except Exception:
+                pass
+        for layout_name in ("chat_provider_fields_layout", "chat_provider_generation_fields_layout"):
+            layout = self._ui_object(layout_name)
+            if layout is None:
+                continue
+            try:
+                layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+            except Exception:
+                pass
+
     def _disable_unwired_phase5_controls(self):
         tooltip = "Deferred in --ui-real Phase 5. This still belongs to a later runtime migration slice."
         for object_name in (
@@ -19926,6 +20403,37 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             pass
 
     def _apply_frontend_collapsible_group_state(self, group_box, expanded):
+        if group_box is None:
+            return
+
+        layout = getattr(group_box, "layout", lambda: None)()
+        self._set_layout_item_tree_visible(layout, bool(expanded))
+
+        try:
+            group_box.setFlat(not bool(expanded))
+        except Exception:
+            pass
+
+        self._update_frontend_collapsible_group_title(group_box)
+
+        # Original call
+        QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
+
+        # NEW: Re-trigger our custom dynamic height math when expanding cards
+        backend = getattr(self, "backend", self)  # Fallback to self if backend not found
+
+        chat_sync = getattr(backend, "_sync_chat_provider_generation_fields_height", None)
+        if chat_sync:
+            print(f"[UI Real] chat_sync")
+            QtCore.QTimer.singleShot(10, chat_sync)
+
+        tts_sync = getattr(backend, "_sync_tts_runtime_fields_height", None)
+        if tts_sync:
+            print(f"[UI Real] tts_sync")
+            QtCore.QTimer.singleShot(10, tts_sync)
+
+
+    def _apply_frontend_collapsible_group_state_old(self, group_box, expanded):
         if group_box is None:
             return
         layout = getattr(group_box, "layout", lambda: None)()
@@ -20992,6 +21500,9 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         system_prompt_text = self._ui_object("system_prompt_text")
         if system_prompt_text is not None and hasattr(system_prompt_text, "textChanged"):
             system_prompt_text.textChanged.connect(self._on_frontend_system_prompt_changed)
+        emotional_text = self._ui_object("emotional_text")
+        if emotional_text is not None and hasattr(emotional_text, "textChanged"):
+            emotional_text.textChanged.connect(self._on_frontend_emotional_text_changed)
 
     def _bind_sensory_runtime_controls(self):
         interval_spin = self._ui_object("sensory_feedback_interval_spin")
@@ -21387,6 +21898,16 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         finally:
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
 
+    def _on_frontend_emotional_text_changed(self):
+        emotional_text = self._ui_object("emotional_text")
+        if emotional_text is None or not hasattr(emotional_text, "toPlainText"):
+            return
+        try:
+            update_runtime_config("emotional_instructions", str(emotional_text.toPlainText() or "").strip())
+            self._sync_plain_text_to_backend("emotional_text")
+        except Exception:
+            pass
+
     def _refresh_sensory_runtime_frontend(self):
         try:
             self.backend._refresh_sensory_feedback_hint()
@@ -21443,6 +21964,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if frontend_combo is None or backend_combo is None:
             return
         self._sync_combo_like_widget(frontend_combo, backend_combo)
+        self._refresh_backend_preset_dirty_state()
         QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
         QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
         QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
@@ -21453,6 +21975,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if frontend_combo is None or backend_combo is None:
             return
         self._sync_combo_like_widget(frontend_combo, backend_combo)
+        self._refresh_backend_preset_dirty_state()
         QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
 
     def _on_frontend_model_requires_vision_changed(self, checked):
@@ -21463,6 +21986,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             backend_checkbox.setChecked(bool(checked))
         except Exception:
             return
+        self._refresh_backend_preset_dirty_state()
         QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
         QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
 
@@ -21472,6 +21996,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if frontend_combo is None or backend_combo is None:
             return
         self._sync_combo_like_widget(frontend_combo, backend_combo)
+        self._refresh_backend_preset_dirty_state()
         QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
 
     def _enter_chat_edit_mode_from_ui_real(self):
@@ -21859,6 +22384,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             self._sync_single_spin_to_backend(object_name)
         for object_name in self._line_edit_sync_names():
             self._sync_single_line_edit_to_backend(object_name)
+        self._sync_plain_text_to_backend("emotional_text")
         self._sync_plain_text_to_backend("system_prompt_text")
         self._sync_plain_text_to_backend("sensory_pingpong_prompt_text")
 
@@ -21943,6 +22469,14 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             return True
         except Exception:
             return False
+
+    def _refresh_backend_preset_dirty_state(self):
+        callback = getattr(self.backend, "_refresh_preset_dirty_state", None)
+        if callable(callback):
+            try:
+                callback()
+            except Exception:
+                pass
 
     def _combo_popup_is_open(self, combo):
         if combo is None or not hasattr(combo, "view"):
@@ -22127,7 +22661,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 continue
             if force or not getattr(front, "hasFocus", lambda: False)():
                 self._copy_text_state(back, front)
-        for object_name in ("system_prompt_text",):
+        for object_name in ("emotional_text", "system_prompt_text"):
             front = self._ui_object(object_name)
             back = self._backend_widget(object_name)
             if front is None or back is None:
@@ -22138,8 +22672,25 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._mirror_runtime_status_widgets()
         self._mirror_runtime_button_state()
         self._mirror_runtime_selection_widgets()
+        self._mirror_persona_runtime_widgets(force=force)
         self._mirror_provider_runtime_labels()
         self._refresh_frontend_theme_controls()
+
+    def _mirror_persona_runtime_widgets(self, *, force=False):
+        for object_name in ("voice_combo",):
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            if not self._combo_popup_is_open(front):
+                self._copy_combo_state(back, front)
+        for object_name in ("emotional_text", "system_prompt_text"):
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                continue
+            if force or not getattr(front, "hasFocus", lambda: False)():
+                self._copy_text_state(back, front)
 
     def _mirror_runtime_text_views(self):
         backend_console = self._backend_widget("console_edit")
