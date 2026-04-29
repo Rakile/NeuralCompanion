@@ -3434,6 +3434,90 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                    </property>
                   </widget>
                  </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="idle_shoulder_back_label">
+                   <property name="text">
+                    <string>Shoulder Back</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="1">
+                  <widget class="QSlider" name="idle_shoulder_back_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="0">
+                  <widget class="QLabel" name="idle_elbow_bend_label">
+                   <property name="text">
+                    <string>Elbow Bend</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="1">
+                  <widget class="QSlider" name="idle_elbow_bend_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="0">
+                  <widget class="QLabel" name="idle_arm_twist_label">
+                   <property name="text">
+                    <string>Arm Twist</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="1">
+                  <widget class="QSlider" name="idle_arm_twist_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="0">
+                  <widget class="QLabel" name="spine_sway_mult_label">
+                   <property name="text">
+                    <string>Spine Sway</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="1">
+                  <widget class="QSlider" name="spine_sway_mult_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="7" column="0">
+                  <widget class="QLabel" name="spine_twist_mult_label">
+                   <property name="text">
+                    <string>Spine Twist</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="7" column="1">
+                  <widget class="QSlider" name="spine_twist_mult_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="8" column="0">
+                  <widget class="QLabel" name="neck_stabilize_label">
+                   <property name="text">
+                    <string>Head Stabilize</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="8" column="1">
+                  <widget class="QSlider" name="neck_stabilize_slider">
+                   <property name="orientation">
+                    <enum>Qt::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
                 </layout>
                </item>
               </layout>
@@ -3482,6 +3566,34 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              </item>
              <item row="2" column="1">
               <widget class="QSlider" name="shoulder_lift_slider">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QLabel" name="idle_speed_label">
+               <property name="text">
+                <string>Body Sway Speed</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="1">
+              <widget class="QSlider" name="idle_speed_slider">
+               <property name="orientation">
+                <enum>Qt::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="0">
+              <widget class="QLabel" name="idle_intensity_label">
+               <property name="text">
+                <string>Body Sway Intensity</string>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="1">
+              <widget class="QSlider" name="idle_intensity_slider">
                <property name="orientation">
                 <enum>Qt::Horizontal</enum>
                </property>

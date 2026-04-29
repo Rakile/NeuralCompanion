@@ -293,6 +293,60 @@ UI_SHELL_BODY_POSE_SPECS = OrderedDict([
         "default": 0.0,
         "scale": 1,
     }),
+    ("idle_shoulder_back", {
+        "widget": "idle_shoulder_back_slider",
+        "label": "idle_shoulder_back_label",
+        "title": "Shoulder Back",
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("idle_elbow_bend", {
+        "widget": "idle_elbow_bend_slider",
+        "label": "idle_elbow_bend_label",
+        "title": "Elbow Bend",
+        "minimum": -250.0,
+        "maximum": 250.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("idle_arm_twist", {
+        "widget": "idle_arm_twist_slider",
+        "label": "idle_arm_twist_label",
+        "title": "Arm Twist",
+        "minimum": -100.0,
+        "maximum": 100.0,
+        "default": 0.0,
+        "scale": 1,
+    }),
+    ("spine_sway_mult", {
+        "widget": "spine_sway_mult_slider",
+        "label": "spine_sway_mult_label",
+        "title": "Spine Sway",
+        "minimum": 0.0,
+        "maximum": 3.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("spine_twist_mult", {
+        "widget": "spine_twist_mult_slider",
+        "label": "spine_twist_mult_label",
+        "title": "Spine Twist",
+        "minimum": 0.0,
+        "maximum": 3.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("neck_stabilize", {
+        "widget": "neck_stabilize_slider",
+        "label": "neck_stabilize_label",
+        "title": "Head Stabilize",
+        "minimum": 0.0,
+        "maximum": 3.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
     ("eye_activity", {
         "widget": "eye_activity_slider",
         "label": "eye_activity_label",
@@ -317,6 +371,24 @@ UI_SHELL_BODY_POSE_SPECS = OrderedDict([
         "title": "Shoulder Lift",
         "minimum": 0.0,
         "maximum": 5.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("idle_speed", {
+        "widget": "idle_speed_slider",
+        "label": "idle_speed_label",
+        "title": "Body Sway Speed",
+        "minimum": 0.2,
+        "maximum": 3.0,
+        "default": 0.0,
+        "scale": 100,
+    }),
+    ("idle_intensity", {
+        "widget": "idle_intensity_slider",
+        "label": "idle_intensity_label",
+        "title": "Body Sway Intensity",
+        "minimum": 0.5,
+        "maximum": 10.0,
         "default": 0.0,
         "scale": 100,
     }),
@@ -21359,6 +21431,22 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         vam_vmc_port_spin = self._ui_object("vam_vmc_port_spin")
         if vam_vmc_port_spin is not None and hasattr(vam_vmc_port_spin, "valueChanged"):
             vam_vmc_port_spin.valueChanged.connect(self._on_frontend_vam_vmc_port_changed)
+        for key, spec in UI_SHELL_BODY_POSE_SPECS.items():
+            slider = self._ui_object(str(spec.get("widget") or ""))
+            if slider is None or not hasattr(slider, "valueChanged"):
+                continue
+            try:
+                minimum = _ui_shell_body_value_to_slider_raw(key, spec.get("minimum", 0.0))
+                maximum = _ui_shell_body_value_to_slider_raw(key, spec.get("maximum", 0.0))
+                slider.setRange(minimum, maximum)
+                if hasattr(slider, "setSingleStep"):
+                    scale = int(spec.get("scale", 1) or 1)
+                    slider.setSingleStep(max(1, scale // 10 if scale > 1 else 1))
+                if hasattr(slider, "setToolTip"):
+                    slider.setToolTip("Runtime-backed VSeeFace body setting. Save a body preset to persist edited pose values.")
+            except Exception:
+                pass
+            slider.valueChanged.connect(lambda value, pose_key=key: self._on_frontend_body_pose_slider_changed(pose_key, value))
         edit_bindings = (
             ("vam_root_edit", self._on_frontend_vam_root_changed),
             ("vam_target_atom_uid_edit", self._on_frontend_vam_target_atom_uid_changed),
@@ -21371,6 +21459,12 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 continue
             widget.editingFinished.connect(handler)
         button_bindings = {
+            "btn_body_load": self._load_body_config_from_ui_real,
+            "btn_body_save": self._save_current_body_from_ui_real,
+            "btn_body_save_as": self._save_body_dialog_from_ui_real,
+            "btn_body_delete": self._delete_current_body_from_ui_real,
+            "btn_hand_doctor": self._open_hand_debugger_from_ui_real,
+            "btn_vseeface_hide_interface": self._enter_vseeface_focus_from_ui_real,
             "btn_start_vam_desktop": self._start_vam_desktop_from_ui_real,
             "btn_start_vam_vr": self._start_vam_vr_from_ui_real,
             "btn_vam_hide_interface": self._enter_vam_focus_from_ui_real,
@@ -21875,6 +21969,19 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._sync_single_checkbox_to_backend("live_sync_checkbox")
         self._refresh_avatar_body_vam_runtime_frontend()
 
+    def _on_frontend_body_pose_slider_changed(self, key, raw_value):
+        value = _ui_shell_body_slider_raw_to_value(key, raw_value)
+        backend_slider = getattr(self.backend, "pose_sliders", {}).get(str(key))
+        if backend_slider is not None and hasattr(backend_slider, "set_value"):
+            try:
+                backend_slider.set_value(value)
+            except Exception:
+                pass
+        callback = getattr(self.backend, "update_pose_value", None)
+        if callable(callback):
+            callback(str(key), value)
+        _ui_shell_update_body_label(self.window, str(key), value)
+
     def _on_frontend_vam_vmc_enabled_changed(self, _checked):
         self._sync_single_checkbox_to_backend("vam_vmc_enabled_checkbox")
         callback = getattr(self.backend, "on_vam_vmc_enabled_changed", None)
@@ -21942,6 +22049,42 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if callable(callback):
             callback()
         self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _load_body_config_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "load_body_config_from_combo", None)
+        if callable(callback):
+            callback()
+
+    def _save_current_body_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "save_current_body", None)
+        if callable(callback):
+            callback()
+
+    def _save_body_dialog_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "save_body_dialog", None)
+        if callable(callback):
+            callback()
+
+    def _delete_current_body_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "delete_current_body", None)
+        if callable(callback):
+            callback()
+
+    def _open_hand_debugger_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "open_hand_debugger", None)
+        if callable(callback):
+            callback()
+
+    def _enter_vseeface_focus_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "enter_external_avatar_focus", None)
+        if callable(callback):
+            callback("VSeeFace")
 
     def _start_vam_desktop_from_ui_real(self):
         self._sync_frontend_to_backend()
@@ -22886,6 +23029,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._mirror_runtime_button_state()
         self._mirror_runtime_selection_widgets()
         self._mirror_persona_runtime_widgets(force=force)
+        self._mirror_body_pose_runtime_widgets(force=force)
         self._mirror_vam_runtime_widgets(force=force)
         self._mirror_chunking_runtime_widgets(force=force)
         self._mirror_provider_runtime_labels()
@@ -22951,6 +23095,36 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 continue
             if force or not getattr(front, "hasFocus", lambda: False)():
                 self._copy_text_state(back, front)
+
+    def _mirror_body_pose_runtime_widgets(self, *, force=False):
+        pose_sliders = getattr(self.backend, "pose_sliders", {})
+        body_state = getattr(engine, "CURRENT_BODY_STATE", {}) or {}
+        for key, spec in UI_SHELL_BODY_POSE_SPECS.items():
+            slider = self._ui_object(str(spec.get("widget") or ""))
+            if slider is None or not hasattr(slider, "setValue"):
+                continue
+            backend_slider = pose_sliders.get(str(key)) if isinstance(pose_sliders, dict) else None
+            if backend_slider is not None and hasattr(backend_slider, "value"):
+                try:
+                    value = backend_slider.value()
+                except Exception:
+                    value = body_state.get(str(key), spec.get("default", 0.0))
+            else:
+                value = body_state.get(str(key), spec.get("default", 0.0))
+            raw_value = _ui_shell_body_value_to_slider_raw(str(key), value)
+            if force or not getattr(slider, "isSliderDown", lambda: False)():
+                was_blocked = False
+                try:
+                    was_blocked = bool(slider.blockSignals(True))
+                    slider.setValue(raw_value)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        slider.blockSignals(was_blocked)
+                    except Exception:
+                        pass
+            _ui_shell_update_body_label(self.window, str(key), value)
 
     def _mirror_vam_runtime_widgets(self, *, force=False):
         bridge_root_front = self._ui_object("vam_bridge_root_edit")
