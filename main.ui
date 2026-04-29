@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="UTF-8"?>
+<?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>CompanionQtMainWindow</class>
  <widget class="QMainWindow" name="CompanionQtMainWindow">
@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1810</width>
-    <height>1012</height>
+    <width>2215</width>
+    <height>1600</height>
    </rect>
   </property>
   <property name="minimumSize">
@@ -399,7 +399,7 @@ QGroupBox::title {
 }</string>
   </property>
   <property name="dockOptions">
-   <set>QMainWindow::AllowNestedDocks|QMainWindow::AllowTabbedDocks|QMainWindow::AnimatedDocks|QMainWindow::GroupedDragging</set>
+   <set>QMainWindow::DockOption::AllowNestedDocks|QMainWindow::DockOption::AllowTabbedDocks|QMainWindow::DockOption::AnimatedDocks|QMainWindow::DockOption::GroupedDragging</set>
   </property>
   <widget class="QWidget" name="workspace_central">
    <property name="minimumSize">
@@ -419,7 +419,7 @@ QGroupBox::title {
    <property name="minimumSize">
     <size>
      <width>890</width>
-     <height>799</height>
+     <height>804</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -544,9 +544,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
         <property name="geometry">
          <rect>
           <x>0</x>
-          <y>-198</y>
-          <width>890</width>
-          <height>1422</height>
+          <y>0</y>
+          <width>1090</width>
+          <height>1430</height>
          </rect>
         </property>
         <property name="minimumSize">
@@ -662,7 +662,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            <item>
             <spacer name="micRowSpacer">
              <property name="orientation">
-              <enum>Qt::Horizontal</enum>
+              <enum>Qt::Orientation::Horizontal</enum>
              </property>
              <property name="sizeHint" stdset="0">
               <size>
@@ -689,16 +689,16 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
             </size>
            </property>
            <property name="layoutDirection">
-            <enum>Qt::LeftToRight</enum>
+            <enum>Qt::LayoutDirection::LeftToRight</enum>
            </property>
            <property name="autoFillBackground">
             <bool>false</bool>
            </property>
            <property name="tabPosition">
-            <enum>QTabWidget::West</enum>
+            <enum>QTabWidget::TabPosition::West</enum>
            </property>
            <property name="tabShape">
-            <enum>QTabWidget::Rounded</enum>
+            <enum>QTabWidget::TabShape::Rounded</enum>
            </property>
            <property name="currentIndex">
             <number>0</number>
@@ -985,16 +985,16 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                </property>
                <layout class="QFormLayout" name="chatRuntimeForm">
                 <property name="sizeConstraint">
-                 <enum>QLayout::SetDefaultConstraint</enum>
+                 <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
                 </property>
                 <property name="fieldGrowthPolicy">
-                 <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                 <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
                 </property>
                 <property name="labelAlignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
                 </property>
                 <property name="formAlignment">
-                 <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+                 <set>Qt::AlignmentFlag::AlignLeading|Qt::AlignmentFlag::AlignLeft|Qt::AlignmentFlag::AlignTop</set>
                 </property>
                 <item row="0" column="0">
                  <widget class="QLabel" name="chat_provider_label">
@@ -1146,12 +1146,12 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  <number>10</number>
                 </property>
                 <property name="sizeConstraint">
-                 <enum>QLayout::SetDefaultConstraint</enum>
+                 <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
                 </property>
                 <item>
                  <layout class="QFormLayout" name="ttsBackendSelectorForm">
                   <property name="fieldGrowthPolicy">
-                   <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                   <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
                   </property>
                   <item row="0" column="0">
                    <widget class="QLabel" name="tts_backend_label">
@@ -1256,7 +1256,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                     <item>
                      <layout class="QFormLayout" name="ttsRuntimeForm">
                       <property name="fieldGrowthPolicy">
-                       <enum>QFormLayout::ExpandingFieldsGrow</enum>
+                       <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
                       </property>
                       <item row="0" column="0">
                        <widget class="QLabel" name="tts_seed_label">
@@ -1445,7 +1445,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                     <item>
                      <spacer name="ttsChatterboxTabSpacer">
                       <property name="orientation">
-                       <enum>Qt::Vertical</enum>
+                       <enum>Qt::Orientation::Vertical</enum>
                       </property>
                       <property name="sizeHint" stdset="0">
                        <size>
@@ -1541,7 +1541,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                     <item>
                      <spacer name="ttsPocketTtsTabSpacer">
                       <property name="orientation">
-                       <enum>Qt::Vertical</enum>
+                       <enum>Qt::Orientation::Vertical</enum>
                       </property>
                       <property name="sizeHint" stdset="0">
                        <size>
@@ -1620,7 +1620,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   <item>
                    <spacer name="contextCheckSpacer">
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                     <property name="sizeHint" stdset="0">
                      <size>
@@ -1757,13 +1757,13 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </size>
                </property>
                <property name="layoutDirection">
-                <enum>Qt::LeftToRight</enum>
+                <enum>Qt::LayoutDirection::LeftToRight</enum>
                </property>
                <property name="tabPosition">
-                <enum>QTabWidget::North</enum>
+                <enum>QTabWidget::TabPosition::North</enum>
                </property>
                <property name="tabShape">
-                <enum>QTabWidget::Rounded</enum>
+                <enum>QTabWidget::TabShape::Rounded</enum>
                </property>
                <property name="currentIndex">
                 <number>0</number>
@@ -1915,10 +1915,10 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                        <string notr="true">border:none;background:transparent;</string>
                       </property>
                       <property name="frameShape">
-                       <enum>QFrame::NoFrame</enum>
+                       <enum>QFrame::Shape::NoFrame</enum>
                       </property>
                       <property name="frameShadow">
-                       <enum>QFrame::Plain</enum>
+                       <enum>QFrame::Shadow::Plain</enum>
                       </property>
                       <property name="lineWidth">
                        <number>0</number>
@@ -2481,7 +2481,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              <item>
               <spacer name="themesBottomSpacer">
                <property name="orientation">
-                <enum>Qt::Vertical</enum>
+                <enum>Qt::Orientation::Vertical</enum>
                </property>
                <property name="sizeHint" stdset="0">
                 <size>
@@ -2836,7 +2836,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   <number>81</number>
                  </property>
                  <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                 </widget>
                </item>
@@ -2875,7 +2875,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                <item>
                 <spacer name="masterPromptGuardsSpacer">
                  <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                  <property name="sizeHint" stdset="0">
                   <size>
@@ -2897,7 +2897,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              <item>
               <widget class="QPlainTextEdit" name="visual_master_prompt_text">
                <property name="frameShadow">
-                <enum>QFrame::Plain</enum>
+                <enum>QFrame::Shadow::Plain</enum>
                </property>
                <property name="plainText">
                 <string>Captured current-image style anchor and story master prompt content appears here in the live app.</string>
@@ -2946,1731 +2946,11 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
     </layout>
    </widget>
   </widget>
-  <widget class="QDockWidget" name="WorkspaceTabsDock">
-   <property name="minimumSize">
-    <size>
-     <width>890</width>
-     <height>799</height>
-    </size>
-   </property>
-   <property name="maximumSize">
-    <size>
-     <width>524287</width>
-     <height>1360</height>
-    </size>
-   </property>
-   <property name="styleSheet">
-    <string notr="true">QTabWidget#right_tabs::pane,
-QTabWidget#sensory_feedback_tabs::pane,
-QTabWidget#vseeface_tabs::pane,
-QTabWidget#musetalk_tabs::pane,
-QTabWidget#tts_runtime_addon_tabs::pane {
-    top: -1px;
-    background: #0f141b;
-    border: 1px solid #273342;
-    border-top-left-radius: 0px;
-    border-top-right-radius: 0px;
-    border-bottom-left-radius: 10px;
-    border-bottom-right-radius: 10px;
-    padding: 12px 10px 10px 10px;
-}
-
-QTabWidget#right_tabs::tab-bar,
-QTabWidget#sensory_feedback_tabs::tab-bar,
-QTabWidget#vseeface_tabs::tab-bar,
-QTabWidget#musetalk_tabs::tab-bar,
-QTabWidget#tts_runtime_addon_tabs::tab-bar {
-    left: 8px;
-}
-
-QTabWidget#right_tabs QTabBar::tab,
-QTabWidget#sensory_feedback_tabs QTabBar::tab,
-QTabWidget#vseeface_tabs QTabBar::tab,
-QTabWidget#musetalk_tabs QTabBar::tab,
-QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
-    background: #17212c;
-    border: 1px solid #273342;
-    padding: 8px 14px;
-    margin-right: 4px;
-    margin-bottom: -1px;
-    border-top-left-radius: 8px;
-    border-top-right-radius: 8px;
-    border-bottom-left-radius: 0px;
-    border-bottom-right-radius: 0px;
-}
-
-QTabWidget#right_tabs QTabBar::tab:!selected,
-QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
-QTabWidget#vseeface_tabs QTabBar::tab:!selected,
-QTabWidget#musetalk_tabs QTabBar::tab:!selected,
-QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
-    margin-top: 3px;
-}
-
-QTabWidget#right_tabs QTabBar::tab:selected,
-QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
-QTabWidget#vseeface_tabs QTabBar::tab:selected,
-QTabWidget#musetalk_tabs QTabBar::tab:selected,
-QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
-    background: #0f141b;
-    border-color: #273342;
-    border-bottom-color: #0f141b;
-    margin-bottom: -1px;
-    padding-bottom: 10px;
-}
-
-QTabWidget#right_tabs QTabBar::tab:hover,
-QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
-QTabWidget#vseeface_tabs QTabBar::tab:hover,
-QTabWidget#musetalk_tabs QTabBar::tab:hover,
-QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
-    background: #223247;
-}
-</string>
-   </property>
-   <property name="windowTitle">
-    <string>Workspace Tabs</string>
-   </property>
-   <attribute name="dockWidgetArea">
-    <number>1</number>
-   </attribute>
-   <widget class="QWidget" name="workspace_tabs_panel">
-    <property name="sizePolicy">
-     <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
-      <horstretch>0</horstretch>
-      <verstretch>0</verstretch>
-     </sizepolicy>
-    </property>
-    <property name="minimumSize">
-     <size>
-      <width>890</width>
-      <height>780</height>
-     </size>
-    </property>
-    <property name="maximumSize">
-     <size>
-      <width>16777215</width>
-      <height>1360</height>
-     </size>
-    </property>
-    <layout class="QVBoxLayout" name="workspaceTabsLayout">
-     <property name="spacing">
-      <number>12</number>
-     </property>
-     <property name="leftMargin">
-      <number>14</number>
-     </property>
-     <property name="topMargin">
-      <number>14</number>
-     </property>
-     <property name="rightMargin">
-      <number>14</number>
-     </property>
-     <property name="bottomMargin">
-      <number>14</number>
-     </property>
-     <item>
-      <widget class="QTabWidget" name="left_tabs">
-       <property name="sizePolicy">
-        <sizepolicy hsizetype="Expanding" vsizetype="Ignored">
-         <horstretch>0</horstretch>
-         <verstretch>0</verstretch>
-        </sizepolicy>
-       </property>
-       <property name="minimumSize">
-        <size>
-         <width>840</width>
-         <height>700</height>
-        </size>
-       </property>
-       <property name="maximumSize">
-        <size>
-         <width>16777215</width>
-         <height>1360</height>
-        </size>
-       </property>
-       <property name="tabPosition">
-        <enum>QTabWidget::West</enum>
-       </property>
-       <property name="currentIndex">
-        <number>5</number>
-       </property>
-       <property name="iconSize">
-        <size>
-         <width>35</width>
-         <height>35</height>
-        </size>
-       </property>
-       <property name="movable">
-        <bool>true</bool>
-       </property>
-       <widget class="QWidget" name="persona_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/persona.png</normaloff>ui_icons/side_tabs/persona.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Persona</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="personaLayout">
-         <item>
-          <widget class="QLabel" name="voice_clone_label">
-           <property name="text">
-            <string>Voice Clone</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QComboBox" name="voice_combo">
-           <property name="minimumSize">
-            <size>
-             <width>186</width>
-             <height>32</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>200</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <item>
-            <property name="text">
-             <string>ms-twav</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="technical_rules_group">
-           <property name="title">
-            <string>Technical Rules (Tags)</string>
-           </property>
-           <layout class="QVBoxLayout" name="technicalRulesLayout">
-            <item>
-             <widget class="QPlainTextEdit" name="emotional_text">
-              <property name="plainText">
-               <string>Technical rules / expressive tags</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="system_prompt_group">
-           <property name="title">
-            <string>System Prompt</string>
-           </property>
-           <layout class="QVBoxLayout" name="systemPromptLayout">
-            <item>
-             <widget class="QPlainTextEdit" name="system_prompt_text">
-              <property name="plainText">
-               <string>System prompt</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_apply_text_config">
-           <property name="text">
-            <string>Apply Changes</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="vseeface_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/vseeface.png</normaloff>ui_icons/side_tabs/vseeface.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>VSeeFace</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="vseefaceLayout">
-         <property name="spacing">
-          <number>10</number>
-         </property>
-         <item>
-          <widget class="QTabWidget" name="vseeface_tabs">
-           <property name="minimumSize">
-            <size>
-             <width>760</width>
-             <height>620</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>1360</height>
-            </size>
-           </property>
-           <property name="tabPosition">
-            <enum>QTabWidget::North</enum>
-           </property>
-           <property name="currentIndex">
-            <number>1</number>
-           </property>
-           <widget class="QWidget" name="body_tab">
-            <attribute name="title">
-             <string>Body</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="bodyTabLayout">
-             <property name="spacing">
-              <number>10</number>
-             </property>
-             <item>
-              <layout class="QVBoxLayout" name="bodyPresetsLayout">
-               <property name="spacing">
-                <number>8</number>
-               </property>
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>0</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QLabel" name="body_presets_heading">
-                 <property name="styleSheet">
-                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
-                 </property>
-                 <property name="text">
-                  <string>Body Presets</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <widget class="QComboBox" name="body_combo">
-                 <item>
-                  <property name="text">
-                   <string>Default</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-               <item>
-                <layout class="QHBoxLayout" name="bodyPresetButtons">
-                 <item>
-                  <widget class="QPushButton" name="btn_body_load">
-                   <property name="text">
-                    <string>Load</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="btn_body_save">
-                   <property name="text">
-                    <string>Save</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="btn_body_save_as">
-                   <property name="text">
-                    <string>Save As</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item>
-                  <widget class="QPushButton" name="btn_body_delete">
-                   <property name="text">
-                    <string>Delete</string>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
-              </layout>
-             </item>
-             <item>
-              <layout class="QHBoxLayout" name="bodyEmotionRow">
-               <item>
-                <widget class="QComboBox" name="emotion_combo">
-                 <item>
-                  <property name="text">
-                   <string>Neutral</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Happy</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Sad</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Angry</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Shy</string>
-                  </property>
-                 </item>
-                 <item>
-                  <property name="text">
-                   <string>Surprised</string>
-                  </property>
-                 </item>
-                </widget>
-               </item>
-               <item>
-                <spacer name="bodyEmotionSpacer">
-                 <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
-                 </property>
-                 <property name="sizeHint" stdset="0">
-                  <size>
-                   <width>40</width>
-                   <height>20</height>
-                  </size>
-                 </property>
-                </spacer>
-               </item>
-               <item>
-                <widget class="QCheckBox" name="live_sync_checkbox">
-                 <property name="text">
-                  <string>Live Sync</string>
-                 </property>
-                </widget>
-               </item>
-              </layout>
-             </item>
-             <item>
-              <widget class="QPushButton" name="btn_hand_doctor">
-               <property name="text">
-                <string>Hand Doctor</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <layout class="QVBoxLayout" name="bodyPoseSlidersSectionLayout">
-               <property name="spacing">
-                <number>8</number>
-               </property>
-               <property name="leftMargin">
-                <number>0</number>
-               </property>
-               <property name="topMargin">
-                <number>0</number>
-               </property>
-               <property name="rightMargin">
-                <number>0</number>
-               </property>
-               <property name="bottomMargin">
-                <number>0</number>
-               </property>
-               <item>
-                <widget class="QLabel" name="body_pose_sliders_heading">
-                 <property name="styleSheet">
-                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
-                 </property>
-                 <property name="text">
-                  <string>Pose Sliders</string>
-                 </property>
-                </widget>
-               </item>
-               <item>
-                <layout class="QFormLayout" name="bodyPoseSlidersLayout">
-                 <item row="0" column="0">
-                  <widget class="QLabel" name="idle_fwd_left_label">
-                   <property name="text">
-                    <string>L Depth</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="0" column="1">
-                  <widget class="QSlider" name="idle_fwd_left_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="0">
-                  <widget class="QLabel" name="idle_fwd_right_label">
-                   <property name="text">
-                    <string>R Depth</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="1" column="1">
-                  <widget class="QSlider" name="idle_fwd_right_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="2" column="0">
-                  <widget class="QLabel" name="idle_arm_down_label">
-                   <property name="text">
-                    <string>Shoulder Down</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="2" column="1">
-                  <widget class="QSlider" name="idle_arm_down_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="3" column="0">
-                  <widget class="QLabel" name="idle_shoulder_back_label">
-                   <property name="text">
-                    <string>Shoulder Back</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="3" column="1">
-                  <widget class="QSlider" name="idle_shoulder_back_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="4" column="0">
-                  <widget class="QLabel" name="idle_elbow_bend_label">
-                   <property name="text">
-                    <string>Elbow Bend</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="4" column="1">
-                  <widget class="QSlider" name="idle_elbow_bend_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="5" column="0">
-                  <widget class="QLabel" name="idle_arm_twist_label">
-                   <property name="text">
-                    <string>Arm Twist</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="5" column="1">
-                  <widget class="QSlider" name="idle_arm_twist_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="6" column="0">
-                  <widget class="QLabel" name="spine_sway_mult_label">
-                   <property name="text">
-                    <string>Spine Sway</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="6" column="1">
-                  <widget class="QSlider" name="spine_sway_mult_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="7" column="0">
-                  <widget class="QLabel" name="spine_twist_mult_label">
-                   <property name="text">
-                    <string>Spine Twist</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="7" column="1">
-                  <widget class="QSlider" name="spine_twist_mult_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="8" column="0">
-                  <widget class="QLabel" name="neck_stabilize_label">
-                   <property name="text">
-                    <string>Head Stabilize</string>
-                   </property>
-                  </widget>
-                 </item>
-                 <item row="8" column="1">
-                  <widget class="QSlider" name="neck_stabilize_slider">
-                   <property name="orientation">
-                    <enum>Qt::Horizontal</enum>
-                   </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
-              </layout>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="dynamics_tab">
-            <attribute name="title">
-             <string>Dynamics</string>
-            </attribute>
-            <layout class="QFormLayout" name="dynamicsTabLayout">
-             <item row="0" column="0">
-              <widget class="QLabel" name="eye_activity_label">
-               <property name="text">
-                <string>Eye Activity</string>
-               </property>
-              </widget>
-             </item>
-             <item row="0" column="1">
-              <widget class="QSlider" name="eye_activity_slider">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="0">
-              <widget class="QLabel" name="breath_speed_label">
-               <property name="text">
-                <string>Breath Speed</string>
-               </property>
-              </widget>
-             </item>
-             <item row="1" column="1">
-              <widget class="QSlider" name="breath_speed_slider">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="0">
-              <widget class="QLabel" name="shoulder_lift_label">
-               <property name="text">
-                <string>Shoulder Lift</string>
-               </property>
-              </widget>
-             </item>
-             <item row="2" column="1">
-              <widget class="QSlider" name="shoulder_lift_slider">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item row="3" column="0">
-              <widget class="QLabel" name="idle_speed_label">
-               <property name="text">
-                <string>Body Sway Speed</string>
-               </property>
-              </widget>
-             </item>
-             <item row="3" column="1">
-              <widget class="QSlider" name="idle_speed_slider">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-             <item row="4" column="0">
-              <widget class="QLabel" name="idle_intensity_label">
-               <property name="text">
-                <string>Body Sway Intensity</string>
-               </property>
-              </widget>
-             </item>
-             <item row="4" column="1">
-              <widget class="QSlider" name="idle_intensity_slider">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </widget>
-         </item>
-         <item>
-          <layout class="QVBoxLayout" name="vseefaceViewLayout">
-           <property name="spacing">
-            <number>8</number>
-           </property>
-           <property name="leftMargin">
-            <number>0</number>
-           </property>
-           <property name="topMargin">
-            <number>0</number>
-           </property>
-           <property name="rightMargin">
-            <number>0</number>
-           </property>
-           <property name="bottomMargin">
-            <number>0</number>
-           </property>
-           <item>
-            <widget class="QLabel" name="vseeface_view_heading">
-             <property name="styleSheet">
-              <string notr="true">font-weight:600;color:#dfe3e8;</string>
-             </property>
-             <property name="text">
-              <string>VSeeFace View</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="vseeface_view_hint">
-             <property name="text">
-              <string>Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view.</string>
-             </property>
-             <property name="wordWrap">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <layout class="QHBoxLayout" name="vseefaceViewButtons">
-             <item>
-              <widget class="QPushButton" name="btn_vseeface_hide_interface">
-               <property name="text">
-                <string>Hide NC Interface</string>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <spacer name="vseefaceViewButtonsSpacer">
-               <property name="orientation">
-                <enum>Qt::Horizontal</enum>
-               </property>
-               <property name="sizeHint" stdset="0">
-                <size>
-                 <width>40</width>
-                 <height>20</height>
-                </size>
-               </property>
-              </spacer>
-             </item>
-            </layout>
-           </item>
-          </layout>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="musetalk_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/musetalk.png</normaloff>ui_icons/side_tabs/musetalk.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>MuseTalk</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="musetalkLayout">
-         <item>
-          <widget class="QTabWidget" name="musetalk_tabs">
-           <property name="minimumSize">
-            <size>
-             <width>760</width>
-             <height>620</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>16777215</width>
-             <height>1360</height>
-            </size>
-           </property>
-           <property name="tabPosition">
-            <enum>QTabWidget::North</enum>
-           </property>
-           <widget class="QWidget" name="musetalk_core_tab">
-            <attribute name="title">
-             <string>Core</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="musetalkCoreLayout">
-             <item>
-              <widget class="QPlainTextEdit" name="musetalk_core_placeholder">
-               <property name="plainText">
-                <string>MuseTalk pages are addon-mounted dynamically in the live app. This static shell reserves the same workspace surface.</string>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="musetalk_preview_tab">
-            <attribute name="title">
-             <string>Preview</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="musetalkPreviewLayout">
-             <item>
-              <widget class="QLabel" name="musetalk_preview_hint">
-               <property name="text">
-                <string>MuseTalk preview and stage controls are docked separately in the live app.</string>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="vam_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/vam.png</normaloff>ui_icons/side_tabs/vam.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>VaM</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="vamLayout">
-         <item>
-          <widget class="QLabel" name="vam_summary_label">
-           <property name="text">
-            <string>VaM uses two channels: VMC for motion/head/hands, and a file bridge for emotion, speaking, and optional in-VaM audio.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="vam_detected_setup_box">
-           <property name="title">
-            <string>Detected Setup</string>
-           </property>
-           <layout class="QVBoxLayout" name="vamDetectedSetupLayout">
-            <item>
-             <widget class="QLabel" name="vam_runtime_label">
-              <property name="text">
-               <string>Runtime: not detected</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="vam_bridge_status_label">
-              <property name="text">
-               <string>Bridge status: idle</string>
-              </property>
-             </widget>
-            </item>
-            <item>
-             <widget class="QLabel" name="vam_bridge_detail_label">
-              <property name="text">
-               <string>Bridge detail appears here in the live app.</string>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="vam_bridge_box">
-           <property name="title">
-            <string>VaM Bridge</string>
-           </property>
-           <layout class="QFormLayout" name="vamBridgeForm">
-            <item row="0" column="0">
-             <widget class="QLabel" name="vam_root_label">
-              <property name="text">
-               <string>VaM Root</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QLineEdit" name="vam_root_edit"/>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="vam_bridge_root_label">
-              <property name="text">
-               <string>Bridge Path</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QLineEdit" name="vam_bridge_root_edit"/>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="vam_target_atom_uid_label">
-              <property name="text">
-               <string>Target Atom UID</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QLineEdit" name="vam_target_atom_uid_edit"/>
-            </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="vam_target_storable_id_label">
-              <property name="text">
-               <string>Target Storable ID</string>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="1">
-             <widget class="QLineEdit" name="vam_target_storable_id_edit"/>
-            </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="vam_vmc_host_label">
-              <property name="text">
-               <string>VMC Host</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QLineEdit" name="vam_vmc_host_edit"/>
-            </item>
-            <item row="5" column="0">
-             <widget class="QLabel" name="vam_vmc_port_label">
-              <property name="text">
-               <string>VMC Port</string>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="1">
-             <widget class="QSpinBox" name="vam_vmc_port_spin">
-              <property name="maximum">
-               <number>65535</number>
-              </property>
-              <property name="value">
-               <number>39539</number>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="vamBridgeCheckboxes">
-           <item>
-            <widget class="QCheckBox" name="vam_vmc_enabled_checkbox">
-             <property name="text">
-              <string>Enable VMC</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="vam_bridge_enabled_checkbox">
-             <property name="text">
-              <string>Enable File Bridge</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="vam_play_audio_in_vam_checkbox">
-             <property name="text">
-              <string>Play Audio In VaM</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="vam_timeline_auto_resume_checkbox">
-             <property name="text">
-              <string>Timeline Auto Resume</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="vamActions">
-           <item>
-            <widget class="QPushButton" name="btn_start_vam_desktop">
-             <property name="text">
-              <string>Start VaM Desktop</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_start_vam_vr">
-             <property name="text">
-              <string>Start VaM VR</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_vam_hide_interface">
-             <property name="text">
-              <string>Hide NC Interface</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QTabWidget" name="vam_setup_tabs">
-           <property name="minimumSize">
-            <size>
-             <width>0</width>
-             <height>0</height>
-            </size>
-           </property>
-           <property name="tabPosition">
-            <enum>QTabWidget::North</enum>
-           </property>
-           <widget class="QWidget" name="vam1_setup_tab">
-            <attribute name="title">
-             <string>VaM1</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="vam1SetupLayout">
-             <item>
-              <widget class="QLabel" name="vam1_setup_hint">
-               <property name="text">
-                <string>VaM1 setup: point NC at the VaM install root and ensure the plugin creates the outbox status file.</string>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-           <widget class="QWidget" name="vam2_setup_tab">
-            <attribute name="title">
-             <string>VaM2</string>
-            </attribute>
-            <layout class="QVBoxLayout" name="vam2SetupLayout">
-             <item>
-              <widget class="QLabel" name="vam2_setup_hint">
-               <property name="text">
-                <string>VaM2 setup: point NC at the VaM2 install root and ensure the runtime processes bridge commands.</string>
-               </property>
-               <property name="wordWrap">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
-           </widget>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="brain_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/brain.png</normaloff>ui_icons/side_tabs/brain.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Brain</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="brainLayout">
-         <item>
-          <widget class="QGroupBox" name="brain_sampling_box">
-           <property name="title">
-            <string>Sampling</string>
-           </property>
-           <layout class="QFormLayout" name="brainSamplingForm">
-            <item row="0" column="0">
-             <widget class="QLabel" name="temperature_label">
-              <property name="text">
-               <string>Temperature</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QSlider" name="temperature_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="top_p_label">
-              <property name="text">
-               <string>Top P</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QSlider" name="top_p_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="top_k_label">
-              <property name="text">
-               <string>Top K</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QSlider" name="top_k_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="repeat_penalty_label">
-              <property name="text">
-               <string>Repeat Penalty</string>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="1">
-             <widget class="QSlider" name="repeat_penalty_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="min_p_label">
-              <property name="text">
-               <string>Min P</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QSlider" name="min_p_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="response_length_box">
-           <property name="title">
-            <string>Response Length</string>
-           </property>
-           <layout class="QFormLayout" name="responseLengthForm">
-            <item row="0" column="0">
-             <widget class="QCheckBox" name="limit_response_checkbox">
-              <property name="text">
-               <string>Limit Response Length</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QWidget" name="response_limit_placeholder" native="true"/>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="max_response_tokens_label">
-              <property name="text">
-               <string>Maximum response length (tokens)</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QSpinBox" name="max_response_tokens_spin">
-              <property name="maximum">
-               <number>8192</number>
-              </property>
-              <property name="value">
-               <number>600</number>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="chunking_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/chunking.png</normaloff>ui_icons/side_tabs/chunking.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Chunking</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="chunkingLayout">
-         <item>
-          <widget class="QLabel" name="chunking_hint_label">
-           <property name="text">
-            <string>Global pipeline tuning. These values affect chunking behavior system-wide and are not saved with personas.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="standard_chunking_box">
-           <property name="title">
-            <string>Standard</string>
-           </property>
-           <layout class="QFormLayout" name="standardChunkingForm">
-            <item row="0" column="0">
-             <widget class="QLabel" name="chunk_target_chars_label">
-              <property name="text">
-               <string>Target Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QSlider" name="chunk_target_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="chunk_max_chars_label">
-              <property name="text">
-               <string>Max Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QSlider" name="chunk_max_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="musetalk_chunking_box">
-           <property name="title">
-            <string>MuseTalk Non-Stream</string>
-           </property>
-           <layout class="QFormLayout" name="musetalkChunkingForm">
-            <item row="0" column="0">
-             <widget class="QLabel" name="musetalk_chunk_target_chars_label">
-              <property name="text">
-               <string>Target Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QSlider" name="musetalk_chunk_target_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="musetalk_chunk_max_chars_label">
-              <property name="text">
-               <string>Max Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QSlider" name="musetalk_chunk_max_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="musetalk_quickstart_1_target_chars_label">
-              <property name="text">
-               <string>Quickstart 1 Target</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QSlider" name="musetalk_quickstart_1_target_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="musetalk_quickstart_1_max_chars_label">
-              <property name="text">
-               <string>Quickstart 1 Max</string>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="1">
-             <widget class="QSlider" name="musetalk_quickstart_1_max_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="musetalk_quickstart_2_target_chars_label">
-              <property name="text">
-               <string>Quickstart 2 Target</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QSlider" name="musetalk_quickstart_2_target_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="0">
-             <widget class="QLabel" name="musetalk_quickstart_2_max_chars_label">
-              <property name="text">
-               <string>Quickstart 2 Max</string>
-              </property>
-             </widget>
-            </item>
-            <item row="5" column="1">
-             <widget class="QSlider" name="musetalk_quickstart_2_max_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="streaming_chunking_box">
-           <property name="title">
-            <string>Streaming</string>
-           </property>
-           <layout class="QFormLayout" name="streamingChunkingForm">
-            <item row="0" column="0">
-             <widget class="QLabel" name="stream_chunk_target_chars_label">
-              <property name="text">
-               <string>Target Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="0" column="1">
-             <widget class="QSlider" name="stream_chunk_target_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="0">
-             <widget class="QLabel" name="stream_chunk_max_chars_label">
-              <property name="text">
-               <string>Max Chars</string>
-              </property>
-             </widget>
-            </item>
-            <item row="1" column="1">
-             <widget class="QSlider" name="stream_chunk_max_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="0">
-             <widget class="QLabel" name="stream_first_chunk_min_chars_label">
-              <property name="text">
-               <string>First Chunk Min</string>
-              </property>
-             </widget>
-            </item>
-            <item row="2" column="1">
-             <widget class="QSlider" name="stream_first_chunk_min_chars_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="0">
-             <widget class="QLabel" name="stream_force_flush_seconds_label">
-              <property name="text">
-               <string>First Flush (s)</string>
-              </property>
-             </widget>
-            </item>
-            <item row="3" column="1">
-             <widget class="QSlider" name="stream_force_flush_seconds_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="0">
-             <widget class="QLabel" name="stream_force_flush_later_seconds_label">
-              <property name="text">
-               <string>Later Flush (s)</string>
-              </property>
-             </widget>
-            </item>
-            <item row="4" column="1">
-             <widget class="QSlider" name="stream_force_flush_later_seconds_slider">
-              <property name="orientation">
-               <enum>Qt::Horizontal</enum>
-              </property>
-             </widget>
-            </item>
-           </layout>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="btn_reset_chunking_defaults">
-           <property name="text">
-            <string>Reset Chunking Defaults</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="chunking_profiles_box">
-           <property name="title">
-            <string>Performance Profiles</string>
-           </property>
-           <layout class="QVBoxLayout" name="chunkingProfilesLayout">
-            <item>
-             <layout class="QHBoxLayout" name="chunkingProfileRow">
-              <item>
-               <widget class="QComboBox" name="chunking_profile_combo">
-                <item>
-                 <property name="text">
-                  <string>No Saved Profiles</string>
-                 </property>
-                </item>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_chunking_profile_refresh">
-                <property name="text">
-                 <string>Refresh</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="chunkingProfileButtons">
-              <item>
-               <widget class="QPushButton" name="btn_chunking_profile_load">
-                <property name="text">
-                 <string>Load Profile</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_chunking_profile_save">
-                <property name="text">
-                 <string>Save Current As</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_chunking_profile_delete">
-                <property name="text">
-                 <string>Delete</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-           </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="dry_run_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/dry_run.png</normaloff>ui_icons/side_tabs/dry_run.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Dry Run</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="dryRunLayout">
-         <item>
-          <widget class="QLabel" name="dry_run_intro">
-           <property name="text">
-            <string>Dry Run profiles your current hardware and recommends safer startup/chunking values without changing the live pipeline while it measures.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <layout class="QFormLayout" name="dryRunForm">
-           <item row="0" column="0">
-            <widget class="QLabel" name="dry_run_target_label">
-             <property name="text">
-              <string>Target Reply Samples</string>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QSpinBox" name="dry_run_target_spin">
-             <property name="maximum">
-              <number>12</number>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="dry_run_hands_free_label">
-             <property name="text">
-              <string>Hands-Free</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QCheckBox" name="dry_run_auto_replies_checkbox">
-             <property name="text">
-              <string>Auto-generate follow-up replies</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="dryRunButtons">
-           <item>
-            <widget class="QPushButton" name="btn_dry_run_start">
-             <property name="text">
-              <string>Arm Dry Run</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_dry_run_stop">
-             <property name="text">
-              <string>Stop Dry Run</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_dry_run_apply">
-             <property name="text">
-              <string>Apply Recommendation</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-         <item>
-          <widget class="QLabel" name="dry_run_status_label">
-           <property name="text">
-            <string>Dry Run idle.</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPlainTextEdit" name="dry_run_summary">
-           <property name="plainText">
-            <string>Recommendations and measured startup metrics will appear here.</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QGroupBox" name="performance_profiles_box">
-           <property name="title">
-            <string>Performance Profiles</string>
-           </property>
-           <layout class="QVBoxLayout" name="performanceProfilesLayout">
-            <item>
-             <layout class="QHBoxLayout" name="performanceProfileRow">
-              <item>
-               <widget class="QComboBox" name="performance_profile_combo">
-                <item>
-                 <property name="text">
-                  <string>No Saved Profiles</string>
-                 </property>
-                </item>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_profile_refresh">
-                <property name="text">
-                 <string>Refresh</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-            <item>
-             <layout class="QHBoxLayout" name="performanceProfileButtons">
-              <item>
-               <widget class="QPushButton" name="btn_profile_load">
-                <property name="text">
-                 <string>Load Profile</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_profile_save_latest">
-                <property name="text">
-                 <string>Save Latest As</string>
-                </property>
-               </widget>
-              </item>
-              <item>
-               <widget class="QPushButton" name="btn_profile_delete">
-                <property name="text">
-                 <string>Delete</string>
-                </property>
-               </widget>
-              </item>
-             </layout>
-            </item>
-           </layout>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="tutorials_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/tutorials.png</normaloff>ui_icons/side_tabs/tutorials.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Tutorials</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="tutorialsLayout">
-         <item>
-          <widget class="QLabel" name="tutorials_intro_label">
-           <property name="text">
-            <string>Tutorials are loaded from JSON files, so new walkthroughs can be added over time without hardcoding them into the application.</string>
-           </property>
-           <property name="wordWrap">
-            <bool>true</bool>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QListWidget" name="tutorials_list">
-           <item>
-            <property name="text">
-             <string>Getting Started</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>Visual Replies</string>
-            </property>
-           </item>
-           <item>
-            <property name="text">
-             <string>Audio Story Mode</string>
-            </property>
-           </item>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPlainTextEdit" name="tutorial_description">
-           <property name="plainText">
-            <string>Select a tutorial to see its description.</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <layout class="QHBoxLayout" name="tutorialButtons">
-           <item>
-            <widget class="QPushButton" name="btn_tutorial_refresh">
-             <property name="text">
-              <string>Refresh</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <spacer name="tutorialButtonsSpacer">
-             <property name="orientation">
-              <enum>Qt::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
-           <item>
-            <widget class="QPushButton" name="btn_tutorial_start">
-             <property name="text">
-              <string>Start Tutorial</string>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="hotkeys_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/hotkeys.png</normaloff>ui_icons/side_tabs/hotkeys.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Hotkeys</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="hotkeysLayout">
-         <item>
-          <widget class="QPlainTextEdit" name="hotkeys_text">
-           <property name="plainText">
-            <string>Addon workspace tabs mount here at runtime.</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-       <widget class="QWidget" name="chat_player_tab">
-        <attribute name="icon">
-         <iconset>
-          <normaloff>ui_icons/side_tabs/chat_player.png</normaloff>ui_icons/side_tabs/chat_player.png</iconset>
-        </attribute>
-        <attribute name="title">
-         <string/>
-        </attribute>
-        <attribute name="toolTip">
-         <string>Chat Player</string>
-        </attribute>
-        <layout class="QVBoxLayout" name="chatPlayerLayout">
-         <item>
-          <widget class="QPlainTextEdit" name="chat_player_text">
-           <property name="plainText">
-            <string>Chat Player addon placeholder.</string>
-           </property>
-          </widget>
-         </item>
-        </layout>
-       </widget>
-      </widget>
-     </item>
-    </layout>
-   </widget>
-  </widget>
   <widget class="QDockWidget" name="OperationalViewDock">
    <property name="minimumSize">
     <size>
      <width>890</width>
-     <height>799</height>
+     <height>804</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -4727,7 +3007,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>890</width>
+          <width>1045</width>
           <height>780</height>
          </rect>
         </property>
@@ -4819,7 +3099,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
             </size>
            </property>
            <property name="tabPosition">
-            <enum>QTabWidget::North</enum>
+            <enum>QTabWidget::TabPosition::North</enum>
            </property>
            <widget class="QWidget" name="system_console_tab">
             <attribute name="title">
@@ -4838,7 +3118,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                <item>
                 <spacer name="systemConsoleSpacer">
                  <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                  <property name="sizeHint" stdset="0">
                   <size>
@@ -4890,7 +3170,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                <item>
                 <spacer name="chatRuntimeHeaderSpacer">
                  <property name="orientation">
-                  <enum>Qt::Horizontal</enum>
+                  <enum>Qt::Orientation::Horizontal</enum>
                  </property>
                  <property name="sizeHint" stdset="0">
                   <size>
@@ -5101,7 +3381,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                      <string>Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze; live runtime rebuilds story windows after a short debounce.</string>
                     </property>
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
@@ -5161,7 +3441,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   <item>
                    <spacer name="audioStoryButtonsSpacer">
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                     <property name="sizeHint" stdset="0">
                      <size>
@@ -5186,7 +3466,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                    <string>Scrub through the audio story timeline. The preview jumps to the image window for the selected time.</string>
                   </property>
                   <property name="orientation">
-                   <enum>Qt::Horizontal</enum>
+                   <enum>Qt::Orientation::Horizontal</enum>
                   </property>
                  </widget>
                 </item>
@@ -5249,7 +3529,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                      <number>60</number>
                     </property>
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
@@ -5290,7 +3570,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                      <string>Continuity strength. Higher values preserve recurring characters, outfits, props, and locations more aggressively.</string>
                     </property>
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
@@ -5316,7 +3596,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                      <number>3</number>
                     </property>
                     <property name="orientation">
-                     <enum>Qt::Horizontal</enum>
+                     <enum>Qt::Orientation::Horizontal</enum>
                     </property>
                    </widget>
                   </item>
@@ -5864,7 +4144,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
    <property name="minimumSize">
     <size>
      <width>890</width>
-     <height>799</height>
+     <height>804</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -5908,7 +4188,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
         <string>MuseTalk preview panel placeholder</string>
        </property>
        <property name="alignment">
-        <set>Qt::AlignCenter</set>
+        <set>Qt::AlignmentFlag::AlignCenter</set>
        </property>
       </widget>
      </item>
@@ -5919,7 +4199,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
    <property name="minimumSize">
     <size>
      <width>890</width>
-     <height>799</height>
+     <height>804</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -6069,7 +4349,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
         </size>
        </property>
        <property name="frameShape">
-        <enum>QFrame::StyledPanel</enum>
+        <enum>QFrame::Shape::StyledPanel</enum>
        </property>
        <layout class="QVBoxLayout" name="visualReplyFrameLayout">
         <item>
@@ -6078,7 +4358,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            <string>Image preview area</string>
           </property>
           <property name="alignment">
-           <set>Qt::AlignCenter</set>
+           <set>Qt::AlignmentFlag::AlignCenter</set>
           </property>
          </widget>
         </item>
@@ -6093,8 +4373,8 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1810</width>
-     <height>21</height>
+     <width>2215</width>
+     <height>33</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuWorkspace">
@@ -6107,6 +4387,1579 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
    <addaction name="menuWorkspace"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <widget class="QDockWidget" name="WorkspaceTabsDock">
+   <property name="minimumSize">
+    <size>
+     <width>890</width>
+     <height>804</height>
+    </size>
+   </property>
+   <property name="maximumSize">
+    <size>
+     <width>524287</width>
+     <height>1360</height>
+    </size>
+   </property>
+   <property name="styleSheet">
+    <string notr="true">QTabWidget#right_tabs::pane,
+QTabWidget#sensory_feedback_tabs::pane,
+QTabWidget#vseeface_tabs::pane,
+QTabWidget#musetalk_tabs::pane,
+QTabWidget#tts_runtime_addon_tabs::pane {
+    top: -1px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+
+QTabWidget#right_tabs::tab-bar,
+QTabWidget#sensory_feedback_tabs::tab-bar,
+QTabWidget#vseeface_tabs::tab-bar,
+QTabWidget#musetalk_tabs::tab-bar,
+QTabWidget#tts_runtime_addon_tabs::tab-bar {
+    left: 8px;
+}
+
+QTabWidget#right_tabs QTabBar::tab,
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    background: #17212c;
+    border: 1px solid #273342;
+    padding: 8px 14px;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:!selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
+QTabWidget#vseeface_tabs QTabBar::tab:!selected,
+QTabWidget#musetalk_tabs QTabBar::tab:!selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
+    margin-top: 3px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:selected,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected,
+QTabWidget#vseeface_tabs QTabBar::tab:selected,
+QTabWidget#musetalk_tabs QTabBar::tab:selected,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    background: #0f141b;
+    border-color: #273342;
+    border-bottom-color: #0f141b;
+    margin-bottom: -1px;
+    padding-bottom: 10px;
+}
+
+QTabWidget#right_tabs QTabBar::tab:hover,
+QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
+QTabWidget#vseeface_tabs QTabBar::tab:hover,
+QTabWidget#musetalk_tabs QTabBar::tab:hover,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
+    background: #223247;
+}
+</string>
+   </property>
+   <property name="windowTitle">
+    <string>Workspace Tabs</string>
+   </property>
+   <attribute name="dockWidgetArea">
+    <number>1</number>
+   </attribute>
+   <widget class="QWidget" name="workspace_tabs_panel">
+    <property name="sizePolicy">
+     <sizepolicy hsizetype="Preferred" vsizetype="Ignored">
+      <horstretch>0</horstretch>
+      <verstretch>0</verstretch>
+     </sizepolicy>
+    </property>
+    <property name="minimumSize">
+     <size>
+      <width>890</width>
+      <height>780</height>
+     </size>
+    </property>
+    <property name="maximumSize">
+     <size>
+      <width>16777215</width>
+      <height>1360</height>
+     </size>
+    </property>
+    <layout class="QVBoxLayout" name="workspaceTabsLayout">
+     <property name="spacing">
+      <number>12</number>
+     </property>
+     <property name="leftMargin">
+      <number>14</number>
+     </property>
+     <property name="topMargin">
+      <number>14</number>
+     </property>
+     <property name="rightMargin">
+      <number>14</number>
+     </property>
+     <property name="bottomMargin">
+      <number>14</number>
+     </property>
+     <item>
+      <widget class="QTabWidget" name="left_tabs">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Ignored">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="minimumSize">
+        <size>
+         <width>840</width>
+         <height>700</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>1360</height>
+        </size>
+       </property>
+       <property name="tabPosition">
+        <enum>QTabWidget::TabPosition::West</enum>
+       </property>
+       <property name="currentIndex">
+        <number>4</number>
+       </property>
+       <property name="iconSize">
+        <size>
+         <width>35</width>
+         <height>35</height>
+        </size>
+       </property>
+       <property name="movable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="persona_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/persona.png</normaloff>ui_icons/side_tabs/persona.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Persona</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="personaLayout">
+         <item>
+          <widget class="QLabel" name="voice_clone_label">
+           <property name="text">
+            <string>Voice Clone</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="voice_combo">
+           <property name="minimumSize">
+            <size>
+             <width>186</width>
+             <height>32</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>200</width>
+             <height>16777215</height>
+            </size>
+           </property>
+           <item>
+            <property name="text">
+             <string>ms-twav</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="technical_rules_group">
+           <property name="title">
+            <string>Technical Rules (Tags)</string>
+           </property>
+           <layout class="QVBoxLayout" name="technicalRulesLayout">
+            <item>
+             <widget class="QPlainTextEdit" name="emotional_text">
+              <property name="plainText">
+               <string>Technical rules / expressive tags</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="system_prompt_group">
+           <property name="title">
+            <string>System Prompt</string>
+           </property>
+           <layout class="QVBoxLayout" name="systemPromptLayout">
+            <item>
+             <widget class="QPlainTextEdit" name="system_prompt_text">
+              <property name="plainText">
+               <string>System prompt</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_apply_text_config">
+           <property name="text">
+            <string>Apply Changes</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="vseeface_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/vseeface.png</normaloff>ui_icons/side_tabs/vseeface.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>VSeeFace</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="vseefaceLayout">
+         <property name="spacing">
+          <number>10</number>
+         </property>
+         <item>
+          <widget class="QTabWidget" name="vseeface_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>760</width>
+             <height>620</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::TabPosition::North</enum>
+           </property>
+           <property name="currentIndex">
+            <number>1</number>
+           </property>
+           <widget class="QWidget" name="body_tab">
+            <attribute name="title">
+             <string>Body</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="bodyTabLayout">
+             <property name="spacing">
+              <number>10</number>
+             </property>
+             <item>
+              <layout class="QVBoxLayout" name="bodyPresetsLayout">
+               <property name="spacing">
+                <number>8</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="body_presets_heading">
+                 <property name="styleSheet">
+                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
+                 </property>
+                 <property name="text">
+                  <string>Body Presets</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <widget class="QComboBox" name="body_combo">
+                 <item>
+                  <property name="text">
+                   <string>Default</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <layout class="QHBoxLayout" name="bodyPresetButtons">
+                 <item>
+                  <widget class="QPushButton" name="btn_body_load">
+                   <property name="text">
+                    <string>Load</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_save">
+                   <property name="text">
+                    <string>Save</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_save_as">
+                   <property name="text">
+                    <string>Save As</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="btn_body_delete">
+                   <property name="text">
+                    <string>Delete</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="bodyEmotionRow">
+               <item>
+                <widget class="QComboBox" name="emotion_combo">
+                 <item>
+                  <property name="text">
+                   <string>Neutral</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Happy</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Sad</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Angry</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Shy</string>
+                  </property>
+                 </item>
+                 <item>
+                  <property name="text">
+                   <string>Surprised</string>
+                  </property>
+                 </item>
+                </widget>
+               </item>
+               <item>
+                <spacer name="bodyEmotionSpacer">
+                 <property name="orientation">
+                  <enum>Qt::Orientation::Horizontal</enum>
+                 </property>
+                 <property name="sizeHint" stdset="0">
+                  <size>
+                   <width>40</width>
+                   <height>20</height>
+                  </size>
+                 </property>
+                </spacer>
+               </item>
+               <item>
+                <widget class="QCheckBox" name="live_sync_checkbox">
+                 <property name="text">
+                  <string>Live Sync</string>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QPushButton" name="btn_hand_doctor">
+               <property name="text">
+                <string>Hand Doctor</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QVBoxLayout" name="bodyPoseSlidersSectionLayout">
+               <property name="spacing">
+                <number>8</number>
+               </property>
+               <property name="leftMargin">
+                <number>0</number>
+               </property>
+               <property name="topMargin">
+                <number>0</number>
+               </property>
+               <property name="rightMargin">
+                <number>0</number>
+               </property>
+               <property name="bottomMargin">
+                <number>0</number>
+               </property>
+               <item>
+                <widget class="QLabel" name="body_pose_sliders_heading">
+                 <property name="styleSheet">
+                  <string notr="true">font-weight:600;color:#dfe3e8;</string>
+                 </property>
+                 <property name="text">
+                  <string>Pose Sliders</string>
+                 </property>
+                </widget>
+               </item>
+               <item>
+                <layout class="QFormLayout" name="bodyPoseSlidersLayout">
+                 <item row="0" column="0">
+                  <widget class="QLabel" name="idle_fwd_left_label">
+                   <property name="text">
+                    <string>L Depth</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="0" column="1">
+                  <widget class="QSlider" name="idle_fwd_left_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="0">
+                  <widget class="QLabel" name="idle_fwd_right_label">
+                   <property name="text">
+                    <string>R Depth</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="1" column="1">
+                  <widget class="QSlider" name="idle_fwd_right_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="0">
+                  <widget class="QLabel" name="idle_arm_down_label">
+                   <property name="text">
+                    <string>Shoulder Down</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="2" column="1">
+                  <widget class="QSlider" name="idle_arm_down_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="0">
+                  <widget class="QLabel" name="idle_shoulder_back_label">
+                   <property name="text">
+                    <string>Shoulder Back</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="3" column="1">
+                  <widget class="QSlider" name="idle_shoulder_back_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="0">
+                  <widget class="QLabel" name="idle_elbow_bend_label">
+                   <property name="text">
+                    <string>Elbow Bend</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="4" column="1">
+                  <widget class="QSlider" name="idle_elbow_bend_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="0">
+                  <widget class="QLabel" name="idle_arm_twist_label">
+                   <property name="text">
+                    <string>Arm Twist</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="5" column="1">
+                  <widget class="QSlider" name="idle_arm_twist_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="0">
+                  <widget class="QLabel" name="spine_sway_mult_label">
+                   <property name="text">
+                    <string>Spine Sway</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="6" column="1">
+                  <widget class="QSlider" name="spine_sway_mult_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="7" column="0">
+                  <widget class="QLabel" name="spine_twist_mult_label">
+                   <property name="text">
+                    <string>Spine Twist</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="7" column="1">
+                  <widget class="QSlider" name="spine_twist_mult_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="8" column="0">
+                  <widget class="QLabel" name="neck_stabilize_label">
+                   <property name="text">
+                    <string>Head Stabilize</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item row="8" column="1">
+                  <widget class="QSlider" name="neck_stabilize_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="dynamics_tab">
+            <attribute name="title">
+             <string>Dynamics</string>
+            </attribute>
+            <layout class="QFormLayout" name="dynamicsTabLayout">
+             <item row="0" column="0">
+              <widget class="QLabel" name="eye_activity_label">
+               <property name="text">
+                <string>Eye Activity</string>
+               </property>
+              </widget>
+             </item>
+             <item row="0" column="1">
+              <widget class="QSlider" name="eye_activity_slider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="0">
+              <widget class="QLabel" name="breath_speed_label">
+               <property name="text">
+                <string>Breath Speed</string>
+               </property>
+              </widget>
+             </item>
+             <item row="1" column="1">
+              <widget class="QSlider" name="breath_speed_slider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="0">
+              <widget class="QLabel" name="shoulder_lift_label">
+               <property name="text">
+                <string>Shoulder Lift</string>
+               </property>
+              </widget>
+             </item>
+             <item row="2" column="1">
+              <widget class="QSlider" name="shoulder_lift_slider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="0">
+              <widget class="QLabel" name="idle_speed_label">
+               <property name="text">
+                <string>Body Sway Speed</string>
+               </property>
+              </widget>
+             </item>
+             <item row="3" column="1">
+              <widget class="QSlider" name="idle_speed_slider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="0">
+              <widget class="QLabel" name="idle_intensity_label">
+               <property name="text">
+                <string>Body Sway Intensity</string>
+               </property>
+              </widget>
+             </item>
+             <item row="4" column="1">
+              <widget class="QSlider" name="idle_intensity_slider">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+         <item>
+          <layout class="QVBoxLayout" name="vseefaceViewLayout">
+           <property name="spacing">
+            <number>8</number>
+           </property>
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+           <item>
+            <widget class="QLabel" name="vseeface_view_heading">
+             <property name="styleSheet">
+              <string notr="true">font-weight:600;color:#dfe3e8;</string>
+             </property>
+             <property name="text">
+              <string>VSeeFace View</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="vseeface_view_hint">
+             <property name="text">
+              <string>Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view.</string>
+             </property>
+             <property name="wordWrap">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <layout class="QHBoxLayout" name="vseefaceViewButtons">
+             <item>
+              <widget class="QPushButton" name="btn_vseeface_hide_interface">
+               <property name="text">
+                <string>Hide NC Interface</string>
+               </property>
+              </widget>
+             </item>
+             <item>
+              <spacer name="vseefaceViewButtonsSpacer">
+               <property name="orientation">
+                <enum>Qt::Orientation::Horizontal</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>40</width>
+                 <height>20</height>
+                </size>
+               </property>
+              </spacer>
+             </item>
+            </layout>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="musetalk_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/musetalk.png</normaloff>ui_icons/side_tabs/musetalk.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>MuseTalk</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="musetalkLayout">
+         <item>
+          <widget class="QTabWidget" name="musetalk_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>760</width>
+             <height>620</height>
+            </size>
+           </property>
+           <property name="maximumSize">
+            <size>
+             <width>16777215</width>
+             <height>1360</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::TabPosition::North</enum>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="vam_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/vam.png</normaloff>ui_icons/side_tabs/vam.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>VaM</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="vamLayout">
+         <item>
+          <widget class="QLabel" name="vam_summary_label">
+           <property name="text">
+            <string>VaM uses two channels: VMC for motion/head/hands, and a file bridge for emotion, speaking, and optional in-VaM audio.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="vam_detected_setup_box">
+           <property name="title">
+            <string>Detected Setup</string>
+           </property>
+           <layout class="QVBoxLayout" name="vamDetectedSetupLayout">
+            <item>
+             <widget class="QLabel" name="vam_runtime_label">
+              <property name="text">
+               <string>Runtime: not detected</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="vam_bridge_status_label">
+              <property name="text">
+               <string>Bridge status: idle</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="vam_bridge_detail_label">
+              <property name="text">
+               <string>Bridge detail appears here in the live app.</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="vam_bridge_box">
+           <property name="title">
+            <string>VaM Bridge</string>
+           </property>
+           <layout class="QFormLayout" name="vamBridgeForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="vam_root_label">
+              <property name="text">
+               <string>VaM Root</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QLineEdit" name="vam_root_edit"/>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="vam_bridge_root_label">
+              <property name="text">
+               <string>Bridge Path</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QLineEdit" name="vam_bridge_root_edit"/>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="vam_target_atom_uid_label">
+              <property name="text">
+               <string>Target Atom UID</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLineEdit" name="vam_target_atom_uid_edit"/>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="vam_target_storable_id_label">
+              <property name="text">
+               <string>Target Storable ID</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QLineEdit" name="vam_target_storable_id_edit"/>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="vam_vmc_host_label">
+              <property name="text">
+               <string>VMC Host</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QLineEdit" name="vam_vmc_host_edit"/>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="vam_vmc_port_label">
+              <property name="text">
+               <string>VMC Port</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QSpinBox" name="vam_vmc_port_spin">
+              <property name="maximum">
+               <number>65535</number>
+              </property>
+              <property name="value">
+               <number>39539</number>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="vamBridgeCheckboxes">
+           <item>
+            <widget class="QCheckBox" name="vam_vmc_enabled_checkbox">
+             <property name="text">
+              <string>Enable VMC</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_bridge_enabled_checkbox">
+             <property name="text">
+              <string>Enable File Bridge</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_play_audio_in_vam_checkbox">
+             <property name="text">
+              <string>Play Audio In VaM</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vam_timeline_auto_resume_checkbox">
+             <property name="text">
+              <string>Timeline Auto Resume</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="vamActions">
+           <item>
+            <widget class="QPushButton" name="btn_start_vam_desktop">
+             <property name="text">
+              <string>Start VaM Desktop</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_start_vam_vr">
+             <property name="text">
+              <string>Start VaM VR</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_vam_hide_interface">
+             <property name="text">
+              <string>Hide NC Interface</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QTabWidget" name="vam_setup_tabs">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>0</height>
+            </size>
+           </property>
+           <property name="tabPosition">
+            <enum>QTabWidget::TabPosition::North</enum>
+           </property>
+           <widget class="QWidget" name="vam1_setup_tab">
+            <attribute name="title">
+             <string>VaM1</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="vam1SetupLayout">
+             <item>
+              <widget class="QLabel" name="vam1_setup_hint">
+               <property name="text">
+                <string>VaM1 setup: point NC at the VaM install root and ensure the plugin creates the outbox status file.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+           <widget class="QWidget" name="vam2_setup_tab">
+            <attribute name="title">
+             <string>VaM2</string>
+            </attribute>
+            <layout class="QVBoxLayout" name="vam2SetupLayout">
+             <item>
+              <widget class="QLabel" name="vam2_setup_hint">
+               <property name="text">
+                <string>VaM2 setup: point NC at the VaM2 install root and ensure the runtime processes bridge commands.</string>
+               </property>
+               <property name="wordWrap">
+                <bool>true</bool>
+               </property>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="addons_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/brain.png</normaloff>ui_icons/side_tabs/brain.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Addons</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="brainLayout"/>
+       </widget>
+       <widget class="QWidget" name="chunking_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/chunking.png</normaloff>ui_icons/side_tabs/chunking.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Chunking</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="chunkingLayout">
+         <item>
+          <widget class="QLabel" name="chunking_hint_label">
+           <property name="text">
+            <string>Global pipeline tuning. These values affect chunking behavior system-wide and are not saved with personas.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="standard_chunking_box">
+           <property name="title">
+            <string>Standard</string>
+           </property>
+           <layout class="QFormLayout" name="standardChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="musetalk_chunking_box">
+           <property name="title">
+            <string>MuseTalk Non-Stream</string>
+           </property>
+           <layout class="QFormLayout" name="musetalkChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="musetalk_chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="musetalk_chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="musetalk_chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="musetalk_chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_1_target_chars_label">
+              <property name="text">
+               <string>Quickstart 1 Target</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_1_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_1_max_chars_label">
+              <property name="text">
+               <string>Quickstart 1 Max</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_1_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_2_target_chars_label">
+              <property name="text">
+               <string>Quickstart 2 Target</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_2_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_2_max_chars_label">
+              <property name="text">
+               <string>Quickstart 2 Max</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_2_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="streaming_chunking_box">
+           <property name="title">
+            <string>Streaming</string>
+           </property>
+           <layout class="QFormLayout" name="streamingChunkingForm">
+            <item row="0" column="0">
+             <widget class="QLabel" name="stream_chunk_target_chars_label">
+              <property name="text">
+               <string>Target Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSlider" name="stream_chunk_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="stream_chunk_max_chars_label">
+              <property name="text">
+               <string>Max Chars</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QSlider" name="stream_chunk_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="stream_first_chunk_min_chars_label">
+              <property name="text">
+               <string>First Chunk Min</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QSlider" name="stream_first_chunk_min_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="stream_force_flush_seconds_label">
+              <property name="text">
+               <string>First Flush (s)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSlider" name="stream_force_flush_seconds_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="stream_force_flush_later_seconds_label">
+              <property name="text">
+               <string>Later Flush (s)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QSlider" name="stream_force_flush_later_seconds_slider">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="btn_reset_chunking_defaults">
+           <property name="text">
+            <string>Reset Chunking Defaults</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="chunking_profiles_box">
+           <property name="title">
+            <string>Performance Profiles</string>
+           </property>
+           <layout class="QVBoxLayout" name="chunkingProfilesLayout">
+            <item>
+             <layout class="QHBoxLayout" name="chunkingProfileRow">
+              <item>
+               <widget class="QComboBox" name="chunking_profile_combo">
+                <item>
+                 <property name="text">
+                  <string>No Saved Profiles</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_refresh">
+                <property name="text">
+                 <string>Refresh</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="chunkingProfileButtons">
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_load">
+                <property name="text">
+                 <string>Load Profile</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_save">
+                <property name="text">
+                 <string>Save Current As</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_chunking_profile_delete">
+                <property name="text">
+                 <string>Delete</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="dry_run_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/dry_run.png</normaloff>ui_icons/side_tabs/dry_run.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Dry Run</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="dryRunLayout">
+         <item>
+          <widget class="QLabel" name="dry_run_intro">
+           <property name="text">
+            <string>Dry Run profiles your current hardware and recommends safer startup/chunking values without changing the live pipeline while it measures.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QFormLayout" name="dryRunForm">
+           <item row="0" column="0">
+            <widget class="QLabel" name="dry_run_target_label">
+             <property name="text">
+              <string>Target Reply Samples</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSpinBox" name="dry_run_target_spin">
+             <property name="maximum">
+              <number>12</number>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="dry_run_hands_free_label">
+             <property name="text">
+              <string>Hands-Free</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QCheckBox" name="dry_run_auto_replies_checkbox">
+             <property name="text">
+              <string>Auto-generate follow-up replies</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="dryRunButtons">
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_start">
+             <property name="text">
+              <string>Arm Dry Run</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_stop">
+             <property name="text">
+              <string>Stop Dry Run</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_dry_run_apply">
+             <property name="text">
+              <string>Apply Recommendation</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+         <item>
+          <widget class="QLabel" name="dry_run_status_label">
+           <property name="text">
+            <string>Dry Run idle.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="dry_run_summary">
+           <property name="plainText">
+            <string>Recommendations and measured startup metrics will appear here.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="performance_profiles_box">
+           <property name="title">
+            <string>Performance Profiles</string>
+           </property>
+           <layout class="QVBoxLayout" name="performanceProfilesLayout">
+            <item>
+             <layout class="QHBoxLayout" name="performanceProfileRow">
+              <item>
+               <widget class="QComboBox" name="performance_profile_combo">
+                <item>
+                 <property name="text">
+                  <string>No Saved Profiles</string>
+                 </property>
+                </item>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_refresh">
+                <property name="text">
+                 <string>Refresh</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item>
+             <layout class="QHBoxLayout" name="performanceProfileButtons">
+              <item>
+               <widget class="QPushButton" name="btn_profile_load">
+                <property name="text">
+                 <string>Load Profile</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_save_latest">
+                <property name="text">
+                 <string>Save Latest As</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="btn_profile_delete">
+                <property name="text">
+                 <string>Delete</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="tutorials_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/tutorials.png</normaloff>ui_icons/side_tabs/tutorials.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Tutorials</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="tutorialsLayout">
+         <item>
+          <widget class="QLabel" name="tutorials_intro_label">
+           <property name="text">
+            <string>Tutorials are loaded from JSON files, so new walkthroughs can be added over time without hardcoding them into the application.</string>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QListWidget" name="tutorials_list">
+           <item>
+            <property name="text">
+             <string>Getting Started</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Visual Replies</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Audio Story Mode</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPlainTextEdit" name="tutorial_description">
+           <property name="plainText">
+            <string>Select a tutorial to see its description.</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="tutorialButtons">
+           <item>
+            <widget class="QPushButton" name="btn_tutorial_refresh">
+             <property name="text">
+              <string>Refresh</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <spacer name="tutorialButtonsSpacer">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+             <property name="sizeHint" stdset="0">
+              <size>
+               <width>40</width>
+               <height>20</height>
+              </size>
+             </property>
+            </spacer>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_tutorial_start">
+             <property name="text">
+              <string>Start Tutorial</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="hotkeys_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/hotkeys.png</normaloff>ui_icons/side_tabs/hotkeys.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Hotkeys</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="hotkeysLayout">
+         <item>
+          <widget class="QPlainTextEdit" name="hotkeys_text">
+           <property name="plainText">
+            <string>Addon workspace tabs mount here at runtime.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="chat_player_tab">
+        <attribute name="icon">
+         <iconset>
+          <normaloff>ui_icons/side_tabs/chat_player.png</normaloff>ui_icons/side_tabs/chat_player.png</iconset>
+        </attribute>
+        <attribute name="title">
+         <string/>
+        </attribute>
+        <attribute name="toolTip">
+         <string>Chat Player</string>
+        </attribute>
+        <layout class="QVBoxLayout" name="chatPlayerLayout">
+         <item>
+          <widget class="QPlainTextEdit" name="chat_player_text">
+           <property name="plainText">
+            <string>Chat Player addon placeholder.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+    </layout>
+   </widget>
+  </widget>
   <action name="actionShowAllPanels">
    <property name="text">
     <string>Show All Panels</string>
@@ -6118,6 +5971,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
    </property>
   </action>
   <zorder>SystemShapingDock</zorder>
+  <zorder>WorkspaceTabsDock</zorder>
  </widget>
  <resources/>
  <connections/>

@@ -20377,6 +20377,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._redirect_backend_chat_session_runtime_surface()
         self._redirect_backend_pipeline_telemetry_surface()
         self._redirect_backend_sensory_runtime_surface()
+        self._redirect_backend_addons_management_surface()
         self._redirect_backend_musetalk_preview_runtime_surface()
         self._redirect_backend_visual_reply_runtime_surface()
         self._adopt_backend_runtime_tabs()
@@ -20785,6 +20786,97 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             self._sensory_runtime_redirected = True
         except Exception as exc:
             print(f"[UI Real] Sensory runtime surface redirect failed: {exc}")
+
+    def _clear_layout(self, layout):
+        if layout is None:
+            return
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                try:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                except Exception:
+                    pass
+            elif child_layout is not None:
+                self._clear_layout(child_layout)
+
+    def _redirect_backend_addons_management_surface(self):
+        frontend_tab = self._ui_object("addons_tab")
+        if frontend_tab is None:
+            return
+        layout = frontend_tab.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(frontend_tab)
+            layout.setContentsMargins(12, 12, 12, 12)
+            layout.setSpacing(10)
+        while layout.count():
+            item = layout.takeAt(0)
+            widget = item.widget()
+            child_layout = item.layout()
+            if widget is not None:
+                try:
+                    widget.setParent(None)
+                    widget.deleteLater()
+                except Exception:
+                    pass
+            elif child_layout is not None:
+                self._clear_layout(child_layout)
+
+        intro = QtWidgets.QLabel(
+            "Manage addon loading here. Category toggles act like parent switches: if a parent category is off, all child addons under it are effectively off too. Changes here are global and apply on next launch."
+        )
+        intro.setObjectName("addons_intro_label")
+        intro.setWordWrap(True)
+        intro.setStyleSheet("color: #9fb3c8;")
+        layout.addWidget(intro)
+
+        controls = QtWidgets.QHBoxLayout()
+        refresh_button = QtWidgets.QPushButton("Refresh")
+        refresh_button.setObjectName("btn_addons_refresh")
+        restart_badge = QtWidgets.QLabel("Restart required")
+        restart_badge.setObjectName("addons_restart_badge")
+        restart_badge.setVisible(False)
+        restart_badge.setStyleSheet(
+            "color: #ffb4b4; background: rgba(216, 74, 74, 0.16); border: 1px solid #d84a4a; border-radius: 10px; padding: 4px 10px; font-weight: 700;"
+        )
+        controls.addWidget(refresh_button)
+        controls.addWidget(restart_badge)
+        controls.addStretch(1)
+        layout.addLayout(controls)
+
+        note = QtWidgets.QLabel(
+            "These toggles are saved in the session, not in presets. Already loaded addons keep running until you restart Neural Companion."
+        )
+        note.setObjectName("addons_restart_note")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        layout.addWidget(note)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setObjectName("addons_management_scroll")
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        layout.addWidget(scroll, 1)
+
+        content = QtWidgets.QWidget()
+        content.setObjectName("addons_management_content")
+        scroll.setWidget(content)
+        management_layout = QtWidgets.QVBoxLayout(content)
+        management_layout.setContentsMargins(0, 0, 0, 0)
+        management_layout.setSpacing(10)
+
+        self.backend.btn_addons_refresh = refresh_button
+        self.backend.addons_restart_badge = restart_badge
+        self.backend.addons_restart_note = note
+        self.backend.addons_management_layout = management_layout
+        refresh_button.clicked.connect(self.backend._refresh_addons_management_ui)
+        try:
+            self.backend._refresh_addons_management_ui()
+        except Exception as exc:
+            print(f"[UI Real] Addons management surface redirect failed: {exc}")
 
     def _build_ui_real_visual_reply_panel(self):
         panel_class = QtVisualReplyPanel
