@@ -21370,6 +21370,16 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
             if widget is None or not hasattr(widget, "editingFinished"):
                 continue
             widget.editingFinished.connect(handler)
+        button_bindings = {
+            "btn_start_vam_desktop": self._start_vam_desktop_from_ui_real,
+            "btn_start_vam_vr": self._start_vam_vr_from_ui_real,
+            "btn_vam_hide_interface": self._enter_vam_focus_from_ui_real,
+        }
+        for object_name, handler in button_bindings.items():
+            button = self._ui_object(object_name)
+            if button is None or not hasattr(button, "clicked"):
+                continue
+            button.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
 
     def _bind_profile_utility_runtime_controls(self):
         combo_bindings = (
@@ -21867,22 +21877,42 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
 
     def _on_frontend_vam_vmc_enabled_changed(self, _checked):
         self._sync_single_checkbox_to_backend("vam_vmc_enabled_checkbox")
+        callback = getattr(self.backend, "on_vam_vmc_enabled_changed", None)
+        widget = self._ui_object("vam_vmc_enabled_checkbox")
+        if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
+            callback(bool(widget.isChecked()))
         self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_vam_bridge_enabled_changed(self, _checked):
         self._sync_single_checkbox_to_backend("vam_bridge_enabled_checkbox")
+        callback = getattr(self.backend, "on_vam_bridge_enabled_changed", None)
+        widget = self._ui_object("vam_bridge_enabled_checkbox")
+        if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
+            callback(bool(widget.isChecked()))
         self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_vam_play_audio_changed(self, _checked):
         self._sync_single_checkbox_to_backend("vam_play_audio_in_vam_checkbox")
+        callback = getattr(self.backend, "on_vam_play_audio_in_vam_changed", None)
+        widget = self._ui_object("vam_play_audio_in_vam_checkbox")
+        if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
+            callback(bool(widget.isChecked()))
         self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_vam_timeline_auto_resume_changed(self, _checked):
         self._sync_single_checkbox_to_backend("vam_timeline_auto_resume_checkbox")
+        callback = getattr(self.backend, "on_vam_timeline_auto_resume_changed", None)
+        widget = self._ui_object("vam_timeline_auto_resume_checkbox")
+        if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
+            callback(bool(widget.isChecked()))
         self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_vam_vmc_port_changed(self, _value):
         self._sync_single_spin_to_backend("vam_vmc_port_spin")
+        callback = getattr(self.backend, "on_vam_vmc_port_changed", None)
+        widget = self._ui_object("vam_vmc_port_spin")
+        if callable(callback) and widget is not None and hasattr(widget, "value"):
+            callback(int(widget.value()))
         self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_vam_root_changed(self):
@@ -21912,6 +21942,24 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if callable(callback):
             callback()
         self._refresh_avatar_body_vam_runtime_frontend()
+
+    def _start_vam_desktop_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "on_start_vam_desktop_clicked", None)
+        if callable(callback):
+            callback()
+
+    def _start_vam_vr_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "on_start_vam_vr_clicked", None)
+        if callable(callback):
+            callback()
+
+    def _enter_vam_focus_from_ui_real(self):
+        self._sync_frontend_to_backend()
+        callback = getattr(self.backend, "enter_external_avatar_focus", None)
+        if callable(callback):
+            callback("VaM")
 
     def _on_frontend_chunking_profile_changed(self, _index=None):
         self._sync_single_combo_to_backend("chunking_profile_combo")
@@ -22838,6 +22886,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._mirror_runtime_button_state()
         self._mirror_runtime_selection_widgets()
         self._mirror_persona_runtime_widgets(force=force)
+        self._mirror_vam_runtime_widgets(force=force)
         self._mirror_chunking_runtime_widgets(force=force)
         self._mirror_provider_runtime_labels()
         self._refresh_frontend_theme_controls()
@@ -22902,6 +22951,71 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
                 continue
             if force or not getattr(front, "hasFocus", lambda: False)():
                 self._copy_text_state(back, front)
+
+    def _mirror_vam_runtime_widgets(self, *, force=False):
+        bridge_root_front = self._ui_object("vam_bridge_root_edit")
+        bridge_root_back = self._backend_widget("vam_bridge_root_edit")
+        if bridge_root_front is not None and hasattr(bridge_root_front, "setReadOnly"):
+            try:
+                bridge_root_front.setReadOnly(True)
+            except Exception:
+                pass
+        if bridge_root_front is not None and bridge_root_back is not None:
+            if force or not getattr(bridge_root_front, "hasFocus", lambda: False)():
+                self._copy_text_state(bridge_root_back, bridge_root_front)
+
+        def line_text(object_name, default=""):
+            widget = self._ui_object(object_name)
+            if widget is not None and hasattr(widget, "text"):
+                try:
+                    return str(widget.text() or "").strip()
+                except Exception:
+                    pass
+            widget = self._backend_widget(object_name)
+            if widget is not None and hasattr(widget, "text"):
+                try:
+                    return str(widget.text() or "").strip()
+                except Exception:
+                    pass
+            return str(default or "").strip()
+
+        def checked_text(object_name):
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "isChecked"):
+                widget = self._backend_widget(object_name)
+            try:
+                return "on" if bool(widget.isChecked()) else "off"
+            except Exception:
+                return "off"
+
+        def spin_value(object_name, default):
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "value"):
+                widget = self._backend_widget(object_name)
+            try:
+                return int(widget.value())
+            except Exception:
+                return int(default)
+
+        def set_label(object_name, value):
+            label = self._ui_object(object_name)
+            if label is not None and hasattr(label, "setText"):
+                try:
+                    label.setText(str(value))
+                except Exception:
+                    pass
+
+        vam_root = line_text("vam_root_edit", RUNTIME_CONFIG.get("vam_root", ""))
+        bridge_root = line_text("vam_bridge_root_edit", RUNTIME_CONFIG.get("vam_bridge_root", ""))
+        target_atom = line_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")) or "Person"
+        target_storable = line_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", ""))
+        vmc_host = line_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")) or "127.0.0.1"
+        vmc_port = spin_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539))
+
+        set_label("vam_summary_label", f"VaM target: {target_atom}" + (f" / {target_storable}" if target_storable else ""))
+        set_label("vam_runtime_label", f"VMC {checked_text('vam_vmc_enabled_checkbox')} | File bridge {checked_text('vam_bridge_enabled_checkbox')} | Head audio {checked_text('vam_play_audio_in_vam_checkbox')}")
+        set_label("vam_bridge_status_label", f"Bridge root: {bridge_root or '(derived when VaM root is set)'}")
+        set_label("vam_bridge_detail_label", f"VaM root: {vam_root or '(not set)'} | VMC: {vmc_host}:{vmc_port} | Timeline auto-resume {checked_text('vam_timeline_auto_resume_checkbox')}")
 
     def _mirror_runtime_text_views(self):
         backend_console = self._backend_widget("console_edit")
