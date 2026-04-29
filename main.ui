@@ -4090,6 +4090,48 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
               </property>
              </widget>
             </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_1_max_chars_label">
+              <property name="text">
+               <string>Quickstart 1 Max</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_1_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_2_target_chars_label">
+              <property name="text">
+               <string>Quickstart 2 Target</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_2_target_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="musetalk_quickstart_2_max_chars_label">
+              <property name="text">
+               <string>Quickstart 2 Max</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QSlider" name="musetalk_quickstart_2_max_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </item>
@@ -4136,6 +4178,34 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
             </item>
             <item row="2" column="1">
              <widget class="QSlider" name="stream_first_chunk_min_chars_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="stream_force_flush_seconds_label">
+              <property name="text">
+               <string>First Flush (s)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QSlider" name="stream_force_flush_seconds_slider">
+              <property name="orientation">
+               <enum>Qt::Horizontal</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="stream_force_flush_later_seconds_label">
+              <property name="text">
+               <string>Later Flush (s)</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QSlider" name="stream_force_flush_later_seconds_slider">
               <property name="orientation">
                <enum>Qt::Horizontal</enum>
               </property>

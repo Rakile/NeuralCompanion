@@ -196,6 +196,30 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "maximum": 260,
         "default": 170,
     }),
+    ("musetalk_quickstart_1_max_chars", {
+        "widget": "musetalk_quickstart_1_max_chars_slider",
+        "label": "musetalk_quickstart_1_max_chars_label",
+        "title": "Quickstart 1 Max",
+        "minimum": 80,
+        "maximum": 360,
+        "default": 320,
+    }),
+    ("musetalk_quickstart_2_target_chars", {
+        "widget": "musetalk_quickstart_2_target_chars_slider",
+        "label": "musetalk_quickstart_2_target_chars_label",
+        "title": "Quickstart 2 Target",
+        "minimum": 60,
+        "maximum": 240,
+        "default": 130,
+    }),
+    ("musetalk_quickstart_2_max_chars", {
+        "widget": "musetalk_quickstart_2_max_chars_slider",
+        "label": "musetalk_quickstart_2_max_chars_label",
+        "title": "Quickstart 2 Max",
+        "minimum": 80,
+        "maximum": 320,
+        "default": 240,
+    }),
     ("stream_chunk_target_chars", {
         "widget": "stream_chunk_target_chars_slider",
         "label": "stream_chunk_target_chars_label",
@@ -219,6 +243,26 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "minimum": 10,
         "maximum": 80,
         "default": 28,
+    }),
+    ("stream_force_flush_seconds", {
+        "widget": "stream_force_flush_seconds_slider",
+        "label": "stream_force_flush_seconds_label",
+        "title": "First Flush (s)",
+        "minimum": 0.2,
+        "maximum": 2.5,
+        "default": 0.9,
+        "is_int": False,
+        "scale": 100,
+    }),
+    ("stream_force_flush_later_seconds", {
+        "widget": "stream_force_flush_later_seconds_slider",
+        "label": "stream_force_flush_later_seconds_label",
+        "title": "Later Flush (s)",
+        "minimum": 0.3,
+        "maximum": 4.0,
+        "default": 1.4,
+        "is_int": False,
+        "scale": 100,
     }),
 ])
 UI_SHELL_BODY_POSE_SPECS = OrderedDict([
@@ -392,6 +436,37 @@ UI_SHELL_TAB_MOUNT_WIDGETS = (
 def _resolve_ui_path(raw_path):
     ui_path = Path(str(raw_path or "").strip() or "main.ui")
     return ui_path if ui_path.is_absolute() else (Path(__file__).resolve().parent / ui_path)
+
+
+def _configure_main_window_docking(window):
+    """Apply the common dock behavior used by Designer preview and real UI shells."""
+    if not isinstance(window, QtWidgets.QMainWindow):
+        return
+    options = (
+        QtWidgets.QMainWindow.AnimatedDocks
+        | QtWidgets.QMainWindow.AllowNestedDocks
+        | QtWidgets.QMainWindow.AllowTabbedDocks
+    )
+    if hasattr(QtWidgets.QMainWindow, "GroupedDragging"):
+        options |= QtWidgets.QMainWindow.GroupedDragging
+    window.setDockOptions(options)
+    window.setDockNestingEnabled(True)
+
+    dock_areas = (
+        QtCore.Qt.LeftDockWidgetArea
+        | QtCore.Qt.RightDockWidgetArea
+        | QtCore.Qt.TopDockWidgetArea
+        | QtCore.Qt.BottomDockWidgetArea
+    )
+    dock_features = (
+        QtWidgets.QDockWidget.DockWidgetClosable
+        | QtWidgets.QDockWidget.DockWidgetMovable
+        | QtWidgets.QDockWidget.DockWidgetFloatable
+    )
+    for dock in window.findChildren(QtWidgets.QDockWidget):
+        dock.setAllowedAreas(dock_areas)
+        dock.setFeatures(dock_features)
+        dock.setMinimumSize(220, 160)
 
 
 def _collect_ui_object_classes(ui_path):
@@ -5288,9 +5363,12 @@ def _ui_shell_chunking_label_widget(window, key):
 
 def _ui_shell_format_chunking_value(value):
     try:
-        return str(int(round(float(value))))
+        number = float(value)
     except Exception:
         return str(value)
+    if abs(number - round(number)) < 0.001:
+        return str(int(round(number)))
+    return f"{number:.2f}"
 
 
 def _ui_shell_update_chunking_label(window, key, value=None):
@@ -5307,7 +5385,7 @@ def _ui_shell_update_chunking_label(window, key, value=None):
         widget = _ui_shell_chunking_slider_widget(window, key)
         if widget is not None and hasattr(widget, "value"):
             try:
-                current = widget.value()
+                current = float(widget.value()) / float(spec.get("scale", 1) or 1)
             except Exception:
                 current = spec.get("default")
     label.setText(f"{base_text}: {_ui_shell_format_chunking_value(current)}")
@@ -5319,16 +5397,19 @@ def _ui_shell_configure_chunking_slider(window, key, *, value=None):
     if slider is None:
         return False
     initial_value = value if value is not None else spec.get("default", 0)
+    scale = float(spec.get("scale", 1) or 1)
+    minimum = float(spec.get("minimum", 0) or 0)
+    maximum = float(spec.get("maximum", 100) or 100)
     try:
         slider.blockSignals(True)
         if hasattr(slider, "setRange"):
-            slider.setRange(int(spec.get("minimum", 0) or 0), int(spec.get("maximum", 100) or 100))
+            slider.setRange(int(round(minimum * scale)), int(round(maximum * scale)))
         if hasattr(slider, "setSingleStep"):
             slider.setSingleStep(1)
         if hasattr(slider, "setPageStep"):
-            slider.setPageStep(max(1, int((int(spec.get("maximum", 100) or 100) - int(spec.get("minimum", 0) or 0)) / 10)))
+            slider.setPageStep(max(1, int(((maximum - minimum) * scale) / 10)))
         if hasattr(slider, "setValue"):
-            slider.setValue(int(round(float(initial_value))))
+            slider.setValue(int(round(float(initial_value) * scale)))
         if hasattr(slider, "setToolTip"):
             slider.setToolTip("Shell-local chunking preview. Changes are not saved or applied to runtime.")
     except Exception:
@@ -5350,11 +5431,13 @@ def _ui_shell_current_chunking_values(window):
         default = session.get(key, spec.get("default", 0))
         if slider is not None and hasattr(slider, "value"):
             try:
-                values[key] = int(slider.value())
+                scale = float(spec.get("scale", 1) or 1)
+                current = float(slider.value()) / scale
+                values[key] = int(round(current)) if bool(spec.get("is_int", True)) else round(current, 2)
                 continue
             except Exception:
                 pass
-        values[key] = int(round(float(default)))
+        values[key] = int(round(float(default))) if bool(spec.get("is_int", True)) else round(float(default), 2)
     return values
 
 
@@ -20234,6 +20317,7 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._bind_musetalk_visual_runtime_controls()
         self._bind_avatar_body_vam_runtime_controls()
         self._bind_profile_utility_runtime_controls()
+        self._bind_chunking_runtime_controls()
         self._bind_frontend_theme_controls()
         self._bind_chat_session_runtime_controls()
         self._bind_sensory_runtime_controls()
@@ -21313,6 +21397,35 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "editingFinished"):
             visual_reply_model_edit.editingFinished.connect(self._on_frontend_visual_reply_model_changed)
 
+    def _bind_chunking_runtime_controls(self):
+        for key, spec in UI_SHELL_CHUNKING_SPECS.items():
+            slider = self._ui_object(str(spec.get("widget") or ""))
+            if slider is None or not hasattr(slider, "valueChanged"):
+                continue
+            try:
+                scale = float(spec.get("scale", 1) or 1)
+                slider.setRange(
+                    int(round(float(spec.get("minimum", 0) or 0) * scale)),
+                    int(round(float(spec.get("maximum", 100) or 100) * scale)),
+                )
+                slider.setToolTip("Runtime-backed chunking setting. Changes are saved to the current session.")
+            except Exception:
+                pass
+            slider.valueChanged.connect(lambda value, chunk_key=key: self._on_frontend_chunking_value_changed(chunk_key, value))
+
+        button_bindings = {
+            "btn_reset_chunking_defaults": self._reset_chunking_from_ui_real,
+            "btn_chunking_profile_refresh": self._refresh_chunking_profiles_from_ui_real,
+            "btn_chunking_profile_load": self._load_chunking_profile_from_ui_real,
+            "btn_chunking_profile_save": self._save_chunking_profile_from_ui_real,
+            "btn_chunking_profile_delete": self._delete_chunking_profile_from_ui_real,
+        }
+        for object_name, handler in button_bindings.items():
+            button = self._ui_object(object_name)
+            if button is None or not hasattr(button, "clicked"):
+                continue
+            button.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
+
     def _bind_frontend_theme_controls(self):
         for preset_id, button_name, _edit_name in APP_THEME_PRESET_WIDGETS:
             button = self._ui_object(button_name)
@@ -21802,6 +21915,58 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
 
     def _on_frontend_chunking_profile_changed(self, _index=None):
         self._sync_single_combo_to_backend("chunking_profile_combo")
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _on_frontend_chunking_value_changed(self, key, value):
+        spec = _ui_shell_chunking_slider_spec(key)
+        normalized_value = value
+        try:
+            is_int = bool(spec.get("is_int", True))
+            scale = float(spec.get("scale", 1) or 1)
+            normalized_value = float(value) / scale
+            normalized_value = int(round(normalized_value)) if is_int else round(normalized_value, 2)
+            callback = getattr(self.backend, "update_chunking_value", None)
+            if callable(callback):
+                callback(str(key), normalized_value, is_int)
+            else:
+                update_runtime_config(str(key), normalized_value)
+                self.backend.save_session()
+        finally:
+            backend_slider = getattr(self.backend, "chunking_sliders", {}).get(str(key))
+            if backend_slider is not None and hasattr(backend_slider, "set_value"):
+                try:
+                    backend_slider.set_value(normalized_value)
+                except Exception:
+                    pass
+            _ui_shell_update_chunking_label(self.window, str(key), normalized_value)
+            self._refresh_profile_utility_runtime_frontend()
+
+    def _reset_chunking_from_ui_real(self):
+        self.backend.reset_chunking_defaults()
+        self._mirror_chunking_runtime_widgets(force=True)
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _refresh_chunking_profiles_from_ui_real(self):
+        self.backend.refresh_performance_profile_list()
+        self._mirror_chunking_profile_combo(force=True)
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _load_chunking_profile_from_ui_real(self):
+        self._sync_single_combo_to_backend("chunking_profile_combo")
+        self.backend.load_selected_chunking_profile()
+        self._mirror_chunking_runtime_widgets(force=True)
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _save_chunking_profile_from_ui_real(self):
+        self._sync_single_combo_to_backend("chunking_profile_combo")
+        self.backend.save_current_chunking_profile()
+        self._mirror_chunking_profile_combo(force=True)
+        self._refresh_profile_utility_runtime_frontend()
+
+    def _delete_chunking_profile_from_ui_real(self):
+        self._sync_single_combo_to_backend("chunking_profile_combo")
+        self.backend.delete_selected_chunking_profile()
+        self._mirror_chunking_profile_combo(force=True)
         self._refresh_profile_utility_runtime_frontend()
 
     def _on_frontend_performance_profile_changed(self, _index=None):
@@ -22673,8 +22838,54 @@ class MainUiRealRuntimeBridge(QtCore.QObject):
         self._mirror_runtime_button_state()
         self._mirror_runtime_selection_widgets()
         self._mirror_persona_runtime_widgets(force=force)
+        self._mirror_chunking_runtime_widgets(force=force)
         self._mirror_provider_runtime_labels()
         self._refresh_frontend_theme_controls()
+
+    def _mirror_chunking_runtime_widgets(self, *, force=False):
+        for key, spec in UI_SHELL_CHUNKING_SPECS.items():
+            slider = self._ui_object(str(spec.get("widget") or ""))
+            if slider is None or not hasattr(slider, "setValue"):
+                continue
+            backend_slider = getattr(self.backend, "chunking_sliders", {}).get(str(key))
+            if backend_slider is not None and hasattr(backend_slider, "value"):
+                try:
+                    value = backend_slider.value()
+                except Exception:
+                    value = RUNTIME_CONFIG.get(str(key), spec.get("default", 0))
+            else:
+                value = RUNTIME_CONFIG.get(str(key), spec.get("default", 0))
+            try:
+                is_int = bool(spec.get("is_int", True))
+                value = int(round(float(value))) if is_int else round(float(value), 2)
+                slider_value = int(round(float(value) * float(spec.get("scale", 1) or 1)))
+            except Exception:
+                value = int(spec.get("default", 0) or 0)
+                slider_value = int(round(value * float(spec.get("scale", 1) or 1)))
+            if force or not getattr(slider, "isSliderDown", lambda: False)():
+                was_blocked = False
+                try:
+                    was_blocked = bool(slider.blockSignals(True))
+                    slider.setValue(slider_value)
+                except Exception:
+                    pass
+                finally:
+                    try:
+                        slider.blockSignals(was_blocked)
+                    except Exception:
+                        pass
+            _ui_shell_update_chunking_label(self.window, str(key), value)
+        self._mirror_chunking_profile_combo(force=force)
+
+    def _mirror_chunking_profile_combo(self, *, force=False):
+        front = self._ui_object("chunking_profile_combo")
+        back = self._backend_widget("chunking_profile_combo")
+        if front is None or back is None:
+            return
+        if self._combo_popup_is_open(front):
+            return
+        if force or not getattr(front, "hasFocus", lambda: False)():
+            self._copy_combo_state(back, front)
 
     def _mirror_persona_runtime_widgets(self, *, force=False):
         for object_name in ("voice_combo",):
