@@ -1,0 +1,628 @@
+"""Fallback Visual Reply dock panel."""
+
+import os
+import time
+from pathlib import Path
+
+from PIL import Image
+from PySide6 import QtCore, QtGui, QtWidgets
+
+from ui.widgets.basic import AltWheelZoomScrollArea
+
+
+def _default_theme_palette():
+    return {
+        "text": "#e5e9f0",
+        "text_strong": "#f2f5f9",
+        "field_bg": "#0f141b",
+        "surface_border": "#273342",
+    }
+
+
+def _default_storage_dir():
+    return Path(__file__).resolve().parents[2] / "runtime" / "visual_replies"
+
+
+class QtVisualReplyPanel(QtWidgets.QWidget):
+    loadRequested = QtCore.Signal()
+    captionRequested = QtCore.Signal()
+    clearRequested = QtCore.Signal()
+
+    def __init__(self, parent=None, *, theme_provider=None, runtime_config=None, shared_state_module=None, storage_dir=None):
+        super().__init__(parent)
+        self._theme_provider = theme_provider
+        self._runtime_config = runtime_config
+        self._shared_state_module = shared_state_module
+        self._storage_dir = Path(storage_dir) if storage_dir is not None else _default_storage_dir()
+
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        self.status_label = QtWidgets.QLabel("Visual Reply idle")
+        self.status_label.setStyleSheet("font-weight: 600; color: #d8dee9;")
+
+        self.storage_label = QtWidgets.QLabel("Storage: empty")
+        self.storage_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self.storage_label.setWordWrap(True)
+
+        controls = QtWidgets.QHBoxLayout()
+        controls.setContentsMargins(0, 0, 0, 0)
+        controls.setSpacing(8)
+        self.prev_button = QtWidgets.QPushButton("Previous")
+        self.prev_button.setToolTip("Show the previous stored visual reply.")
+        self.next_button = QtWidgets.QPushButton("Next")
+        self.next_button.setToolTip("Show the next stored visual reply.")
+        self.load_button = QtWidgets.QPushButton("Load Image")
+        self.caption_button = QtWidgets.QPushButton("Caption")
+        self.delete_button = QtWidgets.QPushButton("Delete Image")
+        self.clear_button = QtWidgets.QPushButton("Clear")
+        self.delete_all_button = QtWidgets.QPushButton("Delete All")
+        self.prev_button.clicked.connect(self.show_previous_stored_image)
+        self.next_button.clicked.connect(self.show_next_stored_image)
+        self.load_button.clicked.connect(self.loadRequested.emit)
+        self.caption_button.clicked.connect(self.captionRequested.emit)
+        self.delete_button.clicked.connect(self.delete_current_image)
+        self.clear_button.clicked.connect(self.clearRequested.emit)
+        self.delete_all_button.clicked.connect(self.delete_all_stored_images)
+        controls.addWidget(self.prev_button, 0)
+        controls.addWidget(self.load_button, 0)
+        controls.addWidget(self.next_button, 0)
+        controls.addWidget(self.caption_button, 0)
+        controls.addWidget(self.delete_button, 0)
+        controls.addWidget(self.clear_button, 0)
+        controls.addWidget(self.delete_all_button, 0)
+        controls.addStretch(1)
+
+        self.content_stack = QtWidgets.QStackedWidget()
+
+        self.placeholder = QtWidgets.QLabel("No visual reply yet.\nWhen NC creates an image, it will appear here.")
+        self.placeholder.setAlignment(QtCore.Qt.AlignCenter)
+        self.placeholder.setWordWrap(True)
+        self.placeholder.setStyleSheet(
+            "background: #0f141b; border: 1px solid #273342; border-radius: 10px;"
+            " color: #8ea3b8; padding: 18px;"
+        )
+
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        self.image_label.setMinimumSize(0, 0)
+        self.image_label.setStyleSheet("background: transparent; border: 0;")
+
+        self.image_scroll = AltWheelZoomScrollArea()
+        self.image_scroll.setWidgetResizable(False)
+        self.image_scroll.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.image_scroll.setStyleSheet("QScrollArea { background: #0f141b; border: 1px solid #273342; border-radius: 10px; }")
+        self.image_scroll.setWidget(self.image_label)
+        self.image_scroll.zoomRequested.connect(self._handle_scroll_zoom_request)
+
+        self.content_stack.addWidget(self.placeholder)
+        self.content_stack.addWidget(self.image_scroll)
+
+        self.caption_label = QtWidgets.QLabel("")
+        self.caption_label.setWordWrap(True)
+        self.caption_label.setStyleSheet("font-size: 11px; padding: 2px 2px 0 2px;")
+        self.caption_label.hide()
+
+        layout.addWidget(self.status_label)
+        layout.addWidget(self.storage_label)
+        layout.addLayout(controls)
+        layout.addWidget(self.content_stack, 1)
+        layout.addWidget(self.caption_label)
+
+        self.current_pixmap = None
+        self.current_image_path = ""
+        self.current_caption = ""
+        self.preview_zoom_factor = 1.0
+        self._last_visual_reply_updated_at = 0.0
+
+        self.image_label.installEventFilter(self)
+        self.image_scroll.installEventFilter(self)
+        self.image_scroll.viewport().installEventFilter(self)
+        self.clear_visual_reply()
+        self._refresh_storage_summary()
+        self.apply_theme_palette()
+
+        self.poll_timer = QtCore.QTimer(self)
+        self.poll_timer.timeout.connect(self.poll_state)
+        self.poll_timer.start(250)
+
+    def _theme_palette(self):
+        if callable(self._theme_provider):
+            try:
+                return dict(self._theme_provider() or {})
+            except Exception:
+                pass
+        return _default_theme_palette()
+
+    def _runtime_config_get(self, key, default=None):
+        config = self._runtime_config
+        if config is None:
+            try:
+                import engine
+
+                config = getattr(engine, "RUNTIME_CONFIG", None)
+            except Exception:
+                config = None
+        if isinstance(config, dict):
+            return config.get(key, default)
+        getter = getattr(config, "get", None)
+        if callable(getter):
+            try:
+                return getter(key, default)
+            except Exception:
+                pass
+        return default
+
+    def _shared_state(self):
+        if self._shared_state_module is not None:
+            return self._shared_state_module
+        try:
+            import shared_state
+
+            self._shared_state_module = shared_state
+        except Exception:
+            self._shared_state_module = None
+        return self._shared_state_module
+
+    def _set_current_visual_reply_data(self, payload):
+        state = self._shared_state()
+        setter = getattr(state, "set_current_visual_reply_data", None)
+        if callable(setter):
+            setter(payload)
+
+    def apply_theme_palette(self):
+        palette = self._theme_palette()
+        self.status_label.setStyleSheet(f"font-weight: 600; color: {palette.get('text_strong', '#f2f5f9')};")
+        self.storage_label.setStyleSheet(f"color: {palette.get('text', '#e5e9f0')}; font-size: 11px;")
+        self.placeholder.setStyleSheet(
+            f"background: {palette.get('field_bg', '#0f141b')}; "
+            f"border: 1px solid {palette.get('surface_border', '#273342')}; "
+            f"border-radius: 10px; color: {palette.get('text', '#e5e9f0')}; padding: 18px;"
+        )
+        self.image_scroll.setStyleSheet(
+            f"QScrollArea {{ background: {palette.get('field_bg', '#0f141b')}; "
+            f"border: 1px solid {palette.get('surface_border', '#273342')}; border-radius: 10px; }}"
+        )
+        self.caption_label.setStyleSheet(
+            f"color: {palette.get('text', '#e5e9f0')}; font-size: 11px; padding: 2px 2px 0 2px;"
+        )
+
+    def eventFilter(self, watched, event):
+        if watched is self.image_label or watched is self.image_scroll or watched is self.image_scroll.viewport():
+            if event.type() == QtCore.QEvent.Resize:
+                self._refresh_displayed_pixmap()
+        return super().eventFilter(watched, event)
+
+    def _scaled_pixmap_for_label(self, pixmap):
+        if pixmap is None or pixmap.isNull():
+            return pixmap
+        target_size = self.image_scroll.viewport().contentsRect().size() if hasattr(self, 'image_scroll') else self.image_label.contentsRect().size()
+        if not target_size.isValid() or target_size.width() <= 1 or target_size.height() <= 1:
+            return pixmap
+        fit_size = pixmap.size().scaled(target_size, QtCore.Qt.KeepAspectRatio)
+        if fit_size.width() <= 0 or fit_size.height() <= 0:
+            return pixmap
+        zoom_factor = max(0.25, float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0))
+        if abs(zoom_factor - 1.0) < 0.001:
+            scaled_size = fit_size
+        else:
+            scaled_size = QtCore.QSize(
+                max(1, int(round(fit_size.width() * zoom_factor))),
+                max(1, int(round(fit_size.height() * zoom_factor))),
+            )
+        return pixmap.scaled(scaled_size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation)
+
+    def _refresh_displayed_pixmap(self):
+        if self.current_pixmap is None or self.current_pixmap.isNull():
+            return
+        display_pixmap = self._scaled_pixmap_for_label(self.current_pixmap)
+        self.image_label.setPixmap(display_pixmap)
+        self.image_label.resize(display_pixmap.size())
+
+    def _handle_scroll_zoom_request(self, delta):
+        step = 0.1 if delta > 0 else -0.1
+        return self.adjust_zoom(step)
+
+    def _visual_reply_storage_dir(self):
+        target = Path(self._storage_dir)
+        target.mkdir(parents=True, exist_ok=True)
+        return target
+
+    def _visual_reply_image_paths(self):
+        storage_dir = self._visual_reply_storage_dir()
+        if not storage_dir.exists():
+            return []
+        allowed = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+        entries = []
+        try:
+            for item in storage_dir.iterdir():
+                if item.is_file() and item.suffix.lower() in allowed:
+                    entries.append(item)
+        except Exception:
+            return []
+        entries.sort(key=lambda item: (item.stat().st_mtime, item.name.lower()))
+        return entries
+
+    def _visual_reply_storage_stats(self):
+        entries = self._visual_reply_image_paths()
+        total_bytes = 0
+        for item in entries:
+            try:
+                total_bytes += int(item.stat().st_size)
+            except Exception:
+                pass
+        return entries, total_bytes
+
+    def _visual_reply_caption_from_image(self, image_path):
+        path = str(image_path or "").strip()
+        if not path or not os.path.isfile(path):
+            return ""
+        try:
+            with Image.open(path) as image:
+                candidates = []
+                info = dict(getattr(image, "info", {}) or {})
+                for key in ("Comment", "comment", "Description", "description", "Prompt", "prompt"):
+                    value = info.get(key)
+                    if value:
+                        candidates.append(value)
+                text_map = getattr(image, "text", None)
+                if isinstance(text_map, dict):
+                    for key in ("Comment", "comment", "Description", "description", "Prompt", "prompt"):
+                        value = text_map.get(key)
+                        if value:
+                            candidates.append(value)
+                for value in candidates:
+                    if isinstance(value, bytes):
+                        for encoding in ("utf-8", "utf-16", "latin-1"):
+                            try:
+                                value = value.decode(encoding, errors="ignore")
+                                break
+                            except Exception:
+                                continue
+                    caption_text = str(value or "").strip()
+                    if caption_text:
+                        return caption_text
+        except Exception:
+            return ""
+        return ""
+
+    def _format_storage_bytes(self, value):
+        try:
+            amount = float(value or 0.0)
+        except Exception:
+            amount = 0.0
+        units = ["B", "KiB", "MiB", "GiB", "TiB"]
+        unit_index = 0
+        while amount >= 1024.0 and unit_index < len(units) - 1:
+            amount /= 1024.0
+            unit_index += 1
+        if unit_index == 0:
+            return f"{int(amount)} {units[unit_index]}"
+        return f"{amount:.1f} {units[unit_index]}"
+
+    def _current_storage_index(self, entries):
+        if not entries:
+            return -1
+        current_path = str(getattr(self, "current_image_path", "") or "").strip()
+        if current_path:
+            current_abspath = os.path.abspath(current_path)
+            for index, item in enumerate(entries):
+                try:
+                    if os.path.abspath(str(item)) == current_abspath:
+                        return index
+                except Exception:
+                    continue
+        return len(entries) - 1
+
+    def _refresh_storage_summary(self):
+        entries, total_bytes = self._visual_reply_storage_stats()
+        if not entries:
+            summary = "Storage: empty"
+        else:
+            current_index = self._current_storage_index(entries)
+            if current_index >= 0:
+                summary = (
+                    f"Storage: {len(entries)} image(s), {self._format_storage_bytes(total_bytes)} total"
+                    f" | Current: {current_index + 1}/{len(entries)}"
+                )
+            else:
+                summary = f"Storage: {len(entries)} image(s), {self._format_storage_bytes(total_bytes)} total"
+        self.storage_label.setText(summary)
+        self.storage_label.update()
+        return summary
+
+    def _show_storage_image_by_offset(self, offset):
+        entries, _ = self._visual_reply_storage_stats()
+        if not entries:
+            self._refresh_storage_summary()
+            return False
+        current_index = self._current_storage_index(entries)
+        if current_index < 0:
+            current_index = len(entries) - 1 if offset < 0 else 0
+        target_index = max(0, min(len(entries) - 1, current_index + int(offset)))
+        target_path = entries[target_index]
+        caption_text = self._visual_reply_caption_from_image(target_path)
+        loaded = self.show_image(
+            str(target_path),
+            status_text="Visual Reply history",
+            caption=caption_text,
+        )
+        if loaded:
+            self._set_current_visual_reply_data(
+                {
+                    "status": "ready",
+                    "status_text": "Visual Reply history",
+                    "detail_text": "",
+                    "image_path": str(target_path),
+                    "caption": caption_text,
+                    "request_id": "",
+                    "updated_at": time.time(),
+                }
+            )
+        self._refresh_storage_summary()
+        return loaded
+
+    def show_previous_stored_image(self):
+        return self._show_storage_image_by_offset(-1)
+
+    def show_next_stored_image(self):
+        return self._show_storage_image_by_offset(1)
+
+    def delete_all_stored_images(self):
+        entries, _ = self._visual_reply_storage_stats()
+        if not entries:
+            self._refresh_storage_summary()
+            return False
+        answer = QtWidgets.QMessageBox.question(
+            self,
+            "Delete Visual Reply Images",
+            f"Delete all {len(entries)} stored visual reply image(s)?",
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        removed = 0
+        for item in entries:
+            try:
+                item.unlink(missing_ok=True)
+                removed += 1
+            except Exception:
+                pass
+        self.clear_visual_reply(
+            status_text="Visual Reply storage cleared",
+            detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+        )
+        self._set_current_visual_reply_data(
+            {
+                "status": "idle",
+                "status_text": "Visual Reply storage cleared",
+                "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                "image_path": "",
+                "caption": "",
+                "request_id": "",
+                "updated_at": time.time(),
+            }
+        )
+        self._refresh_storage_summary()
+        return bool(removed)
+
+    def delete_current_image(self):
+        current_path = str(getattr(self, "current_image_path", "") or "").strip()
+        if not current_path or not os.path.isfile(current_path):
+            return False
+        storage_dir = os.path.abspath(str(self._visual_reply_storage_dir()))
+        current_abs = os.path.abspath(current_path)
+        try:
+            within_storage = os.path.commonpath([current_abs, storage_dir]) == storage_dir
+        except Exception:
+            within_storage = False
+        label = "Delete current image"
+        if within_storage:
+            entries, _ = self._visual_reply_storage_stats()
+            current_index = self._current_storage_index(entries)
+            if current_index < 0:
+                current_index = 0
+            prompt = f"Delete the currently displayed visual reply image?\n\n{current_path}"
+            if len(entries) > 1:
+                prompt += "\n\nThe browser will move to the next available image."
+        else:
+            prompt = f"Delete the currently displayed image file?\n\n{current_path}"
+        answer = QtWidgets.QMessageBox.question(self, label, prompt)
+        if answer != QtWidgets.QMessageBox.Yes:
+            return False
+        try:
+            os.remove(current_path)
+        except Exception:
+            return False
+        if within_storage:
+            remaining = [item for item in self._visual_reply_image_paths() if os.path.abspath(str(item)) != current_abs]
+            if remaining:
+                entries = remaining
+                if "current_index" not in locals():
+                    current_index = 0
+                target_index = min(current_index, len(entries) - 1)
+                target_path = entries[target_index]
+                caption_text = self._visual_reply_caption_from_image(target_path)
+                self.show_image(str(target_path), status_text="Visual Reply history", caption=caption_text)
+                self._set_current_visual_reply_data(
+                    {
+                        "status": "ready",
+                        "status_text": "Visual Reply history",
+                        "detail_text": "",
+                        "image_path": str(target_path),
+                        "caption": caption_text,
+                        "request_id": "",
+                        "updated_at": time.time(),
+                    }
+                )
+            else:
+                self.clear_visual_reply(
+                    status_text="Visual Reply image deleted",
+                    detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                )
+                self._set_current_visual_reply_data(
+                    {
+                        "status": "idle",
+                        "status_text": "Visual Reply image deleted",
+                        "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                        "image_path": "",
+                        "caption": "",
+                        "request_id": "",
+                        "updated_at": time.time(),
+                    }
+                )
+            self._refresh_storage_summary()
+        else:
+            self.clear_visual_reply(
+                status_text="Visual Reply image deleted",
+                detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
+            )
+            self._set_current_visual_reply_data(
+                {
+                    "status": "idle",
+                    "status_text": "Visual Reply image deleted",
+                    "detail_text": "No visual reply yet.\nWhen NC creates an image, it will appear here.",
+                    "image_path": "",
+                    "caption": "",
+                    "request_id": "",
+                    "updated_at": time.time(),
+                }
+            )
+        return True
+
+    def adjust_zoom(self, delta):
+        updated = max(0.25, min(4.0, float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0) + float(delta)))
+        if abs(updated - float(getattr(self, 'preview_zoom_factor', 1.0) or 1.0)) < 0.001:
+            return False
+        self.preview_zoom_factor = updated
+        self._refresh_displayed_pixmap()
+        return True
+
+    def reset_zoom(self):
+        self.preview_zoom_factor = 1.0
+        self._refresh_displayed_pixmap()
+        return True
+
+    def clear_visual_reply(self, status_text="Visual Reply idle", detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here."):
+        self.current_pixmap = None
+        self.current_image_path = ""
+        self.current_caption = ""
+        self.preview_zoom_factor = 1.0
+        self.image_label.clear()
+        self.placeholder.setText(str(detail_text or "No visual reply yet."))
+        self.status_label.setText(str(status_text or "Visual Reply idle"))
+        self.caption_label.clear()
+        self.caption_label.hide()
+        self.content_stack.setCurrentWidget(self.placeholder)
+        self._refresh_storage_summary()
+
+    def set_caption(self, caption=""):
+        caption_text = str(caption or "").strip()
+        self.current_caption = caption_text
+        if caption_text:
+            self.caption_label.setText(caption_text)
+            self.caption_label.show()
+        else:
+            self.caption_label.clear()
+            self.caption_label.hide()
+        return True
+
+    def set_loading_state(self, status_text="Visual Reply generating...", detail_text="Preparing image...", *, keep_current_image=False):
+        keep_current = bool(
+            (keep_current_image or self.current_image_path)
+            and self.current_pixmap is not None
+            and self.current_image_path
+        )
+        if not keep_current:
+            self.current_pixmap = None
+            self.current_image_path = ""
+            self.current_caption = ""
+            self.preview_zoom_factor = 1.0
+            self.image_label.clear()
+        self.placeholder.setText(str(detail_text or "Preparing image..."))
+        self.status_label.setText(str(status_text or "Visual Reply generating..."))
+        if keep_current:
+            self.content_stack.setCurrentWidget(self.image_scroll)
+        else:
+            self.caption_label.clear()
+            self.caption_label.hide()
+            self.content_stack.setCurrentWidget(self.placeholder)
+        self._refresh_storage_summary()
+
+    def show_image(self, image_path, status_text="Visual Reply", caption=""):
+        path = str(image_path or "").strip()
+        if not path or not os.path.isfile(path):
+            return False
+        image = QtGui.QImage(path)
+        if image.isNull():
+            return False
+        self.current_image_path = path
+        self.current_pixmap = QtGui.QPixmap.fromImage(image)
+        self.preview_zoom_factor = 1.0
+        self.status_label.setText(str(status_text or "Visual Reply"))
+        resolved_caption = str(caption or "").strip() or self._visual_reply_caption_from_image(path)
+        self.current_caption = resolved_caption
+        self.set_caption(resolved_caption)
+        self.content_stack.setCurrentWidget(self.image_scroll)
+        self._refresh_displayed_pixmap()
+        self._refresh_storage_summary()
+        return True
+
+    def poll_state(self):
+        try:
+            state_module = self._shared_state()
+            state = dict(getattr(state_module, "current_visual_reply_data", {}) or {})
+            updated_at = float(state.get("updated_at", 0.0) or 0.0)
+            if updated_at <= 0.0 or updated_at == self._last_visual_reply_updated_at:
+                return
+            self._last_visual_reply_updated_at = updated_at
+            status = str(state.get("status", "idle") or "idle").strip().lower()
+            host_window = self.window()
+            auto_show_enabled = bool(self._runtime_config_get("visual_reply_auto_show_dock", True))
+            if auto_show_enabled and status in {"loading", "ready", "error"} and hasattr(host_window, "show_visual_reply_dock"):
+                try:
+                    host_window.show_visual_reply_dock()
+                except Exception:
+                    pass
+            if status == "ready":
+                image_path = str(state.get("image_path", "") or "").strip()
+                if image_path and os.path.isfile(image_path):
+                    self.show_image(
+                        image_path,
+                        status_text=str(state.get("status_text", "Visual Reply") or "Visual Reply"),
+                        caption=str(state.get("caption", "") or ""),
+                    )
+                else:
+                    self.clear_visual_reply(
+                        status_text="Visual Reply unavailable",
+                        detail_text=str(state.get("detail_text", "The requested image could not be loaded.") or "The requested image could not be loaded."),
+                    )
+            elif status == "loading":
+                keep_current_image = bool(state.get("keep_current_image", False))
+                retained_image_path = str(state.get("image_path", "") or "").strip()
+                if keep_current_image and retained_image_path and os.path.isfile(retained_image_path):
+                    if not self.current_image_path or self.current_image_path != retained_image_path or self.current_pixmap is None:
+                        self.show_image(
+                            retained_image_path,
+                            status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
+                            caption=str(state.get("caption", "") or ""),
+                        )
+                self.set_loading_state(
+                    status_text=str(state.get("status_text", "Visual Reply generating...") or "Visual Reply generating..."),
+                    detail_text=str(state.get("detail_text", "Preparing image...") or "Preparing image..."),
+                    keep_current_image=keep_current_image,
+                )
+            elif status == "error":
+                self.clear_visual_reply(
+                    status_text=str(state.get("status_text", "Visual Reply failed") or "Visual Reply failed"),
+                    detail_text=str(state.get("detail_text", "Image generation failed.") or "Image generation failed."),
+                )
+            else:
+                self.clear_visual_reply(
+                    status_text=str(state.get("status_text", "Visual Reply idle") or "Visual Reply idle"),
+                    detail_text=str(state.get("detail_text", "No visual reply yet.\nWhen NC creates an image, it will appear here.") or "No visual reply yet.\nWhen NC creates an image, it will appear here."),
+                )
+        except Exception:
+            pass
