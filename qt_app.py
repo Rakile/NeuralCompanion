@@ -84,6 +84,44 @@ from ui.runtime.shell_addon_reports import (
     _ui_shell_target_addon_rows,
     configure_shell_addon_report_dependencies,
 )
+from ui.runtime.shell_local_bindings import (
+    _bind_ui_shell_chat_context_controls,
+    _bind_ui_shell_console_chat_local_controls,
+    _bind_ui_shell_lifecycle_local_controls,
+    _bind_ui_shell_runtime_action_controls,
+    _bind_ui_shell_tutorial_controls,
+    configure_shell_local_bindings_dependencies,
+)
+from ui.runtime.shell_runtime_cards import (
+    _bind_ui_shell_avatar_runtime,
+    _bind_ui_shell_chat_runtime,
+    _bind_ui_shell_tts_runtime,
+    _ui_shell_chat_provider_map,
+    _ui_shell_chat_provider_rows_text,
+    _ui_shell_clear_form_layout,
+    _ui_shell_current_provider_id,
+    _ui_shell_generation_default_value,
+    _ui_shell_provider_label,
+    configure_shell_runtime_cards_dependencies,
+)
+from ui.runtime.shell_status_layout import (
+    _apply_ui_shell_preview_status,
+    _apply_workspace_view_constraints,
+    _apply_workspace_widget_bounds,
+    _relax_docked_workspace_minimums,
+    _ui_shell_append_console,
+    _ui_shell_audio_device_labels,
+    _ui_shell_compose_status_line,
+    _ui_shell_host_core_state,
+    _ui_shell_musetalk_avatar_pack_options,
+    _ui_shell_parse_sensory_source_values,
+    _ui_shell_refresh_host_core_status,
+    _ui_shell_refresh_status_labels,
+    _ui_shell_sensory_source_options,
+    _ui_shell_stream_mode_enabled,
+    _ui_shell_text_line_count,
+    configure_shell_status_layout_dependencies,
+)
 from ui.runtime.shell_services import (
     _UiShellAvatarProviderService,
     _UiShellChatContextService,
@@ -164,6 +202,9 @@ if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--validate-
 
 
 def _configure_real_ui_bridge_dependencies():
+    _configure_ui_shell_runtime_cards_dependencies()
+    _configure_ui_shell_local_bindings_dependencies()
+    _configure_ui_shell_status_layout_dependencies()
     configure_real_ui_bridge_dependencies({
         "APP_THEME_PRESET_LABELS": APP_THEME_PRESET_LABELS,
         "APP_THEME_PRESET_WIDGETS": APP_THEME_PRESET_WIDGETS,
@@ -214,6 +255,7 @@ def _configure_app_entry_dependencies():
         "APP_TITLE": APP_TITLE,
         "CompanionQtMainWindow": CompanionQtMainWindow,
         "MainUiRealRuntimeBridge": MainUiRealRuntimeBridge,
+        "SESSION_PATH": SESSION_PATH,
         "_configure_main_window_docking": _configure_main_window_docking,
         "_configure_real_ui_bridge_dependencies": _configure_real_ui_bridge_dependencies,
         "_install_no_wheel_input_guard": _install_no_wheel_input_guard,
@@ -223,6 +265,9 @@ def _configure_app_entry_dependencies():
 
 
 def _configure_ui_shell_service_dependencies():
+    _configure_ui_shell_runtime_cards_dependencies()
+    _configure_ui_shell_local_bindings_dependencies()
+    _configure_ui_shell_status_layout_dependencies()
     _configure_ui_shell_addon_report_dependencies()
     configure_shell_service_dependencies(globals())
 
@@ -232,6 +277,30 @@ def _configure_ui_shell_addon_report_dependencies():
 
 
 _configure_ui_shell_addon_report_dependencies()
+
+
+def _configure_ui_shell_status_layout_dependencies():
+    _configure_ui_shell_addon_report_dependencies()
+    configure_shell_status_layout_dependencies(globals())
+
+
+_configure_ui_shell_status_layout_dependencies()
+
+
+def _configure_ui_shell_local_bindings_dependencies():
+    _configure_ui_shell_status_layout_dependencies()
+    configure_shell_local_bindings_dependencies(globals())
+
+
+_configure_ui_shell_local_bindings_dependencies()
+
+
+def _configure_ui_shell_runtime_cards_dependencies():
+    _configure_ui_shell_local_bindings_dependencies()
+    configure_shell_runtime_cards_dependencies(globals())
+
+
+_configure_ui_shell_runtime_cards_dependencies()
 
 
 def _ui_shell_runtime_status_service(window):
@@ -342,1423 +411,100 @@ def _ui_shell_engine_lifecycle_service(window):
     return service
 
 
-def _ui_shell_append_console(window, message):
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    if console_edit is None:
-        return
-    try:
-        if hasattr(console_edit, "appendPlainText"):
-            console_edit.appendPlainText(str(message))
-        elif hasattr(console_edit, "append"):
-            console_edit.append(str(message))
-    except Exception:
-        pass
-
-
-def _ui_shell_stream_mode_enabled(value) -> bool:
-    if isinstance(value, bool):
-        return value
-    text = str(value or "").strip().lower()
-    return text in {"1", "true", "yes", "on", "stream", "enabled"}
-
-
-def _ui_shell_audio_device_labels():
-    labels = {
-        "inputs": ["Default Input"],
-        "outputs": ["Default Output"],
-    }
-    try:
-        from PySide6 import QtMultimedia as _QtMultimedia
-
-        inputs = []
-        for device in list(_QtMultimedia.QMediaDevices.audioInputs() or []):
-            description = str(device.description() if hasattr(device, "description") else "").strip()
-            if description and description not in inputs:
-                inputs.append(description)
-        outputs = []
-        for device in list(_QtMultimedia.QMediaDevices.audioOutputs() or []):
-            description = str(device.description() if hasattr(device, "description") else "").strip()
-            if description and description not in outputs:
-                outputs.append(description)
-        if inputs:
-            labels["inputs"].extend(inputs)
-        if outputs:
-            labels["outputs"].extend(outputs)
-    except Exception:
-        pass
-    return labels
-
-
-def _ui_shell_parse_sensory_source_values(value, available_provider_ids=None):
-    available = {
-        str(item or "").strip().lower()
-        for item in list(available_provider_ids or [])
-        if str(item or "").strip()
-    }
-    if value is None:
-        return []
-    raw_values = value if isinstance(value, (list, tuple, set)) else str(value).split(",")
-    selected = []
-    seen = set()
-    for item in raw_values:
-        token = str(item or "").strip().lower()
-        if not token or token == "off" or token in seen:
-            continue
-        if available and token not in available:
-            continue
-        selected.append(token)
-        seen.add(token)
-    return selected
-
-
-def _ui_shell_sensory_source_options(sensory_providers=None, selected_value=None):
-    providers = [
-        {
-            "id": str(item.get("id") or "").strip().lower(),
-            "label": str(item.get("label") or item.get("id") or "").strip(),
-        }
-        for item in list(sensory_providers or [])
-        if str(item.get("id") or "").strip()
-    ]
-    labels_by_id = {item["id"]: item["label"] or item["id"] for item in providers}
-    selected = _ui_shell_parse_sensory_source_values(selected_value, labels_by_id.keys())
-    options = [("Off", "off")]
-    for item in providers:
-        options.append((item["label"] or item["id"], item["id"]))
-    if len(selected) > 1:
-        selected_labels = [labels_by_id.get(item, item) for item in selected]
-        summary = " + ".join(selected_labels[:2])
-        if len(selected_labels) > 2:
-            summary = f"{len(selected_labels)} sources selected"
-        options.insert(1, (summary, ",".join(selected)))
-    return options
-
-
-def _ui_shell_musetalk_avatar_pack_options(session=None):
-    payload = dict(session or _read_ui_shell_session_snapshot() or {})
-    default_avatar_id = str(payload.get("musetalk_avatar_id", "default_avatar") or "default_avatar").strip() or "default_avatar"
-    options = []
-    try:
-        packs = discover_avatar_packs(
-            default_avatar_id=default_avatar_id,
-            include_legacy=False,
-            include_standalone=False,
-        )
-    except Exception:
-        packs = {}
-    for pack_id, pack in packs.items():
-        clean_pack_id = str(pack_id or "").strip()
-        if not clean_pack_id:
-            continue
-        label = f"{str(pack.display_name or clean_pack_id).strip() or clean_pack_id} | {str(pack.default_avatar_id or 'default_avatar').strip()} [{str(pack.source or 'manifest').strip() or 'manifest'}]"
-        options.append({"id": clean_pack_id, "label": label})
-    return options
-
-
-def _ui_shell_host_core_state(window):
-    session = dict(_read_ui_shell_session_snapshot() or {})
-
-    def combo_text(name, fallback=""):
-        widget = _ui_shell_find_object(window, name)
-        if widget is not None and hasattr(widget, "currentText"):
-            text = str(widget.currentText() or "").strip()
-            if text:
-                return text
-        return str(fallback or "").strip()
-
-    def combo_data(name, fallback=""):
-        widget = _ui_shell_find_object(window, name)
-        if widget is not None and hasattr(widget, "currentData"):
-            data = widget.currentData()
-            if data is not None and str(data or "").strip():
-                return str(data).strip()
-        return str(fallback or "").strip()
-
-    def spin_value(name, fallback=0):
-        widget = _ui_shell_find_object(window, name)
-        if widget is not None and hasattr(widget, "value"):
-            try:
-                return int(widget.value())
-            except Exception:
-                pass
-        try:
-            return int(fallback)
-        except Exception:
-            return 0
-
-    overflow_value = str(session.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip()
-    overflow_label = {
-        "rolling_window": "Rolling Window",
-        "truncate_middle": "Truncate Middle",
-        "stop_at_limit": "Stop At Limit",
-    }.get(overflow_value, overflow_value.replace("_", " ").title())
-
-    input_mode = combo_text("input_mode_combo", session.get("input_mode", "Voice Activation"))
-    input_role = combo_text("input_role_combo", session.get("input_message_role", "User Message"))
-    stream_text = combo_text("stream_mode_combo", "On" if _ui_shell_stream_mode_enabled(session.get("stream_mode", False)) else "Off")
-    return {
-        "audio_input_device": combo_text("audio_input_device_combo", session.get("audio_input_device", "Default Input")),
-        "audio_output_device": combo_text("audio_output_device_combo", session.get("audio_output_device", "Default Output")),
-        "input_mode": input_mode,
-        "input_message_role": input_role,
-        "stream_mode": str(stream_text).strip().lower() == "on",
-        "stream_mode_label": "On" if str(stream_text).strip().lower() == "on" else "Off",
-        "musetalk_vram_mode": combo_text(
-            "musetalk_vram_combo",
-            str(session.get("musetalk_vram_mode", "quality") or "quality").replace("_", " ").title().replace("Vram", "VRAM"),
-        ),
-        "musetalk_avatar_pack_id": combo_data("musetalk_avatar_pack_combo", session.get("musetalk_avatar_pack_id", "")),
-        "musetalk_avatar_pack_label": combo_text("musetalk_avatar_pack_combo", session.get("musetalk_avatar_pack_id", "")),
-        "chat_context_window_messages": spin_value("chat_context_window_spin", session.get("chat_context_window_messages", 20) or 20),
-        "stored_chat_history_limit": spin_value("stored_chat_history_limit_spin", session.get("stored_chat_history_limit", 0) or 0),
-        "chat_context_overflow_policy": combo_text("chat_overflow_policy_combo", overflow_label),
-        "allow_proactive_replies": bool(
-            _ui_shell_find_object(window, "allow_proactive_checkbox").isChecked()
-        ) if _ui_shell_find_object(window, "allow_proactive_checkbox") is not None and hasattr(_ui_shell_find_object(window, "allow_proactive_checkbox"), "isChecked") else bool(session.get("allow_proactive_replies", True)),
-        "require_first_user_before_proactive": bool(
-            _ui_shell_find_object(window, "require_first_user_checkbox").isChecked()
-        ) if _ui_shell_find_object(window, "require_first_user_checkbox") is not None and hasattr(_ui_shell_find_object(window, "require_first_user_checkbox"), "isChecked") else bool(session.get("require_first_user_before_proactive", False)),
-    }
-
-
-def _ui_shell_refresh_host_core_status(window):
-    state = _ui_shell_host_core_state(window)
-    _ui_shell_runtime_status_service(window).set_session_overrides(
-        input_mode=state.get("input_mode", ""),
-        input_message_role=state.get("input_message_role", ""),
-        stream_mode=bool(state.get("stream_mode", False)),
-        audio_input_device=state.get("audio_input_device", ""),
-        audio_output_device=state.get("audio_output_device", ""),
-        musetalk_vram_mode=state.get("musetalk_vram_mode", ""),
-        musetalk_avatar_pack_id=state.get("musetalk_avatar_pack_id", ""),
-        chat_context_window_messages=int(state.get("chat_context_window_messages", 20) or 20),
-        stored_chat_history_limit=int(state.get("stored_chat_history_limit", 0) or 0),
-        chat_context_overflow_policy=state.get("chat_context_overflow_policy", ""),
-    )
-    return _ui_shell_refresh_status_labels(window)
-
-
-def _ui_shell_compose_status_line(window):
-    runtime_line = _ui_shell_runtime_status_service(window).status_line()
-    state = _ui_shell_host_core_state(window)
-    return (
-        f"{runtime_line} | "
-        f"{state['input_mode']} / {state['input_message_role']} / {'stream' if state['stream_mode'] else 'non-stream'} | "
-        f"ctx {state['chat_context_window_messages']} / {state['chat_context_overflow_policy']}"
-    )
-
-
-def _ui_shell_refresh_status_labels(window):
-    line = _ui_shell_compose_status_line(window)
-    for label_name in ("console_status", "chat_status", "mic_status_label"):
-        label = _ui_shell_find_object(window, label_name)
-        if label is not None and hasattr(label, "setText"):
-            try:
-                label.setText(line)
-            except Exception:
-                pass
-    return line
-
-
-def _apply_ui_shell_preview_status(window):
-    summary = _ui_shell_binding_summary(window)
-    runtime_status = _ui_shell_runtime_status_service(window).snapshot()
-    lines = [
-        _ui_shell_compose_status_line(window),
-        "addons: limited shell mounts only",
-        "engine lifecycle: not connected",
-        f"Bindings: {summary['bound']}/{summary['checked']} checked",
-    ]
-    if summary["missing"] or summary["mismatched"]:
-        lines.append("Binding issues: yes, run --shell-smoke")
-    else:
-        lines.append("Binding issues: none")
-    status_text = " | ".join(lines)
-
-    for label_name in ("console_status", "chat_status", "mic_status_label"):
-        label = _ui_shell_find_object(window, label_name)
-        if label is not None and hasattr(label, "setText"):
-            label.setText(status_text)
-            if hasattr(label, "setToolTip"):
-                label.setToolTip("Visual-only Designer shell preview. No runtime systems are connected.")
-
-    for button_name in ("import_audio_button", "transcribe_audio_button"):
-        button = _ui_shell_find_object(window, button_name)
-        if button is None:
-            continue
-        if hasattr(button, "setEnabled"):
-            button.setEnabled(False)
-        if hasattr(button, "setToolTip"):
-            button.setToolTip("Disabled in shell preview. Runtime wiring is intentionally deferred.")
-
-    for button_name in ("btn_start_engine", "btn_stop_engine", "btn_reset_chat"):
-        button = _ui_shell_find_object(window, button_name)
-        if button is not None and hasattr(button, "setToolTip"):
-            button.setToolTip("Shell-local lifecycle preview. No engine/runtime systems are started.")
-
-    return summary
-
-
-def _ui_shell_text_line_count(widget):
-    if widget is None:
-        return 0
-    if hasattr(widget, "document"):
-        try:
-            text = widget.document().toPlainText()
-        except Exception:
-            text = ""
-    elif hasattr(widget, "toPlainText"):
-        try:
-            text = widget.toPlainText()
-        except Exception:
-            text = ""
-    else:
-        text = ""
-    return len([line for line in str(text or "").splitlines() if line.strip()])
-
-
-def _apply_workspace_widget_bounds(widget, *, min_width=None, min_height=None, max_height=None, allow_shrink=False):
-    if widget is None:
-        return
-    try:
-        if min_width is not None and hasattr(widget, "setMinimumWidth"):
-            if allow_shrink:
-                widget.setMinimumWidth(max(0, int(min_width)))
-            else:
-                widget.setMinimumWidth(max(int(min_width), int(getattr(widget, "minimumWidth", lambda: 0)() or 0)))
-        if min_height is not None and hasattr(widget, "setMinimumHeight"):
-            if allow_shrink:
-                widget.setMinimumHeight(max(0, int(min_height)))
-            else:
-                widget.setMinimumHeight(max(int(min_height), int(getattr(widget, "minimumHeight", lambda: 0)() or 0)))
-        if max_height is not None and hasattr(widget, "setMaximumHeight"):
-            current_max = int(getattr(widget, "maximumHeight", lambda: 16777215)() or 16777215)
-            widget.setMaximumHeight(int(max_height) if current_max <= 0 or current_max >= 16777215 else min(current_max, int(max_height)))
-    except Exception:
-        pass
-
-
-def _relax_docked_workspace_minimums(dock, *, min_width=WORKSPACE_DOCKED_VIEW_MIN_WIDTH):
-    """Keep docked panels movable by preventing oversized child minimums from forcing tabification."""
-    if dock is None:
-        return
-    try:
-        if hasattr(dock, "setMinimumWidth"):
-            dock.setMinimumWidth(max(0, int(min_width)))
-        content = dock.widget() if hasattr(dock, "widget") else None
-        if content is None:
-            return
-        if hasattr(content, "setMinimumWidth"):
-            content.setMinimumWidth(max(0, int(min_width)))
-        for child in content.findChildren(QtWidgets.QWidget):
-            if hasattr(child, "setMinimumWidth"):
-                child.setMinimumWidth(0)
-    except Exception:
-        pass
-
-
-def _apply_workspace_view_constraints(window, *, extra_widgets=None):
-    from PySide6 import QtWidgets as _QtWidgets
-
-    if window is None:
-        return
-    _apply_workspace_widget_bounds(
-        window,
-        min_width=WORKSPACE_VIEW_MIN_WIDTH,
-        min_height=WORKSPACE_VIEW_MIN_HEIGHT,
-        max_height=WORKSPACE_WINDOW_MAX_HEIGHT,
-    )
-
-    dock_specs = {
-        "SystemShapingDock": WORKSPACE_VIEW_MIN_HEIGHT,
-        "WorkspaceTabsDock": WORKSPACE_VIEW_MIN_HEIGHT,
-        "OperationalViewDock": WORKSPACE_VIEW_MIN_HEIGHT,
-        "MuseTalkPreviewDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
-        "PreviewDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
-        "VisualReplyDock": WORKSPACE_DOCKED_AUX_MIN_HEIGHT,
-    }
-    for object_name, docked_min_height in dock_specs.items():
-        dock = _ui_shell_find_object(window, object_name)
-        if dock is None or not isinstance(dock, _QtWidgets.QDockWidget):
-            continue
-        min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else docked_min_height
-        min_width = WORKSPACE_VIEW_MIN_WIDTH if dock.isFloating() else WORKSPACE_DOCKED_VIEW_MIN_WIDTH
-        _apply_workspace_widget_bounds(
-            dock,
-            min_width=min_width,
-            min_height=min_height,
-            max_height=WORKSPACE_VIEW_MAX_HEIGHT,
-            allow_shrink=not dock.isFloating(),
-        )
-        content = dock.widget() if hasattr(dock, "widget") else None
-        if content is not None:
-            content_min_height = WORKSPACE_VIEW_MIN_HEIGHT if dock.isFloating() else max(docked_min_height, 360)
-            _apply_workspace_widget_bounds(
-                content,
-                min_width=min_width,
-                min_height=content_min_height,
-                max_height=WORKSPACE_VIEW_MAX_HEIGHT,
-                allow_shrink=not dock.isFloating(),
-            )
-
-    container_specs = (
-        ("system_shaping_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("system_shaping_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("system_shaping_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("workspace_tabs_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("host_settings_tabs", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_INNER_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("left_tabs", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_INNER_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("vseeface_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("musetalk_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("tts_runtime_addon_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("sensory_feedback_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_view_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("right_tabs", WORKSPACE_INNER_MIN_WIDTH, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("audio_story_mode_tab", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("preview_dock_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("visual_reply_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("visual_reply_frame", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_PREVIEW_FRAME_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("console_edit", 0, 280, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("chat_edit", 0, 280, WORKSPACE_VIEW_MAX_HEIGHT),
-    )
-    for object_name, min_width, min_height, max_height in container_specs:
-        _apply_workspace_widget_bounds(
-            _ui_shell_find_object(window, object_name),
-            min_width=min_width,
-            min_height=min_height,
-            max_height=max_height,
-        )
-
-    for widget in tuple(extra_widgets or ()):
-        _apply_workspace_widget_bounds(
-            widget,
-            min_width=WORKSPACE_VIEW_MIN_WIDTH,
-            min_height=WORKSPACE_VIEW_MIN_HEIGHT,
-            max_height=WORKSPACE_VIEW_MAX_HEIGHT,
-        )
-
-    for object_name in dock_specs:
-        dock = _ui_shell_find_object(window, object_name)
-        if dock is not None and isinstance(dock, _QtWidgets.QDockWidget) and not dock.isFloating():
-            _relax_docked_workspace_minimums(dock)
-
-
-def _bind_ui_shell_console_chat_local_controls(window):
-    from PySide6 import QtCore as _QtCore
-    from PySide6 import QtGui as _QtGui
-    from PySide6 import QtWidgets as _QtWidgets
-
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    chat_edit = _ui_shell_find_object(window, "chat_edit")
-    console_status = _ui_shell_find_object(window, "console_status")
-    chat_status = _ui_shell_find_object(window, "chat_status")
-    console_autoscroll_button = _ui_shell_find_object(window, "console_autoscroll_button")
-    chat_autoscroll_button = _ui_shell_find_object(window, "chat_autoscroll_button")
-    console_clear_button = _ui_shell_find_object(window, "console_clear_button")
-    chat_clear_button = _ui_shell_find_object(window, "chat_clear_button")
-    chat_font_size_combo = _ui_shell_find_object(window, "chat_font_size_combo")
-    chat_edit_mode_button = _ui_shell_find_object(window, "chat_edit_mode_button")
-    chat_apply_edit_button = _ui_shell_find_object(window, "chat_apply_edit_button")
-    chat_cancel_edit_button = _ui_shell_find_object(window, "chat_cancel_edit_button")
-    quick_save_button = _ui_shell_find_object(window, "chat_quick_save_button")
-    quick_load_button = _ui_shell_find_object(window, "chat_quick_load_button")
-
-    state = {
-        "console_autoscroll": True,
-        "chat_autoscroll": True,
-        "chat_editing": False,
-        "chat_edit_snapshot": "",
-    }
-
-    def set_button_text(button, label, enabled):
-        if button is not None and hasattr(button, "setText"):
-            button.setText(f"{label}: {'On' if enabled else 'Off'}")
-
-    def update_console_status():
-        if console_status is not None and hasattr(console_status, "setText"):
-            console_status.setText(
-                f"{_ui_shell_text_line_count(console_edit)} lines | "
-                f"autoscroll {'on' if state['console_autoscroll'] else 'off'} | shell-local"
-            )
-
-    def update_chat_status():
-        if chat_status is not None and hasattr(chat_status, "setText"):
-            mode = "edit mode" if state["chat_editing"] else "read-only"
-            chat_status.setText(
-                f"{_ui_shell_text_line_count(chat_edit)} lines | "
-                f"autoscroll {'on' if state['chat_autoscroll'] else 'off'} | {mode} | shell-local"
-            )
-
-    def set_chat_editing(enabled):
-        state["chat_editing"] = bool(enabled)
-        if isinstance(chat_edit, _QtWidgets.QTextEdit):
-            chat_edit.setReadOnly(not state["chat_editing"])
-        if chat_edit_mode_button is not None:
-            chat_edit_mode_button.setVisible(not state["chat_editing"])
-        if chat_apply_edit_button is not None:
-            chat_apply_edit_button.setVisible(state["chat_editing"])
-        if chat_cancel_edit_button is not None:
-            chat_cancel_edit_button.setVisible(state["chat_editing"])
-        update_chat_status()
-
-    if isinstance(console_edit, _QtWidgets.QPlainTextEdit):
-        console_edit.setReadOnly(True)
-        console_edit.textChanged.connect(update_console_status)
-    if isinstance(chat_edit, _QtWidgets.QTextEdit):
-        chat_edit.setReadOnly(True)
-        chat_edit.textChanged.connect(update_chat_status)
-
-    if console_clear_button is not None and hasattr(console_clear_button, "clicked"):
-        console_clear_button.clicked.connect(lambda: (console_edit.clear(), update_console_status()) if console_edit is not None else None)
-    if chat_clear_button is not None and hasattr(chat_clear_button, "clicked"):
-        chat_clear_button.clicked.connect(lambda: (chat_edit.clear(), update_chat_status()) if chat_edit is not None else None)
-
-    if console_autoscroll_button is not None and hasattr(console_autoscroll_button, "clicked"):
-        console_autoscroll_button.clicked.connect(
-            lambda: (
-                state.__setitem__("console_autoscroll", not state["console_autoscroll"]),
-                set_button_text(console_autoscroll_button, "Autoscroll", state["console_autoscroll"]),
-                update_console_status(),
-            )
-        )
-    if chat_autoscroll_button is not None and hasattr(chat_autoscroll_button, "clicked"):
-        chat_autoscroll_button.clicked.connect(
-            lambda: (
-                state.__setitem__("chat_autoscroll", not state["chat_autoscroll"]),
-                set_button_text(chat_autoscroll_button, "Autoscroll", state["chat_autoscroll"]),
-                update_chat_status(),
-            )
-        )
-
-    if isinstance(chat_font_size_combo, _QtWidgets.QComboBox):
-        chat_font_size_combo.clear()
-        for size in (10, 11, 12, 13, 14, 16, 18):
-            chat_font_size_combo.addItem(str(size), size)
-        index = chat_font_size_combo.findData(12)
-        if index >= 0:
-            chat_font_size_combo.setCurrentIndex(index)
-
-        def apply_font_size():
-            if not isinstance(chat_edit, _QtWidgets.QTextEdit):
-                return
-            size = chat_font_size_combo.currentData()
-            try:
-                point_size = int(size)
-            except Exception:
-                point_size = 12
-            font = _QtGui.QFont(chat_edit.font())
-            font.setPointSize(max(6, point_size))
-            chat_edit.setFont(font)
-
-        chat_font_size_combo.currentIndexChanged.connect(lambda _index: apply_font_size())
-        apply_font_size()
-
-    if chat_edit_mode_button is not None and hasattr(chat_edit_mode_button, "clicked"):
-        chat_edit_mode_button.clicked.connect(
-            lambda: (
-                state.__setitem__("chat_edit_snapshot", chat_edit.toPlainText() if chat_edit is not None else ""),
-                set_chat_editing(True),
-            )
-        )
-    if chat_apply_edit_button is not None and hasattr(chat_apply_edit_button, "clicked"):
-        chat_apply_edit_button.clicked.connect(lambda: set_chat_editing(False))
-    if chat_cancel_edit_button is not None and hasattr(chat_cancel_edit_button, "clicked"):
-        chat_cancel_edit_button.clicked.connect(
-            lambda: (
-                chat_edit.setPlainText(state["chat_edit_snapshot"]) if chat_edit is not None else None,
-                set_chat_editing(False),
-            )
-        )
-
-    set_button_text(console_autoscroll_button, "Autoscroll", state["console_autoscroll"])
-    set_button_text(chat_autoscroll_button, "Autoscroll", state["chat_autoscroll"])
-    set_chat_editing(False)
-    update_console_status()
-    update_chat_status()
-    return {
-        "bound": [
-            name for name, widget in (
-                ("console_clear_button", console_clear_button),
-                ("console_autoscroll_button", console_autoscroll_button),
-                ("chat_clear_button", chat_clear_button),
-                ("chat_autoscroll_button", chat_autoscroll_button),
-                ("chat_font_size_combo", chat_font_size_combo),
-                ("chat_edit_mode_button", chat_edit_mode_button),
-                ("chat_apply_edit_button", chat_apply_edit_button),
-                ("chat_cancel_edit_button", chat_cancel_edit_button),
-            ) if widget is not None
-        ],
-        "deferred": [],
-    }
-
-
-def _bind_ui_shell_lifecycle_local_controls(window):
-    start_button = _ui_shell_find_object(window, "btn_start_engine")
-    stop_button = _ui_shell_find_object(window, "btn_stop_engine")
-    reset_button = _ui_shell_find_object(window, "btn_reset_chat")
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    chat_edit = _ui_shell_find_object(window, "chat_edit")
-    console_status = _ui_shell_find_object(window, "console_status")
-    chat_status = _ui_shell_find_object(window, "chat_status")
-    mic_status = _ui_shell_find_object(window, "mic_status_label")
-    runtime_status = _ui_shell_runtime_status_service(window)
-    lifecycle = _ui_shell_engine_lifecycle_service(window)
-
-    state = {"running": False}
-
-    def append_console(message):
-        if console_edit is None:
-            return
-        try:
-            if hasattr(console_edit, "appendPlainText"):
-                console_edit.appendPlainText(str(message))
-            elif hasattr(console_edit, "append"):
-                console_edit.append(str(message))
-        except Exception:
-            pass
-
-    def set_status(message):
-        for label in (console_status, chat_status, mic_status):
-            if label is not None and hasattr(label, "setText"):
-                label.setText(str(message))
-
-    def refresh_buttons():
-        if start_button is not None and hasattr(start_button, "setEnabled"):
-            start_button.setEnabled(not state["running"])
-        if stop_button is not None and hasattr(stop_button, "setEnabled"):
-            stop_button.setEnabled(state["running"])
-        if reset_button is not None and hasattr(reset_button, "setEnabled"):
-            reset_button.setEnabled(True)
-        if start_button is not None and hasattr(start_button, "setToolTip"):
-            start_button.setToolTip("Shell-local Initialize preview. Does not start the companion engine.")
-        if stop_button is not None and hasattr(stop_button, "setToolTip"):
-            stop_button.setToolTip("Shell-local Terminate preview. Does not stop any runtime system.")
-        if reset_button is not None and hasattr(reset_button, "setToolTip"):
-            reset_button.setToolTip("Shell-local reset preview. Clears only the Designer shell chat widget.")
-
-    def start_preview():
-        snapshot = lifecycle.start_engine()
-        state["running"] = bool(snapshot.get("running"))
-        refresh_buttons()
-        set_status(runtime_status.status_line())
-        append_console("[UI Shell] Initialize preview: no runtime systems were started.")
-
-    def stop_preview():
-        snapshot = lifecycle.stop_engine()
-        state["running"] = bool(snapshot.get("running"))
-        refresh_buttons()
-        set_status(runtime_status.status_line())
-        append_console("[UI Shell] Terminate preview: no runtime systems were stopped.")
-
-    def reset_preview():
-        lifecycle.reset_chat_memory()
-        if chat_edit is not None and hasattr(chat_edit, "clear"):
-            try:
-                chat_edit.clear()
-            except Exception:
-                pass
-        append_console("[UI Shell] Reset preview: shell chat widget cleared only.")
-
-    if start_button is not None and hasattr(start_button, "clicked"):
-        start_button.clicked.connect(start_preview)
-    if stop_button is not None and hasattr(stop_button, "clicked"):
-        stop_button.clicked.connect(stop_preview)
-    if reset_button is not None and hasattr(reset_button, "clicked"):
-        reset_button.clicked.connect(reset_preview)
-    refresh_buttons()
-    return {
-        "bound": [
-            name for name, widget in (
-                ("btn_start_engine", start_button),
-                ("btn_stop_engine", stop_button),
-                ("btn_reset_chat", reset_button),
-            )
-            if widget is not None
-        ],
-        "mode": "shell-local",
-    }
-
-
-def _bind_ui_shell_runtime_action_controls(window):
-    controls = _ui_shell_runtime_controls_service(window)
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    action_buttons = {
-        "btn_regenerate": "regenerate_response",
-        "btn_retry": "retry_user_input",
-        "btn_pause": "pause_speech",
-        "btn_skip": "skip_speech",
-        "btn_skip_user": "skip_user_reply",
-    }
-    bound = []
-
-    def append_console(message):
-        if console_edit is None:
-            return
-        try:
-            if hasattr(console_edit, "appendPlainText"):
-                console_edit.appendPlainText(str(message))
-            elif hasattr(console_edit, "append"):
-                console_edit.append(str(message))
-        except Exception:
-            pass
-
-    for object_name, action in action_buttons.items():
-        button = _ui_shell_find_object(window, object_name)
-        if button is None:
-            continue
-        bound.append(object_name)
-        if hasattr(button, "setEnabled"):
-            button.setEnabled(True)
-        if hasattr(button, "setToolTip"):
-            button.setToolTip("Shell-local control preview. No runtime action is sent.")
-        if hasattr(button, "clicked") and not getattr(button, "_nc_ui_shell_runtime_control_bound", False):
-            button.clicked.connect(
-                lambda _checked=False, action_key=action: append_console(
-                    f"[UI Shell] Control preview: {controls.trigger(action_key).get('action')} not sent to runtime."
-                )
-            )
-            setattr(button, "_nc_ui_shell_runtime_control_bound", True)
-
-    return {
-        "bound": bound,
-        "mode": "shell-local",
-        "actions": list(controls.SUPPORTED_ACTIONS),
-    }
-
-
-def _bind_ui_shell_chat_context_controls(window):
-    service = _ui_shell_chat_context_service(window)
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    chat_edit = _ui_shell_find_object(window, "chat_edit")
-    buttons = {
-        "chat_quick_save_button": ("Quick Save", service.quick_save_chat_context),
-        "chat_quick_load_button": ("Quick Load", service.quick_load_chat_context),
-        "btn_save_chat_session": ("Save Chat Context", service.save_chat_context),
-        "btn_load_chat_session": ("Load Chat Context", service.load_chat_context),
-        "btn_reset_chat_session": ("Reset Chat Memory", service.reset_chat_memory),
-    }
-    bound = []
-
-    def append_console(message):
-        if console_edit is None:
-            return
-        try:
-            if hasattr(console_edit, "appendPlainText"):
-                console_edit.appendPlainText(str(message))
-            elif hasattr(console_edit, "append"):
-                console_edit.append(str(message))
-        except Exception:
-            pass
-
-    def make_handler(label, callback, object_name):
-        def handler():
-            snapshot = callback()
-            if object_name == "btn_reset_chat_session" and chat_edit is not None and hasattr(chat_edit, "clear"):
-                try:
-                    chat_edit.clear()
-                except Exception:
-                    pass
-            append_console(f"[UI Shell] {label}: {snapshot.get('message')}")
-        return handler
-
-    for object_name, (label, callback) in buttons.items():
-        button = _ui_shell_find_object(window, object_name)
-        if button is None:
-            continue
-        bound.append(object_name)
-        if hasattr(button, "setEnabled"):
-            button.setEnabled(True)
-        if hasattr(button, "setToolTip"):
-            button.setToolTip("Shell-local chat context preview. No file/session data is read or written.")
-        if hasattr(button, "clicked") and not getattr(button, "_nc_ui_shell_chat_context_bound", False):
-            button.clicked.connect(make_handler(label, callback, object_name))
-            setattr(button, "_nc_ui_shell_chat_context_bound", True)
-
-    return {
-        "bound": bound,
-        "mode": "shell-local",
-    }
-
-
-def _bind_ui_shell_tutorial_controls(window):
-    from PySide6 import QtCore as _QtCore
-    from PySide6 import QtWidgets as _QtWidgets
-
-    service = _ui_shell_tutorial_service(window)
-    tutorials_list = _ui_shell_find_object(window, "tutorials_list")
-    description = _ui_shell_find_object(window, "tutorial_description")
-    refresh_button = _ui_shell_find_object(window, "btn_tutorial_refresh")
-    start_button = _ui_shell_find_object(window, "btn_tutorial_start")
-    console_edit = _ui_shell_find_object(window, "console_edit")
-    bound = []
-
-    def append_console(message):
-        if console_edit is None:
-            return
-        try:
-            if hasattr(console_edit, "appendPlainText"):
-                console_edit.appendPlainText(str(message))
-            elif hasattr(console_edit, "append"):
-                console_edit.append(str(message))
-        except Exception:
-            pass
-
-    def selected_tutorial_id():
-        if tutorials_list is None or not hasattr(tutorials_list, "currentItem"):
-            return ""
-        item = tutorials_list.currentItem()
-        if item is None:
-            return ""
-        try:
-            return str(item.data(_QtCore.Qt.UserRole) or "").strip()
-        except Exception:
-            return ""
-
-    def render_description():
-        tutorial_id = selected_tutorial_id()
-        payload = service.load_tutorial(tutorial_id)
-        if description is not None and hasattr(description, "setPlainText"):
-            if payload:
-                text = (
-                    f"{payload.get('title', tutorial_id)}\n\n"
-                    f"{payload.get('description', '')}\n\n"
-                    f"Steps: {len(list(payload.get('steps') or []))}\n\n"
-                    "Shell preview: Start Tutorial logs a preview only; no overlay is created."
-                )
-                description.setPlainText(text.strip())
-            else:
-                description.setPlainText("Select a tutorial to see its description.")
-        if start_button is not None and hasattr(start_button, "setEnabled"):
-            start_button.setEnabled(bool(payload))
-
-    def refresh_list():
-        tutorials = service.list_tutorials()
-        if tutorials_list is not None and hasattr(tutorials_list, "clear"):
-            tutorials_list.blockSignals(True)
-            try:
-                tutorials_list.clear()
-                for item in tutorials:
-                    label = f"{item.get('title', item.get('id', 'Tutorial'))} ({int(item.get('step_count', 0) or 0)} steps)"
-                    list_item = _QtWidgets.QListWidgetItem(label)
-                    list_item.setData(_QtCore.Qt.UserRole, str(item.get("id") or ""))
-                    list_item.setToolTip(str(item.get("description") or ""))
-                    tutorials_list.addItem(list_item)
-                if tutorials:
-                    tutorials_list.setCurrentRow(0)
-            finally:
-                tutorials_list.blockSignals(False)
-        render_description()
-
-    def start_selected():
-        tutorial_id = selected_tutorial_id()
-        snapshot = service.start_tutorial(tutorial_id)
-        append_console(f"[UI Shell] Tutorial preview: {snapshot.get('message')} ({tutorial_id or 'none'})")
-
-    if tutorials_list is not None:
-        bound.append("tutorials_list")
-        if hasattr(tutorials_list, "currentRowChanged") and not getattr(tutorials_list, "_nc_ui_shell_tutorial_bound", False):
-            tutorials_list.currentRowChanged.connect(lambda _row: render_description())
-            setattr(tutorials_list, "_nc_ui_shell_tutorial_bound", True)
-    if description is not None:
-        bound.append("tutorial_description")
-        if hasattr(description, "setReadOnly"):
-            description.setReadOnly(True)
-    if refresh_button is not None:
-        bound.append("btn_tutorial_refresh")
-        refresh_button.setEnabled(True)
-        refresh_button.setToolTip("Shell-local tutorial list refresh from JSON files only.")
-        if hasattr(refresh_button, "clicked") and not getattr(refresh_button, "_nc_ui_shell_tutorial_bound", False):
-            refresh_button.clicked.connect(refresh_list)
-            setattr(refresh_button, "_nc_ui_shell_tutorial_bound", True)
-    if start_button is not None:
-        bound.append("btn_tutorial_start")
-        start_button.setToolTip("Shell-local tutorial preview. No overlay is created.")
-        if hasattr(start_button, "clicked") and not getattr(start_button, "_nc_ui_shell_tutorial_bound", False):
-            start_button.clicked.connect(start_selected)
-            setattr(start_button, "_nc_ui_shell_tutorial_bound", True)
-
-    refresh_list()
-    return {
-        "bound": bound,
-        "tutorials": len(service.list_tutorials()),
-        "mode": "shell-local",
-    }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-def _ui_shell_chat_provider_rows_text(providers):
-    providers = list(providers or [])
-    if not providers:
-        return ""
-    lines = ["Shell-live chat provider addons registered metadata only:"]
-    for provider in providers:
-        metadata = dict(provider.get("metadata") or {})
-        config_count = len(list(metadata.get("config_fields") or []))
-        generation_count = len(list(metadata.get("generation_fields") or []))
-        labels = []
-        if provider.get("has_model_list_handler"):
-            labels.append("models")
-        if provider.get("has_completion_handler"):
-            labels.append("completion")
-        if provider.get("has_stream_handler"):
-            labels.append("stream")
-        if provider.get("has_connection_check_handler"):
-            labels.append("connection")
-        capability_text = ", ".join(labels) if labels else "metadata"
-        lines.append(
-            f" - {provider.get('label') or provider.get('id')} ({provider.get('id')}): "
-            f"{config_count} config field(s), {generation_count} generation field(s), handlers: {capability_text}"
-        )
-    lines.append("Handlers are intentionally not called in shell mode.")
-    return "\n".join(lines)
-
-
-def _ui_shell_chat_provider_map(providers):
-    return {
-        str(provider.get("id") or "").strip().lower(): dict(provider)
-        for provider in list(providers or [])
-        if str(provider.get("id") or "").strip()
-    }
-
-
-def _ui_shell_clear_form_layout(layout):
-    if layout is None or not hasattr(layout, "rowCount"):
-        return
-    while layout.rowCount():
-        try:
-            layout.removeRow(0)
-        except Exception:
-            break
-
-
-def _ui_shell_provider_label(provider):
-    return str(provider.get("label") or provider.get("id") or "Provider").strip()
-
-
-def _ui_shell_current_provider_id(combo, providers):
-    provider_ids = set(_ui_shell_chat_provider_map(providers))
-    if combo is None:
-        return ""
-    try:
-        data = combo.currentData()
-    except Exception:
-        data = None
-    provider_id = str(data or "").strip().lower()
-    if provider_id in provider_ids:
-        return provider_id
-    current_text = str(combo.currentText() if hasattr(combo, "currentText") else "" or "").strip().lower()
-    for provider in list(providers or []):
-        if str(provider.get("label") or "").strip().lower() == current_text:
-            return str(provider.get("id") or "").strip().lower()
-    return ""
-
-
-def _ui_shell_generation_default_value(field, settings, provider_settings):
-    field_id = str(field.get("id") or "").strip()
-    if field_id in settings:
-        return settings.get(field_id)
-    if field_id == "max_tokens" and field_id in provider_settings:
-        return provider_settings.get(field_id)
-    if "default" in field:
-        return field.get("default")
-    return ""
-
-
-def _ui_shell_add_field_tooltip(widget, field, *, shell_local=True):
-    if widget is None or not hasattr(widget, "setToolTip"):
-        return
-    tooltip_parts = []
-    description = str(field.get("description") or "").strip()
-    if description:
-        tooltip_parts.append(description)
-    env_names = [
-        str(name or "").strip()
-        for name in list(field.get("env") or [])
-        if str(name or "").strip()
-    ]
-    if env_names:
-        tooltip_parts.append("Env: " + ", ".join(env_names))
-    if field.get("default") not in (None, ""):
-        tooltip_parts.append(f"Default: {field.get('default')}")
-    if shell_local:
-        tooltip_parts.append("Shell-local preview only; not saved or applied.")
-    widget.setToolTip("\n".join(tooltip_parts))
-
-
-def _ui_shell_create_provider_config_editor(field, value):
-    from PySide6 import QtWidgets as _QtWidgets
-
-    field_id = str(field.get("id") or "").strip()
-    kind = str(field.get("kind") or "").strip().lower()
-    if not kind:
-        kind = "password" if "key" in field_id.lower() or "token" in field_id.lower() else "text"
-    editor = _QtWidgets.QLineEdit()
-    editor.setObjectName(f"ui_shell_chat_provider_field_{field_id}")
-    if kind == "password":
-        editor.setEchoMode(_QtWidgets.QLineEdit.Password)
-    editor.setText(str(value if value is not None else ""))
-    placeholder = field.get("placeholder")
-    if placeholder:
-        editor.setPlaceholderText(str(placeholder))
-    _ui_shell_add_field_tooltip(editor, field)
-    return editor
-
-
-def _ui_shell_create_generation_editor(field, value):
-    from PySide6 import QtCore as _QtCore
-    from PySide6 import QtWidgets as _QtWidgets
-
-    field_id = str(field.get("id") or "").strip()
-    kind = str(field.get("kind") or "text").strip().lower()
-    if kind == "note":
-        editor = _QtWidgets.QLabel(str(field.get("text") or field.get("description") or ""))
-        editor.setWordWrap(True)
-        editor.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        return editor
-    if kind == "bool":
-        editor = _QtWidgets.QCheckBox(str(field.get("label") or field_id.replace("_", " ").title()))
-        editor.setChecked(bool(value))
-        _ui_shell_add_field_tooltip(editor, field)
-        return editor
-    if kind == "select":
-        editor = _QtWidgets.QComboBox()
-        for option in list(field.get("options") or []):
-            if isinstance(option, dict):
-                editor.addItem(str(option.get("label") or option.get("value") or ""), option.get("value"))
-            else:
-                editor.addItem(str(option), option)
-        index = editor.findData(value)
-        if index < 0:
-            index = editor.findText(str(value))
-        if index >= 0:
-            editor.setCurrentIndex(index)
-        _ui_shell_add_field_tooltip(editor, field)
-        return editor
-    if kind == "int":
-        editor = _QtWidgets.QSpinBox()
-        editor.setRange(int(field.get("min", -999999)), int(field.get("max", 999999)))
-        editor.setSingleStep(int(field.get("step", 1) or 1))
-        try:
-            editor.setValue(int(value if value not in (None, "") else field.get("default", 0)))
-        except Exception:
-            editor.setValue(int(field.get("default", 0) or 0))
-        editor.setFocusPolicy(_QtCore.Qt.StrongFocus)
-        _ui_shell_add_field_tooltip(editor, field)
-        return editor
-    if kind == "float":
-        editor = _QtWidgets.QDoubleSpinBox()
-        editor.setRange(float(field.get("min", -999999.0)), float(field.get("max", 999999.0)))
-        editor.setDecimals(int(field.get("decimals", 2) or 2))
-        editor.setSingleStep(float(field.get("step", 0.01) or 0.01))
-        try:
-            editor.setValue(float(value if value not in (None, "") else field.get("default", 0.0)))
-        except Exception:
-            editor.setValue(float(field.get("default", 0.0) or 0.0))
-        editor.setFocusPolicy(_QtCore.Qt.StrongFocus)
-        _ui_shell_add_field_tooltip(editor, field)
-        return editor
-
-    editor = _QtWidgets.QLineEdit()
-    editor.setObjectName(f"ui_shell_chat_provider_generation_field_{field_id}")
-    editor.setText(str(value if value is not None else ""))
-    placeholder = field.get("placeholder")
-    if placeholder:
-        editor.setPlaceholderText(str(placeholder))
-    _ui_shell_add_field_tooltip(editor, field)
-    return editor
-
-
-def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
-    from PySide6 import QtWidgets as _QtWidgets
-
-    providers = list(providers or [])
-    provider_by_id = _ui_shell_chat_provider_map(providers)
-    if not provider_by_id:
-        return {"bound": False, "providers": 0, "selected_provider": ""}
-
-    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
-    settings_map = dict(session.get("chat_provider_settings") or {})
-    generation_settings_map = dict(session.get("chat_provider_generation_settings") or {})
-    saved_provider = str(session.get("chat_provider", "") or "").strip().lower()
-    selected_provider_id = saved_provider if saved_provider in provider_by_id else str(providers[0].get("id") or "").strip().lower()
-
-    combo = _ui_shell_find_object(window, "chat_provider_combo")
-    model_combo = _ui_shell_find_object(window, "model_combo")
-    settings_layout = _ui_shell_find_object(window, "chat_provider_fields_layout")
-    generation_layout = _ui_shell_find_object(window, "chat_provider_generation_fields_layout")
-    settings_label = _ui_shell_find_object(window, "provider_settings_label")
-    generation_label = _ui_shell_find_object(window, "provider_generation_label")
-    runtime_box = _ui_shell_find_object(window, "chat_runtime_box")
-    refresh_button = _ui_shell_find_object(window, "btn_model_refresh")
-    model_refresh = _ui_shell_model_refresh_service(window)
-
-    if settings_layout is None or generation_layout is None:
-        return {"bound": False, "providers": len(providers), "selected_provider": selected_provider_id}
-
-    local_state = {
-        "provider_settings": {
-            str(provider_id or "").strip().lower(): dict(values or {})
-            for provider_id, values in settings_map.items()
-            if isinstance(values, dict)
-        },
-        "generation_settings": {
-            str(provider_id or "").strip().lower(): dict(values or {})
-            for provider_id, values in generation_settings_map.items()
-            if isinstance(values, dict)
-        },
-    }
-
-    def refresh_model_summary(provider_id):
-        if model_combo is None or not hasattr(model_combo, "clear"):
-            return
-        snapshot = dict(model_refresh.snapshot(provider_id) or {})
-        saved_model = str(snapshot.get("selected_model") or session.get("model_name", "") or "").strip()
-        models = [str(item or "").strip() for item in list(snapshot.get("models") or []) if str(item or "").strip()]
-        model_combo.blockSignals(True)
-        try:
-            model_combo.clear()
-            for model in models:
-                model_combo.addItem(model)
-            if saved_model and saved_model not in models:
-                model_combo.insertItem(0, saved_model)
-            model_combo.addItem("Model refresh deferred in shell preview")
-            model_combo.setCurrentIndex(0)
-        finally:
-            model_combo.blockSignals(False)
-        _ui_shell_set_read_only_tooltip(model_combo, str(snapshot.get("message") or "Live model refresh remains deferred for this binding slice."))
-
-    def refresh_runtime_title(provider_id):
-        provider = provider_by_id.get(provider_id, {})
-        provider_label = _ui_shell_provider_label(provider)
-        model_name = str(session.get("model_name", "") or "").strip()
-        title = f"Chat Runtime - {provider_label}"
-        if model_name:
-            title += f" / {model_name}"
-        if runtime_box is not None and hasattr(runtime_box, "setTitle"):
-            runtime_box.setTitle(title)
-
-    def current_provider_settings(provider_id):
-        return dict(local_state["provider_settings"].get(provider_id, {}))
-
-    def current_generation_settings(provider_id):
-        return dict(local_state["generation_settings"].get(provider_id, {}))
-
-    def render_provider(provider_id):
-        provider = provider_by_id.get(provider_id) or providers[0]
-        provider_id = str(provider.get("id") or "").strip().lower()
-        metadata = dict(provider.get("metadata") or {})
-        config_fields = list(metadata.get("config_fields") or [])
-        generation_fields = list(metadata.get("generation_fields") or [])
-        provider_settings = current_provider_settings(provider_id)
-        generation_settings = current_generation_settings(provider_id)
-
-        _ui_shell_clear_form_layout(settings_layout)
-        if config_fields:
-            for field in config_fields:
-                field_id = str(field.get("id") or "").strip()
-                if not field_id:
-                    continue
-                label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
-                value = provider_settings.get(field_id, field.get("default", ""))
-                editor = _ui_shell_create_provider_config_editor(field, value)
-
-                def on_config_changed(fid=field_id, edit=editor, pid=provider_id):
-                    local_state["provider_settings"].setdefault(pid, {})[fid] = str(edit.text() if hasattr(edit, "text") else "")
-
-                editor.editingFinished.connect(on_config_changed)
-                settings_layout.addRow(label, editor)
-            if settings_label is not None and hasattr(settings_label, "setText"):
-                settings_label.setText(f"Provider Settings - {len(config_fields)} field(s)")
-        else:
-            hint = _QtWidgets.QLabel("This provider does not expose extra runtime fields.")
-            hint.setWordWrap(True)
-            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            settings_layout.addRow("", hint)
-            if settings_label is not None and hasattr(settings_label, "setText"):
-                settings_label.setText("Provider Settings")
-
-        _ui_shell_clear_form_layout(generation_layout)
-        active_generation_labels = []
-        if generation_fields:
-            for field in generation_fields:
-                field_id = str(field.get("id") or "").strip()
-                if not field_id:
-                    continue
-                label = str(field.get("label") or field_id.replace("_", " ").title()).strip()
-                value = _ui_shell_generation_default_value(field, generation_settings, provider_settings)
-                editor = _ui_shell_create_generation_editor(field, value)
-                kind = str(field.get("kind") or "text").strip().lower()
-                row_label = "" if kind == "bool" else label
-                generation_layout.addRow(row_label, editor)
-                if kind != "note":
-                    active_generation_labels.append(label)
-
-                    def on_generation_changed(_value=None, fid=field_id, edit=editor, pid=provider_id):
-                        if hasattr(edit, "isChecked"):
-                            new_value = bool(edit.isChecked())
-                        elif hasattr(edit, "currentData"):
-                            data = edit.currentData()
-                            new_value = data if data is not None else str(edit.currentText())
-                        elif hasattr(edit, "value"):
-                            new_value = edit.value()
-                        elif hasattr(edit, "text"):
-                            new_value = str(edit.text())
-                        else:
-                            new_value = ""
-                        local_state["generation_settings"].setdefault(pid, {})[fid] = new_value
-
-                    if hasattr(editor, "toggled"):
-                        editor.toggled.connect(on_generation_changed)
-                    elif hasattr(editor, "currentIndexChanged"):
-                        editor.currentIndexChanged.connect(on_generation_changed)
-                    elif hasattr(editor, "valueChanged"):
-                        editor.valueChanged.connect(on_generation_changed)
-                    elif hasattr(editor, "editingFinished"):
-                        editor.editingFinished.connect(on_generation_changed)
-            summary = ", ".join(active_generation_labels[:3])
-            if len(active_generation_labels) > 3:
-                summary += f", +{len(active_generation_labels) - 3}"
-            if generation_label is not None and hasattr(generation_label, "setText"):
-                generation_label.setText(f"Generation Fields - {summary}" if summary else "Generation Fields")
-        else:
-            hint = _QtWidgets.QLabel("This provider does not expose provider-specific generation fields.")
-            hint.setWordWrap(True)
-            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            generation_layout.addRow("", hint)
-            if generation_label is not None and hasattr(generation_label, "setText"):
-                generation_label.setText("Generation Fields")
-
-        refresh_model_summary(provider_id)
-        refresh_runtime_title(provider_id)
-        _ui_shell_runtime_status_service(window).set_session_overrides(chat_provider=provider_id)
-        _ui_shell_refresh_status_labels(window)
-
-    def on_refresh_clicked():
-        provider_id = _ui_shell_current_provider_id(combo, providers) if combo is not None else selected_provider_id
-        snapshot = model_refresh.refresh(provider_id, quiet=False, wait_for_reachable=True)
-        refresh_model_summary(provider_id)
-        if refresh_button is not None and hasattr(refresh_button, "setToolTip"):
-            refresh_button.setToolTip(str(snapshot.get("message") or "Live model refresh is deferred in shell preview."))
-        status_label = _ui_shell_find_object(window, "console_status")
-        if status_label is not None and hasattr(status_label, "setText"):
-            status_label.setText("Shell preview: model refresh requested, but live provider calls are deferred.")
-
-    if combo is not None and hasattr(combo, "clear"):
-        combo.blockSignals(True)
-        try:
-            combo.clear()
-            for provider in providers:
-                provider_id = str(provider.get("id") or "").strip().lower()
-                combo.addItem(_ui_shell_provider_label(provider), provider_id)
-            index = combo.findData(selected_provider_id)
-            combo.setCurrentIndex(index if index >= 0 else 0)
-        finally:
-            combo.blockSignals(False)
-        combo.setToolTip("Shell-local provider binding. Provider handlers are not called yet.")
-
-        def on_provider_changed(_index=None):
-            provider_id = _ui_shell_current_provider_id(combo, providers)
-            if provider_id:
-                render_provider(provider_id)
-
-        combo.currentIndexChanged.connect(on_provider_changed)
-
-    if refresh_button is not None and hasattr(refresh_button, "clicked"):
-        refresh_button.setEnabled(True)
-        refresh_button.setText("Refresh")
-        refresh_button.setToolTip("Shell-local model refresh facade. No provider handlers are called.")
-        if not getattr(refresh_button, "_nc_ui_shell_model_refresh_bound", False):
-            refresh_button.clicked.connect(on_refresh_clicked)
-            setattr(refresh_button, "_nc_ui_shell_model_refresh_bound", True)
-
-    render_provider(selected_provider_id)
-    setattr(window, "_nc_ui_shell_chat_runtime_state", local_state)
-    return {
-        "bound": True,
-        "providers": len(providers),
-        "selected_provider": selected_provider_id,
-    }
-
-
-def _bind_ui_shell_avatar_runtime(window, avatar_providers, session_override=None):
-    providers = list(avatar_providers or [])
-    combo = _ui_shell_find_object(window, "engine_combo")
-    if combo is None or not hasattr(combo, "clear"):
-        return {"bound": False, "providers": len(providers), "selected_provider": ""}
-
-    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
-    saved_provider = str(session.get("avatar_mode", "") or "").strip().lower()
-    provider_ids = {
-        str(provider.get("id") or "").strip().lower()
-        for provider in providers
-        if str(provider.get("id") or "").strip()
-    }
-    selected_provider_id = saved_provider if saved_provider in provider_ids else ""
-    if not selected_provider_id and providers:
-        selected_provider_id = str(providers[0].get("id") or "").strip().lower()
-
-    combo.blockSignals(True)
-    try:
-        combo.clear()
-        for provider in providers:
-            provider_id = str(provider.get("id") or "").strip().lower()
-            if not provider_id:
-                continue
-            label = str(provider.get("label") or provider_id).strip() or provider_id
-            combo.addItem(label, provider_id)
-        if not providers:
-            combo.addItem("No avatar providers registered", "")
-        index = combo.findData(selected_provider_id)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-    finally:
-        combo.blockSignals(False)
-
-    if hasattr(combo, "setToolTip"):
-        combo.setToolTip("Shell-local avatar provider binding. Avatar factories are not called.")
-
-    def on_avatar_changed(_index=None):
-        provider_id = str(combo.currentData() or "").strip().lower()
-        label = str(combo.currentText() or provider_id or "Avatar").strip()
-        _ui_shell_runtime_status_service(window).set_session_overrides(avatar_mode=provider_id)
-        _ui_shell_refresh_status_labels(window)
-        _ui_shell_append_console(
-            window,
-            f"[UI Shell] Avatar Engine preview: {label} selected; no avatar adapter was created.",
-        )
-
-    if hasattr(combo, "currentIndexChanged") and not getattr(combo, "_nc_ui_shell_avatar_runtime_bound", False):
-        combo.currentIndexChanged.connect(on_avatar_changed)
-        setattr(combo, "_nc_ui_shell_avatar_runtime_bound", True)
-
-    _ui_shell_runtime_status_service(window).set_session_overrides(
-        avatar_mode=str(combo.currentData() or selected_provider_id or "").strip().lower()
-    )
-    _ui_shell_refresh_status_labels(window)
-    return {
-        "bound": True,
-        "providers": len(providers),
-        "selected_provider": str(combo.currentData() or selected_provider_id or "").strip().lower(),
-    }
-
-
-def _bind_ui_shell_tts_runtime(window, tts_backends, session_override=None):
-    backends = list(tts_backends or [])
-    combo = _ui_shell_find_object(window, "tts_backend_combo")
-    tabs = _ui_shell_find_object(window, "tts_runtime_addon_tabs")
-    if combo is None or not hasattr(combo, "clear"):
-        return {"bound": False, "backends": len(backends), "selected_backend": ""}
-
-    session = dict(session_override or _read_ui_shell_session_snapshot() or {})
-    saved_backend = str(session.get("tts_backend", "") or "").strip().lower()
-    backend_ids = {
-        str(backend.get("id") or "").strip().lower()
-        for backend in backends
-        if str(backend.get("id") or "").strip()
-    }
-    selected_backend_id = saved_backend if saved_backend in backend_ids else ""
-    if not selected_backend_id and backends:
-        selected_backend_id = str(backends[0].get("id") or "").strip().lower()
-
-    combo.blockSignals(True)
-    try:
-        combo.clear()
-        for backend in backends:
-            backend_id = str(backend.get("id") or "").strip().lower()
-            if not backend_id:
-                continue
-            label = str(backend.get("label") or backend_id).strip() or backend_id
-            combo.addItem(label, backend_id)
-        if not backends:
-            combo.addItem("No TTS backends registered", "")
-        index = combo.findData(selected_backend_id)
-        combo.setCurrentIndex(index if index >= 0 else 0)
-    finally:
-        combo.blockSignals(False)
-
-    if hasattr(combo, "setToolTip"):
-        combo.setToolTip("Shell-local TTS backend binding. TTS backend services are not started.")
-
-    label_by_id = {
-        str(backend.get("id") or "").strip().lower(): str(backend.get("label") or backend.get("id") or "").strip()
-        for backend in backends
-    }
-
-    def select_backend_tab(backend_id):
-        if tabs is None or not hasattr(tabs, "count"):
-            return
-        label = str(label_by_id.get(str(backend_id or "").strip().lower()) or "").strip().lower()
-        if not label:
-            return
-        for index in range(tabs.count()):
-            try:
-                title = str(tabs.tabText(index) or "").strip().lower()
-            except Exception:
-                title = ""
-            if title == label or label in title or title in label:
-                try:
-                    tabs.setCurrentIndex(index)
-                except Exception:
-                    pass
-                return
-
-    def on_tts_changed(_index=None):
-        backend_id = str(combo.currentData() or "").strip().lower()
-        label = str(combo.currentText() or backend_id or "TTS").strip()
-        select_backend_tab(backend_id)
-        _ui_shell_runtime_status_service(window).set_session_overrides(tts_backend=backend_id)
-        _ui_shell_refresh_status_labels(window)
-        _ui_shell_append_console(
-            window,
-            f"[UI Shell] TTS Backend preview: {label} selected; no TTS service was started.",
-        )
-
-    if hasattr(combo, "currentIndexChanged") and not getattr(combo, "_nc_ui_shell_tts_runtime_bound", False):
-        combo.currentIndexChanged.connect(on_tts_changed)
-        setattr(combo, "_nc_ui_shell_tts_runtime_bound", True)
-
-    select_backend_tab(str(combo.currentData() or selected_backend_id or "").strip().lower())
-    _ui_shell_runtime_status_service(window).set_session_overrides(
-        tts_backend=str(combo.currentData() or selected_backend_id or "").strip().lower()
-    )
-    _ui_shell_refresh_status_labels(window)
-    return {
-        "bound": True,
-        "backends": len(backends),
-        "selected_backend": str(combo.currentData() or selected_backend_id or "").strip().lower(),
-    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 def _ui_shell_tab_title_exists(tab_widget, title):
@@ -4415,6 +3161,9 @@ def _bind_ui_shell_input_action_controls(window):
 
 
 def _configure_ui_shell_smoke_dependencies():
+    _configure_ui_shell_runtime_cards_dependencies()
+    _configure_ui_shell_local_bindings_dependencies()
+    _configure_ui_shell_status_layout_dependencies()
     _configure_ui_shell_addon_report_dependencies()
     configure_ui_shell_smoke_dependencies({
         "UI_VALIDATION_REQUIRED_GROUPS": UI_VALIDATION_REQUIRED_GROUPS,
@@ -4447,6 +3196,9 @@ def _configure_ui_shell_smoke_dependencies():
 
 
 def _configure_ui_shell_preview_dependencies():
+    _configure_ui_shell_runtime_cards_dependencies()
+    _configure_ui_shell_local_bindings_dependencies()
+    _configure_ui_shell_status_layout_dependencies()
     _configure_ui_shell_addon_report_dependencies()
     configure_ui_shell_preview_dependencies({
         "_QtWidgets": _QtWidgets,

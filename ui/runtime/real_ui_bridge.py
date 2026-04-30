@@ -103,12 +103,13 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
     POLL_INTERVAL_MS = 180
     FRONTEND_LAYOUT_SESSION_KEY = "main_ui_real_layout"
 
-    def __init__(self, raw_ui_path):
+    def __init__(self, raw_ui_path, *, session_read_only=False):
         super().__init__()
         self.ui_path = _resolve_ui_path(raw_ui_path)
         if not self.ui_path.exists():
             raise FileNotFoundError(f"UI file not found: {self.ui_path}")
         self._closing = False
+        self._session_read_only = bool(session_read_only)
         self._restoring_frontend_layout = False
         self.backend = CompanionQtMainWindow()
         self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size

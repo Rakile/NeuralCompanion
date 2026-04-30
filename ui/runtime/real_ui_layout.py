@@ -120,6 +120,8 @@ class MainUiRealLayoutMixin:
             return docks
 
     def _save_frontend_layout_state(self):
+            if bool(getattr(self, "_session_read_only", False)):
+                return
             if bool(getattr(self, "_restoring_frontend_layout", False)):
                 return
             if self.window is None:
@@ -243,6 +245,84 @@ class MainUiRealLayoutMixin:
                         signal.connect(lambda *args: self._schedule_frontend_layout_save(delay_ms=1200))
                     except Exception:
                         pass
+            self._bind_frontend_workspace_menu_actions()
+
+    def _bind_frontend_workspace_menu_actions(self):
+            action_map = {
+                "actionShowAllPanels": self.show_all_frontend_workspace_panels,
+                "actionResetWorkspaceLayout": self.reset_frontend_workspace_layout,
+            }
+            for object_name, handler in action_map.items():
+                action = self.window.findChild(QtCore.QObject, object_name)
+                if action is None or not hasattr(action, "triggered"):
+                    continue
+                try:
+                    action.triggered.connect(handler)
+                except Exception:
+                    pass
+
+    def _frontend_workspace_docks(self):
+            names = (
+                "SystemShapingDock",
+                "WorkspaceTabsDock",
+                "OperationalViewDock",
+                "MuseTalkPreviewDock",
+                "PreviewDock",
+                "VisualReplyDock",
+            )
+            docks = []
+            for object_name in names:
+                dock = self._ui_object(object_name)
+                if dock is not None and isinstance(dock, QtWidgets.QDockWidget):
+                    docks.append(dock)
+            return docks
+
+    def show_all_frontend_workspace_panels(self):
+            for dock in self._frontend_workspace_docks():
+                try:
+                    dock.show()
+                    dock.raise_()
+                except Exception:
+                    pass
+            self._apply_frontend_workspace_view_constraints()
+            self._schedule_frontend_layout_save()
+            print("[UI Real] Workspace panels shown.")
+
+    def reset_frontend_workspace_layout(self):
+            self._restoring_frontend_layout = True
+            try:
+                system_dock = self._ui_object("SystemShapingDock")
+                workspace_dock = self._ui_object("WorkspaceTabsDock")
+                operational_dock = self._ui_object("OperationalViewDock")
+                preview_dock = self._ui_object("MuseTalkPreviewDock") or self._ui_object("PreviewDock")
+                visual_dock = self._ui_object("VisualReplyDock")
+
+                left_docks = [dock for dock in (system_dock, workspace_dock) if isinstance(dock, QtWidgets.QDockWidget)]
+                right_docks = [dock for dock in (operational_dock, preview_dock, visual_dock) if isinstance(dock, QtWidgets.QDockWidget)]
+
+                for dock in left_docks:
+                    dock.setFloating(False)
+                    self.window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
+                    dock.show()
+                for dock in right_docks:
+                    dock.setFloating(False)
+                    self.window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+                    dock.show()
+
+                if len(left_docks) >= 2:
+                    self.window.tabifyDockWidget(left_docks[0], left_docks[1])
+                    left_docks[0].raise_()
+                if len(right_docks) >= 2:
+                    base = right_docks[0]
+                    for dock in right_docks[1:]:
+                        self.window.tabifyDockWidget(base, dock)
+                    base.raise_()
+            finally:
+                self._restoring_frontend_layout = False
+
+            self._apply_frontend_workspace_view_constraints()
+            self._save_frontend_layout_state()
+            print("[UI Real] Workspace layout reset.")
 
     def _bind_frontend_workspace_constraint_hooks(self):
             for object_name in ("SystemShapingDock", "WorkspaceTabsDock", "OperationalViewDock", "PreviewDock", "VisualReplyDock"):
