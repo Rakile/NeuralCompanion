@@ -30,7 +30,10 @@ from ui.designer_loader import (
     ui_shell_find_object as _ui_shell_find_object,
 )
 from ui.dock_utils import configure_main_window_docking as _configure_main_window_docking
+from ui.app_entry import configure_app_entry_dependencies, run_qt_app
 from ui.panels.input_dialog import QtInputDialog
+from ui.shell_preview import configure_ui_shell_preview_dependencies, run_ui_shell_preview
+from ui.shell_smoke import _ui_shell_binding_summary, configure_ui_shell_smoke_dependencies, run_ui_shell_smoke
 from ui.shell_specs import (
     UI_SHELL_BODY_EMOTIONS,
     UI_SHELL_BODY_POSE_SPECS,
@@ -62,6 +65,25 @@ from ui.panels.hand_doctor_dialog import HandDoctorDialog
 from ui.panels.visual_reply_panel import QtVisualReplyPanel
 from ui.runtime.console_redirect import QtConsoleBridge, QtTextRedirector
 from ui.runtime.real_ui_bridge import MainUiRealRuntimeBridge, configure_real_ui_bridge_dependencies
+from ui.runtime.shell_addon_reports import (
+    _print_ui_shell_addon_mount_report,
+    _print_ui_shell_static_addon_comparison,
+    _read_ui_shell_session_snapshot,
+    _ui_shell_addon_mount_report,
+    _ui_shell_addon_registry_state,
+    _ui_shell_addon_rows_text,
+    _ui_shell_addon_effectively_enabled,
+    _ui_shell_discover_addon_manifests,
+    _ui_shell_fallback_targets_for_manifest,
+    _ui_shell_mount_target_for_area,
+    _ui_shell_norm_label,
+    _ui_shell_rows_for_target,
+    _ui_shell_static_addon_comparison,
+    _ui_shell_static_service_hints,
+    _ui_shell_static_tab_areas,
+    _ui_shell_target_addon_rows,
+    configure_shell_addon_report_dependencies,
+)
 from ui.runtime.shell_services import (
     _UiShellAvatarProviderService,
     _UiShellChatContextService,
@@ -112,253 +134,8 @@ if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--validate-
     sys.exit(validate_ui_file(ui_arg))
 
 
-def run_ui_shell_smoke(raw_path):
-    ui_path = _resolve_ui_path(raw_path)
-    print(f"[UI Shell Smoke] File: {ui_path}")
-    if not ui_path.exists():
-        print("[UI Shell Smoke] ERROR: UI file not found.")
-        return 2
-    app = None
-    window = None
-    try:
-        app, window = _load_ui_shell_for_smoke(ui_path)
-    except Exception as exc:
-        print(f"[UI Shell Smoke] ERROR: Could not load Designer shell: {exc}")
-        return 2
-
-    missing = []
-    mismatched = []
-    bound_total = 0
-    for group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS:
-        group_bound = 0
-        group_missing = []
-        group_mismatched = []
-        for object_name, expected_class in requirements:
-            obj = _ui_shell_find_object(window, object_name)
-            if obj is None:
-                group_missing.append((object_name, expected_class))
-                missing.append((group_name, object_name, expected_class))
-                continue
-            if not _ui_shell_class_matches(obj, expected_class):
-                actual_class = obj.__class__.__name__
-                group_mismatched.append((object_name, expected_class, actual_class))
-                mismatched.append((group_name, object_name, expected_class, actual_class))
-                continue
-            group_bound += 1
-        bound_total += group_bound
-        print(f"[UI Shell Smoke] {group_name}: bound {group_bound}/{len(requirements)}")
-        for object_name, expected_class in group_missing:
-            print(f"  MISSING {object_name} ({expected_class})")
-        for object_name, expected_class, actual_class in group_mismatched:
-            print(f"  TYPE {object_name}: expected {expected_class}, found {actual_class}")
-
-    print(f"[UI Shell Smoke] Total checked bindings: {bound_total}")
-    print("[UI Shell Smoke] Runtime started: no")
-    print("[UI Shell Smoke] Broad addons initialized: no")
-    print("[UI Shell Smoke] Engine lifecycle connected: shell-local only")
-    config_summary = _apply_ui_shell_read_only_config(window)
-    lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
-    runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
-    input_action_summary = _bind_ui_shell_input_action_controls(window)
-    print(
-        f"[UI Shell Smoke] Session-backed shell config: "
-        f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
-        f"({len(config_summary['applied'])} widget(s) populated)"
-    )
-    print(
-        "[UI Shell Smoke] Lifecycle shell-local controls: "
-        + ", ".join(lifecycle_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Runtime action shell-local controls: "
-        + ", ".join(runtime_control_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Input/action shell-local controls: "
-        + ", ".join(input_action_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Input/action deferred controls: "
-        + ", ".join(input_action_summary.get("deferred") or ["none"])
-    )
-    print(f"[UI Shell Smoke] Runtime status snapshot: {_ui_shell_compose_status_line(window)}")
-    tutorial_summary = _bind_ui_shell_tutorial_controls(window)
-    addon_report = _ui_shell_addon_mount_report(window)
-    _print_ui_shell_addon_mount_report(addon_report)
-    live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
-    host_core_summary = _bind_ui_shell_host_core_controls(window, sensory_providers=live_mount_report.get("sensory_providers", []))
-    chunking_profile_summary = _bind_ui_shell_chunking_profile_controls(window)
-    dry_run_summary = _bind_ui_shell_dry_run_controls(window)
-    persona_avatar_summary = _bind_ui_shell_persona_body_vam_controls(window)
-    print(
-        "[UI Shell Smoke] Host/Core shell-local controls: "
-        + ", ".join(host_core_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Chunking/profile shell-local controls: "
-        + ", ".join(chunking_profile_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Chunking/profile deferred controls: "
-        + ", ".join(chunking_profile_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Dry Run shell-local controls: "
-        + ", ".join(dry_run_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Dry Run deferred controls: "
-        + ", ".join(dry_run_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Persona/body/VaM shell-local controls: "
-        + ", ".join(persona_avatar_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Persona/body/VaM deferred controls: "
-        + ", ".join(persona_avatar_summary.get("deferred") or ["none"])
-    )
-    chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
-    avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
-    tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
-    preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
-    chat_context_summary = _bind_ui_shell_chat_context_controls(window)
-    print(
-        "[UI Shell Smoke] Chat Runtime binding: "
-        + (
-            f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
-            if chat_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell Smoke] Preset/session binding: "
-        + (
-            f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
-            if preset_session_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell Smoke] Avatar Runtime binding: "
-        + (
-            f"{avatar_runtime_summary['providers']} provider(s), selected={avatar_runtime_summary['selected_provider'] or '<none>'}"
-            if avatar_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell Smoke] TTS Runtime binding: "
-        + (
-            f"{tts_runtime_summary['backends']} backend(s), selected={tts_runtime_summary['selected_backend'] or '<none>'}"
-            if tts_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell Smoke] Chat context shell-local controls: "
-        + ", ".join(chat_context_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Tutorial shell-local controls: "
-        + f"{tutorial_summary.get('tutorials', 0)} tutorial(s), "
-        + ", ".join(tutorial_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell Smoke] Live addon mounts: "
-        + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
-    )
-    print(
-        "[UI Shell Smoke] Live chat providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("chat_providers", [])
-            )
-            if live_mount_report.get("chat_providers")
-            else "none"
-        )
-    )
-    print(
-        "[UI Shell Smoke] Live avatar providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("avatar_providers", [])
-            )
-            if live_mount_report.get("avatar_providers")
-            else "none"
-        )
-    )
-    print(
-        "[UI Shell Smoke] Live sensory providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("sensory_providers", [])
-            )
-            if live_mount_report.get("sensory_providers")
-            else "none"
-        )
-    )
-    engine_imported = "engine" in sys.modules
-    print(f"[UI Shell Smoke] Heavy engine imported: {'yes' if engine_imported else 'no'}")
-    if live_mount_report["failures"]:
-        print("[UI Shell Smoke] Live addon mount failures:")
-        for failure in live_mount_report["failures"]:
-            print(f"  - {failure}")
-    placeholder_targets = _apply_ui_shell_addon_placeholders(
-        window,
-        addon_report,
-        exclude_addon_ids=set(live_mount_report["mounted_ids"]),
-        live_chat_providers=[] if chat_runtime_summary.get("bound") else live_mount_report.get("chat_providers", []),
-    )
-    print(
-        "[UI Shell Smoke] Addon mount placeholders: "
-        + (", ".join(placeholder_targets) if placeholder_targets else "none")
-    )
-    _print_ui_shell_static_addon_comparison(ui_path, addon_report, live_mount_report)
-
-    try:
-        _ui_shell_cleanup_live_addons(window)
-        window.close()
-        if app is not None:
-            app.quit()
-    except Exception:
-        pass
-
-    if engine_imported:
-        mismatched.append(("Safety", "engine", "not imported", "imported"))
-
-    if missing or mismatched:
-        print("[UI Shell Smoke] Result: NOT READY for shell binding.")
-        return 1
-    print("[UI Shell Smoke] Result: READY for the checked shell binding surface.")
-    return 0
 
 
-def _ui_shell_binding_summary(window):
-    checked = 0
-    bound = 0
-    missing = []
-    mismatched = []
-    for group_name, requirements in UI_VALIDATION_REQUIRED_GROUPS:
-        for object_name, expected_class in requirements:
-            checked += 1
-            obj = _ui_shell_find_object(window, object_name)
-            if obj is None:
-                missing.append(f"{group_name}:{object_name}")
-                continue
-            if not _ui_shell_class_matches(obj, expected_class):
-                mismatched.append(f"{group_name}:{object_name}")
-                continue
-            bound += 1
-    return {
-        "checked": checked,
-        "bound": bound,
-        "missing": missing,
-        "mismatched": mismatched,
-    }
 
 
 
@@ -432,8 +209,29 @@ def _configure_real_ui_bridge_dependencies():
     })
 
 
+def _configure_app_entry_dependencies():
+    configure_app_entry_dependencies({
+        "APP_TITLE": APP_TITLE,
+        "CompanionQtMainWindow": CompanionQtMainWindow,
+        "MainUiRealRuntimeBridge": MainUiRealRuntimeBridge,
+        "_configure_main_window_docking": _configure_main_window_docking,
+        "_configure_real_ui_bridge_dependencies": _configure_real_ui_bridge_dependencies,
+        "_install_no_wheel_input_guard": _install_no_wheel_input_guard,
+        "_load_ui_preview_window": _load_ui_preview_window,
+        "_resolve_ui_path": _resolve_ui_path,
+    })
+
+
 def _configure_ui_shell_service_dependencies():
+    _configure_ui_shell_addon_report_dependencies()
     configure_shell_service_dependencies(globals())
+
+
+def _configure_ui_shell_addon_report_dependencies():
+    configure_shell_addon_report_dependencies(globals())
+
+
+_configure_ui_shell_addon_report_dependencies()
 
 
 def _ui_shell_runtime_status_service(window):
@@ -1389,328 +1187,36 @@ def _bind_ui_shell_tutorial_controls(window):
     }
 
 
-def _read_ui_shell_session_snapshot():
-    session_path = Path(__file__).resolve().parent / "qt_session.json"
-    try:
-        with session_path.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-            return payload if isinstance(payload, dict) else {}
-    except Exception:
-        return {}
 
 
-def _ui_shell_addon_registry_state(session=None):
-    payload = dict(session or _read_ui_shell_session_snapshot() or {})
-    registry = payload.get("addon_registry_state")
-    if isinstance(registry, dict):
-        return registry
-    registry_path = Path(__file__).resolve().parent / "runtime" / "addons" / "addon_registry.json"
-    try:
-        with registry_path.open("r", encoding="utf-8") as handle:
-            registry = json.load(handle)
-            return registry if isinstance(registry, dict) else {}
-    except Exception:
-        return {}
 
 
-def _ui_shell_addon_effectively_enabled(manifest, registry_state):
-    addon_id = str(manifest.get("id", "") or "").strip()
-    category = str(manifest.get("category", "") or "other").strip().lower() or "other"
-    manifest_enabled = bool(manifest.get("enabled", True))
-    category_overrides = dict((registry_state or {}).get("categories", {}) or {})
-    addon_overrides = dict((registry_state or {}).get("addons", {}) or {})
-    category_enabled = bool(category_overrides.get(category, True))
-    addon_enabled = bool(addon_overrides.get(addon_id, manifest_enabled))
-    return bool(category_enabled and addon_enabled)
 
 
-def _ui_shell_static_tab_areas(addon_dir):
-    main_path = Path(addon_dir) / "main.py"
-    try:
-        text = main_path.read_text(encoding="utf-8")
-    except Exception:
-        return []
-    areas = []
-    for match in re.finditer(r"register_tab\s*\((?P<body>.*?)\)", text, re.DOTALL):
-        body = match.group("body") or ""
-        area_match = re.search(r"area\s*=\s*[\"']([^\"']+)[\"']", body)
-        if area_match:
-            areas.append(area_match.group(1).strip())
-    return sorted(set(item for item in areas if item))
 
 
-def _ui_shell_static_service_hints(addon_dir, manifest):
-    addon_id = str(manifest.get("id", "") or "").strip().lower()
-    name = str(manifest.get("name", "") or "").strip().lower()
-    hints = []
-    if addon_id.startswith("nc.chat_provider_") or "chat provider" in name or addon_id == "nc.claude_provider":
-        hints.append("chat_provider_registry")
-    if addon_id.endswith("_avatar") or "avatar provider" in name:
-        hints.append("avatar_provider_registry")
-    main_path = Path(addon_dir) / "main.py"
-    try:
-        text = main_path.read_text(encoding="utf-8")
-    except Exception:
-        text = ""
-    if "qt.sensory" in text:
-        hints.append("sensory_registry")
-    if "services.register" in text:
-        if '"kind": "tts"' in text or "'kind': 'tts'" in text:
-            hints.append("tts_backend_service")
-        else:
-            hints.append("service_registry")
-    return sorted(set(hints))
 
 
-def _ui_shell_discover_addon_manifests():
-    addons_dir = Path(__file__).resolve().parent / "addons"
-    discovered = []
-    if not addons_dir.exists():
-        return discovered
-    for addon_dir in sorted((path for path in addons_dir.iterdir() if path.is_dir()), key=lambda path: path.name.lower()):
-        manifest_path = addon_dir / "addon.json"
-        if not manifest_path.exists():
-            continue
-        try:
-            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception as exc:
-            discovered.append({
-                "id": addon_dir.name,
-                "name": addon_dir.name,
-                "category": "other",
-                "enabled": False,
-                "error": str(exc),
-                "areas": [],
-                "service_hints": [],
-            })
-            continue
-        if not isinstance(manifest, dict):
-            continue
-        manifest = dict(manifest)
-        manifest["root"] = str(addon_dir)
-        manifest["areas"] = _ui_shell_static_tab_areas(addon_dir)
-        manifest["service_hints"] = _ui_shell_static_service_hints(addon_dir, manifest)
-        discovered.append(manifest)
-    return discovered
 
 
-def _ui_shell_mount_target_for_area(area):
-    mapping = {
-        "top_level": "left_tabs",
-        "host_settings": "host_settings_tabs",
-        "musetalk": "musetalk_tabs",
-        "tts_runtime": "tts_runtime_addon_tabs",
-        "vision_source": "sensory_feedback_tabs",
-        "operational_view": "right_tabs",
-    }
-    return mapping.get(str(area or "").strip(), "")
 
 
-def _ui_shell_fallback_targets_for_manifest(manifest):
-    addon_id = str(manifest.get("id", "") or "").strip().lower()
-    category = str(manifest.get("category", "") or "other").strip().lower()
-    if addon_id.startswith("nc.chat_provider_") or addon_id == "nc.claude_provider":
-        return ["chat_provider_combo"]
-    if category == "vision":
-        return ["sensory_feedback_tabs"]
-    if category == "musetalk":
-        return ["musetalk_tabs"]
-    if category == "visuals":
-        return ["host_settings_tabs"]
-    if category == "chat":
-        return ["left_tabs"]
-    if category == "global":
-        return ["left_tabs"]
-    return []
 
 
-def _ui_shell_addon_mount_report(window):
-    session = _read_ui_shell_session_snapshot()
-    registry_state = _ui_shell_addon_registry_state(session)
-    manifests = _ui_shell_discover_addon_manifests()
-    mount_points = {
-        "left_tabs": _ui_shell_find_object(window, "left_tabs") is not None,
-        "host_settings_tabs": _ui_shell_find_object(window, "host_settings_tabs") is not None,
-        "right_tabs": _ui_shell_find_object(window, "right_tabs") is not None,
-        "tts_runtime_addon_tabs": _ui_shell_find_object(window, "tts_runtime_addon_tabs") is not None,
-        "musetalk_tabs": _ui_shell_find_object(window, "musetalk_tabs") is not None,
-        "sensory_feedback_tabs": _ui_shell_find_object(window, "sensory_feedback_tabs") is not None,
-        "sensory_feedback_sources_widget": _ui_shell_find_object(window, "sensory_feedback_sources_widget") is not None,
-        "chat_provider_combo": _ui_shell_find_object(window, "chat_provider_combo") is not None,
-        "chat_provider_fields_widget": _ui_shell_find_object(window, "chat_provider_fields_widget") is not None,
-        "chat_provider_generation_fields_widget": _ui_shell_find_object(window, "chat_provider_generation_fields_widget") is not None,
-        "OperationalViewDock": _ui_shell_find_object(window, "OperationalViewDock") is not None,
-    }
-    rows = []
-    for manifest in manifests:
-        areas = list(manifest.get("areas", []) or [])
-        service_hints = list(manifest.get("service_hints", []) or [])
-        targets = []
-        for area in areas:
-            target = _ui_shell_mount_target_for_area(area)
-            if target:
-                targets.append(target)
-        if not targets:
-            targets = _ui_shell_fallback_targets_for_manifest(manifest)
-        rows.append({
-            "id": str(manifest.get("id", "") or ""),
-            "name": str(manifest.get("name", "") or manifest.get("id", "") or ""),
-            "category": str(manifest.get("category", "") or "other"),
-            "root": str(manifest.get("root", "") or ""),
-            "enabled": _ui_shell_addon_effectively_enabled(manifest, registry_state),
-            "areas": areas,
-            "service_hints": service_hints,
-            "targets": sorted(set(targets)),
-            "missing_targets": sorted(set(target for target in targets if not mount_points.get(target, False))),
-            "error": str(manifest.get("error", "") or ""),
-        })
-    enabled_count = sum(1 for row in rows if row["enabled"])
-    return {
-        "mount_points": mount_points,
-        "addons": rows,
-        "enabled_count": enabled_count,
-        "total_count": len(rows),
-    }
 
 
-def _print_ui_shell_addon_mount_report(report, prefix="[UI Shell Smoke]"):
-    print(f"{prefix} Addon manifests discovered: {report['total_count']} ({report['enabled_count']} effectively enabled)")
-    print(f"{prefix} Addon mount points:")
-    for name, present in sorted((report.get("mount_points") or {}).items()):
-        print(f"  - {name}: {'present' if present else 'missing'}")
-    print(f"{prefix} Would mount/register:")
-    for row in report.get("addons", []):
-        status = "enabled" if row.get("enabled") else "disabled"
-        areas = ", ".join(row.get("areas") or [])
-        hints = ", ".join(row.get("service_hints") or [])
-        targets = ", ".join(row.get("targets") or [])
-        missing = ", ".join(row.get("missing_targets") or [])
-        detail_bits = []
-        if areas:
-            detail_bits.append(f"areas={areas}")
-        if hints:
-            detail_bits.append(f"services={hints}")
-        if targets:
-            detail_bits.append(f"targets={targets}")
-        if missing:
-            detail_bits.append(f"missing_targets={missing}")
-        if row.get("error"):
-            detail_bits.append(f"error={row['error']}")
-        detail = "; ".join(detail_bits) if detail_bits else "manifest-only"
-        print(f"  - {row.get('id') or row.get('name')} [{status}]: {detail}")
 
 
-def _ui_shell_rows_for_target(report, target, exclude_addon_ids=None):
-    target = str(target or "").strip()
-    excluded = {str(item or "").strip() for item in (exclude_addon_ids or set()) if str(item or "").strip()}
-    rows = []
-    for row in report.get("addons", []):
-        if str(row.get("id") or "").strip() in excluded:
-            continue
-        if target in set(row.get("targets") or []):
-            rows.append(row)
-    return rows
 
 
-def _ui_shell_addon_rows_text(rows):
-    if not rows:
-        return "No addon manifests currently target this mount point."
-    lines = []
-    for row in rows:
-        status = "enabled" if row.get("enabled") else "disabled"
-        name = str(row.get("name") or row.get("id") or "Unnamed addon").strip()
-        addon_id = str(row.get("id") or "").strip()
-        areas = ", ".join(row.get("areas") or [])
-        services = ", ".join(row.get("service_hints") or [])
-        details = [f"{name} [{status}]"]
-        if addon_id and addon_id != name:
-            details.append(addon_id)
-        if areas:
-            details.append(f"area: {areas}")
-        if services:
-            details.append(f"services: {services}")
-        lines.append(" - " + " | ".join(details))
-    return "\n".join(lines)
 
 
-def _ui_shell_norm_label(value):
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").strip().lower())
 
 
-def _ui_shell_target_addon_rows(report, target):
-    target = str(target or "").strip()
-    return [
-        row
-        for row in report.get("addons", [])
-        if row.get("enabled") and target in set(row.get("targets") or [])
-    ]
 
 
-def _ui_shell_static_addon_comparison(ui_path, report, live_mount_report):
-    static_tabs = _collect_ui_shell_static_tabs(ui_path)
-    live_tabs = list((live_mount_report or {}).get("live_tabs") or [])
-    live_by_target = {}
-    for live_tab in live_tabs:
-        target = str(live_tab.get("target") or "").strip()
-        if not target:
-            continue
-        live_by_target.setdefault(target, []).append(live_tab)
-
-    rows = []
-    for target in UI_SHELL_TAB_MOUNT_WIDGETS:
-        static_pages = list(static_tabs.get(target, []) or [])
-        addon_rows = _ui_shell_target_addon_rows(report, target)
-        live_target_tabs = list(live_by_target.get(target, []) or [])
-        static_titles = [str(page.get("title") or "").strip() for page in static_pages if str(page.get("title") or "").strip()]
-        static_norms = {_ui_shell_norm_label(title) for title in static_titles}
-        live_titles = [str(tab.get("title") or "").strip() for tab in live_target_tabs if str(tab.get("title") or "").strip()]
-        live_norms = {_ui_shell_norm_label(title) for title in live_titles}
-        replaced_norms = {
-            _ui_shell_norm_label(str(tab.get("title") or "").strip())
-            for tab in live_target_tabs
-            if tab.get("replaced_static_placeholder") and str(tab.get("title") or "").strip()
-        }
-        manifest_names = [str(row.get("name") or row.get("id") or "").strip() for row in addon_rows]
-        manifest_norms = {_ui_shell_norm_label(name) for name in manifest_names}
-        duplicate_candidates = [
-            title for title in static_titles
-            if _ui_shell_norm_label(title) not in replaced_norms
-            and (_ui_shell_norm_label(title) in live_norms or _ui_shell_norm_label(title) in manifest_norms)
-        ]
-        placeholder_only = [
-            str(row.get("name") or row.get("id") or "").strip()
-            for row in addon_rows
-            if str(row.get("id") or "").strip() not in set((live_mount_report or {}).get("mounted_ids") or [])
-        ]
-        if static_titles or addon_rows or live_target_tabs:
-            rows.append({
-                "target": target,
-                "static_titles": static_titles,
-                "live_titles": live_titles,
-                "addon_names": manifest_names,
-                "duplicate_candidates": duplicate_candidates,
-                "placeholder_only": placeholder_only,
-            })
-    return rows
 
 
-def _print_ui_shell_static_addon_comparison(ui_path, report, live_mount_report, prefix="[UI Shell Smoke]"):
-    rows = _ui_shell_static_addon_comparison(ui_path, report, live_mount_report)
-    print(f"{prefix} Static-vs-addon tab comparison:")
-    if not rows:
-        print("  none")
-        return
-    for row in rows:
-        static_text = ", ".join(row.get("static_titles") or []) or "none"
-        live_text = ", ".join(row.get("live_titles") or []) or "none"
-        addon_text = ", ".join(row.get("addon_names") or []) or "none"
-        duplicate_text = ", ".join(row.get("duplicate_candidates") or []) or "none"
-        placeholder_text = ", ".join(row.get("placeholder_only") or []) or "none"
-        print(f"  - {row.get('target')}: static=[{static_text}]")
-        print(f"    addon targets=[{addon_text}]")
-        print(f"    live-mounted=[{live_text}]")
-        print(f"    static duplicate candidates=[{duplicate_text}]")
-        print(f"    placeholder-only addon targets=[{placeholder_text}]")
 
 
 def _ui_shell_chat_provider_rows_text(providers):
@@ -4906,210 +4412,78 @@ def _bind_ui_shell_input_action_controls(window):
     }
 
 
-def run_ui_shell_preview(raw_path):
-    from PySide6 import QtCore as _QtCore
-    from PySide6 import QtWidgets as _QtWidgets
 
-    ui_path = _resolve_ui_path(raw_path)
-    print(f"[UI Shell] Loading visual-only Designer shell: {ui_path}")
-    if not ui_path.exists():
-        raise FileNotFoundError(f"UI file not found: {ui_path}")
-    app, window = _load_ui_shell_for_smoke(ui_path)
-    current_title = str(window.windowTitle() or "").strip()
-    window.setWindowTitle(f"{current_title} [UI Shell Preview]" if current_title else "UI Shell Preview")
-    if isinstance(window, _QtWidgets.QMainWindow):
-        window.setTabPosition(_QtCore.Qt.AllDockWidgetAreas, _QtWidgets.QTabWidget.North)
-    summary = _apply_ui_shell_preview_status(window)
-    config_summary = _apply_ui_shell_read_only_config(window)
-    console_chat_summary = _bind_ui_shell_console_chat_local_controls(window)
-    lifecycle_summary = _bind_ui_shell_lifecycle_local_controls(window)
-    runtime_control_summary = _bind_ui_shell_runtime_action_controls(window)
-    input_action_summary = _bind_ui_shell_input_action_controls(window)
-    tutorial_summary = _bind_ui_shell_tutorial_controls(window)
-    addon_report = _ui_shell_addon_mount_report(window)
-    live_mount_report = _ui_shell_mount_live_addons(window, addon_report)
-    host_core_summary = _bind_ui_shell_host_core_controls(window, sensory_providers=live_mount_report.get("sensory_providers", []))
-    chunking_profile_summary = _bind_ui_shell_chunking_profile_controls(window)
-    dry_run_summary = _bind_ui_shell_dry_run_controls(window)
-    persona_avatar_summary = _bind_ui_shell_persona_body_vam_controls(window)
-    chat_runtime_summary = _bind_ui_shell_chat_runtime(window, live_mount_report.get("chat_providers", []))
-    avatar_runtime_summary = _bind_ui_shell_avatar_runtime(window, live_mount_report.get("avatar_providers", []))
-    tts_runtime_summary = _bind_ui_shell_tts_runtime(window, live_mount_report.get("tts_backends", []))
-    preset_session_summary = _bind_ui_shell_preset_session_controls(window, live_mount_report.get("chat_providers", []))
-    chat_context_summary = _bind_ui_shell_chat_context_controls(window)
-    placeholder_targets = _apply_ui_shell_addon_placeholders(
-        window,
-        addon_report,
-        exclude_addon_ids=set(live_mount_report["mounted_ids"]),
-        live_chat_providers=[] if chat_runtime_summary.get("bound") else live_mount_report.get("chat_providers", []),
-    )
-    try:
-        app.aboutToQuit.connect(lambda: _ui_shell_cleanup_live_addons(window))
-    except Exception:
-        pass
-    print("[UI Shell] Runtime started: no")
-    print("[UI Shell] Broad addons initialized: no")
-    print("[UI Shell] Engine lifecycle connected: shell-local only")
-    print(f"[UI Shell] Bindings checked: {summary['bound']}/{summary['checked']}")
-    print(
-        f"[UI Shell] Session-backed shell config: "
-        f"{'loaded' if config_summary['session_loaded'] else 'not found'} "
-        f"({len(config_summary['applied'])} widget(s) populated)"
-    )
-    print(
-        "[UI Shell] Host/Core shell-local controls: "
-        + ", ".join(host_core_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Chunking/profile shell-local controls: "
-        + ", ".join(chunking_profile_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Chunking/profile deferred controls: "
-        + ", ".join(chunking_profile_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell] Dry Run shell-local controls: "
-        + ", ".join(dry_run_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Dry Run deferred controls: "
-        + ", ".join(dry_run_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell] Persona/body/VaM shell-local controls: "
-        + ", ".join(persona_avatar_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Persona/body/VaM deferred controls: "
-        + ", ".join(persona_avatar_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell] Console/chat shell-local controls: "
-        + ", ".join(console_chat_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Console/chat deferred controls: "
-        + ", ".join(console_chat_summary.get("deferred") or ["none"])
-    )
-    print(
-        "[UI Shell] Lifecycle shell-local controls: "
-        + ", ".join(lifecycle_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Runtime action shell-local controls: "
-        + ", ".join(runtime_control_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Input/action shell-local controls: "
-        + ", ".join(input_action_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Input/action deferred controls: "
-        + ", ".join(input_action_summary.get("deferred") or ["none"])
-    )
-    print(f"[UI Shell] Runtime status snapshot: {_ui_shell_compose_status_line(window)}")
-    print(
-        "[UI Shell] Tutorial shell-local controls: "
-        + f"{tutorial_summary.get('tutorials', 0)} tutorial(s), "
-        + ", ".join(tutorial_summary.get("bound") or ["none"])
-    )
-    print(
-        "[UI Shell] Chat Runtime binding: "
-        + (
-            f"{chat_runtime_summary['providers']} provider(s), selected={chat_runtime_summary['selected_provider'] or '<none>'}"
-            if chat_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell] Preset/session binding: "
-        + (
-            f"{preset_session_summary['presets']} preset(s), selected={preset_session_summary['selected'] or '<none>'}"
-            if preset_session_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell] Avatar Runtime binding: "
-        + (
-            f"{avatar_runtime_summary['providers']} provider(s), selected={avatar_runtime_summary['selected_provider'] or '<none>'}"
-            if avatar_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell] TTS Runtime binding: "
-        + (
-            f"{tts_runtime_summary['backends']} backend(s), selected={tts_runtime_summary['selected_backend'] or '<none>'}"
-            if tts_runtime_summary.get("bound")
-            else "deferred"
-        )
-    )
-    print(
-        "[UI Shell] Chat context shell-local controls: "
-        + ", ".join(chat_context_summary.get("bound") or ["none"])
-    )
-    print(
-        f"[UI Shell] Addon manifests discovered: "
-        f"{addon_report['total_count']} ({addon_report['enabled_count']} effectively enabled)"
-    )
-    print(
-        "[UI Shell] Live addon mounts: "
-        + (", ".join(live_mount_report["mounted"]) if live_mount_report["mounted"] else "none")
-    )
-    print(
-        "[UI Shell] Live chat providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("chat_providers", [])
-            )
-            if live_mount_report.get("chat_providers")
-            else "none"
-        )
-    )
-    print(
-        "[UI Shell] Live avatar providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("avatar_providers", [])
-            )
-            if live_mount_report.get("avatar_providers")
-            else "none"
-        )
-    )
-    print(
-        "[UI Shell] Live sensory providers: "
-        + (
-            ", ".join(
-                str(provider.get("label") or provider.get("id") or "")
-                for provider in live_mount_report.get("sensory_providers", [])
-            )
-            if live_mount_report.get("sensory_providers")
-            else "none"
-        )
-    )
-    if live_mount_report["failures"]:
-        print("[UI Shell] Live addon mount failures:")
-        for failure in live_mount_report["failures"]:
-            print(f"  - {failure}")
-    print(
-        "[UI Shell] Addon mount placeholders: "
-        + (", ".join(placeholder_targets) if placeholder_targets else "none")
-    )
-    _print_ui_shell_static_addon_comparison(ui_path, addon_report, live_mount_report, prefix="[UI Shell]")
-    print("[UI Shell] Close the shell window to return to the terminal.")
-    window.show()
-    return app.exec()
+
+def _configure_ui_shell_smoke_dependencies():
+    _configure_ui_shell_addon_report_dependencies()
+    configure_ui_shell_smoke_dependencies({
+        "UI_VALIDATION_REQUIRED_GROUPS": UI_VALIDATION_REQUIRED_GROUPS,
+        "_apply_ui_shell_addon_placeholders": _apply_ui_shell_addon_placeholders,
+        "_apply_ui_shell_read_only_config": _apply_ui_shell_read_only_config,
+        "_bind_ui_shell_avatar_runtime": _bind_ui_shell_avatar_runtime,
+        "_bind_ui_shell_chat_context_controls": _bind_ui_shell_chat_context_controls,
+        "_bind_ui_shell_chat_runtime": _bind_ui_shell_chat_runtime,
+        "_bind_ui_shell_chunking_profile_controls": _bind_ui_shell_chunking_profile_controls,
+        "_bind_ui_shell_dry_run_controls": _bind_ui_shell_dry_run_controls,
+        "_bind_ui_shell_host_core_controls": _bind_ui_shell_host_core_controls,
+        "_bind_ui_shell_input_action_controls": _bind_ui_shell_input_action_controls,
+        "_bind_ui_shell_lifecycle_local_controls": _bind_ui_shell_lifecycle_local_controls,
+        "_bind_ui_shell_persona_body_vam_controls": _bind_ui_shell_persona_body_vam_controls,
+        "_bind_ui_shell_preset_session_controls": _bind_ui_shell_preset_session_controls,
+        "_bind_ui_shell_runtime_action_controls": _bind_ui_shell_runtime_action_controls,
+        "_bind_ui_shell_tts_runtime": _bind_ui_shell_tts_runtime,
+        "_bind_ui_shell_tutorial_controls": _bind_ui_shell_tutorial_controls,
+        "_load_ui_shell_for_smoke": _load_ui_shell_for_smoke,
+        "_print_ui_shell_addon_mount_report": _print_ui_shell_addon_mount_report,
+        "_print_ui_shell_static_addon_comparison": _print_ui_shell_static_addon_comparison,
+        "_resolve_ui_path": _resolve_ui_path,
+        "_ui_shell_addon_mount_report": _ui_shell_addon_mount_report,
+        "_ui_shell_class_matches": _ui_shell_class_matches,
+        "_ui_shell_cleanup_live_addons": _ui_shell_cleanup_live_addons,
+        "_ui_shell_compose_status_line": _ui_shell_compose_status_line,
+        "_ui_shell_find_object": _ui_shell_find_object,
+        "_ui_shell_mount_live_addons": _ui_shell_mount_live_addons,
+    })
+
+
+def _configure_ui_shell_preview_dependencies():
+    _configure_ui_shell_addon_report_dependencies()
+    configure_ui_shell_preview_dependencies({
+        "_QtWidgets": _QtWidgets,
+        "_apply_ui_shell_addon_placeholders": _apply_ui_shell_addon_placeholders,
+        "_apply_ui_shell_preview_status": _apply_ui_shell_preview_status,
+        "_apply_ui_shell_read_only_config": _apply_ui_shell_read_only_config,
+        "_bind_ui_shell_avatar_runtime": _bind_ui_shell_avatar_runtime,
+        "_bind_ui_shell_chat_context_controls": _bind_ui_shell_chat_context_controls,
+        "_bind_ui_shell_chat_runtime": _bind_ui_shell_chat_runtime,
+        "_bind_ui_shell_chunking_profile_controls": _bind_ui_shell_chunking_profile_controls,
+        "_bind_ui_shell_console_chat_local_controls": _bind_ui_shell_console_chat_local_controls,
+        "_bind_ui_shell_dry_run_controls": _bind_ui_shell_dry_run_controls,
+        "_bind_ui_shell_host_core_controls": _bind_ui_shell_host_core_controls,
+        "_bind_ui_shell_input_action_controls": _bind_ui_shell_input_action_controls,
+        "_bind_ui_shell_lifecycle_local_controls": _bind_ui_shell_lifecycle_local_controls,
+        "_bind_ui_shell_persona_body_vam_controls": _bind_ui_shell_persona_body_vam_controls,
+        "_bind_ui_shell_preset_session_controls": _bind_ui_shell_preset_session_controls,
+        "_bind_ui_shell_runtime_action_controls": _bind_ui_shell_runtime_action_controls,
+        "_bind_ui_shell_tts_runtime": _bind_ui_shell_tts_runtime,
+        "_bind_ui_shell_tutorial_controls": _bind_ui_shell_tutorial_controls,
+        "_load_ui_shell_for_smoke": _load_ui_shell_for_smoke,
+        "_print_ui_shell_static_addon_comparison": _print_ui_shell_static_addon_comparison,
+        "_resolve_ui_path": _resolve_ui_path,
+        "_ui_shell_addon_mount_report": _ui_shell_addon_mount_report,
+        "_ui_shell_cleanup_live_addons": _ui_shell_cleanup_live_addons,
+        "_ui_shell_compose_status_line": _ui_shell_compose_status_line,
+        "_ui_shell_mount_live_addons": _ui_shell_mount_live_addons,
+    })
 
 
 if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--ui-shell":
     shell_smoke = any(str(item or "").strip().lower() == "--shell-smoke" for item in sys.argv[2:])
     ui_arg = sys.argv[2] if len(sys.argv) >= 3 and not str(sys.argv[2] or "").startswith("--") else "main.ui"
     if shell_smoke:
+        _configure_ui_shell_smoke_dependencies()
         sys.exit(run_ui_shell_smoke(ui_arg))
+    _configure_ui_shell_preview_dependencies()
     sys.exit(run_ui_shell_preview(ui_arg))
 
 _ui_shell_enable_stdio_unicode_fallback()
@@ -15888,61 +15262,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
 
 
 def main():
-    argv = list(sys.argv[1:])
-    app = QtWidgets.QApplication(sys.argv)
-    app.setApplicationName(APP_TITLE)
-    _install_no_wheel_input_guard(app)
-    if len(argv) >= 1 and str(argv[0] or "").strip().lower() in {"--ui-preview", "--ui-file"}:
-        ui_path = _resolve_ui_path(argv[1] if len(argv) >= 2 else "main.ui")
-        if not ui_path.exists():
-            raise FileNotFoundError(f"UI file not found: {ui_path}")
-        window = _load_ui_preview_window(ui_path)
-        current_title = str(window.windowTitle() or "").strip()
-        window.setWindowTitle(f"{current_title} [UI Preview]" if current_title else "UI Preview")
-        if isinstance(window, QtWidgets.QMainWindow):
-            _configure_main_window_docking(window)
-            window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
-        window.show()
-        sys.exit(app.exec())
-    if len(argv) >= 1 and str(argv[0] or "").strip().lower() == "--ui-real":
-        ui_arg = argv[1] if len(argv) >= 2 and not str(argv[1] or "").startswith("--") else "main.ui"
-        runtime_smoke = any(str(item or "").strip().lower() == "--runtime-smoke" for item in argv[1:])
-        _configure_real_ui_bridge_dependencies()
-        bridge = MainUiRealRuntimeBridge(ui_arg)
-        if runtime_smoke:
-            summary = bridge.smoke_summary()
-            print(f"[UI Real Smoke] File: {summary['ui_path']}")
-            print(f"[UI Real Smoke] Window class: {summary['window_class']}")
-            print(f"[UI Real Smoke] Hidden backend runtime window: {'yes' if summary['backend_hidden'] else 'no'}")
-            print("[UI Real Smoke] Lifecycle buttons: " + ", ".join(summary["lifecycle_buttons"] or ["none"]))
-            print("[UI Real Smoke] Runtime action buttons: " + ", ".join(summary["runtime_action_buttons"] or ["none"]))
-            print("[UI Real Smoke] Chat-context buttons: " + ", ".join(summary["chat_context_buttons"] or ["none"]))
-            print(f"[UI Real Smoke] Console/chat mirroring bound: {'yes' if summary['console_chat_bound'] else 'no'}")
-            print(f"[UI Real Smoke] Provider runtime redirected: {'yes' if summary['provider_runtime_redirected'] else 'no'}")
-            print(f"[UI Real Smoke] Chat/session runtime redirected: {'yes' if summary['chat_session_runtime_redirected'] else 'no'}")
-            print(f"[UI Real Smoke] Sensory runtime redirected: {'yes' if summary['sensory_runtime_redirected'] else 'no'}")
-            print(
-                "[UI Real Smoke] Visual Reply runtime redirected: "
-                + ("yes" if summary["visual_reply_runtime_redirected"] else "no")
-                + (
-                    f" ({summary['visual_reply_panel_class']})"
-                    if summary.get("visual_reply_panel_class")
-                    else ""
-                )
-            )
-            if summary["adopted_runtime_tabs"]:
-                print("[UI Real Smoke] Adopted runtime tabs:")
-                for target_name, titles in summary["adopted_runtime_tabs"].items():
-                    print(f"  - {target_name}: {', '.join(titles)}")
-            print("[UI Real Smoke] Sensory runtime tabs: " + ", ".join(summary["sensory_runtime_tabs"] or ["none"]))
-            print(f"[UI Real Smoke] Runtime status line: {summary['runtime_status']}")
-            bridge.close()
-            sys.exit(0)
-        bridge.show()
-        sys.exit(app.exec())
-    window = CompanionQtMainWindow()
-    window.show()
-    sys.exit(app.exec())
+    _configure_app_entry_dependencies()
+    run_qt_app()
 
 
 if __name__ == "__main__":
