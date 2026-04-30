@@ -1,4 +1,4 @@
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui
 
 
 def configure_real_ui_sync_dependencies(namespace):
@@ -382,17 +382,70 @@ class MainUiRealSyncMixin:
                 return False
             if hasattr(source, "toPlainText") and hasattr(target, "setPlainText"):
                 text = str(source.toPlainText() or "")
-                current = str(target.toPlainText() or "") if hasattr(target, "toPlainText") else ""
-                if current != text:
-                    target.setPlainText(text)
-                return True
+                return self._set_text_widget_text(target, text)
             if hasattr(source, "text") and hasattr(target, "setText"):
                 text = str(source.text() or "")
-                current = str(target.text() or "") if hasattr(target, "text") else ""
-                if current != text:
-                    target.setText(text)
-                return True
+                return self._set_text_widget_text(target, text)
             return False
+
+    def _set_text_widget_text(self, target, text):
+            if target is None:
+                return False
+            value = str(text or "")
+            try:
+                if hasattr(target, "toPlainText"):
+                    current = str(target.toPlainText() or "")
+                    if current == value:
+                        return True
+                    was_blocked = bool(target.blockSignals(True)) if hasattr(target, "blockSignals") else False
+                    try:
+                        target.setPlainText(value)
+                    finally:
+                        if hasattr(target, "blockSignals"):
+                            target.blockSignals(was_blocked)
+                    return True
+                if hasattr(target, "text") and hasattr(target, "setText"):
+                    current = str(target.text() or "")
+                    if current == value:
+                        return True
+                    was_blocked = bool(target.blockSignals(True)) if hasattr(target, "blockSignals") else False
+                    try:
+                        target.setText(value)
+                    finally:
+                        if hasattr(target, "blockSignals"):
+                            target.blockSignals(was_blocked)
+                    return True
+            except Exception:
+                return False
+            return False
+
+    def _copy_runtime_plain_text_state(self, object_name, config_key):
+            front = self._ui_object(object_name)
+            back = self._backend_widget(object_name)
+            if front is None or back is None:
+                return False
+            if getattr(front, "hasFocus", lambda: False)():
+                return False
+            text = ""
+            try:
+                if hasattr(back, "toPlainText"):
+                    text = str(back.toPlainText() or "")
+            except Exception:
+                text = ""
+            try:
+                runtime_text = str((RUNTIME_CONFIG or {}).get(config_key, "") or "")
+            except Exception:
+                runtime_text = ""
+            designer_placeholders = {
+                "emotional_text": "Technical rules / expressive tags",
+                "system_prompt_text": "System prompt",
+            }
+            if text == designer_placeholders.get(str(object_name), "") and runtime_text:
+                text = ""
+            if not text and runtime_text:
+                text = runtime_text
+                self._set_text_widget_text(back, text)
+            return self._set_text_widget_text(front, text)
 
     def _copy_checkbox_state(self, source, target):
             if source is None or target is None or not hasattr(source, "isChecked") or not hasattr(target, "setChecked"):
@@ -483,13 +536,6 @@ class MainUiRealSyncMixin:
                     continue
                 if force or not getattr(front, "hasFocus", lambda: False)():
                     self._copy_text_state(back, front)
-            for object_name in ("emotional_text", "system_prompt_text"):
-                front = self._ui_object(object_name)
-                back = self._backend_widget(object_name)
-                if front is None or back is None:
-                    continue
-                if force or not getattr(front, "hasFocus", lambda: False)():
-                    self._copy_text_state(back, front)
             self._mirror_runtime_text_views()
             self._mirror_runtime_status_widgets()
             self._mirror_runtime_button_state()
@@ -554,13 +600,8 @@ class MainUiRealSyncMixin:
                     continue
                 if not self._combo_popup_is_open(front):
                     self._copy_combo_state(back, front)
-            for object_name in ("emotional_text", "system_prompt_text"):
-                front = self._ui_object(object_name)
-                back = self._backend_widget(object_name)
-                if front is None or back is None:
-                    continue
-                if force or not getattr(front, "hasFocus", lambda: False)():
-                    self._copy_text_state(back, front)
+            self._copy_runtime_plain_text_state("emotional_text", "emotional_instructions")
+            self._copy_runtime_plain_text_state("system_prompt_text", "system_prompt")
 
     def _mirror_body_pose_runtime_widgets(self, *, force=False):
             pose_sliders = getattr(self.backend, "pose_sliders", {})
@@ -666,9 +707,15 @@ class MainUiRealSyncMixin:
                         frontend_console.setReadOnly(True)
                     except Exception:
                         pass
+                preserve_scroll = None
+                if not bool(getattr(self.backend, "console_auto_scroll", True)):
+                    preserve_scroll = self._capture_text_scroll_state(frontend_console)
                 changed = self._set_readonly_text_if_changed(frontend_console, backend_console.toPlainText())
                 if changed and bool(getattr(self.backend, "console_auto_scroll", True)):
-                    QtCore.QTimer.singleShot(0, lambda w=frontend_console: self._scroll_text_to_bottom(w))
+                    self._schedule_text_scroll_to_bottom(frontend_console)
+                elif changed and preserve_scroll is not None:
+                    self._restore_text_scroll_state(frontend_console, preserve_scroll)
+                    QtCore.QTimer.singleShot(0, lambda w=frontend_console, state=preserve_scroll: self._restore_text_scroll_state(w, state))
             backend_chat = self._backend_widget("chat_edit")
             frontend_chat = self._ui_object("chat_edit")
             if backend_chat is not None and frontend_chat is not None and hasattr(backend_chat, "toPlainText"):
@@ -678,9 +725,15 @@ class MainUiRealSyncMixin:
                     except Exception:
                         pass
                 if not bool(getattr(self.backend, "chat_edit_mode", False)):
+                    preserve_scroll = None
+                    if not bool(getattr(self.backend, "chat_auto_scroll", True)):
+                        preserve_scroll = self._capture_text_scroll_state(frontend_chat)
                     changed = self._set_readonly_text_if_changed(frontend_chat, backend_chat.toPlainText())
                     if changed and bool(getattr(self.backend, "chat_auto_scroll", True)):
-                        QtCore.QTimer.singleShot(0, lambda w=frontend_chat: self._scroll_text_to_bottom(w))
+                        self._schedule_text_scroll_to_bottom(frontend_chat)
+                    elif changed and preserve_scroll is not None:
+                        self._restore_text_scroll_state(frontend_chat, preserve_scroll)
+                        QtCore.QTimer.singleShot(0, lambda w=frontend_chat, state=preserve_scroll: self._restore_text_scroll_state(w, state))
 
     def _mirror_runtime_status_widgets(self):
             for object_name in ("console_status", "chat_status", "mic_status_label"):
@@ -717,6 +770,8 @@ class MainUiRealSyncMixin:
                 "btn_pause",
                 "btn_skip",
                 "btn_skip_user",
+                "console_autoscroll_button",
+                "chat_autoscroll_button",
                 "btn_push_to_talk",
                 "btn_model_refresh",
                 "btn_preset_load",
@@ -1018,7 +1073,42 @@ class MainUiRealSyncMixin:
             if widget is None or not hasattr(widget, "verticalScrollBar"):
                 return
             try:
+                if hasattr(widget, "moveCursor"):
+                    widget.moveCursor(QtGui.QTextCursor.End)
+                if hasattr(widget, "ensureCursorVisible"):
+                    widget.ensureCursorVisible()
                 scrollbar = widget.verticalScrollBar()
                 scrollbar.setValue(scrollbar.maximum())
+            except Exception:
+                pass
+
+    def _schedule_text_scroll_to_bottom(self, widget):
+            self._scroll_text_to_bottom(widget)
+            for delay_ms in (0, 50, 150):
+                QtCore.QTimer.singleShot(delay_ms, lambda w=widget: self._scroll_text_to_bottom(w))
+
+    def _capture_text_scroll_state(self, widget):
+            if widget is None or not hasattr(widget, "verticalScrollBar"):
+                return None
+            try:
+                scrollbar = widget.verticalScrollBar()
+                maximum = max(1, int(scrollbar.maximum()))
+                value = int(scrollbar.value())
+                return {"value": value, "ratio": float(value) / float(maximum)}
+            except Exception:
+                return None
+
+    def _restore_text_scroll_state(self, widget, state):
+            if widget is None or not state or not hasattr(widget, "verticalScrollBar"):
+                return
+            try:
+                scrollbar = widget.verticalScrollBar()
+                maximum = int(scrollbar.maximum())
+                value = int(state.get("value", 0) or 0)
+                ratio = float(state.get("ratio", 0.0) or 0.0)
+                target = min(max(value, 0), maximum)
+                if maximum > 0 and target == 0 and ratio > 0.0:
+                    target = int(round(maximum * ratio))
+                scrollbar.setValue(min(max(target, 0), maximum))
             except Exception:
                 pass

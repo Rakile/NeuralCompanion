@@ -451,6 +451,7 @@ class MainUiRealActionsMixin:
                 return
             try:
                 update_runtime_config("system_prompt", str(system_prompt_text.toPlainText() or "").strip())
+                self._sync_plain_text_to_backend("system_prompt_text")
                 self.backend.save_session()
             finally:
                 QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))

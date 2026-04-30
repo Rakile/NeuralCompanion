@@ -289,6 +289,10 @@ class MainUiRealTabAdoptionMixin:
                 self.backend._refresh_tts_runtime_card(activate_tab=True)
             except Exception:
                 pass
+            try:
+                self._configure_frontend_tab_bars()
+            except Exception:
+                pass
 
     def _on_frontend_left_tab_changed(self, index):
             try:

@@ -112,6 +112,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._session_read_only = bool(session_read_only)
         self._restoring_frontend_layout = False
         self.backend = CompanionQtMainWindow()
+        self.backend._session_read_only = self._session_read_only
         self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
         self.backend.first_run = False
         self.backend.hide()
@@ -160,6 +161,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         _configure_real_ui_surfaces_dependencies()
         self._bind_frontend_workspace_constraint_hooks()
         self._configure_frontend_runtime_slice()
+        self._configure_frontend_tab_bars()
         self._normalize_frontend_chat_runtime_editor_widths()
         self._bind_frontend_layout_persistence_hooks()
         self._restore_frontend_layout_state()
@@ -185,6 +187,12 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
 
 
     def eventFilter(self, watched, event):
+        if event is not None and event.type() == QtCore.QEvent.Wheel:
+            try:
+                if isinstance(watched, QtWidgets.QTabBar):
+                    return True
+            except Exception:
+                pass
         if event is not None and self._watched_belongs_to_frontend(watched):
             try:
                 if self._consume_frontend_push_to_talk_event(event):
@@ -200,15 +208,61 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
                     self._schedule_frontend_layout_save()
             except Exception:
                 pass
+        elif event is not None and event.type() == QtCore.QEvent.Resize:
+            try:
+                if isinstance(watched, QtWidgets.QDockWidget) and watched.window() is self.window:
+                    self._schedule_frontend_layout_save()
+            except Exception:
+                pass
         return super().eventFilter(watched, event)
 
     def show(self):
         self.window.show()
 
+    def _configure_frontend_tab_bars(self):
+        for tab_widget in self.window.findChildren(QtWidgets.QTabWidget):
+            try:
+                tab_bar = tab_widget.tabBar()
+            except Exception:
+                tab_bar = None
+            if tab_bar is None:
+                continue
+            try:
+                tab_bar.setExpanding(False)
+            except Exception:
+                pass
+            try:
+                tab_bar.setUsesScrollButtons(True)
+            except Exception:
+                pass
+            try:
+                tab_bar.setElideMode(QtCore.Qt.ElideNone)
+            except Exception:
+                pass
+            try:
+                tab_widget.setUsesScrollButtons(True)
+            except Exception:
+                pass
+            try:
+                tab_widget.setElideMode(QtCore.Qt.ElideNone)
+            except Exception:
+                pass
+            try:
+                tab_bar.installEventFilter(self)
+            except Exception:
+                pass
+
     def close(self):
         if self._closing:
             return
         self._closing = True
+        try:
+            timer = getattr(self, "_frontend_system_prompt_commit_timer", None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+            self._commit_frontend_system_prompt_to_runtime()
+        except Exception:
+            pass
         self._save_frontend_layout_state()
         try:
             timer = getattr(self, "_poll_timer", None)

@@ -1,3 +1,6 @@
+from PySide6 import QtCore, QtWidgets
+
+
 def configure_real_ui_theme_dependencies(namespace):
     """Inject qt_app-owned theme globals used by the extracted real-UI theme mixin."""
     globals().update(dict(namespace or {}))
@@ -29,17 +32,186 @@ class MainUiRealThemeMixin:
             palette = _app_theme_palette(
                 getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
             )
+            dock_stylesheet = self._frontend_dock_title_stylesheet(palette)
+            tab_stylesheet = self._frontend_horizontal_tab_stylesheet()
             if self.window is not None and hasattr(self.window, "setStyleSheet"):
                 try:
-                    self.window.setStyleSheet(stylesheet)
+                    self.window.setStyleSheet(f"{stylesheet}\n{dock_stylesheet}\n{tab_stylesheet}")
                 except Exception:
                     pass
                 try:
                     _apply_inline_theme_styles(self.window, palette)
                     _apply_readable_input_palettes(self.window, palette)
                     _apply_engine_action_button_accents(self.window)
+                    self._apply_frontend_dock_title_widgets(palette)
                 except Exception:
                     pass
+
+    def _frontend_dock_title_stylesheet(self, palette):
+            window_bg = palette.get("window_bg", "#11161d")
+            panel_bg = palette.get("panel_bg", "#18202a")
+            header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
+            border = palette.get("surface_border", "#273342")
+            text = palette.get("text", "#e5e9f0")
+            text_strong = palette.get("text_strong", "#f2f5f9")
+            return f"""
+QDockWidget {{
+    background: {window_bg};
+    color: {text};
+    titlebar-close-icon: none;
+    titlebar-normal-icon: none;
+}}
+QDockWidget::title {{
+    background: {header_bg};
+    color: {text_strong};
+    border: 1px solid {border};
+    padding: 4px 8px;
+    text-align: left;
+}}
+QDockWidget::close-button,
+QDockWidget::float-button {{
+    background: {panel_bg};
+    border: 1px solid {border};
+    border-radius: 4px;
+    width: 14px;
+    height: 14px;
+}}
+QDockWidget::close-button:hover,
+QDockWidget::float-button:hover {{
+    background: {palette.get("button_hover_bg", "#29405b")};
+}}
+"""
+
+    def _apply_frontend_dock_title_widgets(self, palette):
+            if self.window is None:
+                return
+            for dock in self.window.findChildren(QtWidgets.QDockWidget):
+                title_bar = dock.titleBarWidget()
+                if title_bar is None or not bool(title_bar.property("nc_custom_dock_title")):
+                    title_bar = self._create_frontend_dock_title_widget(dock)
+                    dock.setTitleBarWidget(title_bar)
+                    try:
+                        dock.topLevelChanged.connect(lambda _floating=False, d=dock: self._update_frontend_dock_title_widget(d))
+                    except Exception:
+                        pass
+                    try:
+                        dock.windowTitleChanged.connect(lambda _title="", d=dock: self._update_frontend_dock_title_widget(d))
+                    except Exception:
+                        pass
+                title_bar.setProperty("nc_theme_palette", dict(palette or {}))
+                self._update_frontend_dock_title_widget(dock)
+
+    def _create_frontend_dock_title_widget(self, dock):
+            title_bar = QtWidgets.QWidget()
+            title_bar.setObjectName("ncDockTitleBar")
+            title_bar.setProperty("nc_custom_dock_title", True)
+            layout = QtWidgets.QHBoxLayout(title_bar)
+            layout.setContentsMargins(8, 3, 5, 3)
+            layout.setSpacing(6)
+
+            label = QtWidgets.QLabel(str(dock.windowTitle() or dock.objectName() or "Panel"))
+            label.setObjectName("ncDockTitleLabel")
+            label.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
+            layout.addWidget(label, 1)
+
+            float_button = QtWidgets.QToolButton()
+            float_button.setObjectName("ncDockFloatButton")
+            float_button.setAutoRaise(True)
+            float_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_frontend_dock_floating(d))
+            layout.addWidget(float_button)
+
+            close_button = QtWidgets.QToolButton()
+            close_button.setObjectName("ncDockCloseButton")
+            close_button.setText("X")
+            close_button.setToolTip("Close panel")
+            close_button.setAutoRaise(True)
+            close_button.clicked.connect(dock.close)
+            layout.addWidget(close_button)
+
+            return title_bar
+
+    def _toggle_frontend_dock_floating(self, dock):
+            if dock is None:
+                return
+            try:
+                dock.setFloating(not bool(dock.isFloating()))
+                dock.show()
+                dock.raise_()
+            except Exception:
+                pass
+
+    def _update_frontend_dock_title_widget(self, dock):
+            title_bar = dock.titleBarWidget() if dock is not None else None
+            if title_bar is None or not bool(title_bar.property("nc_custom_dock_title")):
+                return
+            palette = title_bar.property("nc_theme_palette") or {}
+            header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
+            panel_bg = palette.get("panel_bg", "#18202a")
+            button_bg = palette.get("button_bg", "#223247")
+            button_hover_bg = palette.get("button_hover_bg", "#29405b")
+            border = palette.get("surface_border", "#273342")
+            text = palette.get("text", "#e5e9f0")
+            text_strong = palette.get("text_strong", "#f2f5f9")
+            title_bar.setStyleSheet(
+                f"""
+QWidget#ncDockTitleBar {{
+    background: {header_bg};
+    border: 1px solid {border};
+}}
+QLabel#ncDockTitleLabel {{
+    color: {text_strong};
+    font-weight: 600;
+    background: transparent;
+    border: 0;
+}}
+QToolButton#ncDockFloatButton,
+QToolButton#ncDockCloseButton {{
+    color: {text};
+    background: {button_bg};
+    border: 1px solid {border};
+    border-radius: 5px;
+    padding: 1px 8px;
+    min-width: 42px;
+}}
+QToolButton#ncDockFloatButton:hover,
+QToolButton#ncDockCloseButton:hover {{
+    background: {button_hover_bg};
+}}
+QToolButton#ncDockCloseButton {{
+    background: {panel_bg};
+}}
+"""
+            )
+            label = title_bar.findChild(QtWidgets.QLabel, "ncDockTitleLabel")
+            if label is not None:
+                label.setText(str(dock.windowTitle() or dock.objectName() or "Panel"))
+            float_button = title_bar.findChild(QtWidgets.QToolButton, "ncDockFloatButton")
+            if float_button is not None:
+                floating = bool(dock.isFloating())
+                float_button.setText("Dock" if floating else "Float")
+                float_button.setToolTip("Dock panel" if floating else "Undock panel")
+
+    def _frontend_horizontal_tab_stylesheet(self):
+            # The Designer/runtime theme intentionally keeps icon-sidebar tabs narrow,
+            # but text tabs need enough width after dynamic addon pages are adopted.
+            return """
+QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#vseeface_tabs QTabBar::tab,
+QTabWidget#musetalk_tabs QTabBar::tab,
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab,
+QTabWidget#vam_setup_tabs QTabBar::tab {
+    min-width: 96px;
+    max-width: 220px;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+QTabWidget#right_tabs QTabBar::tab {
+    min-width: 118px;
+    max-width: 240px;
+    padding-left: 14px;
+    padding-right: 14px;
+}
+"""
 
     def _apply_theme_to_runtime_panels(self):
             palette = _app_theme_palette(
