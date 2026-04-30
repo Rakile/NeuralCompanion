@@ -4742,6 +4742,16 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                         break
                 except Exception:
                     continue
+        elif state.get("loop", False) and previous_source is None and self.frame_paths:
+            # If the preview is attached after the idle loop has already started,
+            # begin near the live idle frame instead of frame 0. Otherwise the
+            # next poll jumps far ahead of the preload window and every displayed
+            # idle frame becomes a disk cache miss for a while.
+            try:
+                elapsed = max(0.0, time.time() - float(self.chunk_started_at or time.time()))
+                initial_frame_index = int(elapsed * max(self.fps, 1)) % len(self.frame_paths)
+            except Exception:
+                initial_frame_index = 0
         self.current_frame_index = initial_frame_index
         self.current_frame_path = self.frame_paths[initial_frame_index]
         self._start_loop_fade_if_needed(previous_avatar_id, self.last_avatar_id, state, previous_chunk_id=previous_chunk_id)

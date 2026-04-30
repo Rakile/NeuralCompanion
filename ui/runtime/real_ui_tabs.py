@@ -127,6 +127,9 @@ class MainUiRealTabAdoptionMixin:
                         target_tabs.setTabIcon(new_index, icon)
                 except Exception:
                     pass
+                binder = getattr(self, "_bind_adopted_addon_tab_session_save", None)
+                if callable(binder):
+                    binder(widget)
                 adopted.append(title)
             try:
                 target_tabs.setVisible(target_tabs.count() > 0)
@@ -199,6 +202,9 @@ class MainUiRealTabAdoptionMixin:
                         target_tabs.setTabIcon(new_index, icon)
                 except Exception:
                     pass
+                binder = getattr(self, "_bind_adopted_addon_tab_session_save", None)
+                if callable(binder):
+                    binder(widget)
                 adopted.append(title)
             try:
                 target_tabs.setVisible(target_tabs.count() > 0)

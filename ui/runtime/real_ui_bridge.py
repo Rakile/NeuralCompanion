@@ -150,6 +150,10 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._frontend_layout_save_timer.setSingleShot(True)
         self._frontend_layout_save_timer.setInterval(650)
         self._frontend_layout_save_timer.timeout.connect(self._save_frontend_layout_state)
+        self._frontend_addon_session_save_timer = QtCore.QTimer(self.window)
+        self._frontend_addon_session_save_timer.setSingleShot(True)
+        self._frontend_addon_session_save_timer.setInterval(450)
+        self._frontend_addon_session_save_timer.timeout.connect(self._save_backend_session_from_adopted_addons)
         self._frontend_active_tutorial_overlay = None
 
         _configure_real_ui_layout_dependencies()
@@ -252,6 +256,55 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             except Exception:
                 pass
 
+    def _bind_adopted_addon_tab_session_save(self, root_widget):
+        if root_widget is None:
+            return
+        widgets = [root_widget]
+        try:
+            widgets.extend(root_widget.findChildren(QtWidgets.QWidget))
+        except Exception:
+            pass
+        for widget in widgets:
+            try:
+                if bool(widget.property("_nc_real_ui_session_save_bound")):
+                    continue
+                widget.setProperty("_nc_real_ui_session_save_bound", True)
+            except Exception:
+                continue
+            for signal_name in ("valueChanged", "currentIndexChanged", "toggled", "textChanged"):
+                signal = getattr(widget, signal_name, None)
+                if signal is None:
+                    continue
+                try:
+                    signal.connect(lambda *args: self._schedule_adopted_addon_session_save())
+                except Exception:
+                    pass
+            signal = getattr(widget, "editingFinished", None)
+            if signal is not None:
+                try:
+                    signal.connect(self._schedule_adopted_addon_session_save)
+                except Exception:
+                    pass
+
+    def _schedule_adopted_addon_session_save(self):
+        if self._closing:
+            return
+        timer = getattr(self, "_frontend_addon_session_save_timer", None)
+        if timer is None:
+            return
+        try:
+            timer.start()
+        except Exception:
+            pass
+
+    def _save_backend_session_from_adopted_addons(self):
+        if self._closing or self.backend is None:
+            return
+        try:
+            self.backend.save_session()
+        except Exception:
+            pass
+
     def close(self):
         if self._closing:
             return
@@ -264,6 +317,12 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         except Exception:
             pass
         self._save_frontend_layout_state()
+        try:
+            self._sync_frontend_to_backend()
+            if self.backend is not None:
+                self.backend.save_session()
+        except Exception:
+            pass
         try:
             timer = getattr(self, "_poll_timer", None)
             if timer is not None:
@@ -287,6 +346,13 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             pass
         try:
             if self.backend is not None:
+                # The real UI has already saved the adopted addon widgets above.
+                # Do not let the hidden legacy window's closeEvent write a later
+                # addon-empty snapshot after frontend-owned tabs begin closing.
+                try:
+                    self.backend._session_read_only = True
+                except Exception:
+                    pass
                 self.backend.close()
         except Exception:
             pass

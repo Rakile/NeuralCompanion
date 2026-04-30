@@ -491,6 +491,24 @@ class MainUiRealSyncMixin:
                 current = ""
             if current == value:
                 return False
+            if hasattr(target, "setPlainText") and value.startswith(current):
+                suffix = value[len(current):]
+                if suffix:
+                    try:
+                        active_cursor = target.textCursor() if hasattr(target, "textCursor") else None
+                        if hasattr(target, "blockSignals"):
+                            target.blockSignals(True)
+                        cursor = QtGui.QTextCursor(target.document())
+                        cursor.movePosition(QtGui.QTextCursor.End)
+                        cursor.insertText(suffix)
+                        if active_cursor is not None and hasattr(target, "setTextCursor"):
+                            target.setTextCursor(active_cursor)
+                        return True
+                    finally:
+                        try:
+                            target.blockSignals(False)
+                        except Exception:
+                            pass
             if hasattr(target, "setPlainText"):
                 try:
                     if hasattr(target, "blockSignals"):
@@ -708,10 +726,11 @@ class MainUiRealSyncMixin:
                     except Exception:
                         pass
                 preserve_scroll = None
-                if not bool(getattr(self.backend, "console_auto_scroll", True)):
+                console_auto_scroll = bool(getattr(self.backend, "console_auto_scroll", True))
+                if not console_auto_scroll:
                     preserve_scroll = self._capture_text_scroll_state(frontend_console)
                 changed = self._set_readonly_text_if_changed(frontend_console, backend_console.toPlainText())
-                if changed and bool(getattr(self.backend, "console_auto_scroll", True)):
+                if changed and console_auto_scroll:
                     self._schedule_text_scroll_to_bottom(frontend_console)
                 elif changed and preserve_scroll is not None:
                     self._restore_text_scroll_state(frontend_console, preserve_scroll)
@@ -726,10 +745,11 @@ class MainUiRealSyncMixin:
                         pass
                 if not bool(getattr(self.backend, "chat_edit_mode", False)):
                     preserve_scroll = None
-                    if not bool(getattr(self.backend, "chat_auto_scroll", True)):
+                    chat_auto_scroll = bool(getattr(self.backend, "chat_auto_scroll", True))
+                    if not chat_auto_scroll:
                         preserve_scroll = self._capture_text_scroll_state(frontend_chat)
                     changed = self._set_readonly_text_if_changed(frontend_chat, backend_chat.toPlainText())
-                    if changed and bool(getattr(self.backend, "chat_auto_scroll", True)):
+                    if changed and chat_auto_scroll:
                         self._schedule_text_scroll_to_bottom(frontend_chat)
                     elif changed and preserve_scroll is not None:
                         self._restore_text_scroll_state(frontend_chat, preserve_scroll)
