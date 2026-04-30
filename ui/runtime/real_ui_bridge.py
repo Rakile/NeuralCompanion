@@ -434,6 +434,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._cleanup_frontend_preview_only_roots()
         self._disable_unwired_phase5_controls()
         self._prime_frontend_audio_device_controls()
+        self._redirect_backend_audio_device_controls()
         self._bind_basic_runtime_mirrors()
         self._bind_lifecycle_controls()
         self._bind_runtime_action_controls()
@@ -672,6 +673,9 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
 
     def _start_engine_from_ui_real(self):
         self._sync_frontend_to_backend()
+        self._redirect_backend_audio_device_controls()
+        self._commit_frontend_audio_device_selection("audio_input_device_combo", "audio_input_device", "Default Input")
+        self._commit_frontend_audio_device_selection("audio_output_device_combo", "audio_output_device", "Default Output")
         self._engine_lifecycle_service.start_engine()
         QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
 

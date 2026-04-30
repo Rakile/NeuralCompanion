@@ -52,6 +52,16 @@ class MainUiRealActionsMixin:
                 _ui_shell_combo_set_items(widget, options or [selected])
                 _ui_shell_combo_select_label(widget, selected)
 
+    def _redirect_backend_audio_device_controls(self):
+            # The original UI did not expose these controls, so the hidden
+            # backend can otherwise keep stale default-only combo boxes. Make
+            # the visible real-UI choices the canonical widgets read by
+            # qt_app.start_engine() and save_session().
+            for object_name in ("audio_input_device_combo", "audio_output_device_combo"):
+                widget = self._ui_object(object_name)
+                if widget is not None:
+                    setattr(self.backend, object_name, widget)
+
     def _refresh_response_length_runtime_frontend(self):
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
             QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
@@ -85,6 +95,14 @@ class MainUiRealActionsMixin:
             if widget is None or not hasattr(widget, "currentText"):
                 return
             choice = str(widget.currentText() or "").strip() or str(default_label or "").strip()
+            backend_widget = self._backend_widget(object_name)
+            if backend_widget is not None and hasattr(backend_widget, "findText") and hasattr(backend_widget, "setCurrentIndex"):
+                index = backend_widget.findText(choice)
+                if index < 0 and hasattr(backend_widget, "addItem"):
+                    backend_widget.addItem(choice)
+                    index = backend_widget.findText(choice)
+                if index >= 0:
+                    backend_widget.setCurrentIndex(index)
             update_runtime_config(str(config_key), choice)
             self.backend.save_session()
             self._refresh_host_input_runtime_frontend()

@@ -1058,6 +1058,75 @@ def init_whisper():
 
 import soundfile as sf
 
+def _audio_device_label_is_default(label, default_label):
+    text = str(label or "").strip()
+    return not text or text == str(default_label or "").strip()
+
+
+def _normalize_audio_device_label(label):
+    return str(label or "").strip().casefold()
+
+
+def _match_audio_device_label(label, names):
+    wanted = _normalize_audio_device_label(label)
+    if not wanted:
+        return None
+    normalized = [(_normalize_audio_device_label(name), index) for index, name in enumerate(list(names or []))]
+    for name, index in normalized:
+        if name == wanted:
+            return index
+    for name, index in normalized:
+        if wanted in name or name in wanted:
+            return index
+    return None
+
+
+def _selected_microphone_device_index():
+    label = str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input").strip()
+    if _audio_device_label_is_default(label, "Default Input"):
+        return None
+    try:
+        names = sr.Microphone.list_microphone_names()
+        match = _match_audio_device_label(label, names)
+        if match is not None:
+            return int(match)
+    except Exception as exc:
+        print(f"⚠️ Could not enumerate microphone devices: {exc}")
+    print(f"⚠️ Audio input device '{label}' was not found; using default input.")
+    return None
+
+
+def _selected_sounddevice_output_index():
+    label = str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output").strip()
+    if _audio_device_label_is_default(label, "Default Output"):
+        return None
+    try:
+        devices = list(sd.query_devices() or [])
+        output_names = []
+        output_indices = []
+        for index, device in enumerate(devices):
+            if int(device.get("max_output_channels", 0) or 0) <= 0:
+                continue
+            output_names.append(str(device.get("name", "") or ""))
+            output_indices.append(index)
+        match = _match_audio_device_label(label, output_names)
+        if match is not None and 0 <= int(match) < len(output_indices):
+            return int(output_indices[int(match)])
+    except Exception as exc:
+        print(f"⚠️ Could not enumerate audio output devices: {exc}")
+    print(f"⚠️ Audio output device '{label}' was not found; using default output.")
+    return None
+
+
+def _open_configured_microphone(*, sample_rate=None):
+    device_index = _selected_microphone_device_index()
+    kwargs = {}
+    if device_index is not None:
+        kwargs["device_index"] = device_index
+    if sample_rate is not None:
+        kwargs["sample_rate"] = sample_rate
+    return sr.Microphone(**kwargs)
+
 
 def play_audio_file(path: str):
     return audio_playback.play_audio_file(
@@ -1066,6 +1135,7 @@ def play_audio_file(path: str):
         sounddevice_module=sd,
         stop_event=stop_playback,
         audio_playing_event=audio_playing,
+        output_device=_selected_sounddevice_output_index(),
         logger=print,
     )
 
@@ -5102,7 +5172,7 @@ def main_loop():
     print("=" * 60)
     if whisper_model is None:
         init_whisper()
-    with sr.Microphone(sample_rate=16000) as source:
+    with _open_configured_microphone(sample_rate=16000) as source:
         try:
             print(f"🎚️ Calibrating microphone noise floor ({AMBIENT_CALIBRATION_SECONDS:.1f}s)...")
             recognizer.dynamic_energy_threshold = DYNAMIC_ENERGY_THRESHOLD
@@ -5871,6 +5941,11 @@ def run_companion(config_override=None):
         RUNTIME_CONFIG.update(config_override)
 
     print("🚀 Starting Companion Engine...")
+    print(
+        "🔊 Audio devices: "
+        f"input={RUNTIME_CONFIG.get('audio_input_device', 'Default Input')!r}, "
+        f"output={RUNTIME_CONFIG.get('audio_output_device', 'Default Output')!r}"
+    )
     stop_flag.clear()
     clear_avatar_stream_state()
     schedule_musetalk_runtime_cleanup(max_keep=0)
@@ -5933,7 +6008,7 @@ def run_companion(config_override=None):
         else:
             print("Testing microphone...")
             try:
-                with sr.Microphone() as source:
+                with _open_configured_microphone() as source:
                     print("✓ Microphone ready")
             except Exception as e:
                 print(f"✗ Microphone error: {e}")
@@ -5955,7 +6030,4 @@ if __name__ == "__main__":
         run_companion()
     except KeyboardInterrupt:
         stop_flag.set()
-
-
-
 

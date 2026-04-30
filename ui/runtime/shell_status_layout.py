@@ -29,23 +29,38 @@ def _ui_shell_audio_device_labels():
         "inputs": ["Default Input"],
         "outputs": ["Default Output"],
     }
+    def add_unique(target, value):
+        text = str(value or "").strip()
+        if text and text not in target:
+            target.append(text)
+
     try:
         from PySide6 import QtMultimedia as _QtMultimedia
 
-        inputs = []
         for device in list(_QtMultimedia.QMediaDevices.audioInputs() or []):
             description = str(device.description() if hasattr(device, "description") else "").strip()
-            if description and description not in inputs:
-                inputs.append(description)
-        outputs = []
+            add_unique(labels["inputs"], description)
         for device in list(_QtMultimedia.QMediaDevices.audioOutputs() or []):
             description = str(device.description() if hasattr(device, "description") else "").strip()
-            if description and description not in outputs:
-                outputs.append(description)
-        if inputs:
-            labels["inputs"].extend(inputs)
-        if outputs:
-            labels["outputs"].extend(outputs)
+            add_unique(labels["outputs"], description)
+    except Exception:
+        pass
+    try:
+        import speech_recognition as _sr
+
+        for name in list(_sr.Microphone.list_microphone_names() or []):
+            add_unique(labels["inputs"], name)
+    except Exception:
+        pass
+    try:
+        import sounddevice as _sd
+
+        for index, device in enumerate(list(_sd.query_devices() or [])):
+            name = str(device.get("name", "") or "").strip()
+            if int(device.get("max_input_channels", 0) or 0) > 0:
+                add_unique(labels["inputs"], name)
+            if int(device.get("max_output_channels", 0) or 0) > 0:
+                add_unique(labels["outputs"], name)
     except Exception:
         pass
     return labels

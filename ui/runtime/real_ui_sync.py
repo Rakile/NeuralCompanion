@@ -1,4 +1,4 @@
-from PySide6 import QtCore, QtGui
+from PySide6 import QtCore, QtGui, QtWidgets
 
 
 def configure_real_ui_sync_dependencies(namespace):
@@ -779,6 +779,43 @@ class MainUiRealSyncMixin:
                     frontend_widget.setStyleSheet(str(backend_widget.styleSheet() or ""))
                 except Exception:
                     pass
+                frontend_widget.setVisible(True)
+                try:
+                    frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
+                except Exception:
+                    pass
+                try:
+                    frontend_widget.setFixedSize(16, 16)
+                except Exception:
+                    pass
+                try:
+                    if hasattr(frontend_widget, "setFrameShape"):
+                        frontend_widget.setFrameShape(QtWidgets.QFrame.NoFrame)
+                except Exception:
+                    pass
+            self._mirror_console_chat_pause_frame()
+
+    def _mirror_console_chat_pause_frame(self):
+            paused = bool(getattr(self.backend, "_chat_runtime_border_paused", False))
+            if getattr(self, "_frontend_console_chat_pause_frame", None) == paused:
+                return
+            self._frontend_console_chat_pause_frame = paused
+            for object_name in ("system_console_tab", "chat_runtime_tab"):
+                widget = self._ui_object(object_name)
+                if widget is None or not hasattr(widget, "setStyleSheet"):
+                    continue
+                base_attr = "_nc_real_ui_base_stylesheet"
+                if not hasattr(widget, base_attr):
+                    try:
+                        setattr(widget, base_attr, str(widget.styleSheet() or ""))
+                    except Exception:
+                        setattr(widget, base_attr, "")
+                if paused:
+                    widget.setStyleSheet(
+                        f"QWidget#{object_name} {{ border: 2px solid #d84a4a; border-radius: 10px; }}"
+                    )
+                else:
+                    widget.setStyleSheet(str(getattr(widget, base_attr, "") or ""))
 
     def _mirror_runtime_button_state(self):
             for object_name in (

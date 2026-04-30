@@ -5451,6 +5451,24 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         mic_row.addWidget(self.listen_diode)
         mic_row.addWidget(self.mic_diode)
         mic_row.addWidget(self.mic_status_label)
+
+        audio_devices = _ui_shell_audio_device_labels()
+        self.audio_input_device_combo = NoWheelComboBox()
+        self.audio_input_device_combo.setObjectName("audio_input_device_combo")
+        _ui_shell_combo_set_items(self.audio_input_device_combo, list(audio_devices.get("inputs") or ["Default Input"]))
+        _ui_shell_combo_select_label(self.audio_input_device_combo, str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input"))
+        self.audio_input_device_combo.currentTextChanged.connect(self.on_audio_input_device_change)
+
+        self.audio_output_device_combo = NoWheelComboBox()
+        self.audio_output_device_combo.setObjectName("audio_output_device_combo")
+        _ui_shell_combo_set_items(self.audio_output_device_combo, list(audio_devices.get("outputs") or ["Default Output"]))
+        _ui_shell_combo_select_label(self.audio_output_device_combo, str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"))
+        self.audio_output_device_combo.currentTextChanged.connect(self.on_audio_output_device_change)
+
+        mic_row.addWidget(QtWidgets.QLabel("Input"))
+        mic_row.addWidget(self.audio_input_device_combo, 1)
+        mic_row.addWidget(QtWidgets.QLabel("Output"))
+        mic_row.addWidget(self.audio_output_device_combo, 1)
         mic_row.addStretch(1)
         layout.addLayout(mic_row)
 
@@ -9879,6 +9897,26 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         else:
             print("[QtGUI] Bundled PocketTTS interpreter was not found.")
 
+    def _resolve_audio_device_label(self, label, *, direction):
+        default_label = "Default Output" if direction == "output" else "Default Input"
+        selected = str(label or "").strip() or default_label
+        options_key = "outputs" if direction == "output" else "inputs"
+        options = list((_ui_shell_audio_device_labels().get(options_key) or [default_label]))
+        for option in options:
+            if str(option or "").strip().lower() == selected.lower():
+                return str(option or "").strip() or default_label
+        return default_label
+
+    def on_audio_input_device_change(self, choice):
+        resolved = self._resolve_audio_device_label(choice, direction="input")
+        update_runtime_config("audio_input_device", resolved)
+        self.save_session()
+
+    def on_audio_output_device_change(self, choice):
+        resolved = self._resolve_audio_device_label(choice, direction="output")
+        update_runtime_config("audio_output_device", resolved)
+        self.save_session()
+
     def on_input_mode_change(self, choice):
         mode = "push_to_talk" if choice == "Push-to-Talk" else "voice_activation"
         update_runtime_config("input_mode", mode)
@@ -12418,6 +12456,8 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
             "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
+            "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input"),
+            "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"),
             "offline_replay_only": bool(offline_replay_only),
             "tts_backend": self._current_tts_backend_value(),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
@@ -12938,22 +12978,24 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
                 self.on_vam_play_audio_in_vam_changed(True)
             audio_input_device = session.get("audio_input_device")
             if audio_input_device is not None:
+                audio_input_device = self._resolve_audio_device_label(audio_input_device, direction="input")
                 update_runtime_config("audio_input_device", str(audio_input_device or "Default Input") or "Default Input")
                 if hasattr(self, "audio_input_device_combo"):
+                    self.audio_input_device_combo.blockSignals(True)
                     index = self.audio_input_device_combo.findText(str(audio_input_device))
                     if index >= 0:
                         self.audio_input_device_combo.setCurrentIndex(index)
-                    elif hasattr(self.audio_input_device_combo, "setCurrentText"):
-                        self.audio_input_device_combo.setCurrentText(str(audio_input_device))
+                    self.audio_input_device_combo.blockSignals(False)
             audio_output_device = session.get("audio_output_device")
             if audio_output_device is not None:
+                audio_output_device = self._resolve_audio_device_label(audio_output_device, direction="output")
                 update_runtime_config("audio_output_device", str(audio_output_device or "Default Output") or "Default Output")
                 if hasattr(self, "audio_output_device_combo"):
+                    self.audio_output_device_combo.blockSignals(True)
                     index = self.audio_output_device_combo.findText(str(audio_output_device))
                     if index >= 0:
                         self.audio_output_device_combo.setCurrentIndex(index)
-                    elif hasattr(self.audio_output_device_combo, "setCurrentText"):
-                        self.audio_output_device_combo.setCurrentText(str(audio_output_device))
+                    self.audio_output_device_combo.blockSignals(False)
             input_mode = session.get("input_mode")
             if input_mode:
                 index = self.input_mode_combo.findText(input_mode)
