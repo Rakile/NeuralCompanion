@@ -84,8 +84,8 @@ Observed result:
   - frontend provider: `xAI / Grok` -> `OpenAI`
   - backend provider value: `xai` -> `openai`
 - offscreen preset workflow verification changed:
-  - frontend preset: `DryRun` -> `externalModelTest`
-  - backend preset combo matched: `externalModelTest`
+  - frontend preset selection changed between two available development presets
+  - backend preset combo matched the selected preset
 - the real Designer `model_budget_label` now reflects the backend runtime hint text
 
 ## What Phase 6 Solved Here
