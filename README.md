@@ -52,6 +52,8 @@ Useful external tools:
 
 Open PowerShell in the repository root.
 
+For the detailed public install guide, see [docs/install.md](docs/install.md).
+
 For the main app:
 
 ```powershell
@@ -179,6 +181,8 @@ See:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/release_asset_policy.md](docs/release_asset_policy.md)
+- [docs/troubleshooting.md](docs/troubleshooting.md)
+- [docs/known_limitations.md](docs/known_limitations.md)
 
 ## Licensing
 

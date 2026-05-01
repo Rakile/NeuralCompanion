@@ -25,38 +25,38 @@ Latest continuation docs created after this handover:
 - `docs/main_ui_phase_2026-04-24_18.md`
 - `docs/main_ui_phase_2026-04-24_19.md`
 
-## Repositories And Folders
+## Repository Workflow
 
-- Developer working folder: `E:\Tools\Python_Scripts\NeuralInterface`
-- Git sync folder: `D:\tools\python_scripts\NeuralInterface_GIT`
-- Designer branch reference folder: `D:\tools\python_scripts\NeuralCompanion-NC_main.ui`
-- Known working Python interpreter for Qt shell checks: `E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe`
+- Work from a normal checkout of this repository.
+- Commit and push from the same checkout after validation.
+- Designer UI reference files live in this repository.
+- Use the Python 3.11 interpreter or virtual environment created for this checkout.
 
 Current rule:
 
-- Edit and validate in the developer folder first.
-- Copy only validated files into the Git sync folder.
-- Validate again in the Git sync folder.
-- Commit and push from the Git sync folder.
+- Edit and validate in a local working checkout first.
+- Keep changes scoped to the validated files.
+- Validate again before committing.
+- Commit and push from the validated checkout.
 
 ## Current State
 
 The stable app remains:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py
+python qt_app.py
 ```
 
 The Designer UI shell remains experimental:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui
+python qt_app.py --ui-shell main.ui
 ```
 
 The shell smoke check is:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui --shell-smoke
+python qt_app.py --ui-shell main.ui --shell-smoke
 ```
 
 There is now also an opt-in real runtime-backed Designer path:
@@ -141,9 +141,9 @@ The current goal is to keep turning static Designer controls into host-service b
 Run these from the developer folder:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe -m py_compile qt_app.py core\addons\qt_host_services.py
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --validate-ui main.ui
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui --shell-smoke
+python -m py_compile qt_app.py core\addons\qt_host_services.py
+python qt_app.py --validate-ui main.ui
+python qt_app.py --ui-shell main.ui --shell-smoke
 ```
 
 Expected shell smoke must include:
@@ -174,7 +174,7 @@ You are continuing the NeuralCompanion main.ui transition.
 
 Read docs/main_ui_integration_status.md and docs/main_ui_handover_2026-04-23.md first.
 
-Work in E:\Tools\Python_Scripts\NeuralInterface. Do not edit D:\tools\python_scripts\NeuralInterface_GIT until a phase validates.
+Work in a local checkout. Keep each phase narrow, validate it, then commit from the same checkout.
 
 Goal: move main.ui toward becoming the real UI without breaking the current Python-built UI.
 
@@ -185,7 +185,7 @@ Rules:
 - Use additive host-service facades and shell-local bindings first.
 - Do not connect real engine/audio/avatar/model/image runtime in the same phase as broad UI mounting.
 - Run py_compile, --validate-ui, and --ui-shell --shell-smoke after every phase.
-- If a phase validates in the developer folder, copy only the changed files into D:\tools\python_scripts\NeuralInterface_GIT, validate there, commit, and push.
+- If a phase validates locally, commit only the changed files for that phase and push.
 - If a validation fails, stop and fix that phase before continuing.
 - Never use git reset --hard or destructive checkout.
 
@@ -441,15 +441,15 @@ Minimum manual smoke after any runtime phase:
 Automated checks:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe -m py_compile qt_app.py core\addons\qt_host_services.py
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --validate-ui main.ui
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-shell main.ui --shell-smoke
+python -m py_compile qt_app.py core\addons\qt_host_services.py
+python qt_app.py --validate-ui main.ui
+python qt_app.py --ui-shell main.ui --shell-smoke
 ```
 
 Optional real UI smoke, only once `--ui-real` exists:
 
 ```powershell
-E:\Tools\Python_Scripts\ChatterBoxViz\.venv\Scripts\python.exe qt_app.py --ui-real main.ui
+python qt_app.py --ui-real main.ui
 ```
 
 ## Known Risks
