@@ -3333,7 +3333,11 @@ def _apply_inline_theme_styles(root, palette):
     if root is None:
         return
     skip_object_names = {name for _preset, button_name, edit_name in APP_THEME_PRESET_WIDGETS for name in (button_name, edit_name)}
-    widgets = [root]
+    # The top-level window stylesheet is rebuilt from APP_STYLESHEET on every
+    # theme apply. Do not re-canonicalize it here from the currently active
+    # themed stylesheet; themes that intentionally reuse colors can poison the
+    # cached base stylesheet and make later theme changes unrecoverable.
+    widgets = []
     find_children = getattr(root, "findChildren", None)
     if callable(find_children):
         try:
