@@ -1,6 +1,6 @@
 {
     "model_name": "openai/gpt-oss-20b",
-    "voice_file": "fem1.wav",
+    "voice_file": "",
     "input_mode": "push_to_talk",
     "input_message_role": "user",
     "stream_mode": true,

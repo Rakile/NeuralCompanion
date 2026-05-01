@@ -2705,9 +2705,9 @@ class AudioStoryModeController(QtCore.QObject):
             combined_audio = engine.AudioSegment.silent(duration=0)
             rendered_chunks = []
             sample_rate = int(getattr(engine.tts_model, "sr", 24000) or 24000)
-            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav") or "voices/Hot_16.wav")
-            if not Path(voice_path).exists():
-                voice_path = "voices/Hot_16.wav"
+            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "") or "").strip()
+            if voice_path and not Path(voice_path).exists():
+                voice_path = ""
 
             for chunk in transcript_chunks:
                 if job_id != self._tts_render_job_id:
@@ -2733,8 +2733,9 @@ class AudioStoryModeController(QtCore.QObject):
                             "repetition_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
                             "min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
                             "norm_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
-                            "audio_prompt_path": voice_path,
                         }
+                        if voice_path:
+                            kwargs["audio_prompt_path"] = voice_path
                         wav = engine.tts_model.generate(subchunk, **kwargs)
                         temp_subchunk_path = self._cache_file(f"tts_piece_{job_id}_{uuid.uuid4().hex[:10]}.wav")
                         engine.ta.save(str(temp_subchunk_path), wav.cpu(), sample_rate)

@@ -93,7 +93,7 @@ py install_neural_interface.py --musetalk --non-interactive
 - `MuseTalk/data` demo media is intentionally omitted from this shared repo to keep it lighter.
 - `Loop Authoring` folder structure is included, but local draft outputs are intentionally omitted.
 - The unified installer downloads MuseTalk model weights during the MuseTalk install step.
-- To use MuseTalk after install, preprocess/import an avatar pack into `MuseTalk/results/v15/avatar_packs` or add one manually.
+- To use MuseTalk after install, preprocess/import an avatar pack into `avatar_packs` or add one manually. Existing local packs under `MuseTalk/results/v15/avatar_packs` are still detected as a legacy fallback.
 - This friend package omits TensorFlow / TensorBoard training dependencies because they are not needed for normal runtime use and they conflict with Chatterbox on Python 3.11.
 The package also pins `chatterbox-tts==0.1.6`, `transformers==4.46.3`, and `numpy==1.24.4` together, because newer Chatterbox releases pull incompatible dependency combinations for this app.
 For the friend package, `diffusers` is pinned to `0.29.0` to stay compatible with the pinned Chatterbox runtime stack.
@@ -114,4 +114,3 @@ The MuseTalk installer also preinstalls `chumpy==0.70` with `--no-build-isolatio
 ```
 
 and install the correct `torch`/`torchaudio` pair manually first.
-

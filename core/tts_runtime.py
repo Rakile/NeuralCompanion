@@ -201,11 +201,11 @@ def build_generation_kwargs(runtime_config, *, set_seed=None, path_exists=os.pat
         min_p=float(runtime_config.get("tts_min_p", 0.0) or 0.0),
         norm_loudness=bool(runtime_config.get("tts_normalize_loudness", False)),
     )
-    voice_path = runtime_config.get("voice_path", "voices/Hot_16.wav")
-    if not path_exists(voice_path):
-        logger(f"⚠️ Voice file not found: {voice_path}. Using default.")
-        voice_path = "voices/Hot_16.wav"
-    kwargs["audio_prompt_path"] = voice_path
+    voice_path = str(runtime_config.get("voice_path", "") or "").strip()
+    if voice_path and path_exists(voice_path):
+        kwargs["audio_prompt_path"] = voice_path
+    elif voice_path:
+        logger(f"⚠️ Voice file not found: {voice_path}. Continuing without a reference voice.")
     return kwargs
 
 

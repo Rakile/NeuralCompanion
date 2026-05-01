@@ -6,7 +6,7 @@
         }
     },
     "model_name": "grok-4-1-fast-non-reasoning",
-    "voice_file": "Lurkydip.wav",
+    "voice_file": "",
     "input_mode": "voice_activation",
     "input_message_role": "user",
     "stream_mode": true,

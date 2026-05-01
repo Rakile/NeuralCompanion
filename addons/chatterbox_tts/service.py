@@ -55,7 +55,9 @@ class ChatterboxTTSService:
         elif "audio_prompt_path" not in request:
             import engine
 
-            request["audio_prompt_path"] = str(engine.RUNTIME_CONFIG.get("voice_path", "voices/Hot_16.wav") or "voices/Hot_16.wav")
+            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "") or "").strip()
+            if voice_path:
+                request["audio_prompt_path"] = voice_path
         return model.generate(str(text or ""), **request)
 
     def close(self):

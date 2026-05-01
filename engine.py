@@ -463,7 +463,7 @@ RUNTIME_CONFIG = {
     "chat_provider_generation_settings": {},
     "emotional_instructions": DEFAULT_EMOTIONAL_INSTRUCTIONS,
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
-    "voice_path": "voices/Hot_16.wav",
+    "voice_path": "",
     "tts_backend": "chatterbox",
     "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
     "avatar_mode": "vseeface",

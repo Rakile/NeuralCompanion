@@ -1,7 +1,7 @@
 {
     "chat_provider": "xai",
     "model_name": "grok-4-fast-non-reasoning",
-    "voice_file": "fem1.wav",
+    "voice_file": "",
     "input_mode": "push_to_talk",
     "input_message_role": "user",
     "stream_mode": false,
