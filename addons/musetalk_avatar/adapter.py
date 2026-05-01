@@ -327,10 +327,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 str(tag or "").strip().lower()
                 for tag, avatar_id in full_emotion_avatar_map.items()
                 if str(tag or "").strip()
-                and (
-                    str(avatar_id or "").strip() == str(selected.default_avatar_id or "").strip()
-                    or str(tag or "").strip().lower() in {"neutral", "default", "idle", "base"}
-                )
+                and str(avatar_id or "").strip() == str(selected.default_avatar_id or "").strip()
             }
             allowed_tags = enabled_tags | locked_tags
             self.emotion_avatar_map = {

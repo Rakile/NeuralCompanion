@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, avatar_pack_search_dirs, discover_avatar_packs
+from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, avatar_pack_search_dirs, discover_avatar_packs, save_avatar_pack_manifest
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
 
 
@@ -192,7 +192,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         locked_tags = {
             tag
             for tag, avatar_id in full_map.items()
-            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+            if avatar_id == str(pack.default_avatar_id or "").strip()
         }
         stored_map = self._get_musetalk_enabled_pack_emotions()
         selected_tags = set(stored_map.get(selected_pack_id, [])) if selected_pack_id in stored_map else set(full_map.keys())
@@ -244,7 +244,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         locked_tags = {
             tag
             for tag, avatar_id in full_map.items()
-            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+            if avatar_id == str(pack.default_avatar_id or "").strip()
         }
         mapping = self._get_musetalk_enabled_pack_emotions()
         optional_tags = sorted(tag for tag in full_map.keys() if tag not in locked_tags)
@@ -278,7 +278,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         locked_tags = {
             tag
             for tag, avatar_id in full_map.items()
-            if avatar_id == str(pack.default_avatar_id or "").strip() or tag in {"neutral", "default", "idle", "base"}
+            if avatar_id == str(pack.default_avatar_id or "").strip()
         }
         current = self._get_musetalk_enabled_pack_emotions()
         selected_tags = set(current.get(clean_pack_id, [])) if clean_pack_id in current else set(full_map.keys())
@@ -426,6 +426,11 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.btn_musetalk_clear_frame_cache.setToolTip("Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.")
         self.btn_musetalk_clear_frame_cache.clicked.connect(self.clear_selected_musetalk_frame_cache)
         prepared_row.addWidget(self.btn_musetalk_clear_frame_cache)
+        self.btn_musetalk_make_default_avatar = QtWidgets.QPushButton("Make Default")
+        self.btn_musetalk_make_default_avatar.setObjectName("btn_musetalk_make_default_avatar")
+        self.btn_musetalk_make_default_avatar.setToolTip("Make the selected prepared variant the one locked base/default avatar for this pack.")
+        self.btn_musetalk_make_default_avatar.clicked.connect(self.make_selected_musetalk_avatar_default)
+        prepared_row.addWidget(self.btn_musetalk_make_default_avatar)
         source_card_layout.addWidget(QtWidgets.QLabel("Prepared Variants"))
         source_card_layout.addLayout(prepared_row)
 
@@ -1119,6 +1124,50 @@ class MuseTalkPreprocessController(QtCore.QObject):
             self.musetalk_avatar_status_label.setText(
                 f"Cleared .npy startup cache for '{avatar_id}' ({removed} file(s), ~{total_mib:.1f} MiB)."
             )
+
+    def make_selected_musetalk_avatar_default(self):
+        pack_id = str(self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip()
+        if not pack_id or pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
+            self._warn("MuseTalk Avatar", "Choose an avatar pack before setting a default variant.")
+            return
+
+        avatar_id = ""
+        if hasattr(self, "musetalk_avatar_combo"):
+            avatar_id = str(self.musetalk_avatar_combo.currentText() or "").strip()
+        if not avatar_id or avatar_id == "No Prepared Avatars":
+            avatar_id = self._sanitize_avatar_id(self.musetalk_avatar_id_edit.text()) if hasattr(self, "musetalk_avatar_id_edit") else ""
+        if not avatar_id:
+            self._warn("MuseTalk Avatar", "Choose a prepared avatar variant first.")
+            return
+
+        pack_catalog = self._discover_musetalk_pack_catalog()
+        pack = pack_catalog.get(pack_id)
+        if pack is None:
+            self._warn("MuseTalk Avatar", f"Avatar pack '{pack_id}' could not be loaded.")
+            return
+
+        target_variant_id = ""
+        for variant_id, variant in (pack.variants or {}).items():
+            if str(variant_id or "").strip() == avatar_id or str(getattr(variant, "avatar_id", "") or "").strip() == avatar_id:
+                target_variant_id = str(variant_id or "").strip()
+                break
+        if not target_variant_id:
+            self._warn("MuseTalk Avatar", f"Prepared variant '{avatar_id}' was not found in pack '{pack_id}'.")
+            return
+
+        pack.default_variant = target_variant_id
+        target_root = self._musetalk_target_pack_root(pack_id=pack_id)
+        try:
+            manifest_path = save_avatar_pack_manifest(pack, packs_dir=target_root.parent)
+        except Exception as exc:
+            self._warn("MuseTalk Avatar", f"Could not save default avatar for pack '{pack_id}':\n{exc}")
+            return
+
+        if hasattr(self, "musetalk_avatar_status_label"):
+            self.musetalk_avatar_status_label.setText(
+                f"Pack '{pack_id}' default avatar is now '{avatar_id}'. Saved {manifest_path.name}."
+            )
+        self._refresh_musetalk_pack_emotion_editor()
 
     def _apply_musetalk_mask_settings(self, metadata):
         metadata = dict(metadata or {})

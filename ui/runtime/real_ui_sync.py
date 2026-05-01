@@ -9,6 +9,25 @@ def configure_real_ui_sync_dependencies(namespace):
 class MainUiRealSyncMixin:
     """Frontend/backend mirroring and polling sync helpers for the runtime-backed main.ui bridge."""
 
+    def _widget_or_child_has_focus(self, widget):
+            if widget is None:
+                return False
+            try:
+                if bool(widget.hasFocus()):
+                    return True
+            except Exception:
+                pass
+            try:
+                focused = QtWidgets.QApplication.focusWidget()
+            except Exception:
+                focused = None
+            if focused is None:
+                return False
+            try:
+                return focused is widget or bool(widget.isAncestorOf(focused))
+            except Exception:
+                return False
+
     def _sync_combo_like_widget(self, source, target):
             if source is None or target is None:
                 return False
@@ -425,7 +444,7 @@ class MainUiRealSyncMixin:
             back = self._backend_widget(object_name)
             if front is None or back is None:
                 return False
-            if getattr(front, "hasFocus", lambda: False)():
+            if self._widget_or_child_has_focus(front):
                 return False
             text = ""
             try:

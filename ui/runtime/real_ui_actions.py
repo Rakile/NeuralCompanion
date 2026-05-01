@@ -465,10 +465,37 @@ class MainUiRealActionsMixin:
                 self._refresh_chat_session_runtime_frontend()
 
     def _on_frontend_system_prompt_changed(self):
+            if bool(getattr(self, "_frontend_system_prompt_change_in_progress", False)):
+                return
+            system_prompt_text = None
             try:
-                self._frontend_system_prompt_commit_timer.start(250)
+                sender = getattr(self, "sender", lambda: None)()
             except Exception:
-                self._commit_frontend_system_prompt_to_runtime()
+                sender = None
+            if sender is not None and hasattr(sender, "toPlainText"):
+                system_prompt_text = sender
+            else:
+                system_prompt_text = self._ui_object("system_prompt_text")
+            if system_prompt_text is None or not hasattr(system_prompt_text, "toPlainText"):
+                return
+            text = str(system_prompt_text.toPlainText() or "")
+            try:
+                self._frontend_system_prompt_change_in_progress = True
+                update_runtime_config("system_prompt", text.strip())
+                backend_text = self._backend_widget("system_prompt_text")
+                if backend_text is not None and backend_text is not system_prompt_text and hasattr(backend_text, "setPlainText"):
+                    current = str(backend_text.toPlainText() or "") if hasattr(backend_text, "toPlainText") else ""
+                    if current != text:
+                        was_blocked = bool(backend_text.blockSignals(True)) if hasattr(backend_text, "blockSignals") else False
+                        try:
+                            backend_text.setPlainText(text)
+                        finally:
+                            if hasattr(backend_text, "blockSignals"):
+                                backend_text.blockSignals(was_blocked)
+            except Exception:
+                pass
+            finally:
+                self._frontend_system_prompt_change_in_progress = False
 
     def _commit_frontend_system_prompt_to_runtime(self):
             system_prompt_text = self._ui_object("system_prompt_text")

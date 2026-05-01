@@ -140,6 +140,8 @@ class MuseTalkAvatarPack:
             )
             if variant.display_name:
                 payload["display_name"] = str(variant.display_name)
+            if variant.avatar_path:
+                payload["avatar_path"] = str(variant.avatar_path)
             variants_payload[str(variant_id)] = payload
         transitions_payload: dict[str, Any] = {}
         for transition in self.transitions:
@@ -218,6 +220,12 @@ def load_avatar_pack_manifest(manifest_path: Path, avatars_dir: Path | None = No
             if not avatar_path_candidate.is_absolute():
                 avatar_path_candidate = manifest_path.parent / avatar_path_candidate
             avatar_path = str(avatar_path_candidate.resolve())
+        else:
+            for local_name in (variant_id, avatar_id):
+                local_path = manifest_path.parent / local_name
+                if local_path.is_dir():
+                    avatar_path = str(local_path.resolve())
+                    break
         tags = _variant_tags_from_payload(variant_id, avatar_id, variant_payload, avatars_root)
         variants[variant_id] = MuseTalkAvatarVariant(
             variant_id=variant_id,
