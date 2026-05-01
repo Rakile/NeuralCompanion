@@ -54,6 +54,12 @@ MUSE_PREVIEW_LOG_PATH = os.path.abspath(
 VISUAL_REPLY_STATE_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "runtime", "visual_reply_state.json")
 )
+MUSE_PREVIEW_FILE_LOG_ENABLED = str(os.environ.get("NC_MUSETALK_PREVIEW_LOG", "") or "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 _snapshot_lock = threading.Lock()
 _preview_log_lock = threading.Lock()
 _pipeline_lock = threading.Lock()
@@ -64,6 +70,8 @@ def _ensure_snapshot_dir():
 
 
 def append_musetalk_preview_log(message):
+    if not MUSE_PREVIEW_FILE_LOG_ENABLED:
+        return
     if not message:
         return
     _ensure_snapshot_dir()
