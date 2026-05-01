@@ -13,6 +13,8 @@
       "body": "For this tutorial, please choose MuseTalk as the Avatar Engine. The next step will appear automatically when you do it.",
       "target": "engine_combo",
       "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
         { "type": "set_combo_text", "target": "engine_combo", "value": "VSeeFace" }
       ],
       "require": {
@@ -27,6 +29,8 @@
       "body": "For this tutorial, please turn Stream Mode on. Stream Mode lets NC start speaking before the full assistant reply is complete, which is helpful for realtime avatar testing.",
       "target": "stream_mode_combo",
       "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
         { "type": "set_combo_text", "target": "stream_mode_combo", "value": "Off" }
       ],
       "require": {
@@ -39,13 +43,19 @@
     {
       "title": "Observe the TTS Backend",
       "body": "Check the TTS Backend here. Chatterbox is the public default; optional backends such as PocketTTS or Gemini TTS can be installed and selected later.",
-      "target": "tts_backend_combo"
+      "target": "tts_backend_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
     },
     {
       "title": "Choose a Safe VRAM Mode",
       "body": "For this tutorial, please set MuseTalk VRAM to Very Low VRAM. This is the most broadly compatible starting point for new users and smaller GPUs.",
       "target": "musetalk_vram_combo",
       "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
         { "type": "set_combo_text", "target": "musetalk_vram_combo", "value": "Quality" }
       ],
       "require": {
@@ -58,19 +68,29 @@
     {
       "title": "Check the Model",
       "body": "This is where you choose the LM Studio model. For this tutorial, make sure LM Studio is running and that a model is available here before you continue.",
-      "target": "model_combo"
+      "target": "model_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
     },
     {
       "title": "Persona Tab",
       "body": "This is the Persona tab. It contains voice settings, expressive tags, and the system prompt. Push Next when you are ready to load the tutorial persona.",
       "tab": "Persona",
-      "target": "persona_tab"
+      "target": "persona_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "persona_tab" }
+      ]
     },
     {
       "title": "Load the Tutorial Persona",
       "body": "For this tutorial, please click Load to load the bundled Tutorial Persona preset.",
       "target": "btn_preset_load",
       "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
         { "type": "set_combo_text", "target": "preset_combo", "value": "Tutorial Persona" }
       ],
       "require": {
@@ -83,6 +103,9 @@
       "title": "Initialize the System",
       "body": "When LM Studio is ready, please click INITIALIZE SYSTEM. The tutorial will continue automatically after you do it.",
       "target": "btn_start_engine",
+      "actions": [
+        { "type": "show_dock", "target": "OperationalViewDock" }
+      ],
       "require": {
         "type": "button_click",
         "target": "btn_start_engine",
@@ -92,13 +115,20 @@
     {
       "title": "MuseTalk Preview",
       "body": "When MuseTalk starts, a preview view may appear. That is normal. This app now has the avatar engine running in a safe first-run configuration.",
-      "target": "MuseTalkPreviewDock"
+      "target": "MuseTalkPreviewDock",
+      "actions": [
+        { "type": "show_dock", "target": "MuseTalkPreviewDock" }
+      ]
     },
     {
       "title": "Dry Run Later",
       "body": "After you have the system working, the Dry Run tab can profile your hardware and recommend better chunking and startup settings. You do not need to do that immediately.",
       "tab": "Dry Run",
-      "target": "dry_run_tab"
+      "target": "dry_run_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "dry_run_tab" }
+      ]
     }
   ]
 }

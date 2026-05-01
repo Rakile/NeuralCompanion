@@ -79,6 +79,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.target_name = ""
         self.current_condition = {}
         self.current_target_widget = None
+        self.current_target_signal_connections = []
         self.current_step_complete = False
         self.current_button_click_count = 0
         self.auto_advance_pending = False
@@ -98,7 +99,12 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.setMouseTracking(True)
         self.setStyleSheet("background: transparent;")
 
-        self.panel = QtWidgets.QFrame(main_window)
+        self.panel = QtWidgets.QFrame(
+            None,
+            QtCore.Qt.Tool
+            | QtCore.Qt.FramelessWindowHint
+            | QtCore.Qt.WindowStaysOnTopHint,
+        )
         self.panel.setObjectName("TutorialPanel")
         self.panel.setStyleSheet(
             """
@@ -157,23 +163,36 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.check_timer.timeout.connect(self._poll_step_completion)
         self.hide()
 
+    def _debug(self, message):
+        tutorial_id = str(self.tutorial.get("id") or self.tutorial.get("title") or "tutorial")
+        print(f"[TutorialDebug:{tutorial_id}] {message}", flush=True)
+
+    def _widget_debug_name(self, widget):
+        if widget is None:
+            return "None"
+        try:
+            class_name = widget.metaObject().className() if hasattr(widget, "metaObject") else widget.__class__.__name__
+        except Exception:
+            class_name = widget.__class__.__name__
+        try:
+            object_name = widget.objectName() if hasattr(widget, "objectName") else ""
+        except Exception:
+            object_name = ""
+        try:
+            title = widget.windowTitle() if hasattr(widget, "windowTitle") else ""
+        except Exception:
+            title = ""
+        return f"{class_name}(objectName={object_name!r}, title={title!r})"
+
     def start(self):
+        self._debug("overlay start() called")
         self.step_index = 0
         self.setGeometry(self.main_window.rect())
-        self.show()
-        self._keep_overlay_visible()
         self.panel.show()
         self.check_timer.start()
         self.show_step(0)
 
     def _keep_overlay_visible(self):
-        if not self.isVisible():
-            return
-        try:
-            self.raise_()
-            self.show()
-        except Exception:
-            pass
         try:
             if not self.panel.isHidden():
                 self.panel.raise_()
@@ -211,26 +230,42 @@ class TutorialOverlay(QtWidgets.QWidget):
     def paintEvent(self, event):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-        painter.fillRect(self.rect(), QtGui.QColor(5, 10, 16, 175))
         if not self.highlight_rect.isNull():
             glow_rect = self.highlight_rect.adjusted(-6, -6, 6, 6)
-            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255), 3))
+            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255, 220), 3))
             painter.setBrush(QtCore.Qt.NoBrush)
             painter.drawRoundedRect(glow_rect, 12, 12)
         super().paintEvent(event)
 
     def _select_tab_by_text(self, tab_widget, tab_title):
         if not tab_widget or not tab_title:
+            self._debug(f"select_tab skipped: tab_widget={self._widget_debug_name(tab_widget)} tab_title={tab_title!r}")
             return
+        wanted = str(tab_title).strip().lower()
+        candidates = []
         for index in range(tab_widget.count()):
-            if tab_widget.tabText(index).strip().lower() == str(tab_title).strip().lower():
+            page = tab_widget.widget(index)
+            page_name = page.objectName().strip().lower() if isinstance(page, QtWidgets.QWidget) else ""
+            text = tab_widget.tabText(index).strip()
+            candidates.append(f"{index}:{text!r}/{page_name!r}")
+            if text.lower() == wanted or page_name == wanted:
                 tab_widget.setCurrentIndex(index)
+                self._debug(
+                    f"select_tab ok: tab_widget={self._widget_debug_name(tab_widget)} wanted={tab_title!r} "
+                    f"index={index} text={text!r} page={page_name!r}"
+                )
                 return
+        self._debug(
+            f"select_tab miss: tab_widget={self._widget_debug_name(tab_widget)} wanted={tab_title!r} "
+            f"candidates=[{', '.join(candidates)}]"
+        )
 
     def _resolve_target_widget(self, target_name):
         if not target_name or target_name == "main_window":
             return self.main_window
-        return self.main_window.findChild(QtCore.QObject, str(target_name))
+        widget = self.main_window.findChild(QtCore.QObject, str(target_name))
+        self._debug(f"resolve_target {target_name!r} -> {self._widget_debug_name(widget)}")
+        return widget
 
     def _current_state(self):
         provider = getattr(self.main_window, "get_tutorial_runtime_state", None)
@@ -286,7 +321,12 @@ class TutorialOverlay(QtWidgets.QWidget):
         if cond_type in {"", "none"}:
             return True
         if cond_type == "combo_text" and isinstance(target_widget, QtWidgets.QComboBox):
-            return self._compare_value(target_widget.currentText(), condition)
+            result = self._compare_value(target_widget.currentText(), condition)
+            self._debug(
+                f"condition combo_text: target={target_name!r} actual={target_widget.currentText()!r} "
+                f"expected={condition.get('value')!r} result={result}"
+            )
+            return result
         if cond_type == "checkbox" and isinstance(target_widget, QtWidgets.QCheckBox):
             return self._coerce_bool(target_widget.isChecked()) == self._coerce_bool(condition.get("value"))
         if cond_type == "spin_value" and isinstance(target_widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
@@ -384,10 +424,45 @@ class TutorialOverlay(QtWidgets.QWidget):
         self._reposition_panel()
         self.update()
 
+    def _show_dock(self, dock_name):
+        name = str(dock_name or "").strip()
+        if not name:
+            self._debug("show_dock skipped: empty dock name")
+            return
+        dock = self.main_window.findChild(QtWidgets.QDockWidget, name)
+        if dock is None:
+            for candidate in self.main_window.findChildren(QtWidgets.QDockWidget):
+                if candidate.windowTitle().strip().lower() == name.lower():
+                    dock = candidate
+                    break
+        if dock is None:
+            candidates = [
+                f"{candidate.objectName()!r}/{candidate.windowTitle()!r}"
+                for candidate in self.main_window.findChildren(QtWidgets.QDockWidget)
+            ]
+            self._debug(f"show_dock miss: wanted={name!r} candidates=[{', '.join(candidates)}]")
+            return
+        try:
+            before = dock.isVisible()
+            dock.setVisible(True)
+            dock.show()
+            dock.raise_()
+            dock.activateWindow()
+            QtCore.QTimer.singleShot(0, dock.raise_)
+            self._debug(
+                f"show_dock ok: wanted={name!r} dock={self._widget_debug_name(dock)} "
+                f"visible {before}->{dock.isVisible()} floating={dock.isFloating()}"
+            )
+        except Exception:
+            self._debug(f"show_dock failed: wanted={name!r}")
+
     def _make_widget_visible(self, widget):
         if widget is None or widget is self.main_window or not isinstance(widget, QtWidgets.QWidget):
+            self._debug(f"make_visible skipped: widget={self._widget_debug_name(widget)}")
             return
+        self._debug(f"make_visible start: widget={self._widget_debug_name(widget)} visible={widget.isVisible()}")
         current = widget
+        scroll_areas = []
         while current is not None and current is not self.main_window:
             parent = current.parentWidget()
             if isinstance(parent, QtWidgets.QStackedWidget):
@@ -410,23 +485,27 @@ class TutorialOverlay(QtWidgets.QWidget):
                         parent.setCurrentIndex(index)
                 except Exception:
                     pass
+            if isinstance(parent, QtWidgets.QScrollArea):
+                scroll_areas.append(parent)
             if isinstance(current, QtWidgets.QDockWidget):
-                try:
-                    current.setVisible(True)
-                    current.raise_()
-                except Exception:
-                    pass
+                self._show_dock(current.objectName() or current.windowTitle())
             elif hasattr(current, "setVisible"):
                 try:
                     current.setVisible(True)
                 except Exception:
                     pass
             current = parent
+        for area in reversed(scroll_areas):
+            try:
+                area.ensureWidgetVisible(widget, 24, 24)
+            except Exception:
+                pass
         try:
             widget.raise_()
             widget.setFocus(QtCore.Qt.OtherFocusReason)
         except Exception:
             pass
+        self._debug(f"make_visible done: widget={self._widget_debug_name(widget)} visible={widget.isVisible()}")
 
     def _apply_actions(self, step):
         for action in list(step.get("actions") or []):
@@ -435,8 +514,14 @@ class TutorialOverlay(QtWidgets.QWidget):
             target_name = str(action.get("target") or "")
             target_widget = self._resolve_target_widget(target_name) if target_name else None
             value = action.get("value")
+            self._debug(
+                f"action start: type={action_type!r} target={target_name!r} value={value!r} "
+                f"target_widget={self._widget_debug_name(target_widget)}"
+            )
             if action_type == "set_combo_text" and isinstance(target_widget, QtWidgets.QComboBox):
+                before = target_widget.currentText()
                 target_widget.setCurrentText(str(value or ""))
+                self._debug(f"action set_combo_text: {target_name!r} {before!r}->{target_widget.currentText()!r}")
             elif action_type == "set_checkbox" and isinstance(target_widget, QtWidgets.QCheckBox):
                 target_widget.setChecked(bool(value))
             elif action_type == "set_spin_value" and isinstance(target_widget, (QtWidgets.QSpinBox, QtWidgets.QDoubleSpinBox)):
@@ -444,7 +529,10 @@ class TutorialOverlay(QtWidgets.QWidget):
             elif action_type in {"set_tab", "open_tab"}:
                 tab_widget_name = str(action.get("tab_widget") or "left_tabs")
                 tab_widget = self.main_window.findChild(QtWidgets.QTabWidget, tab_widget_name)
+                self._debug(f"action open_tab: tab_widget_name={tab_widget_name!r} tab_widget={self._widget_debug_name(tab_widget)}")
                 self._select_tab_by_text(tab_widget, value or target_name)
+            elif action_type == "show_dock":
+                self._show_dock(value or target_name)
             elif action_type == "focus" and isinstance(target_widget, QtWidgets.QWidget):
                 target_widget.setFocus()
             elif action_type == "highlight_ui" and isinstance(target_widget, QtWidgets.QWidget):
@@ -463,6 +551,11 @@ class TutorialOverlay(QtWidgets.QWidget):
                 resetter = getattr(self.main_window, "apply_safe_tutorial_defaults", None)
                 if callable(resetter):
                     resetter()
+            else:
+                self._debug(
+                    f"action no-op: type={action_type!r} target={target_name!r} "
+                    f"target_widget={self._widget_debug_name(target_widget)}"
+                )
 
     def _run_listeners_for_event(self, step, event_name, payload):
         listeners = list((step or {}).get("listen") or [])
@@ -503,7 +596,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         self._poll_step_completion(force=True)
 
     def _poll_step_completion(self, force=False):
-        if not self.isVisible():
+        if self.panel.isHidden():
             return
         self._keep_overlay_visible()
         condition = dict(self.current_condition or {})
@@ -524,38 +617,74 @@ class TutorialOverlay(QtWidgets.QWidget):
             self.auto_advance_pending = False
         if complete and auto_advance and not previous_complete and not self.auto_advance_pending and (force or self.step_index < len(self.steps)):
             self.auto_advance_pending = True
+            self._debug(f"auto_advance scheduled: step_index={self.step_index}")
             QtCore.QTimer.singleShot(120, self.next_step)
+
+    def _disconnect_current_target_signals(self):
+        for signal, slot in list(self.current_target_signal_connections):
+            try:
+                signal.disconnect(slot)
+            except Exception:
+                pass
+        self.current_target_signal_connections = []
+
+    def _connect_current_target_signals(self):
+        self._disconnect_current_target_signals()
+        widget = self.current_target_widget
+        if isinstance(widget, QtWidgets.QComboBox):
+            slot = lambda *_args: self._poll_step_completion(force=True)
+            try:
+                widget.currentTextChanged.connect(slot)
+                self.current_target_signal_connections.append((widget.currentTextChanged, slot))
+                self._debug(f"connected currentTextChanged for {self._widget_debug_name(widget)}")
+            except Exception:
+                pass
 
     def _target_rect_for_widget(self, widget):
         if widget is None:
             return QtCore.QRect()
         if widget is self.main_window:
-            return self.rect().adjusted(18, 18, -18, -18)
-        top_left = self.mapFromGlobal(widget.mapToGlobal(QtCore.QPoint(0, 0)))
+            return self.main_window.rect().adjusted(18, 18, -18, -18)
+        top_left = self.main_window.mapFromGlobal(widget.mapToGlobal(QtCore.QPoint(0, 0)))
         return QtCore.QRect(top_left, widget.size())
+
+    def _set_panel_geometry(self, x, y, width, height):
+        top_left = self.main_window.mapToGlobal(QtCore.QPoint(int(x), int(y)))
+        self.panel.setGeometry(top_left.x(), top_left.y(), int(width), int(height))
 
     def _reposition_panel(self):
         if self.panel.isHidden():
             return
         margin = 18
         panel_size = self.panel.sizeHint()
+        parent_rect = self.main_window.rect()
         rect = self.highlight_rect
         if rect.isNull():
-            x = max((self.width() - panel_size.width()) // 2, margin)
-            y = max((self.height() - panel_size.height()) // 2, margin)
-            self.panel.setGeometry(x, y, min(panel_size.width(), self.width() - margin * 2), panel_size.height())
+            x = max((parent_rect.width() - panel_size.width()) // 2, margin)
+            y = max((parent_rect.height() - panel_size.height()) // 2, margin)
+            self._set_panel_geometry(x, y, min(panel_size.width(), parent_rect.width() - margin * 2), panel_size.height())
             return
 
-        x = min(rect.right() + 18, self.width() - panel_size.width() - margin)
-        y = rect.top()
-        if x < margin or x <= rect.right():
-            x = max(rect.left() - panel_size.width() - 18, margin)
-        if x < margin:
-            x = max(min(rect.left(), self.width() - panel_size.width() - margin), margin)
-            y = min(rect.bottom() + 18, self.height() - panel_size.height() - margin)
-        if y + panel_size.height() > self.height() - margin:
-            y = max(self.height() - panel_size.height() - margin, margin)
-        self.panel.setGeometry(x, y, min(panel_size.width(), self.width() - margin * 2), panel_size.height())
+        candidates = [
+            (rect.right() + 18, rect.top()),
+            (rect.left() - panel_size.width() - 18, rect.top()),
+            (rect.left(), rect.bottom() + 18),
+            (rect.left(), rect.top() - panel_size.height() - 18),
+        ]
+        x, y = margin, margin
+        for candidate_x, candidate_y in candidates:
+            candidate_x = max(min(candidate_x, parent_rect.width() - panel_size.width() - margin), margin)
+            candidate_y = max(min(candidate_y, parent_rect.height() - panel_size.height() - margin), margin)
+            candidate_rect = QtCore.QRect(candidate_x, candidate_y, panel_size.width(), panel_size.height())
+            if not candidate_rect.intersects(rect.adjusted(-12, -12, 12, 12)):
+                x, y = candidate_x, candidate_y
+                break
+        else:
+            x = max(min(rect.left(), parent_rect.width() - panel_size.width() - margin), margin)
+            y = max(min(rect.bottom() + 18, parent_rect.height() - panel_size.height() - margin), margin)
+        if y + panel_size.height() > parent_rect.height() - margin:
+            y = max(parent_rect.height() - panel_size.height() - margin, margin)
+        self._set_panel_geometry(x, y, min(panel_size.width(), parent_rect.width() - margin * 2), panel_size.height())
 
     def show_step(self, index, _visited=None):
         if _visited is None:
@@ -581,7 +710,12 @@ class TutorialOverlay(QtWidgets.QWidget):
                 self.current_target_widget.removeEventFilter(self)
             except Exception:
                 pass
+        self._disconnect_current_target_signals()
         self.current_button_click_count = 0
+        self._debug(
+            f"show_step start: index={index} title={step.get('title')!r} target={step.get('target')!r} "
+            f"tab={step.get('tab')!r} right_tab={step.get('right_tab')!r} actions={len(list(step.get('actions') or []))}"
+        )
         self._select_tab_by_text(getattr(self.main_window, "tabs", None), step.get("tab"))
         self._select_tab_by_text(getattr(self.main_window, "right_tabs", None), step.get("right_tab"))
         self._apply_actions(step)
@@ -591,9 +725,15 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.current_target_widget = target_widget
         if isinstance(self.current_target_widget, QtCore.QObject):
             self.current_target_widget.installEventFilter(self)
+        self._connect_current_target_signals()
         if isinstance(target_widget, QtWidgets.QWidget):
             self._make_widget_visible(target_widget)
         self.highlight_rect = self._target_rect_for_widget(target_widget).adjusted(-4, -4, 4, 4)
+        self._debug(
+            f"show_step target: name={self.target_name!r} widget={self._widget_debug_name(target_widget)} "
+            f"visible={target_widget.isVisible() if isinstance(target_widget, QtWidgets.QWidget) else 'n/a'} "
+            f"highlight={self.highlight_rect.getRect()}"
+        )
         self.current_condition = dict(step.get("condition") or step.get("require") or {})
         self.current_hint_only = bool(step.get("hint_only", False))
         self.current_manual_next_enabled = bool(step.get("manual_next", True))
@@ -636,9 +776,11 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.show_step(self.step_index - 1)
 
     def finish(self, reason):
+        self._debug(f"finish called: reason={reason!r}")
         self.check_timer.stop()
-        self.hide()
+        self._disconnect_current_target_signals()
         self.panel.hide()
+        self.panel.close()
         try:
             self.main_window.removeEventFilter(self)
         except Exception:

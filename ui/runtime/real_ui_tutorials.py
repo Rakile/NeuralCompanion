@@ -89,6 +89,7 @@ class MainUiRealTutorialMixin:
             self._start_tutorial_from_ui_real(tutorial_id)
 
     def _start_tutorial_from_ui_real(self, tutorial_id):
+            print(f"[UI Real TutorialDebug] start requested: tutorial_id={tutorial_id!r}", flush=True)
             try:
                 payload = tutorial_framework.load_tutorial(str(tutorial_id or "")) or {}
             except Exception:
@@ -96,15 +97,23 @@ class MainUiRealTutorialMixin:
             if not payload:
                 print(f"[UI Real] Could not load tutorial: {tutorial_id}")
                 return
+            print(
+                f"[UI Real TutorialDebug] loaded: id={payload.get('id')!r} "
+                f"title={payload.get('title')!r} steps={len(payload.get('steps') or [])} "
+                f"framework={getattr(tutorial_framework, '__file__', '<unknown>')}",
+                flush=True,
+            )
             overlay = getattr(self, "_frontend_active_tutorial_overlay", None)
             if overlay is not None:
                 try:
+                    print("[UI Real TutorialDebug] finishing existing frontend overlay", flush=True)
                     overlay.finish("restarted")
                 except Exception:
                     pass
             backend_overlay = getattr(self.backend, "active_tutorial_overlay", None)
             if backend_overlay is not None:
                 try:
+                    print("[UI Real TutorialDebug] finishing existing backend overlay", flush=True)
                     backend_overlay.finish("replaced-by-main-ui")
                 except Exception:
                     pass
@@ -114,13 +123,24 @@ class MainUiRealTutorialMixin:
                     pass
             self._frontend_active_tutorial_overlay = tutorial_framework.TutorialOverlay(self.window, payload, self.window)
             self._frontend_active_tutorial_overlay.finished.connect(self._on_frontend_tutorial_finished)
+            print(
+                f"[UI Real TutorialDebug] overlay created: overlay={self._frontend_active_tutorial_overlay!r} "
+                f"window={self.window!r}",
+                flush=True,
+            )
             self._frontend_active_tutorial_overlay.start()
+            print(
+                f"[UI Real TutorialDebug] overlay started: visible={self._frontend_active_tutorial_overlay.isVisible()} "
+                f"step_index={getattr(self._frontend_active_tutorial_overlay, 'step_index', '<missing>')}",
+                flush=True,
+            )
             callback = getattr(self.backend, "emit_tutorial_event", None)
             if callable(callback):
                 callback("tutorial_started", {"id": payload.get("id", tutorial_id), "title": payload.get("title", tutorial_id)})
             print(f"[UI Real] Tutorial started: {payload.get('title', tutorial_id)}")
 
     def _on_frontend_tutorial_finished(self, reason):
+            print(f"[UI Real TutorialDebug] finished callback: reason={reason!r}", flush=True)
             overlay = getattr(self, "_frontend_active_tutorial_overlay", None)
             if overlay is not None:
                 try:
