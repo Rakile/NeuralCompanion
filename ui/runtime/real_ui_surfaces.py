@@ -139,38 +139,34 @@ class MainUiRealSurfacesMixin:
 
     def _redirect_backend_pipeline_telemetry_surface(self):
             frontend_box = self._ui_object("pipeline_telemetry_box")
-            telemetry_widget = getattr(self.backend, "pipeline_telemetry_widget", None)
-            if frontend_box is None or telemetry_widget is None:
+            if frontend_box is None:
                 return
-            layout = frontend_box.layout()
-            if layout is None:
-                layout = QtWidgets.QVBoxLayout(frontend_box)
-                layout.setContentsMargins(10, 12, 10, 10)
-                layout.setSpacing(8)
-            while layout.count():
-                item = layout.takeAt(0)
-                widget = item.widget()
-                if widget is None:
+            # Keep the Designer-authored telemetry widgets in place. The legacy
+            # runtime widget still exists on the hidden backend window, but the
+            # main.ui surface owns simple QProgressBars that we mirror directly.
+            self._frontend_pipeline_telemetry_box = frontend_box
+            self._frontend_pipeline_telemetry_hint = self._ui_object("telemetry_hint")
+            self._frontend_render_ready_bar = self._ui_object("render_ready_bar")
+            self._frontend_preview_playback_bar = self._ui_object("preview_playback_bar")
+            for bar in (self._frontend_render_ready_bar, self._frontend_preview_playback_bar):
+                if bar is None:
                     continue
                 try:
-                    widget.setParent(None)
+                    bar.setRange(0, 1000)
+                    bar.setValue(0)
+                    bar.setTextVisible(True)
                 except Exception:
                     pass
-                try:
-                    widget.deleteLater()
-                except Exception:
-                    pass
-            try:
-                old_parent = telemetry_widget.parentWidget()
-                if old_parent is not None and old_parent.layout() is not None:
-                    old_parent.layout().removeWidget(telemetry_widget)
-            except Exception:
-                pass
-            telemetry_widget.setParent(None)
-            telemetry_widget.setObjectName("pipeline_telemetry_widget")
-            layout.addWidget(telemetry_widget)
-            self.backend.pipeline_telemetry_box = frontend_box
-            self.backend.pipeline_telemetry_widget = telemetry_widget
+            if self._frontend_render_ready_bar is not None and hasattr(self._frontend_render_ready_bar, "setStyleSheet"):
+                self._frontend_render_ready_bar.setStyleSheet(
+                    "QProgressBar { border: 1px solid #273342; border-radius: 6px; background: #10161f; color: #d8e6f2; text-align: center; }"
+                    "QProgressBar::chunk { background: #4fc3f7; border-radius: 5px; }"
+                )
+            if self._frontend_preview_playback_bar is not None and hasattr(self._frontend_preview_playback_bar, "setStyleSheet"):
+                self._frontend_preview_playback_bar.setStyleSheet(
+                    "QProgressBar { border: 1px solid #273342; border-radius: 6px; background: #10161f; color: #d8e6f2; text-align: center; }"
+                    "QProgressBar::chunk { background: #58d68d; border-radius: 5px; }"
+                )
 
     def _redirect_backend_sensory_runtime_surface(self):
             frontend_tabs = self._ui_object("sensory_feedback_tabs")

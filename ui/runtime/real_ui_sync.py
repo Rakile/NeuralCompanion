@@ -525,7 +525,14 @@ class MainUiRealSyncMixin:
                 return True
             return False
 
-    def _sync_backend_to_ui(self, *, force=False):
+    def _sync_backend_to_ui(self, *, force=False, lightweight=False):
+            if lightweight and not force:
+                # Keep MuseTalk preview rendering smooth in the Designer front-end:
+                # status/diode mirroring is cheap, while full button/field mirroring
+                # can steal UI-thread time from the 16 ms preview frame timer.
+                self._mirror_runtime_status_widgets()
+                self._mirror_pipeline_telemetry_widgets()
+                return
             for object_name in self._combo_sync_names():
                 front = self._ui_object(object_name)
                 back = self._backend_widget(object_name)
@@ -555,6 +562,7 @@ class MainUiRealSyncMixin:
                 if force or not getattr(front, "hasFocus", lambda: False)():
                     self._copy_text_state(back, front)
             self._mirror_runtime_text_views()
+            self._mirror_pipeline_telemetry_widgets()
             self._mirror_runtime_status_widgets()
             self._mirror_runtime_button_state()
             self._mirror_runtime_selection_widgets()
@@ -564,6 +572,53 @@ class MainUiRealSyncMixin:
             self._mirror_chunking_runtime_widgets(force=force)
             self._mirror_provider_runtime_labels()
             self._refresh_frontend_theme_controls()
+
+    def _mirror_pipeline_telemetry_widgets(self):
+            ready_bar = getattr(self, "_frontend_render_ready_bar", None)
+            preview_bar = getattr(self, "_frontend_preview_playback_bar", None)
+            hint = getattr(self, "_frontend_pipeline_telemetry_hint", None)
+            if ready_bar is None and preview_bar is None and hint is None:
+                return
+            telemetry_widget = getattr(self.backend, "pipeline_telemetry_widget", None)
+            if telemetry_widget is None:
+                return
+            try:
+                raw_snapshot = shared_state.get_musetalk_pipeline_snapshot()
+                preview_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                snapshot = self.backend._build_pipeline_visual_snapshot(raw_snapshot)
+                telemetry_widget.update_snapshot(snapshot, preview_state)
+            except Exception:
+                return
+            chunks = list((getattr(getattr(telemetry_widget, "ready_bar", None), "_snapshot", {}) or {}).get("chunks", []) or [])
+            chunk_total = max(1, len(chunks))
+            try:
+                ready_progress = float(telemetry_widget.ready_bar._ready_progress())
+            except Exception:
+                ready_progress = 0.0
+            try:
+                preview_progress = float(telemetry_widget.preview_bar._preview_progress())
+            except Exception:
+                preview_progress = 0.0
+            ready_value = int(round(max(0.0, min(ready_progress / float(chunk_total), 1.0)) * 1000.0))
+            preview_value = int(round(max(0.0, min(preview_progress / float(chunk_total), 1.0)) * 1000.0))
+            for bar, value, label, progress in (
+                (ready_bar, ready_value, "Render Ready", ready_progress),
+                (preview_bar, preview_value, "Preview / Playback", preview_progress),
+            ):
+                if bar is None:
+                    continue
+                try:
+                    bar.setRange(0, 1000)
+                    bar.setValue(value)
+                    bar.setFormat(f"{label}: {progress:.2f}/{len(chunks)}")
+                    bar.setVisible(True)
+                except Exception:
+                    pass
+            if hint is not None and hasattr(hint, "setText"):
+                try:
+                    hint.setText(str(getattr(telemetry_widget, "summary_label").text() or "Telemetry appears during MuseTalk and VaM replies."))
+                except Exception:
+                    pass
 
     def _mirror_chunking_runtime_widgets(self, *, force=False):
             for key, spec in UI_SHELL_CHUNKING_SPECS.items():

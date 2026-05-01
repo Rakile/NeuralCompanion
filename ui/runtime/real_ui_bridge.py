@@ -1,3 +1,5 @@
+import time
+
 from PySide6 import QtCore, QtWidgets
 
 from ui.designer_loader import ui_shell_find_object as _ui_shell_find_object
@@ -90,6 +92,7 @@ def _configure_real_ui_sync_dependencies():
         "_ui_shell_update_body_label": _ui_shell_update_body_label,
         "_ui_shell_update_chunking_label": _ui_shell_update_chunking_label,
         "engine": engine,
+        "shared_state": shared_state,
     })
 
 
@@ -168,6 +171,8 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._frontend_addon_session_save_timer.setInterval(450)
         self._frontend_addon_session_save_timer.timeout.connect(self._save_backend_session_from_adopted_addons)
         self._frontend_active_tutorial_overlay = None
+        self._last_frontend_heavy_sync_at = 0.0
+        self._musetalk_preview_heavy_sync_interval_s = 1.25
 
         _configure_real_ui_layout_dependencies()
         _configure_real_ui_theme_dependencies()
@@ -691,7 +696,39 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
     def _poll_backend_state(self):
         if self._closing:
             return
+        if self._should_lightweight_sync_for_musetalk_preview():
+            now = time.monotonic()
+            last_sync = float(getattr(self, "_last_frontend_heavy_sync_at", 0.0) or 0.0)
+            if now - last_sync < float(getattr(self, "_musetalk_preview_heavy_sync_interval_s", 0.75) or 0.75):
+                self._sync_backend_to_ui(force=False, lightweight=True)
+                return
+            self._last_frontend_heavy_sync_at = now
+        else:
+            self._last_frontend_heavy_sync_at = time.monotonic()
         self._sync_backend_to_ui(force=False)
+
+    def _should_lightweight_sync_for_musetalk_preview(self):
+        try:
+            if self.backend._current_avatar_mode_value() != "musetalk":
+                return False
+        except Exception:
+            return False
+        panel = getattr(self.backend, "embedded_musetalk_preview", None)
+        if panel is None:
+            return False
+        try:
+            if not panel.isVisible():
+                return False
+        except Exception:
+            return False
+        if bool(getattr(panel, "loop_fade_active", False)):
+            return True
+        if bool(getattr(panel, "frame_paths", None)):
+            return True
+        try:
+            return int(getattr(panel, "current_frame_index", -1) or -1) >= 0
+        except Exception:
+            return False
 
     def _start_engine_from_ui_real(self):
         self._sync_frontend_to_backend()

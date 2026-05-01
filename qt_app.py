@@ -64,6 +64,8 @@ from ui.panels.avatar_windows import QtExternalAvatarReturnWindow, QtMuseTalkSta
 from ui.panels.hand_doctor_dialog import HandDoctorDialog
 from ui.panels.visual_reply_panel import QtVisualReplyPanel
 from ui.runtime.console_redirect import QtConsoleBridge, QtTextRedirector
+from ui.runtime.legacy_dock_titles import LegacyDockTitleMixin, configure_legacy_dock_title_dependencies
+from ui.runtime.legacy_workspace_docks import LegacyWorkspaceDockMixin, configure_legacy_workspace_dock_dependencies
 from ui.runtime.real_ui_bridge import MainUiRealRuntimeBridge, configure_real_ui_bridge_dependencies
 from ui.runtime.shell_addon_reports import (
     _print_ui_shell_addon_mount_report,
@@ -291,6 +293,7 @@ def _configure_real_ui_bridge_dependencies():
         "_ui_shell_update_chunking_label": _ui_shell_update_chunking_label,
         "ctypes": ctypes,
         "engine": engine,
+        "shared_state": shared_state,
         "tutorial_framework": tutorial_framework,
         "update_runtime_config": update_runtime_config,
     })
@@ -3737,6 +3740,18 @@ def _apply_combo_popup_palette(combo):
 
 set_combo_popup_palette_callback(_apply_combo_popup_palette)
 
+configure_legacy_dock_title_dependencies({
+    "_app_theme_palette": _app_theme_palette,
+    "update_runtime_config": update_runtime_config,
+})
+configure_legacy_workspace_dock_dependencies({
+    "_apply_workspace_view_constraints": _apply_workspace_view_constraints,
+    "_WIN32_DOCK_OWNER_SUPPORTED": _WIN32_DOCK_OWNER_SUPPORTED,
+    "_WIN32_GWLP_HWNDPARENT": _WIN32_GWLP_HWNDPARENT,
+    "_win32_set_window_owner": _win32_set_window_owner,
+    "ctypes": ctypes,
+})
+
 flask_app = Flask(__name__) if Flask is not None else None
 if flask_app is not None and callable(CORS):
     CORS(flask_app)
@@ -4380,7 +4395,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             while len(self.preloaded_frame_images) > QT_PREVIEW_CACHE_LIMIT:
                 self.preloaded_frame_images.popitem(last=False)
 
-    def _start_frame_preload(self, start_index=0, count=12):
+    def _start_frame_preload(self, start_index=0, count=12, *, wrap=False):
         if not self.frame_paths or not self.isVisible():
             return
         target_size = self._get_target_size()
@@ -4388,10 +4403,17 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             self._invalidate_cache_for_resize()
             self.preload_target_size = target_size
         generation = self.preload_generation
-        if start_index + count <= self.preload_frontier:
-            return
-        self.preload_frontier = max(self.preload_frontier, start_index + count)
-        preload_paths = list(self.frame_paths[start_index:start_index + count])
+        if wrap:
+            total = len(self.frame_paths)
+            if total <= 0:
+                return
+            start_index = int(start_index or 0) % total
+            preload_paths = [self.frame_paths[(start_index + offset) % total] for offset in range(max(0, int(count or 0)))]
+        else:
+            if start_index + count <= self.preload_frontier:
+                return
+            self.preload_frontier = max(self.preload_frontier, start_index + count)
+            preload_paths = list(self.frame_paths[start_index:start_index + count])
         with self.preload_lock:
             for frame_path in preload_paths:
                 key = (generation, frame_path)
@@ -4776,7 +4798,8 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self._start_loop_fade_if_needed(previous_avatar_id, self.last_avatar_id, state, previous_chunk_id=previous_chunk_id)
         self._start_frame_preload(
             start_index=initial_frame_index,
-            count=min(max(len(self.frame_paths) - initial_frame_index, 1), QT_PREVIEW_INITIAL_PRELOAD),
+            count=QT_PREVIEW_INITIAL_PRELOAD if bool(state.get("loop", False)) else min(max(len(self.frame_paths) - initial_frame_index, 1), QT_PREVIEW_INITIAL_PRELOAD),
+            wrap=bool(state.get("loop", False)),
         )
         self.render_current_frame()
 
@@ -4826,6 +4849,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                                     max(len(self.frame_paths) - (self.current_frame_index + 1), 0),
                                     QT_PREVIEW_AHEAD_PRELOAD,
                                 ),
+                                wrap=bool(state.get("loop", False)),
                             )
                         self.render_current_frame()
 
@@ -4856,12 +4880,18 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                                     QT_PREVIEW_AHEAD_PRELOAD,
                                 ),
                             )
+                        else:
+                            self._start_frame_preload(
+                                start_index=frame_index + 1,
+                                count=QT_PREVIEW_AHEAD_PRELOAD,
+                                wrap=True,
+                            )
                         self.render_current_frame()
         except Exception:
             pass
 
 
-class CompanionQtMainWindow(QtWidgets.QMainWindow):
+class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWidgets.QMainWindow):
     def __init__(self, *, suppress_restored_aux_docks=False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
@@ -5018,231 +5048,6 @@ class CompanionQtMainWindow(QtWidgets.QMainWindow):
         finally:
             self._theme_apply_in_progress = False
 
-    def _apply_legacy_dock_title_widgets(self):
-        palette = _app_theme_palette(self.current_app_theme_preset())
-        for dock in self.findChildren(QtWidgets.QDockWidget):
-            title_bar = dock.titleBarWidget()
-            if title_bar is None or not bool(title_bar.property("nc_legacy_custom_dock_title")):
-                title_bar = self._create_legacy_dock_title_widget(dock)
-                dock.setTitleBarWidget(title_bar)
-                try:
-                    dock.topLevelChanged.connect(lambda _floating=False, d=dock: self._update_legacy_dock_title_widget(d))
-                except Exception:
-                    pass
-                try:
-                    dock.windowTitleChanged.connect(lambda _title="", d=dock: self._update_legacy_dock_title_widget(d))
-                except Exception:
-                    pass
-            title_bar.setProperty("nc_theme_palette", dict(palette or {}))
-            self._update_legacy_dock_title_widget(dock)
-            self._update_legacy_aux_dock_background(dock)
-
-    def _create_legacy_dock_title_widget(self, dock):
-        title_bar = QtWidgets.QWidget()
-        title_bar.setObjectName("ncLegacyDockTitleBar")
-        title_bar.setProperty("nc_legacy_custom_dock_title", True)
-        layout = QtWidgets.QHBoxLayout(title_bar)
-        layout.setContentsMargins(8, 3, 5, 3)
-        layout.setSpacing(6)
-
-        label = QtWidgets.QLabel(str(dock.windowTitle() or dock.objectName() or "Panel"))
-        label.setObjectName("ncLegacyDockTitleLabel")
-        label.setTextInteractionFlags(QtCore.Qt.NoTextInteraction)
-        layout.addWidget(label, 1)
-
-        float_button = QtWidgets.QToolButton()
-        float_button.setObjectName("ncLegacyDockFloatButton")
-        float_button.setAutoRaise(True)
-        float_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_legacy_dock_floating(d))
-        layout.addWidget(float_button)
-
-        pin_button = QtWidgets.QToolButton()
-        pin_button.setObjectName("ncLegacyDockPinButton")
-        pin_button.setCheckable(True)
-        pin_button.setAutoRaise(True)
-        pin_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_legacy_dock_pinned(d))
-        layout.addWidget(pin_button)
-
-        top_button = QtWidgets.QToolButton()
-        top_button.setObjectName("ncLegacyDockTopButton")
-        top_button.setCheckable(True)
-        top_button.setAutoRaise(True)
-        top_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_legacy_dock_always_on_top(d))
-        layout.addWidget(top_button)
-
-        close_button = QtWidgets.QToolButton()
-        close_button.setObjectName("ncLegacyDockCloseButton")
-        close_button.setText("X")
-        close_button.setToolTip("Close panel")
-        close_button.setAutoRaise(True)
-        close_button.clicked.connect(dock.close)
-        layout.addWidget(close_button)
-
-        return title_bar
-
-    def _toggle_legacy_dock_floating(self, dock):
-        if dock is None:
-            return
-        try:
-            dock.setFloating(not bool(dock.isFloating()))
-            self._apply_legacy_dock_window_flags(dock)
-            self._schedule_dock_owner_refresh(dock)
-            dock.show()
-            dock.raise_()
-        except Exception:
-            pass
-
-    def _update_legacy_dock_title_widget(self, dock):
-        title_bar = dock.titleBarWidget() if dock is not None else None
-        if title_bar is None or not bool(title_bar.property("nc_legacy_custom_dock_title")):
-            return
-        palette = title_bar.property("nc_theme_palette") or {}
-        header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
-        panel_bg = palette.get("panel_bg", "#18202a")
-        button_bg = palette.get("button_bg", "#223247")
-        button_hover_bg = palette.get("button_hover_bg", "#29405b")
-        border = palette.get("surface_border", "#273342")
-        text = palette.get("text", "#e5e9f0")
-        text_strong = palette.get("text_strong", "#f2f5f9")
-        title_bar.setStyleSheet(
-            f"""
-QWidget#ncLegacyDockTitleBar {{
-    background: {header_bg};
-    border: 1px solid {border};
-}}
-QLabel#ncLegacyDockTitleLabel {{
-    color: {text_strong};
-    font-weight: 600;
-    background: transparent;
-    border: 0;
-}}
-QToolButton#ncLegacyDockFloatButton,
-QToolButton#ncLegacyDockPinButton,
-QToolButton#ncLegacyDockTopButton,
-QToolButton#ncLegacyDockCloseButton {{
-    color: {text};
-    background: {button_bg};
-    border: 1px solid {border};
-    border-radius: 5px;
-    padding: 1px 8px;
-    min-width: 42px;
-}}
-QToolButton#ncLegacyDockFloatButton:hover,
-QToolButton#ncLegacyDockPinButton:hover,
-QToolButton#ncLegacyDockTopButton:hover,
-QToolButton#ncLegacyDockCloseButton:hover {{
-    background: {button_hover_bg};
-}}
-QToolButton#ncLegacyDockPinButton:checked,
-QToolButton#ncLegacyDockTopButton:checked {{
-    background: {button_hover_bg};
-    border-color: {palette.get("accent", "#4d8dff")};
-}}
-QToolButton#ncLegacyDockCloseButton {{
-    background: {panel_bg};
-}}
-"""
-        )
-        label = title_bar.findChild(QtWidgets.QLabel, "ncLegacyDockTitleLabel")
-        if label is not None:
-            label.setText(str(dock.windowTitle() or dock.objectName() or "Panel"))
-        float_button = title_bar.findChild(QtWidgets.QToolButton, "ncLegacyDockFloatButton")
-        if float_button is not None:
-            floating = bool(dock.isFloating())
-            float_button.setText("Dock" if floating else "Float")
-            float_button.setToolTip("Dock panel" if floating else "Undock panel")
-        object_name = str(dock.objectName() or "")
-        pinned = object_name in getattr(self, "_pinned_floating_dock_names", set())
-        always_on_top = object_name in getattr(self, "_always_on_top_floating_dock_names", set())
-        pin_button = title_bar.findChild(QtWidgets.QToolButton, "ncLegacyDockPinButton")
-        if pin_button is not None:
-            pin_button.setText("Pinned" if pinned else "Pin")
-            pin_button.setToolTip("Keep this floating panel visible when the main window is hidden")
-            pin_button.setChecked(bool(pinned))
-        top_button = title_bar.findChild(QtWidgets.QToolButton, "ncLegacyDockTopButton")
-        if top_button is not None:
-            top_button.setText("Top" if always_on_top else "Top")
-            top_button.setToolTip("Keep this floating panel above other windows")
-            top_button.setChecked(bool(always_on_top))
-        self._apply_legacy_dock_window_flags(dock)
-        self._update_legacy_aux_dock_background(dock)
-
-    def _legacy_dock_flag_set(self, key):
-        attr = "_pinned_floating_dock_names" if key == "pinned_floating_docks" else "_always_on_top_floating_dock_names"
-        return getattr(self, attr, set())
-
-    def _set_legacy_dock_flag(self, dock, key, enabled):
-        if dock is None:
-            return
-        object_name = str(dock.objectName() or "").strip()
-        if not object_name:
-            return
-        names = self._legacy_dock_flag_set(key)
-        if enabled:
-            names.add(object_name)
-        else:
-            names.discard(object_name)
-        update_runtime_config(key, sorted(names))
-        self._apply_legacy_dock_window_flags(dock)
-        self._schedule_dock_owner_refresh(dock)
-        self._update_legacy_dock_title_widget(dock)
-        self.save_session()
-
-    def _toggle_legacy_dock_pinned(self, dock):
-        object_name = str(dock.objectName() or "").strip() if dock is not None else ""
-        self._set_legacy_dock_flag(dock, "pinned_floating_docks", object_name not in self._pinned_floating_dock_names)
-
-    def _toggle_legacy_dock_always_on_top(self, dock):
-        object_name = str(dock.objectName() or "").strip() if dock is not None else ""
-        self._set_legacy_dock_flag(dock, "always_on_top_floating_docks", object_name not in self._always_on_top_floating_dock_names)
-
-    def _apply_legacy_dock_window_flags(self, dock):
-        if dock is None:
-            return
-        object_name = str(dock.objectName() or "").strip()
-        always_on_top = bool(object_name and object_name in getattr(self, "_always_on_top_floating_dock_names", set()))
-        try:
-            was_visible = bool(dock.isVisible())
-            dock.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint, bool(always_on_top and dock.isFloating()))
-            if was_visible and dock.isFloating():
-                dock.show()
-        except Exception:
-            pass
-
-    def _update_legacy_aux_dock_background(self, dock):
-        if dock is None:
-            return
-        object_name = str(dock.objectName() or "")
-        if object_name not in {"MuseTalkPreviewDock", "VisualReplyDock"}:
-            return
-        palette = _app_theme_palette(self.current_app_theme_preset())
-        window_bg = palette.get("window_bg", "#11161d")
-        panel_bg = palette.get("panel_bg", "#18202a")
-        border = palette.get("surface_border", "#273342")
-        text = palette.get("text", "#e5e9f0")
-        dock.setStyleSheet(
-            f"""
-QDockWidget#{object_name} {{
-    background: {window_bg};
-    color: {text};
-    border: 1px solid {border};
-}}
-QDockWidget#{object_name} > QWidget {{
-    background: {panel_bg};
-    color: {text};
-}}
-"""
-        )
-        content = dock.widget() if hasattr(dock, "widget") else None
-        for widget in (content, getattr(self, "preview_dock_container", None) if object_name == "MuseTalkPreviewDock" else None):
-            if widget is None:
-                continue
-            try:
-                widget.setAutoFillBackground(True)
-                widget.setStyleSheet(f"background: {panel_bg}; color: {text};")
-            except Exception:
-                pass
-
     def _build_ui(self):
         self.setDockNestingEnabled(True)
         self.setStyleSheet(_build_app_stylesheet_for_preset(self.current_app_theme_preset()))
@@ -5309,259 +5114,6 @@ QDockWidget#{object_name} > QWidget {{
         except Exception:
             pass
         self._build_workspace_menu()
-
-    def _register_workspace_dock(self, dock):
-        if dock is None:
-            return
-        try:
-            dock.topLevelChanged.connect(lambda _floating, d=dock: self._schedule_dock_owner_refresh(d))
-        except Exception:
-            pass
-        try:
-            dock.topLevelChanged.connect(lambda _floating, d=dock: self._update_legacy_dock_title_widget(d))
-        except Exception:
-            pass
-        try:
-            dock.topLevelChanged.connect(lambda _floating: QtCore.QTimer.singleShot(0, self._apply_workspace_view_constraints))
-        except Exception:
-            pass
-        self._schedule_dock_owner_refresh(dock)
-        QtCore.QTimer.singleShot(0, self._apply_workspace_view_constraints)
-
-    def _apply_workspace_view_constraints(self):
-        _apply_workspace_view_constraints(
-            self,
-            extra_widgets=(
-                getattr(self, "embedded_musetalk_preview", None),
-                getattr(self, "visual_reply_panel", None),
-            ),
-        )
-        self._relax_musetalk_preview_width_constraints()
-
-    def _relax_musetalk_preview_width_constraints(self):
-        """Allow the preview dock to narrow without clipping its right-side controls."""
-        widgets = (
-            getattr(self, "preview_dock", None),
-            getattr(self, "preview_dock_container", None),
-            getattr(self, "embedded_musetalk_preview", None),
-        )
-        for widget in widgets:
-            if widget is None:
-                continue
-            try:
-                widget.setMinimumWidth(0)
-                widget.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-            except Exception:
-                pass
-        panel = getattr(self, "embedded_musetalk_preview", None)
-        if panel is None:
-            return
-        for attr in (
-            "preview_label",
-            "image_scroll",
-            "image_label",
-            "reset_zoom_button",
-            "show_interface_button",
-            "focus_mode_button",
-        ):
-            widget = getattr(panel, attr, None)
-            if widget is None:
-                continue
-            try:
-                widget.setMinimumWidth(0)
-            except Exception:
-                pass
-        for attr in ("reset_zoom_button", "show_interface_button", "focus_mode_button"):
-            button = getattr(panel, attr, None)
-            if button is None:
-                continue
-            try:
-                button.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
-            except Exception:
-                pass
-        self._update_legacy_aux_dock_background(getattr(self, "preview_dock", None))
-        self._update_legacy_aux_dock_background(getattr(self, "visual_reply_dock", None))
-
-    def _schedule_dock_owner_refresh(self, dock):
-        if dock is None or not _WIN32_DOCK_OWNER_SUPPORTED:
-            return
-        QtCore.QTimer.singleShot(0, lambda d=dock: self._refresh_native_dock_owner(d))
-
-    def _refresh_native_dock_owner(self, dock):
-        if dock is None or not _WIN32_DOCK_OWNER_SUPPORTED:
-            return
-        try:
-            hwnd = int(dock.winId())
-            object_name = str(dock.objectName() or "").strip()
-            pinned = bool(object_name and object_name in getattr(self, "_pinned_floating_dock_names", set()))
-            owner = 0 if dock.isFloating() and pinned else int(self.winId())
-            _win32_set_window_owner(hwnd, _WIN32_GWLP_HWNDPARENT, ctypes.c_void_p(owner))
-        except Exception:
-            pass
-
-    def changeEvent(self, event):
-        try:
-            if event.type() == QtCore.QEvent.WindowStateChange:
-                if bool(self.windowState() & QtCore.Qt.WindowMinimized):
-                    self._capture_floating_panels_for_minimize()
-                    self._restore_floating_panels_timer.start(0)
-                    QtCore.QTimer.singleShot(250, self._restore_floating_panels_after_minimize)
-                    QtCore.QTimer.singleShot(900, self._restore_floating_panels_after_minimize)
-        except Exception:
-            pass
-        super().changeEvent(event)
-
-    def _collect_preservable_floating_panels(self):
-        panels = []
-        seen = set()
-        for dock in self.findChildren(QtWidgets.QDockWidget):
-            if not dock.isFloating() or not dock.isVisible():
-                continue
-            key = id(dock)
-            if key in seen:
-                continue
-            seen.add(key)
-            panels.append(dock)
-        stage = getattr(self, "_musetalk_stage_window", None)
-        if stage is not None and stage.isVisible():
-            panels.append(stage)
-        external_return = getattr(self, "_external_avatar_return_window", None)
-        if external_return is not None and external_return.isVisible():
-            panels.append(external_return)
-        return panels
-
-    def _capture_floating_panels_for_minimize(self):
-        pinned = self._collect_pinned_floating_docks()
-        self._floating_panels_preserved = pinned if pinned else []
-
-    def _restore_floating_panels_after_minimize(self):
-        preserved = list(getattr(self, "_floating_panels_preserved", []) or [])
-        if not preserved:
-            return
-        for panel in preserved:
-            try:
-                if panel is None:
-                    continue
-                if isinstance(panel, QtWidgets.QDockWidget) and not panel.isFloating():
-                    continue
-                panel.setWindowState(panel.windowState() & ~QtCore.Qt.WindowMinimized)
-                panel.showNormal()
-                panel.show()
-                panel.raise_()
-                panel.activateWindow()
-            except Exception:
-                continue
-
-    def _collect_pinned_floating_docks(self):
-        pinned_names = set(getattr(self, "_pinned_floating_dock_names", set()) or set())
-        panels = []
-        seen = set()
-        for dock in self.findChildren(QtWidgets.QDockWidget):
-            object_name = str(dock.objectName() or "").strip()
-            if not object_name or object_name not in pinned_names:
-                continue
-            if not dock.isFloating() or not dock.isVisible():
-                continue
-            key = id(dock)
-            if key in seen:
-                continue
-            seen.add(key)
-            panels.append(dock)
-        return panels
-
-    def _hide_main_preserving_pinned_floating_docks(self):
-        self._pinned_floating_panels_preserved = self._collect_pinned_floating_docks()
-        self.hide()
-        self._restore_pinned_floating_panels_timer.start(0)
-
-    def _restore_pinned_floating_panels_after_main_hide(self):
-        preserved = list(getattr(self, "_pinned_floating_panels_preserved", []) or [])
-        for dock in preserved:
-            try:
-                if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not dock.isFloating():
-                    continue
-                self._apply_legacy_dock_window_flags(dock)
-                dock.showNormal()
-                dock.show()
-                dock.raise_()
-            except Exception:
-                continue
-
-    def _build_workspace_menu(self):
-        menu_bar = self.menuBar()
-        self.workspace_menu = menu_bar.addMenu("Workspace")
-        if hasattr(self, "system_shaping_dock"):
-            self.workspace_menu.addAction(self.system_shaping_dock.toggleViewAction())
-        if hasattr(self, "workspace_tabs_dock"):
-            self.workspace_menu.addAction(self.workspace_tabs_dock.toggleViewAction())
-        if hasattr(self, "operational_dock"):
-            self.workspace_menu.addAction(self.operational_dock.toggleViewAction())
-        self.workspace_menu.addSeparator()
-        reset_action = self.workspace_menu.addAction("Reset Workspace Layout")
-        reset_action.triggered.connect(self.reset_workspace_layout)
-        show_all_action = self.workspace_menu.addAction("Show All Panels")
-        show_all_action.triggered.connect(self.show_all_workspace_panels)
-
-    def show_all_workspace_panels(self):
-        if hasattr(self, "system_shaping_dock"):
-            self.system_shaping_dock.show()
-            self.system_shaping_dock.raise_()
-        if hasattr(self, "workspace_tabs_dock"):
-            self.workspace_tabs_dock.show()
-            self.workspace_tabs_dock.raise_()
-        if hasattr(self, "operational_dock"):
-            self.operational_dock.show()
-            self.operational_dock.raise_()
-        if hasattr(self, "preview_dock"):
-            self.preview_dock.show()
-        if hasattr(self, "visual_reply_dock"):
-            self.visual_reply_dock.show()
-        print("[QtGUI] Workspace panels shown.")
-
-    def reset_workspace_layout(self):
-        if getattr(self, "_musetalk_avatar_focus_active", False):
-            self.exit_musetalk_avatar_focus(raise_main=False)
-        if getattr(self, "_external_avatar_focus_active", False):
-            self.exit_external_avatar_focus(raise_main=False)
-        if hasattr(self, "system_shaping_dock"):
-            self.system_shaping_dock.setFloating(False)
-            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
-            self.system_shaping_dock.show()
-        if hasattr(self, "workspace_tabs_dock"):
-            self.workspace_tabs_dock.setFloating(False)
-            self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.workspace_tabs_dock)
-            self.workspace_tabs_dock.show()
-            if hasattr(self, "system_shaping_dock"):
-                try:
-                    self.tabifyDockWidget(self.system_shaping_dock, self.workspace_tabs_dock)
-                except Exception:
-                    pass
-        if hasattr(self, "operational_dock"):
-            self.operational_dock.setFloating(False)
-            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.operational_dock)
-            self.operational_dock.show()
-        if hasattr(self, "preview_dock"):
-            self.preview_dock.setFloating(False)
-            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
-            self.preview_dock.hide()
-        if hasattr(self, "visual_reply_dock"):
-            self.visual_reply_dock.setFloating(False)
-            self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
-            self.visual_reply_dock.hide()
-        if hasattr(self, "preview_dock") and hasattr(self, "visual_reply_dock"):
-            try:
-                self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
-            except Exception:
-                pass
-        try:
-            self.resizeDocks(
-                [self.system_shaping_dock, self.operational_dock],
-                [520, 720],
-                QtCore.Qt.Horizontal,
-            )
-        except Exception:
-            pass
-        print("[QtGUI] Workspace layout reset.")
 
     def _build_preview_dock(self):
         self.preview_dock = QtWidgets.QDockWidget("MuseTalk Preview", self)
