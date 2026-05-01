@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 
 
-DEFAULT_VAM_ROOT = r"D:\tools\python_scripts\VaM 1.20.0.6"
+DEFAULT_VAM_ROOT = os.environ.get("NC_VAM_ROOT", "")
 DEFAULT_TARGET_ATOM_UID = "Person"
 DEFAULT_TARGET_STORABLE_ID = "plugin#0_NeuralCompanionBridge"
 

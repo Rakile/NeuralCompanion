@@ -200,7 +200,6 @@ def find_generated_video(draft_dir: Path) -> Path | None:
 
 def detect_wan2gp_root() -> Path | None:
     candidates = [
-        Path(r"H:\Tools\Python_Scripts\Wan2GP"),
         Path.cwd().parent / "Wan2GP",
         Path.cwd() / "Wan2GP",
     ]

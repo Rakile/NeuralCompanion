@@ -7,7 +7,7 @@ the binders easier to split without changing runtime behavior.
 from collections import OrderedDict
 
 
-UI_SHELL_DEFAULT_LOCAL_VAM_ROOT = r"I:\wam\VaM 1.20.0.6"
+UI_SHELL_DEFAULT_LOCAL_VAM_ROOT = ""
 UI_SHELL_BODY_EMOTIONS = ("Neutral", "Happy", "Sad", "Angry", "Shy", "Surprised")
 
 WORKSPACE_VIEW_MIN_WIDTH = 890

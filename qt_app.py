@@ -2633,7 +2633,7 @@ from engine import (
 
 APP_TITLE = "Neural Interface Qt (Experimental)"
 SESSION_PATH = Path("qt_session.json")
-DEFAULT_LOCAL_VAM_ROOT = r"I:\wam\VaM 1.20.0.6"
+DEFAULT_LOCAL_VAM_ROOT = ""
 DEFAULT_LOCAL_VAM_EXECUTABLE = "VaM.exe"
 DEFAULT_LOCAL_VAM_DESKTOP_LAUNCHER = "VaM (Desktop Mode).bat"
 DEFAULT_LOCAL_VAM_VR_LAUNCHER = "VaM (OpenVR).bat"

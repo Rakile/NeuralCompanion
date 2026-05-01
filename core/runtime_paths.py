@@ -28,7 +28,6 @@ def detect_default_vam_root(*, app_root: Path, environ=None) -> str:
 
     root = Path(app_root)
     candidates = [
-        Path("D:/tools/python_scripts/VaM 1.20.0.6"),
         root.parent / "VaM 1.20.0.6",
         root.parent / "VaM",
     ]
@@ -60,7 +59,6 @@ def legacy_vam_bridge_roots(*, app_root: Path) -> tuple[str, ...]:
     return tuple(
         dict.fromkeys(
             [
-                normalized_abs_path("D:/tools/python_scripts/VaM 1.20.0.6/Custom/PluginData/NeuralCompanionBridge"),
                 normalized_abs_path(root.parent / "VaM 1.20.0.6" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
                 normalized_abs_path(root.parent / "VaM" / "Custom" / "PluginData" / "NeuralCompanionBridge"),
                 normalized_abs_path(root / "runtime" / "vam_bridge"),

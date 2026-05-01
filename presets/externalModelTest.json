@@ -42,7 +42,7 @@
     "chat_context_window_messages": 20,
     "stored_chat_history_limit": 0,
     "chat_context_overflow_policy": "rolling_window",
-    "pocket_tts_python": "Q:\\Nc main new innan jesper resa\\NeuralCompanion\\.venvs\\pockettts\\Scripts\\python.exe",
+    "pocket_tts_python": "",
     "emotional_instructions": "You have a graphical face and a voice. Use them to act out your responses vividly.\nVISUAL MOODS (State-based):\nInsert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.\nValid Tags: [neutral], [happy], [sad], [angry], [shy], [surprised]\n\nVOICE SOUNDS (Action-based):\nInsert one of these tags to express a vocal emotion at any given moment.\nValid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]\n\nExample of how to use tags in a sentence:\n\"[surprised] You did what? [laugh] [surprised] Oh my god, are you okay? [happy] Or just clumsy?\"\n\nDo NOT use emojis when speaking!",
     "system_prompt": "System prompt",
     "temperature": 0.7,

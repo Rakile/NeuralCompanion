@@ -91,8 +91,6 @@ class LoopAuthoringController(QtCore.QObject):
             os.environ.get("MAMBA_EXE", ""),
         ]
         path_candidates = [
-            r"E:\miniconda3\condabin\conda.bat",
-            r"E:\miniconda3\Scripts\conda.exe",
             r"C:\ProgramData\miniconda3\condabin\conda.bat",
             r"C:\ProgramData\miniconda3\Scripts\conda.exe",
             r"C:\ProgramData\Anaconda3\condabin\conda.bat",
