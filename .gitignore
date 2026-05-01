@@ -24,7 +24,9 @@ MuseTalk/data/*
 MuseTalk/results/default_avatar/
 MuseTalk/results/v15/avatars/
 MuseTalk/results/v15/avatar_packs/*
-!MuseTalk/results/v15/avatar_packs/.gitkeep
+avatar_packs/*
+!avatar_packs/.gitkeep
+!avatar_packs/README.md
 LoopAuthoring/drafts/*
 !LoopAuthoring/drafts/.gitkeep
 addons/**/__pycache__/

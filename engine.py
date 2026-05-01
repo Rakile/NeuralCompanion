@@ -1340,14 +1340,12 @@ def get_available_emotion_names(force_refresh=False):
     except Exception:
         pass
     avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
-    packs_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatar_packs"))
     try:
         packs = discover_avatar_packs(
             default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
             legacy_transitions=MUSE_AVATAR_TRANSITIONS,
             avatars_dir=Path(avatars_root),
-            packs_dir=Path(packs_root),
             include_legacy=False,
             include_standalone=False,
         )
@@ -6030,4 +6028,3 @@ if __name__ == "__main__":
         run_companion()
     except KeyboardInterrupt:
         stop_flag.set()
-

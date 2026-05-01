@@ -8,7 +8,9 @@ from typing import Any
 
 MUSE_RESULTS_DIR = Path("MuseTalk") / "results" / "v15"
 MUSE_AVATAR_RESULTS_DIR = MUSE_RESULTS_DIR / "avatars"
-MUSE_AVATAR_PACKS_DIR = MUSE_RESULTS_DIR / "avatar_packs"
+NC_AVATAR_PACKS_DIR = Path("avatar_packs")
+LEGACY_MUSE_AVATAR_PACKS_DIR = MUSE_RESULTS_DIR / "avatar_packs"
+MUSE_AVATAR_PACKS_DIR = NC_AVATAR_PACKS_DIR
 MUSE_AVATAR_POSE_FILENAME = "avatar_pose.json"
 MUSE_AVATAR_PACK_MANIFEST_FILENAME = "manifest.json"
 
@@ -390,6 +392,25 @@ def build_implicit_avatar_pack(pack_dir: Path) -> MuseTalkAvatarPack | None:
     )
 
 
+def avatar_pack_search_dirs(packs_dir: Path | None = None, *, include_legacy: bool = True) -> tuple[Path, ...]:
+    """Return avatar-pack roots in preference order.
+
+    NC-owned packs live at repo-root ``avatar_packs/``. The old MuseTalk
+    results path remains readable so existing prepared packs keep working.
+    """
+    roots: list[Path] = [Path(packs_dir or NC_AVATAR_PACKS_DIR)]
+    if include_legacy:
+        roots.append(LEGACY_MUSE_AVATAR_PACKS_DIR)
+    deduped: list[Path] = []
+    seen: set[str] = set()
+    for root in roots:
+        key = str(Path(root))
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(Path(root))
+    return tuple(deduped)
+
+
 def discover_avatar_packs(
     default_avatar_id: str,
     legacy_map: dict[str, str] | None = None,
@@ -400,7 +421,6 @@ def discover_avatar_packs(
     include_standalone: bool = True,
 ) -> dict[str, MuseTalkAvatarPack]:
     avatars_root = Path(avatars_dir or MUSE_AVATAR_RESULTS_DIR)
-    packs_root = Path(packs_dir or MUSE_AVATAR_PACKS_DIR)
     packs: dict[str, MuseTalkAvatarPack] = {}
     referenced_avatar_ids: set[str] = set()
 
@@ -409,7 +429,9 @@ def discover_avatar_packs(
         packs[legacy_pack.pack_id] = legacy_pack
         referenced_avatar_ids.update(legacy_pack.referenced_avatar_ids())
 
-    if packs_root.exists():
+    for packs_root in avatar_pack_search_dirs(packs_dir):
+        if not packs_root.exists():
+            continue
         for child in sorted(packs_root.iterdir()):
             if not child.is_dir():
                 continue
@@ -426,6 +448,10 @@ def discover_avatar_packs(
                 except Exception:
                     pack = None
             if pack is None:
+                continue
+            # Earlier roots win. This lets repo-root avatar_packs override legacy
+            # MuseTalk results packs with the same id.
+            if pack.pack_id in packs:
                 continue
             packs[pack.pack_id] = pack
             referenced_avatar_ids.update(pack.referenced_avatar_ids())

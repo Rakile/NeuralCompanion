@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from core.musetalk_avatar_packs import discover_avatar_packs
+from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, avatar_pack_search_dirs, discover_avatar_packs
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
 
 
@@ -37,7 +37,6 @@ engine = _LazyModuleProxy("engine")
 musetalk_bridge = _LazyModuleProxy("musetalk_bridge")
 
 MUSE_AVATAR_RESULTS_DIR = Path("MuseTalk") / "results" / "v15" / "avatars"
-MUSE_AVATAR_PACKS_DIR = Path("MuseTalk") / "results" / "v15" / "avatar_packs"
 MUSE_STANDALONE_TARGET_PACK_ID = "__standalone__"
 MUSE_VRAM_MODE_LABELS = {
     "quality": "Quality",
@@ -139,7 +138,6 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 legacy_map=getattr(engine, "MUSE_EMOTION_AVATAR_MAP", {}) if engine.is_loaded() else {},
                 legacy_transitions=getattr(engine, "MUSE_AVATAR_TRANSITIONS", {}) if engine.is_loaded() else {},
                 avatars_dir=MUSE_AVATAR_RESULTS_DIR,
-                packs_dir=MUSE_AVATAR_PACKS_DIR,
                 include_legacy=False,
                 include_standalone=False,
             )
@@ -325,15 +323,25 @@ class MuseTalkPreprocessController(QtCore.QObject):
             if selected:
                 return selected
         runtime_pack_id = str(self._runtime_config_value("musetalk_avatar_pack_id", "") or "").strip()
-        if runtime_pack_id and (MUSE_AVATAR_PACKS_DIR / runtime_pack_id).is_dir():
+        if runtime_pack_id and self._musetalk_pack_root_for_id(runtime_pack_id).is_dir():
             return runtime_pack_id
         return MUSE_STANDALONE_TARGET_PACK_ID
+
+    def _musetalk_pack_root_for_id(self, pack_id):
+        clean_pack_id = str(pack_id or "").strip()
+        if not clean_pack_id:
+            return MUSE_AVATAR_PACKS_DIR
+        for root in avatar_pack_search_dirs():
+            candidate = Path(root) / clean_pack_id
+            if candidate.is_dir():
+                return candidate
+        return MUSE_AVATAR_PACKS_DIR / clean_pack_id
 
     def _musetalk_target_pack_root(self, pack_id=None):
         selected_pack_id = str(pack_id or self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip() or MUSE_STANDALONE_TARGET_PACK_ID
         if selected_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
             return MUSE_AVATAR_RESULTS_DIR
-        return MUSE_AVATAR_PACKS_DIR / selected_pack_id
+        return self._musetalk_pack_root_for_id(selected_pack_id)
 
     def _musetalk_target_avatar_root(self, avatar_id, pack_id=None):
         clean_avatar_id = self._sanitize_avatar_id(avatar_id)
@@ -361,7 +369,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
         musetalk_intro = QtWidgets.QLabel(
             "Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. "
-            "The app will create or update either flat avatars under MuseTalk/results/v15/avatars/<avatar_id> or pack variants under MuseTalk/results/v15/avatar_packs/<pack>/<avatar_id>."
+            "The app will create or update either flat avatars under MuseTalk/results/v15/avatars/<avatar_id> or pack variants under avatar_packs/<pack>/<avatar_id>."
         )
         musetalk_intro.setWordWrap(True)
         musetalk_intro.setStyleSheet("color: #9fb3c8;")
@@ -957,10 +965,13 @@ class MuseTalkPreprocessController(QtCore.QObject):
             return
         requested = str(selected_pack_id or combo.currentData() or self._current_musetalk_target_pack_id()).strip() or MUSE_STANDALONE_TARGET_PACK_ID
         pack_ids = []
-        if MUSE_AVATAR_PACKS_DIR.exists():
-            for child in sorted(MUSE_AVATAR_PACKS_DIR.iterdir()):
+        for packs_root in avatar_pack_search_dirs():
+            if not packs_root.exists():
+                continue
+            for child in sorted(Path(packs_root).iterdir()):
                 if child.is_dir():
                     pack_ids.append(child.name)
+        pack_ids = list(dict.fromkeys(pack_ids))
         combo.blockSignals(True)
         combo.clear()
         combo.addItem("Standalone Avatars", MUSE_STANDALONE_TARGET_PACK_ID)

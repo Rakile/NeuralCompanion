@@ -294,13 +294,12 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
             legacy_transitions=MUSE_AVATAR_TRANSITIONS,
             avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
-            packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
             include_legacy=False,
             include_standalone=False,
         )
         self.available_avatar_packs = dict(packs)
         if not self.available_avatar_packs:
-            raise LookupError("No MuseTalk avatar packs found under MuseTalk/results/v15/avatar_packs.")
+            raise LookupError("No MuseTalk avatar packs found under avatar_packs or legacy MuseTalk/results/v15/avatar_packs.")
         selected = packs.get(requested_pack_id)
         if selected is None:
             try:
@@ -310,7 +309,6 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                     legacy_map=MUSE_EMOTION_AVATAR_MAP,
                     legacy_transitions=MUSE_AVATAR_TRANSITIONS,
                     avatars_dir=Path(self.root_dir) / "results" / "v15" / "avatars",
-                    packs_dir=Path(self.root_dir) / "results" / "v15" / "avatar_packs",
                     include_legacy=False,
                     include_standalone=False,
                 )
