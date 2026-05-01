@@ -14,6 +14,15 @@ from tqdm import tqdm
 
 SHOW_PREPROCESS_PROGRESS = False
 
+
+def _bbox_range_message(frame_count, average_range_minus, average_range_plus, upperbondrange):
+    return (
+        f"Total frames: {frame_count} Manually adjust range: "
+        f"[ -{int(sum(average_range_minus) / len(average_range_minus))}"
+        f"~{int(sum(average_range_plus) / len(average_range_plus))} ], "
+        f"current value: {upperbondrange}"
+    )
+
 # initialize the mmpose model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 config_file = './musetalk/utils/dwpose/rtmpose-l_8xb32-270e_coco-ubody-wholebody-384x288.py'
@@ -78,7 +87,7 @@ def get_bbox_range(img_list,upperbondrange =0):
             if upperbondrange != 0:
                 half_face_coord[1] = upperbondrange+half_face_coord[1] #手动调整  + 向下（偏29）  - 向上（偏28）
 
-    text_range=f"Total frame:「{len(frames)}」 Manually adjust range : [ -{int(sum(average_range_minus) / len(average_range_minus))}~{int(sum(average_range_plus) / len(average_range_plus))} ] , the current value: {upperbondrange}"
+    text_range = _bbox_range_message(len(frames), average_range_minus, average_range_plus, upperbondrange)
     return text_range
     
 
@@ -133,7 +142,7 @@ def get_landmark_and_bbox(img_list,upperbondrange =0):
                 coords_list += [f_landmark]
     
     print("********************************************bbox_shift parameter adjustment**********************************************************")
-    print(f"Total frame:「{len(frames)}」 Manually adjust range : [ -{int(sum(average_range_minus) / len(average_range_minus))}~{int(sum(average_range_plus) / len(average_range_plus))} ] , the current value: {upperbondrange}")
+    print(_bbox_range_message(len(frames), average_range_minus, average_range_plus, upperbondrange))
     print("*************************************************************************************************************************************")
     return coords_list,frames
     

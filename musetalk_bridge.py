@@ -64,9 +64,14 @@ class MuseTalkBridge:
             if vram_mode:
                 command.extend(["--vram-mode", vram_mode])
 
+            worker_env = dict(os.environ)
+            worker_env.setdefault("PYTHONUTF8", "1")
+            worker_env.setdefault("PYTHONIOENCODING", "utf-8")
+
             self.process = subprocess.Popen(
                 command,
                 cwd=self.root_dir,
+                env=worker_env,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,

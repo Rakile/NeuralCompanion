@@ -11,6 +11,20 @@ from musetalk_engine import MuseTalkEngine
 WORKER_DIAGNOSTIC_LOGGING = False
 
 
+def _configure_stdio_encoding():
+    for stream_name in ("stdin", "stdout", "stderr"):
+        stream = getattr(sys, stream_name, None)
+        if not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
+
+_configure_stdio_encoding()
+
+
 def to_abs(path):
     if not path:
         return path
