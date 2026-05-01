@@ -7,6 +7,7 @@ import threading
 import uuid
 
 MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
+MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 _PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
 
 
@@ -27,6 +28,7 @@ class MuseTalkBridge:
         self.runtime_dir = os.path.join(self.root_dir, "runtime")
         self.log_path = os.path.join(self.runtime_dir, "musetalk_worker.log")
         self.worker_options = dict(worker_options or {})
+        self.log_worker_output = bool(self.worker_options.get("log_worker_output", MUSE_BRIDGE_WORKER_LOG))
         self.process = None
         self.pending = {}
         self._reader_thread = None
@@ -189,11 +191,12 @@ class MuseTalkBridge:
                 continue
             if _is_progress_noise_line(line):
                 continue
-            try:
-                with open(self.log_path, "a", encoding="utf-8") as log_file:
-                    log_file.write(line + "\n")
-            except Exception:
-                pass
+            if self.log_worker_output:
+                try:
+                    with open(self.log_path, "a", encoding="utf-8") as log_file:
+                        log_file.write(line + "\n")
+                except Exception:
+                    pass
             try:
                 payload = json.loads(line)
             except json.JSONDecodeError:
