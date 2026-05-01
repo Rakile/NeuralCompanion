@@ -421,6 +421,17 @@ class MainUiRealSurfacesMixin:
             frontend_dock = self._ui_object("VisualReplyDock")
             if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
                 return
+            backend_dock = getattr(self.backend, "visual_reply_dock", None)
+            if backend_dock is not None and backend_dock is not frontend_dock:
+                # The hidden legacy backend restores its own Visual Reply dock
+                # before the real-UI surface redirect runs. If that saved dock
+                # was visible/floating, Qt keeps it alive as a separate top-level
+                # window. Hide it before replacing backend.visual_reply_dock with
+                # the real main.ui dock so only one Visual Reply surface remains.
+                try:
+                    backend_dock.hide()
+                except Exception:
+                    pass
             old_widget = None
             try:
                 old_widget = frontend_dock.widget()

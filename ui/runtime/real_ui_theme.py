@@ -1,3 +1,5 @@
+import json
+
 from PySide6 import QtCore, QtWidgets
 
 
@@ -95,11 +97,16 @@ QDockWidget::float-button:hover {{
                     except Exception:
                         pass
                     try:
+                        dock.topLevelChanged.connect(lambda _floating=False, d=dock: self._schedule_frontend_dock_owner_refresh(d))
+                    except Exception:
+                        pass
+                    try:
                         dock.windowTitleChanged.connect(lambda _title="", d=dock: self._update_frontend_dock_title_widget(d))
                     except Exception:
                         pass
                 title_bar.setProperty("nc_theme_palette", dict(palette or {}))
                 self._update_frontend_dock_title_widget(dock)
+                self._schedule_frontend_dock_owner_refresh(dock)
 
     def _create_frontend_dock_title_widget(self, dock):
             title_bar = QtWidgets.QWidget()
@@ -120,6 +127,20 @@ QDockWidget::float-button:hover {{
             float_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_frontend_dock_floating(d))
             layout.addWidget(float_button)
 
+            pin_button = QtWidgets.QToolButton()
+            pin_button.setObjectName("ncDockPinButton")
+            pin_button.setCheckable(True)
+            pin_button.setAutoRaise(True)
+            pin_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_frontend_dock_pinned(d))
+            layout.addWidget(pin_button)
+
+            top_button = QtWidgets.QToolButton()
+            top_button.setObjectName("ncDockTopButton")
+            top_button.setCheckable(True)
+            top_button.setAutoRaise(True)
+            top_button.clicked.connect(lambda _checked=False, d=dock: self._toggle_frontend_dock_always_on_top(d))
+            layout.addWidget(top_button)
+
             close_button = QtWidgets.QToolButton()
             close_button.setObjectName("ncDockCloseButton")
             close_button.setText("X")
@@ -135,10 +156,138 @@ QDockWidget::float-button:hover {{
                 return
             try:
                 dock.setFloating(not bool(dock.isFloating()))
+                self._apply_frontend_dock_window_flags(dock)
+                self._schedule_frontend_dock_owner_refresh(dock)
                 dock.show()
                 dock.raise_()
             except Exception:
                 pass
+
+    def _frontend_session_payload(self):
+            try:
+                payload = json.loads(SESSION_PATH.read_text(encoding="utf-8")) if SESSION_PATH.exists() else {}
+                return payload if isinstance(payload, dict) else {}
+            except Exception:
+                return {}
+
+    def _write_frontend_session_payload_for_dock_flags(self, payload):
+            try:
+                SESSION_PATH.write_text(json.dumps(payload or {}, indent=4), encoding="utf-8")
+            except Exception:
+                pass
+
+    def _frontend_dock_flag_names(self, key):
+            payload = self._frontend_session_payload()
+            values = payload.get(key, [])
+            return {
+                str(item or "").strip()
+                for item in list(values or [])
+                if str(item or "").strip()
+            }
+
+    def _set_frontend_dock_flag(self, dock, key, enabled):
+            if dock is None:
+                return
+            object_name = str(dock.objectName() or "").strip()
+            if not object_name:
+                return
+            payload = self._frontend_session_payload()
+            names = {
+                str(item or "").strip()
+                for item in list(payload.get(key, []) or [])
+                if str(item or "").strip()
+            }
+            if enabled:
+                names.add(object_name)
+            else:
+                names.discard(object_name)
+            payload[key] = sorted(names)
+            self._write_frontend_session_payload_for_dock_flags(payload)
+            self._apply_frontend_dock_window_flags(dock)
+            self._schedule_frontend_dock_owner_refresh(dock)
+            self._update_frontend_dock_title_widget(dock)
+            try:
+                if hasattr(self, "_save_frontend_layout_state"):
+                    self._save_frontend_layout_state()
+            except Exception:
+                pass
+
+    def _toggle_frontend_dock_pinned(self, dock):
+            object_name = str(dock.objectName() or "").strip() if dock is not None else ""
+            self._set_frontend_dock_flag(dock, "pinned_floating_docks", object_name not in self._frontend_dock_flag_names("pinned_floating_docks"))
+
+    def _toggle_frontend_dock_always_on_top(self, dock):
+            object_name = str(dock.objectName() or "").strip() if dock is not None else ""
+            self._set_frontend_dock_flag(dock, "always_on_top_floating_docks", object_name not in self._frontend_dock_flag_names("always_on_top_floating_docks"))
+
+    def _apply_frontend_dock_window_flags(self, dock):
+            if dock is None:
+                return
+            object_name = str(dock.objectName() or "").strip()
+            always_on_top = bool(object_name and object_name in self._frontend_dock_flag_names("always_on_top_floating_docks"))
+            try:
+                was_visible = bool(dock.isVisible())
+                dock.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint, bool(always_on_top and dock.isFloating()))
+                if was_visible and dock.isFloating():
+                    dock.show()
+            except Exception:
+                pass
+
+    def _schedule_frontend_dock_owner_refresh(self, dock):
+            if dock is None or not bool(globals().get("_WIN32_DOCK_OWNER_SUPPORTED", False)):
+                return
+            QtCore.QTimer.singleShot(0, lambda d=dock: self._refresh_frontend_native_dock_owner(d))
+
+    def _refresh_frontend_native_dock_owner(self, dock):
+            if dock is None or self.window is None or not bool(globals().get("_WIN32_DOCK_OWNER_SUPPORTED", False)):
+                return
+            try:
+                object_name = str(dock.objectName() or "").strip()
+                pinned = bool(object_name and object_name in self._frontend_dock_flag_names("pinned_floating_docks"))
+                owner = 0 if dock.isFloating() and pinned else int(self.window.winId())
+                setter = globals().get("_win32_set_window_owner")
+                ctypes_module = globals().get("ctypes")
+                if setter is None or ctypes_module is None:
+                    return
+                setter(int(dock.winId()), int(globals().get("_WIN32_GWLP_HWNDPARENT", -8)), ctypes_module.c_void_p(owner))
+            except Exception:
+                pass
+
+    def _collect_frontend_pinned_floating_docks(self):
+            pinned_names = self._frontend_dock_flag_names("pinned_floating_docks")
+            panels = []
+            seen = set()
+            if self.window is None:
+                return panels
+            for dock in self.window.findChildren(QtWidgets.QDockWidget):
+                object_name = str(dock.objectName() or "").strip()
+                if not object_name or object_name not in pinned_names:
+                    continue
+                if not dock.isFloating() or not dock.isVisible():
+                    continue
+                key = id(dock)
+                if key in seen:
+                    continue
+                seen.add(key)
+                panels.append(dock)
+            return panels
+
+    def _hide_frontend_main_preserving_pinned_floating_docks(self):
+            preserved = self._collect_frontend_pinned_floating_docks()
+            self.window.hide()
+            QtCore.QTimer.singleShot(0, lambda items=preserved: self._restore_frontend_pinned_floating_docks(items))
+
+    def _restore_frontend_pinned_floating_docks(self, panels):
+            for dock in list(panels or []):
+                try:
+                    if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not dock.isFloating():
+                        continue
+                    self._apply_frontend_dock_window_flags(dock)
+                    dock.showNormal()
+                    dock.show()
+                    dock.raise_()
+                except Exception:
+                    continue
 
     def _update_frontend_dock_title_widget(self, dock):
             title_bar = dock.titleBarWidget() if dock is not None else None
@@ -165,6 +314,8 @@ QLabel#ncDockTitleLabel {{
     border: 0;
 }}
 QToolButton#ncDockFloatButton,
+QToolButton#ncDockPinButton,
+QToolButton#ncDockTopButton,
 QToolButton#ncDockCloseButton {{
     color: {text};
     background: {button_bg};
@@ -174,8 +325,15 @@ QToolButton#ncDockCloseButton {{
     min-width: 42px;
 }}
 QToolButton#ncDockFloatButton:hover,
+QToolButton#ncDockPinButton:hover,
+QToolButton#ncDockTopButton:hover,
 QToolButton#ncDockCloseButton:hover {{
     background: {button_hover_bg};
+}}
+QToolButton#ncDockPinButton:checked,
+QToolButton#ncDockTopButton:checked {{
+    background: {button_hover_bg};
+    border-color: {palette.get("accent", "#4d8dff")};
 }}
 QToolButton#ncDockCloseButton {{
     background: {panel_bg};
@@ -190,6 +348,20 @@ QToolButton#ncDockCloseButton {{
                 floating = bool(dock.isFloating())
                 float_button.setText("Dock" if floating else "Float")
                 float_button.setToolTip("Dock panel" if floating else "Undock panel")
+            object_name = str(dock.objectName() or "")
+            pinned = object_name in self._frontend_dock_flag_names("pinned_floating_docks")
+            always_on_top = object_name in self._frontend_dock_flag_names("always_on_top_floating_docks")
+            pin_button = title_bar.findChild(QtWidgets.QToolButton, "ncDockPinButton")
+            if pin_button is not None:
+                pin_button.setText("Pinned" if pinned else "Pin")
+                pin_button.setToolTip("Keep this floating panel visible when the main window is hidden")
+                pin_button.setChecked(bool(pinned))
+            top_button = title_bar.findChild(QtWidgets.QToolButton, "ncDockTopButton")
+            if top_button is not None:
+                top_button.setText("Top")
+                top_button.setToolTip("Keep this floating panel above other windows")
+                top_button.setChecked(bool(always_on_top))
+            self._apply_frontend_dock_window_flags(dock)
 
     def _frontend_horizontal_tab_stylesheet(self):
             # The Designer/runtime theme intentionally keeps icon-sidebar tabs narrow,

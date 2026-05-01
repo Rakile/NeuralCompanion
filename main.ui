@@ -322,10 +322,10 @@ QTabWidget#host_settings_tabs QTabBar::tab,
 QTabWidget#left_tabs QTabBar::tab {
     background: #18202a;
     border: 1px solid #273342;
-    min-width: 34px;
-    max-width: 34px;
+    min-width: 92px;
+    max-width: 180px;
     min-height: 34px;
-    padding: 3px 6px 13px 6px;
+    padding: 6px 12px 12px 12px;
     margin-bottom: 4px;
     margin-right: 0px;
     border-top-left-radius: 10px;
@@ -418,7 +418,7 @@ QGroupBox::title {
   <widget class="QDockWidget" name="SystemShapingDock">
    <property name="minimumSize">
     <size>
-     <width>890</width>
+     <width>927</width>
      <height>804</height>
     </size>
    </property>
@@ -545,8 +545,8 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>1090</width>
-          <height>1430</height>
+          <width>891</width>
+          <height>1440</height>
          </rect>
         </property>
         <property name="minimumSize">
@@ -580,99 +580,99 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
          <item>
           <widget class="QWidget" name="micStatusRow" native="true">
            <layout class="QHBoxLayout" name="micStatusLayout">
-           <item>
-            <widget class="QFrame" name="listen_diode">
-             <property name="minimumSize">
-              <size>
-               <width>16</width>
-               <height>16</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16</width>
-               <height>16</height>
-              </size>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">background:#5b6675;border-radius:8px;</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QFrame" name="mic_diode">
-             <property name="minimumSize">
-              <size>
-               <width>16</width>
-               <height>16</height>
-              </size>
-             </property>
-             <property name="maximumSize">
-              <size>
-               <width>16</width>
-               <height>16</height>
-              </size>
-             </property>
-             <property name="styleSheet">
-              <string notr="true">background:#5b6675;border-radius:8px;</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="mic_status_label">
-             <property name="styleSheet">
-              <string notr="true">color:#9fb3c8;font-weight:600;</string>
-             </property>
-             <property name="text">
-              <string>Microphone idle</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="audio_input_device_label">
-             <property name="text">
-              <string>Input</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QComboBox" name="audio_input_device_combo">
-             <item>
-              <property name="text">
-               <string>Default Input</string>
+            <item>
+             <widget class="QFrame" name="listen_diode">
+              <property name="minimumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
               </property>
-             </item>
-            </widget>
-           </item>
-           <item>
-            <widget class="QLabel" name="audio_output_device_label">
-             <property name="text">
-              <string>Output</string>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QComboBox" name="audio_output_device_combo">
-             <item>
-              <property name="text">
-               <string>Default Output</string>
+              <property name="maximumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
               </property>
-             </item>
-            </widget>
-           </item>
-           <item>
-            <spacer name="micRowSpacer">
-             <property name="orientation">
-              <enum>Qt::Orientation::Horizontal</enum>
-             </property>
-             <property name="sizeHint" stdset="0">
-              <size>
-               <width>40</width>
-               <height>20</height>
-              </size>
-             </property>
-            </spacer>
-           </item>
+              <property name="styleSheet">
+               <string notr="true">background:#5b6675;border-radius:8px;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QFrame" name="mic_diode">
+              <property name="minimumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>16</width>
+                <height>16</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">background:#5b6675;border-radius:8px;</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="mic_status_label">
+              <property name="styleSheet">
+               <string notr="true">color:#9fb3c8;font-weight:600;</string>
+              </property>
+              <property name="text">
+               <string>Microphone idle</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="audio_input_device_label">
+              <property name="text">
+               <string>Input</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="audio_input_device_combo">
+              <item>
+               <property name="text">
+                <string>Default Input</string>
+               </property>
+              </item>
+             </widget>
+            </item>
+            <item>
+             <widget class="QLabel" name="audio_output_device_label">
+              <property name="text">
+               <string>Output</string>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QComboBox" name="audio_output_device_combo">
+              <item>
+               <property name="text">
+                <string>Default Output</string>
+               </property>
+              </item>
+             </widget>
+            </item>
+            <item>
+             <spacer name="micRowSpacer">
+              <property name="orientation">
+               <enum>Qt::Orientation::Horizontal</enum>
+              </property>
+              <property name="sizeHint" stdset="0">
+               <size>
+                <width>40</width>
+                <height>20</height>
+               </size>
+              </property>
+             </spacer>
+            </item>
            </layout>
           </widget>
          </item>
@@ -3015,7 +3015,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
          <rect>
           <x>0</x>
           <y>0</y>
-          <width>1045</width>
+          <width>1250</width>
           <height>780</height>
          </rect>
         </property>
@@ -4382,7 +4382,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
      <x>0</x>
      <y>0</y>
      <width>2215</width>
-     <height>33</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuWorkspace">

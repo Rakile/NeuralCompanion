@@ -304,23 +304,31 @@ def _apply_workspace_widget_bounds(widget, *, min_width=None, min_height=None, m
     except Exception:
         pass
 
-def _relax_docked_workspace_minimums(dock, *, min_width=None):
+def _relax_docked_workspace_minimums(dock, *, min_width=None, min_height=None):
     """Keep docked panels movable by preventing oversized child minimums from forcing tabification."""
     if dock is None:
         return
     if min_width is None:
         min_width = WORKSPACE_DOCKED_VIEW_MIN_WIDTH
+    if min_height is None:
+        min_height = 180
     try:
         if hasattr(dock, "setMinimumWidth"):
             dock.setMinimumWidth(max(0, int(min_width)))
+        if hasattr(dock, "setMinimumHeight"):
+            dock.setMinimumHeight(max(0, int(min_height)))
         content = dock.widget() if hasattr(dock, "widget") else None
         if content is None:
             return
         if hasattr(content, "setMinimumWidth"):
             content.setMinimumWidth(max(0, int(min_width)))
+        if hasattr(content, "setMinimumHeight"):
+            content.setMinimumHeight(max(0, int(min_height)))
         for child in content.findChildren(QtWidgets.QWidget):
             if hasattr(child, "setMinimumWidth"):
                 child.setMinimumWidth(0)
+            if hasattr(child, "setMinimumHeight"):
+                child.setMinimumHeight(0)
     except Exception:
         pass
 
@@ -409,4 +417,4 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
     for object_name in dock_specs:
         dock = _ui_shell_find_object(window, object_name)
         if dock is not None and isinstance(dock, _QtWidgets.QDockWidget) and not dock.isFloating():
-            _relax_docked_workspace_minimums(dock)
+            _relax_docked_workspace_minimums(dock, min_height=180)

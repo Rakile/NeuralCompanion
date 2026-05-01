@@ -687,7 +687,7 @@ class MainUiRealActionsMixin:
             stage_window.show()
             stage_window.raise_()
             stage_window.activateWindow()
-            self.window.hide()
+            self._hide_frontend_main_preserving_pinned_floating_docks()
             self._refresh_musetalk_preview_frontend()
 
     def _exit_frontend_musetalk_avatar_focus(self, *, raise_main=False):

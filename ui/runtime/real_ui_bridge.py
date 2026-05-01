@@ -37,6 +37,11 @@ def _configure_real_ui_theme_dependencies():
         "APP_THEME_PRESET_WIDGETS": APP_THEME_PRESET_WIDGETS,
         "DEFAULT_APP_THEME_PRESET": DEFAULT_APP_THEME_PRESET,
         "RUNTIME_CONFIG": RUNTIME_CONFIG,
+        "SESSION_PATH": SESSION_PATH,
+        "_WIN32_DOCK_OWNER_SUPPORTED": bool(globals().get("_WIN32_DOCK_OWNER_SUPPORTED", False)),
+        "_WIN32_GWLP_HWNDPARENT": int(globals().get("_WIN32_GWLP_HWNDPARENT", -8)),
+        "_win32_set_window_owner": globals().get("_win32_set_window_owner"),
+        "ctypes": globals().get("ctypes"),
         "_app_theme_palette": _app_theme_palette,
         "_apply_engine_action_button_accents": _apply_engine_action_button_accents,
         "_apply_inline_theme_styles": _apply_inline_theme_styles,
@@ -111,7 +116,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._closing = False
         self._session_read_only = bool(session_read_only)
         self._restoring_frontend_layout = False
-        self.backend = CompanionQtMainWindow()
+        self.backend = CompanionQtMainWindow(suppress_restored_aux_docks=True)
         self.backend._session_read_only = self._session_read_only
         self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
         self.backend.first_run = False
@@ -123,6 +128,14 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self.window.installEventFilter(self)
         self.window.setWindowTitle(f"{APP_TITLE} [main.ui Runtime]")
         self.window.setProperty("nc_ui_real_runtime", True)
+        # main.ui is authored with Qt's more aggressive dock flags
+        # (GroupedDragging/AnimatedDocks). Those can become unstable once the
+        # runtime bridge starts replacing dock contents with live widgets, so
+        # keep the real UI close to the legacy window's simpler dock behavior.
+        self.window.setDockOptions(
+            QtWidgets.QMainWindow.AllowNestedDocks
+            | QtWidgets.QMainWindow.AllowTabbedDocks
+        )
         self.window.setDockNestingEnabled(True)
         self.window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
         setattr(self.window, "_nc_ui_real_bridge", self)
@@ -210,6 +223,15 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
                     self.close()
                 elif event.type() in {QtCore.QEvent.Move, QtCore.QEvent.Resize, QtCore.QEvent.WindowStateChange}:
                     self._schedule_frontend_layout_save()
+                    if (
+                        event.type() == QtCore.QEvent.WindowStateChange
+                        and bool(self.window.windowState() & QtCore.Qt.WindowMinimized)
+                        and hasattr(self, "_collect_frontend_pinned_floating_docks")
+                    ):
+                        preserved = self._collect_frontend_pinned_floating_docks()
+                        QtCore.QTimer.singleShot(0, lambda items=preserved: self._restore_frontend_pinned_floating_docks(items))
+                        QtCore.QTimer.singleShot(250, lambda items=preserved: self._restore_frontend_pinned_floating_docks(items))
+                        QtCore.QTimer.singleShot(900, lambda items=preserved: self._restore_frontend_pinned_floating_docks(items))
             except Exception:
                 pass
         elif event is not None and event.type() == QtCore.QEvent.Resize:
