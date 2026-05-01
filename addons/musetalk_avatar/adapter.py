@@ -430,6 +430,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 "video_path": self.video_path,
                 "bbox_shift": bbox_shift,
                 "recreate": False,
+                "create_frame_cache": bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
             },
             timeout=600,
         )
@@ -449,15 +450,26 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             return
 
         runtime = timing.get("runtime_load") if isinstance(timing.get("runtime_load"), dict) else {}
+        cache_state = "unknown"
+        if runtime:
+            if runtime.get("frame_cache_hit"):
+                cache_state = "hit/mmap" if runtime.get("frame_cache_mmap") else "hit"
+            elif runtime.get("frame_cache_saved"):
+                cache_state = "miss/saved"
+            elif runtime.get("frame_cache_skipped"):
+                cache_state = f"skipped/{runtime.get('frame_cache_skipped')}"
+            else:
+                cache_state = "miss"
         print(
             "⏱️ [MuseTalkPrep] "
             f"{avatar_id}: request={request_seconds:.2f}s, "
             f"worker_total={float(timing.get('total_seconds', 0.0) or 0.0):.2f}s, "
-            f"material={float(timing.get('material_seconds', 0.0) or 0.0):.2f}s, "
             f"runtime_load={float(timing.get('runtime_load_seconds', 0.0) or 0.0):.2f}s, "
-            f"prepared_on_disk={bool(timing.get('prepared_folder_existed', False))}"
+            f"frames={float(runtime.get('frame_read_imgs_seconds', 0.0) or 0.0):.2f}s, "
+            f"masks={float(runtime.get('mask_read_imgs_seconds', 0.0) or 0.0):.2f}s, "
+            f"cache={cache_state}"
         )
-        if runtime:
+        if runtime and bool(RUNTIME_CONFIG.get("musetalk_prepare_timing_verbose", False)):
             print(
                 "   ↳ "
                 f"latents={float(runtime.get('latents_torch_load_seconds', 0.0) or 0.0):.2f}s "

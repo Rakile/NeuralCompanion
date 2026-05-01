@@ -149,6 +149,13 @@ class MainUiRealActionsMixin:
             self._sync_single_combo_to_backend("musetalk_avatar_pack_combo")
             self._refresh_musetalk_visual_runtime_frontend()
 
+    def _refresh_musetalk_avatar_packs_from_ui_real(self):
+            try:
+                self.backend.refresh_musetalk_avatar_pack_list()
+            finally:
+                QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+                QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
+
     def _on_frontend_visual_reply_mode_changed(self, _index=None):
             self._sync_single_combo_to_backend("visual_reply_mode_combo")
             self._refresh_musetalk_visual_runtime_frontend()

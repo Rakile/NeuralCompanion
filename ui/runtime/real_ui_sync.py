@@ -166,6 +166,7 @@ class MainUiRealSyncMixin:
                 "sensory_allow_hidden_proactive_checkbox",
                 "sensory_allow_hidden_visual_checkbox",
                 "live_sync_checkbox",
+                "musetalk_use_frame_cache_checkbox",
                 "vam_vmc_enabled_checkbox",
                 "vam_bridge_enabled_checkbox",
                 "vam_play_audio_in_vam_checkbox",
@@ -439,6 +440,7 @@ class MainUiRealSyncMixin:
             designer_placeholders = {
                 "emotional_text": "Technical rules / expressive tags",
                 "system_prompt_text": "System prompt",
+                "sensory_pingpong_prompt_text": "Hidden PING/PONG prompt",
             }
             if text == designer_placeholders.get(str(object_name), "") and runtime_text:
                 text = ""
@@ -567,6 +569,7 @@ class MainUiRealSyncMixin:
             self._mirror_runtime_button_state()
             self._mirror_runtime_selection_widgets()
             self._mirror_persona_runtime_widgets(force=force)
+            self._copy_runtime_plain_text_state("sensory_pingpong_prompt_text", "sensory_pingpong_prompt")
             self._mirror_body_pose_runtime_widgets(force=force)
             self._mirror_vam_runtime_widgets(force=force)
             self._mirror_chunking_runtime_widgets(force=force)
@@ -886,6 +889,8 @@ class MainUiRealSyncMixin:
                 "chat_autoscroll_button",
                 "btn_push_to_talk",
                 "btn_model_refresh",
+                "btn_musetalk_avatar_pack_refresh",
+                "btn_preset_refresh",
                 "btn_preset_load",
                 "btn_preset_save",
                 "btn_preset_save_as",

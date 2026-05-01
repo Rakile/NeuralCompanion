@@ -939,37 +939,154 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </widget>
                </item>
                <item row="7" column="0">
+                <widget class="QLabel" name="musetalk_frame_cache_label">
+                 <property name="text">
+                  <string>Frame Cache</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="7" column="1">
+                <widget class="QCheckBox" name="musetalk_use_frame_cache_checkbox">
+                 <property name="text">
+                  <string>Use .npy startup cache</string>
+                 </property>
+                 <property name="checked">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="0">
                 <widget class="QLabel" name="musetalk_avatar_label">
                  <property name="text">
                   <string>MuseTalk Avatar</string>
                  </property>
                 </widget>
                </item>
-               <item row="7" column="1">
-                <widget class="QComboBox" name="musetalk_avatar_pack_combo">
-                 <property name="maximumSize">
-                  <size>
-                   <width>200</width>
-                   <height>16777215</height>
-                  </size>
-                 </property>
+               <item row="8" column="1">
+                <widget class="QWidget" name="musetalk_avatar_pack_row_widget" native="true">
+                 <layout class="QHBoxLayout" name="musetalkAvatarPackRowLayout">
+                  <property name="leftMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>0</number>
+                  </property>
+                  <item>
+                   <widget class="QComboBox" name="musetalk_avatar_pack_combo">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>260</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="btn_musetalk_avatar_pack_refresh">
+                    <property name="minimumSize">
+                     <size>
+                      <width>96</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Refresh</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="musetalkAvatarPackRowSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Orientation::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                 </layout>
                 </widget>
                </item>
-               <item row="8" column="0">
+               <item row="9" column="0">
                 <widget class="QLabel" name="preset_label">
                  <property name="text">
                   <string>Preset</string>
                  </property>
                 </widget>
                </item>
-               <item row="8" column="1">
-                <widget class="QComboBox" name="preset_combo">
-                 <property name="maximumSize">
-                  <size>
-                   <width>200</width>
-                   <height>16777215</height>
-                  </size>
-                 </property>
+               <item row="9" column="1">
+                <widget class="QWidget" name="preset_row_widget" native="true">
+                 <layout class="QHBoxLayout" name="presetRowLayout">
+                  <property name="leftMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="topMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="rightMargin">
+                   <number>0</number>
+                  </property>
+                  <property name="bottomMargin">
+                   <number>0</number>
+                  </property>
+                  <item>
+                   <widget class="QComboBox" name="preset_combo">
+                    <property name="minimumSize">
+                     <size>
+                      <width>176</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="maximumSize">
+                     <size>
+                      <width>260</width>
+                      <height>16777215</height>
+                     </size>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <widget class="QPushButton" name="btn_preset_refresh">
+                    <property name="minimumSize">
+                     <size>
+                      <width>96</width>
+                      <height>32</height>
+                     </size>
+                    </property>
+                    <property name="text">
+                     <string>Refresh</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item>
+                   <spacer name="presetRowSpacer">
+                    <property name="orientation">
+                     <enum>Qt::Orientation::Horizontal</enum>
+                    </property>
+                    <property name="sizeHint" stdset="0">
+                     <size>
+                      <width>40</width>
+                      <height>20</height>
+                     </size>
+                    </property>
+                   </spacer>
+                  </item>
+                 </layout>
                 </widget>
                </item>
               </layout>
@@ -1079,29 +1196,87 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </widget>
                 </item>
                 <item row="2" column="1">
-                 <widget class="QComboBox" name="model_combo">
-                  <property name="minimumSize">
-                   <size>
-                    <width>260</width>
-                    <height>32</height>
-                   </size>
-                  </property>
-                  <property name="maximumSize">
-                   <size>
-                    <width>420</width>
-                    <height>16777215</height>
-                   </size>
-                  </property>
+                 <widget class="QWidget" name="chat_model_row_widget" native="true">
+                  <layout class="QHBoxLayout" name="chatModelRowLayout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QComboBox" name="model_combo">
+                     <property name="minimumSize">
+                      <size>
+                       <width>260</width>
+                       <height>32</height>
+                      </size>
+                     </property>
+                     <property name="maximumSize">
+                      <size>
+                       <width>420</width>
+                       <height>16777215</height>
+                      </size>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <widget class="QPushButton" name="btn_model_refresh">
+                     <property name="minimumSize">
+                      <size>
+                       <width>96</width>
+                       <height>32</height>
+                      </size>
+                     </property>
+                     <property name="text">
+                      <string>Refresh</string>
+                     </property>
+                    </widget>
+                   </item>
+                   <item>
+                    <spacer name="chatModelRowSpacer">
+                     <property name="orientation">
+                      <enum>Qt::Orientation::Horizontal</enum>
+                     </property>
+                     <property name="sizeHint" stdset="0">
+                      <size>
+                       <width>40</width>
+                       <height>20</height>
+                      </size>
+                     </property>
+                    </spacer>
+                   </item>
+                  </layout>
                  </widget>
                 </item>
                 <item row="3" column="0">
+                 <widget class="QLabel" name="model_requires_vision_label">
+                  <property name="text">
+                   <string/>
+                  </property>
+                 </widget>
+                </item>
+                <item row="3" column="1">
+                 <widget class="QCheckBox" name="model_requires_vision_checkbox">
+                  <property name="text">
+                   <string>Must have image processing capabilities</string>
+                  </property>
+                 </widget>
+                </item>
+                <item row="4" column="0">
                  <widget class="QLabel" name="provider_generation_label">
                   <property name="text">
                    <string>Generation Fields</string>
                   </property>
                  </widget>
                 </item>
-                <item row="3" column="1">
+                <item row="4" column="1">
                  <widget class="QWidget" name="chat_provider_generation_fields_widget" native="true">
                   <layout class="QFormLayout" name="chat_provider_generation_fields_layout">
                    <property name="leftMargin">
@@ -1742,14 +1917,20 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
               <number>8</number>
              </property>
              <property name="bottomMargin">
-              <number>8</number>
+             <number>8</number>
              </property>
              <item>
               <widget class="QTabWidget" name="sensory_feedback_tabs">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Expanding" vsizetype="Preferred">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
                <property name="minimumSize">
                 <size>
                  <width>760</width>
-                 <height>620</height>
+                 <height>0</height>
                 </size>
                </property>
                <property name="maximumSize">
@@ -1777,6 +1958,12 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 <layout class="QVBoxLayout" name="sensoryCoreLayout">
                  <item>
                   <widget class="QGroupBox" name="sensory_feedback_box">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                     <horstretch>0</horstretch>
+                     <verstretch>0</verstretch>
+                    </sizepolicy>
+                   </property>
                    <property name="title">
                     <string>Hidden Sensory Feedback</string>
                    </property>
@@ -1847,18 +2034,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                       </item>
                       <item row="1" column="1">
                        <widget class="QDoubleSpinBox" name="sensory_feedback_interval_spin">
-                        <property name="minimumSize">
-                         <size>
-                          <width>176</width>
-                          <height>0</height>
-                         </size>
-                        </property>
-                        <property name="maximumSize">
-                         <size>
-                          <width>100</width>
+                       <property name="minimumSize">
+                        <size>
+                         <width>112</width>
+                         <height>0</height>
+                        </size>
+                       </property>
+                       <property name="maximumSize">
+                        <size>
+                          <width>132</width>
                           <height>16777215</height>
-                         </size>
-                        </property>
+                        </size>
+                       </property>
                         <property name="value">
                          <double>5.000000000000000</double>
                         </property>
@@ -1873,18 +2060,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                       </item>
                       <item row="2" column="1">
                        <widget class="QSpinBox" name="sensory_pingpong_history_spin">
-                        <property name="minimumSize">
-                         <size>
-                          <width>176</width>
+                       <property name="minimumSize">
+                        <size>
+                          <width>112</width>
                           <height>0</height>
-                         </size>
-                        </property>
-                        <property name="maximumSize">
-                         <size>
-                          <width>100</width>
+                        </size>
+                       </property>
+                       <property name="maximumSize">
+                        <size>
+                          <width>132</width>
                           <height>16777215</height>
-                         </size>
-                        </property>
+                        </size>
+                       </property>
                         <property name="value">
                          <number>3</number>
                         </property>
@@ -1907,10 +2094,46 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </item>
                  <item>
                   <widget class="QGroupBox" name="sensory_pingpong_prompt_box">
+                   <property name="sizePolicy">
+                    <sizepolicy hsizetype="Preferred" vsizetype="Expanding">
+                     <horstretch>0</horstretch>
+                     <verstretch>1</verstretch>
+                    </sizepolicy>
+                   </property>
                    <property name="title">
-                    <string>Core Hidden PING/PONG Prompt</string>
+                   <string>Core Hidden PING/PONG Prompt</string>
                    </property>
                    <layout class="QVBoxLayout" name="sensoryPingPongPromptLayout">
+                    <item>
+                     <layout class="QHBoxLayout" name="sensoryPingPongPromptHeaderLayout">
+                      <item>
+                       <spacer name="sensoryPingPongPromptHeaderSpacer">
+                        <property name="orientation">
+                         <enum>Qt::Orientation::Horizontal</enum>
+                        </property>
+                        <property name="sizeHint" stdset="0">
+                         <size>
+                          <width>40</width>
+                          <height>20</height>
+                         </size>
+                        </property>
+                       </spacer>
+                      </item>
+                      <item>
+                       <widget class="QPushButton" name="btn_sensory_pingpong_prompt_reset">
+                        <property name="minimumSize">
+                         <size>
+                          <width>136</width>
+                          <height>30</height>
+                         </size>
+                        </property>
+                        <property name="text">
+                         <string>Use Recommended</string>
+                        </property>
+                       </widget>
+                      </item>
+                     </layout>
+                    </item>
                     <item>
                      <widget class="QPlainTextEdit" name="sensory_pingpong_prompt_text">
                       <property name="styleSheet">

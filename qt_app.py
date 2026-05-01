@@ -5408,6 +5408,14 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.musetalk_loop_fade_spin.setMinimumWidth(112)
         self.musetalk_loop_fade_spin.setMaximumWidth(132)
 
+        self.musetalk_use_frame_cache_checkbox = QtWidgets.QCheckBox("Use .npy startup cache")
+        self.musetalk_use_frame_cache_checkbox.setObjectName("musetalk_use_frame_cache_checkbox")
+        self.musetalk_use_frame_cache_checkbox.setChecked(bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)))
+        self.musetalk_use_frame_cache_checkbox.setToolTip(
+            "Use/create MuseTalk NumPy frame caches during chat initialization. Disable to save disk space and always load PNG frames instead."
+        )
+        self.musetalk_use_frame_cache_checkbox.toggled.connect(self.on_musetalk_use_frame_cache_changed)
+
         self.visual_reply_mode_combo = NoWheelComboBox()
         self.visual_reply_mode_combo.setObjectName("visual_reply_mode_combo")
         self.visual_reply_mode_combo.addItems(["Off", "Auto"])
@@ -5800,6 +5808,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         form.addRow("Stream Mode", self.stream_mode_combo)
         form.addRow("MuseTalk VRAM", self.musetalk_vram_combo)
         form.addRow("Loop Fade (ms)", self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
+        form.addRow("Frame Cache", self.musetalk_use_frame_cache_checkbox)
         form.addRow("MuseTalk Avatar", self.musetalk_avatar_pack_row_widget)
         form.addRow("Preset", self.preset_row_widget if hasattr(self, "preset_row_widget") else self.preset_combo)
         layout.addLayout(form)
@@ -7792,6 +7801,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
             "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
             "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
+            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
             "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
             "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
             "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
@@ -8271,6 +8281,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
             "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
+            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
             "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
             "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
             "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
@@ -9885,6 +9896,12 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.emit_tutorial_event("ui_changed", {"field": "musetalk_loop_fade_ms", "value": fade_ms})
         self.save_session()
 
+    def on_musetalk_use_frame_cache_changed(self, checked):
+        enabled = bool(checked)
+        update_runtime_config("musetalk_use_frame_cache", enabled)
+        self.emit_tutorial_event("ui_changed", {"field": "musetalk_use_frame_cache", "value": enabled})
+        self.save_session()
+
     def on_visual_reply_mode_changed(self, choice):
         mode = self._visual_reply_mode_value_from_label(choice)
         update_runtime_config("visual_reply_mode", mode)
@@ -10569,6 +10586,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             fade_ms = max(0, int(settings["musetalk_loop_fade_ms"] or 0))
             self.musetalk_loop_fade_spin.setValue(fade_ms)
             self.on_musetalk_loop_fade_changed(fade_ms)
+        if "musetalk_use_frame_cache" in settings and hasattr(self, "musetalk_use_frame_cache_checkbox"):
+            self.musetalk_use_frame_cache_checkbox.setChecked(bool(settings["musetalk_use_frame_cache"]))
+            self.on_musetalk_use_frame_cache_changed(bool(settings["musetalk_use_frame_cache"]))
         if "visual_reply_mode" in settings and hasattr(self, "visual_reply_mode_combo"):
             mode_text = self._visual_reply_mode_label_from_value(settings["visual_reply_mode"])
             self.visual_reply_mode_combo.setCurrentText(mode_text)
@@ -10809,6 +10829,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         update_runtime_config("stream_mode", stream_mode)
         update_runtime_config("tts_backend", tts_backend)
         update_runtime_config("musetalk_vram_mode", musetalk_vram_mode)
+        update_runtime_config("musetalk_use_frame_cache", self.musetalk_use_frame_cache_checkbox.isChecked() if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)))
         update_runtime_config("musetalk_avatar_pack_id", str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""))
         update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
         update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
@@ -11859,6 +11880,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             fade_ms = max(0, int(data["musetalk_loop_fade_ms"] or 0))
             self.musetalk_loop_fade_spin.setValue(fade_ms)
             self.on_musetalk_loop_fade_changed(fade_ms)
+        if "musetalk_use_frame_cache" in data and hasattr(self, "musetalk_use_frame_cache_checkbox"):
+            self.musetalk_use_frame_cache_checkbox.setChecked(bool(data["musetalk_use_frame_cache"]))
+            self.on_musetalk_use_frame_cache_changed(bool(data["musetalk_use_frame_cache"]))
         if "visual_reply_mode" in data and hasattr(self, "visual_reply_mode_combo"):
             mode_text = self._visual_reply_mode_label_from_value(data["visual_reply_mode"])
             self.visual_reply_mode_combo.setCurrentText(mode_text)
@@ -12362,6 +12386,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
                 "quality",
             ),
+            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
             "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
             "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
@@ -12751,6 +12776,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 "quality",
             ),
             "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
+            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
             "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
             "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
             "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
@@ -13105,6 +13131,10 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 fade_ms = max(0, int(musetalk_loop_fade_ms))
                 self.musetalk_loop_fade_spin.setValue(fade_ms)
                 self.on_musetalk_loop_fade_changed(fade_ms)
+            musetalk_use_frame_cache = session.get("musetalk_use_frame_cache")
+            if musetalk_use_frame_cache is not None and hasattr(self, "musetalk_use_frame_cache_checkbox"):
+                self.musetalk_use_frame_cache_checkbox.setChecked(bool(musetalk_use_frame_cache))
+                self.on_musetalk_use_frame_cache_changed(bool(musetalk_use_frame_cache))
             visual_reply_mode = session.get("visual_reply_mode")
             if visual_reply_mode is not None and hasattr(self, "visual_reply_mode_combo"):
                 mode_text = self._visual_reply_mode_label_from_value(visual_reply_mode)

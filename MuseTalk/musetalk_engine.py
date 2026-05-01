@@ -215,6 +215,13 @@ class PreparedAvatarRuntime:
         timing["frame_cache_hit"] = False
         timing["frame_cache_path"] = cache_path
 
+        if not self.create_frame_cache:
+            read_start = time.perf_counter()
+            frames = read_imgs(input_img_list)
+            timing["frame_read_imgs_seconds"] = round(time.perf_counter() - read_start, 3)
+            timing["frame_cache_skipped"] = "disabled"
+            return frames
+
         if signature and os.path.isfile(cache_path) and os.path.isfile(manifest_path):
             try:
                 with open(manifest_path, "r", encoding="utf-8") as f:
@@ -240,10 +247,7 @@ class PreparedAvatarRuntime:
         read_start = time.perf_counter()
         frames = read_imgs(input_img_list)
         timing["frame_read_imgs_seconds"] = round(time.perf_counter() - read_start, 3)
-        if self.create_frame_cache:
-            self._write_frame_cache(cache_path, manifest_path, signature, frames, timing)
-        else:
-            timing["frame_cache_skipped"] = "disabled"
+        self._write_frame_cache(cache_path, manifest_path, signature, frames, timing)
         return frames
 
     def _write_frame_cache(self, cache_path, manifest_path, signature, frames, timing):

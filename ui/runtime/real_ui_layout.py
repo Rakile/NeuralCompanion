@@ -83,6 +83,47 @@ class MainUiRealLayoutMixin:
                 scroll.updateGeometry()
                 scroll.viewport().update()
 
+    def _fix_sensory_feedback_initial_alignment(self):
+            tabs = self._ui("sensory_feedback_tabs", QtWidgets.QTabWidget)
+            if tabs is None:
+                return
+            parent = tabs.parentWidget()
+            layout = parent.layout() if parent is not None and hasattr(parent, "layout") else None
+            if layout is not None:
+                try:
+                    # Vertical-only alignment keeps startup from centering the Core tab,
+                    # while still letting the tab widget consume the full row width.
+                    layout.setAlignment(tabs, QtCore.Qt.AlignTop)
+                except Exception:
+                    pass
+            available_width = 0
+            if parent is not None:
+                try:
+                    margins = layout.contentsMargins() if layout is not None else QtCore.QMargins()
+                    available_width = max(0, parent.width() - margins.left() - margins.right())
+                except Exception:
+                    available_width = 0
+            for widget in (tabs, tabs.currentWidget()):
+                if widget is None:
+                    continue
+                try:
+                    policy = widget.sizePolicy()
+                    policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
+                    widget.setSizePolicy(policy)
+                    if available_width > 0:
+                        widget.setMinimumWidth(available_width)
+                    widget.setMinimumHeight(0)
+                    widget.setMaximumWidth(16777215)
+                    widget.adjustSize()
+                    widget.updateGeometry()
+                except Exception:
+                    pass
+            try:
+                self.backend._sync_tab_widget_height(tabs)
+            except Exception:
+                pass
+
     def _load_frontend_session_payload(self):
             if not SESSION_PATH.exists():
                 return {}
@@ -150,6 +191,7 @@ class MainUiRealLayoutMixin:
             layout_state = payload.get(self.FRONTEND_LAYOUT_SESSION_KEY)
             if not isinstance(layout_state, dict):
                 return
+            self._pending_frontend_layout_state = dict(layout_state)
             self._restoring_frontend_layout = True
             try:
                 window_geometry = str(layout_state.get("window_geometry") or "").strip()
@@ -188,8 +230,84 @@ class MainUiRealLayoutMixin:
                             continue
                 QtCore.QTimer.singleShot(0, self._ensure_frontend_window_on_screen)
                 QtCore.QTimer.singleShot(100, self._ensure_frontend_window_on_screen)
+                QtCore.QTimer.singleShot(0, self._restore_frontend_dock_geometry_pass)
+                QtCore.QTimer.singleShot(250, self._restore_frontend_dock_geometry_pass)
+                QtCore.QTimer.singleShot(900, self._restore_frontend_dock_geometry_pass)
             finally:
                 self._restoring_frontend_layout = False
+
+    def _saved_frontend_dock_states(self):
+            layout_state = getattr(self, "_pending_frontend_layout_state", None)
+            if not isinstance(layout_state, dict):
+                payload = self._load_frontend_session_payload()
+                layout_state = payload.get(self.FRONTEND_LAYOUT_SESSION_KEY)
+            if not isinstance(layout_state, dict):
+                return {}
+            docks = layout_state.get("docks")
+            return docks if isinstance(docks, dict) else {}
+
+    def _restore_frontend_dock_geometry_pass(self):
+            docks = self._saved_frontend_dock_states()
+            if not docks:
+                return
+            self._restoring_frontend_layout = True
+            try:
+                visible_docked = []
+                for object_name, dock_state in docks.items():
+                    dock = self._ui_object(str(object_name))
+                    if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
+                        continue
+                    try:
+                        visible = bool(dock_state.get("visible", True))
+                        floating = bool(dock_state.get("floating", False))
+                        dock.setVisible(visible)
+                        dock.setFloating(floating)
+                        if floating:
+                            geometry = dock_state.get("floating_geometry") or dock_state.get("geometry")
+                            if isinstance(geometry, list) and len(geometry) == 4:
+                                dock.setGeometry(*[int(item) for item in geometry])
+                        elif visible:
+                            visible_docked.append((dock, dock_state))
+                    except Exception:
+                        continue
+                self._resize_frontend_docks_from_saved_geometry(visible_docked)
+            finally:
+                self._restoring_frontend_layout = False
+
+    def _resize_frontend_docks_from_saved_geometry(self, dock_entries):
+            if not dock_entries:
+                return
+            horizontal = []
+            vertical = []
+            for dock, dock_state in dock_entries:
+                geometry = dock_state.get("geometry")
+                if not isinstance(geometry, list) or len(geometry) != 4:
+                    continue
+                try:
+                    width = max(1, int(geometry[2]))
+                    height = max(1, int(geometry[3]))
+                except Exception:
+                    continue
+                horizontal.append((dock, width))
+                vertical.append((dock, height))
+            if len(horizontal) >= 2:
+                try:
+                    self.window.resizeDocks(
+                        [dock for dock, _width in horizontal],
+                        [width for _dock, width in horizontal],
+                        QtCore.Qt.Horizontal,
+                    )
+                except Exception:
+                    pass
+            if len(vertical) >= 2:
+                try:
+                    self.window.resizeDocks(
+                        [dock for dock, _height in vertical],
+                        [height for _dock, height in vertical],
+                        QtCore.Qt.Vertical,
+                    )
+                except Exception:
+                    pass
 
     def _ensure_frontend_window_on_screen(self):
             if self.window is None:
@@ -223,7 +341,11 @@ class MainUiRealLayoutMixin:
                 return False
 
     def _schedule_frontend_layout_save(self, delay_ms=None):
-            if bool(getattr(self, "_restoring_frontend_layout", False)) or bool(getattr(self, "_closing", False)):
+            if (
+                bool(getattr(self, "_session_read_only", False))
+                or bool(getattr(self, "_restoring_frontend_layout", False))
+                or bool(getattr(self, "_closing", False))
+            ):
                 return
             timer = getattr(self, "_frontend_layout_save_timer", None)
             if timer is not None:
@@ -237,6 +359,10 @@ class MainUiRealLayoutMixin:
 
     def _bind_frontend_layout_persistence_hooks(self):
             for dock in self.window.findChildren(QtWidgets.QDockWidget):
+                try:
+                    dock.installEventFilter(self)
+                except Exception:
+                    pass
                 for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged"):
                     signal = getattr(dock, signal_name, None)
                     if signal is None:

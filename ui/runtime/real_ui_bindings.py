@@ -187,6 +187,9 @@ class MainUiRealBindingMixin:
                 if widget is None or not hasattr(widget, "currentIndexChanged"):
                     continue
                 widget.currentIndexChanged.connect(handler)
+            refresh_avatar_packs = self._ui_object("btn_musetalk_avatar_pack_refresh")
+            if refresh_avatar_packs is not None and hasattr(refresh_avatar_packs, "clicked"):
+                refresh_avatar_packs.clicked.connect(self._refresh_musetalk_avatar_packs_from_ui_real)
 
     def _bind_musetalk_visual_runtime_controls(self):
             combo_bindings = (
@@ -434,6 +437,7 @@ class MainUiRealBindingMixin:
             if preset_combo is not None and hasattr(preset_combo, "currentIndexChanged"):
                 preset_combo.currentIndexChanged.connect(self._on_frontend_preset_selection_changed)
             preset_bindings = {
+                "btn_preset_refresh": getattr(self.backend, "refresh_preset_list", None),
                 "btn_preset_load": getattr(self.backend, "load_preset", None),
                 "btn_preset_save": getattr(self.backend, "save_current_preset", None),
                 "btn_preset_save_as": getattr(self.backend, "save_preset_dialog", None),

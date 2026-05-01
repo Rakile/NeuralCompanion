@@ -413,6 +413,11 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.btn_musetalk_avatar_refresh.setObjectName("btn_musetalk_avatar_refresh")
         self.btn_musetalk_avatar_refresh.clicked.connect(self.refresh_musetalk_avatar_list)
         prepared_row.addWidget(self.btn_musetalk_avatar_refresh)
+        self.btn_musetalk_clear_frame_cache = QtWidgets.QPushButton("Clear .npy Cache")
+        self.btn_musetalk_clear_frame_cache.setObjectName("btn_musetalk_clear_frame_cache")
+        self.btn_musetalk_clear_frame_cache.setToolTip("Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.")
+        self.btn_musetalk_clear_frame_cache.clicked.connect(self.clear_selected_musetalk_frame_cache)
+        prepared_row.addWidget(self.btn_musetalk_clear_frame_cache)
         source_card_layout.addWidget(QtWidgets.QLabel("Prepared Variants"))
         source_card_layout.addLayout(prepared_row)
 
@@ -1050,6 +1055,60 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._set_musetalk_mask_overrides(metadata.get("mask_overrides") or [])
         self._update_musetalk_avatar_destination_hint()
 
+    def clear_selected_musetalk_frame_cache(self):
+        avatar_id = ""
+        if hasattr(self, "musetalk_avatar_combo"):
+            avatar_id = str(self.musetalk_avatar_combo.currentText() or "").strip()
+        if not avatar_id or avatar_id == "No Prepared Avatars":
+            avatar_id = self._sanitize_avatar_id(self.musetalk_avatar_id_edit.text()) if hasattr(self, "musetalk_avatar_id_edit") else ""
+        if not avatar_id:
+            self._warn("MuseTalk Cache", "Select a prepared avatar variant first.")
+            return
+
+        avatar_root = self._musetalk_target_avatar_root(avatar_id, pack_id=self._current_musetalk_target_pack_id())
+        cache_paths = [
+            avatar_root / "full_imgs_cache.npy",
+            avatar_root / "full_imgs_cache.json",
+        ]
+        existing = [path for path in cache_paths if path.exists()]
+        if not existing:
+            if hasattr(self, "musetalk_avatar_status_label"):
+                self.musetalk_avatar_status_label.setText(f"No .npy startup cache found for '{avatar_id}'.")
+            return
+
+        total_bytes = 0
+        for path in existing:
+            try:
+                total_bytes += int(path.stat().st_size)
+            except OSError:
+                pass
+        total_mib = total_bytes / (1024 ** 2)
+        response = QtWidgets.QMessageBox.question(
+            None,
+            "Clear MuseTalk Cache",
+            f"Delete the generated .npy startup cache for '{avatar_id}'?\n\n"
+            f"This removes about {total_mib:.1f} MiB and keeps all PNG/preprocess backup files.\n"
+            "The cache can be recreated during preprocessing or the next MuseTalk initialize.",
+        )
+        if response != QtWidgets.QMessageBox.Yes:
+            return
+
+        removed = 0
+        errors = []
+        for path in existing:
+            try:
+                path.unlink()
+                removed += 1
+            except Exception as exc:
+                errors.append(f"{path.name}: {exc}")
+        if errors:
+            self._warn("MuseTalk Cache", "Some cache files could not be deleted:\n\n" + "\n".join(errors))
+            return
+        if hasattr(self, "musetalk_avatar_status_label"):
+            self.musetalk_avatar_status_label.setText(
+                f"Cleared .npy startup cache for '{avatar_id}' ({removed} file(s), ~{total_mib:.1f} MiB)."
+            )
+
     def _apply_musetalk_mask_settings(self, metadata):
         metadata = dict(metadata or {})
         parsing_mode = str(metadata.get("parsing_mode", "jaw") or "jaw").strip().lower() or "jaw"
@@ -1594,6 +1653,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "btn_musetalk_target_pack_new",
             "musetalk_target_pack_combo",
             "btn_musetalk_avatar_refresh",
+            "btn_musetalk_clear_frame_cache",
             "btn_musetalk_source_video",
             "btn_musetalk_source_folder",
             "musetalk_source_edit",
