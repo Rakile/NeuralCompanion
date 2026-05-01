@@ -421,6 +421,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
 
         bbox_shift = self._prepared_avatar_bbox_shift(avatar_id)
 
+        request_start = time.perf_counter()
         result = self.bridge.request(
             {
                 "action": "prepare_avatar",
@@ -432,13 +433,58 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             },
             timeout=600,
         )
+        request_seconds = time.perf_counter() - request_start
         avatar_path = result.get("avatar_path")
         if avatar_path:
             self.prepared_avatars[avatar_id] = avatar_path
             self._reload_avatar_pose_connections()
             print(f"🎭 [MuseTalk] Prepared avatar variant: {avatar_id}")
+            self._log_prepare_timing(avatar_id, result.get("prepare_timing"), request_seconds)
             return avatar_id
         return None
+
+    def _log_prepare_timing(self, avatar_id, timing, request_seconds):
+        if not isinstance(timing, dict) or not timing:
+            print(f"⏱️ [MuseTalkPrep] {avatar_id}: request={request_seconds:.2f}s")
+            return
+
+        runtime = timing.get("runtime_load") if isinstance(timing.get("runtime_load"), dict) else {}
+        print(
+            "⏱️ [MuseTalkPrep] "
+            f"{avatar_id}: request={request_seconds:.2f}s, "
+            f"worker_total={float(timing.get('total_seconds', 0.0) or 0.0):.2f}s, "
+            f"material={float(timing.get('material_seconds', 0.0) or 0.0):.2f}s, "
+            f"runtime_load={float(timing.get('runtime_load_seconds', 0.0) or 0.0):.2f}s, "
+            f"prepared_on_disk={bool(timing.get('prepared_folder_existed', False))}"
+        )
+        if runtime:
+            print(
+                "   ↳ "
+                f"latents={float(runtime.get('latents_torch_load_seconds', 0.0) or 0.0):.2f}s "
+                f"({runtime.get('latent_count', '?')} tensors, {runtime.get('latents_mb', '?')} MiB), "
+                f"frames={float(runtime.get('frame_read_imgs_seconds', 0.0) or 0.0):.2f}s "
+                f"({runtime.get('frame_count', '?')} imgs, cache={'hit' if runtime.get('frame_cache_hit') else 'miss'}), "
+                f"masks={float(runtime.get('mask_read_imgs_seconds', 0.0) or 0.0):.2f}s "
+                f"({runtime.get('mask_count', '?')} imgs), "
+                f"coords={float(runtime.get('coords_pickle_load_seconds', 0.0) or 0.0):.2f}s, "
+                f"mask_coords={float(runtime.get('mask_coords_pickle_load_seconds', 0.0) or 0.0):.2f}s, "
+                f"glob={float(runtime.get('frame_glob_sort_seconds', 0.0) or 0.0) + float(runtime.get('mask_glob_sort_seconds', 0.0) or 0.0):.2f}s"
+            )
+            if runtime.get("frame_cache_saved"):
+                print(
+                    "   ↳ "
+                    f"frame cache saved in {float(runtime.get('frame_cache_save_seconds', 0.0) or 0.0):.2f}s "
+                    f"shape={runtime.get('frame_cache_shape', '?')} "
+                    f"size={runtime.get('frame_cache_mb', '?')} MiB"
+                )
+            elif runtime.get("frame_cache_load_seconds") is not None:
+                print(
+                    "   ↳ "
+                    f"frame cache loaded in {float(runtime.get('frame_cache_load_seconds', 0.0) or 0.0):.2f}s "
+                    f"shape={runtime.get('frame_cache_shape', '?')} "
+                    f"size={runtime.get('frame_cache_mb', '?')} MiB "
+                    f"mode={'mmap' if runtime.get('frame_cache_mmap') else 'ram'}"
+                )
 
     def _set_active_avatar(self, avatar_id):
         self.avatar_id = avatar_id

@@ -172,12 +172,14 @@ def main():
                     mask_ranges=payload.get("mask_ranges"),
                     mask_overrides=normalize_mask_overrides(payload.get("mask_overrides")),
                     avatar_path_override=to_abs(payload.get("avatar_path_override", "")) if payload.get("avatar_path_override") else None,
+                    create_frame_cache=bool(payload.get("create_frame_cache", True)),
                 )
                 result = {
                     "ok": True,
                     "request_id": request_id,
                     "avatar_id": prepared.avatar_id,
                     "avatar_path": prepared.avatar_path,
+                    "prepare_timing": dict(getattr(engine, "last_prepare_timing", {}) or {}),
                 }
                 emit_worker_checkpoint("prepare_avatar_done", {"avatar_id": payload["avatar_id"]})
             elif action == "render_audio":

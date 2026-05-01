@@ -458,7 +458,18 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.btn_musetalk_prepare_avatar = QtWidgets.QPushButton("Preprocess Avatar")
         self.btn_musetalk_prepare_avatar.setObjectName("btn_musetalk_prepare_avatar")
         self.btn_musetalk_prepare_avatar.clicked.connect(self.preprocess_musetalk_avatar)
-        source_footer.addWidget(self.btn_musetalk_prepare_avatar, 0, QtCore.Qt.AlignLeft)
+        prepare_row = QtWidgets.QHBoxLayout()
+        prepare_row.setContentsMargins(0, 0, 0, 0)
+        prepare_row.addWidget(self.btn_musetalk_prepare_avatar, 0, QtCore.Qt.AlignLeft)
+        self.musetalk_create_frame_cache_checkbox = QtWidgets.QCheckBox("Create .npy startup cache")
+        self.musetalk_create_frame_cache_checkbox.setObjectName("musetalk_create_frame_cache_checkbox")
+        self.musetalk_create_frame_cache_checkbox.setChecked(True)
+        self.musetalk_create_frame_cache_checkbox.setToolTip(
+            "Create a NumPy cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster."
+        )
+        prepare_row.addWidget(self.musetalk_create_frame_cache_checkbox, 0, QtCore.Qt.AlignLeft)
+        prepare_row.addStretch(1)
+        source_footer.addLayout(prepare_row)
 
         tags_column = QtWidgets.QVBoxLayout()
         tags_column.setSpacing(6)
@@ -867,6 +878,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "musetalk_mask_ranges": self._get_musetalk_mask_ranges(),
             "musetalk_mask_overrides": self._get_musetalk_mask_overrides(),
             "musetalk_recreate": bool(self.musetalk_recreate_checkbox.isChecked()) if hasattr(self, "musetalk_recreate_checkbox") else False,
+            "musetalk_create_frame_cache": bool(self.musetalk_create_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_create_frame_cache_checkbox") else True,
             "musetalk_emotion_tags": self.musetalk_emotion_tags_edit.text() if hasattr(self, "musetalk_emotion_tags_edit") else "",
             "musetalk_enabled_pack_emotions": self._get_musetalk_enabled_pack_emotions(),
             "musetalk_test_audio": self.musetalk_test_audio_edit.text() if hasattr(self, "musetalk_test_audio_edit") else "",
@@ -919,6 +931,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
         musetalk_recreate = session.get("musetalk_recreate")
         if musetalk_recreate is not None and hasattr(self, "musetalk_recreate_checkbox"):
             self.musetalk_recreate_checkbox.setChecked(bool(musetalk_recreate))
+        musetalk_create_frame_cache = session.get("musetalk_create_frame_cache")
+        if musetalk_create_frame_cache is not None and hasattr(self, "musetalk_create_frame_cache_checkbox"):
+            self.musetalk_create_frame_cache_checkbox.setChecked(bool(musetalk_create_frame_cache))
         musetalk_emotion_tags = session.get("musetalk_emotion_tags")
         if musetalk_emotion_tags is not None and hasattr(self, "musetalk_emotion_tags_edit"):
             self.musetalk_emotion_tags_edit.setText(str(musetalk_emotion_tags))
@@ -1603,6 +1618,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "musetalk_debug_frame_index_spin",
             "musetalk_debug_show_mask_overlay_checkbox",
             "musetalk_recreate_checkbox",
+            "musetalk_create_frame_cache_checkbox",
             "musetalk_avatar_combo",
             "musetalk_emotion_tags_edit",
             "musetalk_test_audio_edit",
@@ -1726,6 +1742,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             )
             return
         recreate = bool(self.musetalk_recreate_checkbox.isChecked())
+        create_frame_cache = bool(self.musetalk_create_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_create_frame_cache_checkbox") else True
         vram_mode = self._current_musetalk_vram_mode_key()
         self._set_musetalk_prepare_busy(True, f"Preprocessing MuseTalk avatar '{avatar_id}'...")
         print(f"[QtGUI] MuseTalk avatar preprocessing started: pack={target_pack_id}, avatar_id={avatar_id}, source={source}")
@@ -1762,6 +1779,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                         "recreate": recreate,
                         "mask_ranges": mask_ranges,
                         "mask_overrides": mask_overrides,
+                        "create_frame_cache": create_frame_cache,
                         **mask_settings,
                     },
                     timeout=1800,

@@ -100,51 +100,180 @@ class PreparedAvatar:
 
 
 class PreparedAvatarRuntime:
-    def __init__(self, engine, prepared_avatar, batch_size):
+    def __init__(self, engine, prepared_avatar, batch_size, create_frame_cache=True):
         self.engine = engine
         self.prepared = prepared_avatar
         self.batch_size = batch_size
+        self.create_frame_cache = bool(create_frame_cache)
         self.timeline_idx = 0
         self.frame_list_cycle = []
         self.coord_list_cycle = []
         self.input_latent_list_cycle = []
         self.mask_coords_list_cycle = []
         self.mask_list_cycle = []
+        self.load_timing = {}
         self._timeline_lock = threading.Lock()
         self._load_or_prepare()
 
     def _load_or_prepare(self):
+        total_start = time.perf_counter()
+        timing = {
+            "avatar_id": self.prepared.avatar_id,
+            "avatar_path": self.prepared.avatar_path,
+        }
+
+        def mark(label, start):
+            timing[f"{label}_seconds"] = round(time.perf_counter() - start, 3)
+
         if not os.path.exists(self.prepared.avatar_path):
             raise FileNotFoundError(
                 f"Prepared avatar not found at {self.prepared.avatar_path}. Run preparation first."
             )
 
+        step_start = time.perf_counter()
         with open(self.prepared.avatar_info_path, "r", encoding="utf-8") as f:
             avatar_info = json.load(f)
+        mark("avatar_info", step_start)
 
         if int(avatar_info.get("bbox_shift", 0)) != int(self.prepared.bbox_shift):
             raise RuntimeError("Prepared avatar bbox_shift does not match the requested configuration.")
 
+        step_start = time.perf_counter()
         self.input_latent_list_cycle = torch.load(self.prepared.latents_out_path)
+        mark("latents_torch_load", step_start)
+        try:
+            timing["latents_mb"] = round(float(os.path.getsize(self.prepared.latents_out_path)) / (1024 ** 2), 1)
+        except Exception:
+            timing["latents_mb"] = None
+        try:
+            timing["latent_count"] = int(len(self.input_latent_list_cycle))
+        except Exception:
+            timing["latent_count"] = None
+
+        step_start = time.perf_counter()
         with open(self.prepared.coords_path, "rb") as f:
             self.coord_list_cycle = pickle.load(f)
+        mark("coords_pickle_load", step_start)
 
+        step_start = time.perf_counter()
         input_img_list = glob.glob(os.path.join(self.prepared.full_imgs_path, "*.[jpJP][pnPN]*[gG]"))
         input_img_list = sorted(
             input_img_list,
             key=lambda x: int(os.path.splitext(os.path.basename(x))[0]),
         )
-        self.frame_list_cycle = read_imgs(input_img_list)
+        timing["frame_count"] = int(len(input_img_list))
+        mark("frame_glob_sort", step_start)
 
+        self.frame_list_cycle = self._load_cached_frame_list(input_img_list, timing)
+
+        step_start = time.perf_counter()
         with open(self.prepared.mask_coords_path, "rb") as f:
             self.mask_coords_list_cycle = pickle.load(f)
+        mark("mask_coords_pickle_load", step_start)
 
+        step_start = time.perf_counter()
         input_mask_list = glob.glob(os.path.join(self.prepared.mask_out_path, "*.[jpJP][pnPN]*[Gg]"))
         input_mask_list = sorted(
             input_mask_list,
             key=lambda x: int(os.path.splitext(os.path.basename(x))[0]),
         )
+        timing["mask_count"] = int(len(input_mask_list))
+        mark("mask_glob_sort", step_start)
+
+        step_start = time.perf_counter()
         self.mask_list_cycle = read_imgs(input_mask_list)
+        mark("mask_read_imgs", step_start)
+        timing["total_seconds"] = round(time.perf_counter() - total_start, 3)
+        self.load_timing = timing
+
+    def _frame_cache_paths(self):
+        return (
+            os.path.join(self.prepared.avatar_path, "full_imgs_cache.npy"),
+            os.path.join(self.prepared.avatar_path, "full_imgs_cache.json"),
+        )
+
+    def _frame_source_signature(self, input_img_list):
+        max_mtime_ns = 0
+        total_bytes = 0
+        for path in input_img_list:
+            try:
+                stat = os.stat(path)
+                max_mtime_ns = max(max_mtime_ns, int(getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))))
+                total_bytes += int(stat.st_size)
+            except OSError:
+                return None
+        return {
+            "version": 1,
+            "frame_count": int(len(input_img_list)),
+            "max_mtime_ns": int(max_mtime_ns),
+            "total_bytes": int(total_bytes),
+        }
+
+    def _load_cached_frame_list(self, input_img_list, timing):
+        cache_path, manifest_path = self._frame_cache_paths()
+        signature = self._frame_source_signature(input_img_list)
+        timing["frame_cache_hit"] = False
+        timing["frame_cache_path"] = cache_path
+
+        if signature and os.path.isfile(cache_path) and os.path.isfile(manifest_path):
+            try:
+                with open(manifest_path, "r", encoding="utf-8") as f:
+                    manifest = json.load(f)
+                if manifest == signature:
+                    cache_start = time.perf_counter()
+                    cached = np.load(cache_path, mmap_mode="r", allow_pickle=False)
+                    if cached.ndim == 4 and int(cached.shape[0]) == int(len(input_img_list)):
+                        self._frame_cache_array = cached
+                        timing["frame_cache_hit"] = True
+                        timing["frame_cache_load_seconds"] = round(time.perf_counter() - cache_start, 3)
+                        timing["frame_read_imgs_seconds"] = timing["frame_cache_load_seconds"]
+                        timing["frame_cache_shape"] = [int(v) for v in cached.shape]
+                        timing["frame_cache_mmap"] = True
+                        try:
+                            timing["frame_cache_mb"] = round(float(os.path.getsize(cache_path)) / (1024 ** 2), 1)
+                        except Exception:
+                            timing["frame_cache_mb"] = None
+                        return [cached[i] for i in range(cached.shape[0])]
+            except Exception as exc:
+                timing["frame_cache_error"] = str(exc)
+
+        read_start = time.perf_counter()
+        frames = read_imgs(input_img_list)
+        timing["frame_read_imgs_seconds"] = round(time.perf_counter() - read_start, 3)
+        if self.create_frame_cache:
+            self._write_frame_cache(cache_path, manifest_path, signature, frames, timing)
+        else:
+            timing["frame_cache_skipped"] = "disabled"
+        return frames
+
+    def _write_frame_cache(self, cache_path, manifest_path, signature, frames, timing):
+        if not signature or not frames:
+            return
+        try:
+            first_shape = tuple(getattr(frames[0], "shape", ()) or ())
+            if not first_shape or any(tuple(getattr(frame, "shape", ()) or ()) != first_shape for frame in frames):
+                timing["frame_cache_skipped"] = "frame_shapes_differ"
+                return
+
+            save_start = time.perf_counter()
+            stacked = np.stack(frames, axis=0)
+            tmp_cache_path = f"{cache_path}.tmp"
+            tmp_manifest_path = f"{manifest_path}.tmp"
+            with open(tmp_cache_path, "wb") as f:
+                np.save(f, stacked, allow_pickle=False)
+            with open(tmp_manifest_path, "w", encoding="utf-8") as f:
+                json.dump(signature, f)
+            os.replace(tmp_cache_path, cache_path)
+            os.replace(tmp_manifest_path, manifest_path)
+            timing["frame_cache_saved"] = True
+            timing["frame_cache_save_seconds"] = round(time.perf_counter() - save_start, 3)
+            timing["frame_cache_shape"] = [int(v) for v in stacked.shape]
+            try:
+                timing["frame_cache_mb"] = round(float(os.path.getsize(cache_path)) / (1024 ** 2), 1)
+            except Exception:
+                timing["frame_cache_mb"] = None
+        except Exception as exc:
+            timing["frame_cache_save_error"] = str(exc)
 
     def process_frames(
         self,
@@ -472,6 +601,7 @@ class MuseTalkEngine:
         self.enable_vae_slicing = bool(enable_vae_slicing)
         self.preload_face_parsing = bool(preload_face_parsing)
         self.prepared_avatars = {}
+        self.last_prepare_timing = {}
 
         if not fast_check_ffmpeg():
             path_separator = ";" if os.name == "nt" else ":"
@@ -700,16 +830,22 @@ class MuseTalkEngine:
         mask_ranges=None,
         mask_overrides=None,
         avatar_path_override=None,
+        create_frame_cache=True,
     ):
+        total_start = time.perf_counter()
         prepared = self._build_prepared_avatar(avatar_id, avatar_path_override=avatar_path_override, bbox_shift=bbox_shift)
         avatar_path = prepared.avatar_path
         cache_key = self._prepared_avatar_key(avatar_id, avatar_path_override=avatar_path_override)
+        material_start_exists = os.path.exists(avatar_path)
+        material_seconds = 0.0
 
         if recreate and os.path.exists(avatar_path):
             shutil.rmtree(avatar_path)
+            material_start_exists = False
 
         if not os.path.exists(avatar_path):
             osmakedirs([avatar_path, prepared.full_imgs_path, prepared.video_out_path, prepared.mask_out_path])
+            material_start = time.perf_counter()
             self._prepare_material(
                 prepared,
                 video_path,
@@ -720,8 +856,21 @@ class MuseTalkEngine:
                 mask_ranges=mask_ranges,
                 mask_overrides=mask_overrides,
             )
+            material_seconds = time.perf_counter() - material_start
 
-        self.prepared_avatars[cache_key] = PreparedAvatarRuntime(self, prepared, self.batch_size)
+        runtime_start = time.perf_counter()
+        runtime = PreparedAvatarRuntime(self, prepared, self.batch_size, create_frame_cache=create_frame_cache)
+        runtime_seconds = time.perf_counter() - runtime_start
+        self.prepared_avatars[cache_key] = runtime
+        self.last_prepare_timing = {
+            "avatar_id": avatar_id,
+            "cache_key": cache_key,
+            "prepared_folder_existed": bool(material_start_exists),
+            "material_seconds": round(material_seconds, 3),
+            "runtime_load_seconds": round(runtime_seconds, 3),
+            "total_seconds": round(time.perf_counter() - total_start, 3),
+            "runtime_load": dict(getattr(runtime, "load_timing", {}) or {}),
+        }
         return prepared
 
     @torch.no_grad()

@@ -1,3 +1,6 @@
+from PySide6 import QtCore, QtWidgets
+
+
 def configure_real_ui_binding_dependencies(namespace):
     """Inject qt_app-owned constants used by the extracted real-UI binding mixin."""
     globals().update(dict(namespace or {}))
@@ -17,7 +20,7 @@ class MainUiRealBindingMixin:
                 widget = self._ui_object(object_name)
                 if widget is None or not hasattr(widget, "clicked") or not callable(handler):
                     continue
-                widget.clicked.connect(handler)
+                widget.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
 
     def _bind_lifecycle_controls(self):
             start_button = self._ui_object("btn_start_engine")
@@ -105,6 +108,10 @@ class MainUiRealBindingMixin:
                 button.released.connect(lambda: self._input_action_service.set_push_to_talk_hold(False))
 
     def _bind_chat_edit_controls(self):
+            chat_edit = self._ui_object("chat_edit")
+            if chat_edit is not None and hasattr(chat_edit, "customContextMenuRequested"):
+                chat_edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                chat_edit.customContextMenuRequested.connect(self._show_frontend_chat_context_menu)
             edit_button = self._ui_object("chat_edit_mode_button")
             if edit_button is not None and hasattr(edit_button, "clicked"):
                 edit_button.clicked.connect(self._enter_chat_edit_mode_from_ui_real)
@@ -114,6 +121,36 @@ class MainUiRealBindingMixin:
             cancel_button = self._ui_object("chat_cancel_edit_button")
             if cancel_button is not None and hasattr(cancel_button, "clicked"):
                 cancel_button.clicked.connect(self._cancel_chat_edit_mode_from_ui_real)
+
+    def _show_frontend_chat_context_menu(self, point):
+            chat_edit = self._ui_object("chat_edit")
+            if chat_edit is None:
+                return
+            try:
+                menu = chat_edit.createStandardContextMenu()
+            except Exception:
+                menu = QtWidgets.QMenu(chat_edit)
+            if not bool(getattr(self.backend, "chat_edit_mode", False)):
+                replay_index = None
+                try:
+                    cursor = chat_edit.cursorForPosition(point)
+                    position = cursor.position()
+                    replay_index = self.backend._assistant_replay_index_for_chat_position(position)
+                except Exception:
+                    replay_index = None
+                if replay_index is not None:
+                    try:
+                        menu.addSeparator()
+                        replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
+                        replay_action.triggered.connect(
+                            lambda _checked=False, idx=replay_index: self.backend.trigger_replay_from_assistant_index(idx)
+                        )
+                    except Exception:
+                        pass
+            try:
+                menu.exec(chat_edit.viewport().mapToGlobal(point))
+            except Exception:
+                pass
 
     def _bind_dry_run_controls(self):
             bindings = {
