@@ -11740,11 +11740,10 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         if hasattr(self, "musetalk_vram_combo"):
             self.musetalk_vram_combo.setCurrentText("Very Low VRAM")
         if hasattr(self, "tts_backend_combo"):
-            self._populate_tts_backend_combo(selected_value="pockettts")
-            index = self.tts_backend_combo.findData("pockettts")
+            self._populate_tts_backend_combo(selected_value="chatterbox")
+            index = self.tts_backend_combo.findData("chatterbox")
             if index >= 0:
                 self.tts_backend_combo.setCurrentIndex(index)
-        self._ensure_pocket_tts_python_path()
         self.save_session()
         print("[QtGUI] Applied safe tutorial defaults.")
         self.emit_tutorial_event("safe_defaults_applied", self.get_tutorial_runtime_state())

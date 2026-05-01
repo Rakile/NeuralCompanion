@@ -105,7 +105,7 @@
     {
       "id": "safe_defaults",
       "title": "Apply a Safe Startup Baseline",
-      "body": "This step applies a conservative startup baseline: MuseTalk, Stream Mode On, PocketTTS, and Very Low VRAM. That does not lock you in forever. It just gives troubleshooting a reliable starting point.",
+      "body": "This step applies a conservative startup baseline: MuseTalk, Stream Mode On, Chatterbox, and Very Low VRAM. That does not lock you in forever. It just gives troubleshooting a reliable starting point.",
       "target": "engine_combo",
       "actions": [
         {

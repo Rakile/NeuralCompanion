@@ -24,7 +24,7 @@
     },
     {
       "title": "Enable Stream Mode",
-      "body": "For this tutorial, please turn Stream Mode on. In this app, turning Stream Mode on defaults to PocketTTS, while turning it off defaults to the more expressive Chatterbox / TurboTTS path.",
+      "body": "For this tutorial, please turn Stream Mode on. Stream Mode lets NC start speaking before the full assistant reply is complete, which is helpful for realtime avatar testing.",
       "target": "stream_mode_combo",
       "actions": [
         { "type": "set_combo_text", "target": "stream_mode_combo", "value": "Off" }
@@ -38,7 +38,7 @@
     },
     {
       "title": "Observe the TTS Backend",
-      "body": "Notice that the TTS Backend has defaulted to PocketTTS because Stream Mode is on. Later, if you turn Stream Mode off, the app will default back to Chatterbox / TurboTTS.",
+      "body": "Check the TTS Backend here. Chatterbox is the public default; optional backends such as PocketTTS or Gemini TTS can be installed and selected later.",
       "target": "tts_backend_combo"
     },
     {
@@ -62,7 +62,7 @@
     },
     {
       "title": "Persona Tab",
-      "body": "This is the Persona tab. It contains voice settings, expressive tags, and the system prompt. PocketTTS is bundled with the app and will be used automatically when selected. Push Next when you are ready to load the tutorial persona.",
+      "body": "This is the Persona tab. It contains voice settings, expressive tags, and the system prompt. Push Next when you are ready to load the tutorial persona.",
       "tab": "Persona",
       "target": "persona_tab"
     },

@@ -379,9 +379,54 @@ class TutorialOverlay(QtWidgets.QWidget):
         return default_index
 
     def _update_highlight_for_target(self, target_widget):
+        self._make_widget_visible(target_widget)
         self.highlight_rect = self._target_rect_for_widget(target_widget).adjusted(-4, -4, 4, 4)
         self._reposition_panel()
         self.update()
+
+    def _make_widget_visible(self, widget):
+        if widget is None or widget is self.main_window or not isinstance(widget, QtWidgets.QWidget):
+            return
+        current = widget
+        while current is not None and current is not self.main_window:
+            parent = current.parentWidget()
+            if isinstance(parent, QtWidgets.QStackedWidget):
+                try:
+                    parent.setCurrentWidget(current)
+                except Exception:
+                    pass
+                tab_widget = parent.parentWidget()
+                if isinstance(tab_widget, QtWidgets.QTabWidget):
+                    try:
+                        index = tab_widget.indexOf(current)
+                        if index >= 0:
+                            tab_widget.setCurrentIndex(index)
+                    except Exception:
+                        pass
+            if isinstance(parent, QtWidgets.QTabWidget):
+                try:
+                    index = parent.indexOf(current)
+                    if index >= 0:
+                        parent.setCurrentIndex(index)
+                except Exception:
+                    pass
+            if isinstance(current, QtWidgets.QDockWidget):
+                try:
+                    current.setVisible(True)
+                    current.raise_()
+                except Exception:
+                    pass
+            elif hasattr(current, "setVisible"):
+                try:
+                    current.setVisible(True)
+                except Exception:
+                    pass
+            current = parent
+        try:
+            widget.raise_()
+            widget.setFocus(QtCore.Qt.OtherFocusReason)
+        except Exception:
+            pass
 
     def _apply_actions(self, step):
         for action in list(step.get("actions") or []):
@@ -547,7 +592,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         if isinstance(self.current_target_widget, QtCore.QObject):
             self.current_target_widget.installEventFilter(self)
         if isinstance(target_widget, QtWidgets.QWidget):
-            target_widget.raise_()
+            self._make_widget_visible(target_widget)
         self.highlight_rect = self._target_rect_for_widget(target_widget).adjusted(-4, -4, 4, 4)
         self.current_condition = dict(step.get("condition") or step.get("require") or {})
         self.current_hint_only = bool(step.get("hint_only", False))

@@ -20,7 +20,7 @@
     },
     {
       "title": "Streaming and TTS",
-      "body": "These controls decide whether replies stream live and which text-to-speech backend is used. If you turn Stream Mode on, the app defaults to PocketTTS. If you turn Stream Mode off, it defaults back to the more expressive Chatterbox / TurboTTS path.",
+      "body": "These controls decide whether replies stream live and which text-to-speech backend is used. Chatterbox is the public default; optional backends such as PocketTTS or Gemini TTS can be installed and selected later.",
       "target": "stream_mode_combo"
     },
     {
@@ -30,7 +30,7 @@
     },
     {
       "title": "Persona Tab",
-      "body": "The Persona tab controls voice, expressive tags, and the main system prompt. PocketTTS is bundled with the app and is used automatically when selected.",
+      "body": "The Persona tab controls voice, expressive tags, and the main system prompt. Use the TTS Runtime card to choose which installed voice backend speaks replies.",
       "tab": "Persona",
       "target": "persona_tab"
     },
