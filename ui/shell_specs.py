@@ -296,7 +296,6 @@ UI_SHELL_LIVE_ADDON_IDS = {
     "nc.gemini_tts_preview",
     "nc.heart_rate_behavior",
     "nc.hotkeys",
-    "nc.loop_authoring",
     "nc.mock_heart_rate",
     "nc.musetalk_avatar",
     "nc.musetalk_preprocess",

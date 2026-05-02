@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, avatar_pack_search_dirs, discover_avatar_packs, save_avatar_pack_manifest
+from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, MuseTalkAvatarPack, MuseTalkAvatarVariant, avatar_pack_search_dirs, discover_avatar_packs, save_avatar_pack_manifest
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
 
 
@@ -341,7 +341,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         selected_pack_id = str(pack_id or self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip() or MUSE_STANDALONE_TARGET_PACK_ID
         if selected_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
             return MUSE_AVATAR_RESULTS_DIR
-        return self._musetalk_pack_root_for_id(selected_pack_id)
+        return MUSE_AVATAR_PACKS_DIR / selected_pack_id
 
     def _musetalk_target_avatar_root(self, avatar_id, pack_id=None):
         clean_avatar_id = self._sanitize_avatar_id(avatar_id)
@@ -352,6 +352,54 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
     def _musetalk_avatar_info_path(self, avatar_id, pack_id=None):
         return self._musetalk_target_avatar_root(avatar_id, pack_id=pack_id) / "avator_info.json"
+
+    def _ensure_musetalk_pack_manifest_in_nc_root(self, pack_id):
+        clean_pack_id = str(pack_id or "").strip()
+        if not clean_pack_id or clean_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
+            return None
+        target_root = MUSE_AVATAR_PACKS_DIR / clean_pack_id
+        target_root.mkdir(parents=True, exist_ok=True)
+        pack = self._discover_musetalk_pack_catalog().get(clean_pack_id)
+        if pack is None:
+            pack = MuseTalkAvatarPack(
+                pack_id=clean_pack_id,
+                display_name=clean_pack_id,
+                default_variant="default",
+                variants={},
+                transitions=[],
+                source="nc_pack",
+                manifest_path="",
+            )
+        return save_avatar_pack_manifest(pack, packs_dir=MUSE_AVATAR_PACKS_DIR)
+
+    def _record_musetalk_pack_variant(self, pack_id, avatar_id, avatar_path, emotion_tags_text):
+        clean_pack_id = str(pack_id or "").strip()
+        clean_avatar_id = self._sanitize_avatar_id(avatar_id)
+        if not clean_pack_id or clean_pack_id == MUSE_STANDALONE_TARGET_PACK_ID or not clean_avatar_id:
+            return None
+        self._ensure_musetalk_pack_manifest_in_nc_root(clean_pack_id)
+        pack = self._discover_musetalk_pack_catalog().get(clean_pack_id)
+        if pack is None:
+            pack = MuseTalkAvatarPack(
+                pack_id=clean_pack_id,
+                display_name=clean_pack_id,
+                default_variant=clean_avatar_id,
+                variants={},
+                transitions=[],
+                source="nc_pack",
+                manifest_path="",
+            )
+        pack.variants[clean_avatar_id] = MuseTalkAvatarVariant(
+            variant_id=clean_avatar_id,
+            avatar_id=clean_avatar_id,
+            avatar_path=str(Path(avatar_path).resolve()) if avatar_path else "",
+            tags=self._parse_musetalk_emotion_tags(emotion_tags_text),
+            display_name=clean_avatar_id,
+            metadata={},
+        )
+        if not str(pack.default_variant or "").strip() or str(pack.default_variant or "").strip() not in pack.variants:
+            pack.default_variant = clean_avatar_id
+        return save_avatar_pack_manifest(pack, packs_dir=MUSE_AVATAR_PACKS_DIR)
 
     def build_tab(self):
         existing = self.musetalk_preprocess_tab_widget
@@ -369,7 +417,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
         musetalk_intro = QtWidgets.QLabel(
             "Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. "
-            "The app will create or update either flat avatars under MuseTalk/results/v15/avatars/<avatar_id> or pack variants under avatar_packs/<pack>/<avatar_id>."
+            "Pack variants are written under avatar_packs/<pack>/<avatar_id> so they can be distributed without machine-specific paths."
         )
         musetalk_intro.setWordWrap(True)
         musetalk_intro.setStyleSheet("color: #9fb3c8;")
@@ -1844,6 +1892,12 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._ensure_musetalk_source_frame_info(source_path)
         avatar_id = self._sanitize_avatar_id(self.musetalk_avatar_id_edit.text())
         target_pack_id = self._current_musetalk_target_pack_id()
+        if target_pack_id != MUSE_STANDALONE_TARGET_PACK_ID:
+            try:
+                self._ensure_musetalk_pack_manifest_in_nc_root(target_pack_id)
+            except Exception as exc:
+                self._warn("MuseTalk Avatar", f"Could not prepare avatar pack '{target_pack_id}' in avatar_packs/:\n{exc}")
+                return
         avatar_path_override = str(self._musetalk_target_avatar_root(avatar_id, pack_id=target_pack_id).resolve())
         if avatar_id != str(self.musetalk_avatar_id_edit.text() or "").strip():
             self.musetalk_avatar_id_edit.setText(avatar_id)
@@ -1873,6 +1927,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 "avatar_id": avatar_id,
                 "source_path": str(source),
                 "avatar_path": "",
+                "target_pack_id": target_pack_id,
                 "error": "",
                 "used_live_bridge": False,
             }
@@ -2330,6 +2385,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         avatar_id = str(result.get("avatar_id", "") or "").strip()
         if result.get("ok"):
             avatar_path = str(result.get("avatar_path", "") or "")
+            target_pack_id = str(result.get("target_pack_id", "") or "").strip()
             pose_path = ""
             emotion_tags_text = self.musetalk_emotion_tags_edit.text() if hasattr(self, "musetalk_emotion_tags_edit") else ""
             if avatar_id and avatar_path:
@@ -2337,6 +2393,13 @@ class MuseTalkPreprocessController(QtCore.QObject):
                     pose_path = str(self._write_musetalk_avatar_metadata(avatar_id, avatar_path, emotion_tags_text=emotion_tags_text))
                 except Exception as exc:
                     print(f"[QtGUI] MuseTalk avatar metadata auto-save failed for {avatar_id}: {exc}")
+                if target_pack_id and target_pack_id != MUSE_STANDALONE_TARGET_PACK_ID:
+                    try:
+                        manifest_path = self._record_musetalk_pack_variant(target_pack_id, avatar_id, avatar_path, emotion_tags_text)
+                        if manifest_path:
+                            print(f"[QtGUI] MuseTalk avatar pack manifest updated: {manifest_path}")
+                    except Exception as exc:
+                        print(f"[QtGUI] MuseTalk avatar pack manifest update failed for {avatar_id}: {exc}")
             self.refresh_musetalk_avatar_list()
             if avatar_id and hasattr(self, "musetalk_avatar_combo"):
                 index = self.musetalk_avatar_combo.findText(avatar_id)

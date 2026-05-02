@@ -128,7 +128,8 @@ class MuseTalkAvatarPack:
     def referenced_avatar_ids(self) -> set[str]:
         return {str(variant.avatar_id or "").strip() for variant in self.variants.values() if str(variant.avatar_id or "").strip()}
 
-    def to_manifest_payload(self) -> dict[str, Any]:
+    def to_manifest_payload(self, manifest_dir: Path | None = None) -> dict[str, Any]:
+        manifest_root = Path(manifest_dir).resolve() if manifest_dir is not None else None
         variants_payload: dict[str, Any] = {}
         for variant_id, variant in self.variants.items():
             payload = dict(variant.metadata or {})
@@ -141,7 +142,24 @@ class MuseTalkAvatarPack:
             if variant.display_name:
                 payload["display_name"] = str(variant.display_name)
             if variant.avatar_path:
-                payload["avatar_path"] = str(variant.avatar_path)
+                avatar_path = Path(str(variant.avatar_path))
+                stored_path = ""
+                if manifest_root is not None:
+                    try:
+                        resolved_avatar_path = avatar_path.resolve()
+                        stored_path = str(resolved_avatar_path.relative_to(manifest_root))
+                    except Exception:
+                        # Distributed packs must not save machine-specific paths.
+                        stored_path = ""
+                elif not avatar_path.is_absolute():
+                    stored_path = str(avatar_path)
+                if stored_path.replace("\\", "/").strip("/") in {
+                    str(variant_id or "").strip(),
+                    str(variant.avatar_id or "").strip(),
+                }:
+                    stored_path = ""
+                if stored_path:
+                    payload["avatar_path"] = stored_path
             variants_payload[str(variant_id)] = payload
         transitions_payload: dict[str, Any] = {}
         for transition in self.transitions:
@@ -400,11 +418,11 @@ def build_implicit_avatar_pack(pack_dir: Path) -> MuseTalkAvatarPack | None:
     )
 
 
-def avatar_pack_search_dirs(packs_dir: Path | None = None, *, include_legacy: bool = True) -> tuple[Path, ...]:
+def avatar_pack_search_dirs(packs_dir: Path | None = None, *, include_legacy: bool = False) -> tuple[Path, ...]:
     """Return avatar-pack roots in preference order.
 
     NC-owned packs live at repo-root ``avatar_packs/``. The old MuseTalk
-    results path remains readable so existing prepared packs keep working.
+    results path is intentionally opt-in only so new packs stay portable.
     """
     roots: list[Path] = [Path(packs_dir or NC_AVATAR_PACKS_DIR)]
     if include_legacy:
@@ -425,7 +443,7 @@ def discover_avatar_packs(
     legacy_transitions: dict[tuple[str, str], dict[str, Any]] | None = None,
     avatars_dir: Path | None = None,
     packs_dir: Path | None = None,
-    include_legacy: bool = True,
+    include_legacy: bool = False,
     include_standalone: bool = True,
 ) -> dict[str, MuseTalkAvatarPack]:
     avatars_root = Path(avatars_dir or MUSE_AVATAR_RESULTS_DIR)
@@ -437,7 +455,7 @@ def discover_avatar_packs(
         packs[legacy_pack.pack_id] = legacy_pack
         referenced_avatar_ids.update(legacy_pack.referenced_avatar_ids())
 
-    for packs_root in avatar_pack_search_dirs(packs_dir):
+    for packs_root in avatar_pack_search_dirs(packs_dir, include_legacy=include_legacy):
         if not packs_root.exists():
             continue
         for child in sorted(packs_root.iterdir()):
@@ -486,7 +504,7 @@ def get_avatar_pack(
     legacy_transitions: dict[tuple[str, str], dict[str, Any]] | None = None,
     avatars_dir: Path | None = None,
     packs_dir: Path | None = None,
-    include_legacy: bool = True,
+    include_legacy: bool = False,
     include_standalone: bool = True,
 ) -> MuseTalkAvatarPack:
     packs = discover_avatar_packs(
@@ -515,5 +533,5 @@ def save_avatar_pack_manifest(pack: MuseTalkAvatarPack, packs_dir: Path | None =
     pack_dir = packs_root / sanitize_pack_token(pack.pack_id, "pack")
     pack_dir.mkdir(parents=True, exist_ok=True)
     manifest_path = pack_dir / MUSE_AVATAR_PACK_MANIFEST_FILENAME
-    manifest_path.write_text(json.dumps(pack.to_manifest_payload(), indent=2, ensure_ascii=True), encoding="utf-8")
+    manifest_path.write_text(json.dumps(pack.to_manifest_payload(manifest_dir=pack_dir), indent=2, ensure_ascii=True), encoding="utf-8")
     return manifest_path

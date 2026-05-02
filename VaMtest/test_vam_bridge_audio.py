@@ -1,12 +1,15 @@
 import argparse
 import io
 import json
+import math
 import os
 import shutil
 import struct
 import sys
+import tempfile
 import time
 import uuid
+import wave
 from pathlib import Path
 
 
@@ -55,6 +58,22 @@ def wav_duration_seconds(path: Path) -> float:
 
     frame_count = data_size / float(block_align)
     return frame_count / float(sample_rate)
+
+
+def create_default_test_wav(path: Path, duration_seconds: float = 1.0, sample_rate: int = 16000) -> None:
+    """Create a tiny generated test tone so the repo does not need a binary sample."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    amplitude = 7000
+    frame_count = int(max(0.1, duration_seconds) * sample_rate)
+    with wave.open(str(path), "wb") as wav_file:
+        wav_file.setnchannels(1)
+        wav_file.setsampwidth(2)
+        wav_file.setframerate(sample_rate)
+        frames = bytearray()
+        for index in range(frame_count):
+            sample = int(amplitude * math.sin(2.0 * math.pi * 440.0 * index / sample_rate))
+            frames.extend(struct.pack("<h", sample))
+        wav_file.writeframes(bytes(frames))
 
 
 def atomic_write_json(path: Path, payload: dict) -> None:
@@ -119,7 +138,8 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Standalone VaM bridge audio tester.")
     parser.add_argument("--vam-root", default=DEFAULT_VAM_ROOT, help="VaM installation root")
     parser.add_argument("--bridge-root", default="", help="Optional explicit bridge root override")
-    parser.add_argument("--wav", default=str(Path(__file__).with_name("input.wav")), help="Input WAV to stage")
+    default_wav = Path(__file__).with_name("input.wav")
+    parser.add_argument("--wav", default=str(default_wav), help="Input WAV to stage. If the default file is absent, a temporary test tone is generated.")
     parser.add_argument("--text", default="VaM bridge audio test", help="Text note to include in the speech chunk")
     parser.add_argument("--emotion", default="neutral", help="Emotion field to send")
     parser.add_argument("--target-atom-uid", default=DEFAULT_TARGET_ATOM_UID, help="Target VaM atom UID")
@@ -139,8 +159,12 @@ def main() -> int:
     snapshot_dir = Path(args.snapshot_dir).expanduser().resolve()
 
     if not input_wav.exists():
-        print(f"Input WAV not found: {input_wav}", file=sys.stderr)
-        return 1
+        if input_wav == default_wav.resolve():
+            input_wav = Path(tempfile.gettempdir()) / "neural_companion_vam_bridge_test.wav"
+            create_default_test_wav(input_wav)
+        else:
+            print(f"Input WAV not found: {input_wav}", file=sys.stderr)
+            return 1
 
     inbox_dir.mkdir(parents=True, exist_ok=True)
     outbox_dir.mkdir(parents=True, exist_ok=True)

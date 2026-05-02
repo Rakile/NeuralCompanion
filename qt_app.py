@@ -787,7 +787,6 @@ def _ui_shell_mount_live_addons(window, report):
         "qt.pockettts_shell_preview": True,
         "qt.clipboard_source_shell_preview": True,
         "qt.gemini_tts_preview_shell_preview": True,
-        "qt.loop_authoring_shell_preview": True,
         "qt.musetalk_preprocess_shell_preview": True,
         "qt.shell_session_snapshot": _read_ui_shell_session_snapshot,
     }
@@ -2567,7 +2566,6 @@ _ui_shell_enable_stdio_unicode_fallback()
 
 import dry_run
 import tutorial_framework
-import loop_authoring
 try:
     import cv2
 except Exception:
@@ -8603,8 +8601,6 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
 
         # MuseTalk preprocessing moved into the MuseTalk addon system.
 
-
-        # Loop Authoring moved into the MuseTalk addon system.
 
         for label, key, minimum, maximum in [
             ("L Depth", "idle_fwd_left", -200, 200),

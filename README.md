@@ -127,16 +127,10 @@ Only use voice files you have the right to use.
 
 ## Avatar Packs
 
-The preferred MuseTalk avatar-pack location is:
+MuseTalk avatar packs belong in:
 
 ```text
 avatar_packs/<pack_id>/
-```
-
-The old MuseTalk path is still detected for existing setups:
-
-```text
-MuseTalk/results/v15/avatar_packs/<pack_id>/
 ```
 
 Large avatar packs and frame caches are intentionally not stored in the main
@@ -150,7 +144,6 @@ Generated files are ignored by Git. Important generated locations include:
 - `MuseTalk/runtime/`
 - `avatar_packs/`
 - `voices/`
-- `LoopAuthoring/drafts/`
 
 Diagnostic file logs are off by default. Enable only when debugging:
 
@@ -180,6 +173,7 @@ environments.
 See:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/release_asset_policy.md](docs/release_asset_policy.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/known_limitations.md](docs/known_limitations.md)

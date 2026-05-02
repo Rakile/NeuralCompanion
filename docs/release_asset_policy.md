@@ -23,12 +23,6 @@ MuseTalk avatar packs belong in:
 avatar_packs/<pack_id>/
 ```
 
-The legacy path is still detected for existing local setups:
-
-```text
-MuseTalk/results/v15/avatar_packs/<pack_id>/
-```
-
 Demo avatar packs should be distributed outside the main repo, for example as
 GitHub Release assets or in a dedicated asset repository.
 

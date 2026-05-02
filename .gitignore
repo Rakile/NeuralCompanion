@@ -30,11 +30,10 @@ avatar_packs/*
 voices/*
 !voices/.gitkeep
 !voices/README.md
-LoopAuthoring/drafts/*
-!LoopAuthoring/drafts/.gitkeep
 addons/**/__pycache__/
 core/**/__pycache__/
 VaMtest/__pycache__/
+VaMtest/input.wav
 VaMtest/last_sent_*.json
 body_configs/*.json
 !body_configs/.gitkeep

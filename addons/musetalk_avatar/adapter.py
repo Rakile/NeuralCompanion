@@ -299,7 +299,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         )
         self.available_avatar_packs = dict(packs)
         if not self.available_avatar_packs:
-            raise LookupError("No MuseTalk avatar packs found under avatar_packs or legacy MuseTalk/results/v15/avatar_packs.")
+            raise LookupError("No MuseTalk avatar packs found under avatar_packs.")
         selected = packs.get(requested_pack_id)
         if selected is None:
             try:

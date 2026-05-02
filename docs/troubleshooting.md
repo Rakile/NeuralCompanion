@@ -35,17 +35,14 @@ py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
 
 ## Avatar Packs Are Not Found
 
-Preferred location:
+Avatar packs belong here:
 
 ```text
 avatar_packs/<pack_id>/
 ```
 
-Legacy location still detected:
-
-```text
-MuseTalk/results/v15/avatar_packs/<pack_id>/
-```
+If an older local setup has packs under MuseTalk's result folders, move or
+copy each pack folder into `avatar_packs/` so manifests remain portable.
 
 ## GPU Memory Does Not Drop Immediately
 

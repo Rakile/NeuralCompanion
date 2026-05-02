@@ -92,7 +92,6 @@ class AddonManager:
             "nc.mock_heart_rate": "vision",
             "nc.heart_rate_behavior": "vision",
             "nc.musetalk_preprocess": "musetalk",
-            "nc.loop_authoring": "musetalk",
             "nc.visual_reply": "visuals",
             "nc.chat_session_player": "chat",
             "nc.hotkeys": "global",

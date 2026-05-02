@@ -130,7 +130,7 @@ Current behavior:
 - Mirrors console/chat/status output from the hidden backend into the Designer window.
 - Automated offscreen `INIT` / `TERMINATE` verification now passes against the runtime-backed bridge.
 - Renders provider-specific chat runtime/editor fields into the real Designer layouts.
-- Shows adopted runtime addon tabs directly in the Designer window for `Hotkeys`, `Chat Player`, `Visuals`, `Story Visuals`, `Audio Story Mode`, `Preprocess`, `Loop Authoring`, `Chatterbox`, `Gemini TTS`, and `PocketTTS`.
+- Shows adopted runtime addon tabs directly in the Designer window for `Hotkeys`, `Chat Player`, `Visuals`, `Story Visuals`, `Audio Story Mode`, `Preprocess`, `Chatterbox`, `Gemini TTS`, and `PocketTTS`.
 - Redirects the sensory runtime source surface into the real Designer `sensory_feedback_tabs` and `sensory_feedback_sources_widget`.
 - Builds runtime sensory provider tabs directly in the Designer surface when sources are enabled.
 - Chat edit mode is now live in `--ui-real`.
@@ -159,7 +159,6 @@ The shell preview now live-mounts these addons:
 - `nc.chat_session_player` -> `left_tabs` as `Chat Player`
 - `nc.audio_story_mode` -> replaces the static `audio_story_mode_tab` in `right_tabs` as `Audio Story Mode`
 - `nc.hotkeys` -> `left_tabs` as `Hotkeys`
-- `nc.loop_authoring` -> `musetalk_tabs` as `Loop Authoring`
 - `nc.musetalk_preprocess` -> `musetalk_tabs` as `Preprocess`
 - `nc.visual_reply` -> replaces the static `host_settings_visuals_tab` as `Visuals`
 - `nc.visual_story_settings` -> `host_settings_tabs` as `Story Visuals`
@@ -196,7 +195,6 @@ Why these addons were chosen:
 - Gemini TTS Preview renders with an addon-local shell-preview guard; Gemini model refresh, connection checks, TTS generation, audio file writes, backend startup, and audio playback are disabled in shell mode.
 - Chatterbox renders with an addon-local shell-preview guard; Chatterbox model loading, runtime config writes, backend startup, and audio generation are disabled in shell mode.
 - PocketTTS renders with an addon-local shell-preview guard; interpreter lookup, file dialogs, subprocess adapter startup, runtime config writes, and audio generation are disabled in shell mode.
-- Loop Authoring renders with an addon-local shell-preview guard; Wan2GP launch, conda environment probing, file dialogs, folder writes/opens, generated-video import, and MuseTalk handoff actions are disabled in shell mode.
 - MuseTalk Preprocess renders through a shell-only adapter in the addon entry point; the real controller is not imported, so shell mode avoids import-time `engine.py`, `cv2`, and `MuseTalkBridge` coupling from this addon.
 - Audio Story Mode renders through a shell-only adapter in the addon entry point; the real controller is not imported, so shell mode avoids `engine.py`/`shared_state` import-time coupling, `QMediaPlayer` creation, Whisper transcription, TTS narration, Visual Reply generation, and playback timeline sync.
 
@@ -211,7 +209,7 @@ Important:
 - The shell provides a tutorials facade, but Start Tutorial is intentionally shell-local and never creates an overlay.
 - The shell provides a dialogs facade, but native file/message dialogs are intentionally deferred and only logged.
 - The shell provides avatar and sensory registries, but factories/capture handlers are never invoked.
-- Shell-provided services are limited to metadata-only chat/avatar/sensory registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/Loop Authoring/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
+- Shell-provided services are limited to metadata-only chat/avatar/sensory registration, read-only hotkey lookup, shell-local visual reply settings, clipboard/Gemini/TTS/MuseTalk Preprocess/Audio Story shell-preview flags, and no-op shell settings notifications.
 - Buttons that require absent host services either no-op or affect only addon-local shell state.
 - Addon instances are kept alive for the shell window lifetime and cleaned up when the shell exits.
 - Chat Runtime fields are rendered from provider metadata in shell mode, but provider model-list, connection-check, completion, and stream handlers are not invoked.
@@ -401,7 +399,7 @@ The current comparison is useful for spotting tabs that are probably static plac
 - `left_tabs`: static `Hotkeys` is replaced by the live-mounted `nc.hotkeys` addon in shell mode.
 - `left_tabs`: static `Chat Player` is replaced by the live-mounted `nc.chat_session_player` addon in shell mode.
 - `host_settings_tabs`: static `Visuals` is replaced by the live-mounted `nc.visual_reply` addon in shell mode, and `nc.visual_story_settings` mounts as `Story Visuals`.
-- `musetalk_tabs`: `Loop Authoring` is live-mounted through `nc.loop_authoring`; `Preprocess` is live-mounted through the `nc.musetalk_preprocess` shell-only adapter.
+- `musetalk_tabs`: `Preprocess` is live-mounted through the `nc.musetalk_preprocess` shell-only adapter.
 - `tts_runtime_addon_tabs`: static `Chatterbox` and `PocketTTS` are replaced by the live-mounted `nc.chatterbox_tts` and `nc.pockettts` addons in shell mode.
 - `right_tabs`: static `Audio Story Mode` is replaced by the `nc.audio_story_mode` shell-only adapter.
 
@@ -528,7 +526,7 @@ Why this should come next:
 - Console/chat local controls are now in place without starting runtime systems.
 - A small UI-facing runtime-status facade now exists, so future `main.ui` work can read lifecycle/provider/TTS/avatar/microphone state through one contract instead of directly touching `engine.py`.
 - `tts_runtime_addon_tabs` is now clean after live-mounting Chatterbox, Gemini TTS, and PocketTTS with shell-only backend/model/subprocess work disabled.
-- `musetalk_tabs` now live-mounts Loop Authoring with Wan2GP/subprocess/file actions disabled in shell mode, and Preprocess through a shell-only adapter.
+- `musetalk_tabs` now live-mounts Preprocess through a shell-only adapter.
 - All addon-owned tab surfaces currently report clean in shell smoke; remaining shell placeholders are provider-field metadata placeholders, not tab duplicates.
 - This keeps `python qt_app.py` as the stable default and keeps the Designer shell path experimental.
 
