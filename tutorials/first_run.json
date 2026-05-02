@@ -1,16 +1,16 @@
 {
   "id": "first_run",
   "title": "First Run",
-  "description": "An interactive setup tutorial that guides the user through a safe low-VRAM streaming configuration.",
+  "description": "An interactive setup tutorial that guides the user through a safe first launch.",
   "steps": [
     {
       "title": "Welcome",
-      "body": "This interactive first-run tutorial will guide you through a safe starting setup. For this tutorial, follow the requested actions when they appear.",
+      "body": "This interactive first-run tutorial will guide you through a safe starting setup that does not require optional avatar packs. For this tutorial, follow the requested actions when they appear.",
       "target": "main_window"
     },
     {
-      "title": "Choose MuseTalk",
-      "body": "For this tutorial, please choose MuseTalk as the Avatar Engine. The next step will appear automatically when you do it.",
+      "title": "Choose No Avatar",
+      "body": "For a first launch, please choose None as the Avatar Engine. That lets you verify chat and speech before enabling heavier avatar systems such as MuseTalk.",
       "target": "engine_combo",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
@@ -20,7 +20,7 @@
       "require": {
         "type": "combo_text",
         "target": "engine_combo",
-        "value": "MuseTalk",
+        "value": "None",
         "auto_advance": true
       }
     },
@@ -48,22 +48,6 @@
         { "type": "show_dock", "target": "SystemShapingDock" },
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
       ]
-    },
-    {
-      "title": "Choose a Safe VRAM Mode",
-      "body": "For this tutorial, please set MuseTalk VRAM to Very Low VRAM. This is the most broadly compatible starting point for new users and smaller GPUs.",
-      "target": "musetalk_vram_combo",
-      "actions": [
-        { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
-        { "type": "set_combo_text", "target": "musetalk_vram_combo", "value": "Quality" }
-      ],
-      "require": {
-        "type": "combo_text",
-        "target": "musetalk_vram_combo",
-        "value": "Very Low VRAM",
-        "auto_advance": true
-      }
     },
     {
       "title": "Check the Model",
@@ -113,11 +97,12 @@
       }
     },
     {
-      "title": "MuseTalk Preview",
-      "body": "When MuseTalk starts, a preview view may appear. That is normal. This app now has the avatar engine running in a safe first-run configuration.",
-      "target": "MuseTalkPreviewDock",
+      "title": "Try MuseTalk Later",
+      "body": "Once chat and speech work, MuseTalk can be enabled later from Avatar Engine after its runtime and at least one avatar pack are installed.",
+      "target": "engine_combo",
       "actions": [
-        { "type": "show_dock", "target": "MuseTalkPreviewDock" }
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
       ]
     },
     {

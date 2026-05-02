@@ -175,6 +175,7 @@ See:
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/release_asset_policy.md](docs/release_asset_policy.md)
+- [docs/third_party_and_assets.md](docs/third_party_and_assets.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/known_limitations.md](docs/known_limitations.md)
 

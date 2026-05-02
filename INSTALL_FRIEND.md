@@ -87,18 +87,18 @@ py install_neural_interface.py --musetalk --non-interactive
 ## Notes
 
 - `VSeeFace-v1.13.38c4` is optional. If the folder is absent, the installer will warn but continue.
-- The main app installer uses the same CUDA 12.6 torch stack as the working NeuralInterface setup: `torch==2.6.0`, `torchaudio==2.6.0`, `torchvision==0.21.0`.
-- After the main requirements install, the installer also applies the known-good NeuralInterface pins: `numpy==1.24.4`, `pillow==11.2.1`, and `PyAudio==0.2.14`.
-- `MuseTalk` runtime code is included, but MuseTalk model weights and prepared avatar packs are intentionally omitted from this trimmed Git package.
-- `MuseTalk/data` demo media is intentionally omitted from this shared repo to keep it lighter.
+- The main app installer uses the validated CUDA 12.6 torch stack for the main runtime: `torch==2.6.0`, `torchaudio==2.6.0`, `torchvision==0.21.0`.
+- After the main requirements install, the installer also applies the known-good runtime pins: `numpy==1.24.4`, `pillow==11.2.1`, and `PyAudio==0.2.14`.
+- `MuseTalk` runtime code is included, but MuseTalk model weights and prepared avatar packs are intentionally omitted from this Git package.
+- `MuseTalk/data` demo media is intentionally omitted from this repo to keep it lighter.
 - The unified installer downloads MuseTalk model weights during the MuseTalk install step.
 - To use MuseTalk after install, preprocess/import an avatar pack into `avatar_packs` or add one manually.
-- This friend package omits TensorFlow / TensorBoard training dependencies because they are not needed for normal runtime use and they conflict with Chatterbox on Python 3.11.
+- This package omits TensorFlow / TensorBoard training dependencies because they are not needed for normal runtime use and they conflict with Chatterbox on Python 3.11.
 The package also pins `chatterbox-tts==0.1.6`, `transformers==4.46.3`, and `numpy==1.24.4` together, because newer Chatterbox releases pull incompatible dependency combinations for this app.
-For the friend package, `diffusers` is pinned to `0.29.0` to stay compatible with the pinned Chatterbox runtime stack.
+`diffusers` is pinned to `0.29.0` to stay compatible with the pinned Chatterbox runtime stack.
 `gradio` is pinned to `5.44.1` to stay aligned with the pinned Chatterbox runtime stack; the main Qt app does not depend on Gradio directly.
-`moviepy` is omitted from the friend package because it is only used by the bundled MuseTalk Gradio demo path, not by the main Qt runtime, and old resolver paths can fail to build on modern Python setups.
-`pocket-tts` is omitted from the default friend package because current releases require `numpy>=2`, which conflicts with the pinned Chatterbox + MuseTalk runtime stack. Use Chatterbox as the default TTS backend in this package.
+`moviepy` is omitted because it is only used by the bundled MuseTalk Gradio demo path, not by the main Qt runtime, and old resolver paths can fail to build on modern Python setups.
+`pocket-tts` is omitted from the default install because current releases require `numpy>=2`, which conflicts with the pinned Chatterbox + MuseTalk runtime stack. Use Chatterbox as the default TTS backend in this package.
 Use `install_neural_interface.py --pockettts --non-interactive` to create the separate `.venvs\pockettts` runtime that the app expects for the PocketTTS backend.
 Use `install_neural_interface.py --musetalk --non-interactive` to create the separate `MuseTalk\.venv` runtime that the app expects for the MuseTalk backend. That installer uses the same MuseTalk torch stack as your working setup: `torch==2.0.1+cu118`, `torchaudio==2.0.2+cu118`, and `torchvision==0.15.2+cu118`, then installs a pinned requirement set exported from the current working MuseTalk environment.
 The packaged MuseTalk requirement export is trimmed to remove stale environment-only packages like `chumpy` that are not used by the runtime path but can fail to build on a fresh machine.

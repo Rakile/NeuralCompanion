@@ -2629,7 +2629,7 @@ from engine import (
 )
 
 
-APP_TITLE = "Neural Interface Qt (Experimental)"
+APP_TITLE = "Neural Companion"
 SESSION_PATH = Path("qt_session.json")
 DEFAULT_LOCAL_VAM_ROOT = ""
 DEFAULT_LOCAL_VAM_EXECUTABLE = "VaM.exe"

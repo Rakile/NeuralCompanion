@@ -28,6 +28,7 @@ Use this checklist before tagging or publishing a public release.
 
 ## Asset And Rights Check
 
+- Review `docs/third_party_and_assets.md`.
 - Do not ship voice samples unless rights and consent are clear.
 - Do not ship generated avatar/video assets in the main repo.
 - Document any demo asset source, license, and usage limits wherever that asset is distributed.

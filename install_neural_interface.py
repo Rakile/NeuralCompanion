@@ -101,7 +101,7 @@ def resolve_python_command(python_exe: str) -> list[str]:
         if version != "3.11":
             raise SystemExit(
                 f"The provided --python-exe points to Python {version or 'unknown'}. "
-                "Neural Interface currently expects Python 3.11."
+                "Neural Companion currently expects Python 3.11."
             )
         return cmd
 
@@ -118,7 +118,7 @@ def resolve_python_command(python_exe: str) -> list[str]:
         detected = get_python_minor_version(["python"])
     extra = f" Detected default python version: {detected}." if detected else ""
     raise SystemExit(
-        "Neural Interface installer requires Python 3.11."
+        "Neural Companion installer requires Python 3.11."
         f"{extra} Install Python 3.11 and rerun this script, "
         "or use --python-exe <path-to-python-3.11>."
     )
@@ -212,7 +212,7 @@ class Installer:
         return DoctorFinding(
             "LM Studio",
             "WARN",
-            "Not found in common install locations. Neural Interface can still install, but local chat provider setup will need attention.",
+            "Not found in common install locations. Neural Companion can still install, but local chat provider setup will need attention.",
         )
 
     def ensure_venv(self, venv_path: Path, label: str) -> Path:
@@ -242,13 +242,13 @@ class Installer:
         ok(f"{label} validation passed: imported {', '.join(imports)}")
 
     def install_main(self) -> None:
-        headline("Installing Neural Interface")
+        headline("Installing Neural Companion")
         python_exe = self.ensure_venv(COMPANION_VENV, "main app")
         note("Upgrading pip/setuptools/wheel...")
         self.pip_install(python_exe, "install", "--upgrade", "pip", "setuptools<81", "wheel")
 
         if not self.args.skip_main_torch:
-            note("Installing CUDA-enabled torch for Neural Interface...")
+            note("Installing CUDA-enabled torch for Neural Companion...")
             self.pip_install(
                 python_exe,
                 "install",
@@ -262,7 +262,7 @@ class Installer:
         else:
             warn("Skipping main torch install because --skip-main-torch was requested.")
 
-        note("Installing Neural Interface requirements...")
+        note("Installing Neural Companion requirements...")
         self.pip_install(
             python_exe,
             "install",
@@ -564,7 +564,7 @@ for job in jobs:
         warn("Still worth checking by hand:")
         print("  - FFmpeg is on PATH")
         print("  - LM Studio is installed and has a model loaded if you want local chat")
-        print("  - MuseTalk avatar packs are still imported separately into MuseTalk/results/v15/avatar_packs")
+        print("  - MuseTalk avatar packs are imported separately into avatar_packs/<pack_id>")
         print("  - PocketTTS voice cloning still requires Hugging Face terms acceptance on kyutai/pocket-tts")
         print()
         ok("Launch the app with run_neural_companion.bat")
@@ -572,10 +572,10 @@ for job in jobs:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Unified installer for the Neural Interface Git release.",
+        description="Unified installer for the Neural Companion Git release.",
     )
     parser.add_argument("--python-exe", default="", help="Path to a Python 3.11 interpreter")
-    parser.add_argument("--main", action="store_true", help="Install the main Neural Interface runtime")
+    parser.add_argument("--main", action="store_true", help="Install the main Neural Companion runtime")
     parser.add_argument("--musetalk", action="store_true", help="Install the isolated MuseTalk runtime")
     parser.add_argument("--pockettts", action="store_true", help="Install the isolated PocketTTS runtime")
     parser.add_argument("--all", action="store_true", help="Install main app, MuseTalk, and PocketTTS")
@@ -600,7 +600,7 @@ def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, 
         return True, False, False
 
     headline("Installation Selection")
-    install_main = prompt_yes_no("Install the main Neural Interface runtime?", True)
+    install_main = prompt_yes_no("Install the main Neural Companion runtime?", True)
     install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", False)
     install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", False)
     return install_main, install_musetalk, install_pockettts

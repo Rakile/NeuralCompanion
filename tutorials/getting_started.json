@@ -35,10 +35,9 @@
       "target": "persona_tab"
     },
     {
-      "title": "Brain Tab",
-      "body": "The Brain tab controls model sampling behavior such as temperature and top-p. These shape how the assistant responds, but they are separate from performance tuning.",
-      "tab": "Brain",
-      "target": "brain_tab"
+      "title": "Generation Settings",
+      "body": "Generation settings such as temperature and top-p live inside Chat Runtime. These shape how the assistant responds, but they are separate from performance tuning.",
+      "target": "chat_runtime_box"
     },
     {
       "title": "Chunking Tab",

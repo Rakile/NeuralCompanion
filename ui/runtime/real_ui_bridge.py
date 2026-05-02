@@ -129,7 +129,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             raise RuntimeError(f"`--ui-real` requires a QMainWindow root UI: {self.ui_path}")
         _configure_real_ui_input_dependencies()
         self.window.installEventFilter(self)
-        self.window.setWindowTitle(f"{APP_TITLE} [main.ui Runtime]")
+        self.window.setWindowTitle(APP_TITLE)
         self.window.setProperty("nc_ui_real_runtime", True)
         # main.ui is authored with Qt's more aggressive dock flags
         # (GroupedDragging/AnimatedDocks). Those can become unstable once the
@@ -173,6 +173,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._frontend_active_tutorial_overlay = None
         self._last_frontend_heavy_sync_at = 0.0
         self._musetalk_preview_heavy_sync_interval_s = 1.25
+        self._frontend_workspace_layout_busy = False
 
         _configure_real_ui_layout_dependencies()
         _configure_real_ui_theme_dependencies()

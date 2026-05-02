@@ -403,7 +403,28 @@ class MainUiRealLayoutMixin:
                     docks.append(dock)
             return docks
 
+    def _begin_frontend_workspace_layout_operation(self, label):
+            if bool(getattr(self, "_frontend_workspace_layout_busy", False)):
+                print(f"[UI Real] Ignored {label}; workspace layout is still settling.")
+                return False
+            self._frontend_workspace_layout_busy = True
+            # Dock mutations emit several Qt layout/visibility signals. Keep a
+            # short settle window so rapid Reset/Show-All clicks do not stack
+            # addDockWidget/tabifyDockWidget operations on top of each other.
+            QtCore.QTimer.singleShot(450, self._end_frontend_workspace_layout_operation)
+            return True
+
+    def _end_frontend_workspace_layout_operation(self):
+            self._frontend_workspace_layout_busy = False
+
+    def _move_frontend_workspace_dock(self, dock, area):
+            dock.setFloating(False)
+            self.window.addDockWidget(area, dock)
+            dock.show()
+
     def show_all_frontend_workspace_panels(self):
+            if not self._begin_frontend_workspace_layout_operation("Show All Panels"):
+                return
             for dock in self._frontend_workspace_docks():
                 try:
                     dock.show()
@@ -415,6 +436,8 @@ class MainUiRealLayoutMixin:
             print("[UI Real] Workspace panels shown.")
 
     def reset_frontend_workspace_layout(self):
+            if not self._begin_frontend_workspace_layout_operation("Reset Workspace Layout"):
+                return
             self._restoring_frontend_layout = True
             try:
                 system_dock = self._ui_object("SystemShapingDock")
@@ -427,22 +450,19 @@ class MainUiRealLayoutMixin:
                 right_docks = [dock for dock in (operational_dock, preview_dock, visual_dock) if isinstance(dock, QtWidgets.QDockWidget)]
 
                 for dock in left_docks:
-                    dock.setFloating(False)
-                    self.window.addDockWidget(QtCore.Qt.LeftDockWidgetArea, dock)
-                    dock.show()
+                    self._move_frontend_workspace_dock(dock, QtCore.Qt.LeftDockWidgetArea)
                 for dock in right_docks:
-                    dock.setFloating(False)
-                    self.window.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
-                    dock.show()
+                    self._move_frontend_workspace_dock(dock, QtCore.Qt.RightDockWidgetArea)
 
-                if len(left_docks) >= 2:
-                    self.window.tabifyDockWidget(left_docks[0], left_docks[1])
-                    left_docks[0].raise_()
-                if len(right_docks) >= 2:
-                    base = right_docks[0]
-                    for dock in right_docks[1:]:
-                        self.window.tabifyDockWidget(base, dock)
-                    base.raise_()
+                # Avoid forcing tab groups during reset. With Designer-loaded
+                # docks and live adopted widgets, rapid re-tabification can
+                # crash in Qt's native docking code. Users can still dock/tab
+                # panels manually after reset.
+                for dock in left_docks + right_docks:
+                    try:
+                        dock.raise_()
+                    except Exception:
+                        pass
             finally:
                 self._restoring_frontend_layout = False
 
