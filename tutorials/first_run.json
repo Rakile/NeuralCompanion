@@ -70,12 +70,12 @@
     },
     {
       "title": "Load the Tutorial Persona",
-      "body": "For this tutorial, please click Load to load the bundled Tutorial Persona preset.",
+      "body": "For this tutorial, please click Load to load the bundled Tutorial_Persona preset.",
       "target": "btn_preset_load",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
-        { "type": "set_combo_text", "target": "preset_combo", "value": "Tutorial Persona" }
+        { "type": "set_combo_text", "target": "preset_combo", "value": "Tutorial_Persona" }
       ],
       "require": {
         "type": "button_click",

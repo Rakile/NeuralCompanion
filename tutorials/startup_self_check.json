@@ -118,14 +118,14 @@
     {
       "id": "load_tutorial_persona",
       "title": "Load Tutorial Persona",
-      "body": "For this self-check flow, please load the bundled Tutorial Persona preset. That gives the assistant the right help context if you need to ask questions during testing.",
+      "body": "For this self-check flow, please load the bundled Tutorial_Persona preset. That gives the assistant the right help context if you need to ask questions during testing.",
       "tab": "Persona",
       "target": "btn_preset_load",
       "actions": [
         {
           "type": "set_combo_text",
           "target": "preset_combo",
-          "value": "Tutorial Persona"
+          "value": "Tutorial_Persona"
         }
       ],
       "condition": {

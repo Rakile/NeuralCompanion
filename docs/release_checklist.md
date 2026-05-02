@@ -13,8 +13,8 @@ Use this checklist before tagging or publishing a public release.
 
 - Start the app with the legacy UI: `py qt_app.py`.
 - Start the app with the Designer UI: `py qt_app.py --ui-real main.ui`.
-- Load the `DryRun` preset and confirm the app can initialize with Avatar Engine `None`.
-- Load the `Tutorial Persona` preset and confirm the first-run tutorial can start.
+- Load the `DryRun_MuseTalk` preset and confirm the app can initialize with Avatar Engine `None`.
+- Load the `Tutorial_Persona` preset and confirm the first-run tutorial can start.
 - Verify Chat Runtime can select provider/model and save/reload a preset.
 - Verify TTS Runtime can select a backend and save/reload non-secret settings.
 

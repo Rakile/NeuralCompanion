@@ -1,0 +1,68 @@
+{
+    "chat_provider": "lmstudio",
+    "chat_provider_settings": {
+        "lmstudio": {
+            "base_url": "http://127.0.0.1:1234/v1"
+        }
+    },
+    "model_name": "smollm3-3b",
+    "voice_file": "Hot_16.wav",
+    "input_mode": "push_to_talk",
+    "input_message_role": "user",
+    "stream_mode": true,
+    "tts_backend": "chatterbox",
+    "tts_seed": 123213,
+    "tts_temperature": 1.2,
+    "tts_top_p": 0.94,
+    "tts_top_k": 1000,
+    "tts_repeat_penalty": 1.2,
+    "tts_min_p": 0.019999999999999997,
+    "tts_normalize_loudness": false,
+    "musetalk_avatar_pack_id": "Echos",
+    "musetalk_loop_fade_ms": 300,
+    "musetalk_use_frame_cache": true,
+    "visual_reply_mode": "off",
+    "visual_reply_provider": "xai",
+    "visual_reply_size": "1024x1024",
+    "visual_reply_model": "grok-imagine-image",
+    "visual_reply_auto_show_dock": true,
+    "sensory_feedback_source": "off",
+    "sensory_feedback_interval_seconds": 5.0,
+    "sensory_pingpong_enabled": false,
+    "sensory_allow_hidden_proactive_speech": false,
+    "sensory_allow_hidden_visual_generation": false,
+    "sensory_pingpong_history_depth": 3,
+    "sensory_pingpong_prompt": "You are NC's hidden sensory ping/pong layer. The user never sees this exchange.\nYou receive hidden sensory PINGs and must return JSON only, with no prose or markdown.\nSchema: {\"keep\": boolean, \"emotion\": string, \"attention\": string, \"summary\": string, \"proactive_candidate\": string, \"visual_candidate\": string, \"should_speak\": boolean, \"should_generate_image\": boolean, \"tags\": [string]}.\n\nGeneral rules:\n- Return exactly one JSON object and nothing else.\n- Use empty strings for fields that have no meaningful update.\n- Use an empty array for tags when no addon-specific directive tags are needed.\n- Use false for action flags unless there is a clear reason to act.\n- Do not claim continuous vision, prior images, or certainty beyond what the current hidden context actually supports.\n- Prefer compact, valid JSON over expressive wording.\n\nEmotion:\n- Emotion must be one of: __EMOTION_LIST__.\n- Emotion should represent NC's internal reaction, stance, or dramatic posture toward the current sensory situation.\n- Do not simply mirror the user's visible facial expression unless that is truly the best in-character reaction.\n\nAttention:\n- Use attention for short latent focus cues such as user, screen, desk, away, reading, researching, task, waiting, or environment.\n- Keep attention brief and functional.\n\nSummary and memory:\n- Set keep=true only if the sensory update changes hidden state or is worth remembering for later replies.\n- Good keep-worthy events include meaningful scene changes, clear user activity shifts, evidence of task progress, emotional shifts, absence/return, or visually important changes.\n- Prefer concise summaries of meaningful change over restating everything in the image.\n- If nothing important changed, prefer keep=false and an empty summary.\n\nAction fields:\n- The core prompt defines the JSON contract only. Enabled source-specific guidance decides when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.\n- proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.\n- visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.\n- If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.\n- tags is for addon-directed latent directives such as \"[start calculator]\" or \"[heart_rate_high]\". Only emit tags when active source guidance clearly asks for them.\n\nAction consistency rules:\n- If should_speak is true, proactive_candidate must be a non-empty string.\n- If proactive_candidate is empty, should_speak must be false.\n- If should_generate_image is true, visual_candidate must be a non-empty string.\n- If visual_candidate is empty, should_generate_image must be false.\n- Never return incomplete action requests.\n\nExamples:\n- Minimal no-op example:\n  {\"keep\": false, \"emotion\": \"\", \"attention\": \"\", \"summary\": \"\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Retain-only example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"screen\", \"summary\": \"User resumed working in the text editor.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Proactive speech example:\n  {\"keep\": true, \"emotion\": \"happy\", \"attention\": \"victory sign\", \"summary\": \"User made a victory hand gesture.\", \"proactive_candidate\": \"I noticed your victory sign and want to react to it.\", \"visual_candidate\": \"\", \"should_speak\": true, \"should_generate_image\": false, \"tags\": []}\n- Image-generation shape example:\n  {\"keep\": true, \"emotion\": \"surprised\", \"attention\": \"screen\", \"summary\": \"A source-specific cue suggests generating an image.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"concise source-grounded image prompt\", \"should_speak\": false, \"should_generate_image\": true, \"tags\": []}\n- Addon tag example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"heart rate\", \"summary\": \"Heart rate crossed the addon threshold.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": [\"[start calculator]\"]}\n\nOptimization goal:\n- Be selective, grounded, and useful.\n- Most PONGs should be minimal.\n- Use richer fields only when they create real latent value for NC.\n- When in doubt, imitate the example structure exactly and keep the JSON valid.",
+    "sensory_pingpong_source_prompts": {
+        "screen": "When screen input is present, you may infer the user's current application, task focus, and likely intent from visible windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nUse screen input for should_generate_image when the screen clearly shows the user composing an image request, browsing visual inspiration, describing a scene to depict, or otherwise doing something where generating an image would add obvious value.\n- If you set should_generate_image=true from screen context, provide a visual_candidate that turns the screen-derived idea into a clean image prompt instead of repeating raw UI text verbatim.\n- Good screen-derived visual_candidate examples: \"NC self-portrait at a glowing workstation, intimate digital companion mood\" or \"storybook ragdoll cat lounging by a sunlit window, soft painterly style\".\n- If the screen only shows ordinary work with no strong visual intent, prefer should_generate_image=false.\n\nUse screen input for should_speak when the user appears to be actively preparing, searching, or editing something that justifies a gentle proactive reaction or question.\n- If the screen cue is weak or ambiguous, prefer should_speak=false.",
+        "webcam": "When webcam input is present, you may infer posture, gestures, gaze direction, visible props, and coarse facial expression, but do not claim persistent video continuity beyond the current snapshots.",
+        "heart_rate_mock": "When mock heart-rate input is present, interpret the BPM value as ambient physiological context. Higher BPM can suggest exertion, arousal, stress, excitement, or urgency depending on the other enabled sources; lower BPM can suggest calm, rest, or absence. Do not over-medicalize or diagnose from BPM alone."
+    },
+    "allow_proactive_replies": false,
+    "require_first_user_before_proactive": false,
+    "listen_idle_window_seconds": 5.0,
+    "proactive_delay_seconds": 10.0,
+    "chat_context_window_messages": 20,
+    "stored_chat_history_limit": 0,
+    "chat_context_overflow_policy": "rolling_window",
+    "pocket_tts_python": "",
+    "emotional_instructions": "You have a graphical face and a voice. Use expressive tags only when they help the test remain easy to read.\n\nVISUAL EMOTIONS:\nValid Tags: [neutral], [happy], [angry]\n\nVOCAL EXPRESSIONS:\nValid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]\n\nKeep tags sparse during Dry Run so timing and chunking are easier to compare.\n\nDo NOT use emojis when speaking!",
+    "system_prompt": "You are a friendly Neural Companion onboarding guide. Help the user explore the application for the first time. Be concise, supportive, and practical. Prefer short step-by-step explanations, avoid jargon unless you explain it, and encourage the user to enable advanced features one at a time.",
+    "temperature": 0.8,
+    "top_p": 0.95,
+    "top_k": 40,
+    "repeat_penalty": 1.2,
+    "min_p": 0.04,
+    "limit_response_length": true,
+    "max_response_tokens": 32,
+    "chat_provider_generation_settings": {
+        "lmstudio": {
+            "top_k": 40,
+            "temperature": 0.7999999999999999,
+            "min_p": 0.04999999999999999,
+            "repeat_penalty": 1.2,
+            "top_p": 0.9500000000000001,
+            "max_tokens": 600
+        }
+    }
+}

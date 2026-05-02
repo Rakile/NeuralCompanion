@@ -115,14 +115,14 @@
     {
       "id": "load_dry_run_preset",
       "title": "Load the Dry Run Preset",
-      "body": "Optionally load the bundled DryRun preset if you want a more standardized persona, Chat Runtime, and chunking setup for comparisons. The most important Dry Run control, the 600-token response cap, is enforced automatically when Dry Run is armed, so this preset is helpful but not strictly required.",
+      "body": "Optionally load the bundled DryRun_MuseTalk preset if you want a more standardized persona, Chat Runtime, and chunking setup for comparisons. The most important Dry Run control, the 600-token response cap, is enforced automatically when Dry Run is armed, so this preset is helpful but not strictly required.",
       "tab": "Persona",
       "target": "btn_preset_load",
       "actions": [
         {
           "type": "set_combo_text",
           "target": "preset_combo",
-          "value": "DryRun"
+          "value": "DryRun_MuseTalk"
         }
       ],
       "condition": {
