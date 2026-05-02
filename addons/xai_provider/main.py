@@ -91,6 +91,7 @@ class Addon(BaseAddon):
                 "generation_fields": [
                     {"id": "temperature", "label": "Temperature", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.0, "request_location": "params"},
                     {"id": "top_p", "label": "Top P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.9, "request_location": "params"},
+                    {"id": "max_tokens", "label": "Max Tokens", "kind": "int", "min": 1, "max": 131072, "step": 1, "default": 2048, "request_location": "params"},
                 ],
                 "hint": "Hosted xAI / Grok provider. API key is required.",
                 "supports_hosted_runtime": True,
