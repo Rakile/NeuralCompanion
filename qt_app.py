@@ -9877,11 +9877,13 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         update_runtime_config("tts_backend", backend)
         if backend == "pockettts" and hasattr(self, "pocket_tts_python_edit"):
             self._ensure_pocket_tts_python_path()
-        try:
-            if hasattr(engine, "init_tts"):
-                engine.init_tts()
-        except Exception as exc:
-            print(f"⚠️ [TTS] Failed to reload backend '{backend}': {exc}")
+        engine_running = bool(getattr(self, "thread", None) and self.thread.is_alive())
+        if engine_running:
+            try:
+                if hasattr(engine, "init_tts"):
+                    engine.init_tts()
+            except Exception as exc:
+                print(f"⚠️ [TTS] Failed to reload backend '{backend}': {exc}")
         self._refresh_tts_runtime_card(activate_tab=not bool(getattr(self, "_restoring_preset", False)))
         self._refresh_tts_runtime_summary()
         self._advisor_context_manual_override = False
