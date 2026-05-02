@@ -497,7 +497,7 @@ class Addon(BaseAddon):
             return None
         is_new = bool(self.latest_image_is_new)
         snapshot = {
-            "captured_at": float(self.latest_captured_at or time.time()),
+            "captured_at": time.time(),
             "image_path": str(self.latest_image_path),
             "source": "clipboard",
             "content_text": (

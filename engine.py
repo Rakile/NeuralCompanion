@@ -2025,7 +2025,7 @@ def _infer_model_supports_images(model_name):
     positive_fragments = (
         "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
         "minicpm-v", "internvl", "phi-3.5-vision", "phi-4-multimodal", "gemma-3", "gpt-4o",
-        "gpt-4.1", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
+        "gpt-4.1", "grok-4", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
     )
     negative_fragments = (
         "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"
@@ -2036,6 +2036,8 @@ def _infer_model_supports_images(model_name):
 
 
 def _current_model_supports_images():
+    if str(RUNTIME_CONFIG.get("chat_provider", "") or "").strip().lower() == "xai" and _infer_model_supports_images(RUNTIME_CONFIG.get("model_name", "")):
+        return True
     explicit = RUNTIME_CONFIG.get("model_supports_images", None)
     if explicit is not None:
         return bool(explicit)

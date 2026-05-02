@@ -11020,7 +11020,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         positive_fragments = (
             "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
             "minicpm-v", "internvl", "phi-3.5-vision", "phi-4-multimodal", "gemma-3", "gpt-4o",
-            "gpt-4.1", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
+            "gpt-4.1", "grok-4", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
         )
         negative_fragments = (
             "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"

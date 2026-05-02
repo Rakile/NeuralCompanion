@@ -13,6 +13,16 @@ PROVIDER_ID = "xai"
 DEFAULT_BASE_URL = "https://api.x.ai/v1"
 
 
+def _model_supports_images(model_id: str, input_modalities: list[str] | None = None) -> bool:
+    model_value = str(model_id or "").strip().lower()
+    modalities = {str(item or "").strip().lower() for item in list(input_modalities or []) if str(item or "").strip()}
+    if any(item in modalities for item in {"image", "images", "vision", "image_url"}):
+        return True
+    if "grok-imagine" in model_value:
+        return False
+    return model_value.startswith("grok-4")
+
+
 def _extract_text(response: Any) -> str:
     if isinstance(response, str):
         return str(response)
@@ -159,7 +169,7 @@ class Addon(BaseAddon):
                 catalog.append(
                     {
                         "id": model_id,
-                        "supports_images": "image" in input_modalities,
+                        "supports_images": _model_supports_images(model_id, input_modalities),
                         "source": "xai_language_models",
                         "input_modalities": list(input_modalities),
                         "output_modalities": list(output_modalities),
