@@ -174,16 +174,12 @@ class Addon(BaseAddon):
                 model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
                 if not model_id:
                     continue
-                input_modalities = [
-                    str(modality or "").strip().lower()
-                    for modality in list(item.get("input_modalities") or [])
-                    if str(modality or "").strip()
-                ]
-                output_modalities = [
-                    str(modality or "").strip().lower()
-                    for modality in list(item.get("output_modalities") or [])
-                    if str(modality or "").strip()
-                ]
+                input_modalities = _flatten_capability_values(
+                    item.get("input_modalities") or item.get("inputModalities") or item.get("supported_input_modalities")
+                )
+                output_modalities = _flatten_capability_values(
+                    item.get("output_modalities") or item.get("outputModalities") or item.get("supported_output_modalities")
+                )
                 catalog.append(
                     {
                         "id": model_id,

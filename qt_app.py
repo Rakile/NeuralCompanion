@@ -11068,7 +11068,12 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         return []
 
     def on_model_requires_vision_changed(self, _checked):
+        update_runtime_config("model_requires_vision", bool(_checked))
         self.refresh_model_list_quietly(quiet=True, preloaded_models=list(getattr(self, "_all_model_catalog", []) or []))
+        selected_model = str(self.model_combo.currentText() if hasattr(self, "model_combo") else RUNTIME_CONFIG.get("model_name", "") or "").strip()
+        if selected_model:
+            update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
+            self._refresh_chat_runtime_summary()
         self.save_session()
 
     def request_model_list_refresh(self, quiet=True, wait_for_reachable=False):
@@ -11152,6 +11157,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
 
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
         if previous_items == new_items and (not pending_wanted or current == pending_wanted):
+            if current:
+                update_runtime_config("model_name", current)
+                update_runtime_config("model_supports_images", self._current_model_supports_images_value(current))
             self.emit_tutorial_event(
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
