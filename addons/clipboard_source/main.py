@@ -59,7 +59,6 @@ class Addon(BaseAddon):
             self._clipboard = clipboard
             if clipboard is not None:
                 clipboard.dataChanged.connect(self._on_clipboard_changed)
-            self._capture_current_clipboard_image(trigger_actions=False, allow_existing=True)
         context.logger.info("Clipboard source addon initialized.")
 
     def shutdown(self):
@@ -242,6 +241,12 @@ class Addon(BaseAddon):
     def _capture_current_clipboard_image(self, *, trigger_actions: bool, allow_existing: bool = False) -> bool:
         if getattr(self, "_shell_preview", False):
             return False
+        if not self._source_is_enabled():
+            if trigger_actions:
+                self._clear_pending_next_user_turn()
+                self.last_delivery_status = "Clipboard source is disabled; copied images are ignored."
+                self._notify_tab_refreshers()
+            return False
         payload = self._clipboard_png_bytes()
         if not payload:
             return False
@@ -305,7 +310,7 @@ class Addon(BaseAddon):
         try:
             raw_value = self._engine_module().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
         except Exception:
-            return True
+            return False
         if isinstance(raw_value, (list, tuple, set)):
             tokens = [str(item or "").strip().lower() for item in list(raw_value or [])]
         else:
@@ -472,7 +477,9 @@ class Addon(BaseAddon):
     def _capture_sensory_snapshot(self, capture_context=None):
         if getattr(self, "_shell_preview", False):
             return None
-        if not self._source_is_enabled() or not self.hidden_loop_enabled or not self._has_latest_image():
+        if not self._source_is_enabled() or not self.hidden_loop_enabled:
+            return None
+        if not self._has_latest_image() and not self._ensure_latest_image():
             return None
         is_new = bool(self.latest_image_is_new)
         snapshot = {
