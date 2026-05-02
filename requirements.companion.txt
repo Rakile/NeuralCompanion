@@ -23,7 +23,7 @@ openai
 pandas==1.5.3
 pillow
 pydub
-pynvml
+nvidia-ml-py==13.595.45
 pynput
 PySide6
 python-osc
