@@ -11020,7 +11020,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         positive_fragments = (
             "vision", "image", "multimodal", "vl", "llava", "bakllava", "moondream", "pixtral",
             "minicpm-v", "internvl", "phi-3.5-vision", "phi-4-multimodal", "gemma-3", "gpt-4o",
-            "gpt-4.1", "grok-4", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
+            "gpt-4.1", "omni", "qwen/qwen3.5", "qwen3.5", "qwen2-vl", "qwen2.5-vl", "qvq",
         )
         negative_fragments = (
             "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"
@@ -11033,6 +11033,10 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         selected_model = str(model_name or (self.model_combo.currentText() if hasattr(self, "model_combo") else "") or "").strip()
         if not selected_model:
             return False
+        if self._is_model_catalog_placeholder(selected_model):
+            return False
+        if hasattr(self, "model_requires_vision_checkbox") and self.model_requires_vision_checkbox.isChecked():
+            return True
         for entry in list(getattr(self, "_all_model_catalog", []) or []):
             if str(entry.get("id") or "").strip() != selected_model:
                 continue

@@ -13,14 +13,32 @@ PROVIDER_ID = "xai"
 DEFAULT_BASE_URL = "https://api.x.ai/v1"
 
 
-def _model_supports_images(model_id: str, input_modalities: list[str] | None = None) -> bool:
-    model_value = str(model_id or "").strip().lower()
-    modalities = {str(item or "").strip().lower() for item in list(input_modalities or []) if str(item or "").strip()}
-    if any(item in modalities for item in {"image", "images", "vision", "image_url"}):
+def _flatten_capability_values(value: Any) -> list[str]:
+    if isinstance(value, dict):
+        flattened = []
+        for child in value.values():
+            flattened.extend(_flatten_capability_values(child))
+        return flattened
+    if isinstance(value, (list, tuple, set)):
+        flattened = []
+        for child in value:
+            flattened.extend(_flatten_capability_values(child))
+        return flattened
+    return [str(value or "").strip().lower()] if str(value or "").strip() else []
+
+
+def _model_supports_images(item: dict[str, Any], input_modalities: list[str] | None = None) -> bool:
+    for key in ("supports_images", "supports_image_input", "image_input", "vision", "multimodal"):
+        if bool(item.get(key, False)):
+            return True
+    capability_values = set(input_modalities or [])
+    for key in ("input_modalities", "inputModalities", "supported_input_modalities", "modalities", "capabilities", "features"):
+        capability_values.update(_flatten_capability_values(item.get(key)))
+    if any(value in {"image", "images", "vision", "image_url", "image_input"} for value in capability_values):
         return True
-    if "grok-imagine" in model_value:
-        return False
-    return model_value.startswith("grok-4")
+    if any("image" in value or "vision" in value for value in capability_values):
+        return True
+    return False
 
 
 def _extract_text(response: Any) -> str:
@@ -169,7 +187,7 @@ class Addon(BaseAddon):
                 catalog.append(
                     {
                         "id": model_id,
-                        "supports_images": _model_supports_images(model_id, input_modalities),
+                        "supports_images": _model_supports_images(item, input_modalities),
                         "source": "xai_language_models",
                         "input_modalities": list(input_modalities),
                         "output_modalities": list(output_modalities),
