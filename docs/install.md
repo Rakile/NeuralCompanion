@@ -64,4 +64,11 @@ generated images.
 - Put your own voice references in `voices/`.
 - Put MuseTalk avatar packs in `avatar_packs/<pack_id>/`.
 
-See `docs/release_asset_policy.md` for the asset policy.
+Demo avatar packs live in:
+
+```text
+https://github.com/Rakile/NeuralCompanion-AvatarPacks
+```
+
+See `docs/avatar_packs.md` and `docs/release_asset_policy.md` for the asset
+policy.

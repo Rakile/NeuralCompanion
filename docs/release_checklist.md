@@ -6,7 +6,7 @@ Use this checklist before tagging or publishing a public release.
 
 - Confirm `git status --short` is clean.
 - Confirm no model weights, voice samples, avatar packs, frame caches, generated images, logs, or session files are staged.
-- Keep demo avatar packs outside the main repo, for example in a release asset or dedicated asset repository.
+- Keep demo avatar packs outside the main repo, in `Rakile/NeuralCompanion-AvatarPacks` release assets.
 - Keep `avatar_packs/` and `voices/` as placeholder folders only in the main repo.
 
 ## Minimal Smoke Test
@@ -22,6 +22,7 @@ Use this checklist before tagging or publishing a public release.
 
 - Confirm MuseTalk model weights are installed locally, not committed.
 - Confirm at least one local avatar pack exists under `avatar_packs/<pack_id>/`.
+- Confirm the public demo pack install path in `docs/avatar_packs.md` matches the current external release.
 - Confirm selected avatar pack default resolves to the intended pack-local variant.
 - Run MuseTalk with one short reply and verify preview playback, shutdown, and VRAM release.
 - If using startup frame cache, confirm `.npy` or `.npz` files remain ignored.

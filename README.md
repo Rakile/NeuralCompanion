@@ -134,7 +134,10 @@ avatar_packs/<pack_id>/
 ```
 
 Large avatar packs and frame caches are intentionally not stored in the main
-repository. See [docs/release_asset_policy.md](docs/release_asset_policy.md).
+repository. Demo packs live in the separate
+[NeuralCompanion-AvatarPacks](https://github.com/Rakile/NeuralCompanion-AvatarPacks)
+repository. See [docs/avatar_packs.md](docs/avatar_packs.md) and
+[docs/release_asset_policy.md](docs/release_asset_policy.md).
 
 ## Runtime Data
 
@@ -173,6 +176,7 @@ environments.
 See:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/avatar_packs.md](docs/avatar_packs.md)
 - [docs/release_checklist.md](docs/release_checklist.md)
 - [docs/release_asset_policy.md](docs/release_asset_policy.md)
 - [docs/third_party_and_assets.md](docs/third_party_and_assets.md)

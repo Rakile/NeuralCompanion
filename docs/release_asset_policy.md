@@ -23,8 +23,15 @@ MuseTalk avatar packs belong in:
 avatar_packs/<pack_id>/
 ```
 
-Demo avatar packs should be distributed outside the main repo, for example as
-GitHub Release assets or in a dedicated asset repository.
+Demo avatar packs should be distributed outside the main repo. The intended
+demo-pack repository is:
+
+```text
+https://github.com/Rakile/NeuralCompanion-AvatarPacks
+```
+
+Large archives should be attached as GitHub Release assets rather than
+committed directly to git.
 
 ## Voice Samples
 

@@ -57,6 +57,12 @@ Avatar packs are local user assets and belong under:
 avatar_packs/<pack_id>/
 ```
 
+Demo avatar packs are distributed through:
+
+```text
+https://github.com/Rakile/NeuralCompanion-AvatarPacks
+```
+
 Voice references are local user assets and belong under:
 
 ```text
@@ -65,4 +71,3 @@ voices/
 
 Only distribute avatar packs, generated character media, or voice samples when
 you have the rights and consent needed for that distribution.
-
