@@ -14,6 +14,12 @@ Large pack archives should be attached to that repository as GitHub Release
 assets, not committed directly to git. GitHub regular repository files have a
 100 MB hard limit, while MuseTalk packs are usually much larger.
 
+Current Echos demo download:
+
+```text
+https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/latest/download/Echos.7z
+```
+
 ## Install Location
 
 Download and extract a pack so the folder lands here:
