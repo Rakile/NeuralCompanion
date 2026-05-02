@@ -5833,6 +5833,9 @@ def run_conversation_flow(source):
                         if reply_action.type == ConversationActionType.POP_LAST_HISTORY:
                             _pop_last_proactive_placeholder(user_text)
                     if response_text:
+                        print(f"🤖 Assistant: {response_text}")
+                        print("------------------------------------------------------------------------------------------------------")
+                        print("------------------------------------------------------------------------------------------------------")
                         last_assistant_text = response_text
                         conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                         _apply_stored_chat_history_limit()
