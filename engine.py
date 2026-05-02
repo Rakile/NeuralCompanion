@@ -464,6 +464,8 @@ def _default_visual_reply_story_theme_prompts():
 RUNTIME_CONFIG = {
     "active_preset_name": "",
     "model_name": "",
+    "model_requires_vision": False,
+    "model_supports_images": None,
     "chat_provider": os.environ.get("NC_CHAT_PROVIDER", chat_providers.DEFAULT_PROVIDER_ID),
     "chat_provider_settings": {},
     "chat_provider_generation_settings": {},

@@ -12786,6 +12786,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "tts_runtime_expanded": self.tts_runtime_section.isExpanded() if hasattr(self, "tts_runtime_section") else True,
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
+            "model_supports_images": self._current_model_supports_images_value(self.model_combo.currentText()) if hasattr(self, "model_combo") else RUNTIME_CONFIG.get("model_supports_images", None),
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
             "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
             "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
@@ -13096,6 +13097,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             model_requires_vision = session.get("model_requires_vision")
             if model_requires_vision is not None and hasattr(self, "model_requires_vision_checkbox"):
                 self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
+                update_runtime_config("model_requires_vision", bool(model_requires_vision))
+            if "model_supports_images" in session:
+                update_runtime_config("model_supports_images", session.get("model_supports_images"))
             allow_proactive_replies = session.get("allow_proactive_replies")
             if allow_proactive_replies is not None and hasattr(self, "allow_proactive_checkbox"):
                 self.allow_proactive_checkbox.setChecked(bool(allow_proactive_replies))
