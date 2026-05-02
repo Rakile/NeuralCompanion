@@ -14,6 +14,7 @@ huggingface_hub==0.33.5
 imageio[ffmpeg]
 keyboard
 librosa==0.11.0
+lmstudio==1.5.0
 nltk
 numpy==1.24.4
 omegaconf
