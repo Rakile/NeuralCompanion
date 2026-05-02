@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 from typing import Any
 
@@ -56,8 +57,10 @@ class ChatterboxTTSService:
             import engine
 
             voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "") or "").strip()
-            if voice_path:
+            if voice_path and os.path.exists(voice_path):
                 request["audio_prompt_path"] = voice_path
+            elif voice_path:
+                print(f"⚠️ Voice file not found: {voice_path}. Continuing without a reference voice.")
         return model.generate(str(text or ""), **request)
 
     def close(self):

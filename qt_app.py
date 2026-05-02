@@ -9622,6 +9622,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
     def on_voice_changed(self, voice_name):
         if voice_name and voice_name != "No .wav found":
             update_runtime_config("voice_path", os.path.join("voices", voice_name))
+        else:
+            update_runtime_config("voice_path", "")
         self._refresh_tts_runtime_summary()
 
     def browse_pocket_tts_python(self):
@@ -10947,6 +10949,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         if voices:
             self.voice_combo.setCurrentIndex(0)
             update_runtime_config("voice_path", os.path.join("voices", voices[0]))
+        else:
+            update_runtime_config("voice_path", "")
 
         self.refresh_preset_list()
         self.refresh_body_list()
@@ -11867,6 +11871,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             index = self.voice_combo.findText(data["voice_file"])
             if index >= 0:
                 self.voice_combo.setCurrentIndex(index)
+            else:
+                update_runtime_config("voice_path", "")
         if "input_mode" in data:
             mode_text = "Push-to-Talk" if str(data["input_mode"]).lower() == "push_to_talk" else "Voice Activation"
             self.input_mode_combo.setCurrentText(mode_text)
@@ -12935,6 +12941,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     finally:
                         self.voice_combo.blockSignals(False)
                     update_runtime_config("voice_path", os.path.join("voices", voice_file))
+                else:
+                    update_runtime_config("voice_path", "")
             push_to_talk_hotkey = session.get("push_to_talk_hotkey")
             if push_to_talk_hotkey is not None:
                 engine.set_push_to_talk_hotkey(push_to_talk_hotkey)

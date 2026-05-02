@@ -70,6 +70,7 @@ def list_available_tts_backends(manager_getter, *, logger=print):
             )
             seen.add(backend_id)
     for item in (
+        {"id": "none", "label": "None", "kind": "builtin"},
         {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
         {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
     ):
@@ -128,6 +129,15 @@ def initialize_tts_backend(
     logger=print,
 ):
     desired_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower().strip()
+
+    if desired_backend in {"none", "off", "disabled", "no_tts", "no-tts"}:
+        if current_model is not None and hasattr(current_model, "close"):
+            try:
+                current_model.close()
+            except Exception:
+                pass
+        logger("TTS disabled; continuing without speech output.")
+        return TTSRuntimeState(True, None, "none")
 
     if current_model is not None and current_backend_name == desired_backend:
         logger(f"✓ {desired_backend} TTS model already loaded (Skipping reload)")

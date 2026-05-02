@@ -11,6 +11,23 @@ import re
 import subprocess
 
 
+_ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
+
+
+def _clean_cli_output(text: str) -> str:
+    cleaned = _ANSI_RE.sub("", str(text or ""))
+    cleaned = cleaned.replace("\r", "\n")
+    lines = []
+    for line in cleaned.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.lower().startswith("loading ") and "model loaded successfully" not in line.lower():
+            continue
+        lines.append(line)
+    return "\n".join(lines).strip()
+
+
 def get_sdk():
     try:
         return importlib.import_module("lmstudio")
@@ -52,6 +69,7 @@ def run_lms_cli(args, timeout=300):
         output = "\n".join(
             part.strip() for part in [completed.stdout or "", completed.stderr or ""] if part and part.strip()
         ).strip()
+        output = _clean_cli_output(output)
         return completed.returncode == 0, output
     except Exception as exc:
         return False, str(exc)
@@ -108,10 +126,7 @@ def load_model(model_name: str, *, base_url: str, is_placeholder=None, logger=pr
             logger(f"⚠️ [LM Studio] SDK reload failed, falling back to CLI: {exc}")
     ok, output = run_lms_cli(["load", clean_model_name, "--yes"], timeout=600)
     if ok:
-        if output:
-            logger(f"✓ [LM Studio] Model ready: {output}")
-        else:
-            logger(f"✓ [LM Studio] Model ready: {clean_model_name}")
+        logger(f"✓ [LM Studio] Model ready: {clean_model_name}")
         return True
     logger(f"⚠️ [LM Studio] Could not reload '{clean_model_name}': {output}")
     return False
