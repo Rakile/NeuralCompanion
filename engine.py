@@ -14,6 +14,7 @@ import subprocess
 import threading
 import logging
 import locale
+import warnings
 import urllib.request
 import mimetypes
 from pathlib import Path
@@ -28,6 +29,11 @@ from PIL import Image, PngImagePlugin
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
+warnings.filterwarnings(
+    "ignore",
+    message=r".*pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
 
 from chatterbox.tts_turbo import ChatterboxTurboTTS
 import tkinter as tk

@@ -2592,6 +2592,11 @@ warnings.filterwarnings(
     "ignore",
     message=r".*Reference mel length is not equal to 2 \* reference token length\..*",
 )
+warnings.filterwarnings(
+    "ignore",
+    message=r".*pkg_resources is deprecated as an API.*",
+    category=UserWarning,
+)
 try:
     from pynvml import (
         nvmlInit,
