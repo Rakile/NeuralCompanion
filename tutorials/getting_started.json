@@ -41,13 +41,13 @@
     },
     {
       "title": "Chunking Tab",
-      "body": "The Chunking tab controls how text is split for speech and avatar rendering. Most users should start with a profile or Dry Run before adjusting these manually.",
+      "body": "The Chunking tab controls how text is split for speech and avatar rendering. Most users should start with Dry Run before adjusting these manually.",
       "tab": "Chunking",
       "target": "chunking_tab"
     },
     {
       "title": "Dry Run and Profiles",
-      "body": "Dry Run measures your hardware and recommends better startup and chunking values. Performance Profiles let you save and reload good configurations later.",
+      "body": "Dry Run measures your hardware and recommends better startup and chunking values. If you like the result, save it as a local Performance Profile for later.",
       "tab": "Dry Run",
       "target": "dry_run_tab"
     },

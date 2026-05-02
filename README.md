@@ -29,7 +29,7 @@ configuration.
 - MuseTalk preview and avatar-pack support.
 - VaM bridge support through VMC and file-bridge flows.
 - Vision and sensory supervisors for screen, webcam, clipboard, heart-rate, and visual replies.
-- Presets, performance profiles, tutorials, hotkeys, and chat replay tools.
+- Presets, Dry Run-generated performance profiles, tutorials, hotkeys, and chat replay tools.
 
 ## Requirements
 

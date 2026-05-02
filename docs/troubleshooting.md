@@ -28,7 +28,7 @@ py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
 ## MuseTalk Is Slow Or Uses Too Much VRAM
 
 - MuseTalk works best on an NVIDIA CUDA GPU.
-- Use performance profiles to reduce load.
+- Run Dry Run and save a local performance profile to reduce load on your hardware.
 - Use shorter or fewer avatar variants when testing.
 - `.npy` startup frame caches improve avatar-pack startup after the first run,
   but they use disk space.

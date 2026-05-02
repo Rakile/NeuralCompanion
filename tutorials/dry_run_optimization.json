@@ -234,7 +234,7 @@
     {
       "id": "profiles",
       "title": "Save and Compare",
-      "body": "If you like the result, save it as a Performance Profile. Then repeat Dry Run for other VRAM modes, TTS backends, or stream settings so you can compare profiles instead of guessing.",
+      "body": "If you like the result, save it as a local Performance Profile. Then repeat Dry Run for other VRAM modes, TTS backends, or stream settings so you can compare your own hardware-specific profiles instead of guessing.",
       "tab": "Dry Run",
       "target": "performance_profile_combo",
       "hint_only": true
