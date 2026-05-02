@@ -944,6 +944,17 @@ def startup_cleanup():
             os.remove(os.path.join(runtime_dir, name))
         except Exception:
             pass
+    sensory_dir = os.path.join(runtime_dir, "sensory_feedback")
+    if os.path.isdir(sensory_dir):
+        for name in os.listdir(sensory_dir):
+            target = os.path.join(sensory_dir, name)
+            try:
+                if os.path.isdir(target):
+                    shutil.rmtree(target)
+                else:
+                    os.remove(target)
+            except Exception:
+                pass
     print("🧹 [Startup] Runtime temp files cleared.")
 startup_cleanup()
 

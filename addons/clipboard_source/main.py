@@ -1,5 +1,6 @@
 from pathlib import Path
 import hashlib
+import shutil
 import time
 
 from PySide6 import QtCore, QtWidgets
@@ -25,6 +26,8 @@ class Addon(BaseAddon):
         self._shell_preview = bool(context.get_service("qt.clipboard_source_shell_preview"))
         if self._shell_preview:
             self.last_delivery_status = "Shell preview: clipboard monitoring, capture, and send actions are disabled."
+        else:
+            self._clear_clipboard_image_dir()
 
         sensory_service = context.get_service("qt.sensory")
         if sensory_service is not None and not self._shell_preview:
@@ -216,6 +219,17 @@ class Addon(BaseAddon):
         target = Path("runtime") / "clipboard_inputs"
         target.mkdir(parents=True, exist_ok=True)
         return target
+
+    def _clear_clipboard_image_dir(self):
+        target = self._clipboard_image_dir()
+        for item in list(target.iterdir()):
+            try:
+                if item.is_dir():
+                    shutil.rmtree(item)
+                else:
+                    item.unlink()
+            except Exception:
+                pass
 
     def _clipboard_png_bytes(self):
         if getattr(self, "_shell_preview", False):
