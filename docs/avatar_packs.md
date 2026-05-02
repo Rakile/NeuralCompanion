@@ -17,7 +17,7 @@ assets, not committed directly to git. GitHub regular repository files have a
 Current Echos demo download:
 
 ```text
-https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/latest/download/Echos.7z
+https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/download/v0.1.0/neural-companion-avatar-pack-default-v0.1.0.7z
 ```
 
 ## Install Location
