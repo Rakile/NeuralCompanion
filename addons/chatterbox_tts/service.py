@@ -49,7 +49,7 @@ class ChatterboxTTSService:
         self._abort_event.clear()
         model = self._ensure_model()
         request = dict(kwargs or {})
-        for key in ("backend_id", "backend_label", "tts_backend", "text"):
+        for key in ("backend_id", "backend_label", "tts_backend", "text", "min_p"):
             request.pop(key, None)
         if audio_prompt_path is not None:
             request.setdefault("audio_prompt_path", audio_prompt_path)
