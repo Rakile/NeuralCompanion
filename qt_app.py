@@ -6953,10 +6953,16 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         backend_value = self._current_tts_backend_value()
         backend_label = self._tts_backend_label_from_value(backend_value)
         if backend_value == "chatterbox":
-            voice_name = str(self.voice_combo.currentText() if hasattr(self, "voice_combo") else "" or "").strip()
-            self.tts_runtime_section.setSummary(f"{backend_label} / {voice_name}" if voice_name else backend_label)
+            voice_name = self._current_voice_file_value()
+            self.tts_runtime_section.setSummary(f"{backend_label} / {voice_name}" if voice_name else f"{backend_label} / Built-in voice")
         else:
             self.tts_runtime_section.setSummary(backend_label)
+
+    def _current_voice_file_value(self):
+        voice_name = str(self.voice_combo.currentText() if hasattr(self, "voice_combo") else "" or "").strip()
+        if not voice_name or voice_name == "No .wav found":
+            return ""
+        return voice_name
 
     def _on_runtime_section_toggled(self):
         self._sync_host_settings_tabs_height()
@@ -8274,7 +8280,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
-            "voice_file": self.voice_combo.currentText(),
+            "voice_file": self._current_voice_file_value(),
             "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
@@ -11887,8 +11893,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         if preset_model_name:
             self._apply_saved_model_name(preset_model_name)
         if "voice_file" in data:
-            index = self.voice_combo.findText(data["voice_file"])
-            if index >= 0:
+            voice_file = str(data.get("voice_file") or "").strip()
+            if voice_file and voice_file != "No .wav found" and self.voice_combo.findText(voice_file) >= 0:
+                index = self.voice_combo.findText(voice_file)
                 self.voice_combo.setCurrentIndex(index)
             else:
                 update_runtime_config("voice_path", "")
@@ -12763,7 +12770,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "avatar_mode": self._current_avatar_mode_value(),
             "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input"),
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"),
-            "voice_file": self.voice_combo.currentText() if hasattr(self, "voice_combo") else "",
+            "voice_file": self._current_voice_file_value() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
             "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
@@ -12952,7 +12959,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 if index >= 0:
                     self.input_mode_combo.setCurrentIndex(index)
             voice_file = str(session.get("voice_file", "") or "").strip()
-            if voice_file and hasattr(self, "voice_combo"):
+            if voice_file and voice_file != "No .wav found" and hasattr(self, "voice_combo"):
                 index = self.voice_combo.findText(voice_file)
                 if index >= 0:
                     self.voice_combo.blockSignals(True)
