@@ -137,7 +137,7 @@ class LegacyWorkspaceDockMixin:
             self.operational_dock.raise_()
         if hasattr(self, "preview_dock"):
             self.preview_dock.show()
-        if hasattr(self, "visual_reply_dock"):
+        if hasattr(self, "visual_reply_dock") and self._addon_effectively_enabled("nc.visual_reply"):
             self.visual_reply_dock.show()
         print("[QtGUI] Workspace panels shown.")
 
@@ -167,11 +167,14 @@ class LegacyWorkspaceDockMixin:
             self.preview_dock.setFloating(False)
             self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
             self.preview_dock.hide()
-        if hasattr(self, "visual_reply_dock"):
+        visual_reply_enabled = self._addon_effectively_enabled("nc.visual_reply")
+        if hasattr(self, "visual_reply_dock") and visual_reply_enabled:
             self.visual_reply_dock.setFloating(False)
             self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
             self.visual_reply_dock.hide()
-        if hasattr(self, "preview_dock") and hasattr(self, "visual_reply_dock"):
+        elif hasattr(self, "visual_reply_dock"):
+            self.visual_reply_dock.hide()
+        if hasattr(self, "preview_dock") and hasattr(self, "visual_reply_dock") and visual_reply_enabled:
             try:
                 self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
             except Exception:

@@ -69,11 +69,19 @@ def list_available_tts_backends(manager_getter, *, logger=print):
                 }
             )
             seen.add(backend_id)
-    for item in (
+    builtin_backends = [
         {"id": "none", "label": "None", "kind": "builtin"},
-        {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
-        {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
-    ):
+    ]
+    if manager is None:
+        # Legacy mode: before the addon manager exists, expose the old direct
+        # backends so non-addon startup paths still behave as before.
+        builtin_backends.extend(
+            [
+                {"id": "chatterbox", "label": "Chatterbox", "kind": "builtin"},
+                {"id": "pockettts", "label": "PocketTTS", "kind": "builtin"},
+            ]
+        )
+    for item in builtin_backends:
         backend_id = str(item.get("id") or "").strip().lower()
         if backend_id and backend_id not in seen:
             backends.append(item)
@@ -126,6 +134,7 @@ def initialize_tts_backend(
     chatterbox_factory,
     tts_device: str,
     default_pocket_tts_python: str,
+    allow_legacy_builtin_fallback=True,
     logger=print,
 ):
     desired_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower().strip()
@@ -166,7 +175,15 @@ def initialize_tts_backend(
                 return TTSRuntimeState(True, model, backend_name)
             except Exception as exc:
                 logger(f"✗ Failed to load addon TTS backend '{resolved['label']}': {exc}")
-                logger("↩️ Falling back to built-in TTS backends...")
+                if allow_legacy_builtin_fallback:
+                    logger("↩️ Falling back to built-in TTS backends...")
+                else:
+                    logger("↩️ Continuing without TTS because legacy fallback is disabled.")
+                    return TTSRuntimeState(True, None, "none")
+
+    if not allow_legacy_builtin_fallback:
+        logger(f"⚠️ TTS backend '{desired_backend}' is unavailable or disabled; continuing without TTS.")
+        return TTSRuntimeState(True, None, "none")
 
     if desired_backend == "pockettts":
         logger("Loading PocketTTS via isolated interpreter...")

@@ -212,6 +212,140 @@ class MainUiRealTabAdoptionMixin:
                 pass
             return adopted
 
+    def _addon_effectively_enabled(self, addon_id):
+            manager = getattr(self.backend, "_addon_manager", None)
+            if manager is None:
+                return True
+            target = str(addon_id or "").strip()
+            if not target:
+                return True
+            try:
+                snapshot = list(manager.get_addon_registry_snapshot() or [])
+            except Exception:
+                return True
+            for category in snapshot:
+                for addon in list(dict(category).get("addons") or []):
+                    if str(addon.get("id") or "").strip() == target:
+                        return bool(addon.get("effective_enabled", False))
+            return False
+
+    def _remove_static_addon_placeholder_tab(self, tab_widget_name, placeholder_name, fallback_title=""):
+            tabs = self._ui_object(tab_widget_name)
+            if tabs is None or not hasattr(tabs, "count"):
+                return False
+            placeholder = None
+            if placeholder_name:
+                try:
+                    from PySide6 import QtWidgets
+
+                    placeholder = tabs.findChild(QtWidgets.QWidget, str(placeholder_name))
+                except Exception:
+                    placeholder = None
+            target_index = -1
+            if placeholder is not None:
+                try:
+                    target_index = tabs.indexOf(placeholder)
+                except Exception:
+                    target_index = -1
+            if target_index < 0 and fallback_title:
+                title = str(fallback_title or "").strip()
+                for index in range(tabs.count()):
+                    try:
+                        tab_title = str(tabs.tabText(index) or "").strip()
+                        tooltip = str(tabs.tabToolTip(index) or "").strip()
+                    except Exception:
+                        continue
+                    if title and title in {tab_title, tooltip}:
+                        target_index = index
+                        placeholder = tabs.widget(index)
+                        break
+            if target_index < 0:
+                return False
+            try:
+                tabs.removeTab(target_index)
+                if placeholder is not None:
+                    placeholder.setParent(None)
+                    placeholder.deleteLater()
+                tabs.setVisible(tabs.count() > 0)
+                return True
+            except Exception:
+                return False
+
+    def _remove_disabled_static_addon_placeholders(self):
+            # main.ui contains a few static placeholder tabs so Designer preview
+            # remains useful. Remove them when the matching addon is disabled or
+            # absent, otherwise the disabled addon still appears in the real UI.
+            placeholders = (
+                {
+                    "addon_id": "nc.audio_story_mode",
+                    "tabs": "right_tabs",
+                    "placeholder": "audio_story_mode_tab",
+                    "title": "Audio Story Mode",
+                },
+                {
+                    "addon_id": "nc.hotkeys",
+                    "tabs": "left_tabs",
+                    "placeholder": "hotkeys_tab",
+                    "title": "Hotkeys",
+                },
+                {
+                    "addon_id": "nc.chat_session_player",
+                    "tabs": "left_tabs",
+                    "placeholder": "chat_player_tab",
+                    "title": "Chat Player",
+                },
+                {
+                    "addon_id": "nc.vseeface_avatar",
+                    "tabs": "left_tabs",
+                    "placeholder": "vseeface_tab",
+                    "title": "VSeeFace",
+                },
+                {
+                    "addon_id": "nc.musetalk_avatar",
+                    "tabs": "left_tabs",
+                    "placeholder": "musetalk_tab",
+                    "title": "MuseTalk",
+                },
+                {
+                    "addon_id": "nc.vam_avatar",
+                    "tabs": "left_tabs",
+                    "placeholder": "vam_tab",
+                    "title": "VaM",
+                },
+                {
+                    "addon_id": "nc.visual_reply",
+                    "tabs": "host_settings_tabs",
+                    "placeholder": "host_settings_visuals_tab",
+                    "title": "Visuals",
+                },
+                {
+                    "addon_id": "nc.visual_story_settings",
+                    "tabs": "host_settings_tabs",
+                    "placeholder": "host_settings_story_visuals_tab",
+                    "title": "Story Visuals",
+                },
+                {
+                    "addon_id": "nc.chatterbox_tts",
+                    "tabs": "tts_runtime_addon_tabs",
+                    "placeholder": "tts_chatterbox_tab",
+                    "title": "Chatterbox",
+                },
+                {
+                    "addon_id": "nc.pockettts",
+                    "tabs": "tts_runtime_addon_tabs",
+                    "placeholder": "tts_pockettts_tab",
+                    "title": "PocketTTS",
+                },
+            )
+            for item in placeholders:
+                if self._addon_effectively_enabled(item.get("addon_id")):
+                    continue
+                self._remove_static_addon_placeholder_tab(
+                    item.get("tabs"),
+                    item.get("placeholder"),
+                    fallback_title=item.get("title"),
+                )
+
     def _adopt_backend_runtime_tabs(self):
             mappings = (
                 {
@@ -262,6 +396,7 @@ class MainUiRealTabAdoptionMixin:
                     adopted = self._take_matching_tabs(source_tabs, target_tabs, titles)
                 if adopted:
                     adopted_report[target_name] = adopted
+            self._remove_disabled_static_addon_placeholders()
             self._adopted_runtime_tabs = adopted_report
             frontend_left_tabs = self._ui_object("left_tabs")
             if frontend_left_tabs is not None:

@@ -1257,6 +1257,7 @@ def init_tts():
         chatterbox_factory=ChatterboxTurboTTS.from_pretrained,
         tts_device=TTS_DEVICE,
         default_pocket_tts_python=DEFAULT_POCKET_TTS_PYTHON,
+        allow_legacy_builtin_fallback=(_get_addon_manager() is None),
         logger=print,
     )
     tts_model = state.model
@@ -5943,9 +5944,12 @@ def create_avatar_adapter_for_mode(avatar_mode: str):
     """Create the selected avatar adapter from addon registry, then addon fallback."""
     mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
     runtime_context = _build_avatar_runtime_context()
-    registered_adapter = avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
-    if registered_adapter is not None:
-        return registered_adapter
+    registered_provider = avatar_runtime.get_provider(mode)
+    if registered_provider is not None:
+        return avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
+    if avatar_runtime.list_providers() or _get_addon_manager() is not None:
+        print(f"⚠️ Avatar provider '{mode}' is unavailable or disabled; continuing without avatar.")
+        return None
     return _create_fallback_avatar_adapter(mode, runtime_context)
 
 

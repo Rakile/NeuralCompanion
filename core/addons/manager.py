@@ -130,19 +130,36 @@ class AddonManager:
     def _addon_change_summary(self) -> dict[str, int]:
         category_changes = 0
         addon_changes = 0
+        category_pending: set[str] = set()
         for category, value in dict(self._registry_state.get("categories", {}) or {}).items():
-            if self._normalize_category(category) and bool(value) is False:
+            category = self._normalize_category(category)
+            if not category or bool(value) is not False:
+                continue
+            active_in_category = any(
+                self._category_for_manifest(record.manifest) == category
+                and record.state in {"loaded", "initialized"}
+                for record in self._records
+            )
+            if active_in_category:
+                category_pending.add(category)
                 category_changes += 1
         for addon_id, value in dict(self._registry_state.get("addons", {}) or {}).items():
             addon_id = str(addon_id or "").strip()
             if not addon_id:
                 continue
-            default_enabled = True
+            record = None
             for record in self._records:
                 if record.manifest.id == addon_id:
-                    default_enabled = bool(record.manifest.enabled)
                     break
-            if bool(value) != default_enabled:
+            else:
+                record = None
+            if record is None:
+                continue
+            if self._category_for_manifest(record.manifest) in category_pending:
+                continue
+            desired_enabled = self._manifest_effectively_enabled(record.manifest)
+            currently_active = record.state in {"loaded", "initialized"}
+            if bool(desired_enabled) != bool(currently_active):
                 addon_changes += 1
         return {
             "category_changes": int(category_changes),

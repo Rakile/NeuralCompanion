@@ -417,6 +417,10 @@ class MainUiRealSurfacesMixin:
             frontend_dock = self._ui_object("VisualReplyDock")
             if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
                 return
+            addon_enabled = True
+            checker = getattr(self, "_addon_effectively_enabled", None)
+            if callable(checker):
+                addon_enabled = bool(checker("nc.visual_reply"))
             backend_dock = getattr(self.backend, "visual_reply_dock", None)
             if backend_dock is not None and backend_dock is not frontend_dock:
                 # The hidden legacy backend restores its own Visual Reply dock
@@ -428,6 +432,18 @@ class MainUiRealSurfacesMixin:
                     backend_dock.hide()
                 except Exception:
                     pass
+            if not addon_enabled:
+                enforcer = getattr(self, "_enforce_disabled_frontend_workspace_docks", None)
+                if callable(enforcer):
+                    enforcer()
+                else:
+                    try:
+                        frontend_dock.hide()
+                    except Exception:
+                        pass
+                setattr(self.window, "show_visual_reply_dock", lambda *args, **kwargs: None)
+                self._visual_reply_runtime_redirected = False
+                return
             old_widget = None
             try:
                 old_widget = frontend_dock.widget()

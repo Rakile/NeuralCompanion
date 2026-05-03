@@ -2580,6 +2580,10 @@ except Exception:
     def jsonify(payload):
         return payload
 from PySide6 import QtCore, QtGui, QtWidgets
+try:
+    import shiboken6
+except Exception:  # pragma: no cover - defensive for tooling without full PySide install
+    shiboken6 = None
 from PIL import Image
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
@@ -5741,17 +5745,23 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         return shaping_panel, workspace_panel
 
     def _avatar_provider_options(self):
+        providers = []
+        for provider in avatar_runtime.list_providers():
+            summary = provider.to_summary()
+            provider_id = str(summary.get("id") or "").strip().lower()
+            if provider_id:
+                providers.append(summary)
+        if providers or getattr(self, "_addon_manager", None) is not None:
+            return sorted(
+                providers,
+                key=lambda item: (int(item.get("order", 1000) or 1000), str(item.get("label", "")).lower()),
+            )
         legacy = {
             "vseeface": {"id": "vseeface", "label": "VSeeFace", "order": 100},
             "musetalk": {"id": "musetalk", "label": "MuseTalk", "order": 200},
             "vam": {"id": "vam", "label": "VaM", "order": 300},
             "none": {"id": "none", "label": "None", "order": 900},
         }
-        for provider in avatar_runtime.list_providers():
-            summary = provider.to_summary()
-            provider_id = str(summary.get("id") or "").strip().lower()
-            if provider_id:
-                legacy[provider_id] = summary
         return sorted(
             legacy.values(),
             key=lambda item: (int(item.get("order", 1000) or 1000), str(item.get("label", "")).lower()),
@@ -5796,8 +5806,13 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             index = combo.findData(selected)
             if index < 0:
                 index = combo.findText(selected, QtCore.Qt.MatchFixedString)
+            if index < 0 and combo.count() > 0:
+                index = 0
             if index >= 0:
                 combo.setCurrentIndex(index)
+                provider_id = str(combo.currentData() or "").strip().lower()
+                if provider_id:
+                    update_runtime_config("avatar_mode", provider_id)
         finally:
             combo.blockSignals(False)
 
@@ -6974,23 +6989,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
 
         backend = self._current_tts_backend_value()
         backend_label = self._tts_backend_label_from_value(backend)
-        tab_index = self._tts_runtime_tab_index_by_backend.get(backend)
-        if tab_index is None:
-            for index in range(self.tts_runtime_addon_tabs.count()):
-                tab_widget = self.tts_runtime_addon_tabs.widget(index)
-                backend_id = ""
-                try:
-                    backend_id = str(tab_widget.property("backend_id") or "").strip().lower()
-                except Exception:
-                    backend_id = ""
-                candidates = {
-                    backend_id,
-                    str(tab_widget.objectName() or "").strip().lower(),
-                }
-                if backend in candidates:
-                    tab_index = index
-                    self._tts_runtime_tab_index_by_backend[backend] = index
-                    break
+        tab_index = self._find_tts_runtime_tab_index(backend)
         if activate_tab and tab_index is not None and 0 <= int(tab_index) < self.tts_runtime_addon_tabs.count():
             self.tts_runtime_addon_tabs.blockSignals(True)
             self.tts_runtime_addon_tabs.setCurrentIndex(int(tab_index))
@@ -7005,6 +7004,37 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self._refresh_tts_runtime_summary()
         print(f"[UI Real] tts_sync _refresh_tts_runtime_card")
         QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
+
+    def _find_tts_runtime_tab_index(self, backend):
+        if not hasattr(self, "tts_runtime_addon_tabs"):
+            return None
+        backend = str(backend or "").strip().lower()
+        if not backend:
+            return None
+        cached = self._tts_runtime_tab_index_by_backend.get(backend)
+        if cached is not None and 0 <= int(cached) < self.tts_runtime_addon_tabs.count():
+            current_widget = self.tts_runtime_addon_tabs.widget(int(cached))
+            try:
+                cached_backend_id = str(current_widget.property("backend_id") or "").strip().lower()
+            except Exception:
+                cached_backend_id = ""
+            if cached_backend_id == backend:
+                return int(cached)
+        for index in range(self.tts_runtime_addon_tabs.count()):
+            tab_widget = self.tts_runtime_addon_tabs.widget(index)
+            backend_id = ""
+            try:
+                backend_id = str(tab_widget.property("backend_id") or "").strip().lower()
+            except Exception:
+                backend_id = ""
+            candidates = {
+                backend_id,
+                str(tab_widget.objectName() or "").strip().lower(),
+            }
+            if backend in candidates:
+                self._tts_runtime_tab_index_by_backend[backend] = index
+                return index
+        return None
 
     def _available_tts_backend_options(self):
         options = []
@@ -7672,13 +7702,14 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         return "Auto" if size == "auto" else size
 
     def _refresh_visual_reply_hint(self):
-        if not hasattr(self, "visual_reply_hint"):
+        hint = self._live_widget_attr("visual_reply_hint")
+        if hint is None:
             return
-        mode = self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else "auto"
-        provider = self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else "openai"
-        size = self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText() if hasattr(self, "visual_reply_size_combo") else "1024x1024")
-        model = str(self.visual_reply_model_edit.text() if hasattr(self, "visual_reply_model_edit") else RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1"
-        auto_show = bool(self.visual_reply_auto_show_checkbox.isChecked()) if hasattr(self, "visual_reply_auto_show_checkbox") else True
+        mode = self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto"))
+        provider = self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        size = self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", "1024x1024"))
+        model = self._live_text("visual_reply_model_edit", RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1"
+        auto_show = self._live_checked("visual_reply_auto_show_checkbox", True)
         if mode == "off":
             summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."
         else:
@@ -7688,7 +7719,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 f"Visual replies are enabled. Automatic image generation still follows the NC auto-visual toggle; when allowed, NC may append one [visualize: ...] tag when an image would help. "
                 f"Current backend request: {provider_text}, {size}, model '{model}'. {dock_text}"
             )
-        self.visual_reply_hint.setText(summary)
+        hint.setText(summary)
 
     def _refresh_sensory_feedback_hint(self):
         if not hasattr(self, "sensory_feedback_hint"):
@@ -7809,16 +7840,19 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         }
 
     def _build_addon_avatar_snapshot(self):
+        musetalk_vram_label = self._live_combo_text("musetalk_vram_combo", "")
+        visual_reply_mode = self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto"))
+        visual_reply_provider = self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI"))
         return {
             "engine": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
-            "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
-            "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "musetalk_vram_mode": musetalk_vram_label,
+            "musetalk_avatar_pack": self._live_combo_text("musetalk_avatar_pack_combo", ""),
+            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS)),
+            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
+            "visual_reply_mode": visual_reply_mode,
+            "visual_reply_provider": visual_reply_provider,
+            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", RUNTIME_CONFIG.get("visual_reply_size", "1024x1024"))),
+            "visual_reply_model": self._live_text("visual_reply_model_edit", RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -7827,9 +7861,13 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
-            "musetalk_vram_mode_key": next((key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()), "quality") if hasattr(self, "musetalk_vram_combo") else "quality",
+            "musetalk_vram_mode_key": next((key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == musetalk_vram_label), "quality"),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "visual_reply_visible": bool(hasattr(self, "visual_reply_dock") and self.visual_reply_dock.isVisible()),
+            "visual_reply_visible": bool(
+                self._addon_effectively_enabled("nc.visual_reply")
+                and hasattr(self, "visual_reply_dock")
+                and self.visual_reply_dock.isVisible()
+            ),
             "detected_gpu_vram_gib": self._detected_gpu_vram_gib(),
         }
 
@@ -7872,6 +7910,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 engine.set_addon_event_publisher(manager.publish_event)
             if hasattr(engine, "set_addon_manager_getter"):
                 engine.set_addon_manager_getter(lambda: self._addon_manager)
+            self.refresh_avatar_engine_options(selected_provider_id=str(RUNTIME_CONFIG.get("avatar_mode", "") or ""))
             self._mount_tts_runtime_addon_tabs()
             self._populate_tts_backend_combo(selected_value=self._current_tts_backend_value())
             self.refresh_sensory_feedback_source_options(selected_value=str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"))
@@ -7879,6 +7918,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self._mount_host_settings_addon_tabs()
             self._mount_operational_view_addon_tabs()
             self._mount_musetalk_addon_tabs()
+            self._apply_disabled_addon_surfaces()
             self._refresh_addons_management_ui()
             loaded = [record.manifest.id for record in manager.get_loaded_addons() if record.state == "initialized"]
             if loaded:
@@ -7890,6 +7930,157 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 engine.set_addon_manager_getter(None)
             print(f"⚠️ [Addons] Initialization failed: {exc}")
             self._refresh_addons_management_ui()
+
+    def _addon_effectively_enabled(self, addon_id):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return True
+        target = str(addon_id or "").strip()
+        if not target:
+            return True
+        try:
+            snapshot = list(manager.get_addon_registry_snapshot() or [])
+        except Exception:
+            return True
+        for category in snapshot:
+            for addon in list(dict(category).get("addons") or []):
+                if str(addon.get("id") or "").strip() == target:
+                    return bool(addon.get("effective_enabled", False))
+        return False
+
+    def _remove_tab_by_widget_name_or_title(self, tabs, widget_name, fallback_title=""):
+        if tabs is None or not hasattr(tabs, "count"):
+            return False
+        target_index = -1
+        target_widget = None
+        try:
+            target_widget = tabs.findChild(QtWidgets.QWidget, str(widget_name or ""))
+        except Exception:
+            target_widget = None
+        if target_widget is not None:
+            try:
+                target_index = tabs.indexOf(target_widget)
+            except Exception:
+                target_index = -1
+        if target_index < 0 and fallback_title:
+            wanted = str(fallback_title or "").strip()
+            for index in range(tabs.count()):
+                try:
+                    title = str(tabs.tabText(index) or "").strip()
+                    tooltip = str(tabs.tabToolTip(index) or "").strip()
+                except Exception:
+                    continue
+                if wanted and wanted in {title, tooltip}:
+                    target_index = index
+                    target_widget = tabs.widget(index)
+                    break
+        if target_index < 0:
+            return False
+        try:
+            tabs.removeTab(target_index)
+            if target_widget is not None:
+                target_widget.setParent(None)
+            return True
+        except Exception:
+            return False
+
+    def _qt_object_alive(self, obj):
+        if obj is None:
+            return False
+        if shiboken6 is None:
+            return True
+        try:
+            return bool(shiboken6.isValid(obj))
+        except Exception:
+            return False
+
+    def _live_widget_attr(self, name):
+        try:
+            widget = getattr(self, str(name or ""))
+        except Exception:
+            return None
+        return widget if self._qt_object_alive(widget) else None
+
+    def _live_checked(self, name, fallback=False):
+        widget = self._live_widget_attr(name)
+        if widget is None or not hasattr(widget, "isChecked"):
+            return bool(fallback)
+        try:
+            return bool(widget.isChecked())
+        except RuntimeError:
+            return bool(fallback)
+
+    def _live_text(self, name, fallback=""):
+        widget = self._live_widget_attr(name)
+        if widget is None or not hasattr(widget, "text"):
+            return str(fallback or "")
+        try:
+            return str(widget.text() or "")
+        except RuntimeError:
+            return str(fallback or "")
+
+    def _live_value(self, name, fallback=0):
+        widget = self._live_widget_attr(name)
+        if widget is None or not hasattr(widget, "value"):
+            return fallback
+        try:
+            return widget.value()
+        except RuntimeError:
+            return fallback
+
+    def _live_combo_text(self, name, fallback=""):
+        widget = self._live_widget_attr(name)
+        if widget is None or not hasattr(widget, "currentText"):
+            return str(fallback or "")
+        try:
+            return str(widget.currentText() or "")
+        except RuntimeError:
+            return str(fallback or "")
+
+    def _live_combo_data(self, name, fallback=""):
+        widget = self._live_widget_attr(name)
+        if widget is None or not hasattr(widget, "currentData"):
+            return fallback
+        try:
+            data = widget.currentData()
+            return fallback if data is None else data
+        except RuntimeError:
+            return fallback
+
+    def _apply_disabled_addon_surfaces(self):
+        tab_specs = (
+            ("nc.vseeface_avatar", "vseeface_tab", "VSeeFace"),
+            ("nc.musetalk_avatar", "musetalk_tab", "MuseTalk"),
+            ("nc.vam_avatar", "vam_tab", "VaM"),
+        )
+        tabs = getattr(self, "tabs", None)
+        for addon_id, widget_name, title in tab_specs:
+            if self._addon_effectively_enabled(addon_id):
+                continue
+            self._remove_tab_by_widget_name_or_title(tabs, widget_name, title)
+        if self._addon_effectively_enabled("nc.visual_reply"):
+            return
+        dock = getattr(self, "visual_reply_dock", None)
+        if dock is not None:
+            try:
+                dock.hide()
+            except Exception:
+                pass
+            try:
+                action = dock.toggleViewAction()
+                if action is not None:
+                    action.setVisible(False)
+                    action.setEnabled(False)
+            except Exception:
+                pass
+        button = getattr(self, "btn_visual_reply", None)
+        if button is not None:
+            try:
+                button.setVisible(False)
+                button.setEnabled(False)
+            except Exception:
+                pass
+
     def _get_addon_instance(self, addon_id):
         manager = getattr(self, "_addon_manager", None)
         if manager is None:
@@ -8272,7 +8463,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         return "background: #4b5563; border: 1px solid #6b7280; border-radius: 8px;"
 
     def _build_preset_payload(self, ensure_pocket_tts_path=False):
-        pocket_tts_python = self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else ""
+        pocket_tts_python = self._live_text("pocket_tts_python_edit", "")
         if ensure_pocket_tts_path and self._current_tts_backend_value() == "pockettts":
             pocket_tts_python = self._ensure_pocket_tts_python_path()
         chat_provider_generation_settings = dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {})
@@ -8285,21 +8476,21 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
-            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
-            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
+            "tts_seed": int(self._live_value("tts_seed_spin", RUNTIME_CONFIG.get("tts_seed", 0) or 0)),
+            "tts_temperature": float(self._live_value("tts_temperature_spin", RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8)),
+            "tts_top_p": float(self._live_value("tts_top_p_spin", RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9)),
+            "tts_top_k": int(self._live_value("tts_top_k_spin", RUNTIME_CONFIG.get("tts_top_k", 40) or 40)),
+            "tts_repeat_penalty": float(self._live_value("tts_repeat_penalty_spin", RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2)),
+            "tts_min_p": float(self._live_value("tts_min_p_spin", RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0)),
+            "tts_normalize_loudness": self._live_checked("tts_normalize_loudness_checkbox", RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
+            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS)),
+            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
+            "visual_reply_mode": self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto")),
+            "visual_reply_provider": self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI")),
+            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", RUNTIME_CONFIG.get("visual_reply_size", "1024x1024"))),
+            "visual_reply_model": self._live_text("visual_reply_model_edit", RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
+            "visual_reply_auto_show_dock": self._live_checked("visual_reply_auto_show_checkbox", RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -9675,7 +9866,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.save_session()
 
     def on_vam_vmc_host_changed(self):
-        update_runtime_config("vam_vmc_host", self.vam_vmc_host_edit.text().strip() or "127.0.0.1")
+        update_runtime_config("vam_vmc_host", self._live_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1")
         self.save_session()
 
     def on_vam_vmc_port_changed(self, value):
@@ -9683,35 +9874,43 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.save_session()
 
     def _current_vam_root_value(self):
-        raw = self.vam_root_edit.text().strip() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", ""))
+        raw = self._live_text(
+            "vam_root_edit",
+            RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", ""),
+        ).strip()
         return engine.normalize_vam_root(raw)
 
     def _current_vam_bridge_root_value(self):
         return engine.derive_vam_bridge_root(self._current_vam_root_value())
 
     def _refresh_vam_path_widgets(self):
-        if hasattr(self, "vam_root_edit"):
-            self.vam_root_edit.setText(self._current_vam_root_value())
-        if hasattr(self, "vam_bridge_root_edit"):
-            self.vam_bridge_root_edit.setText(self._current_vam_bridge_root_value())
+        root_edit = self._live_widget_attr("vam_root_edit")
+        if root_edit is not None:
+            root_edit.setText(self._current_vam_root_value())
+        bridge_edit = self._live_widget_attr("vam_bridge_root_edit")
+        if bridge_edit is not None:
+            bridge_edit.setText(self._current_vam_bridge_root_value())
 
     def _ensure_vam_root_for_launch(self):
         current_root = self._current_vam_root_value()
         if str(current_root or "").strip():
             return current_root
         fallback_root = engine.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT)
-        if hasattr(self, "vam_root_edit"):
-            self.vam_root_edit.setText(fallback_root)
+        root_edit = self._live_widget_attr("vam_root_edit")
+        if root_edit is not None:
+            root_edit.setText(fallback_root)
         self.on_vam_root_changed()
         return fallback_root
 
     def on_vam_root_changed(self):
         normalized_root = self._current_vam_root_value()
         derived_bridge_root = engine.derive_vam_bridge_root(normalized_root)
-        if hasattr(self, "vam_root_edit"):
-            self.vam_root_edit.setText(normalized_root)
-        if hasattr(self, "vam_bridge_root_edit"):
-            self.vam_bridge_root_edit.setText(derived_bridge_root)
+        root_edit = self._live_widget_attr("vam_root_edit")
+        if root_edit is not None:
+            root_edit.setText(normalized_root)
+        bridge_edit = self._live_widget_attr("vam_bridge_root_edit")
+        if bridge_edit is not None:
+            bridge_edit.setText(derived_bridge_root)
         update_runtime_config("vam_root", normalized_root)
         update_runtime_config("vam_bridge_root", derived_bridge_root)
         self.save_session()
@@ -9748,11 +9947,11 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self._launch_vam_target(DEFAULT_LOCAL_VAM_VR_LAUNCHER, "Start VaM VR")
 
     def on_vam_target_atom_uid_changed(self):
-        update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() or "Person")
+        update_runtime_config("vam_target_atom_uid", self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person")
         self.save_session()
 
     def on_vam_target_storable_id_changed(self):
-        update_runtime_config("vam_target_storable_id", self.vam_target_storable_id_edit.text().strip())
+        update_runtime_config("vam_target_storable_id", self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "")).strip())
         self.save_session()
 
     def _toggle_pocket_tts_advanced(self, checked):
@@ -10034,12 +10233,13 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.emit_tutorial_event("ui_changed", {"field": "sensory_pingpong_prompt_reset", "value": "recommended"})
         self.save_session()
     def refresh_musetalk_avatar_pack_list(self, selected_pack_id=None):
-        if not hasattr(self, "musetalk_avatar_pack_combo"):
+        combo = self._live_widget_attr("musetalk_avatar_pack_combo")
+        if combo is None:
             return
-        requested = str(selected_pack_id or self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
+        requested = str(selected_pack_id or combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
         catalog = list(engine.get_musetalk_avatar_pack_catalog() or [])
-        self.musetalk_avatar_pack_combo.blockSignals(True)
-        self.musetalk_avatar_pack_combo.clear()
+        combo.blockSignals(True)
+        combo.clear()
         for item in catalog:
             pack_id = str(item.get("id") or "").strip()
             if not pack_id:
@@ -10048,19 +10248,19 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             default_avatar_id = str(item.get("default_avatar_id") or "default_avatar").strip()
             source = str(item.get("source") or "manifest").strip()
             label = f"{display_name} | {default_avatar_id} [{source}]"
-            self.musetalk_avatar_pack_combo.addItem(label, pack_id)
-        if self.musetalk_avatar_pack_combo.count() <= 0:
-            self.musetalk_avatar_pack_combo.addItem("No avatar packs found", "")
+            combo.addItem(label, pack_id)
+        if combo.count() <= 0:
+            combo.addItem("No avatar packs found", "")
         target_index = -1
-        for index in range(self.musetalk_avatar_pack_combo.count()):
-            if str(self.musetalk_avatar_pack_combo.itemData(index) or "") == requested:
+        for index in range(combo.count()):
+            if str(combo.itemData(index) or "") == requested:
                 target_index = index
                 break
-        self.musetalk_avatar_pack_combo.setCurrentIndex(target_index if target_index >= 0 else 0)
-        self.musetalk_avatar_pack_combo.blockSignals(False)
+        combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+        combo.blockSignals(False)
 
     def on_musetalk_avatar_pack_change(self, _choice):
-        pack_id = str(self.musetalk_avatar_pack_combo.currentData() or "").strip()
+        pack_id = str(self._live_combo_data("musetalk_avatar_pack_combo", "") or "").strip()
         if not pack_id:
             return
         selected_pack_id = engine.apply_musetalk_avatar_pack_selection(pack_id)
@@ -10486,9 +10686,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "avatar_mode": self._current_avatar_mode_value(),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
+            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
             "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
+                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
                 "quality",
             ),
             "model_name": self.model_combo.currentText(),
@@ -10595,33 +10795,41 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.on_tts_backend_change(self.tts_backend_combo.currentText())
         if "stream_mode" in settings:
             self.stream_mode_combo.setCurrentText("On" if bool(settings["stream_mode"]) else "Off")
-        if "musetalk_vram_mode" in settings and hasattr(self, "musetalk_vram_combo"):
-            self.musetalk_vram_combo.setCurrentText(MUSE_VRAM_MODE_LABELS.get(str(settings["musetalk_vram_mode"]).lower(), "Quality"))
-        if "musetalk_loop_fade_ms" in settings and hasattr(self, "musetalk_loop_fade_spin"):
+        widget = self._live_widget_attr("musetalk_vram_combo")
+        if "musetalk_vram_mode" in settings and widget is not None:
+            widget.setCurrentText(MUSE_VRAM_MODE_LABELS.get(str(settings["musetalk_vram_mode"]).lower(), "Quality"))
+        widget = self._live_widget_attr("musetalk_loop_fade_spin")
+        if "musetalk_loop_fade_ms" in settings and widget is not None:
             fade_ms = max(0, int(settings["musetalk_loop_fade_ms"] or 0))
-            self.musetalk_loop_fade_spin.setValue(fade_ms)
+            widget.setValue(fade_ms)
             self.on_musetalk_loop_fade_changed(fade_ms)
-        if "musetalk_use_frame_cache" in settings and hasattr(self, "musetalk_use_frame_cache_checkbox"):
-            self.musetalk_use_frame_cache_checkbox.setChecked(bool(settings["musetalk_use_frame_cache"]))
+        widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
+        if "musetalk_use_frame_cache" in settings and widget is not None:
+            widget.setChecked(bool(settings["musetalk_use_frame_cache"]))
             self.on_musetalk_use_frame_cache_changed(bool(settings["musetalk_use_frame_cache"]))
-        if "visual_reply_mode" in settings and hasattr(self, "visual_reply_mode_combo"):
+        widget = self._live_widget_attr("visual_reply_mode_combo")
+        if "visual_reply_mode" in settings and widget is not None:
             mode_text = self._visual_reply_mode_label_from_value(settings["visual_reply_mode"])
-            self.visual_reply_mode_combo.setCurrentText(mode_text)
+            widget.setCurrentText(mode_text)
             self.on_visual_reply_mode_changed(mode_text)
-        if "visual_reply_provider" in settings and hasattr(self, "visual_reply_provider_combo"):
+        widget = self._live_widget_attr("visual_reply_provider_combo")
+        if "visual_reply_provider" in settings and widget is not None:
             provider_text = self._visual_reply_provider_label_from_value(settings["visual_reply_provider"])
-            self.visual_reply_provider_combo.setCurrentText(provider_text)
+            widget.setCurrentText(provider_text)
             self.on_visual_reply_provider_changed(provider_text)
-        if "visual_reply_size" in settings and hasattr(self, "visual_reply_size_combo"):
+        widget = self._live_widget_attr("visual_reply_size_combo")
+        if "visual_reply_size" in settings and widget is not None:
             size_text = self._normalize_visual_reply_size(settings["visual_reply_size"])
-            self.visual_reply_size_combo.setCurrentText(self._visual_reply_size_label_from_value(size_text))
+            widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
             self.on_visual_reply_size_changed(size_text)
-        if "visual_reply_model" in settings and hasattr(self, "visual_reply_model_edit"):
-            self.visual_reply_model_edit.setText(str(settings["visual_reply_model"] or "gpt-image-1"))
+        widget = self._live_widget_attr("visual_reply_model_edit")
+        if "visual_reply_model" in settings and widget is not None:
+            widget.setText(str(settings["visual_reply_model"] or "gpt-image-1"))
             self.on_visual_reply_model_changed()
-        if "visual_reply_auto_show_dock" in settings and hasattr(self, "visual_reply_auto_show_checkbox"):
+        widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
+        if "visual_reply_auto_show_dock" in settings and widget is not None:
             auto_show = bool(settings["visual_reply_auto_show_dock"])
-            self.visual_reply_auto_show_checkbox.setChecked(auto_show)
+            widget.setChecked(auto_show)
             self.on_visual_reply_auto_show_changed(auto_show)
         if "sensory_feedback_source" in settings and hasattr(self, "sensory_feedback_source_combo"):
             source_value = str(settings["sensory_feedback_source"] or "off")
@@ -10836,7 +11044,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         stream_mode = self.stream_mode_combo.currentText() == "On"
         tts_backend = self._current_tts_backend_value()
         musetalk_vram_mode = next(
-            (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
+            (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
             "quality",
         )
         update_runtime_config("input_mode", mode)
@@ -10844,8 +11052,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         update_runtime_config("stream_mode", stream_mode)
         update_runtime_config("tts_backend", tts_backend)
         update_runtime_config("musetalk_vram_mode", musetalk_vram_mode)
-        update_runtime_config("musetalk_use_frame_cache", self.musetalk_use_frame_cache_checkbox.isChecked() if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)))
-        update_runtime_config("musetalk_avatar_pack_id", str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""))
+        update_runtime_config("musetalk_use_frame_cache", self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)))
+        update_runtime_config("musetalk_avatar_pack_id", str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""))
         update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
         update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
         update_runtime_config("listen_idle_window_seconds", round(float(self.listen_idle_window_spin.value()), 1) if hasattr(self, "listen_idle_window_spin") else 5.0)
@@ -10853,21 +11061,17 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
-        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-        update_runtime_config(
-            "pocket_tts_python",
-            pocket_tts_python_edit.text().strip() if pocket_tts_python_edit is not None else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""),
-        )
-        update_runtime_config("vam_vmc_enabled", self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else True)
-        update_runtime_config("vam_bridge_enabled", self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else True)
-        update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else False))
-        update_runtime_config("vam_timeline_auto_resume", self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else True)
-        update_runtime_config("vam_vmc_host", self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
-        update_runtime_config("vam_vmc_port", int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539))
-        update_runtime_config("vam_root", self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")))
-        update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")))
-        update_runtime_config("vam_target_atom_uid", self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"))
-        update_runtime_config("vam_target_storable_id", self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
+        update_runtime_config("pocket_tts_python", self._live_text("pocket_tts_python_edit", RUNTIME_CONFIG.get("pocket_tts_python", "")).strip())
+        update_runtime_config("vam_vmc_enabled", self._live_checked("vam_vmc_enabled_checkbox", True))
+        update_runtime_config("vam_bridge_enabled", self._live_checked("vam_bridge_enabled_checkbox", True))
+        update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", False))
+        update_runtime_config("vam_timeline_auto_resume", self._live_checked("vam_timeline_auto_resume_checkbox", True))
+        update_runtime_config("vam_vmc_host", self._live_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1")
+        update_runtime_config("vam_vmc_port", int(self._live_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)))
+        update_runtime_config("vam_root", self._current_vam_root_value())
+        update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value())
+        update_runtime_config("vam_target_atom_uid", self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person")
+        update_runtime_config("vam_target_storable_id", self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip())
         update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
         print("[QtGUI] Text Config Updated.")
@@ -10913,26 +11117,32 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
     def on_engine_change(self, choice):
         mode = self._current_avatar_mode_value()
         update_runtime_config("avatar_mode", mode)
-        if mode == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox") and not self.vam_play_audio_in_vam_checkbox.isChecked():
-            self.vam_play_audio_in_vam_checkbox.setChecked(True)
+        vam_play_audio = self._live_widget_attr("vam_play_audio_in_vam_checkbox")
+        if mode == "vam" and vam_play_audio is not None and not vam_play_audio.isChecked():
+            vam_play_audio.setChecked(True)
             update_runtime_config("vam_play_audio_in_vam", True)
         controls_enabled = mode == "vseeface"
         for widget in [
-            self.body_combo,
-            self.btn_body_load,
-            self.btn_body_save,
-            self.btn_body_save_as,
-            self.btn_body_delete,
-            self.btn_hand_doctor,
-            self.emotion_combo,
-            self.live_sync_checkbox,
+            self._live_widget_attr("body_combo"),
+            self._live_widget_attr("btn_body_load"),
+            self._live_widget_attr("btn_body_save"),
+            self._live_widget_attr("btn_body_save_as"),
+            self._live_widget_attr("btn_body_delete"),
+            self._live_widget_attr("btn_hand_doctor"),
+            self._live_widget_attr("emotion_combo"),
+            self._live_widget_attr("live_sync_checkbox"),
         ]:
-            widget.setEnabled(controls_enabled)
+            if widget is not None:
+                widget.setEnabled(controls_enabled)
         for slider in self.pose_sliders.values():
-            slider.setEnabled(controls_enabled)
-        self.btn_musetalk_preview.setEnabled(mode == "musetalk")
-        if hasattr(self, "btn_musetalk_avatar_focus"):
-            self.btn_musetalk_avatar_focus.setEnabled(mode == "musetalk")
+            if self._qt_object_alive(slider):
+                slider.setEnabled(controls_enabled)
+        preview_button = self._live_widget_attr("btn_musetalk_preview")
+        if preview_button is not None:
+            preview_button.setEnabled(mode == "musetalk")
+        focus_button = self._live_widget_attr("btn_musetalk_avatar_focus")
+        if focus_button is not None:
+            focus_button.setEnabled(mode == "musetalk")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()
@@ -10950,7 +11160,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         engine.EDIT_EMOTION = choice.lower()
         current_data = AVATAR_PROFILE.get(engine.EDIT_EMOTION, AVATAR_PROFILE["neutral"])
         for key, slider in self.pose_sliders.items():
-            slider.set_value(current_data.get(key, 0.0))
+            if self._qt_object_alive(slider):
+                slider.set_value(current_data.get(key, 0.0))
         print(f"[QtGUI] Editing Pose: {choice}")
 
     def refresh_resources(self):
@@ -10987,14 +11198,18 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         tts_backend = str(RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox").lower()
         self._populate_tts_backend_combo(selected_value=tts_backend)
         vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
-        self.musetalk_vram_combo.setCurrentText(MUSE_VRAM_MODE_LABELS.get(vram_mode, "Quality"))
+        musetalk_vram_combo = self._live_widget_attr("musetalk_vram_combo")
+        if musetalk_vram_combo is not None:
+            musetalk_vram_combo.setCurrentText(MUSE_VRAM_MODE_LABELS.get(vram_mode, "Quality"))
         for key, slider in self.brain_sliders.items():
             slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
         for key, slider in self.chunking_sliders.items():
             slider.set_value(RUNTIME_CONFIG.get(key, slider.value()))
         self._refresh_hotkey_shortcuts()
         self._refresh_hotkey_labels()
-        self.on_emotion_change(self.emotion_combo.currentText())
+        emotion_combo = self._live_widget_attr("emotion_combo")
+        if emotion_combo is not None:
+            self.on_emotion_change(emotion_combo.currentText())
         self.refresh_performance_profile_list()
         self.refresh_tutorial_list()
         self._update_restart_sensitive_controls()
@@ -11212,9 +11427,12 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.preset_combo.setCurrentText(current)
 
     def refresh_body_list(self):
+        body_combo = self._live_widget_attr("body_combo")
+        if body_combo is None:
+            return
         bodies = [Path(path).stem for path in glob.glob("body_configs/*.json")]
-        self.body_combo.clear()
-        self.body_combo.addItems(bodies or ["No Configs"])
+        body_combo.clear()
+        body_combo.addItems(bodies or ["No Configs"])
 
     def emit_tutorial_event(self, event_name, payload=None):
         if not hasattr(self, "tutorial_event_bus") or self.tutorial_event_bus is None:
@@ -11248,8 +11466,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "avatar_mode": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
             "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_vram_mode": self.musetalk_vram_combo.currentText() if hasattr(self, "musetalk_vram_combo") else "",
-            "musetalk_avatar_pack": self.musetalk_avatar_pack_combo.currentText() if hasattr(self, "musetalk_avatar_pack_combo") else "",
+            "musetalk_vram_mode": self._live_combo_text("musetalk_vram_combo", ""),
+            "musetalk_avatar_pack": self._live_combo_text("musetalk_avatar_pack_combo", ""),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
             "dry_run_active": bool((dry_run.get_status() or {}).get("active")),
             "dry_run_complete": bool((dry_run.get_status() or {}).get("complete")),
@@ -11375,7 +11593,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
     def _estimate_setup_increment_gib(self):
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
         tts_backend = self._current_tts_backend_value()
-        vram_mode_label = str(self.musetalk_vram_combo.currentText() or "").strip() if hasattr(self, "musetalk_vram_combo") else "Very Low VRAM"
+        vram_mode_label = self._live_combo_text("musetalk_vram_combo", "Very Low VRAM").strip() or "Very Low VRAM"
 
         if avatar_mode == "musetalk":
             budget = MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB["musetalk"].get(vram_mode_label, 6.5)
@@ -11766,8 +11984,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.engine_combo.setCurrentText("MuseTalk")
         if hasattr(self, "stream_mode_combo"):
             self.stream_mode_combo.setCurrentText("On")
-        if hasattr(self, "musetalk_vram_combo"):
-            self.musetalk_vram_combo.setCurrentText("Very Low VRAM")
+        widget = self._live_widget_attr("musetalk_vram_combo")
+        if widget is not None:
+            widget.setCurrentText("Very Low VRAM")
         if hasattr(self, "tts_backend_combo"):
             self._populate_tts_backend_combo(selected_value="chatterbox")
             index = self.tts_backend_combo.findData("chatterbox")
@@ -11907,31 +12126,38 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.input_role_combo.setCurrentText(role_text)
         if "stream_mode" in data:
             self.stream_mode_combo.setCurrentText("On" if bool(data["stream_mode"]) else "Off")
-        if "musetalk_loop_fade_ms" in data and hasattr(self, "musetalk_loop_fade_spin"):
+        widget = self._live_widget_attr("musetalk_loop_fade_spin")
+        if "musetalk_loop_fade_ms" in data and widget is not None:
             fade_ms = max(0, int(data["musetalk_loop_fade_ms"] or 0))
-            self.musetalk_loop_fade_spin.setValue(fade_ms)
+            widget.setValue(fade_ms)
             self.on_musetalk_loop_fade_changed(fade_ms)
-        if "musetalk_use_frame_cache" in data and hasattr(self, "musetalk_use_frame_cache_checkbox"):
-            self.musetalk_use_frame_cache_checkbox.setChecked(bool(data["musetalk_use_frame_cache"]))
+        widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
+        if "musetalk_use_frame_cache" in data and widget is not None:
+            widget.setChecked(bool(data["musetalk_use_frame_cache"]))
             self.on_musetalk_use_frame_cache_changed(bool(data["musetalk_use_frame_cache"]))
-        if "visual_reply_mode" in data and hasattr(self, "visual_reply_mode_combo"):
+        widget = self._live_widget_attr("visual_reply_mode_combo")
+        if "visual_reply_mode" in data and widget is not None:
             mode_text = self._visual_reply_mode_label_from_value(data["visual_reply_mode"])
-            self.visual_reply_mode_combo.setCurrentText(mode_text)
+            widget.setCurrentText(mode_text)
             self.on_visual_reply_mode_changed(mode_text)
-        if "visual_reply_provider" in data and hasattr(self, "visual_reply_provider_combo"):
+        widget = self._live_widget_attr("visual_reply_provider_combo")
+        if "visual_reply_provider" in data and widget is not None:
             provider_text = self._visual_reply_provider_label_from_value(data["visual_reply_provider"])
-            self.visual_reply_provider_combo.setCurrentText(provider_text)
+            widget.setCurrentText(provider_text)
             self.on_visual_reply_provider_changed(provider_text)
-        if "visual_reply_size" in data and hasattr(self, "visual_reply_size_combo"):
+        widget = self._live_widget_attr("visual_reply_size_combo")
+        if "visual_reply_size" in data and widget is not None:
             size_text = self._normalize_visual_reply_size(data["visual_reply_size"])
-            self.visual_reply_size_combo.setCurrentText(self._visual_reply_size_label_from_value(size_text))
+            widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
             self.on_visual_reply_size_changed(size_text)
-        if "visual_reply_model" in data and hasattr(self, "visual_reply_model_edit"):
-            self.visual_reply_model_edit.setText(str(data["visual_reply_model"] or "gpt-image-1"))
+        widget = self._live_widget_attr("visual_reply_model_edit")
+        if "visual_reply_model" in data and widget is not None:
+            widget.setText(str(data["visual_reply_model"] or "gpt-image-1"))
             self.on_visual_reply_model_changed()
-        if "visual_reply_auto_show_dock" in data and hasattr(self, "visual_reply_auto_show_checkbox"):
+        widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
+        if "visual_reply_auto_show_dock" in data and widget is not None:
             auto_show = bool(data["visual_reply_auto_show_dock"])
-            self.visual_reply_auto_show_checkbox.setChecked(auto_show)
+            widget.setChecked(auto_show)
             self.on_visual_reply_auto_show_changed(auto_show)
         if "sensory_pingpong_enabled" in data and hasattr(self, "sensory_pingpong_checkbox"):
             pingpong_enabled = bool(data["sensory_pingpong_enabled"])
@@ -11976,26 +12202,33 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     combo.setCurrentIndex(index)
             finally:
                 combo.blockSignals(False)
-        if "tts_seed" in data and hasattr(self, "tts_seed_spin"):
-            self.tts_seed_spin.setValue(max(0, int(data["tts_seed"] or 0)))
-            self.on_tts_seed_changed(self.tts_seed_spin.value())
-        if "tts_temperature" in data and hasattr(self, "tts_temperature_spin"):
-            self.tts_temperature_spin.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
-            self.on_tts_temperature_changed(self.tts_temperature_spin.value())
-        if "tts_top_p" in data and hasattr(self, "tts_top_p_spin"):
-            self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
-            self.on_tts_top_p_changed(self.tts_top_p_spin.value())
-        if "tts_top_k" in data and hasattr(self, "tts_top_k_spin"):
-            self.tts_top_k_spin.setValue(max(0, int(data["tts_top_k"] or 0)))
-            self.on_tts_top_k_changed(self.tts_top_k_spin.value())
-        if "tts_repeat_penalty" in data and hasattr(self, "tts_repeat_penalty_spin"):
-            self.tts_repeat_penalty_spin.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
-            self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
-        if "tts_min_p" in data and hasattr(self, "tts_min_p_spin"):
-            self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
-            self.on_tts_min_p_changed(self.tts_min_p_spin.value())
-        if "tts_normalize_loudness" in data and hasattr(self, "tts_normalize_loudness_checkbox"):
-            self.tts_normalize_loudness_checkbox.setChecked(bool(data["tts_normalize_loudness"]))
+        widget = self._live_widget_attr("tts_seed_spin")
+        if "tts_seed" in data and widget is not None:
+            widget.setValue(max(0, int(data["tts_seed"] or 0)))
+            self.on_tts_seed_changed(widget.value())
+        widget = self._live_widget_attr("tts_temperature_spin")
+        if "tts_temperature" in data and widget is not None:
+            widget.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
+            self.on_tts_temperature_changed(widget.value())
+        widget = self._live_widget_attr("tts_top_p_spin")
+        if "tts_top_p" in data and widget is not None:
+            widget.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
+            self.on_tts_top_p_changed(widget.value())
+        widget = self._live_widget_attr("tts_top_k_spin")
+        if "tts_top_k" in data and widget is not None:
+            widget.setValue(max(0, int(data["tts_top_k"] or 0)))
+            self.on_tts_top_k_changed(widget.value())
+        widget = self._live_widget_attr("tts_repeat_penalty_spin")
+        if "tts_repeat_penalty" in data and widget is not None:
+            widget.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
+            self.on_tts_repeat_penalty_changed(widget.value())
+        widget = self._live_widget_attr("tts_min_p_spin")
+        if "tts_min_p" in data and widget is not None:
+            widget.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
+            self.on_tts_min_p_changed(widget.value())
+        widget = self._live_widget_attr("tts_normalize_loudness_checkbox")
+        if "tts_normalize_loudness" in data and widget is not None:
+            widget.setChecked(bool(data["tts_normalize_loudness"]))
             self.on_tts_normalize_loudness_changed(bool(data["tts_normalize_loudness"]))
         if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
             self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
@@ -12023,13 +12256,16 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             policy_text = self._chat_overflow_policy_label_from_value(data["chat_context_overflow_policy"])
             self.chat_overflow_policy_combo.setCurrentText(policy_text)
             self.on_chat_overflow_policy_changed(policy_text)
-        if "musetalk_avatar_pack_id" in data and hasattr(self, "musetalk_avatar_pack_combo"):
+        widget = self._live_widget_attr("musetalk_avatar_pack_combo")
+        if "musetalk_avatar_pack_id" in data and widget is not None:
             self.refresh_musetalk_avatar_pack_list(selected_pack_id=data["musetalk_avatar_pack_id"])
-            for index in range(self.musetalk_avatar_pack_combo.count()):
-                if str(self.musetalk_avatar_pack_combo.itemData(index) or "") == str(data["musetalk_avatar_pack_id"] or ""):
-                    self.musetalk_avatar_pack_combo.setCurrentIndex(index)
-                    break
-            self.on_musetalk_avatar_pack_change(self.musetalk_avatar_pack_combo.currentText())
+            widget = self._live_widget_attr("musetalk_avatar_pack_combo")
+            if widget is not None:
+                for index in range(widget.count()):
+                    if str(widget.itemData(index) or "") == str(data["musetalk_avatar_pack_id"] or ""):
+                        widget.setCurrentIndex(index)
+                        break
+                self.on_musetalk_avatar_pack_change(widget.currentText())
         if "pocket_tts_python" in data:
             preset_python = str(data["pocket_tts_python"] or "").strip()
             pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
@@ -12124,7 +12360,10 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.save_body_config(name)
 
     def save_current_body(self):
-        name = self.body_combo.currentText()
+        body_combo = self._live_widget_attr("body_combo")
+        if body_combo is None:
+            return
+        name = body_combo.currentText()
         if not name or name == "No Configs":
             self.save_body_dialog()
             return
@@ -12138,14 +12377,19 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         path = Path("body_configs") / f"{name}.json"
         path.write_text(json.dumps(data, indent=4), encoding="utf-8")
         self.refresh_body_list()
-        index = self.body_combo.findText(name)
-        if index >= 0:
-            self.body_combo.setCurrentIndex(index)
+        body_combo = self._live_widget_attr("body_combo")
+        if body_combo is not None:
+            index = body_combo.findText(name)
+            if index >= 0:
+                body_combo.setCurrentIndex(index)
         print(f"[QtGUI] Saved Full Body & Hands: {path}")
         self.save_session()
 
     def load_body_config_from_combo(self):
-        name = self.body_combo.currentText()
+        body_combo = self._live_widget_attr("body_combo")
+        if body_combo is None:
+            return
+        name = body_combo.currentText()
         if not name or name == "No Configs":
             return
         path = Path("body_configs") / f"{name}.json"
@@ -12158,12 +12402,17 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 engine.HAND_CALIBRATION.update(data["hands"])
         else:
             AVATAR_PROFILE.update(data)
-        self.on_emotion_change(self.emotion_combo.currentText())
+        emotion_combo = self._live_widget_attr("emotion_combo")
+        if emotion_combo is not None:
+            self.on_emotion_change(emotion_combo.currentText())
         print(f"[QtGUI] Loading Config: {name}...")
         self.save_session()
 
     def delete_current_body(self):
-        name = self.body_combo.currentText()
+        body_combo = self._live_widget_attr("body_combo")
+        if body_combo is None:
+            return
+        name = body_combo.currentText()
         if not name or name in {"No Configs", "Default"}:
             return
         if QtWidgets.QMessageBox.question(self, "Delete Body Config", f"Delete '{name}'?") != QtWidgets.QMessageBox.Yes:
@@ -12278,6 +12527,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             self.embedded_musetalk_preview.reset_preview()
 
     def show_visual_reply_dock(self):
+        if not self._addon_effectively_enabled("nc.visual_reply"):
+            return
         if hasattr(self, "visual_reply_dock"):
             self.visual_reply_dock.show()
             self.visual_reply_dock.raise_()
@@ -12412,26 +12663,26 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"),
             "offline_replay_only": bool(offline_replay_only),
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
+            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
             "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
+                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
                 "quality",
             ),
-            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
-            "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
-            "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
-            "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
-            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
-            "vam_play_audio_in_vam": True if mode == "vam" else (self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False))),
-            "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
-            "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
-            "vam_timeline_auto_resume": self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
+            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
+            "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
+            "vam_vmc_host": self._live_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
+            "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)),
+            "vam_bridge_enabled": self._live_checked("vam_bridge_enabled_checkbox", RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
+            "vam_root": self._current_vam_root_value(),
+            "vam_bridge_root": self._current_vam_bridge_root_value(),
+            "vam_play_audio_in_vam": True if mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
+            "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person",
+            "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip(),
+            "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
             "pocket_tts_python": (
                 self._ensure_pocket_tts_python_path()
-                if self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit")
-                else (self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
+                if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
+                else self._live_text("pocket_tts_python_edit", RUNTIME_CONFIG.get("pocket_tts_python", "")).strip()
             ),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
@@ -12778,13 +13029,13 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self._current_tts_backend_value(),
-            "tts_seed": int(self.tts_seed_spin.value()) if hasattr(self, "tts_seed_spin") else int(RUNTIME_CONFIG.get("tts_seed", 0) or 0),
-            "tts_temperature": float(self.tts_temperature_spin.value()) if hasattr(self, "tts_temperature_spin") else float(RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-            "tts_top_p": float(self.tts_top_p_spin.value()) if hasattr(self, "tts_top_p_spin") else float(RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-            "tts_top_k": int(self.tts_top_k_spin.value()) if hasattr(self, "tts_top_k_spin") else int(RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-            "tts_repeat_penalty": float(self.tts_repeat_penalty_spin.value()) if hasattr(self, "tts_repeat_penalty_spin") else float(RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-            "tts_min_p": float(self.tts_min_p_spin.value()) if hasattr(self, "tts_min_p_spin") else float(RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-            "tts_normalize_loudness": self.tts_normalize_loudness_checkbox.isChecked() if hasattr(self, "tts_normalize_loudness_checkbox") else bool(RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+            "tts_seed": int(self._live_value("tts_seed_spin", RUNTIME_CONFIG.get("tts_seed", 0) or 0)),
+            "tts_temperature": float(self._live_value("tts_temperature_spin", RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8)),
+            "tts_top_p": float(self._live_value("tts_top_p_spin", RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9)),
+            "tts_top_k": int(self._live_value("tts_top_k_spin", RUNTIME_CONFIG.get("tts_top_k", 40) or 40)),
+            "tts_repeat_penalty": float(self._live_value("tts_repeat_penalty_spin", RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2)),
+            "tts_min_p": float(self._live_value("tts_min_p_spin", RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0)),
+            "tts_normalize_loudness": self._live_checked("tts_normalize_loudness_checkbox", RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
@@ -12804,27 +13055,27 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
             "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self.musetalk_vram_combo.currentText()),
+                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
                 "quality",
             ),
-            "musetalk_loop_fade_ms": int(self.musetalk_loop_fade_spin.value()) if hasattr(self, "musetalk_loop_fade_spin") else int(RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS),
-            "musetalk_use_frame_cache": bool(self.musetalk_use_frame_cache_checkbox.isChecked()) if hasattr(self, "musetalk_use_frame_cache_checkbox") else bool(RUNTIME_CONFIG.get("musetalk_use_frame_cache", True)),
-            "musetalk_avatar_pack_id": str(self.musetalk_avatar_pack_combo.currentData() or RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or ""),
-            "vam_vmc_enabled": self.vam_vmc_enabled_checkbox.isChecked() if hasattr(self, "vam_vmc_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self.vam_vmc_host_edit.text().strip() if hasattr(self, "vam_vmc_host_edit") else str(RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
-            "vam_vmc_port": int(self.vam_vmc_port_spin.value()) if hasattr(self, "vam_vmc_port_spin") else int(RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539),
-            "vam_bridge_enabled": self.vam_bridge_enabled_checkbox.isChecked() if hasattr(self, "vam_bridge_enabled_checkbox") else bool(RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value() if hasattr(self, "vam_root_edit") else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
-            "vam_bridge_root": self._current_vam_bridge_root_value() if hasattr(self, "vam_bridge_root_edit") else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
-            "vam_play_audio_in_vam": self.vam_play_audio_in_vam_checkbox.isChecked() if hasattr(self, "vam_play_audio_in_vam_checkbox") else bool(RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
-            "vam_target_atom_uid": self.vam_target_atom_uid_edit.text().strip() if hasattr(self, "vam_target_atom_uid_edit") else str(RUNTIME_CONFIG.get("vam_target_atom_uid", "Person") or "Person"),
-            "vam_target_storable_id": self.vam_target_storable_id_edit.text().strip() if hasattr(self, "vam_target_storable_id_edit") else str(RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
-            "vam_timeline_auto_resume": self.vam_timeline_auto_resume_checkbox.isChecked() if hasattr(self, "vam_timeline_auto_resume_checkbox") else bool(RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self.visual_reply_mode_combo.currentText()) if hasattr(self, "visual_reply_mode_combo") else str(RUNTIME_CONFIG.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self.visual_reply_provider_combo.currentText()) if hasattr(self, "visual_reply_provider_combo") else str(RUNTIME_CONFIG.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": self._normalize_visual_reply_size(self.visual_reply_size_combo.currentText()) if hasattr(self, "visual_reply_size_combo") else str(RUNTIME_CONFIG.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": self.visual_reply_model_edit.text().strip() if hasattr(self, "visual_reply_model_edit") else str(RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
-            "visual_reply_auto_show_dock": self.visual_reply_auto_show_checkbox.isChecked() if hasattr(self, "visual_reply_auto_show_checkbox") else bool(RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
+            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS))),
+            "musetalk_use_frame_cache": bool(self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True))),
+            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
+            "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
+            "vam_vmc_host": self._live_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
+            "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)),
+            "vam_bridge_enabled": self._live_checked("vam_bridge_enabled_checkbox", RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
+            "vam_root": self._current_vam_root_value() if self._live_widget_attr("vam_root_edit") is not None else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
+            "vam_bridge_root": self._current_vam_bridge_root_value() if self._live_widget_attr("vam_bridge_root_edit") is not None else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
+            "vam_play_audio_in_vam": self._live_checked("vam_play_audio_in_vam_checkbox", RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
+            "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person",
+            "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip() or "plugin#0_NeuralCompanionBridge",
+            "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
+            "visual_reply_mode": self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", RUNTIME_CONFIG.get("visual_reply_mode", "auto"))),
+            "visual_reply_provider": self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", RUNTIME_CONFIG.get("visual_reply_provider", "openai"))),
+            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", RUNTIME_CONFIG.get("visual_reply_size", "1024x1024"))),
+            "visual_reply_model": self._live_text("visual_reply_model_edit", RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
+            "visual_reply_auto_show_dock": self._live_checked("visual_reply_auto_show_checkbox", RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -12836,8 +13087,8 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
             "pocket_tts_python": (
                 self._ensure_pocket_tts_python_path()
-                if self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit")
-                else (self.pocket_tts_python_edit.text().strip() if hasattr(self, "pocket_tts_python_edit") else str(RUNTIME_CONFIG.get("pocket_tts_python", "") or ""))
+                if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
+                else self._live_text("pocket_tts_python_edit", RUNTIME_CONFIG.get("pocket_tts_python", "")).strip()
             ),
             "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
             "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
@@ -12850,14 +13101,18 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             "dry_run_target_samples": self.dry_run_target_spin.value(),
             "dry_run_auto_replies": self.dry_run_auto_replies_checkbox.isChecked(),
             "last_preset": self.preset_combo.currentText(),
-            "last_body": self.body_combo.currentText(),
-            "live_sync": self.live_sync_checkbox.isChecked(),
+            "last_body": self._live_combo_text("body_combo", RUNTIME_CONFIG.get("last_body", "")),
+            "live_sync": self._live_checked("live_sync_checkbox", RUNTIME_CONFIG.get("live_sync", False)),
             "geometry": [self.x(), self.y(), self.width(), self.height()],
             "main_splitter_sizes": self.main_splitter.sizes() if hasattr(self, "main_splitter") else [400, 980],
             "pinned_floating_docks": sorted(getattr(self, "_pinned_floating_dock_names", set()) or []),
             "always_on_top_floating_docks": sorted(getattr(self, "_always_on_top_floating_dock_names", set()) or []),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "visual_reply_visible": bool(hasattr(self, "visual_reply_dock") and self.visual_reply_dock.isVisible()),
+            "visual_reply_visible": bool(
+                self._addon_effectively_enabled("nc.visual_reply")
+                and hasattr(self, "visual_reply_dock")
+                and self.visual_reply_dock.isVisible()
+            ),
             "performance_guidance_visible": bool(hasattr(self, "guidance_box") and self.guidance_box.isVisible()),
             "window_state": base64.b64encode(self.saveState().data()).decode("ascii"),
             "right_dock_state": (
@@ -12930,8 +13185,9 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     index = self.engine_combo.findText(engine_choice)
                 if index >= 0:
                     self.engine_combo.setCurrentIndex(index)
-            if str(engine_choice or "").strip().lower() == "vam" and hasattr(self, "vam_play_audio_in_vam_checkbox"):
-                self.vam_play_audio_in_vam_checkbox.setChecked(True)
+            vam_play_audio = self._live_widget_attr("vam_play_audio_in_vam_checkbox")
+            if str(engine_choice or "").strip().lower() == "vam" and vam_play_audio is not None:
+                vam_play_audio.setChecked(True)
                 self.on_vam_play_audio_in_vam_changed(True)
             audio_input_device = session.get("audio_input_device")
             if audio_input_device is not None:
@@ -13001,68 +13257,84 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     self.tts_backend_combo.setCurrentIndex(index)
                 self.on_tts_backend_change(self.tts_backend_combo.currentText())
             tts_seed = session.get("tts_seed")
-            if tts_seed is not None and hasattr(self, "tts_seed_spin"):
-                self.tts_seed_spin.setValue(max(0, int(tts_seed)))
-                self.on_tts_seed_changed(self.tts_seed_spin.value())
+            widget = self._live_widget_attr("tts_seed_spin")
+            if tts_seed is not None and widget is not None:
+                widget.setValue(max(0, int(tts_seed)))
+                self.on_tts_seed_changed(widget.value())
             tts_temperature = session.get("tts_temperature")
-            if tts_temperature is not None and hasattr(self, "tts_temperature_spin"):
-                self.tts_temperature_spin.setValue(max(0.05, float(tts_temperature)))
-                self.on_tts_temperature_changed(self.tts_temperature_spin.value())
+            widget = self._live_widget_attr("tts_temperature_spin")
+            if tts_temperature is not None and widget is not None:
+                widget.setValue(max(0.05, float(tts_temperature)))
+                self.on_tts_temperature_changed(widget.value())
             tts_top_p = session.get("tts_top_p")
-            if tts_top_p is not None and hasattr(self, "tts_top_p_spin"):
-                self.tts_top_p_spin.setValue(max(0.0, min(1.0, float(tts_top_p))))
-                self.on_tts_top_p_changed(self.tts_top_p_spin.value())
+            widget = self._live_widget_attr("tts_top_p_spin")
+            if tts_top_p is not None and widget is not None:
+                widget.setValue(max(0.0, min(1.0, float(tts_top_p))))
+                self.on_tts_top_p_changed(widget.value())
             tts_top_k = session.get("tts_top_k")
-            if tts_top_k is not None and hasattr(self, "tts_top_k_spin"):
-                self.tts_top_k_spin.setValue(max(0, int(tts_top_k)))
-                self.on_tts_top_k_changed(self.tts_top_k_spin.value())
+            widget = self._live_widget_attr("tts_top_k_spin")
+            if tts_top_k is not None and widget is not None:
+                widget.setValue(max(0, int(tts_top_k)))
+                self.on_tts_top_k_changed(widget.value())
             tts_repeat_penalty = session.get("tts_repeat_penalty")
-            if tts_repeat_penalty is not None and hasattr(self, "tts_repeat_penalty_spin"):
-                self.tts_repeat_penalty_spin.setValue(max(1.0, float(tts_repeat_penalty)))
-                self.on_tts_repeat_penalty_changed(self.tts_repeat_penalty_spin.value())
+            widget = self._live_widget_attr("tts_repeat_penalty_spin")
+            if tts_repeat_penalty is not None and widget is not None:
+                widget.setValue(max(1.0, float(tts_repeat_penalty)))
+                self.on_tts_repeat_penalty_changed(widget.value())
             tts_min_p = session.get("tts_min_p")
-            if tts_min_p is not None and hasattr(self, "tts_min_p_spin"):
-                self.tts_min_p_spin.setValue(max(0.0, min(1.0, float(tts_min_p))))
-                self.on_tts_min_p_changed(self.tts_min_p_spin.value())
+            widget = self._live_widget_attr("tts_min_p_spin")
+            if tts_min_p is not None and widget is not None:
+                widget.setValue(max(0.0, min(1.0, float(tts_min_p))))
+                self.on_tts_min_p_changed(widget.value())
             tts_normalize_loudness = session.get("tts_normalize_loudness")
-            if tts_normalize_loudness is not None and hasattr(self, "tts_normalize_loudness_checkbox"):
-                self.tts_normalize_loudness_checkbox.setChecked(bool(tts_normalize_loudness))
+            widget = self._live_widget_attr("tts_normalize_loudness_checkbox")
+            if tts_normalize_loudness is not None and widget is not None:
+                widget.setChecked(bool(tts_normalize_loudness))
                 self.on_tts_normalize_loudness_changed(bool(tts_normalize_loudness))
             vam_vmc_enabled = session.get("vam_vmc_enabled")
-            if vam_vmc_enabled is not None and hasattr(self, "vam_vmc_enabled_checkbox"):
-                self.vam_vmc_enabled_checkbox.setChecked(bool(vam_vmc_enabled))
+            widget = self._live_widget_attr("vam_vmc_enabled_checkbox")
+            if vam_vmc_enabled is not None and widget is not None:
+                widget.setChecked(bool(vam_vmc_enabled))
                 self.on_vam_vmc_enabled_changed(bool(vam_vmc_enabled))
             vam_bridge_enabled = session.get("vam_bridge_enabled")
-            if vam_bridge_enabled is not None and hasattr(self, "vam_bridge_enabled_checkbox"):
-                self.vam_bridge_enabled_checkbox.setChecked(bool(vam_bridge_enabled))
+            widget = self._live_widget_attr("vam_bridge_enabled_checkbox")
+            if vam_bridge_enabled is not None and widget is not None:
+                widget.setChecked(bool(vam_bridge_enabled))
                 self.on_vam_bridge_enabled_changed(bool(vam_bridge_enabled))
             vam_play_audio_in_vam = session.get("vam_play_audio_in_vam")
-            if vam_play_audio_in_vam is not None and hasattr(self, "vam_play_audio_in_vam_checkbox"):
-                self.vam_play_audio_in_vam_checkbox.setChecked(bool(vam_play_audio_in_vam))
+            widget = self._live_widget_attr("vam_play_audio_in_vam_checkbox")
+            if vam_play_audio_in_vam is not None and widget is not None:
+                widget.setChecked(bool(vam_play_audio_in_vam))
                 self.on_vam_play_audio_in_vam_changed(bool(vam_play_audio_in_vam))
             vam_timeline_auto_resume = session.get("vam_timeline_auto_resume")
-            if vam_timeline_auto_resume is not None and hasattr(self, "vam_timeline_auto_resume_checkbox"):
-                self.vam_timeline_auto_resume_checkbox.setChecked(bool(vam_timeline_auto_resume))
+            widget = self._live_widget_attr("vam_timeline_auto_resume_checkbox")
+            if vam_timeline_auto_resume is not None and widget is not None:
+                widget.setChecked(bool(vam_timeline_auto_resume))
                 self.on_vam_timeline_auto_resume_changed(bool(vam_timeline_auto_resume))
             vam_vmc_host = session.get("vam_vmc_host")
-            if vam_vmc_host and hasattr(self, "vam_vmc_host_edit"):
-                self.vam_vmc_host_edit.setText(str(vam_vmc_host))
+            widget = self._live_widget_attr("vam_vmc_host_edit")
+            if vam_vmc_host and widget is not None:
+                widget.setText(str(vam_vmc_host))
                 self.on_vam_vmc_host_changed()
             vam_vmc_port = session.get("vam_vmc_port")
-            if vam_vmc_port is not None and hasattr(self, "vam_vmc_port_spin"):
-                self.vam_vmc_port_spin.setValue(int(vam_vmc_port))
+            widget = self._live_widget_attr("vam_vmc_port_spin")
+            if vam_vmc_port is not None and widget is not None:
+                widget.setValue(int(vam_vmc_port))
                 self.on_vam_vmc_port_changed(int(vam_vmc_port))
             vam_root = session.get("vam_root") or session.get("vam_bridge_root")
-            if vam_root and hasattr(self, "vam_root_edit"):
-                self.vam_root_edit.setText(engine.normalize_vam_root(vam_root))
+            widget = self._live_widget_attr("vam_root_edit")
+            if vam_root and widget is not None:
+                widget.setText(engine.normalize_vam_root(vam_root))
                 self.on_vam_root_changed()
             vam_target_atom_uid = session.get("vam_target_atom_uid")
-            if vam_target_atom_uid and hasattr(self, "vam_target_atom_uid_edit"):
-                self.vam_target_atom_uid_edit.setText(str(vam_target_atom_uid))
+            widget = self._live_widget_attr("vam_target_atom_uid_edit")
+            if vam_target_atom_uid and widget is not None:
+                widget.setText(str(vam_target_atom_uid))
                 self.on_vam_target_atom_uid_changed()
             vam_target_storable_id = session.get("vam_target_storable_id")
-            if vam_target_storable_id and hasattr(self, "vam_target_storable_id_edit"):
-                self.vam_target_storable_id_edit.setText(str(vam_target_storable_id))
+            widget = self._live_widget_attr("vam_target_storable_id_edit")
+            if vam_target_storable_id and widget is not None:
+                widget.setText(str(vam_target_storable_id))
                 self.on_vam_target_storable_id_changed()
             chat_provider = session.get("chat_provider")
             if chat_provider is not None and hasattr(self, "chat_provider_combo"):
@@ -13159,42 +13431,50 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             musetalk_vram_mode = session.get("musetalk_vram_mode")
             if musetalk_vram_mode:
                 label = MUSE_VRAM_MODE_LABELS.get(str(musetalk_vram_mode).strip().lower(), None)
-                if label:
-                    index = self.musetalk_vram_combo.findText(label)
+                widget = self._live_widget_attr("musetalk_vram_combo")
+                if label and widget is not None:
+                    index = widget.findText(label)
                     if index >= 0:
-                        self.musetalk_vram_combo.setCurrentIndex(index)
+                        widget.setCurrentIndex(index)
             musetalk_loop_fade_ms = session.get("musetalk_loop_fade_ms")
-            if musetalk_loop_fade_ms is not None and hasattr(self, "musetalk_loop_fade_spin"):
+            widget = self._live_widget_attr("musetalk_loop_fade_spin")
+            if musetalk_loop_fade_ms is not None and widget is not None:
                 fade_ms = max(0, int(musetalk_loop_fade_ms))
-                self.musetalk_loop_fade_spin.setValue(fade_ms)
+                widget.setValue(fade_ms)
                 self.on_musetalk_loop_fade_changed(fade_ms)
             musetalk_use_frame_cache = session.get("musetalk_use_frame_cache")
-            if musetalk_use_frame_cache is not None and hasattr(self, "musetalk_use_frame_cache_checkbox"):
-                self.musetalk_use_frame_cache_checkbox.setChecked(bool(musetalk_use_frame_cache))
+            widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
+            if musetalk_use_frame_cache is not None and widget is not None:
+                widget.setChecked(bool(musetalk_use_frame_cache))
                 self.on_musetalk_use_frame_cache_changed(bool(musetalk_use_frame_cache))
             visual_reply_mode = session.get("visual_reply_mode")
-            if visual_reply_mode is not None and hasattr(self, "visual_reply_mode_combo"):
+            widget = self._live_widget_attr("visual_reply_mode_combo")
+            if visual_reply_mode is not None and widget is not None:
                 mode_text = self._visual_reply_mode_label_from_value(visual_reply_mode)
-                self.visual_reply_mode_combo.setCurrentText(mode_text)
+                widget.setCurrentText(mode_text)
                 self.on_visual_reply_mode_changed(mode_text)
             visual_reply_provider = session.get("visual_reply_provider")
-            if visual_reply_provider is not None and hasattr(self, "visual_reply_provider_combo"):
+            widget = self._live_widget_attr("visual_reply_provider_combo")
+            if visual_reply_provider is not None and widget is not None:
                 provider_text = self._visual_reply_provider_label_from_value(visual_reply_provider)
-                self.visual_reply_provider_combo.setCurrentText(provider_text)
+                widget.setCurrentText(provider_text)
                 self.on_visual_reply_provider_changed(provider_text)
             visual_reply_size = session.get("visual_reply_size")
-            if visual_reply_size is not None and hasattr(self, "visual_reply_size_combo"):
+            widget = self._live_widget_attr("visual_reply_size_combo")
+            if visual_reply_size is not None and widget is not None:
                 size_text = self._normalize_visual_reply_size(visual_reply_size)
-                self.visual_reply_size_combo.setCurrentText(self._visual_reply_size_label_from_value(size_text))
+                widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
                 self.on_visual_reply_size_changed(size_text)
             visual_reply_model = session.get("visual_reply_model")
-            if visual_reply_model is not None and hasattr(self, "visual_reply_model_edit"):
-                self.visual_reply_model_edit.setText(str(visual_reply_model or "gpt-image-1"))
+            widget = self._live_widget_attr("visual_reply_model_edit")
+            if visual_reply_model is not None and widget is not None:
+                widget.setText(str(visual_reply_model or "gpt-image-1"))
                 self.on_visual_reply_model_changed()
             visual_reply_auto_show = session.get("visual_reply_auto_show_dock")
-            if visual_reply_auto_show is not None and hasattr(self, "visual_reply_auto_show_checkbox"):
+            widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
+            if visual_reply_auto_show is not None and widget is not None:
                 auto_show = bool(visual_reply_auto_show)
-                self.visual_reply_auto_show_checkbox.setChecked(auto_show)
+                widget.setChecked(auto_show)
                 self.on_visual_reply_auto_show_changed(auto_show)
             sensory_feedback_source = session.get("sensory_feedback_source")
             if sensory_feedback_source is not None and hasattr(self, "sensory_feedback_source_combo"):
@@ -13242,13 +13522,16 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             musetalk_avatar_pack_id = session.get("musetalk_avatar_pack_id")
             if musetalk_avatar_pack_id == "__standalone__":
                 musetalk_avatar_pack_id = None
-            if musetalk_avatar_pack_id is not None and hasattr(self, "musetalk_avatar_pack_combo"):
+            widget = self._live_widget_attr("musetalk_avatar_pack_combo")
+            if musetalk_avatar_pack_id is not None and widget is not None:
                 self.refresh_musetalk_avatar_pack_list(selected_pack_id=musetalk_avatar_pack_id)
-                for index in range(self.musetalk_avatar_pack_combo.count()):
-                    if str(self.musetalk_avatar_pack_combo.itemData(index) or "") == str(musetalk_avatar_pack_id or ""):
-                        self.musetalk_avatar_pack_combo.setCurrentIndex(index)
-                        break
-                self.on_musetalk_avatar_pack_change(self.musetalk_avatar_pack_combo.currentText())
+                widget = self._live_widget_attr("musetalk_avatar_pack_combo")
+                if widget is not None:
+                    for index in range(widget.count()):
+                        if str(widget.itemData(index) or "") == str(musetalk_avatar_pack_id or ""):
+                            widget.setCurrentIndex(index)
+                            break
+                    self.on_musetalk_avatar_pack_change(widget.currentText())
             pocket_tts_python = session.get("pocket_tts_python")
             pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
             if pocket_tts_python is not None and pocket_tts_python_edit is not None:
@@ -13280,15 +13563,18 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             if dry_run_auto_replies is not None:
                 self.dry_run_auto_replies_checkbox.setChecked(bool(dry_run_auto_replies))
             body = session.get("last_body")
-            if body:
-                index = self.body_combo.findText(body)
+            body_combo = self._live_widget_attr("body_combo")
+            if body and body_combo is not None:
+                index = body_combo.findText(body)
                 if index >= 0:
-                    self.body_combo.setCurrentIndex(index)
+                    body_combo.setCurrentIndex(index)
                     self.load_body_config_from_combo()
             if self._addon_manager is not None:
                 self._addon_manager.import_session_state(session)
                 self._refresh_addon_group_tabs()
-            self.live_sync_checkbox.setChecked(bool(session.get("live_sync", False)))
+            live_sync_checkbox = self._live_widget_attr("live_sync_checkbox")
+            if live_sync_checkbox is not None:
+                live_sync_checkbox.setChecked(bool(session.get("live_sync", False)))
             splitter_sizes = session.get("main_splitter_sizes")
             if isinstance(splitter_sizes, list) and len(splitter_sizes) == 2 and hasattr(self, "main_splitter"):
                 try:
@@ -13323,7 +13609,11 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 self.preview_dock.show()
             else:
                 self.preview_dock.hide()
-            if bool(session.get("visual_reply_visible", False)) and not suppress_aux_docks:
+            if (
+                bool(session.get("visual_reply_visible", False))
+                and not suppress_aux_docks
+                and self._addon_effectively_enabled("nc.visual_reply")
+            ):
                 self.visual_reply_dock.show()
             else:
                 self.visual_reply_dock.hide()
@@ -13333,6 +13623,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 self._toggle_performance_guidance(performance_guidance_visible)
             self._refresh_hotkey_shortcuts()
             self._refresh_hotkey_labels()
+            self._apply_disabled_addon_surfaces()
             self._update_restart_sensitive_controls()
             self.refresh_dry_run_status()
             QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)

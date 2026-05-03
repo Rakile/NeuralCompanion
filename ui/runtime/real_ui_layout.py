@@ -145,6 +145,8 @@ class MainUiRealLayoutMixin:
                 object_name = str(dock.objectName() or "").strip()
                 if not object_name:
                     continue
+                if not self._frontend_dock_addon_enabled(object_name):
+                    continue
                 geometry = dock.geometry()
                 floating_geometry = dock.frameGeometry()
                 docks[object_name] = {
@@ -216,6 +218,14 @@ class MainUiRealLayoutMixin:
                 docks = layout_state.get("docks")
                 if isinstance(docks, dict):
                     for object_name, dock_state in docks.items():
+                        if not self._frontend_dock_addon_enabled(str(object_name)):
+                            dock = self._ui_object(str(object_name))
+                            if dock is not None and isinstance(dock, QtWidgets.QDockWidget):
+                                try:
+                                    dock.hide()
+                                except Exception:
+                                    pass
+                            continue
                         dock = self._ui_object(str(object_name))
                         if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                             continue
@@ -254,6 +264,14 @@ class MainUiRealLayoutMixin:
             try:
                 visible_docked = []
                 for object_name, dock_state in docks.items():
+                    if not self._frontend_dock_addon_enabled(str(object_name)):
+                        dock = self._ui_object(str(object_name))
+                        if dock is not None and isinstance(dock, QtWidgets.QDockWidget):
+                            try:
+                                dock.hide()
+                            except Exception:
+                                pass
+                        continue
                     dock = self._ui_object(str(object_name))
                     if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                         continue
@@ -388,20 +406,53 @@ class MainUiRealLayoutMixin:
                     pass
 
     def _frontend_workspace_docks(self):
-            names = (
+            names = [
                 "SystemShapingDock",
                 "WorkspaceTabsDock",
                 "OperationalViewDock",
                 "MuseTalkPreviewDock",
                 "PreviewDock",
-                "VisualReplyDock",
-            )
+            ]
+            if self._frontend_dock_addon_enabled("VisualReplyDock"):
+                names.append("VisualReplyDock")
             docks = []
             for object_name in names:
                 dock = self._ui_object(object_name)
                 if dock is not None and isinstance(dock, QtWidgets.QDockWidget):
                     docks.append(dock)
             return docks
+
+    def _frontend_dock_addon_enabled(self, object_name):
+            object_name = str(object_name or "").strip()
+            if object_name != "VisualReplyDock":
+                return True
+            checker = getattr(self, "_addon_effectively_enabled", None)
+            return True if not callable(checker) else bool(checker("nc.visual_reply"))
+
+    def _enforce_disabled_frontend_workspace_docks(self):
+            if self._frontend_dock_addon_enabled("VisualReplyDock"):
+                return
+            dock = self._ui_object("VisualReplyDock")
+            if dock is None or not isinstance(dock, QtWidgets.QDockWidget):
+                return
+            try:
+                dock.hide()
+            except Exception:
+                pass
+            try:
+                action = dock.toggleViewAction()
+                if action is not None:
+                    action.setVisible(False)
+                    action.setEnabled(False)
+            except Exception:
+                pass
+            button = self._ui_object("btn_visual_reply")
+            if button is not None:
+                try:
+                    button.setVisible(False)
+                    button.setEnabled(False)
+                except Exception:
+                    pass
 
     def _begin_frontend_workspace_layout_operation(self, label):
             if bool(getattr(self, "_frontend_workspace_layout_busy", False)):
@@ -431,6 +482,7 @@ class MainUiRealLayoutMixin:
                     dock.raise_()
                 except Exception:
                     pass
+            self._enforce_disabled_frontend_workspace_docks()
             self._apply_frontend_workspace_view_constraints()
             self._schedule_frontend_layout_save()
             print("[UI Real] Workspace panels shown.")
@@ -444,7 +496,10 @@ class MainUiRealLayoutMixin:
                 workspace_dock = self._ui_object("WorkspaceTabsDock")
                 operational_dock = self._ui_object("OperationalViewDock")
                 preview_dock = self._ui_object("MuseTalkPreviewDock") or self._ui_object("PreviewDock")
-                visual_dock = self._ui_object("VisualReplyDock")
+                visual_dock = None
+                checker = getattr(self, "_addon_effectively_enabled", None)
+                if not callable(checker) or bool(checker("nc.visual_reply")):
+                    visual_dock = self._ui_object("VisualReplyDock")
 
                 left_docks = [dock for dock in (system_dock, workspace_dock) if isinstance(dock, QtWidgets.QDockWidget)]
                 right_docks = [dock for dock in (operational_dock, preview_dock, visual_dock) if isinstance(dock, QtWidgets.QDockWidget)]
@@ -467,6 +522,7 @@ class MainUiRealLayoutMixin:
                 self._restoring_frontend_layout = False
 
             self._apply_frontend_workspace_view_constraints()
+            self._enforce_disabled_frontend_workspace_docks()
             self._save_frontend_layout_state()
             print("[UI Real] Workspace layout reset.")
 
@@ -484,6 +540,7 @@ class MainUiRealLayoutMixin:
             if self._frontend_dock_drag_active():
                 QtCore.QTimer.singleShot(900, self._apply_frontend_workspace_view_constraints)
                 return
+            self._enforce_disabled_frontend_workspace_docks()
             _apply_workspace_view_constraints(
                 self.window,
                 extra_widgets=(
