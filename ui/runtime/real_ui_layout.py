@@ -607,12 +607,6 @@ class MainUiRealLayoutMixin:
                 return
             title, summary = _split_collapsible_section_text(text, fallback_title)
             try:
-                object_name = str(group_box.objectName() or "").strip()
-            except Exception:
-                object_name = ""
-            if object_name == "tts_runtime_box" and summary:
-                summary = str(summary.split("/", 1)[0] or summary).strip()
-            try:
                 group_box.setProperty("nc_collapsible_base_title", title)
                 group_box.setProperty("nc_collapsible_summary", summary)
                 group_box.setToolTip(str(text or title or "").strip())

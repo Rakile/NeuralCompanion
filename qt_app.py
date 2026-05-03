@@ -6952,7 +6952,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
             return
         backend_value = self._current_tts_backend_value()
         backend_label = self._tts_backend_label_from_value(backend_value)
-        if backend_value == "chatterbox":
+        if backend_value in {"chatterbox", "pockettts"}:
             voice_name = self._current_voice_file_value()
             self.tts_runtime_section.setSummary(f"{backend_label} / {voice_name}" if voice_name else f"{backend_label} / Built-in voice")
         else:
