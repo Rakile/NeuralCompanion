@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VisualStorySettingsTab</class>
+ <widget class="QScrollArea" name="VisualStorySettingsTab">
+  <property name="widgetResizable">
+   <bool>true</bool>
+  </property>
+  <property name="frameShape">
+   <enum>QFrame::NoFrame</enum>
+  </property>
+  <widget class="QWidget" name="visual_story_scroll_contents">
+   <property name="geometry">
+    <rect>
+     <x>0</x>
+     <y>0</y>
+     <width>900</width>
+     <height>650</height>
+    </rect>
+   </property>
+   <layout class="QVBoxLayout" name="root_layout">
+    <property name="leftMargin">
+     <number>8</number>
+    </property>
+    <property name="topMargin">
+     <number>8</number>
+    </property>
+    <property name="rightMargin">
+     <number>8</number>
+    </property>
+    <property name="bottomMargin">
+     <number>8</number>
+    </property>
+    <property name="spacing">
+     <number>10</number>
+    </property>
+    <item>
+     <widget class="QGroupBox" name="visual_story_group">
+      <property name="title">
+       <string>Story Visual Replies</string>
+      </property>
+      <layout class="QVBoxLayout" name="visual_story_group_layout">
+       <property name="leftMargin">
+        <number>12</number>
+       </property>
+       <property name="topMargin">
+        <number>14</number>
+       </property>
+       <property name="rightMargin">
+        <number>12</number>
+       </property>
+       <property name="bottomMargin">
+        <number>12</number>
+       </property>
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <item>
+        <layout class="QFormLayout" name="visual_story_form">
+         <property name="fieldGrowthPolicy">
+          <enum>QFormLayout::FieldsStayAtSizeHint</enum>
+         </property>
+         <property name="formAlignment">
+          <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignTop</set>
+         </property>
+         <property name="labelAlignment">
+          <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+         </property>
+         <item row="0" column="0">
+          <widget class="QLabel" name="story_mode_label">
+           <property name="text">
+            <string>Story Mode</string>
+           </property>
+          </widget>
+         </item>
+         <item row="0" column="1">
+          <widget class="QPushButton" name="visual_story_mode_button">
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="text">
+            <string>Story Mode</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="0">
+          <widget class="QLabel" name="max_images_label">
+           <property name="text">
+            <string>Max Pictures</string>
+           </property>
+          </widget>
+         </item>
+         <item row="1" column="1">
+          <widget class="QSpinBox" name="visual_story_max_images_spin"/>
+         </item>
+         <item row="2" column="0">
+          <widget class="QLabel" name="continuity_label">
+           <property name="text">
+            <string>Continuity</string>
+           </property>
+          </widget>
+         </item>
+         <item row="2" column="1">
+          <layout class="QHBoxLayout" name="continuity_row">
+           <item>
+            <widget class="QSlider" name="visual_story_continuity_slider">
+             <property name="orientation">
+              <enum>Qt::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QLabel" name="visual_story_continuity_value_label">
+             <property name="minimumWidth">
+              <number>52</number>
+             </property>
+             <property name="alignment">
+              <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+             </property>
+             <property name="text">
+              <string>80%</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="styles_label">
+         <property name="text">
+          <string>Styles</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QWidget" name="visual_story_theme_widget">
+         <layout class="QGridLayout" name="visual_story_theme_grid">
+          <property name="leftMargin">
+           <number>0</number>
+          </property>
+          <property name="topMargin">
+           <number>0</number>
+          </property>
+          <property name="rightMargin">
+           <number>0</number>
+          </property>
+          <property name="bottomMargin">
+           <number>0</number>
+          </property>
+          <property name="horizontalSpacing">
+           <number>10</number>
+          </property>
+          <property name="verticalSpacing">
+           <number>6</number>
+          </property>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="guard_row">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <item>
+          <widget class="QCheckBox" name="visual_story_safe_checkbox">
+           <property name="text">
+            <string>Safe</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="visual_story_no_speech_bubbles_checkbox">
+           <property name="text">
+            <string>No Speech Bubbles</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="guard_spacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QLabel" name="master_prompt_label">
+         <property name="text">
+          <string>Master Style Anchor</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPlainTextEdit" name="visual_story_master_prompt_edit">
+         <property name="minimumHeight">
+          <number>72</number>
+         </property>
+         <property name="maximumHeight">
+          <number>120</number>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QLabel" name="visual_story_hint_label">
+         <property name="styleSheet">
+          <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+         <property name="text">
+          <string/>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </item>
+    <item>
+     <spacer name="root_spacer">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <property name="sizeHint" stdset="0">
+       <size>
+        <width>20</width>
+        <height>40</height>
+       </size>
+      </property>
+     </spacer>
+    </item>
+   </layout>
+  </widget>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

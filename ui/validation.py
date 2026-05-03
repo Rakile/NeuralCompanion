@@ -1,6 +1,7 @@
 """Designer UI validation helpers for main.ui shell and real-runtime modes."""
 
 from pathlib import Path
+import re
 import xml.etree.ElementTree as ET
 
 
@@ -23,9 +24,7 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("host_settings_tabs", "QTabWidget"),
             ("left_tabs", "QTabWidget"),
             ("right_tabs", "QTabWidget"),
-            ("musetalk_tabs", "QTabWidget"),
             ("sensory_feedback_tabs", "QTabWidget"),
-            ("vseeface_tabs", "QTabWidget"),
         ),
     ),
     (
@@ -34,7 +33,6 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("left_tabs", "QTabWidget"),
             ("host_settings_tabs", "QTabWidget"),
             ("right_tabs", "QTabWidget"),
-            ("musetalk_tabs", "QTabWidget"),
             ("tts_runtime_addon_tabs", "QTabWidget"),
             ("sensory_feedback_tabs", "QTabWidget"),
             ("sensory_feedback_sources_widget", "QWidget"),
@@ -63,10 +61,6 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("preset_combo", "QComboBox"),
             ("chat_provider_combo", "QComboBox"),
             ("model_combo", "QComboBox"),
-            ("visual_reply_mode_combo", "QComboBox"),
-            ("visual_reply_provider_combo", "QComboBox"),
-            ("visual_reply_size_combo", "QComboBox"),
-            ("visual_reply_model_edit", "QLineEdit"),
             ("sensory_feedback_source_combo", "QComboBox"),
             ("sensory_feedback_sources_widget", "QWidget"),
             ("console_status", "QLabel"),
@@ -176,10 +170,8 @@ UI_SHELL_TAB_MOUNT_WIDGETS = (
     "left_tabs",
     "host_settings_tabs",
     "right_tabs",
-    "musetalk_tabs",
     "tts_runtime_addon_tabs",
     "sensory_feedback_tabs",
-    "vseeface_tabs",
 )
 
 
@@ -256,6 +248,62 @@ def collect_ui_shell_static_tabs(ui_path):
     return tab_widgets
 
 
+def collect_legacy_addon_tab_registrations(ui_path):
+    app_root = Path(ui_path).resolve().parent
+    addons_root = app_root / "addons"
+    if not addons_root.exists():
+        return []
+    findings = []
+    for main_path in sorted(addons_root.glob("*/main.py")):
+        try:
+            lines = main_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception as exc:
+            findings.append((str(main_path.relative_to(app_root)), 0, f"could not read: {exc}"))
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            stripped = str(line or "").strip()
+            if "context.ui.register_tab(" in stripped or ".ui.register_tab(" in stripped:
+                findings.append((str(main_path.relative_to(app_root)), line_number, stripped))
+    return findings
+
+
+def collect_invalid_addon_designer_tabs(ui_path):
+    app_root = Path(ui_path).resolve().parent
+    addons_root = app_root / "addons"
+    if not addons_root.exists():
+        return []
+    findings = []
+    for main_path in sorted(addons_root.glob("*/main.py")):
+        try:
+            text = main_path.read_text(encoding="utf-8", errors="replace")
+        except Exception as exc:
+            findings.append((str(main_path.relative_to(app_root)), 0, f"could not read: {exc}"))
+            continue
+        addon_root = main_path.parent
+        for match in re.finditer(r"register_designer_tab\s*\(", text):
+            body = text[match.start(): match.start() + 2000]
+            line_number = text[: match.start()].count("\n") + 1
+            path_match = re.search(r"ui_path\s*=\s*[\"']([^\"']+)[\"']", body)
+            if not path_match:
+                findings.append((str(main_path.relative_to(app_root)), line_number, "missing ui_path"))
+                continue
+            raw_path = str(path_match.group(1) or "").strip()
+            resolved = Path(raw_path)
+            if not resolved.is_absolute():
+                resolved = addon_root / resolved
+            if not resolved.exists():
+                findings.append((str(main_path.relative_to(app_root)), line_number, f"ui_path not found: {raw_path}"))
+            icon_match = re.search(r"icon_path\s*=\s*[\"']([^\"']+)[\"']", body)
+            if icon_match:
+                raw_icon_path = str(icon_match.group(1) or "").strip()
+                resolved_icon = Path(raw_icon_path)
+                if not resolved_icon.is_absolute():
+                    resolved_icon = addon_root / resolved_icon
+                if not resolved_icon.exists():
+                    findings.append((str(main_path.relative_to(app_root)), line_number, f"icon_path not found: {raw_icon_path}"))
+    return findings
+
+
 def validate_ui_file(raw_path, *, base_path=None):
     ui_path = resolve_ui_path(raw_path, base_path=base_path)
     print(f"[UI Validation] File: {ui_path}")
@@ -317,7 +365,25 @@ def validate_ui_file(raw_path, *, base_path=None):
     else:
         print("  none")
 
-    if missing or mismatched or duplicates:
+    legacy_addon_tabs = collect_legacy_addon_tab_registrations(ui_path)
+    print("[UI Validation] Bundled addon Designer-tab migration:")
+    if legacy_addon_tabs:
+        for relative_path, line_number, line in legacy_addon_tabs:
+            location = f"{relative_path}:{line_number}" if line_number else relative_path
+            print(f"  LEGACY {location}: {line}")
+    else:
+        print("  OK")
+
+    invalid_designer_tabs = collect_invalid_addon_designer_tabs(ui_path)
+    print("[UI Validation] Bundled addon Designer UI files:")
+    if invalid_designer_tabs:
+        for relative_path, line_number, message in invalid_designer_tabs:
+            location = f"{relative_path}:{line_number}" if line_number else relative_path
+            print(f"  INVALID {location}: {message}")
+    else:
+        print("  OK")
+
+    if missing or mismatched or duplicates or legacy_addon_tabs or invalid_designer_tabs:
         print("[UI Validation] Result: NOT READY for safe real-logic binding.")
     else:
         print("[UI Validation] Result: READY for the checked Phase 1 binding prerequisites.")

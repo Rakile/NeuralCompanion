@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>GeminiTTSPreviewTab</class>
+ <widget class="QWidget" name="GeminiTTSPreviewTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="root_layout">
+   <property name="leftMargin">
+    <number>12</number>
+   </property>
+   <property name="topMargin">
+    <number>12</number>
+   </property>
+   <property name="rightMargin">
+    <number>12</number>
+   </property>
+   <property name="bottomMargin">
+    <number>12</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="intro_label">
+     <property name="styleSheet">
+      <string notr="true">color: #cbd5e1;</string>
+     </property>
+     <property name="text">
+      <string>Gemini preview TTS backend. Select this backend in Chat Runtime, then tune model, voice, and prompt style here.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="gemini_tts_preview_card">
+     <property name="styleSheet">
+      <string notr="true">QFrame#gemini_tts_preview_card {
+  background: rgba(12, 18, 26, 0.35);
+  border: 1px solid #273342;
+  border-radius: 10px;
+}</string>
+     </property>
+     <layout class="QVBoxLayout" name="gemini_tts_card_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="gemini_tts_status_label">
+        <property name="styleSheet">
+         <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+        </property>
+        <property name="text">
+         <string>Gemini TTS backend idle.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QFormLayout" name="gemini_tts_form">
+        <property name="fieldGrowthPolicy">
+         <enum>QFormLayout::ExpandingFieldsGrow</enum>
+        </property>
+        <property name="labelAlignment">
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+        </property>
+        <item row="0" column="0">
+         <widget class="QLabel" name="gemini_tts_api_key_label">
+          <property name="text">
+           <string>API Key</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QLineEdit" name="gemini_tts_api_key_edit"/>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="gemini_tts_base_url_label">
+          <property name="text">
+           <string>Base URL</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QLineEdit" name="gemini_tts_base_url_edit"/>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="gemini_tts_model_label">
+          <property name="text">
+           <string>Model</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <layout class="QHBoxLayout" name="gemini_tts_model_row">
+          <item>
+           <widget class="QComboBox" name="gemini_tts_model_combo">
+            <property name="editable">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btn_gemini_tts_model_refresh">
+            <property name="text">
+             <string>Refresh</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="gemini_tts_voice_label">
+          <property name="text">
+           <string>Voice</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QComboBox" name="gemini_tts_voice_combo"/>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="gemini_tts_language_label">
+          <property name="text">
+           <string>Language</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QLineEdit" name="gemini_tts_language_code_edit"/>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="gemini_tts_style_prompt_label">
+          <property name="text">
+           <string>Style Prompt</string>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QPlainTextEdit" name="gemini_tts_style_prompt_edit">
+          <property name="minimumHeight">
+           <number>100</number>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="gemini_tts_button_row">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="btn_gemini_tts_check_connection">
+          <property name="text">
+           <string>Check Connection</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_gemini_tts_refresh_models">
+          <property name="text">
+           <string>Refresh Models</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="gemini_tts_button_spacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="root_spacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

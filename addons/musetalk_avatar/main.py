@@ -26,6 +26,16 @@ class Addon(BaseAddon):
                 "runtime_context": True,
             },
         )
+        context.ui.register_designer_tab(
+            id="musetalk_avatar_tab",
+            title="MuseTalk",
+            ui_path="ui/musetalk_avatar.ui",
+            area="top_level",
+            order=120,
+            tooltip="MuseTalk avatar runtime and preview controls.",
+            icon_path="ui/icons/musetalk.png",
+            metadata={"provider_id": PROVIDER_ID},
+        )
         context.logger.info("MuseTalk avatar provider addon initialized.")
         return None
 

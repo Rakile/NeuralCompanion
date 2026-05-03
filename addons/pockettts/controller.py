@@ -133,6 +133,68 @@ class PocketTTSController:
             self._set_python(fallback)
         self._toggle_advanced(self._advanced_toggle.isChecked() if self._widget_alive(self._advanced_toggle) else False)
 
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            from PySide6 import QtCore
+
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def bind_designer_tab(self, widget):
+        from PySide6 import QtWidgets
+
+        if widget is None:
+            raise RuntimeError("PocketTTS Designer UI did not provide a widget.")
+        engine = None if self._shell_preview else self._engine()
+        self._advanced_group = self._ui_child(widget, "pockettts_advanced_group", QtWidgets.QGroupBox)
+        self._advanced_toggle = self._ui_child(widget, "btn_pockettts_advanced_toggle", QtWidgets.QPushButton)
+        self._python_edit = self._ui_child(widget, "pockettts_python_edit", QtWidgets.QLineEdit)
+        self._bundled_label = self._ui_child(widget, "pockettts_bundled_label", QtWidgets.QLabel)
+        browse = self._ui_child(widget, "btn_pockettts_browse", QtWidgets.QPushButton)
+        bundled_button = self._ui_child(widget, "btn_pockettts_use_bundled", QtWidgets.QPushButton)
+        note = self._ui_child(widget, "pockettts_note_label", QtWidgets.QLabel)
+
+        required = (
+            self._advanced_group,
+            self._python_edit,
+            self._bundled_label,
+            browse,
+            bundled_button,
+            note,
+        )
+        if any(item is None for item in required):
+            raise RuntimeError("PocketTTS Designer UI is missing one or more required controls.")
+
+        bundled_text = "Shell preview: bundled interpreter lookup is disabled."
+        if engine is not None:
+            bundled_text = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip() or "Bundled PocketTTS interpreter not found."
+        self._bundled_label.setText(f"Bundled interpreter: {bundled_text}")
+        self._python_edit.setPlaceholderText("Optional override path to PocketTTS python.exe")
+        self._python_edit.editingFinished.connect(lambda: self._set_python(self._python_edit.text()))
+        browse.clicked.connect(self._browse_python)
+        bundled_button.clicked.connect(self._reset_to_default)
+        if self._widget_alive(self._advanced_toggle):
+            self._advanced_toggle.setCheckable(True)
+            self._advanced_toggle.toggled.connect(self._toggle_advanced)
+        if self._shell_preview:
+            browse.setEnabled(False)
+            browse.setToolTip("Disabled in shell preview; no file dialogs or runtime config writes are connected.")
+        self._advanced_group.setVisible(True)
+
+        note_text = "Shell preview: PocketTTS settings are local only. No subprocess, backend, or audio path is started."
+        if not self._shell_preview:
+            note_text = "PocketTTS uses the bundled interpreter or the override path configured here."
+        note.setText(note_text)
+
+        self._widget = widget
+        if not self._current_python():
+            self._ensure_default_python()
+        self._sync_widgets_from_runtime()
+        return self._widget
+
     def build_tab(self):
         if self._widget is not None:
             return self._widget

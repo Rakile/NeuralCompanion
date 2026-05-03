@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ChatterboxTTSTab</class>
+ <widget class="QWidget" name="ChatterboxTTSTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>760</width>
+    <height>420</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="root_layout">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="chatterbox_runtime_group">
+     <property name="title">
+      <string>Chatterbox Runtime</string>
+     </property>
+     <layout class="QVBoxLayout" name="chatterbox_runtime_layout">
+      <property name="leftMargin">
+       <number>10</number>
+      </property>
+      <property name="topMargin">
+       <number>10</number>
+      </property>
+      <property name="rightMargin">
+       <number>10</number>
+      </property>
+      <property name="bottomMargin">
+       <number>10</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <layout class="QFormLayout" name="chatterbox_form">
+        <property name="fieldGrowthPolicy">
+         <enum>QFormLayout::ExpandingFieldsGrow</enum>
+        </property>
+        <property name="labelAlignment">
+         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
+        </property>
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item row="0" column="0">
+         <widget class="QLabel" name="chatterbox_seed_label">
+          <property name="text">
+           <string>Random seed (0 = random)</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QSpinBox" name="chatterbox_seed_spin"/>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="chatterbox_temperature_label">
+          <property name="text">
+           <string>Temperature</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QDoubleSpinBox" name="chatterbox_temperature_spin"/>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="chatterbox_top_p_label">
+          <property name="text">
+           <string>Top P</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QDoubleSpinBox" name="chatterbox_top_p_spin"/>
+        </item>
+        <item row="3" column="0">
+         <widget class="QLabel" name="chatterbox_top_k_label">
+          <property name="text">
+           <string>Top K</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="1">
+         <widget class="QSpinBox" name="chatterbox_top_k_spin"/>
+        </item>
+        <item row="4" column="0">
+         <widget class="QLabel" name="chatterbox_repeat_penalty_label">
+          <property name="text">
+           <string>Repetition Penalty</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QDoubleSpinBox" name="chatterbox_repeat_penalty_spin"/>
+        </item>
+        <item row="5" column="0">
+         <widget class="QLabel" name="chatterbox_min_p_label">
+          <property name="text">
+           <string>Min P</string>
+          </property>
+         </widget>
+        </item>
+        <item row="5" column="1">
+         <widget class="QDoubleSpinBox" name="chatterbox_min_p_spin"/>
+        </item>
+        <item row="6" column="1">
+         <widget class="QCheckBox" name="chatterbox_normalize_loudness_checkbox">
+          <property name="text">
+           <string>Normalize Loudness (-27 LUFS)</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="chatterbox_info_label">
+        <property name="styleSheet">
+         <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+        </property>
+        <property name="text">
+         <string>Chatterbox sampling controls for local speech generation.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="root_spacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

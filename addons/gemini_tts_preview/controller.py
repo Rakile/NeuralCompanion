@@ -320,6 +320,90 @@ class GeminiTTSPreviewController(QtCore.QObject):
         self.service = service
         self._widget = None
 
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def bind_designer_tab(self, widget):
+        if widget is None:
+            raise RuntimeError("Gemini TTS Designer UI did not provide a widget.")
+
+        self.status_label = self._ui_child(widget, "gemini_tts_status_label", QtWidgets.QLabel)
+        self.api_key_edit = self._ui_child(widget, "gemini_tts_api_key_edit", QtWidgets.QLineEdit)
+        self.base_url_edit = self._ui_child(widget, "gemini_tts_base_url_edit", QtWidgets.QLineEdit)
+        self.model_combo = self._ui_child(widget, "gemini_tts_model_combo", QtWidgets.QComboBox)
+        self.refresh_models_button = self._ui_child(widget, "btn_gemini_tts_model_refresh", QtWidgets.QPushButton)
+        self.voice_combo = self._ui_child(widget, "gemini_tts_voice_combo", QtWidgets.QComboBox)
+        self.language_code_edit = self._ui_child(widget, "gemini_tts_language_code_edit", QtWidgets.QLineEdit)
+        self.style_prompt_edit = self._ui_child(widget, "gemini_tts_style_prompt_edit", QtWidgets.QPlainTextEdit)
+        self.check_button = self._ui_child(widget, "btn_gemini_tts_check_connection", QtWidgets.QPushButton)
+        self.refresh_button = self._ui_child(widget, "btn_gemini_tts_refresh_models", QtWidgets.QPushButton)
+
+        required = (
+            self.status_label,
+            self.api_key_edit,
+            self.base_url_edit,
+            self.model_combo,
+            self.refresh_models_button,
+            self.voice_combo,
+            self.language_code_edit,
+            self.style_prompt_edit,
+            self.check_button,
+            self.refresh_button,
+        )
+        if any(item is None for item in required):
+            raise RuntimeError("Gemini TTS Designer UI is missing one or more required controls.")
+
+        state = self.service.snapshot()
+        self.api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        self.api_key_edit.setPlaceholderText("GEMINI_API_KEY or GOOGLE_API_KEY")
+        self.api_key_edit.setText(state.get("api_key", ""))
+        self.api_key_edit.textChanged.connect(lambda text: self._update_setting("api_key", text))
+
+        self.base_url_edit.setPlaceholderText(DEFAULT_BASE_URL)
+        self.base_url_edit.setText(state.get("base_url", DEFAULT_BASE_URL))
+        self.base_url_edit.textChanged.connect(lambda text: self._update_setting("base_url", text))
+
+        self.model_combo.setEditable(True)
+        self.model_combo.currentTextChanged.connect(self._on_model_changed)
+        self.refresh_models_button.clicked.connect(self.refresh_models)
+
+        self.voice_combo.clear()
+        for voice_name, tone in VOICE_OPTIONS:
+            self.voice_combo.addItem(f"{voice_name} - {tone}", voice_name)
+        voice_index = self.voice_combo.findData(state.get("voice_name", DEFAULT_VOICE))
+        if voice_index >= 0:
+            self.voice_combo.setCurrentIndex(voice_index)
+        self.voice_combo.currentIndexChanged.connect(self._on_voice_changed)
+        self.voice_combo.currentTextChanged.connect(lambda _text: self._on_voice_changed(self.voice_combo.currentIndex()))
+
+        self.language_code_edit.setPlaceholderText("Optional BCP-47 language code, e.g. en-US")
+        self.language_code_edit.setText(state.get("language_code", ""))
+        self.language_code_edit.textChanged.connect(lambda text: self._update_setting("language_code", text))
+
+        self.style_prompt_edit.setPlaceholderText("Optional style prompt such as 'Speak like a calm friendly narrator.'")
+        self.style_prompt_edit.setPlainText(state.get("style_prompt", DEFAULT_STYLE_PROMPT))
+        self.style_prompt_edit.textChanged.connect(self._on_style_prompt_changed)
+        self.style_prompt_edit.setMinimumHeight(100)
+
+        self.check_button.clicked.connect(self.check_connection)
+        self.refresh_button.clicked.connect(self.refresh_models)
+
+        self._widget = widget
+        if self._is_shell_preview():
+            for control in (self.check_button, self.refresh_button, self.refresh_models_button):
+                control.setEnabled(False)
+                control.setToolTip("Disabled in the main.ui shell preview; Gemini network calls are not started.")
+            self._set_status("Shell preview: Gemini TTS settings render only. Network checks and TTS generation are disabled.")
+        self.refresh_models()
+        if not self._is_shell_preview():
+            self.check_connection()
+        return widget
+
     def build_tab(self):
         if self._widget is not None:
             return self._widget

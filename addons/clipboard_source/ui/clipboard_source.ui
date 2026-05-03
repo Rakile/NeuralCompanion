@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ClipboardSourceTab</class>
+ <widget class="QWidget" name="ClipboardSourceTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="root_layout">
+   <property name="leftMargin">
+    <number>14</number>
+   </property>
+   <property name="topMargin">
+    <number>14</number>
+   </property>
+   <property name="rightMargin">
+    <number>14</number>
+   </property>
+   <property name="bottomMargin">
+    <number>14</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="intro_label">
+     <property name="styleSheet">
+      <string notr="true">color: #cbd5e1;</string>
+     </property>
+     <property name="text">
+      <string>Clipboard is a user-curated Vision source. Copy an image with Snipping Tool or another app, then use it as a manual image send, the next user-turn attachment, or optional hidden-loop context.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="clipboard_options_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="clipboard_options_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="clipboard_options_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Clipboard Delivery Rules</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="clipboard_auto_attach_checkbox">
+        <property name="text">
+         <string>Attach newest clipboard image to the next user turn</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="clipboard_auto_send_checkbox">
+        <property name="text">
+         <string>Send newest clipboard image immediately when it appears</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="clipboard_hidden_loop_checkbox">
+        <property name="text">
+         <string>Include the latest clipboard image in the hidden Vision loop</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="clipboard_actions_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="clipboard_actions_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="clipboard_actions_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Manual Actions</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="clipboard_button_row">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="btn_clipboard_send_now">
+          <property name="text">
+           <string>Send Now</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_clipboard_arm_next_turn">
+          <property name="text">
+           <string>Arm Next Turn</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_clipboard_clear_latest">
+          <property name="text">
+           <string>Clear Latest</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="clipboard_button_spacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="clipboard_status_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="clipboard_status_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="clipboard_status_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Status</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="clipboard_status_label">
+        <property name="styleSheet">
+         <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+        </property>
+        <property name="text">
+         <string>No clipboard image captured yet.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="root_spacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

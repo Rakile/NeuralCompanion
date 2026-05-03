@@ -5,6 +5,8 @@
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "VSeeFace/VMC avatar engine provider.",
-  "permissions": [],
+  "permissions": [
+    "ui.tabs"
+  ],
   "enabled": true
 }

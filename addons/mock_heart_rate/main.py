@@ -202,14 +202,16 @@ class Addon(BaseAddon):
                 },
             )
 
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id="heart_rate_source_tab",
             title="Source",
+            ui_path="ui/mock_heart_rate.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="vision_source",
             parent_tab_id="heart_rate",
             order=100,
             tooltip="Floating heart-rate sensor window and source status.",
-            factory=self._build_tab,
         )
 
         self._tick_timer = QtCore.QTimer()
@@ -217,6 +219,57 @@ class Addon(BaseAddon):
         self._tick_timer.timeout.connect(self._pump_subscribers)
         self._tick_timer.start()
         context.logger.info("Mock heart-rate addon initialized.")
+
+    def _ui_child(self, root, name, cls=None):
+        from PySide6 import QtCore
+
+        if root is None:
+            return None
+        try:
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def _bind_designer_tab(self, widget, _context):
+        from PySide6 import QtWidgets
+
+        status_label = self._ui_child(widget, "mock_heart_rate_status_label", QtWidgets.QLabel)
+        show_button = self._ui_child(widget, "btn_mock_heart_rate_show", QtWidgets.QPushButton)
+        hide_button = self._ui_child(widget, "btn_mock_heart_rate_hide", QtWidgets.QPushButton)
+        reset_button = self._ui_child(widget, "btn_mock_heart_rate_reset", QtWidgets.QPushButton)
+        details = self._ui_child(widget, "mock_heart_rate_details", QtWidgets.QPlainTextEdit)
+
+        if any(item is None for item in (status_label, show_button, hide_button, reset_button, details)):
+            raise RuntimeError("Mock Heart Rate Designer UI is missing one or more required controls.")
+
+        show_button.clicked.connect(lambda: self.show_window())
+        hide_button.clicked.connect(lambda: self.hide_window())
+        reset_button.clicked.connect(lambda: self.set_bpm(72))
+        details.setReadOnly(True)
+        details.setPlainText(
+            "\n".join(
+                [
+                    "Peer service: heart_rate.mock",
+                    "Provider id: heart_rate",
+                    "Example addon usage:",
+                    "  service = context.services.get('heart_rate.mock')",
+                    "  bpm = service.current_bpm()",
+                    "  token = service.subscribe(callback, interval_seconds=0.5)",
+                ]
+            )
+        )
+
+        def refresh_from_state():
+            status_label.setText(
+                f"Current BPM: {int(self.current_bpm)}\n"
+                f"Window visible: {'yes' if self.is_window_visible() else 'no'}"
+            )
+            status_label.update()
+
+        self._register_tab_refresher(refresh_from_state)
+        widget.destroyed.connect(lambda *_args, cb=refresh_from_state: self._unregister_tab_refresher(cb))
+        refresh_from_state()
+        return widget
 
     def _build_tab(self, context):
         from PySide6 import QtCore, QtWidgets

@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MockHeartRateSourceTab</class>
+ <widget class="QWidget" name="MockHeartRateSourceTab">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>980</width>
+    <height>560</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="root_layout">
+   <property name="leftMargin">
+    <number>14</number>
+   </property>
+   <property name="topMargin">
+    <number>14</number>
+   </property>
+   <property name="rightMargin">
+    <number>14</number>
+   </property>
+   <property name="bottomMargin">
+    <number>14</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="intro_label">
+     <property name="styleSheet">
+      <string notr="true">color: #cbd5e1;</string>
+     </property>
+     <property name="text">
+      <string>This addon exposes a floating BPM slider, a reusable peer service named `heart_rate.mock`, and a selectable text-based sensory provider for the hidden Vision loop.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="heart_rate_status_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="heart_rate_status_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="heart_rate_status_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Current Source State</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="mock_heart_rate_status_label">
+        <property name="styleSheet">
+         <string notr="true">color: #9fb3c8;</string>
+        </property>
+        <property name="text">
+         <string>Current BPM: 72</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="heart_rate_window_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="heart_rate_window_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="heart_rate_window_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Floating Sensor Window</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="heart_rate_button_row">
+        <property name="spacing">
+         <number>8</number>
+        </property>
+        <item>
+         <widget class="QPushButton" name="btn_mock_heart_rate_show">
+          <property name="text">
+           <string>Show Window</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_mock_heart_rate_hide">
+          <property name="text">
+           <string>Hide Window</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QPushButton" name="btn_mock_heart_rate_reset">
+          <property name="text">
+           <string>Reset 72</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <spacer name="heart_rate_button_spacer">
+          <property name="orientation">
+           <enum>Qt::Horizontal</enum>
+          </property>
+          <property name="sizeHint" stdset="0">
+           <size>
+            <width>40</width>
+            <height>20</height>
+           </size>
+          </property>
+         </spacer>
+        </item>
+       </layout>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QFrame" name="heart_rate_details_panel">
+     <property name="objectName">
+      <string>Panel</string>
+     </property>
+     <layout class="QVBoxLayout" name="heart_rate_details_layout">
+      <property name="leftMargin">
+       <number>14</number>
+      </property>
+      <property name="topMargin">
+       <number>12</number>
+      </property>
+      <property name="rightMargin">
+       <number>14</number>
+      </property>
+      <property name="bottomMargin">
+       <number>12</number>
+      </property>
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="heart_rate_details_title">
+        <property name="styleSheet">
+         <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
+        </property>
+        <property name="text">
+         <string>Addon Contract</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPlainTextEdit" name="mock_heart_rate_details">
+        <property name="readOnly">
+         <bool>true</bool>
+        </property>
+        <property name="minimumHeight">
+         <number>150</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="root_spacer">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

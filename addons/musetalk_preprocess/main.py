@@ -23,13 +23,15 @@ class Addon(BaseAddon):
         self._shell_preview = bool(context.get_service("qt.musetalk_preprocess_shell_preview") if context is not None else False)
         self._controller_cls = None
         self.controller = None
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id="musetalk_preprocess_tab",
             title="Preprocess",
+            ui_path="ui/musetalk_preprocess.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="musetalk",
             order=100,
             tooltip="First-party MuseTalk preprocessing and debug tools provided through the addon framework.",
-            factory=self._build_tab,
         )
         context.events.subscribe("ui.tab_focus_changed", self._on_ui_tab_focus_changed)
         context.events.subscribe("runtime.heavy_task_starting", self._on_runtime_heavy_task_starting)
@@ -60,6 +62,20 @@ class Addon(BaseAddon):
         if controller is None:
             raise RuntimeError("MuseTalk preprocess controller is unavailable.")
         return controller.build_tab()
+
+    def _bind_designer_tab(self, widget, context):
+        from PySide6 import QtWidgets
+
+        mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount")
+        if mount is None:
+            raise RuntimeError("MuseTalk Preprocess Designer UI is missing addon_designer_mount.")
+        layout = mount.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(mount)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        layout.addWidget(self._build_tab(context))
+        return widget
 
     def _build_shell_preview_tab(self):
         from PySide6 import QtWidgets

@@ -184,6 +184,100 @@ class VisualStorySettingsController:
         except Exception:
             return False
 
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def _build_theme_controls(self, theme_layout):
+        self.theme_buttons = {}
+        self.theme_edits = {}
+        button_style = (
+            "QPushButton { padding: 6px 10px; }"
+            "QPushButton:checked { background: #4d8dff; color: white; border: 1px solid #6a95ff; }"
+        )
+        for index, preset in enumerate(self._theme_presets()):
+            theme_id = str(preset.get("id") or "").strip().lower()
+            if not theme_id:
+                continue
+            column = index % 3
+            row = (index // 3) * 2
+            button = QtWidgets.QPushButton(str(preset.get("label") or theme_id.title()))
+            button.setCheckable(True)
+            button.setStyleSheet(button_style)
+            button.toggled.connect(lambda checked, theme_id=theme_id: self._on_theme_toggled(theme_id, checked))
+            edit = QtWidgets.QLineEdit()
+            edit.setClearButtonEnabled(True)
+            edit.editingFinished.connect(lambda theme_id=theme_id, edit=edit: self._on_theme_prompt_changed(theme_id, edit.text()))
+            theme_layout.addWidget(button, row, column)
+            theme_layout.addWidget(edit, row + 1, column)
+            theme_layout.setColumnStretch(column, 1)
+            self.theme_buttons[theme_id] = button
+            self.theme_edits[theme_id] = edit
+
+    def bind_designer_tab(self, scroll):
+        if scroll is None:
+            raise RuntimeError("Visual Story Settings Designer UI did not provide a widget.")
+
+        self.story_mode_button = self._ui_child(scroll, "visual_story_mode_button", QtWidgets.QPushButton)
+        self.max_images_spin = self._ui_child(scroll, "visual_story_max_images_spin", QtWidgets.QSpinBox)
+        self.continuity_slider = self._ui_child(scroll, "visual_story_continuity_slider", QtWidgets.QSlider)
+        self.continuity_value_label = self._ui_child(scroll, "visual_story_continuity_value_label", QtWidgets.QLabel)
+        theme_widget = self._ui_child(scroll, "visual_story_theme_widget", QtWidgets.QWidget)
+        self.safe_checkbox = self._ui_child(scroll, "visual_story_safe_checkbox", QtWidgets.QCheckBox)
+        self.no_speech_bubbles_checkbox = self._ui_child(scroll, "visual_story_no_speech_bubbles_checkbox", QtWidgets.QCheckBox)
+        self.master_prompt_edit = self._ui_child(scroll, "visual_story_master_prompt_edit", QtWidgets.QPlainTextEdit)
+        self.hint_label = self._ui_child(scroll, "visual_story_hint_label", QtWidgets.QLabel)
+
+        required = (
+            self.story_mode_button,
+            self.max_images_spin,
+            self.continuity_slider,
+            self.continuity_value_label,
+            theme_widget,
+            self.safe_checkbox,
+            self.no_speech_bubbles_checkbox,
+            self.master_prompt_edit,
+            self.hint_label,
+        )
+        if any(item is None for item in required):
+            raise RuntimeError("Visual Story Settings Designer UI is missing one or more required controls.")
+
+        self.story_mode_button.setCheckable(True)
+        self.story_mode_button.setToolTip("Generate visual replies for spoken story chunks, up to the max picture limit.")
+        self.story_mode_button.setStyleSheet(
+            "QPushButton { padding: 6px 12px; }"
+            "QPushButton:checked { background: #4d8dff; color: white; border: 1px solid #6a95ff; }"
+        )
+        self.story_mode_button.toggled.connect(self._on_story_mode_changed)
+        self.max_images_spin.setRange(1, 20)
+        self.max_images_spin.setToolTip("Maximum number of images to request during one story-mode reply.")
+        self.max_images_spin.valueChanged.connect(self._on_max_images_changed)
+        self.continuity_slider.setRange(0, 100)
+        self.continuity_slider.valueChanged.connect(self._on_continuity_changed)
+        self.safe_checkbox.toggled.connect(self._on_safe_changed)
+        self.no_speech_bubbles_checkbox.toggled.connect(self._on_no_speech_bubbles_changed)
+        self.master_prompt_edit.setPlaceholderText("Optional master style anchor...")
+        self.master_prompt_edit.setMinimumHeight(72)
+        self.master_prompt_edit.setMaximumHeight(120)
+        self.master_prompt_edit.textChanged.connect(self._on_master_prompt_changed)
+
+        theme_layout = theme_widget.layout()
+        if theme_layout is None:
+            theme_layout = QtWidgets.QGridLayout(theme_widget)
+            theme_layout.setContentsMargins(0, 0, 0, 0)
+            theme_layout.setHorizontalSpacing(10)
+            theme_layout.setVerticalSpacing(6)
+        self._build_theme_controls(theme_layout)
+
+        self.tab_widget = scroll
+        self._sync_widgets_from_runtime()
+        self._refresh_hint()
+        return scroll
+
     def import_session_state(self, session):
         payload = dict(session or {})
         for key in (

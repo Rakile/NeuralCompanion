@@ -1,0 +1,489 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VSeeFaceAvatarTab</class>
+ <widget class="QWidget" name="vseeface_tab">
+  <attribute name="icon">
+   <iconset>
+    <normaloff>icons/vseeface.png</normaloff>icons/vseeface.png</iconset>
+  </attribute>
+  <attribute name="title">
+   <string />
+  </attribute>
+  <attribute name="toolTip">
+   <string>VSeeFace</string>
+  </attribute>
+  <layout class="QVBoxLayout" name="vseefaceLayout">
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QTabWidget" name="vseeface_tabs">
+     <property name="minimumSize">
+      <size>
+       <width>760</width>
+       <height>620</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>1360</height>
+      </size>
+     </property>
+     <property name="tabPosition">
+      <enum>QTabWidget::TabPosition::North</enum>
+     </property>
+     <property name="currentIndex">
+      <number>1</number>
+     </property>
+     <widget class="QWidget" name="body_tab">
+      <attribute name="title">
+       <string>Body</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="bodyTabLayout">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <item>
+        <layout class="QVBoxLayout" name="bodyPresetsLayout">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="body_presets_heading">
+           <property name="styleSheet">
+            <string notr="true">font-weight:600;color:#dfe3e8;</string>
+           </property>
+           <property name="text">
+            <string>Body Presets</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QComboBox" name="body_combo">
+           <item>
+            <property name="text">
+             <string>Default</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="bodyPresetButtons">
+           <item>
+            <widget class="QPushButton" name="btn_body_load">
+             <property name="text">
+              <string>Load</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_body_save">
+             <property name="text">
+              <string>Save</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_body_save_as">
+             <property name="text">
+              <string>Save As</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="btn_body_delete">
+             <property name="text">
+              <string>Delete</string>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="bodyEmotionRow">
+         <item>
+          <widget class="QComboBox" name="emotion_combo">
+           <item>
+            <property name="text">
+             <string>Neutral</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Happy</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Sad</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Angry</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Shy</string>
+            </property>
+           </item>
+           <item>
+            <property name="text">
+             <string>Surprised</string>
+            </property>
+           </item>
+          </widget>
+         </item>
+         <item>
+          <spacer name="bodyEmotionSpacer">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="live_sync_checkbox">
+           <property name="text">
+            <string>Live Sync</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QPushButton" name="btn_hand_doctor">
+         <property name="text">
+          <string>Hand Doctor</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QVBoxLayout" name="bodyPoseSlidersSectionLayout">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>0</number>
+         </property>
+         <property name="topMargin">
+          <number>0</number>
+         </property>
+         <property name="rightMargin">
+          <number>0</number>
+         </property>
+         <property name="bottomMargin">
+          <number>0</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="body_pose_sliders_heading">
+           <property name="styleSheet">
+            <string notr="true">font-weight:600;color:#dfe3e8;</string>
+           </property>
+           <property name="text">
+            <string>Pose Sliders</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <layout class="QFormLayout" name="bodyPoseSlidersLayout">
+           <item row="0" column="0">
+            <widget class="QLabel" name="idle_fwd_left_label">
+             <property name="text">
+              <string>L Depth</string>
+             </property>
+            </widget>
+           </item>
+           <item row="0" column="1">
+            <widget class="QSlider" name="idle_fwd_left_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="0">
+            <widget class="QLabel" name="idle_fwd_right_label">
+             <property name="text">
+              <string>R Depth</string>
+             </property>
+            </widget>
+           </item>
+           <item row="1" column="1">
+            <widget class="QSlider" name="idle_fwd_right_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="0">
+            <widget class="QLabel" name="idle_arm_down_label">
+             <property name="text">
+              <string>Shoulder Down</string>
+             </property>
+            </widget>
+           </item>
+           <item row="2" column="1">
+            <widget class="QSlider" name="idle_arm_down_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QLabel" name="idle_shoulder_back_label">
+             <property name="text">
+              <string>Shoulder Back</string>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="1">
+            <widget class="QSlider" name="idle_shoulder_back_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="0">
+            <widget class="QLabel" name="idle_elbow_bend_label">
+             <property name="text">
+              <string>Elbow Bend</string>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QSlider" name="idle_elbow_bend_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="0">
+            <widget class="QLabel" name="idle_arm_twist_label">
+             <property name="text">
+              <string>Arm Twist</string>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="1">
+            <widget class="QSlider" name="idle_arm_twist_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="0">
+            <widget class="QLabel" name="spine_sway_mult_label">
+             <property name="text">
+              <string>Spine Sway</string>
+             </property>
+            </widget>
+           </item>
+           <item row="6" column="1">
+            <widget class="QSlider" name="spine_sway_mult_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="0">
+            <widget class="QLabel" name="spine_twist_mult_label">
+             <property name="text">
+              <string>Spine Twist</string>
+             </property>
+            </widget>
+           </item>
+           <item row="7" column="1">
+            <widget class="QSlider" name="spine_twist_mult_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="0">
+            <widget class="QLabel" name="neck_stabilize_label">
+             <property name="text">
+              <string>Head Stabilize</string>
+             </property>
+            </widget>
+           </item>
+           <item row="8" column="1">
+            <widget class="QSlider" name="neck_stabilize_slider">
+             <property name="orientation">
+              <enum>Qt::Orientation::Horizontal</enum>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="dynamics_tab">
+      <attribute name="title">
+       <string>Dynamics</string>
+      </attribute>
+      <layout class="QFormLayout" name="dynamicsTabLayout">
+       <item row="0" column="0">
+        <widget class="QLabel" name="eye_activity_label">
+         <property name="text">
+          <string>Eye Activity</string>
+         </property>
+        </widget>
+       </item>
+       <item row="0" column="1">
+        <widget class="QSlider" name="eye_activity_slider">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="0">
+        <widget class="QLabel" name="breath_speed_label">
+         <property name="text">
+          <string>Breath Speed</string>
+         </property>
+        </widget>
+       </item>
+       <item row="1" column="1">
+        <widget class="QSlider" name="breath_speed_slider">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="0">
+        <widget class="QLabel" name="shoulder_lift_label">
+         <property name="text">
+          <string>Shoulder Lift</string>
+         </property>
+        </widget>
+       </item>
+       <item row="2" column="1">
+        <widget class="QSlider" name="shoulder_lift_slider">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="0">
+        <widget class="QLabel" name="idle_speed_label">
+         <property name="text">
+          <string>Body Sway Speed</string>
+         </property>
+        </widget>
+       </item>
+       <item row="3" column="1">
+        <widget class="QSlider" name="idle_speed_slider">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="0">
+        <widget class="QLabel" name="idle_intensity_label">
+         <property name="text">
+          <string>Body Sway Intensity</string>
+         </property>
+        </widget>
+       </item>
+       <item row="4" column="1">
+        <widget class="QSlider" name="idle_intensity_slider">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="vseefaceViewLayout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <property name="leftMargin">
+      <number>0</number>
+     </property>
+     <property name="topMargin">
+      <number>0</number>
+     </property>
+     <property name="rightMargin">
+      <number>0</number>
+     </property>
+     <property name="bottomMargin">
+      <number>0</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="vseeface_view_heading">
+       <property name="styleSheet">
+        <string notr="true">font-weight:600;color:#dfe3e8;</string>
+       </property>
+       <property name="text">
+        <string>VSeeFace View</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QLabel" name="vseeface_view_hint">
+       <property name="text">
+        <string>Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view.</string>
+       </property>
+       <property name="wordWrap">
+        <bool>true</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="vseefaceViewButtons">
+       <item>
+        <widget class="QPushButton" name="btn_vseeface_hide_interface">
+         <property name="text">
+          <string>Hide NC Interface</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="vseefaceViewButtonsSpacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections />
+</ui>

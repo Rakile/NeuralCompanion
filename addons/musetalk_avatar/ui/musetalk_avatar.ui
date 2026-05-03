@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MuseTalkAvatarTab</class>
+ <widget class="QWidget" name="musetalk_tab">
+  <attribute name="icon">
+   <iconset>
+    <normaloff>icons/musetalk.png</normaloff>icons/musetalk.png</iconset>
+  </attribute>
+  <attribute name="title">
+   <string />
+  </attribute>
+  <attribute name="toolTip">
+   <string>MuseTalk</string>
+  </attribute>
+  <layout class="QVBoxLayout" name="musetalkLayout">
+   <item>
+    <widget class="QTabWidget" name="musetalk_tabs">
+     <property name="minimumSize">
+      <size>
+       <width>760</width>
+       <height>620</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>16777215</width>
+       <height>1360</height>
+      </size>
+     </property>
+     <property name="tabPosition">
+      <enum>QTabWidget::TabPosition::North</enum>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections />
+</ui>

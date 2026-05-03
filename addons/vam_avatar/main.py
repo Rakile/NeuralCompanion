@@ -27,6 +27,16 @@ class Addon(BaseAddon):
                 "runtime_context": True,
             },
         )
+        context.ui.register_designer_tab(
+            id="vam_avatar_tab",
+            title="VaM",
+            ui_path="ui/vam_avatar.ui",
+            area="top_level",
+            order=130,
+            tooltip="Virt-A-Mate bridge and launch controls.",
+            icon_path="ui/icons/vam.png",
+            metadata={"provider_id": PROVIDER_ID},
+        )
         context.logger.info("VaM avatar provider addon initialized.")
         return None
 

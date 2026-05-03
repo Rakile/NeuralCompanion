@@ -46,14 +46,16 @@ class Addon(BaseAddon):
                 },
             )
 
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id=self.TAB_ID,
             title="Source",
+            ui_path="ui/clipboard_source.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="vision_source",
             parent_tab_id="clipboard",
             order=100,
             tooltip="Clipboard image source controls and status.",
-            factory=self._build_tab,
         )
 
         self._clipboard = None
@@ -63,6 +65,64 @@ class Addon(BaseAddon):
             if clipboard is not None:
                 clipboard.dataChanged.connect(self._on_clipboard_changed)
         context.logger.info("Clipboard source addon initialized.")
+
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def _bind_designer_tab(self, widget, _context):
+        attach_checkbox = self._ui_child(widget, "clipboard_auto_attach_checkbox", QtWidgets.QCheckBox)
+        send_now_checkbox = self._ui_child(widget, "clipboard_auto_send_checkbox", QtWidgets.QCheckBox)
+        hidden_loop_checkbox = self._ui_child(widget, "clipboard_hidden_loop_checkbox", QtWidgets.QCheckBox)
+        send_button = self._ui_child(widget, "btn_clipboard_send_now", QtWidgets.QPushButton)
+        arm_button = self._ui_child(widget, "btn_clipboard_arm_next_turn", QtWidgets.QPushButton)
+        clear_button = self._ui_child(widget, "btn_clipboard_clear_latest", QtWidgets.QPushButton)
+        status_label = self._ui_child(widget, "clipboard_status_label", QtWidgets.QLabel)
+
+        required = [
+            attach_checkbox,
+            send_now_checkbox,
+            hidden_loop_checkbox,
+            send_button,
+            arm_button,
+            clear_button,
+            status_label,
+        ]
+        if any(item is None for item in required):
+            raise RuntimeError("Clipboard Designer UI is missing one or more required controls.")
+
+        attach_checkbox.toggled.connect(self._on_auto_attach_toggled)
+        send_now_checkbox.toggled.connect(self._on_auto_send_toggled)
+        hidden_loop_checkbox.toggled.connect(self._on_hidden_loop_toggled)
+        send_button.clicked.connect(lambda: self._send_latest_now(print_if_missing=True))
+        arm_button.clicked.connect(lambda: self._arm_latest_for_next_user_turn(print_if_missing=True))
+        clear_button.clicked.connect(self._clear_latest_image)
+
+        if getattr(self, "_shell_preview", False):
+            for control in (attach_checkbox, send_now_checkbox, hidden_loop_checkbox, send_button, arm_button, clear_button):
+                control.setEnabled(False)
+                control.setToolTip("Disabled in the main.ui shell preview; clipboard monitoring and runtime delivery are not started.")
+
+        def refresh_from_state():
+            for checkbox, checked in [
+                (attach_checkbox, self.auto_attach_next_user_turn),
+                (send_now_checkbox, self.auto_send_immediately),
+                (hidden_loop_checkbox, self.hidden_loop_enabled),
+            ]:
+                checkbox.blockSignals(True)
+                checkbox.setChecked(bool(checked))
+                checkbox.blockSignals(False)
+            status_label.setText(self._status_text())
+            status_label.update()
+
+        self._register_tab_refresher(refresh_from_state)
+        widget.destroyed.connect(lambda *_args, cb=refresh_from_state: self._unregister_tab_refresher(cb))
+        refresh_from_state()
+        return widget
 
     def shutdown(self):
         clipboard = getattr(self, "_clipboard", None)

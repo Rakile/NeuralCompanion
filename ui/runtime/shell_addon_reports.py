@@ -60,8 +60,8 @@ def _ui_shell_static_tab_areas(addon_dir):
     except Exception:
         return []
     areas = []
-    for match in re.finditer(r"register_tab\s*\((?P<body>.*?)\)", text, re.DOTALL):
-        body = match.group("body") or ""
+    for match in re.finditer(r"register_(?:designer_)?tab\s*\(", text):
+        body = text[match.start(): match.start() + 2000]
         area_match = re.search(r"area\s*=\s*[\"']([^\"']+)[\"']", body)
         if area_match:
             areas.append(area_match.group(1).strip())
@@ -131,6 +131,11 @@ def _ui_shell_mount_target_for_area(area):
     }
     return mapping.get(str(area or "").strip(), "")
 
+def _ui_shell_target_is_deferred(target):
+    # Nested addon-owned mount points can be introduced by an earlier live addon
+    # contribution rather than being present statically in main.ui.
+    return str(target or "").strip() in {"musetalk_tabs"}
+
 def _ui_shell_fallback_targets_for_manifest(manifest):
     addon_id = str(manifest.get("id", "") or "").strip().lower()
     category = str(manifest.get("category", "") or "other").strip().lower()
@@ -185,7 +190,13 @@ def _ui_shell_addon_mount_report(window):
             "areas": areas,
             "service_hints": service_hints,
             "targets": sorted(set(targets)),
-            "missing_targets": sorted(set(target for target in targets if not mount_points.get(target, False))),
+            "missing_targets": sorted(
+                set(
+                    target
+                    for target in targets
+                    if not mount_points.get(target, False) and not _ui_shell_target_is_deferred(target)
+                )
+            ),
             "error": str(manifest.get("error", "") or ""),
         })
     enabled_count = sum(1 for row in rows if row["enabled"])

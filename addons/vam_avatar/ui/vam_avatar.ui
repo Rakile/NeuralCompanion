@@ -1,0 +1,240 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VaMAvatarTab</class>
+ <widget class="QWidget" name="vam_tab">
+  <attribute name="icon">
+   <iconset>
+    <normaloff>icons/vam.png</normaloff>icons/vam.png</iconset>
+  </attribute>
+  <attribute name="title">
+   <string />
+  </attribute>
+  <attribute name="toolTip">
+   <string>VaM</string>
+  </attribute>
+  <layout class="QVBoxLayout" name="vamLayout">
+   <item>
+    <widget class="QLabel" name="vam_summary_label">
+     <property name="text">
+      <string>VaM uses two channels: VMC for motion/head/hands, and a file bridge for emotion, speaking, and optional in-VaM audio.</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="vam_detected_setup_box">
+     <property name="title">
+      <string>Detected Setup</string>
+     </property>
+     <layout class="QVBoxLayout" name="vamDetectedSetupLayout">
+      <item>
+       <widget class="QLabel" name="vam_runtime_label">
+        <property name="text">
+         <string>Runtime: not detected</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="vam_bridge_status_label">
+        <property name="text">
+         <string>Bridge status: idle</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QLabel" name="vam_bridge_detail_label">
+        <property name="text">
+         <string>Bridge detail appears here in the live app.</string>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <widget class="QGroupBox" name="vam_bridge_box">
+     <property name="title">
+      <string>VaM Bridge</string>
+     </property>
+     <layout class="QFormLayout" name="vamBridgeForm">
+      <item row="0" column="0">
+       <widget class="QLabel" name="vam_root_label">
+        <property name="text">
+         <string>VaM Root</string>
+        </property>
+       </widget>
+      </item>
+      <item row="0" column="1">
+       <widget class="QLineEdit" name="vam_root_edit" />
+      </item>
+      <item row="1" column="0">
+       <widget class="QLabel" name="vam_bridge_root_label">
+        <property name="text">
+         <string>Bridge Path</string>
+        </property>
+       </widget>
+      </item>
+      <item row="1" column="1">
+       <widget class="QLineEdit" name="vam_bridge_root_edit" />
+      </item>
+      <item row="2" column="0">
+       <widget class="QLabel" name="vam_target_atom_uid_label">
+        <property name="text">
+         <string>Target Atom UID</string>
+        </property>
+       </widget>
+      </item>
+      <item row="2" column="1">
+       <widget class="QLineEdit" name="vam_target_atom_uid_edit" />
+      </item>
+      <item row="3" column="0">
+       <widget class="QLabel" name="vam_target_storable_id_label">
+        <property name="text">
+         <string>Target Storable ID</string>
+        </property>
+       </widget>
+      </item>
+      <item row="3" column="1">
+       <widget class="QLineEdit" name="vam_target_storable_id_edit" />
+      </item>
+      <item row="4" column="0">
+       <widget class="QLabel" name="vam_vmc_host_label">
+        <property name="text">
+         <string>VMC Host</string>
+        </property>
+       </widget>
+      </item>
+      <item row="4" column="1">
+       <widget class="QLineEdit" name="vam_vmc_host_edit" />
+      </item>
+      <item row="5" column="0">
+       <widget class="QLabel" name="vam_vmc_port_label">
+        <property name="text">
+         <string>VMC Port</string>
+        </property>
+       </widget>
+      </item>
+      <item row="5" column="1">
+       <widget class="QSpinBox" name="vam_vmc_port_spin">
+        <property name="maximum">
+         <number>65535</number>
+        </property>
+        <property name="value">
+         <number>39539</number>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="vamBridgeCheckboxes">
+     <item>
+      <widget class="QCheckBox" name="vam_vmc_enabled_checkbox">
+       <property name="text">
+        <string>Enable VMC</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="vam_bridge_enabled_checkbox">
+       <property name="text">
+        <string>Enable File Bridge</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="vam_play_audio_in_vam_checkbox">
+       <property name="text">
+        <string>Play Audio In VaM</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QCheckBox" name="vam_timeline_auto_resume_checkbox">
+       <property name="text">
+        <string>Timeline Auto Resume</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="vamActions">
+     <item>
+      <widget class="QPushButton" name="btn_start_vam_desktop">
+       <property name="text">
+        <string>Start VaM Desktop</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_start_vam_vr">
+       <property name="text">
+        <string>Start VaM VR</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="btn_vam_hide_interface">
+       <property name="text">
+        <string>Hide NC Interface</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QTabWidget" name="vam_setup_tabs">
+     <property name="minimumSize">
+      <size>
+       <width>0</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="tabPosition">
+      <enum>QTabWidget::TabPosition::North</enum>
+     </property>
+     <widget class="QWidget" name="vam1_setup_tab">
+      <attribute name="title">
+       <string>VaM1</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="vam1SetupLayout">
+       <item>
+        <widget class="QLabel" name="vam1_setup_hint">
+         <property name="text">
+          <string>VaM1 setup: point NC at the VaM install root and ensure the plugin creates the outbox status file.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="vam2_setup_tab">
+      <attribute name="title">
+       <string>VaM2</string>
+      </attribute>
+      <layout class="QVBoxLayout" name="vam2SetupLayout">
+       <item>
+        <widget class="QLabel" name="vam2_setup_hint">
+         <property name="text">
+          <string>VaM2 setup: point NC at the VaM2 install root and ensure the runtime processes bridge commands.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources />
+ <connections />
+</ui>

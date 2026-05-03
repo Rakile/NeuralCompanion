@@ -122,17 +122,30 @@ class Addon(BaseAddon):
         self._tab_refreshers = []
         self._expanded_behavior_ids = set()
         self._register_prompt_contributor()
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id=self.TAB_ID,
             title="Supervisor",
+            ui_path="ui/webcam_supervisor.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="vision_source",
             order=210,
             tooltip="Persona-driven webcam reactions for noteworthy posture, expression, and attention cues.",
             parent_tab_id="webcam",
             metadata={"checkable": True},
-            factory=self._build_tab,
         )
         context.logger.info("Webcam Supervisor addon initialized.")
+
+    def _bind_designer_tab(self, widget, context):
+        mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount") if widget is not None else None
+        if mount is None:
+            raise RuntimeError("Webcam Supervisor Designer UI is missing addon_designer_mount.")
+        layout = mount.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(mount)
+            layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(self._build_tab(context))
+        return widget
 
     def invoke_capability(self, capability, payload=None):
         capability = str(capability or "").strip()

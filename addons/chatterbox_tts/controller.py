@@ -107,6 +107,81 @@ class ChatterboxTTSController:
         except Exception:
             return False
 
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            from PySide6 import QtCore
+
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def bind_designer_tab(self, widget):
+        from PySide6 import QtWidgets
+
+        if widget is None:
+            raise RuntimeError("Chatterbox Designer UI did not provide a widget.")
+        self._seed_spin = self._ui_child(widget, "chatterbox_seed_spin", QtWidgets.QSpinBox)
+        self._temperature_spin = self._ui_child(widget, "chatterbox_temperature_spin", QtWidgets.QDoubleSpinBox)
+        self._top_p_spin = self._ui_child(widget, "chatterbox_top_p_spin", QtWidgets.QDoubleSpinBox)
+        self._top_k_spin = self._ui_child(widget, "chatterbox_top_k_spin", QtWidgets.QSpinBox)
+        self._repeat_penalty_spin = self._ui_child(widget, "chatterbox_repeat_penalty_spin", QtWidgets.QDoubleSpinBox)
+        self._min_p_spin = self._ui_child(widget, "chatterbox_min_p_spin", QtWidgets.QDoubleSpinBox)
+        self._normalize_loudness_checkbox = self._ui_child(widget, "chatterbox_normalize_loudness_checkbox", QtWidgets.QCheckBox)
+        info = self._ui_child(widget, "chatterbox_info_label", QtWidgets.QLabel)
+
+        required = (
+            self._seed_spin,
+            self._temperature_spin,
+            self._top_p_spin,
+            self._top_k_spin,
+            self._repeat_penalty_spin,
+            self._min_p_spin,
+            self._normalize_loudness_checkbox,
+            info,
+        )
+        if any(item is None for item in required):
+            raise RuntimeError("Chatterbox Designer UI is missing one or more required controls.")
+
+        self._seed_spin.setRange(0, 2 ** 31 - 1)
+        self._seed_spin.valueChanged.connect(lambda value: self._set_runtime("tts_seed", max(0, int(value or 0))))
+
+        self._temperature_spin.setRange(0.05, 2.0)
+        self._temperature_spin.setSingleStep(0.05)
+        self._temperature_spin.setDecimals(2)
+        self._temperature_spin.valueChanged.connect(lambda value: self._set_runtime("tts_temperature", max(0.05, float(value or 0.8))))
+
+        self._top_p_spin.setRange(0.0, 1.0)
+        self._top_p_spin.setSingleStep(0.01)
+        self._top_p_spin.setDecimals(2)
+        self._top_p_spin.valueChanged.connect(lambda value: self._set_runtime("tts_top_p", max(0.0, min(1.0, float(value or 0.9)))))
+
+        self._top_k_spin.setRange(0, 1000)
+        self._top_k_spin.setSingleStep(1)
+        self._top_k_spin.valueChanged.connect(lambda value: self._set_runtime("tts_top_k", max(0, int(value or 0))))
+
+        self._repeat_penalty_spin.setRange(1.0, 2.0)
+        self._repeat_penalty_spin.setSingleStep(0.01)
+        self._repeat_penalty_spin.setDecimals(2)
+        self._repeat_penalty_spin.valueChanged.connect(lambda value: self._set_runtime("tts_repeat_penalty", max(1.0, float(value or 1.2))))
+
+        self._min_p_spin.setRange(0.0, 1.0)
+        self._min_p_spin.setSingleStep(0.01)
+        self._min_p_spin.setDecimals(2)
+        self._min_p_spin.valueChanged.connect(lambda value: self._set_runtime("tts_min_p", max(0.0, min(1.0, float(value or 0.0)))))
+
+        self._normalize_loudness_checkbox.toggled.connect(lambda checked: self._set_runtime("tts_normalize_loudness", bool(checked)))
+
+        info_text = "Shell preview: Chatterbox settings are local only. No model, backend, or audio path is started."
+        if not self._shell_preview:
+            info_text = "Chatterbox sampling controls for local speech generation."
+        info.setText(info_text)
+
+        self._widget = widget
+        self._sync_widgets_from_runtime()
+        return self._widget
+
     def build_tab(self):
         if self._widget is not None:
             return self._widget

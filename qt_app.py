@@ -14,12 +14,12 @@ import sys
 import threading
 import time
 import warnings
-import importlib.util
 from collections import OrderedDict
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from core.musetalk_avatar_packs import discover_avatar_packs
+from core.expression_api import start_expression_api
 from core.runtime_paths import derive_vam_bridge_root as _derive_vam_bridge_root_safe, legacy_vam_bridge_roots as _legacy_vam_bridge_roots_safe, normalize_vam_root as _normalize_vam_root_safe
 from core.runtime_status import build_runtime_status_snapshot
 from ui.designer_loader import (
@@ -85,6 +85,12 @@ from ui.runtime.shell_addon_reports import (
     _ui_shell_static_tab_areas,
     _ui_shell_target_addon_rows,
     configure_shell_addon_report_dependencies,
+)
+from ui.runtime.shell_addon_mounts import (
+    _apply_ui_shell_addon_placeholders,
+    _ui_shell_cleanup_live_addons,
+    _ui_shell_mount_live_addons,
+    configure_shell_addon_mount_dependencies,
 )
 from ui.runtime.shell_chunking_profiles import (
     _bind_ui_shell_chunking_profile_controls,
@@ -325,6 +331,7 @@ def _configure_ui_shell_service_dependencies():
 
 def _configure_ui_shell_addon_report_dependencies():
     configure_shell_addon_report_dependencies(globals())
+    configure_shell_addon_mount_dependencies(globals())
 
 
 _configure_ui_shell_addon_report_dependencies()
@@ -572,420 +579,6 @@ def _ui_shell_engine_lifecycle_service(window):
 
 
 
-
-
-def _ui_shell_tab_title_exists(tab_widget, title):
-    if tab_widget is None or not hasattr(tab_widget, "count"):
-        return False
-    expected = str(title or "")
-    for index in range(tab_widget.count()):
-        try:
-            if str(tab_widget.tabText(index) or "") == expected:
-                return True
-        except Exception:
-            continue
-    return False
-
-
-def _ui_shell_add_placeholder_tab(tab_widget, title, body_text):
-    from PySide6 import QtWidgets as _QtWidgets
-
-    if tab_widget is None or not hasattr(tab_widget, "addTab"):
-        return False
-    if _ui_shell_tab_title_exists(tab_widget, title):
-        return False
-    panel = _QtWidgets.QWidget()
-    layout = _QtWidgets.QVBoxLayout(panel)
-    layout.setContentsMargins(12, 12, 12, 12)
-    heading = _QtWidgets.QLabel("Read-only addon mount preview")
-    heading.setStyleSheet("font-weight: 700; color: #cbd5e1;")
-    layout.addWidget(heading)
-    text = _QtWidgets.QPlainTextEdit()
-    text.setReadOnly(True)
-    text.setPlainText(str(body_text or ""))
-    text.setToolTip("Shell-only preview. Addon modules are not imported and no runtime systems are started.")
-    layout.addWidget(text, 1)
-    tab_widget.addTab(panel, title)
-    if hasattr(tab_widget, "setVisible"):
-        tab_widget.setVisible(True)
-    return True
-
-
-def _ui_shell_static_addon_placeholder_name(addon_id):
-    addon_id = str(addon_id or "").strip().lower()
-    if addon_id == "nc.chat_session_player":
-        return "chat_player_tab"
-    if addon_id == "nc.hotkeys":
-        return "hotkeys_tab"
-    if addon_id == "nc.visual_reply":
-        return "host_settings_visuals_tab"
-    if addon_id == "nc.audio_story_mode":
-        return "audio_story_mode_tab"
-    if addon_id == "nc.chatterbox_tts":
-        return "tts_chatterbox_tab"
-    if addon_id == "nc.pockettts":
-        return "tts_pockettts_tab"
-    return ""
-
-
-def _ui_shell_replace_static_addon_placeholder(tab_widget, placeholder_name, widget, title, tooltip=""):
-    if tab_widget is None or widget is None or not placeholder_name:
-        return -1
-    from PySide6 import QtWidgets as _QtWidgets
-
-    placeholder = tab_widget.findChild(_QtWidgets.QWidget, str(placeholder_name))
-    if placeholder is None:
-        return -1
-    index = tab_widget.indexOf(placeholder)
-    if index < 0:
-        return -1
-    tab_icon = tab_widget.tabIcon(index)
-    tab_text = str(tab_widget.tabText(index) or "").strip() or str(title or "").strip()
-    tab_tooltip = str(tab_widget.tabToolTip(index) or "").strip() or str(tooltip or "").strip()
-    tab_widget.removeTab(index)
-    placeholder.setParent(None)
-    placeholder.deleteLater()
-    new_index = tab_widget.insertTab(index, widget, tab_text)
-    if not tab_icon.isNull():
-        tab_widget.setTabIcon(new_index, tab_icon)
-    if tab_tooltip:
-        tab_widget.setTabToolTip(new_index, tab_tooltip)
-    return new_index
-
-
-def _ui_shell_prepare_live_addon_widget(addon_id, widget):
-    if str(addon_id or "").strip().lower() != "nc.hotkeys" or widget is None:
-        return
-    from PySide6 import QtWidgets as _QtWidgets
-
-    disabled_actions = {
-        "Record Binding",
-        "Apply Binding",
-        "Clear",
-        "Reset To Default",
-        "Reset All Defaults",
-    }
-    for button in widget.findChildren(_QtWidgets.QPushButton):
-        if str(button.text() or "").strip() in disabled_actions:
-            button.setEnabled(False)
-            button.setToolTip("Disabled in the main.ui shell preview; the real Python-built UI owns hotkey mutation and capture.")
-    for edit in widget.findChildren(_QtWidgets.QLineEdit):
-        edit.setReadOnly(True)
-        edit.setToolTip("Read-only in the main.ui shell preview.")
-
-
-def _ui_shell_contribution_title(contribution, manifest):
-    title = str(getattr(contribution, "title", "") or getattr(contribution, "id", "") or getattr(manifest, "name", "") or "Addon").strip()
-    parent = str(getattr(contribution, "parent_tab_id", "") or "").strip().lower()
-    parent_labels = {
-        "screen": "Screen",
-        "webcam": "Webcam",
-        "clipboard": "Clipboard",
-        "heart_rate": "Heart Rate",
-    }
-    if parent in parent_labels:
-        return f"{parent_labels[parent]} / {title}"
-    return title
-
-
-def _apply_ui_shell_addon_placeholders(window, report, exclude_addon_ids=None, live_chat_providers=None):
-    placeholders = {
-        "left_tabs": "Addon Mounts",
-        "host_settings_tabs": "Addon Preview",
-        "right_tabs": "Addon Preview",
-        "musetalk_tabs": "Addon Preview",
-        "tts_runtime_addon_tabs": "Addon Preview",
-        "sensory_feedback_tabs": "Addon Preview",
-    }
-    added = []
-    for target, title in placeholders.items():
-        rows = _ui_shell_rows_for_target(report, target, exclude_addon_ids=exclude_addon_ids)
-        if not rows:
-            continue
-        tab_widget = _ui_shell_find_object(window, target)
-        if _ui_shell_add_placeholder_tab(tab_widget, title, _ui_shell_addon_rows_text(rows)):
-            added.append(target)
-
-    live_provider_text = _ui_shell_chat_provider_rows_text(live_chat_providers)
-    chat_provider_rows = _ui_shell_rows_for_target(report, "chat_provider_combo", exclude_addon_ids=exclude_addon_ids)
-    if live_provider_text or chat_provider_rows:
-        parts = []
-        if live_provider_text:
-            parts.append(live_provider_text)
-        if chat_provider_rows:
-            parts.append(
-                "Read-only shell preview. Placeholder-only chat provider addons discovered:\n"
-                + _ui_shell_addon_rows_text(chat_provider_rows)
-            )
-        text = "\n\n".join(parts)
-        for object_name in ("chat_provider_fields_placeholder", "chat_provider_generation_fields_placeholder"):
-            placeholder = _ui_shell_find_object(window, object_name)
-            if placeholder is not None and hasattr(placeholder, "setText"):
-                placeholder.setText(text)
-                if hasattr(placeholder, "setToolTip"):
-                    placeholder.setToolTip("Shell-only provider addon preview. Registered provider handlers are not invoked.")
-                added.append(object_name)
-    return sorted(set(added))
-
-
-def _ui_shell_load_addon_module(manifest):
-    root = Path(str(manifest.get("root") or "")).resolve()
-    entry_point = str(manifest.get("entry_point") or "main.py").strip() or "main.py"
-    entry_path = root / entry_point
-    module_name = "nc_ui_shell_addon_" + re.sub(r"[^a-zA-Z0-9_]", "_", str(manifest.get("id") or root.name))
-    spec = importlib.util.spec_from_file_location(module_name, entry_path)
-    if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load addon entry point: {entry_path}")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-def _ui_shell_mount_live_addons(window, report):
-    from PySide6 import QtWidgets as _QtWidgets
-    from core.addons.context import AddonContext, AddonEventBus, AddonServiceRegistry
-    from core.addons.manifest import AddonManifest
-
-    _ui_shell_enable_stdio_unicode_fallback()
-    configure_shell_service_dependencies(globals())
-
-    mounted = []
-    mounted_ids = []
-    failures = []
-    live_refs = []
-    live_tabs = []
-    tts_backends_by_id = OrderedDict()
-    app_root = Path(__file__).resolve().parent
-    storage_root = app_root / "runtime" / "addons" / "ui_shell"
-    event_bus = AddonEventBus()
-    service_registry = AddonServiceRegistry()
-    chat_provider_registry = _UiShellChatProviderRegistry()
-    sensory_registry = _UiShellSensoryService()
-    avatar_provider_registry = _UiShellAvatarProviderService()
-    host_services = {
-        "qt.avatar_providers": avatar_provider_registry,
-        "qt.chat_providers": chat_provider_registry,
-        "qt.chat_context": _ui_shell_chat_context_service(window),
-        "qt.chat_replay": _ui_shell_chat_replay_service(window),
-        "qt.dialogs": _UiShellDialogService(window),
-        "qt.dry_run": _ui_shell_dry_run_service(window),
-        "qt.engine_lifecycle": _ui_shell_engine_lifecycle_service(window),
-        "qt.hotkeys": _UiShellHotkeyService(),
-        "qt.input_actions": _ui_shell_input_actions_service(window),
-        "qt.input_settings": _ui_shell_input_settings_service(window),
-        "qt.persona_avatar": _ui_shell_persona_avatar_service(window),
-        "qt.performance_profiles": _ui_shell_performance_profile_service(window),
-        "qt.model_refresh": _ui_shell_model_refresh_service(window),
-        "qt.runtime_controls": _ui_shell_runtime_controls_service(window),
-        "qt.runtime_status": _ui_shell_runtime_status_service(window),
-        "qt.sensory": sensory_registry,
-        "qt.shell": _UiShellShellService(),
-        "qt.tutorials": _ui_shell_tutorial_service(window),
-        "qt.visual_reply": _UiShellVisualReplyService(window),
-        "qt.audio_story_mode_shell_preview": True,
-        "qt.chatterbox_tts_shell_preview": True,
-        "qt.pockettts_shell_preview": True,
-        "qt.clipboard_source_shell_preview": True,
-        "qt.gemini_tts_preview_shell_preview": True,
-        "qt.musetalk_preprocess_shell_preview": True,
-        "qt.shell_session_snapshot": _read_ui_shell_session_snapshot,
-    }
-
-    rows_by_id = {
-        str(row.get("id") or "").strip(): row
-        for row in report.get("addons", [])
-    }
-    for addon_id in sorted(UI_SHELL_LIVE_ADDON_IDS):
-        row = rows_by_id.get(addon_id)
-        if not row or not row.get("enabled"):
-            continue
-        try:
-            manifest_path = Path(str(row.get("root") or "")) / "addon.json"
-            manifest = AddonManifest.from_file(manifest_path)
-            context = AddonContext(
-                manifest=manifest,
-                app_root=app_root,
-                event_bus=event_bus,
-                service_registry=service_registry,
-                storage_root=storage_root,
-                llm_snapshot_getter=lambda: {},
-                tts_snapshot_getter=lambda: {},
-                avatar_snapshot_getter=lambda: {},
-                host_services=host_services,
-            )
-            provider_ids_before = chat_provider_registry.provider_ids()
-            avatar_provider_ids_before = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
-            sensory_provider_ids_before = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
-            service_names_before = {str(item.get("name") or "").strip() for item in service_registry.list_entries()}
-            module = _ui_shell_load_addon_module(row)
-            addon_cls = getattr(module, "Addon", None)
-            if addon_cls is None:
-                raise RuntimeError("Addon class is missing.")
-            addon = addon_cls()
-            addon.initialize(context)
-            provider_ids_after = chat_provider_registry.provider_ids()
-            added_provider_ids = sorted(provider_ids_after - provider_ids_before)
-            avatar_provider_ids_after = {str(item.get("id") or "").strip() for item in avatar_provider_registry.list_providers()}
-            sensory_provider_ids_after = {str(item.get("id") or "").strip() for item in sensory_registry.list_providers()}
-            service_entries_after = service_registry.list_entries()
-            service_names_after = {str(item.get("name") or "").strip() for item in service_entries_after}
-            added_avatar_provider_ids = sorted(avatar_provider_ids_after - avatar_provider_ids_before)
-            added_sensory_provider_ids = sorted(sensory_provider_ids_after - sensory_provider_ids_before)
-            added_tts_backend_summaries = []
-            for entry in service_entries_after:
-                service_name = str(entry.get("name") or "").strip()
-                if not service_name or service_name not in (service_names_after - service_names_before):
-                    continue
-                metadata = dict(entry.get("metadata") or {})
-                if str(metadata.get("kind") or "").strip().lower() != "tts":
-                    continue
-                backend_id = str(metadata.get("backend_id") or service_name).strip()
-                if not backend_id:
-                    continue
-                summary = {
-                    "id": backend_id,
-                    "service_name": service_name,
-                    "label": str(metadata.get("label") or backend_id).strip() or backend_id,
-                    "provider": str(metadata.get("provider") or "").strip(),
-                    "supports_streaming": bool(metadata.get("supports_streaming", False)),
-                    "owner_addon_id": str(entry.get("owner_addon_id") or "").strip(),
-                    "metadata": metadata,
-                }
-                tts_backends_by_id[backend_id] = summary
-                added_tts_backend_summaries.append(dict(summary))
-            contributions = sorted(context.ui.get_tab_contributions(), key=lambda item: (int(item.order), str(item.title or item.id)))
-            added_tabs = []
-            for contribution in contributions:
-                target = _ui_shell_mount_target_for_area(str(contribution.area or "top_level"))
-                if not target:
-                    continue
-                tab_widget = _ui_shell_find_object(window, target)
-                if tab_widget is None or not hasattr(tab_widget, "addTab"):
-                    failures.append(f"{addon_id}: mount point unavailable for area {contribution.area!r}")
-                    continue
-                widget = contribution.factory(context)
-                if not isinstance(widget, _QtWidgets.QWidget):
-                    raise RuntimeError(f"Tab factory for {contribution.id} did not return a QWidget.")
-                _ui_shell_prepare_live_addon_widget(addon_id, widget)
-                title = _ui_shell_contribution_title(contribution, manifest)
-                placeholder_name = _ui_shell_static_addon_placeholder_name(addon_id)
-                tab_index = _ui_shell_replace_static_addon_placeholder(
-                    tab_widget,
-                    placeholder_name,
-                    widget,
-                    title,
-                    str(contribution.tooltip or ""),
-                )
-                replaced_static_placeholder = tab_index >= 0
-                if tab_index < 0:
-                    tab_widget.addTab(widget, title)
-                    tab_index = tab_widget.indexOf(widget)
-                if tab_index >= 0 and contribution.tooltip:
-                    tab_widget.setTabToolTip(tab_index, str(contribution.tooltip or ""))
-                if hasattr(tab_widget, "setVisible"):
-                    tab_widget.setVisible(True)
-                added_tabs.append(f"{target}/{title}")
-                live_tabs.append({
-                    "addon_id": addon_id,
-                    "target": target,
-                    "title": title,
-                    "replaced_static_placeholder": replaced_static_placeholder,
-                    "placeholder_name": placeholder_name,
-                })
-            added_provider_summaries = [
-                provider
-                for provider in chat_provider_registry.list_providers()
-                if str(provider.get("id") or "").strip() in set(added_provider_ids)
-            ]
-            added_avatar_provider_summaries = [
-                provider
-                for provider in avatar_provider_registry.list_providers()
-                if str(provider.get("id") or "").strip() in set(added_avatar_provider_ids)
-            ]
-            added_sensory_provider_summaries = [
-                provider
-                for provider in sensory_registry.list_providers()
-                if str(provider.get("id") or "").strip() in set(added_sensory_provider_ids)
-            ]
-            if added_tabs or added_provider_summaries or added_avatar_provider_summaries or added_sensory_provider_summaries or added_tts_backend_summaries:
-                details = []
-                if added_tabs:
-                    details.append(", ".join(added_tabs))
-                if added_provider_summaries:
-                    labels = ", ".join(
-                        f"chat_provider/{provider.get('label') or provider.get('id')}"
-                        for provider in added_provider_summaries
-                    )
-                    details.append(labels)
-                if added_avatar_provider_summaries:
-                    labels = ", ".join(
-                        f"avatar_provider/{provider.get('label') or provider.get('id')}"
-                        for provider in added_avatar_provider_summaries
-                    )
-                    details.append(labels)
-                if added_sensory_provider_summaries:
-                    labels = ", ".join(
-                        f"sensory_provider/{provider.get('label') or provider.get('id')}"
-                        for provider in added_sensory_provider_summaries
-                    )
-                    details.append(labels)
-                if added_tts_backend_summaries:
-                    labels = ", ".join(
-                        f"tts_backend/{backend.get('label') or backend.get('id')}"
-                        for backend in added_tts_backend_summaries
-                    )
-                    details.append(labels)
-                mounted.append(f"{addon_id}: {'; '.join(details)}")
-                mounted_ids.append(addon_id)
-                live_refs.append({
-                    "addon": addon,
-                    "context": context,
-                    "tabs": added_tabs,
-                    "providers": added_provider_ids,
-                    "avatar_providers": added_avatar_provider_ids,
-                    "sensory_providers": added_sensory_provider_ids,
-                    "tts_backends": [str(item.get("id") or "").strip() for item in added_tts_backend_summaries],
-                })
-            else:
-                context.close()
-                failures.append(f"{addon_id}: no supported top-level tabs registered")
-        except Exception as exc:
-            failures.append(f"{addon_id}: {exc}")
-    setattr(window, "_nc_ui_shell_live_addons", live_refs)
-    setattr(window, "_nc_ui_shell_live_services", {
-        "chat_provider_registry": chat_provider_registry,
-        "avatar_provider_registry": avatar_provider_registry,
-        "sensory_registry": sensory_registry,
-    })
-    return {
-        "mounted": mounted,
-        "failures": failures,
-        "mounted_ids": sorted(set(mounted_ids)),
-        "chat_providers": chat_provider_registry.list_providers(),
-        "avatar_providers": avatar_provider_registry.list_providers(),
-        "sensory_providers": sensory_registry.list_providers(),
-        "tts_backends": list(tts_backends_by_id.values()),
-        "live_tabs": live_tabs,
-    }
-
-
-def _ui_shell_cleanup_live_addons(window):
-    refs = list(getattr(window, "_nc_ui_shell_live_addons", []) or [])
-    setattr(window, "_nc_ui_shell_live_addons", [])
-    setattr(window, "_nc_ui_shell_live_services", {})
-    for ref in refs:
-        addon = ref.get("addon")
-        context = ref.get("context")
-        try:
-            if addon is not None and hasattr(addon, "shutdown"):
-                addon.shutdown()
-        except Exception:
-            pass
-        try:
-            if context is not None and hasattr(context, "close"):
-                context.close()
-        except Exception:
-            pass
 
 
 def _ui_shell_body_pose_spec(key):
@@ -2571,14 +2164,6 @@ try:
 except Exception:
     cv2 = None
 import numpy as np
-try:
-    from flask import Flask, jsonify
-    from flask_cors import CORS
-except Exception:
-    Flask = None
-    CORS = None
-    def jsonify(payload):
-        return payload
 from PySide6 import QtCore, QtGui, QtWidgets
 try:
     import shiboken6
@@ -2681,67 +2266,6 @@ except Exception:
     _WIN32_DOCK_OWNER_SUPPORTED = False
 
 
-def build_vam_launch_icon(size=28):
-    size = max(18, int(size or 28))
-    pixmap = QtGui.QPixmap(size, size)
-    pixmap.fill(QtCore.Qt.transparent)
-
-    painter = QtGui.QPainter(pixmap)
-    painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
-
-    top_gradient = QtGui.QLinearGradient(0, 0, size, size * 0.55)
-    top_gradient.setColorAt(0.0, QtGui.QColor("#4d8dff"))
-    top_gradient.setColorAt(1.0, QtGui.QColor("#6d6bff"))
-    bottom_gradient = QtGui.QLinearGradient(0, size * 0.45, size, size)
-    bottom_gradient.setColorAt(0.0, QtGui.QColor("#7d6cff"))
-    bottom_gradient.setColorAt(1.0, QtGui.QColor("#ff56c5"))
-
-    stroke = max(2.2, size * 0.11)
-    top_pen = QtGui.QPen(QtGui.QBrush(top_gradient), stroke, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
-    bottom_pen = QtGui.QPen(QtGui.QBrush(bottom_gradient), stroke, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
-
-    w = float(size)
-    # Stylized "V"
-    painter.setPen(top_pen)
-    painter.drawPolyline(
-        QtGui.QPolygonF(
-            [
-                QtCore.QPointF(w * 0.12, w * 0.18),
-                QtCore.QPointF(w * 0.22, w * 0.42),
-                QtCore.QPointF(w * 0.32, w * 0.18),
-            ]
-        )
-    )
-    # Stylized "A"
-    painter.drawPolyline(
-        QtGui.QPolygonF(
-            [
-                QtCore.QPointF(w * 0.46, w * 0.42),
-                QtCore.QPointF(w * 0.56, w * 0.18),
-                QtCore.QPointF(w * 0.66, w * 0.42),
-            ]
-        )
-    )
-    painter.drawLine(
-        QtCore.QPointF(w * 0.50, w * 0.31),
-        QtCore.QPointF(w * 0.62, w * 0.31),
-    )
-
-    # Stylized "M"
-    painter.setPen(bottom_pen)
-    painter.drawPolyline(
-        QtGui.QPolygonF(
-            [
-                QtCore.QPointF(w * 0.17, w * 0.82),
-                QtCore.QPointF(w * 0.17, w * 0.54),
-                QtCore.QPointF(w * 0.33, w * 0.72),
-                QtCore.QPointF(w * 0.50, w * 0.54),
-                QtCore.QPointF(w * 0.50, w * 0.82),
-            ]
-        )
-    )
-    painter.end()
-    return QtGui.QIcon(pixmap)
 QT_MUSETALK_LOOP_FADE_MS = 180
 DEFAULT_CHUNKING_VALUES = {
     "chunk_target_chars": 100,
@@ -3763,29 +3287,8 @@ configure_legacy_workspace_dock_dependencies({
     "ctypes": ctypes,
 })
 
-flask_app = Flask(__name__) if Flask is not None else None
-if flask_app is not None and callable(CORS):
-    CORS(flask_app)
-
-
-if flask_app is not None:
-    @flask_app.route("/get-expression")
-    def get_expression():
-        return jsonify(shared_state.current_expression_data)
-
-
-    @flask_app.route("/get-musetalk-preview")
-    def get_musetalk_preview():
-        return jsonify(shared_state.current_musetalk_frame_data)
-
-
 def start_api():
-    if flask_app is None:
-        print("[API] Flask is unavailable in this environment; expression API server not started.")
-        return
-    log = logging.getLogger("werkzeug")
-    log.setLevel(logging.ERROR)
-    flask_app.run(port=5005, debug=False, use_reloader=False)
+    start_expression_api(shared_state, port=5005)
 
 
 class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
@@ -5724,9 +5227,6 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         self.tabs.setMinimumSize(0, 0)
         self.tabs.currentChanged.connect(self._on_left_tab_changed)
         self.tabs.addTab(self._build_persona_tab(), "Persona")
-        self.tabs.addTab(self._build_vseeface_tab(), "VSeeFace")
-        self.tabs.addTab(self._build_musetalk_parent_tab(), "MuseTalk")
-        self.tabs.addTab(self._build_vam_tab(), "VaM")
         self._legacy_brain_tab = self._build_brain_tab()
         self._legacy_brain_tab.setVisible(False)
         self.tabs.addTab(self._build_chunking_tab(), "Chunking")
@@ -7899,6 +7399,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     "qt.sensory": QtSensoryService(self),
                     "qt.chat_providers": QtChatProviderService(self),
                     "qt.chat_replay": QtChatReplayService(self),
+                    "qt.bind_designer_widgets": self._bind_designer_widgets,
                     "addons.capabilities": AddonCapabilityBridgeService(lambda: self._addon_manager),
                 },
             )
@@ -7930,6 +7431,56 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 engine.set_addon_manager_getter(None)
             print(f"⚠️ [Addons] Initialization failed: {exc}")
             self._refresh_addons_management_ui()
+
+    def _bind_designer_widgets(self, root_widget):
+        if root_widget is None:
+            return
+        widgets = [root_widget]
+        try:
+            widgets.extend(root_widget.findChildren(QtWidgets.QWidget))
+        except Exception:
+            pass
+        for widget in widgets:
+            try:
+                object_name = str(widget.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            if not object_name:
+                continue
+            setattr(self, object_name, widget)
+
+    def _addon_contribution_icon(self, contribution):
+        metadata = dict(getattr(contribution, "metadata", {}) or {})
+        icon_path = str(metadata.get("icon_path") or "").strip()
+        if not icon_path:
+            return None
+        manager = getattr(self, "_addon_manager", None)
+        addon_id = str(getattr(contribution, "addon_id", "") or "").strip()
+        root_dir = None
+        if manager is not None and addon_id:
+            try:
+                record = manager.get_addon_record(addon_id)
+                root_dir = getattr(getattr(record, "manifest", None), "root_dir", None)
+            except Exception:
+                root_dir = None
+        raw_path = Path(icon_path)
+        resolved_path = raw_path if raw_path.is_absolute() else Path(root_dir or Path(__file__).resolve().parent) / raw_path
+        try:
+            icon = QtGui.QIcon(str(resolved_path))
+            return icon if not icon.isNull() else None
+        except Exception:
+            return None
+
+    def _set_addon_tab_icon(self, tab_widget, tab_index, contribution):
+        if tab_widget is None or tab_index is None or int(tab_index) < 0:
+            return
+        icon = self._addon_contribution_icon(contribution)
+        if icon is None:
+            return
+        try:
+            tab_widget.setTabIcon(int(tab_index), icon)
+        except Exception:
+            pass
 
     def _addon_effectively_enabled(self, addon_id):
         manager = getattr(self, "_addon_manager", None)
@@ -8174,6 +7725,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 if child_widget is None:
                     continue
                 index = nested_tabs.addTab(child_widget, child.title)
+                self._set_addon_tab_icon(nested_tabs, index, child)
                 if child.tooltip:
                     nested_tabs.setTabToolTip(index, child.tooltip)
                 group.setdefault("child_widgets", []).append(child_widget)
@@ -8272,7 +7824,24 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 widget = self._build_addon_host_tab_widget(contribution, children) if children else contribution.factory(None)
                 if widget is None:
                     continue
-                tab_index = self.tabs.addTab(widget, contribution.title)
+                target_index = -1
+                for index in range(self.tabs.count()):
+                    try:
+                        if str(self.tabs.tabText(index) or "").strip() == str(contribution.title or "").strip():
+                            target_index = index
+                            break
+                    except Exception:
+                        continue
+                if target_index >= 0:
+                    old_widget = self.tabs.widget(target_index)
+                    self.tabs.removeTab(target_index)
+                    if old_widget is not None and old_widget is not widget:
+                        old_widget.setParent(None)
+                        old_widget.deleteLater()
+                    tab_index = self.tabs.insertTab(target_index, widget, contribution.title)
+                else:
+                    tab_index = self.tabs.addTab(widget, contribution.title)
+                self._set_addon_tab_icon(self.tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.tabs.setTabToolTip(tab_index, contribution.tooltip)
                 self._mounted_addon_tab_ids.add(contribution.id)
@@ -8295,6 +7864,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 if widget is None:
                     continue
                 tab_index = self.musetalk_tabs.addTab(widget, contribution.title)
+                self._set_addon_tab_icon(self.musetalk_tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.musetalk_tabs.setTabToolTip(tab_index, contribution.tooltip)
                 self._mounted_musetalk_addon_tab_ids.add(contribution.id)
@@ -8323,6 +7893,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     continue
                 insert_index = min(1 + len(self._mounted_host_settings_addon_tab_ids), self.host_settings_tabs.count())
                 tab_index = self.host_settings_tabs.insertTab(insert_index, widget, contribution.title)
+                self._set_addon_tab_icon(self.host_settings_tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.host_settings_tabs.setTabToolTip(tab_index, contribution.tooltip)
                 self._mounted_host_settings_addon_tab_ids.add(contribution.id)
@@ -8359,6 +7930,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                     except Exception:
                         pass
                 tab_index = self.tts_runtime_addon_tabs.addTab(widget, contribution.title)
+                self._set_addon_tab_icon(self.tts_runtime_addon_tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.tts_runtime_addon_tabs.setTabToolTip(tab_index, contribution.tooltip)
                 if backend_id:
@@ -8381,6 +7953,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 fallback_layout.addWidget(message)
                 fallback_layout.addStretch(1)
                 tab_index = self.tts_runtime_addon_tabs.addTab(fallback, contribution.title)
+                self._set_addon_tab_icon(self.tts_runtime_addon_tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.tts_runtime_addon_tabs.setTabToolTip(tab_index, contribution.tooltip)
                 self._mounted_tts_runtime_addon_tab_ids.add(contribution.id)
@@ -8449,6 +8022,7 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
                 if widget is None:
                     continue
                 tab_index = self.right_tabs.addTab(widget, contribution.title)
+                self._set_addon_tab_icon(self.right_tabs, tab_index, contribution)
                 if contribution.tooltip:
                     self.right_tabs.setTabToolTip(tab_index, contribution.tooltip)
                 self._mounted_operational_view_addon_tab_ids.add(contribution.id)
@@ -8751,227 +8325,6 @@ class CompanionQtMainWindow(LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWi
         apply_button.setObjectName("btn_apply_text_config")
         apply_button.clicked.connect(self.apply_text_config)
         layout.addWidget(apply_button)
-        return scroll
-
-    def _build_body_tab(self):
-        scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName("body_tab")
-        scroll.setWidgetResizable(True)
-        content = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(content)
-        self._body_tab_layout = layout
-
-        config_box = QtWidgets.QGroupBox("Body Presets")
-        config_layout = QtWidgets.QVBoxLayout(config_box)
-        self.body_combo = NoWheelComboBox()
-        self.body_combo.setObjectName("body_combo")
-        self.body_combo.addItem("Default")
-        config_layout.addWidget(self.body_combo)
-
-        body_buttons = QtWidgets.QHBoxLayout()
-        self.btn_body_load = QtWidgets.QPushButton("Load")
-        self.btn_body_load.clicked.connect(self.load_body_config_from_combo)
-        self.btn_body_save = QtWidgets.QPushButton("Save")
-        self.btn_body_save.clicked.connect(self.save_current_body)
-        self.btn_body_save_as = QtWidgets.QPushButton("Save As")
-        self.btn_body_save_as.clicked.connect(self.save_body_dialog)
-        self.btn_body_delete = QtWidgets.QPushButton("Delete")
-        self.btn_body_delete.clicked.connect(self.delete_current_body)
-        for widget in [self.btn_body_load, self.btn_body_save, self.btn_body_save_as, self.btn_body_delete]:
-            body_buttons.addWidget(widget)
-        config_layout.addLayout(body_buttons)
-        layout.addWidget(config_box)
-
-        top = QtWidgets.QHBoxLayout()
-        self.emotion_combo = NoWheelComboBox()
-        self.emotion_combo.addItems(["Neutral", "Happy", "Sad", "Angry", "Shy", "Surprised"])
-        self.emotion_combo.currentTextChanged.connect(self.on_emotion_change)
-        self.live_sync_checkbox = QtWidgets.QCheckBox("Live Sync")
-        self.live_sync_checkbox.toggled.connect(self.toggle_live_sync)
-        top.addWidget(self.emotion_combo)
-        top.addStretch(1)
-        top.addWidget(self.live_sync_checkbox)
-        layout.addLayout(top)
-
-        body_tools = QtWidgets.QHBoxLayout()
-        self.btn_hand_doctor = QtWidgets.QPushButton("Hand Doctor")
-        self.btn_hand_doctor.setObjectName("btn_hand_doctor")
-        self.btn_hand_doctor.clicked.connect(self.open_hand_debugger)
-        body_tools.addWidget(self.btn_hand_doctor)
-        body_tools.addStretch(1)
-        layout.addLayout(body_tools)
-
-        # MuseTalk preprocessing moved into the MuseTalk addon system.
-
-
-        for label, key, minimum, maximum in [
-            ("L Depth", "idle_fwd_left", -200, 200),
-            ("R Depth", "idle_fwd_right", -100, 100),
-            ("Shoulder Down", "idle_arm_down", -100, 100),
-            ("Shoulder Back", "idle_shoulder_back", -100, 100),
-            ("Elbow Bend", "idle_elbow_bend", -250, 250),
-            ("Arm Twist", "idle_arm_twist", -100, 100),
-            ("Spine Sway", "spine_sway_mult", 0.0, 3.0),
-            ("Spine Twist", "spine_twist_mult", 0.0, 3.0),
-            ("Head Stabilize", "neck_stabilize", 0.0, 3.0),
-        ]:
-            slider = LabeledSlider(label, minimum, maximum, 0.0)
-            slider.value_changed.connect(lambda value, k=key: self.update_pose_value(k, value))
-            self.pose_sliders[key] = slider
-            layout.addWidget(slider)
-
-        layout.addStretch(1)
-        scroll.setWidget(content)
-        return scroll
-
-    def _build_vseeface_tab(self):
-        container = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(10)
-
-        nested_tabs = NoWheelTabWidget()
-        nested_tabs.setObjectName("vseeface_tabs")
-        nested_tabs.addTab(self._build_body_tab(), "Body")
-        nested_tabs.addTab(self._build_dynamics_tab(), "Dynamics")
-        nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        layout.addWidget(nested_tabs, 1)
-
-        controls_box = QtWidgets.QGroupBox("VSeeFace View")
-        controls_layout = QtWidgets.QVBoxLayout(controls_box)
-        controls_layout.setContentsMargins(12, 14, 12, 12)
-        controls_layout.setSpacing(8)
-        hint = QtWidgets.QLabel(
-            "Hide NC and leave a tiny return window while VSeeFace stays on screen as the only visible avatar view."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        controls_layout.addWidget(hint)
-        actions = QtWidgets.QHBoxLayout()
-        self.btn_vseeface_hide_interface = QtWidgets.QPushButton("Hide NC Interface")
-        self.btn_vseeface_hide_interface.clicked.connect(lambda: self.enter_external_avatar_focus("VSeeFace"))
-        actions.addWidget(self.btn_vseeface_hide_interface)
-        actions.addStretch(1)
-        controls_layout.addLayout(actions)
-        layout.addWidget(controls_box, 0)
-        return container
-
-    def _build_musetalk_parent_tab(self):
-        nested_tabs = NoWheelTabWidget()
-        nested_tabs.setObjectName("musetalk_tabs")
-        nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        nested_tabs.currentChanged.connect(self._on_musetalk_tab_changed)
-        self.musetalk_tabs = nested_tabs
-        return nested_tabs
-
-    def _build_vam_tab(self):
-        scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName("vam_tab")
-        scroll.setWidgetResizable(True)
-
-        content = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(content)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
-
-        summary = QtWidgets.QLabel(
-            "VaM uses two channels: VMC for motion/head/hands, and a file bridge for emotion, speaking, and optional in-VaM audio."
-        )
-        summary.setWordWrap(True)
-        summary.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(summary)
-
-        bridge_box = QtWidgets.QGroupBox("VaM Bridge")
-        bridge_layout = QtWidgets.QVBoxLayout(bridge_box)
-        bridge_layout.setContentsMargins(12, 14, 12, 12)
-        bridge_layout.setSpacing(8)
-
-        bridge_form = QtWidgets.QFormLayout()
-        bridge_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        bridge_form.addRow("VaM Root", self.vam_root_edit)
-        bridge_form.addRow("Bridge Path", self.vam_bridge_root_edit)
-        bridge_form.addRow("Target Atom UID", self.vam_target_atom_uid_edit)
-        bridge_form.addRow("Target Storable ID", self.vam_target_storable_id_edit)
-        bridge_form.addRow("VMC Host", self.vam_vmc_host_edit)
-        bridge_form.addRow("VMC Port", self.vam_vmc_port_spin)
-        bridge_layout.addLayout(bridge_form)
-        bridge_layout.addWidget(self.vam_vmc_enabled_checkbox)
-        bridge_layout.addWidget(self.vam_bridge_enabled_checkbox)
-        bridge_layout.addWidget(self.vam_play_audio_in_vam_checkbox)
-        bridge_layout.addWidget(self.vam_timeline_auto_resume_checkbox)
-
-        vam_actions = QtWidgets.QHBoxLayout()
-        vam_launch_icon = build_vam_launch_icon()
-        self.btn_start_vam_desktop = QtWidgets.QPushButton("Start VaM Desktop")
-        self.btn_start_vam_desktop.setObjectName("btn_start_vam_desktop")
-        self.btn_start_vam_desktop.setToolTip(f"Launch {DEFAULT_LOCAL_VAM_DESKTOP_LAUNCHER} from the configured VaM Root.")
-        self.btn_start_vam_desktop.setIcon(vam_launch_icon)
-        self.btn_start_vam_desktop.setIconSize(QtCore.QSize(24, 24))
-        self.btn_start_vam_desktop.clicked.connect(self.on_start_vam_desktop_clicked)
-        vam_actions.addWidget(self.btn_start_vam_desktop)
-        self.btn_start_vam_vr = QtWidgets.QPushButton("Start VaM VR")
-        self.btn_start_vam_vr.setObjectName("btn_start_vam_vr")
-        self.btn_start_vam_vr.setToolTip(f"Launch {DEFAULT_LOCAL_VAM_VR_LAUNCHER} from the configured VaM Root.")
-        self.btn_start_vam_vr.setIcon(vam_launch_icon)
-        self.btn_start_vam_vr.setIconSize(QtCore.QSize(24, 24))
-        self.btn_start_vam_vr.clicked.connect(self.on_start_vam_vr_clicked)
-        vam_actions.addWidget(self.btn_start_vam_vr)
-        self.btn_vam_hide_interface = QtWidgets.QPushButton("Hide NC Interface")
-        self.btn_vam_hide_interface.clicked.connect(lambda: self.enter_external_avatar_focus("VaM"))
-        vam_actions.addWidget(self.btn_vam_hide_interface)
-        vam_actions.addStretch(1)
-        bridge_layout.addLayout(vam_actions)
-
-        hint = QtWidgets.QLabel(
-            "Recommended VaM setup: point NC at the VaM install root, keep VMC and bridge on, and let VaM head audio handle speech so the avatar remains the real speaker."
-        )
-        hint.setWordWrap(True)
-        hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        bridge_layout.addWidget(hint)
-
-        layout.addWidget(bridge_box)
-        layout.addStretch(1)
-        scroll.setWidget(content)
-        return scroll
-
-    def _rehome_body_section_to_tab(self, section_widget, object_name):
-        scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName(object_name)
-        scroll.setWidgetResizable(True)
-        content = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(content)
-        if section_widget is not None:
-            try:
-                body_layout = getattr(self, "_body_tab_layout", None)
-                if body_layout is not None:
-                    body_layout.removeWidget(section_widget)
-            except Exception:
-                pass
-            section_widget.setParent(None)
-            layout.addWidget(section_widget)
-        layout.addStretch(1)
-        scroll.setWidget(content)
-        return scroll
-
-    def _build_dynamics_tab(self):
-        scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName("dynamics_tab")
-        scroll.setWidgetResizable(True)
-        content = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(content)
-        for label, key, minimum, maximum in [
-            ("Eye Activity", "eye_activity", 0.0, 3.0),
-            ("Breath Speed", "breath_speed", 0.1, 4.0),
-            ("Shoulder Lift", "shoulder_lift", 0.0, 5.0),
-            ("Body Sway Speed", "idle_speed", 0.2, 3.0),
-            ("Body Sway Intensity", "idle_intensity", 0.5, 10.0),
-        ]:
-            slider = LabeledSlider(label, minimum, maximum, 0.0)
-            slider.value_changed.connect(lambda value, k=key: self.update_pose_value(k, value))
-            self.pose_sliders[key] = slider
-            layout.addWidget(slider)
-        layout.addStretch(1)
-        scroll.setWidget(content)
         return scroll
 
     def _build_brain_tab(self):

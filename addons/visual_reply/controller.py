@@ -634,52 +634,34 @@ class VisualReplyController:
         self.panel = AddonVisualReplyPanel(capability_bridge=self._capability_bridge)
         self._visual_reply_service.replace_panel(self.panel)
 
-    def build_core_tab(self):
+    def _ui_child(self, root, name, cls=None):
+        if root is None:
+            return None
+        try:
+            return root.findChild(cls or QtCore.QObject, name)
+        except Exception:
+            return None
+
+    def _bind_core_settings_widgets(self, tab):
         snapshot = dict(self._visual_reply_service.settings_snapshot() or {})
+        mode_combo = self._ui_child(tab, "visual_reply_mode_combo", QtWidgets.QComboBox)
+        provider_combo = self._ui_child(tab, "visual_reply_provider_combo", QtWidgets.QComboBox)
+        size_combo = self._ui_child(tab, "visual_reply_size_combo", QtWidgets.QComboBox)
+        model_edit = self._ui_child(tab, "visual_reply_model_edit", QtWidgets.QLineEdit)
+        auto_show_checkbox = self._ui_child(tab, "visual_reply_auto_show_checkbox", QtWidgets.QCheckBox)
+        hint_label = self._ui_child(tab, "visual_reply_hint_label", QtWidgets.QLabel)
+        required = (mode_combo, provider_combo, size_combo, model_edit, auto_show_checkbox, hint_label)
+        if any(item is None for item in required):
+            raise RuntimeError("Visual Reply Designer UI is missing one or more required controls.")
 
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
-
-        visual_box = QtWidgets.QGroupBox("Visual Replies")
-        visual_layout = QtWidgets.QVBoxLayout(visual_box)
-        visual_layout.setContentsMargins(12, 14, 12, 12)
-        visual_layout.setSpacing(8)
-
-        mode_combo = QtWidgets.QComboBox()
         mode_combo.addItems(list(self._visual_reply_service.mode_labels()))
         mode_combo.setCurrentText(self._visual_reply_service.mode_label_from_value(snapshot.get("mode_value", "auto")))
-
-        provider_combo = QtWidgets.QComboBox()
         provider_combo.addItems(list(self._visual_reply_service.provider_labels()))
         provider_combo.setCurrentText(self._visual_reply_service.provider_label_from_value(snapshot.get("provider_value", "openai")))
-
-        size_combo = QtWidgets.QComboBox()
         size_combo.addItems(list(self._visual_reply_service.size_labels()))
         size_combo.setCurrentText(self._visual_reply_service.size_label_from_value(snapshot.get("size_value", "1024x1024")))
-
-        model_edit = QtWidgets.QLineEdit()
         model_edit.setText(str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"))
-
-        auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
         auto_show_checkbox.setChecked(bool(snapshot.get("auto_show", True)))
-
-        visual_form = QtWidgets.QFormLayout()
-        visual_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        visual_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        visual_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        visual_form.addRow("Mode", mode_combo)
-        visual_form.addRow("Provider", provider_combo)
-        visual_form.addRow("Image Size", size_combo)
-        visual_form.addRow("Image Model", model_edit)
-        visual_layout.addLayout(visual_form)
-        visual_layout.addWidget(auto_show_checkbox)
-
-        hint_label = QtWidgets.QLabel()
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        visual_layout.addWidget(hint_label)
 
         self._visual_reply_service.attach_settings_widgets(
             mode_combo=mode_combo,
@@ -696,7 +678,56 @@ class VisualReplyController:
         model_edit.editingFinished.connect(self._visual_reply_service.apply_model)
         auto_show_checkbox.toggled.connect(self._visual_reply_service.apply_auto_show)
         self._visual_reply_service.refresh_hint()
+        return tab
+
+    def bind_core_tab(self, tab):
+        if tab is None:
+            raise RuntimeError("Visual Reply Designer UI did not provide a widget.")
+        return self._bind_core_settings_widgets(tab)
+
+    def build_core_tab(self):
+        tab = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(tab)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+
+        visual_box = QtWidgets.QGroupBox("Visual Replies")
+        visual_layout = QtWidgets.QVBoxLayout(visual_box)
+        visual_layout.setContentsMargins(12, 14, 12, 12)
+        visual_layout.setSpacing(8)
+
+        mode_combo = QtWidgets.QComboBox()
+        mode_combo.setObjectName("visual_reply_mode_combo")
+
+        provider_combo = QtWidgets.QComboBox()
+        provider_combo.setObjectName("visual_reply_provider_combo")
+
+        size_combo = QtWidgets.QComboBox()
+        size_combo.setObjectName("visual_reply_size_combo")
+
+        model_edit = QtWidgets.QLineEdit()
+        model_edit.setObjectName("visual_reply_model_edit")
+
+        auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
+        auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
+
+        visual_form = QtWidgets.QFormLayout()
+        visual_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        visual_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        visual_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        visual_form.addRow("Mode", mode_combo)
+        visual_form.addRow("Provider", provider_combo)
+        visual_form.addRow("Image Size", size_combo)
+        visual_form.addRow("Image Model", model_edit)
+        visual_layout.addLayout(visual_form)
+        visual_layout.addWidget(auto_show_checkbox)
+
+        hint_label = QtWidgets.QLabel()
+        hint_label.setObjectName("visual_reply_hint_label")
+        hint_label.setWordWrap(True)
+        hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        visual_layout.addWidget(hint_label)
 
         layout.addWidget(visual_box)
         layout.addStretch(1)
-        return tab
+        return self._bind_core_settings_widgets(tab)

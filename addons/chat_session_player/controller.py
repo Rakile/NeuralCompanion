@@ -19,6 +19,56 @@ class ChatSessionPlayerController(QtCore.QObject):
         if existing is not None:
             return existing
 
+        return self._build_tab_in_code()
+
+    def bind_designer_tab(self, scroll):
+        self._bind_ui_objects(scroll)
+        return self._finalize_tab_widget(scroll)
+
+    def _bind_ui_objects(self, root):
+        required = {
+            "chat_player_summary_label": QtWidgets.QLabel,
+            "btn_chat_player_load": QtWidgets.QPushButton,
+            "btn_chat_player_quick_load": QtWidgets.QPushButton,
+            "btn_chat_player_refresh": QtWidgets.QPushButton,
+            "chat_player_message_list": QtWidgets.QListWidget,
+            "btn_chat_player_prev": QtWidgets.QPushButton,
+            "btn_chat_player_next": QtWidgets.QPushButton,
+            "btn_chat_player_replay_selected": QtWidgets.QPushButton,
+            "btn_chat_player_replay_latest": QtWidgets.QPushButton,
+            "btn_chat_player_replay_chat": QtWidgets.QPushButton,
+            "chat_player_status_label": QtWidgets.QLabel,
+        }
+        missing = []
+        for name, widget_type in required.items():
+            child = root.findChild(widget_type, name)
+            if child is None:
+                missing.append(name)
+            setattr(self, name, child)
+        if missing:
+            raise RuntimeError(f"Chat Player UI is missing required object(s): {', '.join(missing)}")
+        self.btn_chat_player_load.clicked.connect(self._load_chat_context)
+        self.btn_chat_player_quick_load.clicked.connect(self._quick_load_chat_context)
+        self.btn_chat_player_refresh.clicked.connect(self.refresh_state)
+        self.chat_player_message_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        self.chat_player_message_list.itemSelectionChanged.connect(self._on_message_selection_changed)
+        self.chat_player_message_list.itemDoubleClicked.connect(lambda _item: self._replay_selected())
+        self.btn_chat_player_prev.clicked.connect(lambda: self._select_relative(-1))
+        self.btn_chat_player_next.clicked.connect(lambda: self._select_relative(1))
+        self.btn_chat_player_replay_selected.clicked.connect(self._replay_selected)
+        self.btn_chat_player_replay_latest.clicked.connect(self._replay_latest)
+        self.btn_chat_player_replay_chat.clicked.connect(self._replay_chat)
+
+    def _finalize_tab_widget(self, widget):
+        self.chat_player_tab_widget = widget
+        self._refresh_timer = QtCore.QTimer(widget)
+        self._refresh_timer.setInterval(1000)
+        self._refresh_timer.timeout.connect(self.refresh_state)
+        self._refresh_timer.start()
+        self.refresh_state()
+        return widget
+
+    def _build_tab_in_code(self):
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
@@ -140,13 +190,7 @@ class ChatSessionPlayerController(QtCore.QObject):
         layout.addWidget(self.chat_player_status_label)
         layout.addStretch(1)
 
-        self.chat_player_tab_widget = scroll
-        self._refresh_timer = QtCore.QTimer(scroll)
-        self._refresh_timer.setInterval(1000)
-        self._refresh_timer.timeout.connect(self.refresh_state)
-        self._refresh_timer.start()
-        self.refresh_state()
-        return scroll
+        return self._finalize_tab_widget(scroll)
 
     def _snapshot(self):
         if self.replay_service is None:

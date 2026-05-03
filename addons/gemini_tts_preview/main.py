@@ -50,14 +50,16 @@ class Addon(BaseAddon):
             },
         )
 
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id=self.TAB_ID,
             title="Gemini TTS",
+            ui_path="ui/gemini_tts_preview.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="tts_runtime",
             order=125,
             tooltip="Gemini preview TTS backend settings.",
             metadata={"backend_id": self.SERVICE_NAME},
-            factory=self._build_tab,
         )
         context.logger.info("Gemini TTS Preview addon initialized.")
 
@@ -71,6 +73,14 @@ class Addon(BaseAddon):
             controller = controller_cls(context, self.service)
             self.controller = controller
         return controller.build_tab()
+
+    def _bind_designer_tab(self, widget, context):
+        controller = self._peek_controller()
+        if controller is None:
+            controller_cls = _load_controller_class()
+            controller = controller_cls(context, self.service)
+            self.controller = controller
+        return controller.bind_designer_tab(widget)
 
     def export_session_state(self):
         if getattr(self, "service", None) is None:

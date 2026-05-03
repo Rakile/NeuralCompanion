@@ -24,13 +24,16 @@ class Addon(BaseAddon):
         super().initialize(context)
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id=self.TAB_ID,
             title="Story Visuals",
+            ui_path="ui/visual_story_settings.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="host_settings",
             order=121,
             tooltip="Story-mode visual reply settings.",
-            factory=self._build_tab,
+            icon_path="ui/icons/story_visuals.png",
         )
         context.logger.info("Visual Story Settings addon initialized.")
 
@@ -42,6 +45,12 @@ class Addon(BaseAddon):
         if controller is None:
             raise RuntimeError("Visual Story Settings controller is unavailable.")
         return controller.build_tab()
+
+    def _bind_designer_tab(self, widget, context):
+        controller = self._peek_controller()
+        if controller is None:
+            raise RuntimeError("Visual Story Settings controller is unavailable.")
+        return controller.bind_designer_tab(widget)
 
     def export_session_state(self):
         controller = self._peek_controller()

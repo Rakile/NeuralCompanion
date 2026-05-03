@@ -197,9 +197,13 @@ class AddonUIService(AddonServiceBase):
         order: int = 1000,
         tooltip: str = "",
         parent_tab_id: str = "",
+        icon_path: str = "",
         metadata: dict[str, Any] | None = None,
     ) -> TabContribution:
         self._require("ui.tabs")
+        contribution_metadata = dict(metadata or {})
+        if str(icon_path or "").strip():
+            contribution_metadata["icon_path"] = str(icon_path or "").strip()
         contribution = TabContribution(
             id=str(id or "").strip(),
             title=str(title or "").strip(),
@@ -209,7 +213,81 @@ class AddonUIService(AddonServiceBase):
             order=int(order),
             tooltip=str(tooltip or ""),
             parent_tab_id=str(parent_tab_id or "").strip(),
-            metadata=dict(metadata or {}),
+            metadata=contribution_metadata,
+        )
+        self._tab_contributions.append(contribution)
+        return contribution
+
+    def register_designer_tab(
+        self,
+        *,
+        id: str,
+        title: str,
+        ui_path: str,
+        binder: Callable[[Any, "AddonContext"], None] | None = None,
+        fallback_factory: Callable[["AddonContext"], Any] | None = None,
+        area: str = "top_level",
+        order: int = 1000,
+        tooltip: str = "",
+        parent_tab_id: str = "",
+        icon_path: str = "",
+        metadata: dict[str, Any] | None = None,
+    ) -> TabContribution:
+        self._require("ui.tabs")
+        relative_ui_path = str(ui_path or "").strip()
+        if not relative_ui_path:
+            raise ValueError("Designer tab ui_path is required.")
+
+        def _factory(addon_context: "AddonContext"):
+            try:
+                addon_context = addon_context or self._context
+                from PySide6 import QtCore, QtUiTools
+
+                raw_path = Path(relative_ui_path)
+                resolved_path = raw_path if raw_path.is_absolute() else self._context.manifest.root_dir / raw_path
+                ui_file = QtCore.QFile(str(resolved_path))
+                if not ui_file.open(QtCore.QIODevice.ReadOnly):
+                    raise RuntimeError(f"Could not open addon UI file: {resolved_path}")
+                try:
+                    widget = QtUiTools.QUiLoader().load(ui_file)
+                finally:
+                    ui_file.close()
+                if widget is None:
+                    raise RuntimeError(f"Addon UI file did not produce a widget: {resolved_path}")
+                host_binder = addon_context.get_service("qt.bind_designer_widgets")
+                if callable(host_binder):
+                    host_binder(widget)
+                if binder is not None:
+                    binder(widget, addon_context)
+                return widget
+            except Exception as exc:
+                if fallback_factory is None:
+                    raise
+                try:
+                    addon_context.logger.warning(
+                        "Designer UI tab '%s' failed to load from '%s'; using fallback factory. Error: %s",
+                        str(id or "").strip(),
+                        relative_ui_path,
+                        exc,
+                    )
+                except Exception:
+                    pass
+                return fallback_factory(addon_context)
+
+        contribution_metadata = {**dict(metadata or {}), "ui_path": relative_ui_path, "ui_kind": "designer"}
+        if str(icon_path or "").strip():
+            contribution_metadata["icon_path"] = str(icon_path or "").strip()
+
+        contribution = TabContribution(
+            id=str(id or "").strip(),
+            title=str(title or "").strip(),
+            factory=_factory,
+            addon_id=self._context.manifest.id,
+            area=str(area or "top_level").strip() or "top_level",
+            order=int(order),
+            tooltip=str(tooltip or ""),
+            parent_tab_id=str(parent_tab_id or "").strip(),
+            metadata=contribution_metadata,
         )
         self._tab_contributions.append(contribution)
         return contribution
@@ -310,4 +388,3 @@ class AddonContext:
         self.events.cleanup()
         self.services.cleanup()
         self.ui.cleanup()
-

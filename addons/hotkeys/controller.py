@@ -28,6 +28,54 @@ class HotkeysController(QtCore.QObject):
         if existing is not None:
             return existing
 
+        return self._build_tab_in_code()
+
+    def bind_designer_tab(self, widget):
+        self._bind_ui_objects(widget)
+        return self._finalize_tab_widget(widget)
+
+    def _bind_ui_objects(self, widget):
+        required = {
+            "hotkey_list": QtWidgets.QListWidget,
+            "hotkey_label": QtWidgets.QLabel,
+            "hotkey_meta": QtWidgets.QLabel,
+            "hotkey_description": QtWidgets.QLabel,
+            "hotkey_binding_edit": QtWidgets.QLineEdit,
+            "hotkey_default_label": QtWidgets.QLabel,
+            "btn_hotkey_record": QtWidgets.QPushButton,
+            "btn_hotkey_apply": QtWidgets.QPushButton,
+            "btn_hotkey_clear": QtWidgets.QPushButton,
+            "btn_hotkey_reset_one": QtWidgets.QPushButton,
+            "btn_hotkey_refresh": QtWidgets.QPushButton,
+            "btn_hotkey_reset_all": QtWidgets.QPushButton,
+            "hotkey_status": QtWidgets.QLabel,
+        }
+        missing = []
+        for name, widget_type in required.items():
+            child = widget.findChild(widget_type, name)
+            if child is None:
+                missing.append(name)
+            setattr(self, name, child)
+        if missing:
+            raise RuntimeError(f"Hotkeys UI is missing required object(s): {', '.join(missing)}")
+        self.hotkey_list.itemSelectionChanged.connect(self._on_selection_changed)
+        self.btn_hotkey_record.clicked.connect(self._start_record_binding)
+        self.btn_hotkey_apply.clicked.connect(self._apply_current_binding)
+        self.btn_hotkey_clear.clicked.connect(self._clear_current_binding)
+        self.btn_hotkey_reset_one.clicked.connect(self._reset_selected_to_default)
+        self.btn_hotkey_refresh.clicked.connect(self.refresh_state)
+        self.btn_hotkey_reset_all.clicked.connect(self._reset_all_defaults)
+
+    def _finalize_tab_widget(self, widget):
+        self.hotkeys_tab_widget = widget
+        self._refresh_timer = QtCore.QTimer(widget)
+        self._refresh_timer.setInterval(2000)
+        self._refresh_timer.timeout.connect(self._soft_refresh)
+        self._refresh_timer.start()
+        self.refresh_state()
+        return widget
+
+    def _build_tab_in_code(self):
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(14, 14, 14, 14)
@@ -132,13 +180,7 @@ class HotkeysController(QtCore.QObject):
         body.addWidget(detail_box, 1)
         layout.addLayout(body, 1)
 
-        self.hotkeys_tab_widget = widget
-        self._refresh_timer = QtCore.QTimer(widget)
-        self._refresh_timer.setInterval(2000)
-        self._refresh_timer.timeout.connect(self._soft_refresh)
-        self._refresh_timer.start()
-        self.refresh_state()
-        return widget
+        return self._finalize_tab_widget(widget)
 
     def _selected_action(self):
         item = self.hotkey_list.currentItem() if hasattr(self, "hotkey_list") else None

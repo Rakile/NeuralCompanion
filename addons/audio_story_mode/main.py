@@ -25,13 +25,15 @@ class Addon(BaseAddon):
         self._shell_preview = bool(context.get_service("qt.audio_story_mode_shell_preview") if context is not None else False)
         self._controller_cls = None
         self.controller = None
-        context.ui.register_tab(
+        context.ui.register_designer_tab(
             id=self.TAB_ID,
             title="Audio Story Mode",
+            ui_path="ui/audio_story_mode.ui",
+            binder=self._bind_designer_tab,
+            fallback_factory=self._build_tab,
             area="operational_view",
             order=120,
             tooltip="Import story audio, transcribe it locally, and sync visual replies to playback.",
-            factory=self._build_tab,
         )
         context.logger.info("Audio Story Mode addon initialized.")
 
@@ -59,6 +61,20 @@ class Addon(BaseAddon):
         if controller is None:
             raise RuntimeError("Audio Story Mode controller is unavailable.")
         return controller.build_tab()
+
+    def _bind_designer_tab(self, widget, context):
+        from PySide6 import QtWidgets
+
+        mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount")
+        if mount is None:
+            raise RuntimeError("Audio Story Mode Designer UI is missing addon_designer_mount.")
+        layout = mount.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(mount)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(0)
+        layout.addWidget(self._build_tab(context))
+        return widget
 
     def _build_shell_preview_tab(self):
         from PySide6 import QtCore, QtWidgets
