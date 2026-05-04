@@ -1,3 +1,12 @@
+import time
+from pathlib import Path
+
+from PySide6 import QtWidgets
+
+import shared_state
+from ui.panels.input_dialog import QtInputDialog
+
+
 def _runtime_config():
     import engine
 
@@ -105,3 +114,111 @@ class BackendVisualReplyRuntimeMixin:
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_auto_show_dock", "value": enabled})
         self.save_session()
+
+    def show_visual_reply_dock(self):
+        if not self._addon_effectively_enabled("nc.visual_reply"):
+            return
+        if hasattr(self, "visual_reply_dock"):
+            self.visual_reply_dock.show()
+            self.visual_reply_dock.raise_()
+        if hasattr(self, "visual_reply_panel"):
+            self.visual_reply_panel.show()
+        print("[QtGUI] Visual Reply dock shown.")
+
+    def clear_visual_reply(self, status_text="Visual Reply idle", detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.", *, auto_show=False):
+        panel = getattr(self, "visual_reply_panel", None)
+        if panel is None:
+            return False
+        panel.clear_visual_reply(status_text=status_text, detail_text=detail_text)
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "idle",
+                "status_text": str(status_text or "Visual Reply idle"),
+                "detail_text": str(detail_text or "No visual reply yet.\nWhen NC creates an image, it will appear here."),
+                "image_path": "",
+                "caption": "",
+                "request_id": "",
+                "updated_at": time.time(),
+            }
+        )
+        if auto_show:
+            self.show_visual_reply_dock()
+        return True
+
+    def set_visual_reply_loading(self, status_text="Visual Reply generating...", detail_text="Preparing image...", *, auto_show=True):
+        panel = getattr(self, "visual_reply_panel", None)
+        if panel is None:
+            return False
+        panel.set_loading_state(status_text=status_text, detail_text=detail_text)
+        shared_state.set_current_visual_reply_data(
+            {
+                "status": "loading",
+                "status_text": str(status_text or "Visual Reply generating..."),
+                "detail_text": str(detail_text or "Preparing image..."),
+                "image_path": "",
+                "caption": "",
+                "request_id": "",
+                "updated_at": time.time(),
+            }
+        )
+        if auto_show:
+            self.show_visual_reply_dock()
+        return True
+
+    def show_visual_reply_image(self, image_path, caption="", status_text="Visual Reply", *, auto_show=True):
+        panel = getattr(self, "visual_reply_panel", None)
+        if panel is None:
+            return False
+        loaded = bool(panel.show_image(image_path, status_text=status_text, caption=caption))
+        if loaded:
+            resolved_caption = str(getattr(panel, "current_caption", "") or "").strip()
+            shared_state.set_current_visual_reply_data(
+                {
+                    "status": "ready",
+                    "status_text": str(status_text or "Visual Reply"),
+                    "detail_text": "",
+                    "image_path": str(image_path or ""),
+                    "caption": resolved_caption,
+                    "request_id": "",
+                    "updated_at": time.time(),
+                }
+            )
+        if loaded and auto_show:
+            self.show_visual_reply_dock()
+        return loaded
+
+    def set_visual_reply_caption(self, caption=""):
+        panel = getattr(self, "visual_reply_panel", None)
+        if panel is None:
+            return False
+        updated = bool(panel.set_caption(caption))
+        if updated:
+            shared_state.update_current_visual_reply_data(caption=str(caption or ""))
+        return updated
+
+    def prompt_visual_reply_image(self):
+        panel = getattr(self, "visual_reply_panel", None)
+        current_image_path = str(getattr(panel, "current_image_path", "") or "").strip()
+        start_dir = str(Path(current_image_path).parent) if current_image_path else str(Path.cwd())
+        path, _ = QtWidgets.QFileDialog.getOpenFileName(
+            self,
+            "Load Visual Reply Image",
+            start_dir,
+            "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All Files (*)",
+        )
+        if not path:
+            return False
+        loaded = self.show_visual_reply_image(path, status_text="Visual Reply", auto_show=True)
+        if loaded:
+            print(f"[QtGUI] Visual Reply image loaded: {path}")
+        return loaded
+
+    def prompt_visual_reply_caption(self):
+        panel = getattr(self, "visual_reply_panel", None)
+        current = panel.caption_label.text().strip() if panel is not None and hasattr(panel, "caption_label") else ""
+        caption = QtInputDialog.get_text("Visual Reply Caption", "Enter Caption:", self, default_text=current)
+        if caption is None:
+            return False
+        self.set_visual_reply_caption(caption)
+        print("[QtGUI] Visual Reply caption updated.")
+        return True

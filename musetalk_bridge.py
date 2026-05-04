@@ -5,6 +5,7 @@ import re
 import subprocess
 import threading
 import uuid
+from collections import deque
 
 MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
 MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
@@ -35,6 +36,7 @@ class MuseTalkBridge:
         self._lock = threading.Lock()
         self._pending_lock = threading.Lock()
         self._stopping = False
+        self._recent_output = deque(maxlen=12)
 
     def _fail_pending_requests(self, error):
         payload = {"ok": False, "error": str(error or "MuseTalk worker stopped.")}
@@ -80,6 +82,7 @@ class MuseTalkBridge:
                 errors="replace",
                 bufsize=1,
             )
+            self._recent_output.clear()
             print(f"[MuseTalkBridge] Worker process started: pid={self.process.pid}, command={os.path.basename(self.python_exe)} {os.path.basename(self.worker_script)}")
             self._reader_thread = threading.Thread(target=self._read_stdout, daemon=True)
             self._reader_thread.start()
@@ -174,7 +177,7 @@ class MuseTalkBridge:
                         break
                     except queue.Empty:
                         if not self.process or self.process.poll() is not None:
-                            raise RuntimeError("MuseTalk worker stopped before responding.")
+                            raise RuntimeError(self._worker_stopped_message("MuseTalk worker stopped before responding."))
         except queue.Empty:
             raise TimeoutError(f"MuseTalk worker request timed out after {timeout:.1f}s: {payload.get('action')}")
         finally:
@@ -183,6 +186,21 @@ class MuseTalkBridge:
         if not response.get("ok", False):
             raise RuntimeError(response.get("error", "Unknown MuseTalk worker error"))
         return response
+
+    def _worker_stopped_message(self, prefix):
+        process = self.process
+        code = None
+        try:
+            code = process.poll() if process is not None else None
+        except Exception:
+            code = None
+        details = [str(prefix or "MuseTalk worker stopped.")]
+        if code is not None:
+            details.append(f"exit_code={code}")
+        recent = [str(line or "").strip() for line in list(self._recent_output) if str(line or "").strip()]
+        if recent:
+            details.append("recent_output=" + " | ".join(recent[-5:]))
+        return " ".join(details)
 
     def _read_stdout(self):
         process = self.process
@@ -196,6 +214,7 @@ class MuseTalkBridge:
                 continue
             if _is_progress_noise_line(line):
                 continue
+            self._recent_output.append(line)
             if self.log_worker_output:
                 try:
                     with open(self.log_path, "a", encoding="utf-8") as log_file:

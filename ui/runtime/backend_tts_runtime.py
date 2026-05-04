@@ -24,6 +24,14 @@ def _update_runtime_config(key, value):
 class BackendTtsRuntimeMixin:
     """TTS backend selection and TTS runtime settings UI wiring."""
 
+    def _toggle_pocket_tts_advanced(self, checked):
+        if hasattr(self, "pocket_tts_advanced_group"):
+            self.pocket_tts_advanced_group.setVisible(bool(checked))
+        if hasattr(self, "pocket_tts_advanced_toggle"):
+            self.pocket_tts_advanced_toggle.setText(
+                "Hide Advanced PocketTTS Override" if checked else "Show Advanced PocketTTS Override"
+            )
+
     def _sync_tts_runtime_fields_height(self):
         try:
             tabs = getattr(self, "tts_runtime_addon_tabs", None)

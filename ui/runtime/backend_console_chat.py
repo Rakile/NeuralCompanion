@@ -1,6 +1,11 @@
+import json
 import re
+import time
+from pathlib import Path
 
 from PySide6 import QtCore, QtGui
+
+from core.addons.qt_host_services import QtDialogService
 
 
 def _engine():
@@ -16,6 +21,33 @@ def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
         entries,
         allow_pending_loaded_user=allow_pending_loaded_user,
     )
+
+
+def _capture_musetalk_preview_snapshot():
+    try:
+        import shared_state
+
+        state = dict(getattr(shared_state, "current_musetalk_frame_data", {}) or {})
+    except Exception:
+        return None
+    if not state.get("frame_paths") and not state.get("frame_dir"):
+        return None
+    return state
+
+
+def _restore_musetalk_preview_snapshot(snapshot):
+    if not snapshot:
+        return
+    try:
+        import shared_state
+
+        engine_module = _engine()
+        shared_state.set_current_musetalk_frame_data(dict(snapshot))
+        prime = getattr(engine_module, "prime_musetalk_preview_frame", None)
+        if callable(prime):
+            prime(shared_state.current_musetalk_frame_data)
+    except Exception as exc:
+        print(f"⚠️ [MuseTalkPreview] Could not preserve preview during chat context load: {exc}")
 
 
 class BackendConsoleChatMixin:
@@ -395,3 +427,115 @@ class BackendConsoleChatMixin:
             QtCore.QTimer.singleShot(0, lambda state=preserve_scroll_state, widget=self.chat_edit: self._restore_vertical_scroll_state(widget, state))
         if self.chat_auto_scroll:
             QtCore.QTimer.singleShot(0, lambda w=self.chat_edit: self._force_scroll_to_bottom(w))
+
+    def _is_replay_control_action(self, action):
+        raw = str(action or "").strip()
+        engine = _engine()
+        return (
+            raw in {"replay_last_assistant", "replay_chat_session"}
+            or engine.parse_replay_chat_session_start_index(raw) is not None
+        )
+
+    def trigger_replay_from_assistant_index(self, replay_index):
+        engine = _engine()
+        replayable_entries = list(engine.collect_replayable_assistant_entries() or [])
+        if not replayable_entries:
+            print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
+            return
+        try:
+            resolved_index = int(replay_index)
+        except Exception:
+            resolved_index = 1
+        resolved_index = max(1, min(resolved_index, len(replayable_entries)))
+        self.trigger_control_action(engine.build_replay_chat_session_from_action(resolved_index))
+
+    def trigger_control_action(self, action):
+        engine = _engine()
+        if self._dry_run_is_active():
+            print(f"[QtGUI] Control action '{action}' ignored while Dry Run is active.")
+            return
+        if not self.thread or not self.thread.is_alive():
+            if self._is_replay_control_action(action):
+                replayable = engine.collect_replayable_assistant_messages()
+                if not replayable:
+                    print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
+                    return
+                engine.trigger_manual_action(action)
+                print(f"[QtGUI] Control action: {action} (offline replay bootstrap)")
+                self.start_engine(offline_replay_only=True)
+                return
+            print("[QtGUI] Control panel ignored: engine not running.")
+            return
+        if self._engine_is_offline_replay_only() and action not in {"pause_speech", "skip_speech"} and not self._is_replay_control_action(action):
+            print(f"[QtGUI] Control action '{action}' is unavailable during offline replay mode.")
+            return
+        engine.trigger_manual_action(action)
+        print(f"[QtGUI] Control action: {action}")
+
+    def reset_chat_session(self):
+        _engine().reset_session_state()
+        self.clear_chat()
+        print("[QtGUI] Chat memory reset.")
+
+    def _default_chat_context_path(self):
+        chat_dir = Path("runtime") / "chat_contexts"
+        chat_dir.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%d-%Hh%Mm%Ss")
+        return chat_dir / f"chat_context_{stamp}.json"
+
+    def _quick_chat_context_path(self):
+        runtime_dir = Path("runtime")
+        runtime_dir.mkdir(parents=True, exist_ok=True)
+        return runtime_dir / "chat_context_quick_save.json"
+
+    def save_chat_context(self):
+        default_path = self._default_chat_context_path()
+        path, _ = QtDialogService(self).save_file(
+            "Save Chat Context",
+            str(default_path),
+            "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
+        )
+        if not path:
+            return
+        target = Path(path)
+        if target.suffix.lower() != ".json":
+            target = target.with_suffix(".json")
+        payload = _engine().export_chat_session_state()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"[QtGUI] Chat context saved: {target}")
+
+    def quick_save_chat_context(self):
+        target = self._quick_chat_context_path()
+        payload = _engine().export_chat_session_state()
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        print(f"[QtGUI] Quick chat context saved: {target}")
+
+    def load_chat_context(self):
+        path, _ = QtDialogService(self).open_file(
+            "Load Chat Context",
+            str(Path("runtime") / "chat_contexts"),
+            "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
+        )
+        if not path:
+            return
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot()
+        result = _engine().import_chat_session_state(payload)
+        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot)
+        self._set_chat_edit_mode(False)
+        self._rebuild_chat_view_from_history(force=True)
+        print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
+
+    def quick_load_chat_context(self):
+        path = self._quick_chat_context_path()
+        if not path.exists():
+            print(f"[QtGUI] Quick chat context not found: {path}")
+            return
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot()
+        result = _engine().import_chat_session_state(payload)
+        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot)
+        self._set_chat_edit_mode(False)
+        self._rebuild_chat_view_from_history(force=True)
+        print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")

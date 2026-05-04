@@ -1,0 +1,176 @@
+import threading
+
+from PySide6 import QtCore
+
+
+def _engine():
+    import engine
+
+    return engine
+
+
+def _runtime_config():
+    return getattr(_engine(), "RUNTIME_CONFIG", {})
+
+
+def _update_runtime_config(key, value):
+    from engine import update_runtime_config
+
+    return update_runtime_config(key, value)
+
+
+def _musetalk_vram_mode_labels():
+    from qt_app import MUSE_VRAM_MODE_LABELS
+
+    return MUSE_VRAM_MODE_LABELS
+
+
+class BackendEngineLifecycleMixin:
+    """Engine start/stop lifecycle and config handoff from the Qt backend window."""
+
+    def apply_text_config(self):
+        runtime_config = _runtime_config()
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(runtime_config.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
+        mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
+        role = self._input_role_value_from_label(self.input_role_combo.currentText())
+        stream_mode = self.stream_mode_combo.currentText() == "On"
+        tts_backend = self._current_tts_backend_value()
+        musetalk_vram_mode = next(
+            (key for key, label in _musetalk_vram_mode_labels().items() if label == self._live_combo_text("musetalk_vram_combo", "")),
+            "quality",
+        )
+        _update_runtime_config("input_mode", mode)
+        _update_runtime_config("input_message_role", role)
+        _update_runtime_config("stream_mode", stream_mode)
+        _update_runtime_config("tts_backend", tts_backend)
+        _update_runtime_config("musetalk_vram_mode", musetalk_vram_mode)
+        _update_runtime_config("musetalk_use_frame_cache", self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)))
+        _update_runtime_config("musetalk_avatar_pack_id", str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""))
+        _update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
+        _update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
+        _update_runtime_config("listen_idle_window_seconds", round(float(self.listen_idle_window_spin.value()), 1) if hasattr(self, "listen_idle_window_spin") else 5.0)
+        _update_runtime_config("proactive_delay_seconds", round(float(self.proactive_delay_spin.value()), 1) if hasattr(self, "proactive_delay_spin") else 10.0)
+        _update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
+        _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
+        _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
+        _update_runtime_config("pocket_tts_python", self._live_text("pocket_tts_python_edit", runtime_config.get("pocket_tts_python", "")).strip())
+        _update_runtime_config("vam_vmc_enabled", self._live_checked("vam_vmc_enabled_checkbox", True))
+        _update_runtime_config("vam_bridge_enabled", self._live_checked("vam_bridge_enabled_checkbox", True))
+        _update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", False))
+        _update_runtime_config("vam_timeline_auto_resume", self._live_checked("vam_timeline_auto_resume_checkbox", True))
+        _update_runtime_config("vam_vmc_host", self._live_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1")
+        _update_runtime_config("vam_vmc_port", int(self._live_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539) or 39539)))
+        _update_runtime_config("vam_root", self._current_vam_root_value())
+        _update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value())
+        _update_runtime_config("vam_target_atom_uid", self._live_text("vam_target_atom_uid_edit", runtime_config.get("vam_target_atom_uid", "Person")).strip() or "Person")
+        _update_runtime_config("vam_target_storable_id", self._live_text("vam_target_storable_id_edit", runtime_config.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip())
+        _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
+        _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
+        print("[QtGUI] Text Config Updated.")
+
+    def start_engine(self, offline_replay_only=False):
+        engine = _engine()
+        runtime_config = _runtime_config()
+        if self.thread and self.thread.is_alive():
+            return
+        self._publish_addon_event("runtime.heavy_task_starting", {"source": "engine_start"})
+        mode = self._current_avatar_mode_value()
+        _update_runtime_config("avatar_mode", mode)
+        self.apply_text_config()
+        config = {
+            "active_preset_name": str(runtime_config.get("active_preset_name", "") or ""),
+            "chat_provider": self._current_chat_provider_value(),
+            "chat_provider_settings": dict(runtime_config.get("chat_provider_settings", {}) or {}),
+            "chat_provider_generation_settings": dict(runtime_config.get("chat_provider_generation_settings", {}) or {}),
+            "model_name": self.model_combo.currentText(),
+            "system_prompt": self.system_prompt_text.toPlainText().strip(),
+            "temperature": self.brain_sliders["temperature"].value(),
+            "top_p": self.brain_sliders["top_p"].value(),
+            "top_k": int(self.brain_sliders["top_k"].value()),
+            "repeat_penalty": self.brain_sliders["repeat_penalty"].value(),
+            "min_p": self.brain_sliders["min_p"].value(),
+            "limit_response_length": self.limit_response_checkbox.isChecked(),
+            "max_response_tokens": int(self.max_response_tokens_spin.value()),
+            "avatar_mode": mode,
+            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
+            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
+            "stream_mode": self.stream_mode_combo.currentText() == "On",
+            "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(runtime_config.get("audio_input_device", "Default Input") or "Default Input"),
+            "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(runtime_config.get("audio_output_device", "Default Output") or "Default Output"),
+            "offline_replay_only": bool(offline_replay_only),
+            "tts_backend": self._current_tts_backend_value(),
+            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""),
+            "musetalk_vram_mode": next(
+                (key for key, label in _musetalk_vram_mode_labels().items() if label == self._live_combo_text("musetalk_vram_combo", "")),
+                "quality",
+            ),
+            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)),
+            "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", runtime_config.get("vam_vmc_enabled", True)),
+            "vam_vmc_host": self._live_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
+            "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539) or 39539)),
+            "vam_bridge_enabled": self._live_checked("vam_bridge_enabled_checkbox", runtime_config.get("vam_bridge_enabled", True)),
+            "vam_root": self._current_vam_root_value(),
+            "vam_bridge_root": self._current_vam_bridge_root_value(),
+            "vam_play_audio_in_vam": True if mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", runtime_config.get("vam_play_audio_in_vam", False)),
+            "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", runtime_config.get("vam_target_atom_uid", "Person")).strip() or "Person",
+            "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", runtime_config.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip(),
+            "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", runtime_config.get("vam_timeline_auto_resume", True)),
+            "pocket_tts_python": (
+                self._ensure_pocket_tts_python_path()
+                if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
+                else self._live_text("pocket_tts_python_edit", runtime_config.get("pocket_tts_python", "")).strip()
+            ),
+            "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
+            "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
+            "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),
+            "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(runtime_config.get("sensory_allow_hidden_proactive_speech", False)),
+            "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(runtime_config.get("sensory_allow_hidden_visual_generation", False)),
+            "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(runtime_config.get("sensory_pingpong_history_depth", 3) or 3),
+            "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(runtime_config.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
+            "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(runtime_config.get("sensory_pingpong_source_prompts", {}) or {}),
+        }
+        self.btn_start.setEnabled(False)
+        self.btn_stop.setEnabled(True)
+        if mode == "musetalk":
+            self.show_musetalk_preview()
+        self.thread = threading.Thread(target=self._run_engine_thread, args=(config,), daemon=True)
+        self.thread.start()
+        self.emit_tutorial_event("engine_start_requested", {"avatar_mode": mode, "tts_backend": config.get("tts_backend", "")})
+        self._update_restart_sensitive_controls()
+        self._update_control_action_buttons()
+        self._update_push_to_talk_button()
+
+    def _run_engine_thread(self, config):
+        try:
+            _engine().run_companion(config)
+        except Exception as exc:
+            print(f"CRITICAL ERROR: {exc}")
+        finally:
+            if not self._closing:
+                try:
+                    QtCore.QMetaObject.invokeMethod(self, "reset_ui", QtCore.Qt.QueuedConnection)
+                except RuntimeError:
+                    pass
+
+    @QtCore.Slot()
+    def reset_ui(self):
+        if self._closing:
+            return
+        self.btn_start.setEnabled(True)
+        self.btn_stop.setEnabled(False)
+        self.emit_tutorial_event("engine_stopped", self.get_tutorial_runtime_state())
+        self._update_restart_sensitive_controls()
+        self._update_control_action_buttons()
+        self._update_push_to_talk_button()
+        print("[QtGUI] System Halted.")
+
+    def stop_engine(self):
+        engine = _engine()
+        print("[QtGUI] Stopping...")
+        engine.stop_flag.set()
+        engine.shutdown_avatar_engine()
+        self.btn_stop.setEnabled(False)
+        self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
+        self._update_restart_sensitive_controls()
+        self._update_control_action_buttons()
+        self._update_push_to_talk_button()

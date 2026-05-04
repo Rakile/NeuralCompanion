@@ -446,15 +446,3 @@ class MainUiRealTabAdoptionMixin:
                     self.backend._sync_tab_widget_height(tabs)
                 except Exception:
                     pass
-            current_title = self._current_frontend_tab_title("left_tabs")
-            if current_title == "Hotkeys":
-                controller = None
-                try:
-                    controller = self.backend._get_addon_controller("nc.hotkeys")
-                except Exception:
-                    controller = None
-                if controller is not None and hasattr(controller, "refresh_state"):
-                    try:
-                        controller.refresh_state()
-                    except Exception:
-                        pass

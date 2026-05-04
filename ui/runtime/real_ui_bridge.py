@@ -203,7 +203,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._poll_timer.start()
 
         print("[UI Real] Loaded runtime-backed main.ui front-end.")
-        print("[UI Real] Stable default app startup remains python qt_app.py.")
+        print("[UI Real] main.ui is the default app startup. Use --legacy-ui only for temporary fallback.")
         print("[UI Real] Phase 5 slice is live: engine lifecycle, runtime controls, chat-context actions, status, and console/chat mirroring.")
 
     def _ui(self, name, cls=None):
