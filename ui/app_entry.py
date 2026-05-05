@@ -1,13 +1,76 @@
 """Runtime app entry helpers for the Qt desktop application."""
 
+import faulthandler
+import os
 import sys
+import threading
+import time
+import traceback
+from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
+
+_CRASH_LOG_HANDLE = None
+_ORIGINAL_SYS_EXCEPTHOOK = sys.excepthook
+_ORIGINAL_THREADING_EXCEPTHOOK = getattr(threading, "excepthook", None)
 
 
 def configure_app_entry_dependencies(namespace):
     """Inject qt_app-owned launch dependencies without importing qt_app here."""
     globals().update(dict(namespace or {}))
+
+
+def _install_crash_diagnostics():
+    """Keep a lightweight crash recorder active for random native/Qt/runtime exits."""
+    global _CRASH_LOG_HANDLE
+    if _CRASH_LOG_HANDLE is not None:
+        return
+    try:
+        root = Path(SESSION_PATH).resolve().parent
+    except Exception:
+        root = Path.cwd()
+    log_dir = root / "runtime" / "crash_dumps"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_path = log_dir / f"nc_crash_{time.strftime('%Y%m%d_%H%M%S')}.log"
+        _CRASH_LOG_HANDLE = open(log_path, "a", encoding="utf-8", buffering=1)
+    except Exception as exc:
+        print(f"[CrashDiag] WARNING: Could not open crash log: {exc}")
+        return
+
+    _CRASH_LOG_HANDLE.write(
+        f"[CrashDiag] Started {time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()} argv={sys.argv!r}\n"
+    )
+    try:
+        faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)
+    except Exception as exc:
+        _CRASH_LOG_HANDLE.write(f"[CrashDiag] faulthandler.enable failed: {exc}\n")
+
+    def _sys_excepthook(exc_type, exc_value, exc_tb):
+        try:
+            _CRASH_LOG_HANDLE.write("[CrashDiag] Unhandled main-thread exception:\n")
+            traceback.print_exception(exc_type, exc_value, exc_tb, file=_CRASH_LOG_HANDLE)
+            _CRASH_LOG_HANDLE.flush()
+        except Exception:
+            pass
+        _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_tb)
+
+    def _threading_excepthook(args):
+        try:
+            _CRASH_LOG_HANDLE.write(
+                f"[CrashDiag] Unhandled thread exception in {getattr(args.thread, 'name', '<unknown>')}:\n"
+            )
+            traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=_CRASH_LOG_HANDLE)
+            _CRASH_LOG_HANDLE.flush()
+        except Exception:
+            pass
+        if _ORIGINAL_THREADING_EXCEPTHOOK is not None:
+            _ORIGINAL_THREADING_EXCEPTHOOK(args)
+
+    sys.excepthook = _sys_excepthook
+    if hasattr(threading, "excepthook"):
+        threading.excepthook = _threading_excepthook
+    print(f"[CrashDiag] Crash diagnostics enabled: {log_path}")
 
 
 def _run_real_ui(app, ui_arg="main.ui", *, runtime_smoke=False):
@@ -69,6 +132,7 @@ def _run_real_ui(app, ui_arg="main.ui", *, runtime_smoke=False):
 def run_qt_app(argv=None):
     """Run the default Qt app entry path after early shell/validation modes."""
     argv = list(sys.argv[1:] if argv is None else argv)
+    _install_crash_diagnostics()
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
     _install_no_wheel_input_guard(app)

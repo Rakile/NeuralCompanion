@@ -50,6 +50,25 @@ def load_ui_shell_for_smoke(ui_path):
     return app, window
 
 
+def load_ui_preview_window(ui_path):
+    from PySide6 import QtCore as _QtCore
+    try:
+        from PySide6 import QtUiTools as _QtUiTools
+    except Exception as exc:
+        raise RuntimeError("QtUiTools is unavailable, so Designer UI preview mode cannot start.") from exc
+
+    ui_file = _QtCore.QFile(str(ui_path))
+    if not ui_file.open(_QtCore.QIODevice.ReadOnly):
+        raise RuntimeError(f"Could not open UI file: {ui_path}")
+    try:
+        window = _QtUiTools.QUiLoader().load(ui_file)
+    finally:
+        ui_file.close()
+    if window is None:
+        raise RuntimeError(f"Qt Designer UI did not produce a window: {ui_path}")
+    return window
+
+
 def ui_shell_find_object(window, object_name):
     from PySide6 import QtCore as _QtCore
 
