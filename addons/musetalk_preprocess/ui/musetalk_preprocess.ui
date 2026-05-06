@@ -7,44 +7,310 @@
     <x>0</x>
     <y>0</y>
     <width>1100</width>
-    <height>820</height>
+    <height>980</height>
    </rect>
   </property>
   <layout class="QVBoxLayout" name="root_layout">
-   <property name="leftMargin">
-    <number>0</number>
-   </property>
-   <property name="topMargin">
-    <number>0</number>
-   </property>
-   <property name="rightMargin">
-    <number>0</number>
-   </property>
-   <property name="bottomMargin">
-    <number>0</number>
-   </property>
-   <property name="spacing">
-    <number>0</number>
-   </property>
+   <property name="leftMargin"><number>0</number></property>
+   <property name="topMargin"><number>0</number></property>
+   <property name="rightMargin"><number>0</number></property>
+   <property name="bottomMargin"><number>0</number></property>
+   <property name="spacing"><number>0</number></property>
    <item>
-    <widget class="QWidget" name="addon_designer_mount">
-     <layout class="QVBoxLayout" name="addon_designer_mount_layout">
-      <property name="leftMargin">
-       <number>0</number>
+    <widget class="QScrollArea" name="musetalk_scroll_area">
+     <property name="widgetResizable"><bool>true</bool></property>
+     <widget class="QWidget" name="musetalk_scroll_content">
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1080</width>
+        <height>940</height>
+       </rect>
       </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
-      <property name="spacing">
-       <number>0</number>
-      </property>
-     </layout>
+      <layout class="QVBoxLayout" name="musetalk_scroll_layout">
+       <property name="leftMargin"><number>12</number></property>
+       <property name="topMargin"><number>12</number></property>
+       <property name="rightMargin"><number>12</number></property>
+       <property name="bottomMargin"><number>12</number></property>
+       <property name="spacing"><number>12</number></property>
+       <item>
+        <widget class="QGroupBox" name="musetalk_box">
+         <property name="title"><string>MuseTalk Avatars</string></property>
+         <layout class="QVBoxLayout" name="musetalk_box_layout">
+          <property name="leftMargin"><number>14</number></property>
+          <property name="topMargin"><number>12</number></property>
+          <property name="rightMargin"><number>14</number></property>
+          <property name="bottomMargin"><number>12</number></property>
+          <property name="spacing"><number>10</number></property>
+          <item>
+           <widget class="QLabel" name="musetalk_intro_label">
+            <property name="styleSheet"><string notr="true">color: #9fb3c8;</string></property>
+            <property name="text"><string>Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. Pack variants are written under avatar_packs/&lt;pack&gt;/&lt;avatar_id&gt; so they can be distributed without machine-specific paths.</string></property>
+            <property name="wordWrap"><bool>true</bool></property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_source_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_source_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item>
+              <widget class="QLabel" name="musetalk_source_title">
+               <property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property>
+               <property name="text"><string>Source</string></property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QLabel" name="musetalk_source_description">
+               <property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property>
+               <property name="text"><string>Pick the prepared avatar you want to inspect, or a source clip/folder you want to preprocess into a MuseTalk avatar.</string></property>
+               <property name="wordWrap"><bool>true</bool></property>
+              </widget>
+             </item>
+             <item><widget class="QLabel" name="musetalk_target_pack_label"><property name="text"><string>Avatar Pack</string></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_target_pack_row">
+               <item><widget class="QComboBox" name="musetalk_target_pack_combo"/></item>
+               <item><widget class="QPushButton" name="btn_musetalk_target_pack_refresh"><property name="text"><string>Refresh</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_target_pack_new"><property name="text"><string>New Pack</string></property></widget></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_prepared_variants_label"><property name="text"><string>Prepared Variants</string></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_prepared_row">
+               <item><widget class="QComboBox" name="musetalk_avatar_combo"/></item>
+               <item><widget class="QPushButton" name="btn_musetalk_avatar_refresh"><property name="text"><string>Refresh</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_clear_frame_cache"><property name="text"><string>Clear .npy Cache</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_make_default_avatar"><property name="text"><string>Make Default</string></property></widget></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_source_path_label"><property name="text"><string>Source</string></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_source_row">
+               <item><widget class="QLineEdit" name="musetalk_source_edit"/></item>
+               <item><widget class="QPushButton" name="btn_musetalk_source_video"><property name="text"><string>Video</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_source_folder"><property name="text"><string>Frames</string></property></widget></item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_source_options_row">
+               <item>
+                <layout class="QVBoxLayout" name="musetalk_avatar_id_column">
+                 <item><widget class="QLabel" name="musetalk_avatar_id_label"><property name="text"><string>Avatar ID</string></property></widget></item>
+                 <item><widget class="QLineEdit" name="musetalk_avatar_id_edit"/></item>
+                </layout>
+               </item>
+               <item><widget class="QCheckBox" name="musetalk_recreate_checkbox"><property name="text"><string>Recreate existing folder</string></property></widget></item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QLabel" name="musetalk_avatar_destination_label">
+               <property name="text"><string/></property>
+               <property name="wordWrap"><bool>true</bool></property>
+              </widget>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_prepare_row">
+               <item><widget class="QPushButton" name="btn_musetalk_prepare_avatar"><property name="text"><string>Preprocess Avatar</string></property></widget></item>
+               <item><widget class="QCheckBox" name="musetalk_create_frame_cache_checkbox"><property name="text"><string>Create .npy startup cache</string></property></widget></item>
+               <item><spacer name="musetalk_prepare_row_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_emotion_tags_label"><property name="text"><string>Emotion Tags</string></property></widget></item>
+             <item><widget class="QLineEdit" name="musetalk_emotion_tags_edit"/></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_tags_actions">
+               <item><widget class="QPushButton" name="btn_musetalk_avatar_save_metadata"><property name="text"><string>Save Tag Mapping</string></property></widget></item>
+               <item><spacer name="musetalk_tags_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_emotions_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_emotions_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="musetalk_emotions_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Enabled Emotions For Selected Pack</string></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_emotions_description"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Use the Avatar Pack dropdown above to choose which pack you are editing. Disabled emotion tags are ignored at runtime and MuseTalk keeps the current visual state. The default/base avatar always stays enabled.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_pack_emotions_summary_label"><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_emotion_actions">
+               <item><widget class="QPushButton" name="btn_musetalk_pack_emotions_all"><property name="text"><string>Enable All</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_pack_emotions_none"><property name="text"><string>Disable All Optional</string></property></widget></item>
+               <item><spacer name="musetalk_emotion_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item>
+              <widget class="QScrollArea" name="musetalk_pack_emotions_scroll">
+               <property name="minimumHeight"><number>120</number></property>
+               <property name="maximumHeight"><number>220</number></property>
+               <property name="widgetResizable"><bool>true</bool></property>
+               <widget class="QWidget" name="musetalk_pack_emotions_widget">
+                <property name="geometry"><rect><x>0</x><y>0</y><width>1020</width><height>120</height></rect></property>
+                <layout class="QVBoxLayout" name="musetalk_pack_emotions_layout">
+                 <property name="leftMargin"><number>0</number></property>
+                 <property name="topMargin"><number>0</number></property>
+                 <property name="rightMargin"><number>0</number></property>
+                 <property name="bottomMargin"><number>0</number></property>
+                </layout>
+               </widget>
+              </widget>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_mask_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_mask_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="musetalk_mask_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Mask Settings</string></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_mask_description"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>These controls define the crop and inpaint region that MuseTalk is allowed to touch.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_mask_row">
+               <item><layout class="QVBoxLayout" name="musetalk_bbox_column"><item><widget class="QLabel" name="musetalk_bbox_shift_label"><property name="text"><string>BBox Shift</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_bbox_shift_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_parsing_column"><item><widget class="QLabel" name="musetalk_parsing_mode_label"><property name="text"><string>Parsing Mode</string></property></widget></item><item><widget class="QComboBox" name="musetalk_parsing_mode_combo"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_extra_margin_column"><item><widget class="QLabel" name="musetalk_extra_margin_label"><property name="text"><string>Extra Margin</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_extra_margin_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_left_cheek_column"><item><widget class="QLabel" name="musetalk_left_cheek_label"><property name="text"><string>Left Cheek</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_left_cheek_width_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_right_cheek_column"><item><widget class="QLabel" name="musetalk_right_cheek_label"><property name="text"><string>Right Cheek</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_right_cheek_width_spin"/></item></layout></item>
+               <item><spacer name="musetalk_mask_row_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_quick_debug_actions">
+               <item><widget class="QLabel" name="musetalk_quick_debug_label"><property name="text"><string>Quick Debug</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_debug_first_frame_quick"><property name="text"><string>Debug First Frame</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_debug_first_frame_modified_quick"><property name="text"><string>Debug Using Modified Mask</string></property></widget></item>
+               <item><widget class="QCheckBox" name="musetalk_debug_show_mask_overlay_quick_checkbox"><property name="text"><string>Show Mask Overlay</string></property></widget></item>
+               <item><spacer name="musetalk_quick_debug_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_mask_ranges_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_mask_ranges_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="musetalk_mask_ranges_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Mask Ranges (Experimental)</string></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_mask_ranges_description"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Optional frame-specific overrides for moving head sections. Frames not covered here use the current Mask Settings above.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_mask_ranges_editor_row">
+               <item><layout class="QVBoxLayout" name="musetalk_range_start_column"><item><widget class="QLabel" name="musetalk_mask_range_start_label"><property name="text"><string>Start Frame</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_mask_range_start_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_range_end_column"><item><widget class="QLabel" name="musetalk_mask_range_end_label"><property name="text"><string>End Frame</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_mask_range_end_spin"/></item></layout></item>
+               <item><widget class="QCheckBox" name="musetalk_mask_range_passthrough_checkbox"><property name="text"><string>Passthrough / No Mask</string></property></widget></item>
+               <item><spacer name="musetalk_mask_ranges_editor_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_mask_range_actions">
+               <item><widget class="QPushButton" name="btn_musetalk_mask_range_add"><property name="text"><string>Add Range From Current Settings</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_mask_range_update"><property name="text"><string>Update Selected</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_mask_range_load"><property name="text"><string>Load Selected Into Mask Settings</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_mask_range_remove"><property name="text"><string>Remove Selected</string></property></widget></item>
+               <item><spacer name="musetalk_mask_range_actions_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item><widget class="QTableWidget" name="musetalk_mask_ranges_table"/></item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_mask_override_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_mask_override_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="musetalk_mask_override_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Modified Mask Overrides (Experimental)</string></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_mask_override_description"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Frame-specific manual mask replacements captured from the debug editor. These are applied after normal preprocess finishes.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_mask_override_actions">
+               <item><widget class="QPushButton" name="btn_musetalk_mask_override_add"><property name="text"><string>Add Current Modified Mask To List</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_mask_override_load"><property name="text"><string>Load Selected Frame</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_mask_override_remove"><property name="text"><string>Remove Selected</string></property></widget></item>
+               <item><spacer name="musetalk_mask_override_actions_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item><widget class="QTableWidget" name="musetalk_mask_overrides_table"/></item>
+            </layout>
+           </widget>
+          </item>
+          <item>
+           <widget class="QFrame" name="musetalk_debug_card">
+            <property name="objectName"><string>Panel</string></property>
+            <layout class="QVBoxLayout" name="musetalk_debug_card_layout">
+             <property name="leftMargin"><number>14</number></property>
+             <property name="topMargin"><number>12</number></property>
+             <property name="rightMargin"><number>14</number></property>
+             <property name="bottomMargin"><number>12</number></property>
+             <property name="spacing"><number>8</number></property>
+             <item><widget class="QLabel" name="musetalk_debug_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Debug &amp; Testing</string></property></widget></item>
+             <item><widget class="QLabel" name="musetalk_debug_description"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Use the warmed debug worker to inspect the current mask settings before committing to a real preprocess.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_debug_frame_row">
+               <item><layout class="QVBoxLayout" name="musetalk_debug_frame_column"><item><widget class="QLabel" name="musetalk_debug_frame_label"><property name="text"><string>Debug Frame</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_debug_frame_index_spin"/></item></layout></item>
+               <item><widget class="QLabel" name="musetalk_debug_frame_note"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>0 = first frame. For videos or PNG folders, choose a later frame for debug preview.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+               <item><widget class="QCheckBox" name="musetalk_debug_show_mask_overlay_checkbox"><property name="text"><string>Show Mask Overlay</string></property></widget></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_source_frame_info_label"><property name="text"><string>Source frames: unknown until first debug/preprocess.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_debug_tools_row">
+               <item><layout class="QVBoxLayout" name="musetalk_brush_size_column"><item><widget class="QLabel" name="musetalk_debug_brush_size_label"><property name="text"><string>Brush Size</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_debug_brush_size_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_brush_feather_column"><item><widget class="QLabel" name="musetalk_debug_brush_feather_label"><property name="text"><string>Brush Feather</string></property></widget></item><item><widget class="QSpinBox" name="musetalk_debug_brush_feather_spin"/></item></layout></item>
+               <item><layout class="QVBoxLayout" name="musetalk_zoom_column"><item><widget class="QLabel" name="musetalk_preview_zoom_label"><property name="text"><string>Preview Zoom</string></property></widget></item><item><layout class="QHBoxLayout" name="musetalk_zoom_buttons_row"><item><widget class="QPushButton" name="btn_musetalk_debug_zoom_out"><property name="text"><string>-</string></property></widget></item><item><widget class="QPushButton" name="btn_musetalk_debug_zoom_reset"><property name="text"><string>Fit</string></property></widget></item><item><widget class="QPushButton" name="btn_musetalk_debug_zoom_in"><property name="text"><string>+</string></property></widget></item></layout></item></layout></item>
+               <item><spacer name="musetalk_debug_tools_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_test_audio_label"><property name="text"><string>Audio First-Frame Test (Experimental)</string></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_test_audio_row">
+               <item><widget class="QLineEdit" name="musetalk_test_audio_edit"/></item>
+               <item><widget class="QPushButton" name="btn_musetalk_test_audio"><property name="text"><string>Audio</string></property></widget></item>
+              </layout>
+             </item>
+             <item><widget class="QLabel" name="musetalk_debug_hint"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Debug First Frame writes only to MuseTalk/runtime/first_frame_debug and does not modify prepared avatar folders. Audio Frame Test uses a temporary scratch avatar and cleans it up afterward.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+             <item>
+              <layout class="QHBoxLayout" name="musetalk_debug_actions">
+               <item><widget class="QPushButton" name="btn_musetalk_debug_first_frame"><property name="text"><string>Debug First Frame</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_debug_first_frame_modified"><property name="text"><string>Debug Using Modified Mask</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_first_frame_test"><property name="text"><string>Audio Frame Test</string></property></widget></item>
+               <item><spacer name="musetalk_debug_actions_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
+              </layout>
+             </item>
+            </layout>
+           </widget>
+          </item>
+          <item><widget class="QLabel" name="musetalk_avatar_status_label"><property name="text"><string>MuseTalk avatar preprocessing idle.</string></property></widget></item>
+         </layout>
+        </widget>
+       </item>
+       <item><spacer name="musetalk_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+      </layout>
+     </widget>
     </widget>
    </item>
   </layout>

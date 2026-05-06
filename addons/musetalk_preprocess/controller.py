@@ -401,7 +401,269 @@ class MuseTalkPreprocessController(QtCore.QObject):
             pack.default_variant = clean_avatar_id
         return save_avatar_pack_manifest(pack, packs_dir=MUSE_AVATAR_PACKS_DIR)
 
-    def build_runtime_widget(self):
+    def build_runtime_widget(self, root=None):
+        existing = self.musetalk_preprocess_tab_widget
+        if existing is not None:
+            return existing
+        if root is not None:
+            bound = self._bind_designer_runtime_widget(root)
+            if bound is not None:
+                return bound
+        return self._build_runtime_widget_python()
+
+    def _ui_child(self, root, object_name, cls=None):
+        if root is None:
+            return None
+        widget = root.findChild(QtCore.QObject, str(object_name))
+        if widget is None:
+            return None
+        if cls is not None and not isinstance(widget, cls):
+            return None
+        return widget
+
+    def _bind_designer_runtime_widget(self, root):
+        target_pack_combo = self._ui_child(root, "musetalk_target_pack_combo", QtWidgets.QComboBox)
+        avatar_combo = self._ui_child(root, "musetalk_avatar_combo", QtWidgets.QComboBox)
+        source_edit = self._ui_child(root, "musetalk_source_edit", QtWidgets.QLineEdit)
+        avatar_id_edit = self._ui_child(root, "musetalk_avatar_id_edit", QtWidgets.QLineEdit)
+        bbox_shift_spin = self._ui_child(root, "musetalk_bbox_shift_spin", QtWidgets.QSpinBox)
+        if any(item is None for item in (target_pack_combo, avatar_combo, source_edit, avatar_id_edit, bbox_shift_spin)):
+            return None
+
+        root.setObjectName("musetalk_tab")
+        self.musetalk_preprocess_tab_widget = root
+        self.musetalk_box = self._ui_child(root, "musetalk_box", QtWidgets.QGroupBox)
+
+        self.musetalk_target_pack_combo = target_pack_combo
+        self.musetalk_target_pack_combo.currentTextChanged.connect(self._on_musetalk_target_pack_changed)
+        self.btn_musetalk_target_pack_refresh = self._ui_child(root, "btn_musetalk_target_pack_refresh", QtWidgets.QPushButton)
+        if self.btn_musetalk_target_pack_refresh is not None:
+            self.btn_musetalk_target_pack_refresh.clicked.connect(self.refresh_musetalk_target_pack_list)
+        self.btn_musetalk_target_pack_new = self._ui_child(root, "btn_musetalk_target_pack_new", QtWidgets.QPushButton)
+        if self.btn_musetalk_target_pack_new is not None:
+            self.btn_musetalk_target_pack_new.clicked.connect(self.create_musetalk_target_pack)
+
+        self.musetalk_avatar_combo = avatar_combo
+        self.musetalk_avatar_combo.addItem("No Prepared Avatars")
+        self.musetalk_avatar_combo.currentTextChanged.connect(self._sync_avatar_id_from_prepared_selection)
+        self.btn_musetalk_avatar_refresh = self._ui_child(root, "btn_musetalk_avatar_refresh", QtWidgets.QPushButton)
+        if self.btn_musetalk_avatar_refresh is not None:
+            self.btn_musetalk_avatar_refresh.clicked.connect(self.refresh_musetalk_avatar_list)
+        self.btn_musetalk_clear_frame_cache = self._ui_child(root, "btn_musetalk_clear_frame_cache", QtWidgets.QPushButton)
+        if self.btn_musetalk_clear_frame_cache is not None:
+            self.btn_musetalk_clear_frame_cache.setToolTip("Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.")
+            self.btn_musetalk_clear_frame_cache.clicked.connect(self.clear_selected_musetalk_frame_cache)
+        self.btn_musetalk_make_default_avatar = self._ui_child(root, "btn_musetalk_make_default_avatar", QtWidgets.QPushButton)
+        if self.btn_musetalk_make_default_avatar is not None:
+            self.btn_musetalk_make_default_avatar.setToolTip("Make the selected prepared variant the one locked base/default avatar for this pack.")
+            self.btn_musetalk_make_default_avatar.clicked.connect(self.make_selected_musetalk_avatar_default)
+
+        self.musetalk_source_edit = source_edit
+        self.musetalk_source_edit.setPlaceholderText("Source video (.mp4/.mov/...) or folder of PNG frames")
+        self.musetalk_source_edit.textChanged.connect(self._update_musetalk_avatar_destination_hint)
+        self.musetalk_source_edit.textChanged.connect(self._on_musetalk_source_changed)
+        self.btn_musetalk_source_video = self._ui_child(root, "btn_musetalk_source_video", QtWidgets.QPushButton)
+        if self.btn_musetalk_source_video is not None:
+            self.btn_musetalk_source_video.clicked.connect(self.browse_musetalk_source_video)
+        self.btn_musetalk_source_folder = self._ui_child(root, "btn_musetalk_source_folder", QtWidgets.QPushButton)
+        if self.btn_musetalk_source_folder is not None:
+            self.btn_musetalk_source_folder.clicked.connect(self.browse_musetalk_source_folder)
+
+        self.musetalk_avatar_id_edit = avatar_id_edit
+        self.musetalk_avatar_id_edit.setPlaceholderText("default_avatar")
+        self.musetalk_avatar_id_edit.textChanged.connect(self._update_musetalk_avatar_destination_hint)
+        self.musetalk_recreate_checkbox = self._ui_child(root, "musetalk_recreate_checkbox", QtWidgets.QCheckBox)
+        self.musetalk_avatar_destination_label = self._ui_child(root, "musetalk_avatar_destination_label", QtWidgets.QLabel)
+        if self.musetalk_avatar_destination_label is not None:
+            self.musetalk_avatar_destination_label.setWordWrap(True)
+            self.musetalk_avatar_destination_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+
+        self.btn_musetalk_prepare_avatar = self._ui_child(root, "btn_musetalk_prepare_avatar", QtWidgets.QPushButton)
+        if self.btn_musetalk_prepare_avatar is not None:
+            self.btn_musetalk_prepare_avatar.clicked.connect(self.preprocess_musetalk_avatar)
+        self.musetalk_create_frame_cache_checkbox = self._ui_child(root, "musetalk_create_frame_cache_checkbox", QtWidgets.QCheckBox)
+        if self.musetalk_create_frame_cache_checkbox is not None:
+            self.musetalk_create_frame_cache_checkbox.setChecked(True)
+            self.musetalk_create_frame_cache_checkbox.setToolTip(
+                "Create a NumPy cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster."
+            )
+        self.musetalk_emotion_tags_edit = self._ui_child(root, "musetalk_emotion_tags_edit", QtWidgets.QLineEdit)
+        if self.musetalk_emotion_tags_edit is not None:
+            self.musetalk_emotion_tags_edit.setPlaceholderText("angry, shy, surprised")
+        self.btn_musetalk_avatar_save_metadata = self._ui_child(root, "btn_musetalk_avatar_save_metadata", QtWidgets.QPushButton)
+        if self.btn_musetalk_avatar_save_metadata is not None:
+            self.btn_musetalk_avatar_save_metadata.clicked.connect(self.save_musetalk_avatar_metadata)
+
+        self.musetalk_pack_emotions_summary_label = self._ui_child(root, "musetalk_pack_emotions_summary_label", QtWidgets.QLabel)
+        if self.musetalk_pack_emotions_summary_label is not None:
+            self.musetalk_pack_emotions_summary_label.setWordWrap(True)
+            self.musetalk_pack_emotions_summary_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+        self.btn_musetalk_pack_emotions_all = self._ui_child(root, "btn_musetalk_pack_emotions_all", QtWidgets.QPushButton)
+        if self.btn_musetalk_pack_emotions_all is not None:
+            self.btn_musetalk_pack_emotions_all.clicked.connect(lambda: self._set_all_musetalk_pack_emotions(True))
+        self.btn_musetalk_pack_emotions_none = self._ui_child(root, "btn_musetalk_pack_emotions_none", QtWidgets.QPushButton)
+        if self.btn_musetalk_pack_emotions_none is not None:
+            self.btn_musetalk_pack_emotions_none.clicked.connect(lambda: self._set_all_musetalk_pack_emotions(False))
+        self.musetalk_pack_emotions_scroll = self._ui_child(root, "musetalk_pack_emotions_scroll", QtWidgets.QScrollArea)
+        self.musetalk_pack_emotions_widget = self._ui_child(root, "musetalk_pack_emotions_widget", QtWidgets.QWidget)
+        self.musetalk_pack_emotions_layout = self.musetalk_pack_emotions_widget.layout() if self.musetalk_pack_emotions_widget is not None else None
+        if self.musetalk_pack_emotions_scroll is not None:
+            self.musetalk_pack_emotions_scroll.setWidgetResizable(True)
+            self.musetalk_pack_emotions_scroll.setMinimumHeight(120)
+            self.musetalk_pack_emotions_scroll.setMaximumHeight(220)
+        if self.musetalk_pack_emotions_widget is not None and self.musetalk_pack_emotions_layout is None:
+            self.musetalk_pack_emotions_layout = QtWidgets.QVBoxLayout(self.musetalk_pack_emotions_widget)
+        if self.musetalk_pack_emotions_layout is not None:
+            self.musetalk_pack_emotions_layout.setContentsMargins(0, 0, 0, 0)
+            self.musetalk_pack_emotions_layout.setSpacing(8)
+
+        self.musetalk_bbox_shift_spin = bbox_shift_spin
+        self.musetalk_bbox_shift_spin.setRange(-80, 80)
+        self.musetalk_bbox_shift_spin.setValue(0)
+        self.musetalk_parsing_mode_combo = self._ui_child(root, "musetalk_parsing_mode_combo", QtWidgets.QComboBox)
+        if self.musetalk_parsing_mode_combo is not None:
+            self.musetalk_parsing_mode_combo.clear()
+            self.musetalk_parsing_mode_combo.addItem("Jaw", "jaw")
+            self.musetalk_parsing_mode_combo.addItem("Raw", "raw")
+        self.musetalk_extra_margin_spin = self._ui_child(root, "musetalk_extra_margin_spin", QtWidgets.QSpinBox)
+        if self.musetalk_extra_margin_spin is not None:
+            self.musetalk_extra_margin_spin.setRange(0, 80)
+            self.musetalk_extra_margin_spin.setValue(10)
+        self.musetalk_left_cheek_width_spin = self._ui_child(root, "musetalk_left_cheek_width_spin", QtWidgets.QSpinBox)
+        if self.musetalk_left_cheek_width_spin is not None:
+            self.musetalk_left_cheek_width_spin.setRange(20, 160)
+            self.musetalk_left_cheek_width_spin.setValue(90)
+        self.musetalk_right_cheek_width_spin = self._ui_child(root, "musetalk_right_cheek_width_spin", QtWidgets.QSpinBox)
+        if self.musetalk_right_cheek_width_spin is not None:
+            self.musetalk_right_cheek_width_spin.setRange(20, 160)
+            self.musetalk_right_cheek_width_spin.setValue(90)
+        for control in (
+            self.musetalk_bbox_shift_spin,
+            self.musetalk_parsing_mode_combo,
+            self.musetalk_extra_margin_spin,
+            self.musetalk_left_cheek_width_spin,
+            self.musetalk_right_cheek_width_spin,
+        ):
+            if control is not None:
+                control.setFixedHeight(32)
+
+        self.btn_musetalk_debug_first_frame_quick = self._ui_child(root, "btn_musetalk_debug_first_frame_quick", QtWidgets.QPushButton)
+        if self.btn_musetalk_debug_first_frame_quick is not None:
+            self.btn_musetalk_debug_first_frame_quick.clicked.connect(self.debug_musetalk_first_frame)
+        self.btn_musetalk_debug_first_frame_modified_quick = self._ui_child(root, "btn_musetalk_debug_first_frame_modified_quick", QtWidgets.QPushButton)
+        if self.btn_musetalk_debug_first_frame_modified_quick is not None:
+            self.btn_musetalk_debug_first_frame_modified_quick.clicked.connect(self.debug_musetalk_first_frame_using_modified_mask)
+        self.musetalk_debug_show_mask_overlay_quick_checkbox = self._ui_child(root, "musetalk_debug_show_mask_overlay_quick_checkbox", QtWidgets.QCheckBox)
+        if self.musetalk_debug_show_mask_overlay_quick_checkbox is not None:
+            self.musetalk_debug_show_mask_overlay_quick_checkbox.toggled.connect(self._on_musetalk_debug_overlay_checkbox_toggled)
+
+        self.musetalk_mask_range_start_spin = self._ui_child(root, "musetalk_mask_range_start_spin", QtWidgets.QSpinBox)
+        if self.musetalk_mask_range_start_spin is not None:
+            self.musetalk_mask_range_start_spin.setRange(0, 50000)
+        self.musetalk_mask_range_end_spin = self._ui_child(root, "musetalk_mask_range_end_spin", QtWidgets.QSpinBox)
+        if self.musetalk_mask_range_end_spin is not None:
+            self.musetalk_mask_range_end_spin.setRange(0, 50000)
+        self.musetalk_mask_range_passthrough_checkbox = self._ui_child(root, "musetalk_mask_range_passthrough_checkbox", QtWidgets.QCheckBox)
+        for name, handler in (
+            ("btn_musetalk_mask_range_add", self.add_musetalk_mask_range),
+            ("btn_musetalk_mask_range_update", self.update_selected_musetalk_mask_range),
+            ("btn_musetalk_mask_range_load", self.load_selected_musetalk_mask_range),
+            ("btn_musetalk_mask_range_remove", self.remove_selected_musetalk_mask_range),
+            ("btn_musetalk_mask_override_add", self.add_current_musetalk_mask_override),
+            ("btn_musetalk_mask_override_load", self.load_selected_musetalk_mask_override),
+            ("btn_musetalk_mask_override_remove", self.remove_selected_musetalk_mask_override),
+            ("btn_musetalk_test_audio", self.browse_musetalk_test_audio),
+            ("btn_musetalk_debug_first_frame", self.debug_musetalk_first_frame),
+            ("btn_musetalk_debug_first_frame_modified", self.debug_musetalk_first_frame_using_modified_mask),
+            ("btn_musetalk_first_frame_test", self.render_musetalk_first_frame_test),
+        ):
+            button = self._ui_child(root, name, QtWidgets.QPushButton)
+            setattr(self, name, button)
+            if button is not None:
+                button.clicked.connect(handler)
+
+        self.musetalk_mask_ranges_table = self._ui_child(root, "musetalk_mask_ranges_table", QtWidgets.QTableWidget)
+        if self.musetalk_mask_ranges_table is not None:
+            self._configure_musetalk_table(
+                self.musetalk_mask_ranges_table,
+                ["Start", "End", "BBox", "Apply", "Mode", "Margin", "Left", "Right"],
+                minimum_height=150,
+                stretch_last=False,
+            )
+        self.musetalk_mask_overrides_table = self._ui_child(root, "musetalk_mask_overrides_table", QtWidgets.QTableWidget)
+        if self.musetalk_mask_overrides_table is not None:
+            self._configure_musetalk_table(
+                self.musetalk_mask_overrides_table,
+                ["Frame", "Range", "BBox", "Mode", "Margin", "Status", "File"],
+                minimum_height=120,
+                stretch_last=True,
+            )
+
+        self.musetalk_debug_frame_index_spin = self._ui_child(root, "musetalk_debug_frame_index_spin", QtWidgets.QSpinBox)
+        if self.musetalk_debug_frame_index_spin is not None:
+            self.musetalk_debug_frame_index_spin.setRange(0, 5000)
+        self.musetalk_source_frame_info_label = self._ui_child(root, "musetalk_source_frame_info_label", QtWidgets.QLabel)
+        if self.musetalk_source_frame_info_label is not None:
+            self.musetalk_source_frame_info_label.setWordWrap(True)
+            self.musetalk_source_frame_info_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self.musetalk_debug_show_mask_overlay_checkbox = self._ui_child(root, "musetalk_debug_show_mask_overlay_checkbox", QtWidgets.QCheckBox)
+        if self.musetalk_debug_show_mask_overlay_checkbox is not None:
+            self.musetalk_debug_show_mask_overlay_checkbox.toggled.connect(self._on_musetalk_debug_overlay_checkbox_toggled)
+        self.musetalk_debug_brush_size_spin = self._ui_child(root, "musetalk_debug_brush_size_spin", QtWidgets.QSpinBox)
+        if self.musetalk_debug_brush_size_spin is not None:
+            self.musetalk_debug_brush_size_spin.setRange(1, 160)
+            self.musetalk_debug_brush_size_spin.setValue(12)
+            self.musetalk_debug_brush_size_spin.valueChanged.connect(self._on_musetalk_debug_brush_settings_changed)
+        self.musetalk_debug_brush_feather_spin = self._ui_child(root, "musetalk_debug_brush_feather_spin", QtWidgets.QSpinBox)
+        if self.musetalk_debug_brush_feather_spin is not None:
+            self.musetalk_debug_brush_feather_spin.setRange(0, 80)
+            self.musetalk_debug_brush_feather_spin.setValue(6)
+            self.musetalk_debug_brush_feather_spin.valueChanged.connect(self._on_musetalk_debug_brush_settings_changed)
+        self.btn_musetalk_debug_zoom_out = self._ui_child(root, "btn_musetalk_debug_zoom_out", QtWidgets.QPushButton)
+        if self.btn_musetalk_debug_zoom_out is not None:
+            self.btn_musetalk_debug_zoom_out.setFixedWidth(34)
+            self.btn_musetalk_debug_zoom_out.clicked.connect(lambda: self._zoom_musetalk_debug_preview(0.8))
+        self.btn_musetalk_debug_zoom_reset = self._ui_child(root, "btn_musetalk_debug_zoom_reset", QtWidgets.QPushButton)
+        if self.btn_musetalk_debug_zoom_reset is not None:
+            self.btn_musetalk_debug_zoom_reset.clicked.connect(self._reset_musetalk_debug_preview_zoom)
+        self.btn_musetalk_debug_zoom_in = self._ui_child(root, "btn_musetalk_debug_zoom_in", QtWidgets.QPushButton)
+        if self.btn_musetalk_debug_zoom_in is not None:
+            self.btn_musetalk_debug_zoom_in.setFixedWidth(34)
+            self.btn_musetalk_debug_zoom_in.clicked.connect(lambda: self._zoom_musetalk_debug_preview(1.25))
+        self.musetalk_test_audio_edit = self._ui_child(root, "musetalk_test_audio_edit", QtWidgets.QLineEdit)
+        if self.musetalk_test_audio_edit is not None:
+            self.musetalk_test_audio_edit.setPlaceholderText("Short WAV/MP3 for first-frame lip-sync test")
+        self.musetalk_avatar_status_label = self._ui_child(root, "musetalk_avatar_status_label", QtWidgets.QLabel)
+        if self.musetalk_avatar_status_label is not None:
+            self.musetalk_avatar_status_label.setStyleSheet("color: #9fb3c8;")
+
+        self.refresh_musetalk_target_pack_list()
+        self.refresh_musetalk_avatar_list()
+        self._refresh_musetalk_pack_emotion_editor()
+        self._update_musetalk_avatar_destination_hint()
+        self._reset_musetalk_source_frame_info()
+        return root
+
+    def _configure_musetalk_table(self, table, headers, minimum_height=120, stretch_last=False):
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(list(headers))
+        table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        table.verticalHeader().setVisible(False)
+        table.horizontalHeader().setStretchLastSection(bool(stretch_last))
+        table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.ResizeToContents)
+        table.setAlternatingRowColors(True)
+        table.setMinimumHeight(int(minimum_height))
+        table.setStyleSheet(
+            "QTableWidget { background-color: #10161f; alternate-background-color: #141c27; color: #e7edf5; gridline-color: #2a394b; border: 1px solid #2a394b; }"
+            "QHeaderView::section { background-color: #182231; color: #dce6f2; border: 1px solid #2a394b; padding: 4px 6px; font-weight: 600; }"
+            "QTableWidget::item { padding: 4px 6px; }"
+            "QTableWidget::item:selected { background-color: #29476d; color: #ffffff; }"
+            "QTableCornerButton::section { background-color: #182231; border: 1px solid #2a394b; }"
+        )
+
+    def _build_runtime_widget_python(self):
         existing = self.musetalk_preprocess_tab_widget
         if existing is not None:
             return existing

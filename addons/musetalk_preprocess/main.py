@@ -60,9 +60,31 @@ class Addon(BaseAddon):
     def _bind_designer_tab(self, widget, context):
         from PySide6 import QtWidgets
 
+        if getattr(self, "_shell_preview", False):
+            layout = widget.layout()
+            if layout is None:
+                layout = QtWidgets.QVBoxLayout(widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(0)
+            while layout.count():
+                item = layout.takeAt(0)
+                child = item.widget()
+                if child is not None:
+                    child.setParent(None)
+            layout.addWidget(self._build_shell_preview_tab())
+            return widget
+
+        if not getattr(self, "_shell_preview", False):
+            controller = self._ensure_controller()
+            if controller is None:
+                raise RuntimeError("MuseTalk preprocess controller is unavailable.")
+            bound = controller.build_runtime_widget(widget)
+            if bound is not None:
+                return bound
+
         mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount")
         if mount is None:
-            raise RuntimeError("MuseTalk Preprocess Designer UI is missing addon_designer_mount.")
+            raise RuntimeError("MuseTalk Preprocess Designer UI could not be bound.")
         layout = mount.layout()
         if layout is None:
             layout = QtWidgets.QVBoxLayout(mount)
