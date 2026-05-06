@@ -5,7 +5,7 @@ import json
 import re
 import xml.etree.ElementTree as ET
 
-from core.addons.contributions import ui_required_static_mount_targets, ui_target_for_area
+from core.addons.contributions import known_addon_service_ids, ui_required_static_mount_targets, ui_target_for_area
 
 
 UI_VALIDATION_REQUIRED_GROUPS = (
@@ -324,6 +324,7 @@ def collect_invalid_addon_manifest_ui(ui_path, objects):
     addons_root = app_root / "addons"
     if not addons_root.exists():
         return []
+    known_service_ids = set(known_addon_service_ids())
     findings = []
     for manifest_path in sorted(addons_root.glob("*/addon.json")):
         relative_path = str(manifest_path.relative_to(app_root))
@@ -353,6 +354,8 @@ def collect_invalid_addon_manifest_ui(ui_path, objects):
                 if not service_id:
                     findings.append((relative_path, service_index, "service entry missing id"))
                     continue
+                if service_id not in known_service_ids:
+                    findings.append((relative_path, service_index, f"unknown service id: {service_id}"))
                 services_valid.append(service)
                 service_key = (service_id, str(service.get("provider_id") or service.get("backend_id") or service.get("service_name") or "").strip())
                 if service_key in seen_services:

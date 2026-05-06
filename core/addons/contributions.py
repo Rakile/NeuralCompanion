@@ -36,6 +36,16 @@ ADDON_UI_MOUNT_BY_AREA = {mount.area: mount for mount in ADDON_UI_MOUNTS}
 ADDON_UI_MOUNT_BY_TARGET = {mount.target: mount for mount in ADDON_UI_MOUNTS}
 
 
+ADDON_SERVICE_TARGETS: dict[str, tuple[str, ...]] = {
+    "avatar_provider_registry": ("left_tabs",),
+    "chat_provider_registry": ("chat_provider_combo",),
+    "sensory_prompt_contributor": ("sensory_feedback_tabs",),
+    "sensory_registry": ("sensory_feedback_tabs",),
+    "service_registry": (),
+    "tts_backend_service": ("tts_runtime_addon_tabs",),
+}
+
+
 def normalize_ui_area(area: str | None) -> str:
     value = str(area or "").strip()
     return value if value else "top_level"
@@ -70,14 +80,11 @@ def ui_required_static_mount_targets() -> tuple[str, ...]:
 
 def ui_targets_for_service_id(service_id: str | None) -> tuple[str, ...]:
     service = str(service_id or "").strip()
-    service_targets = {
-        "avatar_provider_registry": ("left_tabs",),
-        "chat_provider_registry": ("chat_provider_combo",),
-        "sensory_prompt_contributor": ("sensory_feedback_tabs",),
-        "sensory_registry": ("sensory_feedback_tabs",),
-        "tts_backend_service": ("tts_runtime_addon_tabs",),
-    }
-    return service_targets.get(service, ())
+    return ADDON_SERVICE_TARGETS.get(service, ())
+
+
+def known_addon_service_ids() -> tuple[str, ...]:
+    return tuple(ADDON_SERVICE_TARGETS)
 
 
 def ui_fallback_targets_for_manifest(addon_id: str | None, category: str | None) -> tuple[str, ...]:

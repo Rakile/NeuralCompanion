@@ -2,9 +2,11 @@
 
 from .base import BaseAddon
 from .contributions import (
+    ADDON_SERVICE_TARGETS,
     ADDON_UI_MOUNTS,
     AddonUIMount,
     TabContribution,
+    known_addon_service_ids,
     normalize_ui_area,
     ui_area_for_target,
     ui_mount_adoption_specs,
@@ -26,10 +28,12 @@ __all__ = [
     "AddonManifest",
     "AddonPermissionError",
     "ADDON_UI_MOUNTS",
+    "ADDON_SERVICE_TARGETS",
     "AddonUIMount",
     "BaseAddon",
     "TabContribution",
     "normalize_ui_area",
+    "known_addon_service_ids",
     "ui_area_for_target",
     "ui_mount_adoption_specs",
     "ui_mount_for_area",
