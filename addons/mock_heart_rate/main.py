@@ -64,16 +64,47 @@ class MockHeartRateService:
 
 class MockHeartRateWindow:
     def __init__(self, addon):
-        from PySide6 import QtCore, QtWidgets
+        from pathlib import Path
+
+        from PySide6 import QtCore, QtUiTools, QtWidgets
 
         self._addon = addon
-        self.widget = QtWidgets.QWidget()
+        ui_path = Path(__file__).resolve().parent / "ui" / "mock_heart_rate_window.ui"
+        self.widget = None
+        if ui_path.exists():
+            ui_file = QtCore.QFile(str(ui_path))
+            if ui_file.open(QtCore.QIODevice.ReadOnly):
+                try:
+                    self.widget = QtUiTools.QUiLoader().load(ui_file)
+                except Exception:
+                    self.widget = None
+                finally:
+                    ui_file.close()
+        if self.widget is None:
+            self.widget = QtWidgets.QWidget()
         self.widget.setWindowTitle("Mock Heart Rate")
         self.widget.setObjectName("mock_heart_rate_window")
         self.widget.setWindowFlag(QtCore.Qt.Tool, True)
         self.widget.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint, True)
         self.widget.resize(170, 420)
 
+        self.value_label = self.widget.findChild(QtWidgets.QLabel, "mock_heart_rate_value_label")
+        self.state_label = self.widget.findChild(QtWidgets.QLabel, "mock_heart_rate_state_label")
+        self.slider = self.widget.findChild(QtWidgets.QSlider, "mock_heart_rate_slider")
+        if any(item is None for item in (self.value_label, self.state_label, self.slider)):
+            self.widget = QtWidgets.QWidget()
+            self.widget.setWindowTitle("Mock Heart Rate")
+            self.widget.setObjectName("mock_heart_rate_window")
+            self.widget.setWindowFlag(QtCore.Qt.Tool, True)
+            self.widget.setWindowFlag(QtCore.Qt.WindowStaysOnTopHint, True)
+            self.widget.resize(170, 420)
+            self._build_python_fallback_shell(QtCore, QtWidgets)
+        self.slider.valueChanged.connect(self._handle_value_changed)
+
+        self._close_callback = None
+        self.widget.closeEvent = self._close_event
+
+    def _build_python_fallback_shell(self, QtCore, QtWidgets):
         layout = QtWidgets.QVBoxLayout(self.widget)
         layout.setContentsMargins(14, 14, 14, 14)
         layout.setSpacing(10)
@@ -84,32 +115,31 @@ class MockHeartRateWindow:
         layout.addWidget(title)
 
         self.value_label = QtWidgets.QLabel("72")
+        self.value_label.setObjectName("mock_heart_rate_value_label")
         self.value_label.setAlignment(QtCore.Qt.AlignCenter)
         self.value_label.setStyleSheet("font-size: 34px; font-weight: 800; color: #88c0d0;")
         layout.addWidget(self.value_label)
 
         self.state_label = QtWidgets.QLabel("idle")
+        self.state_label.setObjectName("mock_heart_rate_state_label")
         self.state_label.setAlignment(QtCore.Qt.AlignCenter)
         self.state_label.setStyleSheet("font-size: 11px; color: #8ea3b8;")
         layout.addWidget(self.state_label)
 
         self.slider = QtWidgets.QSlider(QtCore.Qt.Vertical)
+        self.slider.setObjectName("mock_heart_rate_slider")
         self.slider.setRange(0, 200)
         self.slider.setTickInterval(10)
         self.slider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
         self.slider.setSingleStep(1)
         self.slider.setPageStep(5)
         self.slider.setMinimumHeight(240)
-        self.slider.valueChanged.connect(self._handle_value_changed)
         layout.addWidget(self.slider, 1, QtCore.Qt.AlignHCenter)
 
         footer = QtWidgets.QLabel("Mock physiological stream")
         footer.setAlignment(QtCore.Qt.AlignCenter)
         footer.setStyleSheet("font-size: 11px; color: #81a1c1;")
         layout.addWidget(footer)
-
-        self._close_callback = None
-        self.widget.closeEvent = self._close_event
 
     def _close_event(self, event):
         self.widget.hide()

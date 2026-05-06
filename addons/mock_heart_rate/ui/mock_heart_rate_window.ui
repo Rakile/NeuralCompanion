@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MockHeartRateWindow</class>
+ <widget class="QWidget" name="mock_heart_rate_window">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>170</width>
+    <height>420</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Mock Heart Rate</string>
+  </property>
+  <layout class="QVBoxLayout" name="mock_heart_rate_window_layout">
+   <property name="leftMargin">
+    <number>14</number>
+   </property>
+   <property name="topMargin">
+    <number>14</number>
+   </property>
+   <property name="rightMargin">
+    <number>14</number>
+   </property>
+   <property name="bottomMargin">
+    <number>14</number>
+   </property>
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="mock_heart_rate_title_label">
+     <property name="styleSheet">
+      <string notr="true">font-size: 16px; font-weight: 700; color: #d8dee9;</string>
+     </property>
+     <property name="text">
+      <string>BPM</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="mock_heart_rate_value_label">
+     <property name="styleSheet">
+      <string notr="true">font-size: 34px; font-weight: 800; color: #88c0d0;</string>
+     </property>
+     <property name="text">
+      <string>72</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="mock_heart_rate_state_label">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; color: #8ea3b8;</string>
+     </property>
+     <property name="text">
+      <string>idle</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+   <item alignment="Qt::AlignHCenter">
+    <widget class="QSlider" name="mock_heart_rate_slider">
+     <property name="minimumHeight">
+      <number>240</number>
+     </property>
+     <property name="maximum">
+      <number>200</number>
+     </property>
+     <property name="singleStep">
+      <number>1</number>
+     </property>
+     <property name="pageStep">
+      <number>5</number>
+     </property>
+     <property name="tickPosition">
+      <enum>QSlider::TicksBothSides</enum>
+     </property>
+     <property name="tickInterval">
+      <number>10</number>
+     </property>
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="mock_heart_rate_footer_label">
+     <property name="styleSheet">
+      <string notr="true">font-size: 11px; color: #81a1c1;</string>
+     </property>
+     <property name="text">
+      <string>Mock physiological stream</string>
+     </property>
+     <property name="alignment">
+      <set>Qt::AlignCenter</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
