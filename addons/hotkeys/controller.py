@@ -23,13 +23,6 @@ class HotkeysController(QtCore.QObject):
         self.bindingCaptured.connect(self._on_binding_captured)
         self.bindingCaptureFailed.connect(self._on_binding_capture_failed)
 
-    def build_tab(self):
-        existing = self.hotkeys_tab_widget
-        if existing is not None:
-            return existing
-
-        return self._build_tab_in_code()
-
     def bind_designer_tab(self, widget):
         self._bind_ui_objects(widget)
         return self._finalize_tab_widget(widget)
@@ -74,113 +67,6 @@ class HotkeysController(QtCore.QObject):
         self._refresh_timer.start()
         self.refresh_state()
         return widget
-
-    def _build_tab_in_code(self):
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-        layout.setContentsMargins(14, 14, 14, 14)
-        layout.setSpacing(10)
-
-        intro = QtWidgets.QLabel(
-            "Configure the shared hotkey spine here. Push-to-Talk is global, manual controls are handled by both "
-            "the engine and the focused Qt window, and UI actions work while NC is focused."
-        )
-        intro.setWordWrap(True)
-        intro.setStyleSheet("color: #cbd5e1;")
-        layout.addWidget(intro)
-
-        helper = QtWidgets.QLabel(
-            "Examples: Right Ctrl, Alt+R, Ctrl+Shift+Space. Leave a UI action blank if you do not want it bound. "
-            "Clearing Push-to-Talk falls back to the default key so you cannot strand yourself."
-        )
-        helper.setWordWrap(True)
-        helper.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(helper)
-
-        body = QtWidgets.QHBoxLayout()
-        body.setSpacing(12)
-
-        list_box = QtWidgets.QFrame()
-        list_box.setObjectName("Panel")
-        list_layout = QtWidgets.QVBoxLayout(list_box)
-        list_layout.setContentsMargins(12, 12, 12, 12)
-        list_layout.setSpacing(8)
-        list_title = QtWidgets.QLabel("Available Actions")
-        list_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
-        list_layout.addWidget(list_title)
-        self.hotkey_list = QtWidgets.QListWidget()
-        self.hotkey_list.itemSelectionChanged.connect(self._on_selection_changed)
-        list_layout.addWidget(self.hotkey_list, 1)
-        body.addWidget(list_box, 1)
-
-        detail_box = QtWidgets.QFrame()
-        detail_box.setObjectName("Panel")
-        detail_layout = QtWidgets.QVBoxLayout(detail_box)
-        detail_layout.setContentsMargins(12, 12, 12, 12)
-        detail_layout.setSpacing(10)
-        detail_title = QtWidgets.QLabel("Binding Details")
-        detail_title.setStyleSheet("font-size: 13px; font-weight: 700; color: #f2f5f9;")
-        detail_layout.addWidget(detail_title)
-
-        self.hotkey_label = QtWidgets.QLabel("Select a hotkey action.")
-        self.hotkey_label.setStyleSheet("font-size: 15px; font-weight: 700; color: #f2f5f9;")
-        self.hotkey_label.setWordWrap(True)
-        detail_layout.addWidget(self.hotkey_label)
-
-        self.hotkey_meta = QtWidgets.QLabel("")
-        self.hotkey_meta.setWordWrap(True)
-        self.hotkey_meta.setStyleSheet("color: #9fb3c8;")
-        detail_layout.addWidget(self.hotkey_meta)
-
-        self.hotkey_description = QtWidgets.QLabel("")
-        self.hotkey_description.setWordWrap(True)
-        self.hotkey_description.setStyleSheet("color: #8ea3b8;")
-        detail_layout.addWidget(self.hotkey_description)
-
-        form = QtWidgets.QFormLayout()
-        form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        self.hotkey_binding_edit = QtWidgets.QLineEdit()
-        self.hotkey_binding_edit.setPlaceholderText("Example: Alt+Shift+R")
-        form.addRow("Binding", self.hotkey_binding_edit)
-        self.hotkey_default_label = QtWidgets.QLabel("")
-        self.hotkey_default_label.setStyleSheet("color: #9fb3c8;")
-        form.addRow("Default", self.hotkey_default_label)
-        detail_layout.addLayout(form)
-
-        button_row = QtWidgets.QHBoxLayout()
-        self.btn_hotkey_record = QtWidgets.QPushButton("Record Binding")
-        self.btn_hotkey_record.clicked.connect(self._start_record_binding)
-        button_row.addWidget(self.btn_hotkey_record)
-        self.btn_hotkey_apply = QtWidgets.QPushButton("Apply Binding")
-        self.btn_hotkey_apply.clicked.connect(self._apply_current_binding)
-        button_row.addWidget(self.btn_hotkey_apply)
-        self.btn_hotkey_clear = QtWidgets.QPushButton("Clear")
-        self.btn_hotkey_clear.clicked.connect(self._clear_current_binding)
-        button_row.addWidget(self.btn_hotkey_clear)
-        self.btn_hotkey_reset_one = QtWidgets.QPushButton("Reset To Default")
-        self.btn_hotkey_reset_one.clicked.connect(self._reset_selected_to_default)
-        button_row.addWidget(self.btn_hotkey_reset_one)
-        detail_layout.addLayout(button_row)
-
-        footer_row = QtWidgets.QHBoxLayout()
-        self.btn_hotkey_refresh = QtWidgets.QPushButton("Refresh")
-        self.btn_hotkey_refresh.clicked.connect(self.refresh_state)
-        footer_row.addWidget(self.btn_hotkey_refresh)
-        self.btn_hotkey_reset_all = QtWidgets.QPushButton("Reset All Defaults")
-        self.btn_hotkey_reset_all.clicked.connect(self._reset_all_defaults)
-        footer_row.addWidget(self.btn_hotkey_reset_all)
-        footer_row.addStretch(1)
-        detail_layout.addLayout(footer_row)
-
-        self.hotkey_status = QtWidgets.QLabel("")
-        self.hotkey_status.setWordWrap(True)
-        self.hotkey_status.setStyleSheet("color: #9fb3c8;")
-        detail_layout.addWidget(self.hotkey_status)
-
-        body.addWidget(detail_box, 1)
-        layout.addLayout(body, 1)
-
-        return self._finalize_tab_widget(widget)
 
     def _selected_action(self):
         item = self.hotkey_list.currentItem() if hasattr(self, "hotkey_list") else None

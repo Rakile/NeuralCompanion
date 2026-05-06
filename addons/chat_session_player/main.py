@@ -31,12 +31,6 @@ class Addon(BaseAddon):
     def _peek_controller(self):
         return getattr(self, "controller", None)
 
-    def _build_tab(self, context):
-        controller = self._peek_controller()
-        if controller is None:
-            raise RuntimeError("Chat Session Player controller is unavailable.")
-        return controller.build_tab()
-
     def _bind_designer_tab(self, widget, context):
         controller = self._peek_controller()
         if controller is None:
