@@ -300,6 +300,24 @@ def collect_addon_designer_fallback_registrations(ui_path):
     return findings
 
 
+def collect_addon_legacy_tab_builders(ui_path):
+    app_root = Path(ui_path).resolve().parent
+    addons_root = app_root / "addons"
+    if not addons_root.exists():
+        return []
+    findings = []
+    for path in sorted(addons_root.glob("*/*.py")):
+        try:
+            lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except Exception:
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            stripped = str(line or "").strip()
+            if re.match(r"def\s+build_tab\s*\(", stripped):
+                findings.append((str(path.relative_to(app_root)), line_number, stripped))
+    return findings
+
+
 def collect_invalid_addon_designer_tabs(ui_path):
     app_root = Path(ui_path).resolve().parent
     addons_root = app_root / "addons"
@@ -488,8 +506,9 @@ def validate_ui_file(raw_path, *, base_path=None):
     legacy_addon_tabs = collect_legacy_addon_tab_registrations(ui_path)
     direct_designer_tabs = collect_direct_addon_designer_tab_registrations(ui_path)
     designer_fallback_tabs = collect_addon_designer_fallback_registrations(ui_path)
+    legacy_tab_builders = collect_addon_legacy_tab_builders(ui_path)
     print("[UI Validation] Bundled addon Designer-tab migration:")
-    if legacy_addon_tabs or direct_designer_tabs or designer_fallback_tabs:
+    if legacy_addon_tabs or direct_designer_tabs or designer_fallback_tabs or legacy_tab_builders:
         for relative_path, line_number, line in legacy_addon_tabs:
             location = f"{relative_path}:{line_number}" if line_number else relative_path
             print(f"  LEGACY {location}: {line}")
@@ -499,6 +518,9 @@ def validate_ui_file(raw_path, *, base_path=None):
         for relative_path, line_number, line in designer_fallback_tabs:
             location = f"{relative_path}:{line_number}" if line_number else relative_path
             print(f"  FALLBACK {location}: remove Python-built addon UI fallback from Designer registration: {line}")
+        for relative_path, line_number, line in legacy_tab_builders:
+            location = f"{relative_path}:{line_number}" if line_number else relative_path
+            print(f"  BUILDER {location}: rename/remove legacy addon tab builder: {line}")
     else:
         print("  OK")
 
@@ -512,7 +534,7 @@ def validate_ui_file(raw_path, *, base_path=None):
     else:
         print("  OK")
 
-    if missing or mismatched or duplicates or legacy_addon_tabs or direct_designer_tabs or designer_fallback_tabs or invalid_designer_tabs or invalid_manifest_ui:
+    if missing or mismatched or duplicates or legacy_addon_tabs or direct_designer_tabs or designer_fallback_tabs or legacy_tab_builders or invalid_designer_tabs or invalid_manifest_ui:
         print("[UI Validation] Result: NOT READY for safe real-logic binding.")
     else:
         print("[UI Validation] Result: READY for the checked Phase 1 binding prerequisites.")
