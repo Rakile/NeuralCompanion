@@ -11,35 +11,105 @@
    </rect>
   </property>
   <layout class="QVBoxLayout" name="root_layout">
-   <property name="leftMargin">
-    <number>0</number>
-   </property>
-   <property name="topMargin">
-    <number>0</number>
-   </property>
-   <property name="rightMargin">
-    <number>0</number>
-   </property>
-   <property name="bottomMargin">
-    <number>0</number>
-   </property>
+   <property name="leftMargin"><number>8</number></property>
+   <property name="topMargin"><number>8</number></property>
+   <property name="rightMargin"><number>8</number></property>
+   <property name="bottomMargin"><number>8</number></property>
+   <property name="spacing"><number>8</number></property>
    <item>
-    <widget class="QWidget" name="addon_designer_mount">
-     <layout class="QVBoxLayout" name="addon_designer_mount_layout">
-      <property name="leftMargin">
-       <number>0</number>
-      </property>
-      <property name="topMargin">
-       <number>0</number>
-      </property>
-      <property name="rightMargin">
-       <number>0</number>
-      </property>
-      <property name="bottomMargin">
-       <number>0</number>
-      </property>
+    <widget class="QLabel" name="heart_rate_behavior_intro_label">
+     <property name="text">
+      <string>Build one or more supervisor personas for the Heart Rate source. Each persona can own several behaviors, where every behavior pairs a signal trigger with the action the hidden LLM should take when the user's BPM enters that state.</string>
+     </property>
+     <property name="wordWrap"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="heart_rate_behavior_state_label">
+     <property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property>
+     <property name="text"><string/></property>
+     <property name="wordWrap"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="heart_rate_behavior_persona_header_layout">
+     <item>
+      <widget class="QLabel" name="heart_rate_behavior_persona_label">
+       <property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property>
+       <property name="text"><string>Active Persona</string></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="heart_rate_behavior_persona_header_spacer">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+      </spacer>
+     </item>
+     <item><widget class="QPushButton" name="btn_heart_rate_behavior_add_persona"><property name="text"><string>Add Supervisor Persona</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_heart_rate_behavior_rename_persona"><property name="text"><string>Rename</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_heart_rate_behavior_delete_persona"><property name="text"><string>Delete</string></property></widget></item>
+    </layout>
+   </item>
+   <item><widget class="QComboBox" name="heart_rate_behavior_persona_combo"/></item>
+   <item>
+    <layout class="QFormLayout" name="heart_rate_behavior_persona_form">
+     <property name="fieldGrowthPolicy"><enum>QFormLayout::ExpandingFieldsGrow</enum></property>
+     <item row="0" column="0"><widget class="QLabel" name="heart_rate_behavior_persona_tone_label"><property name="text"><string>Persona tone</string></property></widget></item>
+     <item row="0" column="1"><widget class="QLineEdit" name="heart_rate_behavior_persona_style_edit"/></item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="heart_rate_behavior_behavior_header_layout">
+     <item>
+      <widget class="QLabel" name="heart_rate_behavior_behavior_label">
+       <property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property>
+       <property name="text"><string>Behaviors</string></property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="heart_rate_behavior_behavior_header_spacer">
+       <property name="orientation"><enum>Qt::Horizontal</enum></property>
+       <property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property>
+      </spacer>
+     </item>
+     <item><widget class="QPushButton" name="btn_heart_rate_behavior_add_behavior"><property name="text"><string>Add Behavior</string></property></widget></item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QWidget" name="heart_rate_behavior_behaviors_widget">
+     <layout class="QVBoxLayout" name="heart_rate_behavior_behaviors_layout">
+      <property name="leftMargin"><number>0</number></property>
+      <property name="topMargin"><number>0</number></property>
+      <property name="rightMargin"><number>0</number></property>
+      <property name="bottomMargin"><number>0</number></property>
+      <property name="spacing"><number>8</number></property>
      </layout>
     </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="heart_rate_behavior_note_label">
+     <property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property>
+     <property name="text"><string>Each enabled behavior should describe a heart-rate state and the in-character interruption it should trigger. Open Advanced only when you want tighter control.</string></property>
+     <property name="wordWrap"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="heart_rate_behavior_preview_label">
+     <property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property>
+     <property name="text"><string>Active Rendered Prompt</string></property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QPlainTextEdit" name="heart_rate_behavior_preview_edit">
+     <property name="minimumHeight"><number>180</number></property>
+     <property name="readOnly"><bool>true</bool></property>
+    </widget>
+   </item>
+   <item>
+    <spacer name="root_spacer">
+     <property name="orientation"><enum>Qt::Vertical</enum></property>
+     <property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property>
+    </spacer>
    </item>
   </layout>
  </widget>
