@@ -7,12 +7,29 @@ functions so the runtime bridge can be carved out without changing behavior.
 
 _DEPENDENCY_KEYS_TO_SKIP = {"__name__", "__package__", "__spec__", "__loader__", "__cached__"}
 
+from ui.runtime.qt_app_shell_service_factories import (
+    configure_qt_app_shell_service_factory_dependencies,
+    _ui_shell_chat_context_service,
+    _ui_shell_chat_replay_service,
+    _ui_shell_dry_run_service,
+    _ui_shell_engine_lifecycle_service,
+    _ui_shell_input_actions_service,
+    _ui_shell_input_settings_service,
+    _ui_shell_model_refresh_service,
+    _ui_shell_performance_profile_service,
+    _ui_shell_persona_avatar_service,
+    _ui_shell_runtime_controls_service,
+    _ui_shell_runtime_status_service,
+    _ui_shell_tutorial_service,
+)
+
 
 def configure_qt_app_shell_dependencies(dependencies):
     """Provide qt_app symbols used by the migrated wiring functions."""
     for key, value in dict(dependencies or {}).items():
         if key not in _DEPENDENCY_KEYS_TO_SKIP:
             globals()[key] = value
+    configure_qt_app_shell_service_factory_dependencies(globals())
 
 
 def _configure_real_ui_bridge_dependencies():
@@ -92,6 +109,7 @@ def _configure_ui_shell_service_dependencies():
     _configure_ui_shell_local_bindings_dependencies()
     _configure_ui_shell_status_layout_dependencies()
     _configure_ui_shell_addon_report_dependencies()
+    configure_qt_app_shell_service_factory_dependencies(globals())
     configure_shell_service_dependencies(globals())
 
 
@@ -135,114 +153,6 @@ def _configure_ui_shell_chunking_profiles_dependencies():
     configure_shell_chunking_profiles_dependencies(globals())
 
 
-
-
-def _ui_shell_runtime_status_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_runtime_status_service", None)
-    if service is None:
-        service = _UiShellRuntimeStatusService(window)
-        setattr(window, "_nc_ui_shell_runtime_status_service", service)
-    return service
-
-
-def _ui_shell_model_refresh_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_model_refresh_service", None)
-    if service is None:
-        service = _UiShellModelRefreshService(window)
-        setattr(window, "_nc_ui_shell_model_refresh_service", service)
-    return service
-
-
-def _ui_shell_chat_replay_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_chat_replay_service", None)
-    if service is None:
-        service = _UiShellChatReplayService(window)
-        setattr(window, "_nc_ui_shell_chat_replay_service", service)
-    return service
-
-
-def _ui_shell_tutorial_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_tutorial_service", None)
-    if service is None:
-        service = _UiShellTutorialService(window)
-        setattr(window, "_nc_ui_shell_tutorial_service", service)
-    return service
-
-
-def _ui_shell_chat_context_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_chat_context_service", None)
-    if service is None:
-        service = _UiShellChatContextService(window)
-        setattr(window, "_nc_ui_shell_chat_context_service", service)
-    return service
-
-
-def _ui_shell_input_settings_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_input_settings_service", None)
-    if service is None:
-        service = _UiShellInputSettingsService(window)
-        setattr(window, "_nc_ui_shell_input_settings_service", service)
-    return service
-
-
-def _ui_shell_performance_profile_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_performance_profile_service", None)
-    if service is None:
-        service = _UiShellPerformanceProfileService(window)
-        setattr(window, "_nc_ui_shell_performance_profile_service", service)
-    return service
-
-
-def _ui_shell_dry_run_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_dry_run_service", None)
-    if service is None:
-        service = _UiShellDryRunService(window)
-        setattr(window, "_nc_ui_shell_dry_run_service", service)
-    return service
-
-
-def _ui_shell_persona_avatar_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_persona_avatar_service", None)
-    if service is None:
-        service = _UiShellPersonaAvatarService(window)
-        setattr(window, "_nc_ui_shell_persona_avatar_service", service)
-    return service
-
-
-def _ui_shell_input_actions_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_input_actions_service", None)
-    if service is None:
-        service = _UiShellInputActionService(window)
-        setattr(window, "_nc_ui_shell_input_actions_service", service)
-    return service
-
-
-def _ui_shell_runtime_controls_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_runtime_controls_service", None)
-    if service is None:
-        service = _UiShellRuntimeControlService(window)
-        setattr(window, "_nc_ui_shell_runtime_controls_service", service)
-    return service
-
-
-def _ui_shell_engine_lifecycle_service(window):
-    _configure_ui_shell_service_dependencies()
-    service = getattr(window, "_nc_ui_shell_engine_lifecycle_service", None)
-    if service is None:
-        service = _UiShellEngineLifecycleService(window)
-        setattr(window, "_nc_ui_shell_engine_lifecycle_service", service)
-    return service
 
 
 
