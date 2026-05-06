@@ -604,6 +604,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             wait_frames = max(predicted_offset_frames - 1, 0)
             if wait_frames > 0:
                 time.sleep(wait_frames / max(fps, 1))
+            current_source_index = predicted_entry_index
             while not stop_flag.is_set():
                 current_plan_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
                 if current_plan_state.get("status") != "idle" or current_plan_state.get("avatar_id") != avatar_id:
@@ -619,6 +620,8 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 if 0 < passed_predicted_index < (len(full_frame_paths) // 2):
                     break
                 time.sleep(0.01)
+            if stop_flag.is_set():
+                return
 
             window_paths = self._build_pingpong_frame_paths(full_frame_paths, window_start, window_size)
             forward_indices = [

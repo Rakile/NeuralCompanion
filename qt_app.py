@@ -74,9 +74,8 @@ from ui.validation import (
     UI_SHELL_TAB_MOUNT_WIDGETS,
     UI_VALIDATION_REQUIRED_GROUPS,
     collect_ui_shell_static_tabs as _collect_ui_shell_static_tabs,
-    resolve_ui_path as _resolve_ui_path_base,
-    validate_ui_file as _validate_ui_file_base,
 )
+from ui.runtime.qt_app_cli import maybe_handle_ui_shell, maybe_handle_validate_ui, resolve_ui_path as _resolve_ui_path_base, validate_ui_file as _validate_ui_file
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow, QtMuseTalkStageWindow
 from ui.panels.hand_doctor_dialog import HandDoctorDialog
 from ui.panels.visual_reply_panel import QtVisualReplyPanel
@@ -265,17 +264,15 @@ from ui.widgets.basic import (
 )
 from ui.widgets.telemetry import ChunkProgressTelemetryBar, PipelineTelemetryWidget
 
+def validate_ui_file(raw_path):
+    return _validate_ui_file(raw_path, base_path=__file__)
+
+
 def _resolve_ui_path(raw_path):
     return _resolve_ui_path_base(raw_path, base_path=__file__)
 
 
-def validate_ui_file(raw_path):
-    return _validate_ui_file_base(raw_path, base_path=__file__)
-
-
-if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--validate-ui":
-    ui_arg = sys.argv[2] if len(sys.argv) >= 3 else "main.ui"
-    sys.exit(validate_ui_file(ui_arg))
+maybe_handle_validate_ui(sys.argv, base_path=__file__)
 
 
 
@@ -318,14 +315,13 @@ from ui.runtime.qt_app_shell_config import (
 configure_qt_app_shell_dependencies(globals())
 
 
-if len(sys.argv) >= 2 and str(sys.argv[1] or "").strip().lower() == "--ui-shell":
-    shell_smoke = any(str(item or "").strip().lower() == "--shell-smoke" for item in sys.argv[2:])
-    ui_arg = sys.argv[2] if len(sys.argv) >= 3 and not str(sys.argv[2] or "").startswith("--") else "main.ui"
-    if shell_smoke:
-        _configure_ui_shell_smoke_dependencies()
-        sys.exit(run_ui_shell_smoke(ui_arg))
-    _configure_ui_shell_preview_dependencies()
-    sys.exit(run_ui_shell_preview(ui_arg))
+maybe_handle_ui_shell(
+    sys.argv,
+    configure_ui_shell_smoke_dependencies=_configure_ui_shell_smoke_dependencies,
+    configure_ui_shell_preview_dependencies=_configure_ui_shell_preview_dependencies,
+    run_ui_shell_smoke=run_ui_shell_smoke,
+    run_ui_shell_preview=run_ui_shell_preview,
+)
 
 _ui_shell_enable_stdio_unicode_fallback()
 
