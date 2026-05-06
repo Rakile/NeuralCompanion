@@ -126,13 +126,14 @@ class Addon(BaseAddon):
 
     def _bind_designer_tab(self, widget, context):
         mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount") if widget is not None else None
-        if mount is None:
-            raise RuntimeError("Screen Supervisor Designer UI is missing addon_designer_mount.")
-        layout = mount.layout()
-        if layout is None:
-            layout = QtWidgets.QVBoxLayout(mount)
-            layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._build_runtime_widget(context))
+        if mount is not None:
+            layout = mount.layout()
+            if layout is None:
+                layout = QtWidgets.QVBoxLayout(mount)
+                layout.setContentsMargins(0, 0, 0, 0)
+            layout.addWidget(self._build_runtime_widget(context))
+            return widget
+        self._build_runtime_widget(context, root=widget)
         return widget
 
     def invoke_capability(self, capability, payload=None):
@@ -533,71 +534,111 @@ class Addon(BaseAddon):
         else:
             self._expanded_behavior_ids.discard(behavior_key)
 
-    def _build_runtime_widget(self, context):
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
+    def _build_runtime_widget(self, context, root=None):
+        if root is not None:
+            widget = root
+            def ui_child(name, cls):
+                try:
+                    return widget.findChild(cls, str(name))
+                except Exception:
+                    return None
 
-        intro = QtWidgets.QLabel(
-            "Build one or more supervisor personas for the Screen source. Each persona can own several behaviors, where every behavior pairs a visual trigger with the action the hidden LLM should take."
-        )
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
+            state_label = ui_child("screen_supervisor_state_label", QtWidgets.QLabel)
+            add_persona_button = ui_child("btn_screen_supervisor_add_persona", QtWidgets.QPushButton)
+            rename_persona_button = ui_child("btn_screen_supervisor_rename_persona", QtWidgets.QPushButton)
+            delete_persona_button = ui_child("btn_screen_supervisor_delete_persona", QtWidgets.QPushButton)
+            persona_combo = ui_child("screen_supervisor_persona_combo", QtWidgets.QComboBox)
+            persona_style_edit = ui_child("screen_supervisor_persona_style_edit", QtWidgets.QLineEdit)
+            add_behavior_button = ui_child("btn_screen_supervisor_add_behavior", QtWidgets.QPushButton)
+            behaviors_widget = ui_child("screen_supervisor_behaviors_widget", QtWidgets.QWidget)
+            preview_edit = ui_child("screen_supervisor_preview_edit", QtWidgets.QPlainTextEdit)
+            if any(
+                item is None
+                for item in (
+                    state_label,
+                    add_persona_button,
+                    rename_persona_button,
+                    delete_persona_button,
+                    persona_combo,
+                    persona_style_edit,
+                    add_behavior_button,
+                    behaviors_widget,
+                    preview_edit,
+                )
+            ):
+                raise RuntimeError("Screen Supervisor Designer UI is missing one or more required controls.")
+            behaviors_layout = behaviors_widget.layout()
+            if behaviors_layout is None:
+                behaviors_layout = QtWidgets.QVBoxLayout(behaviors_widget)
+            behaviors_layout.setContentsMargins(0, 0, 0, 0)
+            behaviors_layout.setSpacing(8)
+            preview_edit.setReadOnly(True)
+            preview_edit.setMinimumHeight(180)
+        else:
+            widget = QtWidgets.QWidget()
+            layout = QtWidgets.QVBoxLayout(widget)
 
-        state_label = QtWidgets.QLabel()
-        state_label.setWordWrap(True)
-        state_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(state_label)
+            intro = QtWidgets.QLabel(
+                "Build one or more supervisor personas for the Screen source. Each persona can own several behaviors, where every behavior pairs a visual trigger with the action the hidden LLM should take."
+            )
+            intro.setWordWrap(True)
+            layout.addWidget(intro)
 
-        persona_header = QtWidgets.QHBoxLayout()
-        persona_label = QtWidgets.QLabel("Active Persona")
-        persona_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
-        persona_header.addWidget(persona_label)
-        persona_header.addStretch(1)
-        add_persona_button = QtWidgets.QPushButton("Add Supervisor Persona")
-        rename_persona_button = QtWidgets.QPushButton("Rename")
-        delete_persona_button = QtWidgets.QPushButton("Delete")
-        persona_header.addWidget(add_persona_button)
-        persona_header.addWidget(rename_persona_button)
-        persona_header.addWidget(delete_persona_button)
-        layout.addLayout(persona_header)
+            state_label = QtWidgets.QLabel()
+            state_label.setWordWrap(True)
+            state_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            layout.addWidget(state_label)
 
-        persona_combo = NoWheelComboBox()
-        layout.addWidget(persona_combo)
+            persona_header = QtWidgets.QHBoxLayout()
+            persona_label = QtWidgets.QLabel("Active Persona")
+            persona_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
+            persona_header.addWidget(persona_label)
+            persona_header.addStretch(1)
+            add_persona_button = QtWidgets.QPushButton("Add Supervisor Persona")
+            rename_persona_button = QtWidgets.QPushButton("Rename")
+            delete_persona_button = QtWidgets.QPushButton("Delete")
+            persona_header.addWidget(add_persona_button)
+            persona_header.addWidget(rename_persona_button)
+            persona_header.addWidget(delete_persona_button)
+            layout.addLayout(persona_header)
 
-        form = QtWidgets.QFormLayout()
-        persona_style_edit = QtWidgets.QLineEdit()
-        form.addRow("Persona tone", persona_style_edit)
-        layout.addLayout(form)
+            persona_combo = NoWheelComboBox()
+            layout.addWidget(persona_combo)
 
-        behavior_header = QtWidgets.QHBoxLayout()
-        behavior_label = QtWidgets.QLabel("Behaviors")
-        behavior_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
-        behavior_header.addWidget(behavior_label)
-        behavior_header.addStretch(1)
-        add_behavior_button = QtWidgets.QPushButton("Add Behavior")
-        behavior_header.addWidget(add_behavior_button)
-        layout.addLayout(behavior_header)
+            form = QtWidgets.QFormLayout()
+            persona_style_edit = QtWidgets.QLineEdit()
+            form.addRow("Persona tone", persona_style_edit)
+            layout.addLayout(form)
 
-        behaviors_widget = QtWidgets.QWidget()
-        behaviors_layout = QtWidgets.QVBoxLayout(behaviors_widget)
-        behaviors_layout.setContentsMargins(0, 0, 0, 0)
-        behaviors_layout.setSpacing(8)
-        layout.addWidget(behaviors_widget)
+            behavior_header = QtWidgets.QHBoxLayout()
+            behavior_label = QtWidgets.QLabel("Behaviors")
+            behavior_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
+            behavior_header.addWidget(behavior_label)
+            behavior_header.addStretch(1)
+            add_behavior_button = QtWidgets.QPushButton("Add Behavior")
+            behavior_header.addWidget(add_behavior_button)
+            layout.addLayout(behavior_header)
 
-        note = QtWidgets.QLabel("Each enabled behavior should describe a clear screen pattern and the in-character interruption it should trigger. Open Advanced only when you want tighter control.")
-        note.setWordWrap(True)
-        note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(note)
+            behaviors_widget = QtWidgets.QWidget()
+            behaviors_layout = QtWidgets.QVBoxLayout(behaviors_widget)
+            behaviors_layout.setContentsMargins(0, 0, 0, 0)
+            behaviors_layout.setSpacing(8)
+            layout.addWidget(behaviors_widget)
 
-        preview_header = QtWidgets.QLabel("Active Rendered Prompt")
-        preview_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
-        layout.addWidget(preview_header)
+            note = QtWidgets.QLabel("Each enabled behavior should describe a clear screen pattern and the in-character interruption it should trigger. Open Advanced only when you want tighter control.")
+            note.setWordWrap(True)
+            note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            layout.addWidget(note)
 
-        preview_edit = QtWidgets.QPlainTextEdit()
-        preview_edit.setReadOnly(True)
-        preview_edit.setMinimumHeight(180)
-        layout.addWidget(preview_edit)
-        layout.addStretch(1)
+            preview_header = QtWidgets.QLabel("Active Rendered Prompt")
+            preview_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
+            layout.addWidget(preview_header)
+
+            preview_edit = QtWidgets.QPlainTextEdit()
+            preview_edit.setReadOnly(True)
+            preview_edit.setMinimumHeight(180)
+            layout.addWidget(preview_edit)
+            layout.addStretch(1)
 
         sync = {"active": False}
 
