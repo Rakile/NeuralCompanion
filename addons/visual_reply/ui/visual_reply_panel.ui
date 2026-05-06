@@ -1,0 +1,177 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>VisualReplyPanel</class>
+ <widget class="QWidget" name="VisualReplyPanel">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>920</width>
+    <height>620</height>
+   </rect>
+  </property>
+  <layout class="QVBoxLayout" name="visual_reply_panel_layout">
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <property name="spacing">
+    <number>8</number>
+   </property>
+   <item>
+    <widget class="QLabel" name="visual_reply_status">
+     <property name="styleSheet">
+      <string notr="true">font-weight: 600; color: #d8dee9;</string>
+     </property>
+     <property name="text">
+      <string>Visual Reply idle</string>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="visual_reply_storage_label">
+     <property name="styleSheet">
+      <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+     </property>
+     <property name="text">
+      <string>Storage: empty</string>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="visual_reply_controls_layout">
+     <property name="spacing">
+      <number>8</number>
+     </property>
+     <item>
+      <widget class="QPushButton" name="visual_reply_previous_button">
+       <property name="text">
+        <string>Previous</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_load_button">
+       <property name="text">
+        <string>Load Image</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_next_button">
+       <property name="text">
+        <string>Next</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_load_current_story_button">
+       <property name="text">
+        <string>Load Current Story Image</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_use_current_style_button">
+       <property name="text">
+        <string>Use Current Image Style</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_caption_button">
+       <property name="text">
+        <string>Caption</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_delete_button">
+       <property name="text">
+        <string>Delete Image</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_clear_button">
+       <property name="text">
+        <string>Clear</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="visual_reply_delete_all_button">
+       <property name="text">
+        <string>Delete All</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <spacer name="visual_reply_controls_spacer">
+       <property name="orientation">
+        <enum>Qt::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QStackedWidget" name="visual_reply_content_stack">
+     <property name="sizePolicy">
+      <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+       <horstretch>0</horstretch>
+       <verstretch>1</verstretch>
+      </sizepolicy>
+     </property>
+     <widget class="QLabel" name="visual_reply_placeholder">
+      <property name="styleSheet">
+       <string notr="true">background: #0f141b; border: 1px solid #273342; border-radius: 10px; color: #8ea3b8; padding: 18px;</string>
+      </property>
+      <property name="text">
+       <string>No visual reply yet.
+When NC creates an image, it will appear here.</string>
+      </property>
+      <property name="alignment">
+       <set>Qt::AlignCenter</set>
+      </property>
+      <property name="wordWrap">
+       <bool>true</bool>
+      </property>
+     </widget>
+    </widget>
+   </item>
+   <item>
+    <widget class="QLabel" name="visual_reply_caption_label">
+     <property name="styleSheet">
+      <string notr="true">color: #9fb3c8; font-size: 11px; padding: 2px 2px 0 2px;</string>
+     </property>
+     <property name="text">
+      <string/>
+     </property>
+     <property name="wordWrap">
+      <bool>true</bool>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -3,7 +3,7 @@ import time
 from pathlib import Path
 
 from PIL import Image
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtUiTools, QtWidgets
 
 import shared_state
 
@@ -58,6 +58,120 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
     def __init__(self, capability_bridge=None, parent=None):
         super().__init__(parent)
         self._capability_bridge = capability_bridge
+        self._build_shell()
+
+        self.current_pixmap = None
+        self.current_image_path = ""
+        self.current_caption = ""
+        self.preview_zoom_factor = 1.0
+        self._last_visual_reply_updated_at = 0.0
+
+        self.image_label.installEventFilter(self)
+        self.image_scroll.installEventFilter(self)
+        self.image_scroll.viewport().installEventFilter(self)
+        self.clear_visual_reply()
+        self._refresh_storage_summary()
+
+        self.poll_timer = QtCore.QTimer(self)
+        self.poll_timer.timeout.connect(self.poll_state)
+        self.poll_timer.start(250)
+
+    def _build_shell(self):
+        if self._build_designer_shell():
+            return
+        self._build_python_fallback_shell()
+
+    def _build_designer_shell(self):
+        ui_path = Path(__file__).resolve().parent / "ui" / "visual_reply_panel.ui"
+        if not ui_path.exists():
+            return False
+        ui_file = QtCore.QFile(str(ui_path))
+        if not ui_file.open(QtCore.QIODevice.ReadOnly):
+            return False
+        try:
+            loaded = QtUiTools.QUiLoader().load(ui_file)
+        except Exception:
+            loaded = None
+        finally:
+            ui_file.close()
+        if loaded is None:
+            return False
+
+        self.status_label = loaded.findChild(QtWidgets.QLabel, "visual_reply_status")
+        self.storage_label = loaded.findChild(QtWidgets.QLabel, "visual_reply_storage_label")
+        self.prev_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_previous_button")
+        self.load_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_load_button")
+        self.next_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_next_button")
+        self.load_story_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_load_current_story_button")
+        self.use_style_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_use_current_style_button")
+        self.caption_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_caption_button")
+        self.delete_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_delete_button")
+        self.clear_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_clear_button")
+        self.delete_all_button = loaded.findChild(QtWidgets.QPushButton, "visual_reply_delete_all_button")
+        self.content_stack = loaded.findChild(QtWidgets.QStackedWidget, "visual_reply_content_stack")
+        self.placeholder = loaded.findChild(QtWidgets.QLabel, "visual_reply_placeholder")
+        self.caption_label = loaded.findChild(QtWidgets.QLabel, "visual_reply_caption_label")
+        if not all(
+            (
+                self.status_label,
+                self.storage_label,
+                self.prev_button,
+                self.load_button,
+                self.next_button,
+                self.load_story_button,
+                self.use_style_button,
+                self.caption_button,
+                self.delete_button,
+                self.clear_button,
+                self.delete_all_button,
+                self.content_stack,
+                self.placeholder,
+                self.caption_label,
+            )
+        ):
+            loaded.deleteLater()
+            return False
+
+        loaded.setParent(self)
+        layout = QtWidgets.QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        layout.addWidget(loaded)
+
+        self._install_image_viewer()
+        self._connect_controls()
+        return True
+
+    def _install_image_viewer(self):
+        self.image_label = QtWidgets.QLabel()
+        self.image_label.setObjectName("visual_reply_image_label")
+        self.image_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_label.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Ignored)
+        self.image_label.setMinimumSize(0, 0)
+        self.image_label.setStyleSheet("background: transparent; border: 0;")
+
+        self.image_scroll = AddonAltWheelZoomScrollArea()
+        self.image_scroll.setObjectName("visual_reply_image_scroll")
+        self.image_scroll.setWidgetResizable(False)
+        self.image_scroll.setAlignment(QtCore.Qt.AlignCenter)
+        self.image_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.image_scroll.setStyleSheet("QScrollArea { background: #0f141b; border: 1px solid #273342; border-radius: 10px; }")
+        self.image_scroll.setWidget(self.image_label)
+        self.image_scroll.zoomRequested.connect(self._handle_scroll_zoom_request)
+        self.content_stack.addWidget(self.image_scroll)
+
+    def _connect_controls(self):
+        self.prev_button.clicked.connect(self.show_previous_stored_image)
+        self.next_button.clicked.connect(self.show_next_stored_image)
+        self.load_button.clicked.connect(self.loadRequested.emit)
+        self.load_story_button.clicked.connect(self.load_current_story_image)
+        self.use_style_button.clicked.connect(self.use_current_image_style)
+        self.caption_button.clicked.connect(self.captionRequested.emit)
+        self.delete_button.clicked.connect(self.delete_current_image)
+        self.clear_button.clicked.connect(self.clearRequested.emit)
+        self.delete_all_button.clicked.connect(self.delete_all_stored_images)
+
+    def _build_python_fallback_shell(self):
         layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(10, 10, 10, 10)
         layout.setSpacing(8)
@@ -138,22 +252,6 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
         layout.addLayout(controls)
         layout.addWidget(self.content_stack, 1)
         layout.addWidget(self.caption_label)
-
-        self.current_pixmap = None
-        self.current_image_path = ""
-        self.current_caption = ""
-        self.preview_zoom_factor = 1.0
-        self._last_visual_reply_updated_at = 0.0
-
-        self.image_label.installEventFilter(self)
-        self.image_scroll.installEventFilter(self)
-        self.image_scroll.viewport().installEventFilter(self)
-        self.clear_visual_reply()
-        self._refresh_storage_summary()
-
-        self.poll_timer = QtCore.QTimer(self)
-        self.poll_timer.timeout.connect(self.poll_state)
-        self.poll_timer.start(250)
 
     def eventFilter(self, watched, event):
         if watched is self.image_label or watched is self.image_scroll or watched is self.image_scroll.viewport():
