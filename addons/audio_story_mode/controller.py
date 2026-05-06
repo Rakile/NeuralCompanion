@@ -931,7 +931,294 @@ class AudioStoryModeController(QtCore.QObject):
         except RuntimeError:
             return
 
-    def build_runtime_widget(self):
+    def build_runtime_widget(self, root=None):
+        existing = self.audio_story_tab_widget
+        if existing is not None:
+            return existing
+        if root is not None:
+            bound = self._bind_designer_runtime_widget(root)
+            if bound is not None:
+                return bound
+        return self._build_runtime_widget_python()
+
+    def _ui_child(self, root, object_name, cls=None):
+        if root is None:
+            return None
+        widget = root.findChild(QtCore.QObject, str(object_name))
+        if widget is None:
+            return None
+        if cls is not None and not isinstance(widget, cls):
+            return None
+        return widget
+
+    def _bind_designer_runtime_widget(self, root):
+        # The Designer shell owns fixed layout. Runtime code only binds behavior
+        # and still creates data-driven rows such as style presets and prompt caps.
+        path_edit = self._ui_child(root, "audio_story_path_edit", QtWidgets.QLineEdit)
+        import_button = self._ui_child(root, "audio_story_import_button", QtWidgets.QPushButton)
+        transcribe_button = self._ui_child(root, "audio_story_transcribe_button", QtWidgets.QPushButton)
+        if any(item is None for item in (path_edit, import_button, transcribe_button)):
+            return None
+
+        root.setObjectName("audio_story_mode_tab")
+        self.audio_story_tab_widget = root
+
+        compact_button_style = self._audio_story_compact_button_style()
+        style_button_style = (
+            "QPushButton { padding: 6px 10px; }"
+            "QPushButton:checked { background: #4d8dff; color: white; border: 1px solid #6a95ff; }"
+        )
+
+        self.audio_story_path_edit = path_edit
+        self.audio_story_path_edit.setReadOnly(True)
+        self.audio_story_path_edit.setPlaceholderText("Import an audiobook or story audio file...")
+        self.audio_story_import_button = import_button
+        self.audio_story_import_button.setStyleSheet(compact_button_style)
+        self.audio_story_import_button.clicked.connect(self._choose_audio_file)
+
+        self.audio_story_playback_mode_combo = self._ui_child(root, "audio_story_playback_mode_combo", QtWidgets.QComboBox)
+        if self.audio_story_playback_mode_combo is not None:
+            self.audio_story_playback_mode_combo.addItems(["Play Imported Audio", "Use TTS Narration"])
+            self.audio_story_playback_mode_combo.currentTextChanged.connect(self._on_playback_mode_changed)
+            combo_index = self.audio_story_playback_mode_combo.findText(str(self._stored_playback_mode_label or "").strip())
+            if combo_index >= 0:
+                self.audio_story_playback_mode_combo.setCurrentIndex(combo_index)
+
+        self.audio_story_cost_profile_combo = self._ui_child(root, "audio_story_cost_profile_combo", QtWidgets.QComboBox)
+        if self.audio_story_cost_profile_combo is not None:
+            for profile in _audio_story_cost_profiles():
+                self.audio_story_cost_profile_combo.addItem(str(profile.get("label") or str(profile.get("id") or "").title()), str(profile.get("id") or "").strip().lower())
+            self.audio_story_cost_profile_combo.addItem("Custom", "custom")
+            self.audio_story_cost_profile_combo.currentIndexChanged.connect(self._on_audio_story_cost_profile_changed)
+
+        self.audio_story_settings_preset_combo = self._ui_child(root, "audio_story_settings_preset_combo", QtWidgets.QComboBox)
+        if self.audio_story_settings_preset_combo is not None:
+            self.audio_story_settings_preset_combo.setEditable(True)
+        self.audio_story_settings_preset_save_button = self._ui_child(root, "audio_story_settings_preset_save_button", QtWidgets.QPushButton)
+        if self.audio_story_settings_preset_save_button is not None:
+            self.audio_story_settings_preset_save_button.setStyleSheet(compact_button_style)
+            self.audio_story_settings_preset_save_button.clicked.connect(self._save_audio_story_settings_preset)
+        self.audio_story_settings_preset_load_button = self._ui_child(root, "audio_story_settings_preset_load_button", QtWidgets.QPushButton)
+        if self.audio_story_settings_preset_load_button is not None:
+            self.audio_story_settings_preset_load_button.setStyleSheet(compact_button_style)
+            self.audio_story_settings_preset_load_button.clicked.connect(self._load_audio_story_settings_preset)
+
+        self.audio_story_transcribe_seconds_slider = self._ui_child(root, "audio_story_transcribe_seconds_slider", QtWidgets.QSlider)
+        if self.audio_story_transcribe_seconds_slider is not None:
+            self.audio_story_transcribe_seconds_slider.setRange(1, max(8, int(self._stored_transcribe_seconds or 8)))
+            self.audio_story_transcribe_seconds_slider.setValue(max(1, int(self._stored_transcribe_seconds or 8)))
+            self.audio_story_transcribe_seconds_slider.valueChanged.connect(self._on_transcribe_seconds_changed)
+        self.audio_story_transcribe_seconds_value_label = self._ui_child(root, "audio_story_transcribe_seconds_value_label", QtWidgets.QLabel)
+
+        self.audio_story_image_frequency_slider = self._ui_child(root, "audio_story_image_frequency_slider", QtWidgets.QSlider)
+        if self.audio_story_image_frequency_slider is not None:
+            self.audio_story_image_frequency_slider.setRange(1, 60)
+            self.audio_story_image_frequency_slider.setValue(max(1, min(60, int(self._stored_image_frequency_seconds or 12))))
+            self.audio_story_image_frequency_slider.valueChanged.connect(self._on_image_frequency_changed)
+        self.audio_story_image_frequency_value_label = self._ui_child(root, "audio_story_image_frequency_value_label", QtWidgets.QLabel)
+
+        self.audio_story_image_timing_combo = self._ui_child(root, "audio_story_image_timing_combo", QtWidgets.QComboBox)
+        if self.audio_story_image_timing_combo is not None:
+            self.audio_story_image_timing_combo.addItem("Fixed Seconds", "fixed")
+            self.audio_story_image_timing_combo.addItem("Scene Changes", "scene_changes")
+            self.audio_story_image_timing_combo.currentIndexChanged.connect(self._on_image_timing_mode_changed)
+
+        self.audio_story_continuity_slider = self._ui_child(root, "audio_story_continuity_slider", QtWidgets.QSlider)
+        if self.audio_story_continuity_slider is not None:
+            self.audio_story_continuity_slider.setRange(0, 100)
+            self.audio_story_continuity_slider.setSingleStep(1)
+            self.audio_story_continuity_slider.setPageStep(5)
+            self.audio_story_continuity_slider.setValue(int(round(float(self._stored_continuity_strength or 0.8) * 100.0)))
+            self.audio_story_continuity_slider.valueChanged.connect(self._on_continuity_strength_changed)
+        self.audio_story_continuity_value_label = self._ui_child(root, "audio_story_continuity_value_label", QtWidgets.QLabel)
+
+        self.audio_story_style_buttons = {}
+        self.audio_story_style_edits = {}
+        style_grid_widget = self._ui_child(root, "audio_story_style_grid_widget", QtWidgets.QWidget)
+        style_layout = style_grid_widget.layout() if style_grid_widget is not None else None
+        if style_layout is not None:
+            for style_index, style_def in enumerate(_audio_story_style_presets()):
+                style_id = str(style_def.get("id") or "").strip().lower()
+                row_group = style_index // 2
+                column = style_index % 2
+                button_row = row_group * 2
+                edit_row = button_row + 1
+                button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
+                button.setCheckable(True)
+                button.setStyleSheet(style_button_style)
+                button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+                button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
+                edit = QtWidgets.QLineEdit()
+                edit.setClearButtonEnabled(True)
+                edit.setMinimumWidth(120)
+                edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+                edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
+                style_layout.addWidget(button, button_row, column)
+                style_layout.addWidget(edit, edit_row, column)
+                style_layout.setColumnStretch(column, 1)
+                self.audio_story_style_buttons[style_id] = button
+                self.audio_story_style_edits[style_id] = edit
+
+        self.audio_story_style_live_checkbox = self._ui_child(root, "audio_story_style_live_checkbox", QtWidgets.QCheckBox)
+        if self.audio_story_style_live_checkbox is not None:
+            self.audio_story_style_live_checkbox.toggled.connect(self._on_audio_story_style_live_changed)
+        self.audio_story_master_prompt_button = self._ui_child(root, "audio_story_master_prompt_button", QtWidgets.QPushButton)
+        if self.audio_story_master_prompt_button is not None:
+            self.audio_story_master_prompt_button.setCheckable(True)
+            self.audio_story_master_prompt_button.setChecked(bool(self._stored_story_master_prompt_enabled))
+            self.audio_story_master_prompt_button.setStyleSheet(style_button_style)
+            self.audio_story_master_prompt_button.toggled.connect(self._on_story_master_prompt_toggled)
+        self.audio_story_master_prompt_mode_combo = self._ui_child(root, "audio_story_master_prompt_mode_combo", QtWidgets.QComboBox)
+        if self.audio_story_master_prompt_mode_combo is not None:
+            for value, label in _audio_story_master_prompt_modes():
+                self.audio_story_master_prompt_mode_combo.addItem(label, value)
+            current_mode_index = self.audio_story_master_prompt_mode_combo.findData(str(self._stored_story_master_prompt_mode or "medium").strip().lower())
+            if current_mode_index >= 0:
+                self.audio_story_master_prompt_mode_combo.setCurrentIndex(current_mode_index)
+            self.audio_story_master_prompt_mode_combo.currentIndexChanged.connect(self._on_story_master_prompt_mode_changed)
+
+        self.audio_story_llm_analysis_checkbox = self._ui_child(root, "audio_story_llm_analysis_checkbox", QtWidgets.QCheckBox)
+        if self.audio_story_llm_analysis_checkbox is not None:
+            self.audio_story_llm_analysis_checkbox.toggled.connect(self._on_llm_story_analysis_toggled)
+        self.audio_story_analysis_provider_combo = self._ui_child(root, "audio_story_analysis_provider_combo", QtWidgets.QComboBox)
+        if self.audio_story_analysis_provider_combo is not None:
+            self.audio_story_analysis_provider_combo.addItem("Current Chat Provider", "current")
+            self.audio_story_analysis_provider_combo.addItem("Local LM Studio", "lmstudio")
+            self.audio_story_analysis_provider_combo.currentIndexChanged.connect(self._on_story_analysis_provider_mode_changed)
+        self.audio_story_analysis_model_combo = self._ui_child(root, "audio_story_analysis_model_combo", QtWidgets.QComboBox)
+        if self.audio_story_analysis_model_combo is not None:
+            self.audio_story_analysis_model_combo.setEditable(True)
+            self.audio_story_analysis_model_combo.addItem("Auto", "")
+            self.audio_story_analysis_model_combo.currentIndexChanged.connect(self._on_story_analysis_model_changed)
+            line_edit = self.audio_story_analysis_model_combo.lineEdit()
+            if line_edit is not None:
+                line_edit.editingFinished.connect(self._on_story_analysis_model_edit_finished)
+
+        self.audio_story_prompt_limit_spins = {}
+        prompt_limits_widget = self._ui_child(root, "audio_story_prompt_limits_widget", QtWidgets.QWidget)
+        prompt_limits_layout = prompt_limits_widget.layout() if prompt_limits_widget is not None else None
+        if prompt_limits_layout is not None:
+            for limit_index, (limit_key, default_value) in enumerate(_AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS.items()):
+                row = limit_index // 2
+                column = (limit_index % 2) * 2
+                label = QtWidgets.QLabel(limit_key.replace("_", " ").title())
+                spin = _AudioStoryNoWheelSpinBox()
+                spin.setRange(40, 1600)
+                spin.setSingleStep(20)
+                spin.setValue(int(self._stored_prompt_block_limits.get(limit_key, default_value) or default_value))
+                spin.setSuffix(" chars")
+                spin.valueChanged.connect(lambda value, limit_key=limit_key: self._on_prompt_block_limit_changed(limit_key, value))
+                prompt_limits_layout.addWidget(label, row, column)
+                prompt_limits_layout.addWidget(spin, row, column + 1)
+                prompt_limits_layout.setColumnStretch(column + 1, 1)
+                self.audio_story_prompt_limit_spins[limit_key] = spin
+        self.audio_story_prompt_safety_cap_spin = self._ui_child(root, "audio_story_prompt_safety_cap_spin", QtWidgets.QSpinBox)
+        if self.audio_story_prompt_safety_cap_spin is not None:
+            self.audio_story_prompt_safety_cap_spin.setRange(400, 6000)
+            self.audio_story_prompt_safety_cap_spin.setSingleStep(100)
+            self.audio_story_prompt_safety_cap_spin.setValue(int(self._stored_prompt_safety_cap or _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT))
+            self.audio_story_prompt_safety_cap_spin.setSuffix(" chars")
+            self.audio_story_prompt_safety_cap_spin.valueChanged.connect(self._on_prompt_safety_cap_changed)
+        self.audio_story_generate_ahead_slider = self._ui_child(root, "audio_story_generate_ahead_slider", QtWidgets.QSlider)
+        if self.audio_story_generate_ahead_slider is not None:
+            self.audio_story_generate_ahead_slider.setRange(0, 12)
+            self.audio_story_generate_ahead_slider.setValue(max(0, int(self._stored_generate_ahead_frames or 3)))
+            self.audio_story_generate_ahead_slider.valueChanged.connect(self._on_generate_ahead_frames_changed)
+        self.audio_story_generate_ahead_value_label = self._ui_child(root, "audio_story_generate_ahead_value_label", QtWidgets.QLabel)
+
+        self.audio_story_transcribe_button = transcribe_button
+        self.audio_story_transcribe_button.setStyleSheet(compact_button_style)
+        self.audio_story_transcribe_button.clicked.connect(self._start_transcription)
+
+        self.audio_story_scene_status_label = self._ui_child(root, "audio_story_scene_status_label", QtWidgets.QLabel)
+        self.audio_story_scene_character_button_row = self._ui_child(root, "audio_story_scene_character_grid", QtWidgets.QGridLayout)
+        self.audio_story_pin_location_button = self._ui_child(root, "audio_story_pin_location_button", QtWidgets.QPushButton)
+        if self.audio_story_pin_location_button is not None:
+            self.audio_story_pin_location_button.setCheckable(True)
+            self.audio_story_pin_location_button.setStyleSheet(compact_button_style)
+            self.audio_story_pin_location_button.toggled.connect(self._on_pin_location_toggled)
+        self.audio_story_force_fresh_button = self._ui_child(root, "audio_story_force_fresh_button", QtWidgets.QPushButton)
+        if self.audio_story_force_fresh_button is not None:
+            self.audio_story_force_fresh_button.setCheckable(True)
+            self.audio_story_force_fresh_button.setStyleSheet(compact_button_style)
+            self.audio_story_force_fresh_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("fresh", checked))
+        self.audio_story_force_continuation_button = self._ui_child(root, "audio_story_force_continuation_button", QtWidgets.QPushButton)
+        if self.audio_story_force_continuation_button is not None:
+            self.audio_story_force_continuation_button.setCheckable(True)
+            self.audio_story_force_continuation_button.setStyleSheet(compact_button_style)
+            self.audio_story_force_continuation_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("continuation", checked))
+        self.audio_story_scene_anchor_edit = self._ui_child(root, "audio_story_scene_anchor_edit", QtWidgets.QPlainTextEdit)
+        self.audio_story_scene_anchor_apply_button = self._ui_child(root, "audio_story_scene_anchor_apply_button", QtWidgets.QPushButton)
+        if self.audio_story_scene_anchor_apply_button is not None:
+            self.audio_story_scene_anchor_apply_button.setStyleSheet(compact_button_style)
+            self.audio_story_scene_anchor_apply_button.clicked.connect(self._apply_scene_anchor_override)
+        self.audio_story_scene_negative_prompt_edit = self._ui_child(root, "audio_story_scene_negative_prompt_edit", QtWidgets.QPlainTextEdit)
+        self.audio_story_scene_negative_prompt_apply_button = self._ui_child(root, "audio_story_scene_negative_prompt_apply_button", QtWidgets.QPushButton)
+        if self.audio_story_scene_negative_prompt_apply_button is not None:
+            self.audio_story_scene_negative_prompt_apply_button.setStyleSheet(compact_button_style)
+            self.audio_story_scene_negative_prompt_apply_button.clicked.connect(self._apply_scene_negative_prompt_override)
+
+        self.audio_story_play_button = self._ui_child(root, "audio_story_play_button", QtWidgets.QPushButton)
+        if self.audio_story_play_button is not None:
+            self.audio_story_play_button.setStyleSheet(self._audio_story_playback_button_style("play"))
+            self.audio_story_play_button.clicked.connect(self._play_story)
+        self.audio_story_pause_button = self._ui_child(root, "audio_story_pause_button", QtWidgets.QPushButton)
+        if self.audio_story_pause_button is not None:
+            self.audio_story_pause_button.setStyleSheet(self._audio_story_playback_button_style("pause"))
+            self.audio_story_pause_button.clicked.connect(self._pause_story)
+        self.audio_story_stop_button = self._ui_child(root, "audio_story_stop_button", QtWidgets.QPushButton)
+        if self.audio_story_stop_button is not None:
+            self.audio_story_stop_button.setStyleSheet(self._audio_story_playback_button_style("stop"))
+            self.audio_story_stop_button.clicked.connect(self._stop_story)
+        self.audio_story_time_label = self._ui_child(root, "audio_story_time_label", QtWidgets.QLabel)
+        self.audio_story_position_slider = self._ui_child(root, "audio_story_position_slider", QtWidgets.QSlider)
+        if self.audio_story_position_slider is not None:
+            self.audio_story_position_slider.setRange(0, 0)
+            self.audio_story_position_slider.sliderPressed.connect(self._on_slider_pressed)
+            self.audio_story_position_slider.sliderReleased.connect(self._on_slider_released)
+            self.audio_story_position_slider.sliderMoved.connect(self._on_slider_moved)
+        self.audio_story_status_label = self._ui_child(root, "audio_story_status_label", QtWidgets.QLabel)
+        self.audio_story_summary_label = self._ui_child(root, "audio_story_summary_label", QtWidgets.QLabel)
+        self.audio_story_transcript_edit = self._ui_child(root, "audio_story_transcript_edit", QtWidgets.QPlainTextEdit)
+        if self.audio_story_transcript_edit is not None:
+            self.audio_story_transcript_edit.setReadOnly(True)
+            self.audio_story_transcript_edit.setMinimumHeight(160)
+
+        if self.imported_audio_path:
+            self.audio_story_path_edit.setText(str(self.imported_audio_path))
+        self._sync_transcribe_seconds_slider()
+        self._sync_image_frequency_slider()
+        self._sync_image_timing_mode_controls()
+        self._sync_continuity_slider()
+        self._sync_generate_ahead_slider()
+        self._sync_audio_story_style_controls()
+        self._sync_story_master_prompt_controls()
+        self._sync_llm_story_analysis_controls()
+        self._sync_prompt_block_limit_controls()
+        self._sync_prompt_safety_cap_control()
+        self._sync_audio_story_cost_profile_controls()
+        self._refresh_audio_story_settings_presets()
+        self._refresh_controls()
+        self.apply_theme_palette()
+        return root
+
+    def _audio_story_compact_button_style(self):
+        return (
+            "QPushButton { "
+            "padding: 6px 12px; "
+            "min-height: 30px; "
+            "border-radius: 10px; "
+            "background: #22344c; "
+            "border: 1px solid #35506c; "
+            "color: #f2f5f9; "
+            "font-weight: 600; "
+            "}"
+            "QPushButton:hover { background: #2a4160; border: 1px solid #4d6c8f; } "
+            "QPushButton:pressed { background: #1d2e43; } "
+            "QPushButton:disabled { background: #17212e; color: #71839a; border: 1px solid #243345; }"
+        )
+
+    def _build_runtime_widget_python(self):
         existing = self.audio_story_tab_widget
         if existing is not None:
             return existing
