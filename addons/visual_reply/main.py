@@ -32,12 +32,6 @@ class Addon(BaseAddon):
     def _peek_controller(self):
         return getattr(self, "controller", None)
 
-    def _build_core_tab(self, context):
-        controller = self._peek_controller()
-        if controller is None:
-            raise RuntimeError("Visual Reply controller is unavailable.")
-        return controller.build_core_tab()
-
     def _bind_core_tab(self, widget, context):
         controller = self._peek_controller()
         if controller is None:
