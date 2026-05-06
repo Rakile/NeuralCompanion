@@ -205,7 +205,6 @@ class Addon(BaseAddon):
         context.ui.register_manifest_designer_tab(
             id="heart_rate_source_tab",
             binder=self._bind_designer_tab,
-            fallback_factory=self._build_tab,
         )
 
         self._tick_timer = QtCore.QTimer()

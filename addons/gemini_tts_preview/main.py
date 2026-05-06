@@ -53,7 +53,6 @@ class Addon(BaseAddon):
         context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
             binder=self._bind_designer_tab,
-            fallback_factory=self._build_tab,
         )
         context.logger.info("Gemini TTS Preview addon initialized.")
 

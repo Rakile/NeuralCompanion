@@ -26,7 +26,6 @@ class Addon(BaseAddon):
         context.ui.register_manifest_designer_tab(
             id=self.HOST_TAB_ID,
             binder=self._bind_core_tab,
-            fallback_factory=self._build_core_tab,
         )
         context.logger.info("Visual Reply addon initialized.")
 

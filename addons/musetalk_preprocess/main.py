@@ -26,7 +26,6 @@ class Addon(BaseAddon):
         context.ui.register_manifest_designer_tab(
             id="musetalk_preprocess_tab",
             binder=self._bind_designer_tab,
-            fallback_factory=self._build_tab,
         )
         context.events.subscribe("ui.tab_focus_changed", self._on_ui_tab_focus_changed)
         context.events.subscribe("runtime.heavy_task_starting", self._on_runtime_heavy_task_starting)

@@ -25,7 +25,6 @@ class Addon(BaseAddon):
         context.ui.register_manifest_designer_tab(
             id="chat_session_player_tab",
             binder=self._bind_designer_tab,
-            fallback_factory=self._build_tab,
         )
         context.logger.info("Chat Session Player addon initialized.")
 
