@@ -634,6 +634,9 @@ class VisualReplyController:
         self.panel = AddonVisualReplyPanel(capability_bridge=self._capability_bridge)
         self._visual_reply_service.replace_panel(self.panel)
 
+    def build_runtime_panel(self, *, capability_bridge=None):
+        return AddonVisualReplyPanel(capability_bridge=capability_bridge or self._capability_bridge)
+
     def _ui_child(self, root, name, cls=None):
         if root is None:
             return None
@@ -683,51 +686,4 @@ class VisualReplyController:
     def bind_core_tab(self, tab):
         if tab is None:
             raise RuntimeError("Visual Reply Designer UI did not provide a widget.")
-        return self._bind_core_settings_widgets(tab)
-
-    def build_core_tab(self):
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
-
-        visual_box = QtWidgets.QGroupBox("Visual Replies")
-        visual_layout = QtWidgets.QVBoxLayout(visual_box)
-        visual_layout.setContentsMargins(12, 14, 12, 12)
-        visual_layout.setSpacing(8)
-
-        mode_combo = QtWidgets.QComboBox()
-        mode_combo.setObjectName("visual_reply_mode_combo")
-
-        provider_combo = QtWidgets.QComboBox()
-        provider_combo.setObjectName("visual_reply_provider_combo")
-
-        size_combo = QtWidgets.QComboBox()
-        size_combo.setObjectName("visual_reply_size_combo")
-
-        model_edit = QtWidgets.QLineEdit()
-        model_edit.setObjectName("visual_reply_model_edit")
-
-        auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
-        auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
-
-        visual_form = QtWidgets.QFormLayout()
-        visual_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        visual_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        visual_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        visual_form.addRow("Mode", mode_combo)
-        visual_form.addRow("Provider", provider_combo)
-        visual_form.addRow("Image Size", size_combo)
-        visual_form.addRow("Image Model", model_edit)
-        visual_layout.addLayout(visual_form)
-        visual_layout.addWidget(auto_show_checkbox)
-
-        hint_label = QtWidgets.QLabel()
-        hint_label.setObjectName("visual_reply_hint_label")
-        hint_label.setWordWrap(True)
-        hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        visual_layout.addWidget(hint_label)
-
-        layout.addWidget(visual_box)
-        layout.addStretch(1)
         return self._bind_core_settings_widgets(tab)

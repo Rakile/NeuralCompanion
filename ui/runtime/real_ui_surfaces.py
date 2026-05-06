@@ -1,6 +1,3 @@
-import importlib.util
-from pathlib import Path
-
 from PySide6 import QtCore, QtWidgets
 
 
@@ -302,24 +299,20 @@ class MainUiRealSurfacesMixin:
                 print(f"[UI Real] Addons management surface redirect failed: {exc}")
 
     def _build_ui_real_visual_reply_panel(self):
-            panel_class = QtVisualReplyPanel
             capability_bridge = AddonCapabilityBridgeService(lambda: getattr(self.backend, "_addon_manager", None))
-            controller_path = Path(__file__).resolve().parent / "addons" / "visual_reply" / "controller.py"
             try:
-                spec = importlib.util.spec_from_file_location("nc_ui_real_visual_reply_controller", controller_path)
-                if spec is None or spec.loader is None:
-                    raise RuntimeError(f"Could not load Visual Reply controller from {controller_path}")
-                module = importlib.util.module_from_spec(spec)
-                spec.loader.exec_module(module)
-                loaded_class = getattr(module, "AddonVisualReplyPanel", None)
-                if loaded_class is not None:
-                    panel_class = loaded_class
+                panel = capability_bridge.invoke(
+                    "visual_reply.build_runtime_panel",
+                    {"capability_bridge": capability_bridge},
+                )
             except Exception as exc:
-                print(f"[UI Real] Visual Reply panel addon import failed, using fallback panel: {exc}")
-            try:
-                panel = panel_class(capability_bridge=capability_bridge)
-            except TypeError:
-                panel = panel_class()
+                print(f"[UI Real] Visual Reply panel addon capability failed, using fallback panel: {exc}")
+                panel = None
+            if panel is None:
+                try:
+                    panel = QtVisualReplyPanel(capability_bridge=capability_bridge)
+                except TypeError:
+                    panel = QtVisualReplyPanel()
             panel.setObjectName("visual_reply_panel")
             object_map = (
                 ("status_label", "visual_reply_status"),

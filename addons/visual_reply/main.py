@@ -37,3 +37,12 @@ class Addon(BaseAddon):
         if controller is None:
             raise RuntimeError("Visual Reply controller is unavailable.")
         return controller.bind_core_tab(widget)
+
+    def invoke_capability(self, capability, payload=None):
+        if str(capability or "").strip() != "visual_reply.build_runtime_panel":
+            return None
+        controller = self._peek_controller()
+        if controller is None:
+            return None
+        payload = dict(payload or {})
+        return controller.build_runtime_panel(capability_bridge=payload.get("capability_bridge"))
