@@ -1,4 +1,4 @@
-from ui.panels.hand_doctor_dialog import HandDoctorDialog
+from addons.vseeface_avatar.hand_doctor_dialog import HandDoctorDialog
 
 
 class BackendMuseTalkPreviewRuntimeMixin:

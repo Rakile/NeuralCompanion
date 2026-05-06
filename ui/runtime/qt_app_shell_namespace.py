@@ -41,8 +41,9 @@ from ui.designer_loader import (
     ui_shell_find_object as _ui_shell_find_object,
 )
 from ui.dock_utils import configure_main_window_docking as _configure_main_window_docking
-from ui.panels.avatar_windows import QtExternalAvatarReturnWindow, QtMuseTalkStageWindow
-from ui.panels.hand_doctor_dialog import HandDoctorDialog
+from addons.musetalk_avatar.stage_window import QtMuseTalkStageWindow
+from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
+from addons.vseeface_avatar.hand_doctor_dialog import HandDoctorDialog
 from ui.panels.input_dialog import QtInputDialog
 from addons.musetalk_avatar.preview_panel import QtMuseTalkPreviewPanel
 from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
