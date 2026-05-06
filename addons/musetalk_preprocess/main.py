@@ -49,7 +49,7 @@ class Addon(BaseAddon):
     def _peek_controller(self):
         return getattr(self, "controller", None)
 
-    def _build_tab(self, context):
+    def _build_runtime_widget(self, context):
         if getattr(self, "_shell_preview", False):
             return self._build_shell_preview_tab()
         controller = self._ensure_controller()
@@ -68,7 +68,7 @@ class Addon(BaseAddon):
             layout = QtWidgets.QVBoxLayout(mount)
             layout.setContentsMargins(0, 0, 0, 0)
             layout.setSpacing(0)
-        layout.addWidget(self._build_tab(context))
+        layout.addWidget(self._build_runtime_widget(context))
         return widget
 
     def _build_shell_preview_tab(self):

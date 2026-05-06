@@ -136,7 +136,7 @@ class Addon(BaseAddon):
         if layout is None:
             layout = QtWidgets.QVBoxLayout(mount)
             layout.setContentsMargins(0, 0, 0, 0)
-        layout.addWidget(self._build_tab(context))
+        layout.addWidget(self._build_runtime_widget(context))
         return widget
 
     def invoke_capability(self, capability, payload=None):
@@ -537,7 +537,7 @@ class Addon(BaseAddon):
         else:
             self._expanded_behavior_ids.discard(behavior_key)
 
-    def _build_tab(self, context):
+    def _build_runtime_widget(self, context):
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
 
