@@ -264,6 +264,24 @@ def collect_legacy_addon_tab_registrations(ui_path):
     return findings
 
 
+def collect_direct_addon_designer_tab_registrations(ui_path):
+    app_root = Path(ui_path).resolve().parent
+    addons_root = app_root / "addons"
+    if not addons_root.exists():
+        return []
+    findings = []
+    for main_path in sorted(addons_root.glob("*/main.py")):
+        try:
+            lines = main_path.read_text(encoding="utf-8").splitlines()
+        except Exception:
+            continue
+        for line_number, line in enumerate(lines, start=1):
+            stripped = str(line or "").strip()
+            if "register_designer_tab(" in stripped and "register_manifest_designer_tab(" not in stripped:
+                findings.append((str(main_path.relative_to(app_root)), line_number, stripped))
+    return findings
+
+
 def collect_invalid_addon_designer_tabs(ui_path):
     app_root = Path(ui_path).resolve().parent
     addons_root = app_root / "addons"
@@ -320,7 +338,9 @@ def collect_invalid_addon_manifest_ui(ui_path, objects):
         if not isinstance(ui_entries, list):
             findings.append((relative_path, 0, "'ui' must be a list when present"))
             continue
+        ui_entries_valid = [entry for entry in ui_entries if isinstance(entry, dict)]
         services = manifest.get("services") or []
+        services_valid = []
         if not isinstance(services, list):
             findings.append((relative_path, 0, "'services' must be a list when present"))
         else:
@@ -333,10 +353,15 @@ def collect_invalid_addon_manifest_ui(ui_path, objects):
                 if not service_id:
                     findings.append((relative_path, service_index, "service entry missing id"))
                     continue
+                services_valid.append(service)
                 service_key = (service_id, str(service.get("provider_id") or service.get("backend_id") or service.get("service_name") or "").strip())
                 if service_key in seen_services:
                     findings.append((relative_path, service_index, f"duplicate service entry: {service_id}"))
                 seen_services.add(service_key)
+
+        category = str(manifest.get("category") or "").strip().lower()
+        if category in {"avatar", "chat"} and not ui_entries_valid and not services_valid:
+            findings.append((relative_path, 0, f"provider-style category '{category}' needs a manifest services entry when it has no UI"))
 
         seen_ids = set()
         for index, entry in enumerate(ui_entries, start=1):
@@ -440,11 +465,15 @@ def validate_ui_file(raw_path, *, base_path=None):
         print("  none")
 
     legacy_addon_tabs = collect_legacy_addon_tab_registrations(ui_path)
+    direct_designer_tabs = collect_direct_addon_designer_tab_registrations(ui_path)
     print("[UI Validation] Bundled addon Designer-tab migration:")
-    if legacy_addon_tabs:
+    if legacy_addon_tabs or direct_designer_tabs:
         for relative_path, line_number, line in legacy_addon_tabs:
             location = f"{relative_path}:{line_number}" if line_number else relative_path
             print(f"  LEGACY {location}: {line}")
+        for relative_path, line_number, line in direct_designer_tabs:
+            location = f"{relative_path}:{line_number}" if line_number else relative_path
+            print(f"  DIRECT {location}: use register_manifest_designer_tab(...) instead of {line}")
     else:
         print("  OK")
 
@@ -458,7 +487,7 @@ def validate_ui_file(raw_path, *, base_path=None):
     else:
         print("  OK")
 
-    if missing or mismatched or duplicates or legacy_addon_tabs or invalid_designer_tabs or invalid_manifest_ui:
+    if missing or mismatched or duplicates or legacy_addon_tabs or direct_designer_tabs or invalid_designer_tabs or invalid_manifest_ui:
         print("[UI Validation] Result: NOT READY for safe real-logic binding.")
     else:
         print("[UI Validation] Result: READY for the checked Phase 1 binding prerequisites.")

@@ -4,11 +4,12 @@ Neural Companion now treats `main.ui` as the product UI and addon-owned Designer
 
 ## Contract
 
-Addons that can describe their UI in Qt Designer should register tabs through `context.ui.register_designer_tab(...)`.
+Addons that can describe their UI in Qt Designer should declare each surface in `addon.json` and register it through `context.ui.register_manifest_designer_tab(...)`.
 
 The addon remains responsible for:
 
 - Owning the `.ui` file under its own addon folder.
+- Declaring tab title, mount area, order, placeholder, tooltip, icon path, and runtime metadata in `addon.json`.
 - Binding runtime behavior to named widgets in the addon controller.
 - Keeping any Python-built tab as a fallback while the migration is in progress.
 - Avoiding assumptions that `qt_app.py` knows about addon-specific controls.
@@ -18,9 +19,54 @@ The core framework remains responsible for:
 - Loading the addon `.ui` relative to the addon manifest root.
 - Calling the addon binder after Designer load.
 - Falling back to the addon-provided Python factory if Designer load or binding fails.
+- Validating addon-owned UI and service metadata during `--validate-ui`.
 
 `python qt_app.py --validate-ui main.ui` now also scans bundled addon entry points and reports any remaining direct `context.ui.register_tab(...)` usage as a migration failure.
-It also verifies that each bundled `register_designer_tab(...)` call points at an existing addon-local `.ui` file.
+It also verifies that each bundled Designer registration points at an existing addon-local `.ui` file and that manifest UI/service entries are well-formed.
+
+## Manifest UI Contract
+
+Each addon-owned tab should use an `addon.json` `ui` entry:
+
+```json
+{
+  "id": "example_runtime_tab",
+  "title": "Example",
+  "area": "top_level",
+  "ui_path": "ui/example.ui",
+  "placeholder": "example_tab",
+  "icon_path": "ui/icons/example.png",
+  "order": 100,
+  "tooltip": "Example addon settings.",
+  "metadata": {
+    "runtime_role": "example_role"
+  }
+}
+```
+
+Supported mount areas are owned by `core.addons.contributions.ADDON_UI_MOUNTS`:
+
+- `top_level` -> `left_tabs`
+- `host_settings` -> `host_settings_tabs`
+- `operational_view` -> `right_tabs`
+- `musetalk` -> `musetalk_tabs`
+- `tts_runtime` -> `tts_runtime_addon_tabs`
+- `vision_source` -> `sensory_feedback_tabs`
+
+Provider-only addons that do not own a tab should still declare their runtime service contribution:
+
+```json
+{
+  "services": [
+    {
+      "id": "chat_provider_registry",
+      "provider_id": "example_provider"
+    }
+  ]
+}
+```
+
+Known service ids include `chat_provider_registry`, `avatar_provider_registry`, `tts_backend_service`, `sensory_registry`, `sensory_prompt_contributor`, and `service_registry`.
 
 The shell/live addon mount logic has moved out of `qt_app.py` into `ui/runtime/shell_addon_mounts.py`. The bridge still receives injected dependencies from `qt_app.py`, but addon tab discovery, live mounting, and live-addon cleanup now live behind that runtime module boundary.
 
@@ -53,7 +99,7 @@ Addon tabs should own their icons as addon-local files. Pass `icon_path="ui/icon
 
 ## Boundary-Mounted Tabs
 
-These tabs now register through `context.ui.register_designer_tab(...)`, but their complex inner controls are still built by addon-local controllers and mounted into an addon-owned Designer shell:
+These tabs now register through manifest-backed Designer registration, but their complex inner controls are still built by addon-local controllers and mounted into an addon-owned Designer shell:
 
 - `audio_story_mode`
 - `musetalk_preprocess`
