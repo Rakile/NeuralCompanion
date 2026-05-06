@@ -82,27 +82,8 @@ class AddonManager:
             return category
         return "other"
 
-    def _default_category_for_id(self, addon_id: str) -> str:
-        addon_id = str(addon_id or "").strip().lower()
-        mapping = {
-            "nc.clipboard_source": "vision",
-            "nc.clipboard_supervisor": "vision",
-            "nc.screen_supervisor": "vision",
-            "nc.webcam_supervisor": "vision",
-            "nc.mock_heart_rate": "vision",
-            "nc.heart_rate_behavior": "vision",
-            "nc.musetalk_preprocess": "musetalk",
-            "nc.visual_reply": "visuals",
-            "nc.chat_session_player": "chat",
-            "nc.hotkeys": "global",
-        }
-        return mapping.get(addon_id, "other")
-
     def _category_for_manifest(self, manifest: AddonManifest) -> str:
-        category = self._normalize_category(getattr(manifest, "category", "") or "")
-        if category == "other":
-            return self._default_category_for_id(manifest.id)
-        return category
+        return self._normalize_category(getattr(manifest, "category", "") or "")
 
     def _category_enabled(self, category: str) -> bool:
         normalized = self._normalize_category(category)
@@ -126,6 +107,15 @@ class AddonManager:
         addon_override = self._addon_enabled_override(manifest.id)
         addon_enabled = manifest.enabled if addon_override is None else bool(addon_override)
         return bool(category_enabled and addon_enabled)
+
+    def is_addon_effectively_enabled(self, addon_id: str) -> bool:
+        target = str(addon_id or "").strip()
+        if not target:
+            return True
+        for record in self._records:
+            if str(record.manifest.id or "").strip() == target:
+                return bool(self._manifest_effectively_enabled(record.manifest))
+        return False
 
     def _addon_change_summary(self) -> dict[str, int]:
         category_changes = 0
@@ -403,6 +393,7 @@ class AddonManager:
                     "effective_enabled": bool(self._manifest_effectively_enabled(record.manifest)),
                     "state": str(record.state or ""),
                     "permissions": list(record.manifest.permissions or []),
+                    "services": [dict(item) for item in list(getattr(record.manifest, "services", []) or []) if isinstance(item, dict)],
                     "ui": [dict(item) for item in list(getattr(record.manifest, "ui", []) or []) if isinstance(item, dict)],
                     "version": str(record.manifest.version or ""),
                 }
@@ -411,6 +402,46 @@ class AddonManager:
         for item in ordered:
             item["addons"] = sorted(item["addons"], key=lambda addon: addon["name"].lower())
         return ordered
+
+    def get_ui_placeholder_specs(self) -> list[dict[str, str]]:
+        from .contributions import ui_target_for_area
+
+        specs: list[dict[str, str]] = []
+        for record in self._records:
+            addon_id = str(record.manifest.id or "").strip()
+            for entry in list(getattr(record.manifest, "ui", []) or []):
+                if not isinstance(entry, dict):
+                    continue
+                placeholder = str(entry.get("placeholder") or "").strip()
+                if not placeholder:
+                    continue
+                target = str(entry.get("target") or entry.get("mount_target") or "").strip()
+                if not target:
+                    target = ui_target_for_area(entry.get("area"))
+                if not target:
+                    continue
+                specs.append(
+                    {
+                        "addon_id": addon_id,
+                        "target": target,
+                        "placeholder": placeholder,
+                        "title": str(entry.get("title") or record.manifest.name or addon_id).strip(),
+                    }
+                )
+        return specs
+
+    def get_addon_id_for_ui_role(self, role: str) -> str:
+        wanted = str(role or "").strip().lower()
+        if not wanted:
+            return ""
+        for record in self._records:
+            for entry in list(getattr(record.manifest, "ui", []) or []):
+                if not isinstance(entry, dict):
+                    continue
+                metadata = dict(entry.get("metadata") or {})
+                if str(metadata.get("runtime_role") or "").strip().lower() == wanted:
+                    return str(record.manifest.id or "").strip()
+        return ""
 
     def set_category_enabled(self, category: str, enabled: bool) -> bool:
         category = self._normalize_category(category)

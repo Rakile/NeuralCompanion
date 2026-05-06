@@ -426,8 +426,8 @@ class MainUiRealLayoutMixin:
             object_name = str(object_name or "").strip()
             if object_name != "VisualReplyDock":
                 return True
-            checker = getattr(self, "_addon_effectively_enabled", None)
-            return True if not callable(checker) else bool(checker("nc.visual_reply"))
+            checker = getattr(self, "_visual_reply_addon_enabled", None)
+            return True if not callable(checker) else bool(checker())
 
     def _enforce_disabled_frontend_workspace_docks(self):
             if self._frontend_dock_addon_enabled("VisualReplyDock"):
@@ -497,8 +497,8 @@ class MainUiRealLayoutMixin:
                 operational_dock = self._ui_object("OperationalViewDock")
                 preview_dock = self._ui_object("MuseTalkPreviewDock") or self._ui_object("PreviewDock")
                 visual_dock = None
-                checker = getattr(self, "_addon_effectively_enabled", None)
-                if not callable(checker) or bool(checker("nc.visual_reply")):
+                checker = getattr(self, "_visual_reply_addon_enabled", None)
+                if not callable(checker) or bool(checker()):
                     visual_dock = self._ui_object("VisualReplyDock")
 
                 left_docks = [dock for dock in (system_dock, workspace_dock) if isinstance(dock, QtWidgets.QDockWidget)]

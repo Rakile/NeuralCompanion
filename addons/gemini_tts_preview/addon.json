@@ -9,6 +9,12 @@
     "services.register",
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "gemini_tts_preview"
+    }
+  ],
   "ui": [
     {
       "id": "gemini_tts_preview_tab",

@@ -116,7 +116,7 @@ class BackendVisualReplyRuntimeMixin:
         self.save_session()
 
     def show_visual_reply_dock(self):
-        if not self._addon_effectively_enabled("nc.visual_reply"):
+        if not self._visual_reply_addon_enabled():
             return
         if hasattr(self, "visual_reply_dock"):
             self.visual_reply_dock.show()

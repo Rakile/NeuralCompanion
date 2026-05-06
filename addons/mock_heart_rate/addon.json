@@ -10,6 +10,16 @@
     "events.publish",
     "services.register"
   ],
+  "services": [
+    {
+      "id": "service_registry",
+      "service_name": "heart_rate.mock"
+    },
+    {
+      "id": "sensory_registry",
+      "provider_id": "heart_rate"
+    }
+  ],
   "ui": [
     {
       "id": "heart_rate_source_tab",

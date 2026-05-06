@@ -418,9 +418,9 @@ class MainUiRealSurfacesMixin:
             if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
                 return
             addon_enabled = True
-            checker = getattr(self, "_addon_effectively_enabled", None)
+            checker = getattr(self, "_visual_reply_addon_enabled", None)
             if callable(checker):
-                addon_enabled = bool(checker("nc.visual_reply"))
+                addon_enabled = bool(checker())
             backend_dock = getattr(self.backend, "visual_reply_dock", None)
             if backend_dock is not None and backend_dock is not frontend_dock:
                 # The hidden legacy backend restores its own Visual Reply dock

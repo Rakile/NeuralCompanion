@@ -68,6 +68,18 @@ def ui_required_static_mount_targets() -> tuple[str, ...]:
     return tuple(mount.target for mount in ADDON_UI_MOUNTS if not mount.deferred)
 
 
+def ui_targets_for_service_id(service_id: str | None) -> tuple[str, ...]:
+    service = str(service_id or "").strip()
+    service_targets = {
+        "avatar_provider_registry": ("left_tabs",),
+        "chat_provider_registry": ("chat_provider_combo",),
+        "sensory_prompt_contributor": ("sensory_feedback_tabs",),
+        "sensory_registry": ("sensory_feedback_tabs",),
+        "tts_backend_service": ("tts_runtime_addon_tabs",),
+    }
+    return service_targets.get(service, ())
+
+
 def ui_fallback_targets_for_manifest(addon_id: str | None, category: str | None) -> tuple[str, ...]:
     addon_id = str(addon_id or "").strip().lower()
     category = str(category or "other").strip().lower() or "other"

@@ -8,6 +8,12 @@
   "permissions": [
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "clipboard"
+    }
+  ],
   "ui": [
     {
       "id": "clipboard_supervisor_tab",

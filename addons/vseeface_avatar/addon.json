@@ -8,6 +8,12 @@
   "permissions": [
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "vseeface"
+    }
+  ],
   "ui": [
     {
       "id": "vseeface_avatar_tab",

@@ -157,14 +157,24 @@ class BackendAddonLifecycleMixin:
         if not target:
             return True
         try:
-            snapshot = list(manager.get_addon_registry_snapshot() or [])
+            return bool(manager.is_addon_effectively_enabled(target))
         except Exception:
             return True
-        for category in snapshot:
-            for addon in list(dict(category).get("addons") or []):
-                if str(addon.get("id") or "").strip() == target:
-                    return bool(addon.get("effective_enabled", False))
-        return False
+
+    def _addon_id_for_ui_role(self, role, fallback=""):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is not None:
+            try:
+                addon_id = str(manager.get_addon_id_for_ui_role(role) or "").strip()
+                if addon_id:
+                    return addon_id
+            except Exception:
+                pass
+        return str(fallback or "").strip()
+
+    def _visual_reply_addon_enabled(self):
+        addon_id = self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply")
+        return self._addon_effectively_enabled(addon_id)
 
     def _remove_tab_by_widget_name_or_title(self, tabs, widget_name, fallback_title=""):
         if tabs is None or not hasattr(tabs, "count"):
@@ -266,17 +276,29 @@ class BackendAddonLifecycleMixin:
             return fallback
 
     def _apply_disabled_addon_surfaces(self):
-        tab_specs = (
-            ("nc.vseeface_avatar", "vseeface_tab", "VSeeFace"),
-            ("nc.musetalk_avatar", "musetalk_tab", "MuseTalk"),
-            ("nc.vam_avatar", "vam_tab", "VaM"),
-        )
-        tabs = getattr(self, "tabs", None)
-        for addon_id, widget_name, title in tab_specs:
+        manager = getattr(self, "_addon_manager", None)
+        try:
+            placeholder_specs = list(manager.get_ui_placeholder_specs() if manager is not None else [])
+        except Exception:
+            placeholder_specs = []
+        tab_widgets = {
+            "left_tabs": getattr(self, "tabs", None),
+            "host_settings_tabs": getattr(self, "host_settings_tabs", None),
+            "right_tabs": getattr(self, "right_tabs", None),
+            "tts_runtime_addon_tabs": getattr(self, "tts_runtime_addon_tabs", None),
+            "sensory_feedback_tabs": getattr(self, "sensory_feedback_tabs", None),
+        }
+        for spec in placeholder_specs:
+            addon_id = str(spec.get("addon_id") or "").strip()
             if self._addon_effectively_enabled(addon_id):
                 continue
-            self._remove_tab_by_widget_name_or_title(tabs, widget_name, title)
-        if self._addon_effectively_enabled("nc.visual_reply"):
+            tabs = tab_widgets.get(str(spec.get("target") or "").strip())
+            self._remove_tab_by_widget_name_or_title(
+                tabs,
+                str(spec.get("placeholder") or "").strip(),
+                str(spec.get("title") or "").strip(),
+            )
+        if self._visual_reply_addon_enabled():
             return
         dock = getattr(self, "visual_reply_dock", None)
         if dock is not None:

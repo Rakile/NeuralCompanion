@@ -118,7 +118,7 @@ class BackendRuntimeStatusMixin:
             "musetalk_vram_mode_key": next((key for key, label in _musetalk_vram_mode_labels().items() if label == musetalk_vram_label), "quality"),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
             "visual_reply_visible": bool(
-                self._addon_effectively_enabled("nc.visual_reply")
+                self._visual_reply_addon_enabled()
                 and hasattr(self, "visual_reply_dock")
                 and self.visual_reply_dock.isVisible()
             ),

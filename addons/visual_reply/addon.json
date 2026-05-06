@@ -19,7 +19,8 @@
       "order": 120,
       "tooltip": "Visual reply runtime settings and future visual addons.",
       "metadata": {
-        "nested_title": "Core"
+        "nested_title": "Core",
+        "runtime_role": "visual_reply"
       }
     }
   ],

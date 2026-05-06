@@ -8,6 +8,12 @@
   "permissions": [
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "screen"
+    }
+  ],
   "ui": [
     {
       "id": "screen_supervisor_tab",

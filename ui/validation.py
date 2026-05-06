@@ -1,10 +1,11 @@
 """Designer UI validation helpers for main.ui shell and real-runtime modes."""
 
 from pathlib import Path
+import json
 import re
 import xml.etree.ElementTree as ET
 
-from core.addons.contributions import ui_required_static_mount_targets
+from core.addons.contributions import ui_required_static_mount_targets, ui_target_for_area
 
 
 UI_VALIDATION_REQUIRED_GROUPS = (
@@ -300,6 +301,83 @@ def collect_invalid_addon_designer_tabs(ui_path):
     return findings
 
 
+def collect_invalid_addon_manifest_ui(ui_path, objects):
+    app_root = Path(ui_path).resolve().parent
+    addons_root = app_root / "addons"
+    if not addons_root.exists():
+        return []
+    findings = []
+    for manifest_path in sorted(addons_root.glob("*/addon.json")):
+        relative_path = str(manifest_path.relative_to(app_root))
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            findings.append((relative_path, 0, f"could not read manifest: {exc}"))
+            continue
+        addon_root = manifest_path.parent
+        addon_id = str(manifest.get("id") or addon_root.name).strip()
+        ui_entries = manifest.get("ui") or []
+        if not isinstance(ui_entries, list):
+            findings.append((relative_path, 0, "'ui' must be a list when present"))
+            continue
+        services = manifest.get("services") or []
+        if not isinstance(services, list):
+            findings.append((relative_path, 0, "'services' must be a list when present"))
+        else:
+            seen_services = set()
+            for service_index, service in enumerate(services, start=1):
+                if not isinstance(service, dict):
+                    findings.append((relative_path, service_index, "service entry must be an object"))
+                    continue
+                service_id = str(service.get("id") or "").strip()
+                if not service_id:
+                    findings.append((relative_path, service_index, "service entry missing id"))
+                    continue
+                service_key = (service_id, str(service.get("provider_id") or service.get("backend_id") or service.get("service_name") or "").strip())
+                if service_key in seen_services:
+                    findings.append((relative_path, service_index, f"duplicate service entry: {service_id}"))
+                seen_services.add(service_key)
+
+        seen_ids = set()
+        for index, entry in enumerate(ui_entries, start=1):
+            if not isinstance(entry, dict):
+                findings.append((relative_path, index, "ui entry must be an object"))
+                continue
+            ui_id = str(entry.get("id") or "").strip()
+            if not ui_id:
+                findings.append((relative_path, index, "ui entry missing id"))
+            elif ui_id in seen_ids:
+                findings.append((relative_path, index, f"duplicate ui id: {ui_id}"))
+            seen_ids.add(ui_id)
+
+            area = str(entry.get("area") or "").strip()
+            target = str(entry.get("target") or entry.get("mount_target") or "").strip()
+            if not target:
+                target = ui_target_for_area(area)
+            if area and not target:
+                findings.append((relative_path, index, f"unknown ui area: {area}"))
+
+            raw_ui_path = str(entry.get("ui_path") or "").strip()
+            if raw_ui_path:
+                resolved_ui = Path(raw_ui_path)
+                if not resolved_ui.is_absolute():
+                    resolved_ui = addon_root / resolved_ui
+                if not resolved_ui.exists():
+                    findings.append((relative_path, index, f"ui_path not found: {raw_ui_path}"))
+
+            raw_icon_path = str(entry.get("icon_path") or "").strip()
+            if raw_icon_path:
+                resolved_icon = Path(raw_icon_path)
+                if not resolved_icon.is_absolute():
+                    resolved_icon = addon_root / resolved_icon
+                if not resolved_icon.exists():
+                    findings.append((relative_path, index, f"icon_path not found: {raw_icon_path}"))
+
+            if raw_ui_path and not ui_id:
+                findings.append((relative_path, index, f"designer ui entry for addon '{addon_id}' needs a stable id"))
+    return findings
+
+
 def validate_ui_file(raw_path, *, base_path=None):
     ui_path = resolve_ui_path(raw_path, base_path=base_path)
     print(f"[UI Validation] File: {ui_path}")
@@ -371,15 +449,16 @@ def validate_ui_file(raw_path, *, base_path=None):
         print("  OK")
 
     invalid_designer_tabs = collect_invalid_addon_designer_tabs(ui_path)
+    invalid_manifest_ui = collect_invalid_addon_manifest_ui(ui_path, objects)
     print("[UI Validation] Bundled addon Designer UI files:")
-    if invalid_designer_tabs:
-        for relative_path, line_number, message in invalid_designer_tabs:
+    if invalid_designer_tabs or invalid_manifest_ui:
+        for relative_path, line_number, message in [*invalid_designer_tabs, *invalid_manifest_ui]:
             location = f"{relative_path}:{line_number}" if line_number else relative_path
             print(f"  INVALID {location}: {message}")
     else:
         print("  OK")
 
-    if missing or mismatched or duplicates or legacy_addon_tabs or invalid_designer_tabs:
+    if missing or mismatched or duplicates or legacy_addon_tabs or invalid_designer_tabs or invalid_manifest_ui:
         print("[UI Validation] Result: NOT READY for safe real-logic binding.")
     else:
         print("[UI Validation] Result: READY for the checked Phase 1 binding prerequisites.")

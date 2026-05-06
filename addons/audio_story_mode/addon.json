@@ -18,7 +18,10 @@
       "ui_path": "ui/audio_story_mode.ui",
       "placeholder": "audio_story_mode_tab",
       "order": 120,
-      "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback."
+      "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback.",
+      "metadata": {
+        "runtime_role": "audio_story"
+      }
     }
   ],
   "enabled": true

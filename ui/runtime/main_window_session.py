@@ -127,7 +127,7 @@ class MainWindowSessionMixin:
             "always_on_top_floating_docks": sorted(getattr(self, "_always_on_top_floating_dock_names", set()) or []),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
             "visual_reply_visible": bool(
-                self._addon_effectively_enabled("nc.visual_reply")
+                self._visual_reply_addon_enabled()
                 and hasattr(self, "visual_reply_dock")
                 and self.visual_reply_dock.isVisible()
             ),
@@ -630,7 +630,7 @@ class MainWindowSessionMixin:
             if (
                 bool(session.get("visual_reply_visible", False))
                 and not suppress_aux_docks
-                and self._addon_effectively_enabled("nc.visual_reply")
+                and self._visual_reply_addon_enabled()
             ):
                 self.visual_reply_dock.show()
             else:

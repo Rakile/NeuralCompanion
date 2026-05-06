@@ -39,8 +39,11 @@ class MainUiRealTabAdoptionMixin:
                 return ""
 
     def _audio_story_controller(self):
+            addon_id = self._addon_id_for_ui_role("audio_story", fallback="nc.audio_story_mode")
+            if not addon_id:
+                return None
             try:
-                return self.backend._get_addon_controller("nc.audio_story_mode")
+                return self.backend._get_addon_controller(addon_id)
             except Exception:
                 return None
 
@@ -223,14 +226,24 @@ class MainUiRealTabAdoptionMixin:
             if not target:
                 return True
             try:
-                snapshot = list(manager.get_addon_registry_snapshot() or [])
+                return bool(manager.is_addon_effectively_enabled(target))
             except Exception:
                 return True
-            for category in snapshot:
-                for addon in list(dict(category).get("addons") or []):
-                    if str(addon.get("id") or "").strip() == target:
-                        return bool(addon.get("effective_enabled", False))
-            return False
+
+    def _addon_id_for_ui_role(self, role, fallback=""):
+            manager = getattr(self.backend, "_addon_manager", None)
+            if manager is not None:
+                try:
+                    addon_id = str(manager.get_addon_id_for_ui_role(role) or "").strip()
+                    if addon_id:
+                        return addon_id
+                except Exception:
+                    pass
+            return str(fallback or "").strip()
+
+    def _visual_reply_addon_enabled(self):
+            addon_id = self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply")
+            return self._addon_effectively_enabled(addon_id)
 
     def _remove_static_addon_placeholder_tab(self, tab_widget_name, placeholder_name, fallback_title=""):
             tabs = self._ui_object(tab_widget_name)
@@ -279,34 +292,19 @@ class MainUiRealTabAdoptionMixin:
             if manager is None:
                 return []
             try:
-                snapshot = list(manager.get_addon_registry_snapshot() or [])
+                raw_specs = list(manager.get_ui_placeholder_specs() or [])
             except Exception:
                 return []
             specs = []
-            for category in snapshot:
-                for addon in list(dict(category).get("addons") or []):
-                    addon_id = str(addon.get("id") or "").strip()
-                    for entry in list(addon.get("ui") or []):
-                        if not isinstance(entry, dict):
-                            continue
-                        placeholder = str(entry.get("placeholder") or "").strip()
-                        if not placeholder:
-                            continue
-                        tabs = str(entry.get("target") or entry.get("mount_target") or "").strip()
-                        if not tabs:
-                            from core.addons.contributions import ui_target_for_area
-
-                            tabs = ui_target_for_area(entry.get("area"))
-                        if not tabs:
-                            continue
-                        specs.append(
-                            {
-                                "addon_id": addon_id,
-                                "tabs": tabs,
-                                "placeholder": placeholder,
-                                "title": str(entry.get("title") or addon.get("name") or addon_id).strip(),
-                            }
-                        )
+            for item in raw_specs:
+                specs.append(
+                    {
+                        "addon_id": str(item.get("addon_id") or "").strip(),
+                        "tabs": str(item.get("target") or "").strip(),
+                        "placeholder": str(item.get("placeholder") or "").strip(),
+                        "title": str(item.get("title") or "").strip(),
+                    }
+                )
             return specs
 
     def _remove_disabled_static_addon_placeholders(self):

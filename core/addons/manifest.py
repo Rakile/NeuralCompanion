@@ -15,6 +15,7 @@ class AddonManifest:
     description: str = ""
     category: str = ""
     permissions: list[str] = field(default_factory=list)
+    services: list[dict[str, Any]] = field(default_factory=list)
     ui: list[dict[str, Any]] = field(default_factory=list)
     enabled: bool = True
     manifest_path: Path | None = None
@@ -37,6 +38,11 @@ class AddonManifest:
             description=str(payload.get("description", "") or "").strip(),
             category=str(payload.get("category", "") or "").strip().lower(),
             permissions=[str(item).strip() for item in list(payload.get("permissions", []) or []) if str(item).strip()],
+            services=[
+                dict(item)
+                for item in list(payload.get("services", []) or [])
+                if isinstance(item, dict)
+            ],
             ui=[
                 dict(item)
                 for item in list(payload.get("ui", []) or [])

@@ -8,6 +8,12 @@
   "permissions": [
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "sensory_prompt_contributor",
+      "provider_id": "heart_rate"
+    }
+  ],
   "ui": [
     {
       "id": "heart_rate_behavior_tab",

@@ -8,6 +8,12 @@
   "permissions": [
     "ui.tabs"
   ],
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "vam"
+    }
+  ],
   "ui": [
     {
       "id": "vam_avatar_tab",

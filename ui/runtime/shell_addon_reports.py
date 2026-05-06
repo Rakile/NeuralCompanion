@@ -9,6 +9,7 @@ from core.addons.contributions import (
     ui_mount_targets,
     ui_target_for_area,
     ui_target_is_deferred,
+    ui_targets_for_service_id,
 )
 
 _APP_FILE = None
@@ -85,6 +86,16 @@ def _ui_shell_static_tab_areas(addon_dir, manifest=None):
     return sorted(set(item for item in areas if item))
 
 def _ui_shell_static_service_hints(addon_dir, manifest):
+    manifest_services = []
+    for item in list(dict(manifest or {}).get("services", []) or []):
+        if not isinstance(item, dict):
+            continue
+        service_id = str(item.get("id") or item.get("service") or item.get("kind") or "").strip()
+        if service_id:
+            manifest_services.append(service_id)
+    if manifest_services:
+        return sorted(set(manifest_services))
+
     addon_id = str(manifest.get("id", "") or "").strip().lower()
     name = str(manifest.get("name", "") or "").strip().lower()
     hints = []
@@ -144,6 +155,14 @@ def _ui_shell_target_is_deferred(target):
     return ui_target_is_deferred(target)
 
 def _ui_shell_fallback_targets_for_manifest(manifest):
+    service_targets = []
+    for item in list(dict(manifest or {}).get("services", []) or []):
+        if not isinstance(item, dict):
+            continue
+        service_targets.extend(ui_targets_for_service_id(item.get("id")))
+    if service_targets:
+        return sorted(set(service_targets))
+
     addon_id = str(manifest.get("id", "") or "").strip().lower()
     category = str(manifest.get("category", "") or "other").strip().lower()
     return list(ui_fallback_targets_for_manifest(addon_id, category))
@@ -164,13 +183,13 @@ def _ui_shell_addon_mount_report(window):
     for manifest in manifests:
         areas = list(manifest.get("areas", []) or [])
         service_hints = list(manifest.get("service_hints", []) or [])
-        targets = []
+        ui_targets = []
         for area in areas:
             target = _ui_shell_mount_target_for_area(area)
             if target:
-                targets.append(target)
-        if not targets:
-            targets = _ui_shell_fallback_targets_for_manifest(manifest)
+                ui_targets.append(target)
+        service_targets = _ui_shell_fallback_targets_for_manifest(manifest) if not ui_targets else []
+        targets = [*ui_targets, *service_targets]
         rows.append({
             "id": str(manifest.get("id", "") or ""),
             "name": str(manifest.get("name", "") or manifest.get("id", "") or ""),
@@ -179,6 +198,8 @@ def _ui_shell_addon_mount_report(window):
             "enabled": _ui_shell_addon_effectively_enabled(manifest, registry_state),
             "areas": areas,
             "service_hints": service_hints,
+            "ui_targets": sorted(set(ui_targets)),
+            "service_targets": sorted(set(service_targets)),
             "targets": sorted(set(targets)),
             "missing_targets": sorted(
                 set(
@@ -262,7 +283,7 @@ def _ui_shell_target_addon_rows(report, target):
     return [
         row
         for row in report.get("addons", [])
-        if row.get("enabled") and target in set(row.get("targets") or [])
+        if row.get("enabled") and target in set(row.get("ui_targets") or [])
     ]
 
 def _ui_shell_static_addon_comparison(ui_path, report, live_mount_report):

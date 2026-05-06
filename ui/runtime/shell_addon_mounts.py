@@ -66,26 +66,6 @@ def _ui_shell_manifest_placeholder_name(row):
     return ""
 
 
-def _ui_shell_static_addon_placeholder_name(addon_id, row=None):
-    manifest_placeholder = _ui_shell_manifest_placeholder_name(row)
-    if manifest_placeholder:
-        return manifest_placeholder
-    addon_id = str(addon_id or "").strip().lower()
-    if addon_id == "nc.chat_session_player":
-        return "chat_player_tab"
-    if addon_id == "nc.hotkeys":
-        return "hotkeys_tab"
-    if addon_id == "nc.visual_reply":
-        return "host_settings_visuals_tab"
-    if addon_id == "nc.audio_story_mode":
-        return "audio_story_mode_tab"
-    if addon_id == "nc.chatterbox_tts":
-        return "tts_chatterbox_tab"
-    if addon_id == "nc.pockettts":
-        return "tts_pockettts_tab"
-    return ""
-
-
 def _ui_shell_replace_static_addon_placeholder(tab_widget, placeholder_name, widget, title, tooltip=""):
     if tab_widget is None or widget is None or not placeholder_name:
         return -1
@@ -350,7 +330,7 @@ def _ui_shell_mount_live_addons(window, report):
                     raise RuntimeError(f"Tab factory for {contribution.id} did not return a QWidget.")
                 _ui_shell_prepare_live_addon_widget(addon_id, widget)
                 title = _ui_shell_contribution_title(contribution, manifest)
-                placeholder_name = _ui_shell_static_addon_placeholder_name(addon_id, row)
+                placeholder_name = _ui_shell_manifest_placeholder_name(row)
                 tab_index = _ui_shell_replace_static_addon_placeholder(
                     tab_widget,
                     placeholder_name,

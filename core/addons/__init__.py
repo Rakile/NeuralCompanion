@@ -14,6 +14,7 @@ from .contributions import (
     ui_required_static_mount_targets,
     ui_target_for_area,
     ui_target_is_deferred,
+    ui_targets_for_service_id,
 )
 from .context import AddonContext, AddonPermissionError
 from .manager import AddonManager
@@ -37,4 +38,5 @@ __all__ = [
     "ui_required_static_mount_targets",
     "ui_target_for_area",
     "ui_target_is_deferred",
+    "ui_targets_for_service_id",
 ]

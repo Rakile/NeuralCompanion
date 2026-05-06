@@ -137,7 +137,7 @@ class LegacyWorkspaceDockMixin:
             self.operational_dock.raise_()
         if hasattr(self, "preview_dock"):
             self.preview_dock.show()
-        if hasattr(self, "visual_reply_dock") and self._addon_effectively_enabled("nc.visual_reply"):
+        if hasattr(self, "visual_reply_dock") and self._visual_reply_addon_enabled():
             self.visual_reply_dock.show()
         print("[QtGUI] Workspace panels shown.")
 
@@ -167,7 +167,7 @@ class LegacyWorkspaceDockMixin:
             self.preview_dock.setFloating(False)
             self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
             self.preview_dock.hide()
-        visual_reply_enabled = self._addon_effectively_enabled("nc.visual_reply")
+        visual_reply_enabled = self._visual_reply_addon_enabled()
         if hasattr(self, "visual_reply_dock") and visual_reply_enabled:
             self.visual_reply_dock.setFloating(False)
             self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
