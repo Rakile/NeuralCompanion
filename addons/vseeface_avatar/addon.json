@@ -8,5 +8,20 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "vseeface_avatar_tab",
+      "title": "VSeeFace",
+      "area": "top_level",
+      "ui_path": "ui/vseeface_avatar.ui",
+      "placeholder": "vseeface_tab",
+      "icon_path": "ui/icons/vseeface.png",
+      "order": 110,
+      "tooltip": "VSeeFace body pose and runtime controls.",
+      "metadata": {
+        "provider_id": "vseeface"
+      }
+    }
+  ],
   "enabled": true
 }

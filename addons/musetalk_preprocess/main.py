@@ -23,15 +23,10 @@ class Addon(BaseAddon):
         self._shell_preview = bool(context.get_service("qt.musetalk_preprocess_shell_preview") if context is not None else False)
         self._controller_cls = None
         self.controller = None
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id="musetalk_preprocess_tab",
-            title="Preprocess",
-            ui_path="ui/musetalk_preprocess.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="musetalk",
-            order=100,
-            tooltip="First-party MuseTalk preprocessing and debug tools provided through the addon framework.",
         )
         context.events.subscribe("ui.tab_focus_changed", self._on_ui_tab_focus_changed)
         context.events.subscribe("runtime.heavy_task_starting", self._on_runtime_heavy_task_starting)

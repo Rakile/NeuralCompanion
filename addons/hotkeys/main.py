@@ -20,16 +20,10 @@ class Addon(BaseAddon):
         super().initialize(context)
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id="hotkeys_tab",
-            title="Hotkeys",
-            ui_path="ui/hotkeys.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="top_level",
-            order=918,
-            tooltip="Configure push-to-talk and other available shortcuts.",
-            icon_path="ui/icons/hotkeys.png",
         )
         context.logger.info("Hotkeys addon initialized.")
 

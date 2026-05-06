@@ -24,16 +24,10 @@ class Addon(BaseAddon):
         super().initialize(context)
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
-            title="Story Visuals",
-            ui_path="ui/visual_story_settings.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="host_settings",
-            order=121,
-            tooltip="Story-mode visual reply settings.",
-            icon_path="ui/icons/story_visuals.png",
         )
         context.logger.info("Visual Story Settings addon initialized.")
 

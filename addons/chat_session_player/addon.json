@@ -8,5 +8,17 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "chat_session_player_tab",
+      "title": "Chat Player",
+      "area": "top_level",
+      "ui_path": "ui/chat_session_player.ui",
+      "placeholder": "chat_player_tab",
+      "icon_path": "ui/icons/chat_player.png",
+      "order": 920,
+      "tooltip": "Standalone chat session replay and context loading tools."
+    }
+  ],
   "enabled": true
 }

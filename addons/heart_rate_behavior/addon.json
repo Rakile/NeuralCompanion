@@ -7,5 +7,19 @@
   "enabled": true,
   "permissions": [
     "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "heart_rate_behavior_tab",
+      "title": "Threshold Rules",
+      "area": "vision_source",
+      "parent_tab_id": "heart_rate",
+      "ui_path": "ui/heart_rate_behavior.ui",
+      "order": 210,
+      "tooltip": "Persona-driven behavior rules that attach to the heart_rate sensory source.",
+      "metadata": {
+        "checkable": true
+      }
+    }
   ]
 }

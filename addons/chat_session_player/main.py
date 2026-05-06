@@ -22,16 +22,10 @@ class Addon(BaseAddon):
         super().initialize(context)
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id="chat_session_player_tab",
-            title="Chat Player",
-            ui_path="ui/chat_session_player.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="top_level",
-            order=920,
-            tooltip="Standalone chat session replay and context loading tools.",
-            icon_path="ui/icons/chat_player.png",
         )
         context.logger.info("Chat Session Player addon initialized.")
 

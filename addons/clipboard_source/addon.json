@@ -8,5 +8,16 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "clipboard_source_tab",
+      "title": "Source",
+      "area": "vision_source",
+      "parent_tab_id": "clipboard",
+      "ui_path": "ui/clipboard_source.ui",
+      "order": 100,
+      "tooltip": "Clipboard image source controls and status."
+    }
+  ],
   "enabled": true
 }

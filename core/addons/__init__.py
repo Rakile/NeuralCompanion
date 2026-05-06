@@ -1,7 +1,20 @@
 """Addon framework primitives for Neural Interface."""
 
 from .base import BaseAddon
-from .contributions import TabContribution
+from .contributions import (
+    ADDON_UI_MOUNTS,
+    AddonUIMount,
+    TabContribution,
+    normalize_ui_area,
+    ui_area_for_target,
+    ui_mount_adoption_specs,
+    ui_mount_for_area,
+    ui_mount_targets,
+    ui_fallback_targets_for_manifest,
+    ui_required_static_mount_targets,
+    ui_target_for_area,
+    ui_target_is_deferred,
+)
 from .context import AddonContext, AddonPermissionError
 from .manager import AddonManager
 from .manifest import AddonManifest
@@ -11,7 +24,17 @@ __all__ = [
     "AddonManager",
     "AddonManifest",
     "AddonPermissionError",
+    "ADDON_UI_MOUNTS",
+    "AddonUIMount",
     "BaseAddon",
     "TabContribution",
+    "normalize_ui_area",
+    "ui_area_for_target",
+    "ui_mount_adoption_specs",
+    "ui_mount_for_area",
+    "ui_mount_targets",
+    "ui_fallback_targets_for_manifest",
+    "ui_required_static_mount_targets",
+    "ui_target_for_area",
+    "ui_target_is_deferred",
 ]
-

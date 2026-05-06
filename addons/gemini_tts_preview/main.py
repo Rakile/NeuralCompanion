@@ -50,16 +50,10 @@ class Addon(BaseAddon):
             },
         )
 
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
-            title="Gemini TTS",
-            ui_path="ui/gemini_tts_preview.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="tts_runtime",
-            order=125,
-            tooltip="Gemini preview TTS backend settings.",
-            metadata={"backend_id": self.SERVICE_NAME},
         )
         context.logger.info("Gemini TTS Preview addon initialized.")
 

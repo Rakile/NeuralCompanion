@@ -25,15 +25,10 @@ class Addon(BaseAddon):
         self._shell_preview = bool(context.get_service("qt.audio_story_mode_shell_preview") if context is not None else False)
         self._controller_cls = None
         self.controller = None
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
-            title="Audio Story Mode",
-            ui_path="ui/audio_story_mode.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="operational_view",
-            order=120,
-            tooltip="Import story audio, transcribe it locally, and sync visual replies to playback.",
         )
         context.logger.info("Audio Story Mode addon initialized.")
 

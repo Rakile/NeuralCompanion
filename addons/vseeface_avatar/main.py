@@ -26,15 +26,8 @@ class Addon(BaseAddon):
                 "runtime_context": True,
             },
         )
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id="vseeface_avatar_tab",
-            title="VSeeFace",
-            ui_path="ui/vseeface_avatar.ui",
-            area="top_level",
-            order=110,
-            tooltip="VSeeFace body pose and runtime controls.",
-            icon_path="ui/icons/vseeface.png",
-            metadata={"provider_id": PROVIDER_ID},
         )
         context.logger.info("VSeeFace avatar provider addon initialized.")
         return None

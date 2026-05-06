@@ -4,6 +4,13 @@ import json
 import re
 from pathlib import Path
 
+from core.addons.contributions import (
+    ui_fallback_targets_for_manifest,
+    ui_mount_targets,
+    ui_target_for_area,
+    ui_target_is_deferred,
+)
+
 _APP_FILE = None
 
 
@@ -53,13 +60,23 @@ def _ui_shell_addon_effectively_enabled(manifest, registry_state):
     addon_enabled = bool(addon_overrides.get(addon_id, manifest_enabled))
     return bool(category_enabled and addon_enabled)
 
-def _ui_shell_static_tab_areas(addon_dir):
+def _ui_shell_manifest_tab_areas(manifest):
+    areas = []
+    for item in list(dict(manifest or {}).get("ui", []) or []):
+        if not isinstance(item, dict):
+            continue
+        area = str(item.get("area") or "top_level").strip()
+        if area:
+            areas.append(area)
+    return sorted(set(areas))
+
+def _ui_shell_static_tab_areas(addon_dir, manifest=None):
     main_path = Path(addon_dir) / "main.py"
+    areas = list(_ui_shell_manifest_tab_areas(manifest))
     try:
         text = main_path.read_text(encoding="utf-8")
     except Exception:
-        return []
-    areas = []
+        return sorted(set(item for item in areas if item))
     for match in re.finditer(r"register_(?:designer_)?tab\s*\(", text):
         body = text[match.start(): match.start() + 2000]
         area_match = re.search(r"area\s*=\s*[\"']([^\"']+)[\"']", body)
@@ -115,55 +132,28 @@ def _ui_shell_discover_addon_manifests():
             continue
         manifest = dict(manifest)
         manifest["root"] = str(addon_dir)
-        manifest["areas"] = _ui_shell_static_tab_areas(addon_dir)
+        manifest["areas"] = _ui_shell_static_tab_areas(addon_dir, manifest)
         manifest["service_hints"] = _ui_shell_static_service_hints(addon_dir, manifest)
         discovered.append(manifest)
     return discovered
 
 def _ui_shell_mount_target_for_area(area):
-    mapping = {
-        "top_level": "left_tabs",
-        "host_settings": "host_settings_tabs",
-        "musetalk": "musetalk_tabs",
-        "tts_runtime": "tts_runtime_addon_tabs",
-        "vision_source": "sensory_feedback_tabs",
-        "operational_view": "right_tabs",
-    }
-    return mapping.get(str(area or "").strip(), "")
+    return ui_target_for_area(area)
 
 def _ui_shell_target_is_deferred(target):
-    # Nested addon-owned mount points can be introduced by an earlier live addon
-    # contribution rather than being present statically in main.ui.
-    return str(target or "").strip() in {"musetalk_tabs"}
+    return ui_target_is_deferred(target)
 
 def _ui_shell_fallback_targets_for_manifest(manifest):
     addon_id = str(manifest.get("id", "") or "").strip().lower()
     category = str(manifest.get("category", "") or "other").strip().lower()
-    if addon_id.startswith("nc.chat_provider_") or addon_id == "nc.claude_provider":
-        return ["chat_provider_combo"]
-    if category == "vision":
-        return ["sensory_feedback_tabs"]
-    if category == "musetalk":
-        return ["musetalk_tabs"]
-    if category == "visuals":
-        return ["host_settings_tabs"]
-    if category == "chat":
-        return ["left_tabs"]
-    if category == "global":
-        return ["left_tabs"]
-    return []
+    return list(ui_fallback_targets_for_manifest(addon_id, category))
 
 def _ui_shell_addon_mount_report(window):
     session = _read_ui_shell_session_snapshot()
     registry_state = _ui_shell_addon_registry_state(session)
     manifests = _ui_shell_discover_addon_manifests()
     mount_points = {
-        "left_tabs": _ui_shell_find_object(window, "left_tabs") is not None,
-        "host_settings_tabs": _ui_shell_find_object(window, "host_settings_tabs") is not None,
-        "right_tabs": _ui_shell_find_object(window, "right_tabs") is not None,
-        "tts_runtime_addon_tabs": _ui_shell_find_object(window, "tts_runtime_addon_tabs") is not None,
-        "musetalk_tabs": _ui_shell_find_object(window, "musetalk_tabs") is not None,
-        "sensory_feedback_tabs": _ui_shell_find_object(window, "sensory_feedback_tabs") is not None,
+        **{target: _ui_shell_find_object(window, target) is not None for target in ui_mount_targets()},
         "sensory_feedback_sources_widget": _ui_shell_find_object(window, "sensory_feedback_sources_widget") is not None,
         "chat_provider_combo": _ui_shell_find_object(window, "chat_provider_combo") is not None,
         "chat_provider_fields_widget": _ui_shell_find_object(window, "chat_provider_fields_widget") is not None,

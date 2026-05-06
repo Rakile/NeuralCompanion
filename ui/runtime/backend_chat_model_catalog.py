@@ -173,6 +173,7 @@ class BackendChatModelCatalogMixin:
 
         threading.Thread(target=worker, daemon=True).start()
 
+    @QtCore.Slot()
     def _apply_pending_model_refresh(self):
         with self._model_refresh_lock:
             models = list(self._pending_model_refresh or [])

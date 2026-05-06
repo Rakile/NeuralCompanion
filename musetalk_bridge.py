@@ -200,6 +200,13 @@ class MuseTalkBridge:
         recent = [str(line or "").strip() for line in list(self._recent_output) if str(line or "").strip()]
         if recent:
             details.append("recent_output=" + " | ".join(recent[-5:]))
+            recent_text = "\n".join(recent).lower()
+            if "defaultcpuallocator" in recent_text or "not enough memory" in recent_text:
+                details.append(
+                    "hint=PyTorch could not allocate system RAM. On Windows this is often caused by "
+                    "low/fragmented RAM or a full system drive/pagefile; close memory-heavy apps, free "
+                    "space on C:, or reboot before starting MuseTalk again."
+                )
         return " ".join(details)
 
     def _read_stdout(self):

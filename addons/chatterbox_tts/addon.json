@@ -9,5 +9,19 @@
     "services.register",
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "chatterbox_tts_tab",
+      "title": "Chatterbox",
+      "area": "tts_runtime",
+      "ui_path": "ui/chatterbox_tts.ui",
+      "placeholder": "tts_chatterbox_tab",
+      "order": 100,
+      "tooltip": "Local Chatterbox TTS settings.",
+      "metadata": {
+        "backend_id": "chatterbox"
+      }
+    }
+  ],
   "enabled": true
 }

@@ -8,5 +8,20 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "vam_avatar_tab",
+      "title": "VaM",
+      "area": "top_level",
+      "ui_path": "ui/vam_avatar.ui",
+      "placeholder": "vam_tab",
+      "icon_path": "ui/icons/vam.png",
+      "order": 130,
+      "tooltip": "Virt-A-Mate bridge and launch controls.",
+      "metadata": {
+        "provider_id": "vam"
+      }
+    }
+  ],
   "enabled": true
 }

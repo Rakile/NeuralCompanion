@@ -1,3 +1,6 @@
+from core.addons.contributions import ui_mount_adoption_specs, ui_mount_targets
+
+
 class MainUiRealTabAdoptionMixin:
     """Helpers that adopt addon/runtime tabs from the hidden backend into main.ui."""
 
@@ -271,72 +274,46 @@ class MainUiRealTabAdoptionMixin:
             except Exception:
                 return False
 
+    def _manifest_static_addon_placeholder_specs(self):
+            manager = getattr(self.backend, "_addon_manager", None)
+            if manager is None:
+                return []
+            try:
+                snapshot = list(manager.get_addon_registry_snapshot() or [])
+            except Exception:
+                return []
+            specs = []
+            for category in snapshot:
+                for addon in list(dict(category).get("addons") or []):
+                    addon_id = str(addon.get("id") or "").strip()
+                    for entry in list(addon.get("ui") or []):
+                        if not isinstance(entry, dict):
+                            continue
+                        placeholder = str(entry.get("placeholder") or "").strip()
+                        if not placeholder:
+                            continue
+                        tabs = str(entry.get("target") or entry.get("mount_target") or "").strip()
+                        if not tabs:
+                            from core.addons.contributions import ui_target_for_area
+
+                            tabs = ui_target_for_area(entry.get("area"))
+                        if not tabs:
+                            continue
+                        specs.append(
+                            {
+                                "addon_id": addon_id,
+                                "tabs": tabs,
+                                "placeholder": placeholder,
+                                "title": str(entry.get("title") or addon.get("name") or addon_id).strip(),
+                            }
+                        )
+            return specs
+
     def _remove_disabled_static_addon_placeholders(self):
             # main.ui contains a few static placeholder tabs so Designer preview
             # remains useful. Remove them when the matching addon is disabled or
             # absent, otherwise the disabled addon still appears in the real UI.
-            placeholders = (
-                {
-                    "addon_id": "nc.audio_story_mode",
-                    "tabs": "right_tabs",
-                    "placeholder": "audio_story_mode_tab",
-                    "title": "Audio Story Mode",
-                },
-                {
-                    "addon_id": "nc.hotkeys",
-                    "tabs": "left_tabs",
-                    "placeholder": "hotkeys_tab",
-                    "title": "Hotkeys",
-                },
-                {
-                    "addon_id": "nc.chat_session_player",
-                    "tabs": "left_tabs",
-                    "placeholder": "chat_player_tab",
-                    "title": "Chat Player",
-                },
-                {
-                    "addon_id": "nc.vseeface_avatar",
-                    "tabs": "left_tabs",
-                    "placeholder": "vseeface_tab",
-                    "title": "VSeeFace",
-                },
-                {
-                    "addon_id": "nc.musetalk_avatar",
-                    "tabs": "left_tabs",
-                    "placeholder": "musetalk_tab",
-                    "title": "MuseTalk",
-                },
-                {
-                    "addon_id": "nc.vam_avatar",
-                    "tabs": "left_tabs",
-                    "placeholder": "vam_tab",
-                    "title": "VaM",
-                },
-                {
-                    "addon_id": "nc.visual_reply",
-                    "tabs": "host_settings_tabs",
-                    "placeholder": "host_settings_visuals_tab",
-                    "title": "Visuals",
-                },
-                {
-                    "addon_id": "nc.visual_story_settings",
-                    "tabs": "host_settings_tabs",
-                    "placeholder": "host_settings_story_visuals_tab",
-                    "title": "Story Visuals",
-                },
-                {
-                    "addon_id": "nc.chatterbox_tts",
-                    "tabs": "tts_runtime_addon_tabs",
-                    "placeholder": "tts_chatterbox_tab",
-                    "title": "Chatterbox",
-                },
-                {
-                    "addon_id": "nc.pockettts",
-                    "tabs": "tts_runtime_addon_tabs",
-                    "placeholder": "tts_pockettts_tab",
-                    "title": "PocketTTS",
-                },
-            )
+            placeholders = list(self._manifest_static_addon_placeholder_specs())
             for item in placeholders:
                 if self._addon_effectively_enabled(item.get("addon_id")):
                     continue
@@ -347,38 +324,7 @@ class MainUiRealTabAdoptionMixin:
                 )
 
     def _adopt_backend_runtime_tabs(self):
-            mappings = (
-                {
-                    "area": "top_level",
-                    "source_name": "tabs",
-                    "target_name": "left_tabs",
-                    "mode": "titles",
-                },
-                {
-                    "area": "host_settings",
-                    "source_name": "host_settings_tabs",
-                    "target_name": "host_settings_tabs",
-                    "mode": "titles",
-                },
-                {
-                    "area": "operational_view",
-                    "source_name": "right_tabs",
-                    "target_name": "right_tabs",
-                    "mode": "titles",
-                },
-                {
-                    "area": "musetalk",
-                    "source_name": "musetalk_tabs",
-                    "target_name": "musetalk_tabs",
-                    "mode": "titles",
-                },
-                {
-                    "area": "tts_runtime",
-                    "source_name": "tts_runtime_addon_tabs",
-                    "target_name": "tts_runtime_addon_tabs",
-                    "mode": "titles",
-                },
-            )
+            mappings = ui_mount_adoption_specs()
             adopted_report = {}
             for mapping in mappings:
                 source_name = str(mapping.get("source_name") or "").strip()
@@ -402,13 +348,9 @@ class MainUiRealTabAdoptionMixin:
             if frontend_left_tabs is not None:
                 self.backend.tabs = frontend_left_tabs
                 setattr(self.backend, "left_tabs", frontend_left_tabs)
-            for target_name in (
-                "host_settings_tabs",
-                "right_tabs",
-                "musetalk_tabs",
-                "tts_runtime_addon_tabs",
-                "sensory_feedback_tabs",
-            ):
+            for target_name in ui_mount_targets():
+                if target_name == "left_tabs":
+                    continue
                 frontend_tabs = self._ui_object(target_name)
                 if frontend_tabs is not None:
                     setattr(self.backend, target_name, frontend_tabs)

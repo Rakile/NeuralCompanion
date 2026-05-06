@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Any, Callable
 
-from .contributions import TabContribution
+from .contributions import TabContribution, normalize_ui_area
 from .manifest import AddonManifest
 
 
@@ -187,6 +187,17 @@ class AddonUIService(AddonServiceBase):
         super().__init__(context)
         self._tab_contributions: list[TabContribution] = []
 
+    def _manifest_ui_entry(self, id: str) -> dict[str, Any]:
+        target = str(id or "").strip()
+        if not target:
+            return {}
+        for entry in list(getattr(self._context.manifest, "ui", []) or []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("id") or "").strip() == target:
+                return dict(entry)
+        return {}
+
     def register_tab(
         self,
         *,
@@ -209,7 +220,7 @@ class AddonUIService(AddonServiceBase):
             title=str(title or "").strip(),
             factory=factory,
             addon_id=self._context.manifest.id,
-            area=str(area or "top_level").strip() or "top_level",
+            area=normalize_ui_area(area),
             order=int(order),
             tooltip=str(tooltip or ""),
             parent_tab_id=str(parent_tab_id or "").strip(),
@@ -283,7 +294,7 @@ class AddonUIService(AddonServiceBase):
             title=str(title or "").strip(),
             factory=_factory,
             addon_id=self._context.manifest.id,
-            area=str(area or "top_level").strip() or "top_level",
+            area=normalize_ui_area(area),
             order=int(order),
             tooltip=str(tooltip or ""),
             parent_tab_id=str(parent_tab_id or "").strip(),
@@ -291,6 +302,38 @@ class AddonUIService(AddonServiceBase):
         )
         self._tab_contributions.append(contribution)
         return contribution
+
+    def register_manifest_designer_tab(
+        self,
+        *,
+        id: str,
+        binder: Callable[[Any, "AddonContext"], None] | None = None,
+        fallback_factory: Callable[["AddonContext"], Any] | None = None,
+        title: str | None = None,
+        ui_path: str | None = None,
+        area: str | None = None,
+        order: int | None = None,
+        tooltip: str | None = None,
+        parent_tab_id: str | None = None,
+        icon_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> TabContribution:
+        entry = self._manifest_ui_entry(id)
+        entry_metadata = dict(entry.get("metadata") or {})
+        entry_metadata.update(dict(metadata or {}))
+        return self.register_designer_tab(
+            id=id,
+            title=str(title if title is not None else entry.get("title", "")).strip(),
+            ui_path=str(ui_path if ui_path is not None else entry.get("ui_path", "")).strip(),
+            binder=binder,
+            fallback_factory=fallback_factory,
+            area=str(area if area is not None else entry.get("area", "top_level")).strip() or "top_level",
+            order=int(order if order is not None else entry.get("order", 1000)),
+            tooltip=str(tooltip if tooltip is not None else entry.get("tooltip", "")).strip(),
+            parent_tab_id=str(parent_tab_id if parent_tab_id is not None else entry.get("parent_tab_id", "")).strip(),
+            icon_path=str(icon_path if icon_path is not None else entry.get("icon_path", "")).strip(),
+            metadata=entry_metadata,
+        )
 
     def get_tab_contributions(self) -> list[TabContribution]:
         return list(self._tab_contributions)

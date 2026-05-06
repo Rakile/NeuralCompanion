@@ -46,16 +46,10 @@ class Addon(BaseAddon):
                 },
             )
 
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
-            title="Source",
-            ui_path="ui/clipboard_source.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="vision_source",
-            parent_tab_id="clipboard",
-            order=100,
-            tooltip="Clipboard image source controls and status.",
         )
 
         self._clipboard = None

@@ -202,16 +202,10 @@ class Addon(BaseAddon):
                 },
             )
 
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id="heart_rate_source_tab",
-            title="Source",
-            ui_path="ui/mock_heart_rate.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="vision_source",
-            parent_tab_id="heart_rate",
-            order=100,
-            tooltip="Floating heart-rate sensor window and source status.",
         )
 
         self._tick_timer = QtCore.QTimer()

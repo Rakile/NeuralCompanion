@@ -8,5 +8,19 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "screen_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "screen",
+      "ui_path": "ui/screen_supervisor.ui",
+      "order": 210,
+      "tooltip": "Persona-driven screen reactions for noteworthy on-screen content.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
   "enabled": true
 }

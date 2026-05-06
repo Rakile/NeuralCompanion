@@ -8,5 +8,20 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "visuals_host",
+      "title": "Visuals",
+      "area": "host_settings",
+      "ui_path": "ui/visual_reply_core.ui",
+      "placeholder": "host_settings_visuals_tab",
+      "icon_path": "ui/icons/visuals.png",
+      "order": 120,
+      "tooltip": "Visual reply runtime settings and future visual addons.",
+      "metadata": {
+        "nested_title": "Core"
+      }
+    }
+  ],
   "enabled": true
 }

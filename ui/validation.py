@@ -4,6 +4,8 @@ from pathlib import Path
 import re
 import xml.etree.ElementTree as ET
 
+from core.addons.contributions import ui_required_static_mount_targets
+
 
 UI_VALIDATION_REQUIRED_GROUPS = (
     (
@@ -166,13 +168,7 @@ UI_REAL_PREVIEW_ONLY_ROOTS = (
     },
 )
 
-UI_SHELL_TAB_MOUNT_WIDGETS = (
-    "left_tabs",
-    "host_settings_tabs",
-    "right_tabs",
-    "tts_runtime_addon_tabs",
-    "sensory_feedback_tabs",
-)
+UI_SHELL_TAB_MOUNT_WIDGETS = ui_required_static_mount_targets()
 
 
 def resolve_ui_path(raw_path, *, base_path=None):

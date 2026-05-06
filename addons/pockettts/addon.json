@@ -9,5 +9,19 @@
     "services.register",
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "pockettts_tab",
+      "title": "PocketTTS",
+      "area": "tts_runtime",
+      "ui_path": "ui/pockettts.ui",
+      "placeholder": "tts_pockettts_tab",
+      "order": 200,
+      "tooltip": "PocketTTS interpreter settings.",
+      "metadata": {
+        "backend_id": "pockettts"
+      }
+    }
+  ],
   "enabled": true
 }

@@ -5,6 +5,8 @@ import re
 from collections import OrderedDict
 from pathlib import Path
 
+from core.addons.contributions import ui_mount_targets
+
 
 def configure_shell_addon_mount_dependencies(namespace):
     """Inject qt_app-owned services/constants without importing qt_app here."""
@@ -54,7 +56,20 @@ def _ui_shell_add_placeholder_tab(tab_widget, title, body_text):
     return True
 
 
-def _ui_shell_static_addon_placeholder_name(addon_id):
+def _ui_shell_manifest_placeholder_name(row):
+    for entry in list(dict(row or {}).get("ui", []) or []):
+        if not isinstance(entry, dict):
+            continue
+        placeholder = str(entry.get("placeholder") or "").strip()
+        if placeholder:
+            return placeholder
+    return ""
+
+
+def _ui_shell_static_addon_placeholder_name(addon_id, row=None):
+    manifest_placeholder = _ui_shell_manifest_placeholder_name(row)
+    if manifest_placeholder:
+        return manifest_placeholder
     addon_id = str(addon_id or "").strip().lower()
     if addon_id == "nc.chat_session_player":
         return "chat_player_tab"
@@ -142,14 +157,8 @@ def _ui_shell_set_contribution_icon(tab_widget, tab_index, contribution, manifes
 
 
 def _apply_ui_shell_addon_placeholders(window, report, exclude_addon_ids=None, live_chat_providers=None):
-    placeholders = {
-        "left_tabs": "Addon Mounts",
-        "host_settings_tabs": "Addon Preview",
-        "right_tabs": "Addon Preview",
-        "musetalk_tabs": "Addon Preview",
-        "tts_runtime_addon_tabs": "Addon Preview",
-        "sensory_feedback_tabs": "Addon Preview",
-    }
+    placeholders = {target: "Addon Preview" for target in ui_mount_targets()}
+    placeholders["left_tabs"] = "Addon Mounts"
     added = []
     for target, title in placeholders.items():
         rows = _ui_shell_rows_for_target(report, target, exclude_addon_ids=exclude_addon_ids)
@@ -192,6 +201,24 @@ def _ui_shell_load_addon_module(manifest):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def _ui_shell_live_addon_ids(report):
+    """Return addon ids safe/useful for live shell mounting.
+
+    This is intentionally manifest-derived: a new addon should appear in shell
+    smoke by declaring UI areas or service contributions, not by editing a host
+    allow-list.
+    """
+
+    ids = set()
+    for row in list((report or {}).get("addons") or []):
+        addon_id = str(row.get("id") or "").strip()
+        if not addon_id or not row.get("enabled"):
+            continue
+        if row.get("areas") or row.get("service_hints"):
+            ids.add(addon_id)
+    return sorted(ids)
 
 
 def _ui_shell_mount_live_addons(window, report):
@@ -248,7 +275,7 @@ def _ui_shell_mount_live_addons(window, report):
         str(row.get("id") or "").strip(): row
         for row in report.get("addons", [])
     }
-    for addon_id in sorted(UI_SHELL_LIVE_ADDON_IDS):
+    for addon_id in _ui_shell_live_addon_ids(report):
         row = rows_by_id.get(addon_id)
         if not row or not row.get("enabled"):
             continue
@@ -309,7 +336,9 @@ def _ui_shell_mount_live_addons(window, report):
             contributions = sorted(context.ui.get_tab_contributions(), key=lambda item: (int(item.order), str(item.title or item.id)))
             added_tabs = []
             for contribution in contributions:
-                target = _ui_shell_mount_target_for_area(str(contribution.area or "top_level"))
+                target = str(getattr(contribution, "mount_target", "") or "").strip()
+                if not target:
+                    target = _ui_shell_mount_target_for_area(str(contribution.area or "top_level"))
                 if not target:
                     continue
                 tab_widget = _ui_shell_find_object(window, target)
@@ -321,7 +350,7 @@ def _ui_shell_mount_live_addons(window, report):
                     raise RuntimeError(f"Tab factory for {contribution.id} did not return a QWidget.")
                 _ui_shell_prepare_live_addon_widget(addon_id, widget)
                 title = _ui_shell_contribution_title(contribution, manifest)
-                placeholder_name = _ui_shell_static_addon_placeholder_name(addon_id)
+                placeholder_name = _ui_shell_static_addon_placeholder_name(addon_id, row)
                 tab_index = _ui_shell_replace_static_addon_placeholder(
                     tab_widget,
                     placeholder_name,

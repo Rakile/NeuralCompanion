@@ -8,5 +8,17 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "visual_story_settings_tab",
+      "title": "Story Visuals",
+      "area": "host_settings",
+      "ui_path": "ui/visual_story_settings.ui",
+      "placeholder": "host_settings_story_visuals_tab",
+      "icon_path": "ui/icons/story_visuals.png",
+      "order": 121,
+      "tooltip": "Story-mode visual reply settings."
+    }
+  ],
   "enabled": true
 }

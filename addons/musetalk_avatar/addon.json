@@ -8,5 +8,20 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "musetalk_avatar_tab",
+      "title": "MuseTalk",
+      "area": "top_level",
+      "ui_path": "ui/musetalk_avatar.ui",
+      "placeholder": "musetalk_tab",
+      "icon_path": "ui/icons/musetalk.png",
+      "order": 120,
+      "tooltip": "MuseTalk avatar runtime and preview controls.",
+      "metadata": {
+        "provider_id": "musetalk"
+      }
+    }
+  ],
   "enabled": true
 }

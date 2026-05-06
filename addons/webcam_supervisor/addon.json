@@ -8,5 +8,19 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "webcam_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "webcam",
+      "ui_path": "ui/webcam_supervisor.ui",
+      "order": 210,
+      "tooltip": "Persona-driven webcam reactions for noteworthy posture, expression, and attention cues.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
   "enabled": true
 }

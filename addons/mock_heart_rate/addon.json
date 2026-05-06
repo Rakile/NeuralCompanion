@@ -10,5 +10,16 @@
     "events.publish",
     "services.register"
   ],
+  "ui": [
+    {
+      "id": "heart_rate_source_tab",
+      "title": "Source",
+      "area": "vision_source",
+      "parent_tab_id": "heart_rate",
+      "ui_path": "ui/mock_heart_rate.ui",
+      "order": 100,
+      "tooltip": "Floating heart-rate sensor window and source status."
+    }
+  ],
   "enabled": true
 }

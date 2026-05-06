@@ -278,12 +278,15 @@ class AddonManager:
                     record.state = "unloaded"
 
     def get_tab_contributions(self, area: str = "top_level"):
+        from .contributions import normalize_ui_area
+
+        target_area = normalize_ui_area(area)
         contributions = []
         for record in self._records:
             if record.state != "initialized" or record.context is None:
                 continue
             for contribution in record.context.ui.get_tab_contributions():
-                if contribution.area == area:
+                if normalize_ui_area(contribution.area) == target_area:
                     contributions.append(contribution)
         return sorted(contributions, key=lambda item: (item.order, item.title.lower()))
 
@@ -400,6 +403,7 @@ class AddonManager:
                     "effective_enabled": bool(self._manifest_effectively_enabled(record.manifest)),
                     "state": str(record.state or ""),
                     "permissions": list(record.manifest.permissions or []),
+                    "ui": [dict(item) for item in list(getattr(record.manifest, "ui", []) or []) if isinstance(item, dict)],
                     "version": str(record.manifest.version or ""),
                 }
             )

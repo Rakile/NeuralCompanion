@@ -9,5 +9,15 @@
     "ui.tabs",
     "events.subscribe"
   ],
+  "ui": [
+    {
+      "id": "musetalk_preprocess_tab",
+      "title": "Preprocess",
+      "area": "musetalk",
+      "ui_path": "ui/musetalk_preprocess.ui",
+      "order": 100,
+      "tooltip": "First-party MuseTalk preprocessing and debug tools provided through the addon framework."
+    }
+  ],
   "enabled": true
 }

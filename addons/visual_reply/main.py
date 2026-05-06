@@ -23,17 +23,10 @@ class Addon(BaseAddon):
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
         self.controller.install_panel()
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.HOST_TAB_ID,
-            title="Visuals",
-            ui_path="ui/visual_reply_core.ui",
             binder=self._bind_core_tab,
             fallback_factory=self._build_core_tab,
-            area="host_settings",
-            order=120,
-            tooltip="Visual reply runtime settings and future visual addons.",
-            icon_path="ui/icons/visuals.png",
-            metadata={"nested_title": "Core"},
         )
         context.logger.info("Visual Reply addon initialized.")
 

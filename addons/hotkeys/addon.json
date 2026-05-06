@@ -8,5 +8,17 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "hotkeys_tab",
+      "title": "Hotkeys",
+      "area": "top_level",
+      "ui_path": "ui/hotkeys.ui",
+      "placeholder": "hotkeys_tab",
+      "icon_path": "ui/icons/hotkeys.png",
+      "order": 918,
+      "tooltip": "Configure push-to-talk and other available shortcuts."
+    }
+  ],
   "enabled": true
 }

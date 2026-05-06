@@ -10,5 +10,16 @@
     "storage.read",
     "storage.write"
   ],
+  "ui": [
+    {
+      "id": "audio_story_mode_runtime",
+      "title": "Audio Story Mode",
+      "area": "operational_view",
+      "ui_path": "ui/audio_story_mode.ui",
+      "placeholder": "audio_story_mode_tab",
+      "order": 120,
+      "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback."
+    }
+  ],
   "enabled": true
 }

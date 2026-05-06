@@ -8,5 +8,19 @@
   "permissions": [
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "clipboard_supervisor_tab",
+      "title": "Supervisor",
+      "area": "vision_source",
+      "parent_tab_id": "clipboard",
+      "ui_path": "ui/clipboard_supervisor.ui",
+      "order": 210,
+      "tooltip": "Persona-driven clipboard-image reactions for newly copied images.",
+      "metadata": {
+        "checkable": true
+      }
+    }
+  ],
   "enabled": true
 }

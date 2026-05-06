@@ -49,16 +49,10 @@ class Addon(BaseAddon):
                 "supports_streaming": False,
             },
         )
-        context.ui.register_designer_tab(
+        context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
-            title="Chatterbox",
-            ui_path="ui/chatterbox_tts.ui",
             binder=self._bind_designer_tab,
             fallback_factory=self._build_tab,
-            area="tts_runtime",
-            order=100,
-            tooltip="Local Chatterbox TTS settings.",
-            metadata={"backend_id": self.SERVICE_NAME},
         )
         context.logger.info("Chatterbox TTS addon initialized.")
 

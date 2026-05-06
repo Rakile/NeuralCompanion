@@ -9,5 +9,18 @@
     "services.register",
     "ui.tabs"
   ],
+  "ui": [
+    {
+      "id": "gemini_tts_preview_tab",
+      "title": "Gemini TTS",
+      "area": "tts_runtime",
+      "ui_path": "ui/gemini_tts_preview.ui",
+      "order": 125,
+      "tooltip": "Gemini preview TTS backend settings.",
+      "metadata": {
+        "backend_id": "gemini_tts_preview"
+      }
+    }
+  ],
   "enabled": true
 }
