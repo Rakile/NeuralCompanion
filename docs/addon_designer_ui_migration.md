@@ -11,18 +11,17 @@ The addon remains responsible for:
 - Owning the `.ui` file under its own addon folder.
 - Declaring tab title, mount area, order, placeholder, tooltip, icon path, and runtime metadata in `addon.json`.
 - Binding runtime behavior to named widgets in the addon controller.
-- Keeping any Python-built tab as a fallback while the migration is in progress.
+- Treating the addon `.ui` file as the required layout contract for bundled addon tabs.
 - Avoiding assumptions that `qt_app.py` knows about addon-specific controls.
 
 The core framework remains responsible for:
 
 - Loading the addon `.ui` relative to the addon manifest root.
 - Calling the addon binder after Designer load.
-- Falling back to the addon-provided Python factory if Designer load or binding fails.
 - Validating addon-owned UI and service metadata during `--validate-ui`.
 
 `python qt_app.py --validate-ui main.ui` now also scans bundled addon entry points and reports any remaining direct `context.ui.register_tab(...)` usage as a migration failure.
-It also verifies that each bundled Designer registration points at an existing addon-local `.ui` file and that manifest UI/service entries are well-formed.
+It also verifies that bundled addons use manifest-backed Designer registration without Python-built fallback factories, that each manifest UI file exists, and that manifest UI/service entries are well-formed.
 
 ## Manifest UI Contract
 
