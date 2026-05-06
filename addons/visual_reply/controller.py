@@ -55,7 +55,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
     captionRequested = QtCore.Signal()
     clearRequested = QtCore.Signal()
 
-    def __init__(self, capability_bridge=None, parent=None):
+    def __init__(self, capability_bridge=None, parent=None, **_legacy_options):
         super().__init__(parent)
         self._capability_bridge = capability_bridge
         self._build_shell()

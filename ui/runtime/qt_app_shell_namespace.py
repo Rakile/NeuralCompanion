@@ -44,8 +44,8 @@ from ui.dock_utils import configure_main_window_docking as _configure_main_windo
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow, QtMuseTalkStageWindow
 from ui.panels.hand_doctor_dialog import HandDoctorDialog
 from ui.panels.input_dialog import QtInputDialog
-from ui.panels.musetalk_preview_panel import QtMuseTalkPreviewPanel
-from ui.panels.visual_reply_panel import QtVisualReplyPanel
+from addons.musetalk_avatar.preview_panel import QtMuseTalkPreviewPanel
+from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
 from ui.runtime.backend_addon_mounts import BackendAddonMountMixin
 from ui.runtime.backend_avatar_runtime import BackendAvatarRuntimeMixin
 from ui.runtime.backend_chat_runtime import BackendChatRuntimeMixin

@@ -5,10 +5,10 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 import shared_state
+from addons.musetalk_avatar.preview_panel import QtMuseTalkPreviewPanel
+from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
 from engine import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow, QtMuseTalkStageWindow
-from ui.panels.musetalk_preview_panel import QtMuseTalkPreviewPanel
-from ui.panels.visual_reply_panel import QtVisualReplyPanel
 from ui.theme_support import app_theme_palette as _app_theme_palette
 
 APP_ROOT = Path(__file__).resolve().parents[2]
