@@ -931,7 +931,7 @@ class AudioStoryModeController(QtCore.QObject):
         except RuntimeError:
             return
 
-    def build_tab(self):
+    def build_runtime_widget(self):
         existing = self.audio_story_tab_widget
         if existing is not None:
             return existing

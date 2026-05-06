@@ -55,7 +55,7 @@ class Addon(BaseAddon):
         controller = self._ensure_controller()
         if controller is None:
             raise RuntimeError("MuseTalk preprocess controller is unavailable.")
-        return controller.build_tab()
+        return controller.build_runtime_widget()
 
     def _bind_designer_tab(self, widget, context):
         from PySide6 import QtWidgets

@@ -401,7 +401,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             pack.default_variant = clean_avatar_id
         return save_avatar_pack_manifest(pack, packs_dir=MUSE_AVATAR_PACKS_DIR)
 
-    def build_tab(self):
+    def build_runtime_widget(self):
         existing = self.musetalk_preprocess_tab_widget
         if existing is not None:
             return existing
