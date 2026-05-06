@@ -264,65 +264,6 @@ class Addon(BaseAddon):
         refresh_from_state()
         return widget
 
-    def _build_tab(self, context):
-        from PySide6 import QtCore, QtWidgets
-
-        widget = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(widget)
-
-        intro = QtWidgets.QLabel(
-            "This addon exposes a floating BPM slider, a reusable peer service named "
-            "`heart_rate.mock`, and a selectable text-based sensory provider for the hidden Vision loop."
-        )
-        intro.setWordWrap(True)
-        layout.addWidget(intro)
-
-        status_label = QtWidgets.QLabel()
-        status_label.setAlignment(QtCore.Qt.AlignLeft)
-        layout.addWidget(status_label)
-
-        button_row = QtWidgets.QHBoxLayout()
-        show_button = QtWidgets.QPushButton("Show Window")
-        hide_button = QtWidgets.QPushButton("Hide Window")
-        reset_button = QtWidgets.QPushButton("Reset 72")
-        button_row.addWidget(show_button)
-        button_row.addWidget(hide_button)
-        button_row.addWidget(reset_button)
-        layout.addLayout(button_row)
-
-        show_button.clicked.connect(lambda: self.show_window())
-        hide_button.clicked.connect(lambda: self.hide_window())
-        reset_button.clicked.connect(lambda: self.set_bpm(72))
-
-        details = QtWidgets.QPlainTextEdit()
-        details.setReadOnly(True)
-        details.setPlainText(
-            "\n".join(
-                [
-                    "Peer service: heart_rate.mock",
-                    "Provider id: heart_rate",
-                    "Example addon usage:",
-                    "  service = context.services.get('heart_rate.mock')",
-                    "  bpm = service.current_bpm()",
-                    "  token = service.subscribe(callback, interval_seconds=0.5)",
-                ]
-            )
-        )
-        layout.addWidget(details, 1)
-        layout.addStretch(1)
-
-        def refresh_from_state():
-            status_label.setText(
-                f"Current BPM: {int(self.current_bpm)}\n"
-                f"Window visible: {'yes' if self.is_window_visible() else 'no'}"
-            )
-            status_label.update()
-
-        self._register_tab_refresher(refresh_from_state)
-        widget.destroyed.connect(lambda *_args, cb=refresh_from_state: self._unregister_tab_refresher(cb))
-        refresh_from_state()
-        return widget
-
     def _register_tab_refresher(self, callback):
         if callable(callback):
             self._tab_refreshers.append(callback)
