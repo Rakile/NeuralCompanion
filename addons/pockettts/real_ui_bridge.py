@@ -25,6 +25,14 @@ def build_status_snapshot(backend, runtime_config=None):
     }
 
 
+def refresh_resource_widgets(backend, runtime_config=None):
+    """Refresh PocketTTS-owned widgets from runtime/session config."""
+    runtime = dict(runtime_config or {})
+    widget = backend._live_widget_attr("pocket_tts_python_edit")
+    if widget is not None:
+        widget.setText(str(runtime.get("pocket_tts_python", "") or ""))
+
+
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, tts_backend=""):
     from engine import update_runtime_config
 

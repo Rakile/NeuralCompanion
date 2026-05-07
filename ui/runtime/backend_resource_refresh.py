@@ -2,6 +2,7 @@ import glob
 import os
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
 
 
 def _engine():
@@ -47,8 +48,7 @@ class BackendResourceRefreshMixin:
         if hasattr(self, "sensory_pingpong_prompt_text"):
             default_prompt = getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")
             self.sensory_pingpong_prompt_text.setPlainText(str(runtime_config.get("sensory_pingpong_prompt", default_prompt) or default_prompt))
-        if hasattr(self, "pocket_tts_python_edit"):
-            self.pocket_tts_python_edit.setText(str(runtime_config.get("pocket_tts_python", "") or ""))
+        pockettts_real_ui_bridge.refresh_resource_widgets(self, runtime_config)
         input_mode = str(runtime_config.get("input_mode", "voice_activation") or "voice_activation").lower()
         self.input_mode_combo.setCurrentText("Push-to-Talk" if input_mode == "push_to_talk" else "Voice Activation")
         input_role = str(runtime_config.get("input_message_role", "user") or "user").lower()
