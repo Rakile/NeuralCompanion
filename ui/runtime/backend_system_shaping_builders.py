@@ -1,14 +1,12 @@
 from PySide6 import QtCore, QtWidgets
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
 from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
-
-
-DEFAULT_LOCAL_VAM_ROOT = ""
 
 
 def _engine():
@@ -546,61 +544,7 @@ class BackendSystemShapingBuilderMixin:
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
 
-        self.vam_vmc_enabled_checkbox = QtWidgets.QCheckBox("Relay motion to VaM over VMC")
-        self.vam_vmc_enabled_checkbox.setObjectName("vam_vmc_enabled_checkbox")
-        self.vam_vmc_enabled_checkbox.setChecked(bool(runtime_config.get("vam_vmc_enabled", True)))
-        self.vam_vmc_enabled_checkbox.toggled.connect(self.on_vam_vmc_enabled_changed)
-
-        self.vam_bridge_enabled_checkbox = QtWidgets.QCheckBox("Enable VaM file bridge")
-        self.vam_bridge_enabled_checkbox.setObjectName("vam_bridge_enabled_checkbox")
-        self.vam_bridge_enabled_checkbox.setChecked(bool(runtime_config.get("vam_bridge_enabled", True)))
-        self.vam_bridge_enabled_checkbox.toggled.connect(self.on_vam_bridge_enabled_changed)
-
-        self.vam_play_audio_in_vam_checkbox = QtWidgets.QCheckBox("Play speech audio through VaM head audio")
-        self.vam_play_audio_in_vam_checkbox.setObjectName("vam_play_audio_in_vam_checkbox")
-        self.vam_play_audio_in_vam_checkbox.setChecked(bool(runtime_config.get("vam_play_audio_in_vam", True)))
-        self.vam_play_audio_in_vam_checkbox.toggled.connect(self.on_vam_play_audio_in_vam_changed)
-
-        self.vam_timeline_auto_resume_checkbox = QtWidgets.QCheckBox("Allow VaM Timeline auto-resume hooks")
-        self.vam_timeline_auto_resume_checkbox.setObjectName("vam_timeline_auto_resume_checkbox")
-        self.vam_timeline_auto_resume_checkbox.setChecked(bool(runtime_config.get("vam_timeline_auto_resume", True)))
-        self.vam_timeline_auto_resume_checkbox.toggled.connect(self.on_vam_timeline_auto_resume_changed)
-
-        self.vam_vmc_host_edit = QtWidgets.QLineEdit()
-        self.vam_vmc_host_edit.setObjectName("vam_vmc_host_edit")
-        self.vam_vmc_host_edit.setText(str(runtime_config.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
-        self.vam_vmc_host_edit.editingFinished.connect(self.on_vam_vmc_host_changed)
-
-        self.vam_vmc_port_spin = NoWheelSpinBox()
-        self.vam_vmc_port_spin.setObjectName("vam_vmc_port_spin")
-        self.vam_vmc_port_spin.setRange(1, 65535)
-        self.vam_vmc_port_spin.setSingleStep(1)
-        self.vam_vmc_port_spin.setValue(int(runtime_config.get("vam_vmc_port", 39539) or 39539))
-        self.vam_vmc_port_spin.valueChanged.connect(self.on_vam_vmc_port_changed)
-
-        self.vam_root_edit = QtWidgets.QLineEdit()
-        self.vam_root_edit.setObjectName("vam_root_edit")
-        self.vam_root_edit.setText(engine_module.normalize_vam_root(runtime_config.get("vam_root", getattr(engine_module, "DEFAULT_VAM_ROOT", "")) or getattr(engine_module, "DEFAULT_VAM_ROOT", "")))
-        if not self.vam_root_edit.text().strip():
-            self.vam_root_edit.setText(engine_module.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT))
-        self.vam_root_edit.setToolTip("Path to the VaM installation root. NC derives the bridge folder from this.")
-        self.vam_root_edit.editingFinished.connect(self.on_vam_root_changed)
-
-        self.vam_bridge_root_edit = QtWidgets.QLineEdit()
-        self.vam_bridge_root_edit.setObjectName("vam_bridge_root_edit")
-        self.vam_bridge_root_edit.setReadOnly(True)
-        self.vam_bridge_root_edit.setText(engine_module.derive_vam_bridge_root(self.vam_root_edit.text().strip()))
-        self.vam_bridge_root_edit.setToolTip("Derived from the VaM Root. The plugin's default Bridge Root already matches this location inside VaM.")
-
-        self.vam_target_atom_uid_edit = QtWidgets.QLineEdit()
-        self.vam_target_atom_uid_edit.setObjectName("vam_target_atom_uid_edit")
-        self.vam_target_atom_uid_edit.setText(str(runtime_config.get("vam_target_atom_uid", "Person") or "Person"))
-        self.vam_target_atom_uid_edit.editingFinished.connect(self.on_vam_target_atom_uid_changed)
-
-        self.vam_target_storable_id_edit = QtWidgets.QLineEdit()
-        self.vam_target_storable_id_edit.setObjectName("vam_target_storable_id_edit")
-        self.vam_target_storable_id_edit.setText(str(runtime_config.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"))
-        self.vam_target_storable_id_edit.editingFinished.connect(self.on_vam_target_storable_id_changed)
+        vam_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
 
         self.chat_provider_combo = NoWheelComboBox()
         self.chat_provider_combo.setObjectName("chat_provider_combo")

@@ -1,3 +1,18 @@
+try:
+    from PySide6 import QtWidgets
+except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
+    QtWidgets = None
+
+
+DEFAULT_LOCAL_VAM_ROOT = ""
+
+
+def _engine():
+    import engine
+
+    return engine
+
+
 def collect_runtime_config(backend, runtime_config=None, *, avatar_mode=""):
     """Collect VaM-owned runtime config from the current backend widgets."""
     runtime = dict(runtime_config or {})
@@ -27,6 +42,81 @@ def collect_runtime_config(backend, runtime_config=None, *, avatar_mode=""):
 
 def estimated_runtime_overhead_gib():
     return 1.0
+
+
+def build_legacy_runtime_widgets(backend, runtime_config=None):
+    """Build VaM-owned controls used by the backend shell."""
+    if QtWidgets is None:
+        return
+    from ui.widgets.basic import NoWheelSpinBox
+
+    runtime = dict(runtime_config or {})
+    engine_module = _engine()
+
+    backend.vam_vmc_enabled_checkbox = QtWidgets.QCheckBox("Relay motion to VaM over VMC")
+    backend.vam_vmc_enabled_checkbox.setObjectName("vam_vmc_enabled_checkbox")
+    backend.vam_vmc_enabled_checkbox.setChecked(bool(runtime.get("vam_vmc_enabled", True)))
+    backend.vam_vmc_enabled_checkbox.toggled.connect(backend.on_vam_vmc_enabled_changed)
+
+    backend.vam_bridge_enabled_checkbox = QtWidgets.QCheckBox("Enable VaM file bridge")
+    backend.vam_bridge_enabled_checkbox.setObjectName("vam_bridge_enabled_checkbox")
+    backend.vam_bridge_enabled_checkbox.setChecked(bool(runtime.get("vam_bridge_enabled", True)))
+    backend.vam_bridge_enabled_checkbox.toggled.connect(backend.on_vam_bridge_enabled_changed)
+
+    backend.vam_play_audio_in_vam_checkbox = QtWidgets.QCheckBox("Play speech audio through VaM head audio")
+    backend.vam_play_audio_in_vam_checkbox.setObjectName("vam_play_audio_in_vam_checkbox")
+    backend.vam_play_audio_in_vam_checkbox.setChecked(bool(runtime.get("vam_play_audio_in_vam", True)))
+    backend.vam_play_audio_in_vam_checkbox.toggled.connect(backend.on_vam_play_audio_in_vam_changed)
+
+    backend.vam_timeline_auto_resume_checkbox = QtWidgets.QCheckBox("Allow VaM Timeline auto-resume hooks")
+    backend.vam_timeline_auto_resume_checkbox.setObjectName("vam_timeline_auto_resume_checkbox")
+    backend.vam_timeline_auto_resume_checkbox.setChecked(bool(runtime.get("vam_timeline_auto_resume", True)))
+    backend.vam_timeline_auto_resume_checkbox.toggled.connect(backend.on_vam_timeline_auto_resume_changed)
+
+    backend.vam_vmc_host_edit = QtWidgets.QLineEdit()
+    backend.vam_vmc_host_edit.setObjectName("vam_vmc_host_edit")
+    backend.vam_vmc_host_edit.setText(str(runtime.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"))
+    backend.vam_vmc_host_edit.editingFinished.connect(backend.on_vam_vmc_host_changed)
+
+    backend.vam_vmc_port_spin = NoWheelSpinBox()
+    backend.vam_vmc_port_spin.setObjectName("vam_vmc_port_spin")
+    backend.vam_vmc_port_spin.setRange(1, 65535)
+    backend.vam_vmc_port_spin.setSingleStep(1)
+    backend.vam_vmc_port_spin.setValue(int(runtime.get("vam_vmc_port", 39539) or 39539))
+    backend.vam_vmc_port_spin.valueChanged.connect(backend.on_vam_vmc_port_changed)
+
+    backend.vam_root_edit = QtWidgets.QLineEdit()
+    backend.vam_root_edit.setObjectName("vam_root_edit")
+    backend.vam_root_edit.setText(
+        engine_module.normalize_vam_root(
+            runtime.get("vam_root", getattr(engine_module, "DEFAULT_VAM_ROOT", ""))
+            or getattr(engine_module, "DEFAULT_VAM_ROOT", "")
+        )
+    )
+    if not backend.vam_root_edit.text().strip():
+        backend.vam_root_edit.setText(engine_module.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT))
+    backend.vam_root_edit.setToolTip("Path to the VaM installation root. NC derives the bridge folder from this.")
+    backend.vam_root_edit.editingFinished.connect(backend.on_vam_root_changed)
+
+    backend.vam_bridge_root_edit = QtWidgets.QLineEdit()
+    backend.vam_bridge_root_edit.setObjectName("vam_bridge_root_edit")
+    backend.vam_bridge_root_edit.setReadOnly(True)
+    backend.vam_bridge_root_edit.setText(engine_module.derive_vam_bridge_root(backend.vam_root_edit.text().strip()))
+    backend.vam_bridge_root_edit.setToolTip(
+        "Derived from the VaM Root. The plugin's default Bridge Root already matches this location inside VaM."
+    )
+
+    backend.vam_target_atom_uid_edit = QtWidgets.QLineEdit()
+    backend.vam_target_atom_uid_edit.setObjectName("vam_target_atom_uid_edit")
+    backend.vam_target_atom_uid_edit.setText(str(runtime.get("vam_target_atom_uid", "Person") or "Person"))
+    backend.vam_target_atom_uid_edit.editingFinished.connect(backend.on_vam_target_atom_uid_changed)
+
+    backend.vam_target_storable_id_edit = QtWidgets.QLineEdit()
+    backend.vam_target_storable_id_edit.setObjectName("vam_target_storable_id_edit")
+    backend.vam_target_storable_id_edit.setText(
+        str(runtime.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge")
+    )
+    backend.vam_target_storable_id_edit.editingFinished.connect(backend.on_vam_target_storable_id_changed)
 
 
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, avatar_mode=""):
