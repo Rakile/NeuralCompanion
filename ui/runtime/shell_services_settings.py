@@ -352,6 +352,40 @@ class _UiShellPersonaAvatarService:
             "source": "ui_shell",
         }
 
+    def export_vam_settings(self):
+        return dict(self.snapshot().get("vam_settings", {}) or {})
+
+    def import_vam_settings(self, payload):
+        data = dict(payload or {})
+        if not data:
+            return None
+        root = str(data.get("vam_root") or data.get("vam_bridge_root") or UI_SHELL_DEFAULT_LOCAL_VAM_ROOT)
+        normalized_root = _ui_shell_normalize_vam_root(root)
+        fields = {
+            "vam_root_edit": normalized_root,
+            "vam_bridge_root_edit": _ui_shell_derive_vam_bridge_root(normalized_root),
+            "vam_target_atom_uid_edit": str(data.get("vam_target_atom_uid", "Person") or "Person"),
+            "vam_target_storable_id_edit": str(data.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
+            "vam_vmc_host_edit": str(data.get("vam_vmc_host", "127.0.0.1") or "127.0.0.1"),
+        }
+        for name, value in fields.items():
+            widget = _ui_shell_find_object(self._window, name)
+            if widget is not None and hasattr(widget, "setText"):
+                widget.setText(value)
+        port_spin = _ui_shell_find_object(self._window, "vam_vmc_port_spin")
+        if port_spin is not None:
+            _ui_shell_set_spin_value(port_spin, int(data.get("vam_vmc_port", 39539) or 39539))
+        for name, default in (
+            ("vam_vmc_enabled_checkbox", True),
+            ("vam_bridge_enabled_checkbox", True),
+            ("vam_play_audio_in_vam_checkbox", False),
+            ("vam_timeline_auto_resume_checkbox", True),
+        ):
+            widget = _ui_shell_find_object(self._window, name)
+            if widget is not None:
+                _ui_shell_set_checked(widget, bool(data.get(name.replace("_checkbox", ""), default)))
+        return None
+
     def refresh_body_list(self, preferred_name: str = ""):
         _ui_shell_refresh_body_combo(self._window, preferred_name=preferred_name)
         return self.snapshot()

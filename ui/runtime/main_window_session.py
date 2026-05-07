@@ -72,16 +72,6 @@ class MainWindowSessionMixin:
             "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS))),
             "musetalk_use_frame_cache": bool(self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True))),
             "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
-            "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", RUNTIME_CONFIG.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self._live_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
-            "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539) or 39539)),
-            "vam_bridge_enabled": self._live_checked("vam_bridge_enabled_checkbox", RUNTIME_CONFIG.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value() if self._live_widget_attr("vam_root_edit") is not None else str(RUNTIME_CONFIG.get("vam_root", getattr(engine, "DEFAULT_VAM_ROOT", "")) or getattr(engine, "DEFAULT_VAM_ROOT", "")),
-            "vam_bridge_root": self._current_vam_bridge_root_value() if self._live_widget_attr("vam_bridge_root_edit") is not None else str(RUNTIME_CONFIG.get("vam_bridge_root", getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")) or getattr(engine, "DEFAULT_VAM_BRIDGE_ROOT", "")),
-            "vam_play_audio_in_vam": self._live_checked("vam_play_audio_in_vam_checkbox", RUNTIME_CONFIG.get("vam_play_audio_in_vam", False)),
-            "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person",
-            "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip() or "plugin#0_NeuralCompanionBridge",
-            "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -257,51 +247,6 @@ class MainWindowSessionMixin:
                 if index >= 0:
                     self.tts_backend_combo.setCurrentIndex(index)
                 self.on_tts_backend_change(self.tts_backend_combo.currentText())
-            vam_vmc_enabled = session.get("vam_vmc_enabled")
-            widget = self._live_widget_attr("vam_vmc_enabled_checkbox")
-            if vam_vmc_enabled is not None and widget is not None:
-                widget.setChecked(bool(vam_vmc_enabled))
-                self.on_vam_vmc_enabled_changed(bool(vam_vmc_enabled))
-            vam_bridge_enabled = session.get("vam_bridge_enabled")
-            widget = self._live_widget_attr("vam_bridge_enabled_checkbox")
-            if vam_bridge_enabled is not None and widget is not None:
-                widget.setChecked(bool(vam_bridge_enabled))
-                self.on_vam_bridge_enabled_changed(bool(vam_bridge_enabled))
-            vam_play_audio_in_vam = session.get("vam_play_audio_in_vam")
-            widget = self._live_widget_attr("vam_play_audio_in_vam_checkbox")
-            if vam_play_audio_in_vam is not None and widget is not None:
-                widget.setChecked(bool(vam_play_audio_in_vam))
-                self.on_vam_play_audio_in_vam_changed(bool(vam_play_audio_in_vam))
-            vam_timeline_auto_resume = session.get("vam_timeline_auto_resume")
-            widget = self._live_widget_attr("vam_timeline_auto_resume_checkbox")
-            if vam_timeline_auto_resume is not None and widget is not None:
-                widget.setChecked(bool(vam_timeline_auto_resume))
-                self.on_vam_timeline_auto_resume_changed(bool(vam_timeline_auto_resume))
-            vam_vmc_host = session.get("vam_vmc_host")
-            widget = self._live_widget_attr("vam_vmc_host_edit")
-            if vam_vmc_host and widget is not None:
-                widget.setText(str(vam_vmc_host))
-                self.on_vam_vmc_host_changed()
-            vam_vmc_port = session.get("vam_vmc_port")
-            widget = self._live_widget_attr("vam_vmc_port_spin")
-            if vam_vmc_port is not None and widget is not None:
-                widget.setValue(int(vam_vmc_port))
-                self.on_vam_vmc_port_changed(int(vam_vmc_port))
-            vam_root = session.get("vam_root") or session.get("vam_bridge_root")
-            widget = self._live_widget_attr("vam_root_edit")
-            if vam_root and widget is not None:
-                widget.setText(engine.normalize_vam_root(vam_root))
-                self.on_vam_root_changed()
-            vam_target_atom_uid = session.get("vam_target_atom_uid")
-            widget = self._live_widget_attr("vam_target_atom_uid_edit")
-            if vam_target_atom_uid and widget is not None:
-                widget.setText(str(vam_target_atom_uid))
-                self.on_vam_target_atom_uid_changed()
-            vam_target_storable_id = session.get("vam_target_storable_id")
-            widget = self._live_widget_attr("vam_target_storable_id_edit")
-            if vam_target_storable_id and widget is not None:
-                widget.setText(str(vam_target_storable_id))
-                self.on_vam_target_storable_id_changed()
             chat_provider = session.get("chat_provider")
             if chat_provider is not None and hasattr(self, "chat_provider_combo"):
                 normalized_provider = self._set_chat_provider_selection(chat_provider)
