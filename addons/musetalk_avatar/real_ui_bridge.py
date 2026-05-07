@@ -16,6 +16,7 @@ VRAM_MODE_OVERHEAD_GIB = {
     "Low VRAM": 2.3,
     "Very Low VRAM": 1.5,
 }
+DEFAULT_LOOP_FADE_MS = 180
 
 
 def vram_key_from_label(label):
@@ -47,6 +48,25 @@ def collect_runtime_config(backend, runtime_config=None):
             "musetalk_use_frame_cache_checkbox",
             runtime.get("musetalk_use_frame_cache", True),
         ),
+        "musetalk_loop_fade_ms": int(
+            backend._live_value(
+                "musetalk_loop_fade_spin",
+                runtime.get("musetalk_loop_fade_ms", DEFAULT_LOOP_FADE_MS) or DEFAULT_LOOP_FADE_MS,
+            )
+        ),
+    }
+
+
+def build_status_snapshot(backend, runtime_config=None):
+    settings = collect_runtime_config(backend, runtime_config)
+    vram_key = str(settings.get("musetalk_vram_mode") or "quality")
+    return {
+        "musetalk_vram_mode": vram_label_from_key(vram_key),
+        "musetalk_avatar_pack": backend._live_combo_text("musetalk_avatar_pack_combo", ""),
+        "musetalk_loop_fade_ms": int(settings.get("musetalk_loop_fade_ms", DEFAULT_LOOP_FADE_MS) or DEFAULT_LOOP_FADE_MS),
+        "musetalk_use_frame_cache": bool(settings.get("musetalk_use_frame_cache", True)),
+        "musetalk_vram_mode_key": vram_key,
+        "preview_visible": bool(hasattr(backend, "preview_dock") and backend.preview_dock.isVisible()),
     }
 
 

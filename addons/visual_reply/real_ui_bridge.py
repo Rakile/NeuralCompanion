@@ -9,6 +9,28 @@ def show_dock(bridge):
         pass
 
 
+def build_status_snapshot(backend, runtime_config=None):
+    config = dict(runtime_config or {})
+    mode = backend._visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))
+    provider = backend._visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    return {
+        "visual_reply_mode": mode,
+        "visual_reply_provider": provider,
+        "visual_reply_size": backend._normalize_visual_reply_size(
+            backend._live_combo_text("visual_reply_size_combo", config.get("visual_reply_size", "1024x1024"))
+        ),
+        "visual_reply_model": backend._live_text(
+            "visual_reply_model_edit",
+            config.get("visual_reply_model", "gpt-image-1"),
+        ).strip() or "gpt-image-1",
+        "visual_reply_visible": bool(
+            backend._visual_reply_addon_enabled()
+            and hasattr(backend, "visual_reply_dock")
+            and backend.visual_reply_dock.isVisible()
+        ),
+    }
+
+
 def bind_show_button(bridge):
     show_button = bridge._ui_object("btn_visual_reply")
     if show_button is not None and hasattr(show_button, "clicked"):

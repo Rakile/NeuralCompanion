@@ -3,6 +3,8 @@ import os
 from PySide6 import QtCore
 
 import shared_state
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from core.runtime_status import build_runtime_status_snapshot
 
 
@@ -14,18 +16,6 @@ def _engine():
 
 def _runtime_config():
     return getattr(_engine(), "RUNTIME_CONFIG", {})
-
-
-def _musetalk_loop_fade_ms_default():
-    from qt_app import QT_MUSETALK_LOOP_FADE_MS
-
-    return QT_MUSETALK_LOOP_FADE_MS
-
-
-def _musetalk_vram_mode_labels():
-    from qt_app import MUSE_VRAM_MODE_LABELS
-
-    return MUSE_VRAM_MODE_LABELS
 
 
 class BackendRuntimeStatusMixin:
@@ -93,20 +83,10 @@ class BackendRuntimeStatusMixin:
     def _build_addon_avatar_snapshot(self):
         engine = _engine()
         config = _runtime_config()
-        loop_fade_default = _musetalk_loop_fade_ms_default()
-        musetalk_vram_label = self._live_combo_text("musetalk_vram_combo", "")
-        visual_reply_mode = self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto"))
-        visual_reply_provider = self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI"))
         return {
             "engine": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
-            "musetalk_vram_mode": musetalk_vram_label,
-            "musetalk_avatar_pack": self._live_combo_text("musetalk_avatar_pack_combo", ""),
-            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", config.get("musetalk_loop_fade_ms", loop_fade_default) or loop_fade_default)),
-            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", config.get("musetalk_use_frame_cache", True)),
-            "visual_reply_mode": visual_reply_mode,
-            "visual_reply_provider": visual_reply_provider,
-            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", config.get("visual_reply_size", "1024x1024"))),
-            "visual_reply_model": self._live_text("visual_reply_model_edit", config.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
+            **musetalk_real_ui_bridge.build_status_snapshot(self, config),
+            **visual_reply_real_ui_bridge.build_status_snapshot(self, config),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(config.get("sensory_pingpong_enabled", False)),
@@ -115,13 +95,6 @@ class BackendRuntimeStatusMixin:
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(config.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(config.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(config.get("sensory_pingpong_source_prompts", {}) or {}),
-            "musetalk_vram_mode_key": next((key for key, label in _musetalk_vram_mode_labels().items() if label == musetalk_vram_label), "quality"),
-            "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "visual_reply_visible": bool(
-                self._visual_reply_addon_enabled()
-                and hasattr(self, "visual_reply_dock")
-                and self.visual_reply_dock.isVisible()
-            ),
             "detected_gpu_vram_gib": self._detected_gpu_vram_gib(),
         }
 
