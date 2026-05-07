@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
 from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
+from addons.chat_session_player import real_ui_bridge as chat_session_player_real_ui_bridge
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
@@ -136,23 +137,7 @@ class MainUiRealBindingMixin:
                 menu = chat_edit.createStandardContextMenu()
             except Exception:
                 menu = QtWidgets.QMenu(chat_edit)
-            if not bool(getattr(self.backend, "chat_edit_mode", False)):
-                replay_index = None
-                try:
-                    cursor = chat_edit.cursorForPosition(point)
-                    position = cursor.position()
-                    replay_index = self.backend._assistant_replay_index_for_chat_position(position)
-                except Exception:
-                    replay_index = None
-                if replay_index is not None:
-                    try:
-                        menu.addSeparator()
-                        replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
-                        replay_action.triggered.connect(
-                            lambda _checked=False, idx=replay_index: self.backend.trigger_replay_from_assistant_index(idx)
-                        )
-                    except Exception:
-                        pass
+            chat_session_player_real_ui_bridge.add_replay_context_menu_action(self, menu, chat_edit, point)
             try:
                 menu.exec(chat_edit.viewport().mapToGlobal(point))
             except Exception:
