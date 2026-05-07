@@ -218,6 +218,89 @@ def connect_runtime_panel(bridge, panel):
         pass
 
 
+def redirect_runtime_surface(bridge):
+    """Mount the live Visual Reply panel into main.ui and claim backend routing."""
+    frontend_dock = bridge._ui_object("VisualReplyDock")
+    if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
+        return False
+    addon_enabled = True
+    checker = getattr(bridge, "_visual_reply_addon_enabled", None)
+    if callable(checker):
+        addon_enabled = bool(checker())
+    backend_dock = getattr(bridge.backend, "visual_reply_dock", None)
+    if backend_dock is not None and backend_dock is not frontend_dock:
+        # The hidden backend may restore its own saved dock before the real UI
+        # redirect runs. Hide it before replacing the backend surface pointer.
+        try:
+            backend_dock.hide()
+        except Exception:
+            pass
+    if not addon_enabled:
+        enforcer = getattr(bridge, "_enforce_disabled_frontend_workspace_docks", None)
+        if callable(enforcer):
+            enforcer()
+        else:
+            try:
+                frontend_dock.hide()
+            except Exception:
+                pass
+        setattr(bridge.window, "show_visual_reply_dock", lambda *args, **kwargs: None)
+        bridge._visual_reply_runtime_redirected = False
+        return False
+    old_widget = None
+    try:
+        old_widget = frontend_dock.widget()
+    except Exception:
+        old_widget = None
+    if old_widget is not None and hasattr(old_widget, "setObjectName"):
+        try:
+            old_widget.setObjectName("visual_reply_panel_legacy")
+        except Exception:
+            pass
+        for legacy_name in (
+            "visual_reply_status",
+            "visual_reply_storage_label",
+            "visual_reply_previous_button",
+            "visual_reply_load_button",
+            "visual_reply_next_button",
+            "visual_reply_load_current_story_button",
+            "visual_reply_use_current_style_button",
+            "visual_reply_caption_button",
+            "visual_reply_delete_button",
+            "visual_reply_clear_button",
+            "visual_reply_delete_all_button",
+            "visual_reply_frame",
+            "visual_reply_image_label",
+        ):
+            try:
+                child = old_widget.findChild(QtCore.QObject, legacy_name)
+            except Exception:
+                child = None
+            if child is not None and hasattr(child, "setObjectName"):
+                try:
+                    child.setObjectName(f"{legacy_name}_legacy")
+                except Exception:
+                    pass
+    panel = build_runtime_panel(bridge)
+    connect_runtime_panel(bridge, panel)
+    try:
+        frontend_dock.setWidget(panel)
+        bridge.backend.visual_reply_dock = frontend_dock
+        bridge.backend.visual_reply_panel = panel
+        bridge._frontend_visual_reply_panel = panel
+        setattr(bridge.window, "show_visual_reply_dock", bridge._show_frontend_visual_reply_dock)
+        bridge._visual_reply_runtime_redirected = True
+    except Exception as exc:
+        print(f"[UI Real] Visual Reply runtime surface redirect failed: {exc}")
+        return False
+    if old_widget is not None and old_widget is not panel:
+        try:
+            old_widget.deleteLater()
+        except Exception:
+            pass
+    return True
+
+
 def build_status_snapshot(backend, runtime_config=None):
     config = dict(runtime_config or {})
     mode = backend._visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))

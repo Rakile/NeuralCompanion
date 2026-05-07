@@ -25,6 +25,7 @@ class Addon(BaseAddon):
                 "kind": "avatar",
                 "transport": "musetalk_worker",
                 "runtime_context": True,
+                "real_ui_bridge_module": "addons.musetalk_avatar.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(

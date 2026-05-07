@@ -60,17 +60,19 @@ class MainUiRealTabAdoptionMixin:
                     titles.add(title)
             return titles
 
-    def _take_matching_tabs(self, source_tabs, target_tabs, titles):
-            adopted = []
-            if source_tabs is None or target_tabs is None or not titles:
-                return adopted
+    def _collect_source_tab_items(self, source_tabs, *, titles=None, start_index=0):
+            if source_tabs is None or not hasattr(source_tabs, "count"):
+                return []
+            wanted_titles = {str(title or "").strip() for title in (titles or []) if str(title or "").strip()}
             matches = []
-            for index in range(source_tabs.count()):
+            for index in range(max(int(start_index), 0), source_tabs.count()):
                 try:
                     title = str(source_tabs.tabText(index) or "").strip()
                 except Exception:
                     title = ""
-                if title not in titles:
+                if not title:
+                    continue
+                if wanted_titles and title not in wanted_titles:
                     continue
                 matches.append(
                     {
@@ -81,6 +83,36 @@ class MainUiRealTabAdoptionMixin:
                         "icon": source_tabs.tabIcon(index),
                     }
                 )
+                widget = matches[-1].get("widget")
+                if widget is not None and hasattr(widget, "property"):
+                    for property_name in ("addon_id", "addon_tab_id", "addon_area", "addon_ui_kind"):
+                        try:
+                            value = str(widget.property(property_name) or "").strip()
+                        except Exception:
+                            value = ""
+                        if value:
+                            matches[-1][property_name] = value
+            return matches
+
+    def _target_tab_match(self, target_tabs, title, *, allow_tooltip_match=False):
+            wanted = str(title or "").strip()
+            if target_tabs is None or not wanted:
+                return -1, "", "", None
+            for index in range(target_tabs.count()):
+                try:
+                    target_title = str(target_tabs.tabText(index) or "").strip()
+                    target_tooltip = str(target_tabs.tabToolTip(index) or "").strip()
+                    candidate = target_title or target_tooltip if allow_tooltip_match else target_title
+                    if candidate == wanted:
+                        return index, target_title, target_tooltip, target_tabs.tabIcon(index)
+                except Exception:
+                    continue
+            return -1, "", "", None
+
+    def _adopt_collected_source_tabs(self, source_tabs, target_tabs, matches, *, preserve_placeholder_metadata=False):
+            adopted = []
+            if source_tabs is None or target_tabs is None or not matches:
+                return adopted
             for item in reversed(matches):
                 try:
                     source_tabs.removeTab(int(item["index"]))
@@ -91,23 +123,19 @@ class MainUiRealTabAdoptionMixin:
                 title = str(item.get("title") or "").strip()
                 if widget is None or not title:
                     continue
-                target_index = -1
-                preserved_title = ""
-                preserved_tooltip = ""
-                preserved_icon = None
-                for index in range(target_tabs.count()):
-                    try:
-                        target_title = str(target_tabs.tabText(index) or "").strip()
-                        if not target_title:
-                            target_title = str(target_tabs.tabToolTip(index) or "").strip()
-                        if target_title == title:
-                            target_index = index
-                            preserved_title = str(target_tabs.tabText(index) or "").strip()
-                            preserved_tooltip = str(target_tabs.tabToolTip(index) or "").strip()
-                            preserved_icon = target_tabs.tabIcon(index)
-                            break
-                    except Exception:
+                for property_name in ("addon_id", "addon_tab_id", "addon_area", "addon_ui_kind"):
+                    value = str(item.get(property_name) or "").strip()
+                    if not value:
                         continue
+                    try:
+                        widget.setProperty(property_name, value)
+                    except Exception:
+                        pass
+                target_index, preserved_title, preserved_tooltip, preserved_icon = self._target_tab_match(
+                    target_tabs,
+                    title,
+                    allow_tooltip_match=preserve_placeholder_metadata,
+                )
                 if target_index >= 0:
                     try:
                         old_widget = target_tabs.widget(target_index)
@@ -117,7 +145,7 @@ class MainUiRealTabAdoptionMixin:
                             old_widget.deleteLater()
                     except Exception:
                         pass
-                    insert_title = preserved_title
+                    insert_title = preserved_title if preserve_placeholder_metadata else title
                     new_index = target_tabs.insertTab(target_index, widget, insert_title)
                 else:
                     new_index = target_tabs.addTab(widget, title)
@@ -143,80 +171,22 @@ class MainUiRealTabAdoptionMixin:
                 pass
             return adopted
 
+    def _take_matching_tabs(self, source_tabs, target_tabs, titles):
+            if source_tabs is None or target_tabs is None or not titles:
+                return []
+            matches = self._collect_source_tab_items(source_tabs, titles=titles)
+            return self._adopt_collected_source_tabs(
+                source_tabs,
+                target_tabs,
+                matches,
+                preserve_placeholder_metadata=True,
+            )
+
     def _take_tabs_after_index(self, source_tabs, target_tabs, start_index=0):
-            adopted = []
             if source_tabs is None or target_tabs is None:
-                return adopted
-            matches = []
-            for index in range(max(int(start_index), 0), source_tabs.count()):
-                try:
-                    title = str(source_tabs.tabText(index) or "").strip()
-                except Exception:
-                    title = ""
-                if not title:
-                    continue
-                matches.append(
-                    {
-                        "index": index,
-                        "title": title,
-                        "widget": source_tabs.widget(index),
-                        "tooltip": str(source_tabs.tabToolTip(index) or "").strip(),
-                        "icon": source_tabs.tabIcon(index),
-                    }
-                )
-            if not matches:
-                return adopted
-            for item in reversed(matches):
-                try:
-                    source_tabs.removeTab(int(item["index"]))
-                except Exception:
-                    continue
-            for item in matches:
-                widget = item.get("widget")
-                title = str(item.get("title") or "").strip()
-                if widget is None or not title:
-                    continue
-                target_index = -1
-                for index in range(target_tabs.count()):
-                    try:
-                        if str(target_tabs.tabText(index) or "").strip() == title:
-                            target_index = index
-                            break
-                    except Exception:
-                        continue
-                if target_index >= 0:
-                    try:
-                        old_widget = target_tabs.widget(target_index)
-                        target_tabs.removeTab(target_index)
-                        if old_widget is not None and old_widget is not widget:
-                            old_widget.setParent(None)
-                            old_widget.deleteLater()
-                    except Exception:
-                        pass
-                    new_index = target_tabs.insertTab(target_index, widget, title)
-                else:
-                    new_index = target_tabs.addTab(widget, title)
-                tooltip = str(item.get("tooltip") or "").strip()
-                if tooltip:
-                    try:
-                        target_tabs.setTabToolTip(new_index, tooltip)
-                    except Exception:
-                        pass
-                icon = item.get("icon")
-                try:
-                    if icon is not None and not icon.isNull():
-                        target_tabs.setTabIcon(new_index, icon)
-                except Exception:
-                    pass
-                binder = getattr(self, "_bind_adopted_addon_tab_session_save", None)
-                if callable(binder):
-                    binder(widget)
-                adopted.append(title)
-            try:
-                target_tabs.setVisible(target_tabs.count() > 0)
-            except Exception:
-                pass
-            return adopted
+                return []
+            matches = self._collect_source_tab_items(source_tabs, start_index=start_index)
+            return self._adopt_collected_source_tabs(source_tabs, target_tabs, matches)
 
     def _addon_effectively_enabled(self, addon_id):
             manager = getattr(self.backend, "_addon_manager", None)

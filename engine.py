@@ -2952,7 +2952,10 @@ def request_visual_reply_generation(prompt: str, *, source_text: str = "", keep_
 def finalize_assistant_reply(raw_text: str):
     cleaned_text, visual_prompt = extract_visual_reply_prompt(raw_text)
     cleaned_text = str(cleaned_text or "").strip()
-    if visual_prompt and _automatic_visual_reply_generation_allowed():
+    # A literal [visualize: ...] tag is an explicit assistant request. The
+    # hidden sensory "allow visual replies" toggle only controls whether NC asks
+    # the model to produce those tags automatically.
+    if visual_prompt and _visual_reply_enabled():
         request_visual_reply_generation(visual_prompt, source_text=cleaned_text)
     return cleaned_text
 

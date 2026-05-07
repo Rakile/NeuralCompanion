@@ -1,8 +1,7 @@
+import importlib
+
 from PySide6 import QtCore
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
-from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
 from core import avatar_runtime
 
 
@@ -24,6 +23,12 @@ def _update_runtime_config(key, value):
 
 class BackendAvatarRuntimeMixin:
     """Avatar provider selection and avatar-editing runtime controls."""
+
+    _LEGACY_AVATAR_UI_BRIDGE_MODULES = {
+        "musetalk": "addons.musetalk_avatar.real_ui_bridge",
+        "vam": "addons.vam_avatar.real_ui_bridge",
+        "vseeface": "addons.vseeface_avatar.real_ui_bridge",
+    }
 
     def _avatar_provider_options(self):
         providers = []
@@ -67,6 +72,38 @@ class BackendAvatarRuntimeMixin:
             return str(data).strip().lower()
         return self._avatar_mode_value_from_label(combo.currentText())
 
+    def _avatar_provider_ui_bridge_module_name(self, provider_summary):
+        metadata = dict((provider_summary or {}).get("metadata") or {})
+        module_name = str(metadata.get("real_ui_bridge_module") or metadata.get("ui_bridge_module") or "").strip()
+        if module_name:
+            return module_name
+        provider_id = str((provider_summary or {}).get("id") or "").strip().lower()
+        return self._LEGACY_AVATAR_UI_BRIDGE_MODULES.get(provider_id, "")
+
+    def _avatar_provider_ui_bridge(self, provider_summary):
+        module_name = self._avatar_provider_ui_bridge_module_name(provider_summary)
+        if not module_name:
+            return None
+        try:
+            return importlib.import_module(module_name)
+        except Exception:
+            return None
+
+    def _apply_avatar_provider_ui_selection(self, selected_provider_id):
+        selected = str(selected_provider_id or "").strip().lower()
+        for provider in self._avatar_provider_options():
+            provider_id = str(provider.get("id") or "").strip().lower()
+            bridge = self._avatar_provider_ui_bridge(provider)
+            if bridge is None:
+                continue
+            active = bool(provider_id and provider_id == selected)
+            defaults = getattr(bridge, "apply_provider_selected_defaults", None)
+            if active and callable(defaults):
+                defaults(self, True)
+            enable_controls = getattr(bridge, "set_provider_controls_enabled", None)
+            if callable(enable_controls):
+                enable_controls(self, active)
+
     def refresh_avatar_engine_options(self, selected_provider_id=None):
         combo = getattr(self, "engine_combo", None)
         if combo is None:
@@ -100,9 +137,7 @@ class BackendAvatarRuntimeMixin:
     def on_engine_change(self, choice):
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
-        vam_real_ui_bridge.apply_provider_selected_defaults(self, mode == "vam")
-        vseeface_real_ui_bridge.set_provider_controls_enabled(self, mode == "vseeface")
-        musetalk_real_ui_bridge.set_provider_controls_enabled(self, mode == "musetalk")
+        self._apply_avatar_provider_ui_selection(mode)
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()
