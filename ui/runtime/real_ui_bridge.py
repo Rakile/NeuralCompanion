@@ -100,8 +100,6 @@ def _configure_real_ui_sync_dependencies():
 
 def _configure_real_ui_surfaces_dependencies():
     configure_real_ui_surfaces_dependencies({
-        "AddonCapabilityBridgeService": AddonCapabilityBridgeService,
-        "QtVisualReplyPanel": QtVisualReplyPanel,
         "UI_REAL_PREVIEW_ONLY_ROOTS": UI_REAL_PREVIEW_ONLY_ROOTS,
         "__file__": __file__,
     })

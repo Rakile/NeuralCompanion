@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
+
 
 def configure_real_ui_surfaces_dependencies(namespace):
     """Inject qt_app-owned globals used by the extracted real-UI surface mixin."""
@@ -299,41 +301,7 @@ class MainUiRealSurfacesMixin:
                 print(f"[UI Real] Addons management surface redirect failed: {exc}")
 
     def _build_ui_real_visual_reply_panel(self):
-            capability_bridge = AddonCapabilityBridgeService(lambda: getattr(self.backend, "_addon_manager", None))
-            try:
-                panel = capability_bridge.invoke(
-                    "visual_reply.build_runtime_panel",
-                    {"capability_bridge": capability_bridge},
-                )
-            except Exception as exc:
-                print(f"[UI Real] Visual Reply panel addon capability failed, using fallback panel: {exc}")
-                panel = None
-            if panel is None:
-                try:
-                    panel = QtVisualReplyPanel(capability_bridge=capability_bridge)
-                except TypeError:
-                    panel = QtVisualReplyPanel()
-            panel.setObjectName("visual_reply_panel")
-            object_map = (
-                ("status_label", "visual_reply_status"),
-                ("storage_label", "visual_reply_storage_label"),
-                ("prev_button", "visual_reply_previous_button"),
-                ("load_button", "visual_reply_load_button"),
-                ("next_button", "visual_reply_next_button"),
-                ("load_story_button", "visual_reply_load_current_story_button"),
-                ("use_style_button", "visual_reply_use_current_style_button"),
-                ("caption_button", "visual_reply_caption_button"),
-                ("delete_button", "visual_reply_delete_button"),
-                ("clear_button", "visual_reply_clear_button"),
-                ("delete_all_button", "visual_reply_delete_all_button"),
-                ("image_label", "visual_reply_image_label"),
-                ("caption_label", "visual_reply_caption_label"),
-            )
-            for attribute_name, object_name in object_map:
-                widget = getattr(panel, attribute_name, None)
-                if widget is not None and hasattr(widget, "setObjectName"):
-                    widget.setObjectName(object_name)
-            return panel
+            return visual_reply_real_ui_bridge.build_runtime_panel(self)
 
     def _redirect_backend_musetalk_preview_runtime_surface(self):
             frontend_dock = self._ui_object("PreviewDock")
@@ -472,24 +440,7 @@ class MainUiRealSurfacesMixin:
                         except Exception:
                             pass
             panel = self._build_ui_real_visual_reply_panel()
-            try:
-                load_signal = getattr(panel, "loadRequested", None)
-                if load_signal is not None:
-                    load_signal.connect(self.backend.prompt_visual_reply_image)
-            except Exception:
-                pass
-            try:
-                caption_signal = getattr(panel, "captionRequested", None)
-                if caption_signal is not None:
-                    caption_signal.connect(self.backend.prompt_visual_reply_caption)
-            except Exception:
-                pass
-            try:
-                clear_signal = getattr(panel, "clearRequested", None)
-                if clear_signal is not None:
-                    clear_signal.connect(lambda: self.backend.clear_visual_reply(auto_show=False))
-            except Exception:
-                pass
+            visual_reply_real_ui_bridge.connect_runtime_panel(self, panel)
             try:
                 frontend_dock.setWidget(panel)
                 self.backend.visual_reply_dock = frontend_dock

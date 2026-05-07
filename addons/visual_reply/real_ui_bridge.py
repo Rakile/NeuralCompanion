@@ -1,3 +1,7 @@
+from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
+from core.addons.qt_host_services import AddonCapabilityBridgeService
+
+
 def show_dock(bridge):
     dock = bridge._ui_object("VisualReplyDock")
     if dock is None:
@@ -5,6 +9,67 @@ def show_dock(bridge):
     try:
         dock.show()
         dock.raise_()
+    except Exception:
+        pass
+
+
+def build_runtime_panel(bridge):
+    """Build the Visual Reply runtime panel owned by the addon."""
+    capability_bridge = AddonCapabilityBridgeService(lambda: getattr(bridge.backend, "_addon_manager", None))
+    try:
+        panel = capability_bridge.invoke(
+            "visual_reply.build_runtime_panel",
+            {"capability_bridge": capability_bridge},
+        )
+    except Exception as exc:
+        print(f"[UI Real] Visual Reply panel addon capability failed, using fallback panel: {exc}")
+        panel = None
+    if panel is None:
+        try:
+            panel = QtVisualReplyPanel(capability_bridge=capability_bridge)
+        except TypeError:
+            panel = QtVisualReplyPanel()
+    panel.setObjectName("visual_reply_panel")
+    object_map = (
+        ("status_label", "visual_reply_status"),
+        ("storage_label", "visual_reply_storage_label"),
+        ("prev_button", "visual_reply_previous_button"),
+        ("load_button", "visual_reply_load_button"),
+        ("next_button", "visual_reply_next_button"),
+        ("load_story_button", "visual_reply_load_current_story_button"),
+        ("use_style_button", "visual_reply_use_current_style_button"),
+        ("caption_button", "visual_reply_caption_button"),
+        ("delete_button", "visual_reply_delete_button"),
+        ("clear_button", "visual_reply_clear_button"),
+        ("delete_all_button", "visual_reply_delete_all_button"),
+        ("image_label", "visual_reply_image_label"),
+        ("caption_label", "visual_reply_caption_label"),
+    )
+    for attribute_name, object_name in object_map:
+        widget = getattr(panel, attribute_name, None)
+        if widget is not None and hasattr(widget, "setObjectName"):
+            widget.setObjectName(object_name)
+    return panel
+
+
+def connect_runtime_panel(bridge, panel):
+    """Connect addon-owned panel signals to the backend runtime callbacks."""
+    try:
+        load_signal = getattr(panel, "loadRequested", None)
+        if load_signal is not None:
+            load_signal.connect(bridge.backend.prompt_visual_reply_image)
+    except Exception:
+        pass
+    try:
+        caption_signal = getattr(panel, "captionRequested", None)
+        if caption_signal is not None:
+            caption_signal.connect(bridge.backend.prompt_visual_reply_caption)
+    except Exception:
+        pass
+    try:
+        clear_signal = getattr(panel, "clearRequested", None)
+        if clear_signal is not None:
+            clear_signal.connect(lambda: bridge.backend.clear_visual_reply(auto_show=False))
     except Exception:
         pass
 
