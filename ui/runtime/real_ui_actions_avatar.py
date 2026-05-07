@@ -3,6 +3,7 @@
 from PySide6 import QtCore
 
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
+from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
 
 
 def configure_real_ui_actions_avatar_dependencies(namespace):
@@ -30,17 +31,13 @@ class RealUiActionsAvatarMixin:
             self._refresh_avatar_body_vam_runtime_frontend()
 
     def _on_frontend_body_pose_slider_changed(self, key, raw_value):
-            value = _ui_shell_body_slider_raw_to_value(key, raw_value)
-            backend_slider = getattr(self.backend, "pose_sliders", {}).get(str(key))
-            if backend_slider is not None and hasattr(backend_slider, "set_value"):
-                try:
-                    backend_slider.set_value(value)
-                except Exception:
-                    pass
-            callback = getattr(self.backend, "update_pose_value", None)
-            if callable(callback):
-                callback(str(key), value)
-            _ui_shell_update_body_label(self.window, str(key), value)
+            vseeface_real_ui_bridge.update_body_pose_slider(
+                self,
+                key,
+                raw_value,
+                raw_to_value=_ui_shell_body_slider_raw_to_value,
+                update_label=_ui_shell_update_body_label,
+            )
 
     def _on_frontend_vam_vmc_enabled_changed(self, _checked):
             vam_real_ui_bridge.sync_checkbox_action(self, "vam_vmc_enabled_checkbox", "on_vam_vmc_enabled_changed")
@@ -100,10 +97,7 @@ class RealUiActionsAvatarMixin:
                 callback()
 
     def _enter_vseeface_focus_from_ui_real(self):
-            self._sync_frontend_to_backend()
-            callback = getattr(self.backend, "enter_external_avatar_focus", None)
-            if callable(callback):
-                callback("VSeeFace")
+            vseeface_real_ui_bridge.enter_focus(self)
 
     def _start_vam_desktop_from_ui_real(self):
             vam_real_ui_bridge.start_desktop(self)

@@ -4,6 +4,7 @@ from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
+from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
 
 
 def configure_real_ui_binding_dependencies(namespace):
@@ -231,35 +232,25 @@ class MainUiRealBindingMixin:
                 if widget is None or not hasattr(widget, "toggled"):
                     continue
                 widget.toggled.connect(handler)
-            for key, spec in UI_SHELL_BODY_POSE_SPECS.items():
-                slider = self._ui_object(str(spec.get("widget") or ""))
-                if slider is None or not hasattr(slider, "valueChanged"):
-                    continue
-                try:
-                    minimum = _ui_shell_body_value_to_slider_raw(key, spec.get("minimum", 0.0))
-                    maximum = _ui_shell_body_value_to_slider_raw(key, spec.get("maximum", 0.0))
-                    slider.setRange(minimum, maximum)
-                    if hasattr(slider, "setSingleStep"):
-                        scale = int(spec.get("scale", 1) or 1)
-                        slider.setSingleStep(max(1, scale // 10 if scale > 1 else 1))
-                    if hasattr(slider, "setToolTip"):
-                        slider.setToolTip("Runtime-backed VSeeFace body setting. Save a body preset to persist edited pose values.")
-                except Exception:
-                    pass
-                slider.valueChanged.connect(lambda value, pose_key=key: self._on_frontend_body_pose_slider_changed(pose_key, value))
             button_bindings = {
                 "btn_body_load": self._load_body_config_from_ui_real,
                 "btn_body_save": self._save_current_body_from_ui_real,
                 "btn_body_save_as": self._save_body_dialog_from_ui_real,
                 "btn_body_delete": self._delete_current_body_from_ui_real,
                 "btn_hand_doctor": self._open_hand_debugger_from_ui_real,
-                "btn_vseeface_hide_interface": self._enter_vseeface_focus_from_ui_real,
             }
             for object_name, handler in button_bindings.items():
                 button = self._ui_object(object_name)
                 if button is None or not hasattr(button, "clicked"):
                     continue
                 button.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
+            vseeface_real_ui_bridge.bind_runtime_controls(
+                self,
+                UI_SHELL_BODY_POSE_SPECS,
+                value_to_raw=_ui_shell_body_value_to_slider_raw,
+                raw_to_value=_ui_shell_body_slider_raw_to_value,
+                update_label=_ui_shell_update_body_label,
+            )
             vam_real_ui_bridge.bind_runtime_controls(self)
 
     def _bind_profile_utility_runtime_controls(self):

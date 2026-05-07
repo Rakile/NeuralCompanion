@@ -63,7 +63,9 @@ def _configure_real_ui_binding_dependencies():
     configure_real_ui_binding_dependencies({
         "UI_SHELL_BODY_POSE_SPECS": UI_SHELL_BODY_POSE_SPECS,
         "UI_SHELL_CHUNKING_SPECS": UI_SHELL_CHUNKING_SPECS,
+        "_ui_shell_body_slider_raw_to_value": _ui_shell_body_slider_raw_to_value,
         "_ui_shell_body_value_to_slider_raw": _ui_shell_body_value_to_slider_raw,
+        "_ui_shell_update_body_label": _ui_shell_update_body_label,
     })
 
 
