@@ -3,6 +3,7 @@ import threading
 from PySide6 import QtCore
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 
 
 def _engine():
@@ -44,16 +45,7 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
         _update_runtime_config("pocket_tts_python", self._live_text("pocket_tts_python_edit", runtime_config.get("pocket_tts_python", "")).strip())
-        _update_runtime_config("vam_vmc_enabled", self._live_checked("vam_vmc_enabled_checkbox", True))
-        _update_runtime_config("vam_bridge_enabled", self._live_checked("vam_bridge_enabled_checkbox", True))
-        _update_runtime_config("vam_play_audio_in_vam", True if avatar_mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", False))
-        _update_runtime_config("vam_timeline_auto_resume", self._live_checked("vam_timeline_auto_resume_checkbox", True))
-        _update_runtime_config("vam_vmc_host", self._live_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1")
-        _update_runtime_config("vam_vmc_port", int(self._live_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539) or 39539)))
-        _update_runtime_config("vam_root", self._current_vam_root_value())
-        _update_runtime_config("vam_bridge_root", self._current_vam_bridge_root_value())
-        _update_runtime_config("vam_target_atom_uid", self._live_text("vam_target_atom_uid_edit", runtime_config.get("vam_target_atom_uid", "Person")).strip() or "Person")
-        _update_runtime_config("vam_target_storable_id", self._live_text("vam_target_storable_id_edit", runtime_config.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip())
+        vam_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config, avatar_mode=avatar_mode)
         _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
         print("[QtGUI] Text Config Updated.")
@@ -90,16 +82,7 @@ class BackendEngineLifecycleMixin:
             "offline_replay_only": bool(offline_replay_only),
             "tts_backend": self._current_tts_backend_value(),
             **musetalk_real_ui_bridge.collect_runtime_config(self, runtime_config),
-            "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", runtime_config.get("vam_vmc_enabled", True)),
-            "vam_vmc_host": self._live_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
-            "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539) or 39539)),
-            "vam_bridge_enabled": self._live_checked("vam_bridge_enabled_checkbox", runtime_config.get("vam_bridge_enabled", True)),
-            "vam_root": self._current_vam_root_value(),
-            "vam_bridge_root": self._current_vam_bridge_root_value(),
-            "vam_play_audio_in_vam": True if mode == "vam" else self._live_checked("vam_play_audio_in_vam_checkbox", runtime_config.get("vam_play_audio_in_vam", False)),
-            "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", runtime_config.get("vam_target_atom_uid", "Person")).strip() or "Person",
-            "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", runtime_config.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip(),
-            "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", runtime_config.get("vam_timeline_auto_resume", True)),
+            **vam_real_ui_bridge.collect_runtime_config(self, runtime_config, avatar_mode=mode),
             "pocket_tts_python": (
                 self._ensure_pocket_tts_python_path()
                 if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
