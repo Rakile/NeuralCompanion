@@ -83,6 +83,14 @@ class Addon(BaseAddon):
             backend = payload.get("backend")
             if backend is not None:
                 return real_ui_bridge.apply_provider_selected_defaults(backend, bool(payload.get("active", False)))
+        if capability.startswith("runtime.backend."):
+            from addons.vam_avatar.runtime import BackendVamRuntimeMixin
+
+            backend = payload.get("backend")
+            method_name = capability[len("runtime.backend.") :]
+            method = getattr(BackendVamRuntimeMixin, method_name, None)
+            if backend is not None and callable(method):
+                return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
         return None
 
     def shutdown(self):

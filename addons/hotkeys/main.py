@@ -34,3 +34,16 @@ class Addon(BaseAddon):
         if controller is None:
             raise RuntimeError("Hotkeys controller is unavailable.")
         return controller.bind_designer_tab(widget)
+
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip().lower()
+        payload = dict(payload or {})
+        if capability.startswith("runtime.backend."):
+            from addons.hotkeys.runtime import BackendHotkeyMixin
+
+            backend = payload.get("backend")
+            method_name = capability[len("runtime.backend.") :]
+            method = getattr(BackendHotkeyMixin, method_name, None)
+            if backend is not None and callable(method):
+                return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
+        return None

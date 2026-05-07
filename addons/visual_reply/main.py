@@ -150,6 +150,15 @@ class Addon(BaseAddon):
             if bridge is not None:
                 return real_ui_bridge.redirect_runtime_surface(bridge)
             return None
+        if capability.startswith("runtime.backend."):
+            from addons.visual_reply.runtime import BackendVisualReplyRuntimeMixin
+
+            backend = payload.get("backend")
+            method_name = capability[len("runtime.backend.") :]
+            method = getattr(BackendVisualReplyRuntimeMixin, method_name, None)
+            if backend is not None and callable(method):
+                return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
+            return None
         if capability != "visual_reply.build_runtime_panel":
             return None
         controller = self._peek_controller()

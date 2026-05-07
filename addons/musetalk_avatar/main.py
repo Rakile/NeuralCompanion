@@ -139,6 +139,14 @@ class Addon(BaseAddon):
                 return real_ui_bridge.show_main_interface_from_focus(bridge)
             if capability == "real_ui.stop_preview":
                 return real_ui_bridge.stop_preview(bridge)
+        if capability.startswith("runtime.backend."):
+            from addons.musetalk_avatar.focus_runtime import BackendMuseTalkPreviewRuntimeMixin
+
+            backend = payload.get("backend")
+            method_name = capability[len("runtime.backend.") :]
+            method = getattr(BackendMuseTalkPreviewRuntimeMixin, method_name, None)
+            if backend is not None and callable(method):
+                return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
         return None
 
     def shutdown(self):
