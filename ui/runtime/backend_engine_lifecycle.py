@@ -3,6 +3,7 @@ import threading
 from PySide6 import QtCore
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 
 
@@ -44,7 +45,7 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
-        _update_runtime_config("pocket_tts_python", self._live_text("pocket_tts_python_edit", runtime_config.get("pocket_tts_python", "")).strip())
+        pockettts_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config, tts_backend=tts_backend)
         vam_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config, avatar_mode=avatar_mode)
         _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
@@ -83,11 +84,7 @@ class BackendEngineLifecycleMixin:
             "tts_backend": self._current_tts_backend_value(),
             **musetalk_real_ui_bridge.collect_runtime_config(self, runtime_config),
             **vam_real_ui_bridge.collect_runtime_config(self, runtime_config, avatar_mode=mode),
-            "pocket_tts_python": (
-                self._ensure_pocket_tts_python_path()
-                if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
-                else self._live_text("pocket_tts_python_edit", runtime_config.get("pocket_tts_python", "")).strip()
-            ),
+            **pockettts_real_ui_bridge.collect_runtime_config(self, runtime_config, tts_backend=self._current_tts_backend_value()),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),
