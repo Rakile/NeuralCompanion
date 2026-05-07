@@ -2,14 +2,20 @@
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
-
 
 def configure_real_ui_sync_mirrors_dependencies(namespace):
     globals().update(dict(namespace or {}))
 
 
 class RealUiSyncMirrorMixin:
+    def _invoke_mirror_addon_capability(self, addon_id, capability, payload=None, default=None):
+            callback = getattr(self.backend, "_invoke_addon_capability", None)
+            if not callable(callback):
+                return default
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(addon_id, capability, payload, default=default)
+
     def _mirror_pipeline_telemetry_widgets(self):
             ready_bar = getattr(self, "_frontend_render_ready_bar", None)
             preview_bar = getattr(self, "_frontend_preview_playback_bar", None)
@@ -472,7 +478,7 @@ class RealUiSyncMirrorMixin:
                         pass
 
     def _mirror_audio_story_duplicate_widgets(self):
-            audio_story_real_ui_bridge.mirror_duplicate_widgets(self)
+            self._invoke_mirror_addon_capability("nc.audio_story_mode", "real_ui.mirror_duplicate_widgets")
 
     def _mirror_provider_runtime_labels(self):
             settings_label = self._ui_object("provider_settings_label")

@@ -109,6 +109,47 @@ class Addon(BaseAddon):
             if backend is not None:
                 return real_ui_bridge.build_legacy_runtime_widgets(backend, payload.get("runtime_config") or {})
             return None
+        if capability == "real_ui.bind_runtime_controls":
+            from addons.visual_reply import real_ui_bridge
+
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.bind_runtime_controls(bridge)
+            return None
+        if capability == "real_ui.build_dock":
+            from addons.visual_reply import real_ui_bridge
+
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.build_dock(
+                    bridge,
+                    theme_provider=payload.get("theme_provider"),
+                    runtime_config=payload.get("runtime_config") or {},
+                    shared_state_module=payload.get("shared_state_module"),
+                    storage_dir=payload.get("storage_dir"),
+                )
+            return None
+        if capability == "real_ui.bind_show_button":
+            from addons.visual_reply import real_ui_bridge
+
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.bind_show_button(bridge)
+            return None
+        if capability == "real_ui.show_dock":
+            from addons.visual_reply import real_ui_bridge
+
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.show_dock(bridge)
+            return None
+        if capability == "real_ui.redirect_runtime_surface":
+            from addons.visual_reply import real_ui_bridge
+
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.redirect_runtime_surface(bridge)
+            return None
         if capability != "visual_reply.build_runtime_panel":
             return None
         controller = self._peek_controller()

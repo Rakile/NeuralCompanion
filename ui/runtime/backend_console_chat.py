@@ -311,10 +311,12 @@ class BackendConsoleChatMixin:
         return None
 
     def _show_chat_context_menu(self, point):
-        from addons.chat_session_player.real_ui_bridge import add_replay_context_menu_action_for_backend
-
         menu = self.chat_edit.createStandardContextMenu()
-        add_replay_context_menu_action_for_backend(self, menu, self.chat_edit, point)
+        self._invoke_addon_capability(
+            "nc.chat_session_player",
+            "backend.add_replay_context_menu_action",
+            {"backend": self, "menu": menu, "chat_edit": self.chat_edit, "point": point},
+        )
         menu.exec(self.chat_edit.viewport().mapToGlobal(point))
 
     def _set_chat_edit_mode(self, enabled):

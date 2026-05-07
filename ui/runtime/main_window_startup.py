@@ -123,7 +123,6 @@ class MainWindowStartupMixin:
 
     def _finish_startup(self):
         self._build_ui()
-        self._build_preview_dock()
         self._apply_workspace_view_constraints()
         _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
         _apply_readable_input_palettes(self, _app_theme_palette(self.current_app_theme_preset()))
@@ -133,6 +132,8 @@ class MainWindowStartupMixin:
         self._build_status_timer()
         self._build_ui_hotkey_timer()
         self._initialize_addons()
+        self._build_preview_dock()
+        self._apply_disabled_addon_surfaces()
         _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
         _apply_readable_input_palettes(self, _app_theme_palette(self.current_app_theme_preset()))
         _apply_engine_action_button_accents(self)

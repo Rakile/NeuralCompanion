@@ -73,7 +73,6 @@ def _configure_real_ui_bridge_dependencies():
         "QtModelRefreshService": QtModelRefreshService,
         "QtRuntimeControlService": QtRuntimeControlService,
         "QtRuntimeStatusService": QtRuntimeStatusService,
-        "QtVisualReplyPanel": QtVisualReplyPanel,
         "RUNTIME_CONFIG": RUNTIME_CONFIG,
         "SESSION_PATH": SESSION_PATH,
         "UI_REAL_PREVIEW_ONLY_ROOTS": UI_REAL_PREVIEW_ONLY_ROOTS,

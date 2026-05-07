@@ -2,8 +2,6 @@
 
 from PySide6 import QtCore, QtWidgets
 
-from addons.musetalk_avatar.stage_window import QtMuseTalkStageWindow
-
 
 class QtExternalAvatarReturnWindow(QtWidgets.QWidget):
     showInterfaceRequested = QtCore.Signal()

@@ -182,14 +182,29 @@ class Addon(BaseAddon):
         return controller.import_session_state(session)
 
     def invoke_capability(self, capability, payload=None):
+        payload = dict(payload or {})
+        bridge = payload.get("bridge")
+        capability_name = str(capability or "").strip().lower()
+        if bridge is not None:
+            from addons.audio_story_mode import real_ui_bridge
+
+            if capability_name == "real_ui.bind_duplicate_controls":
+                return real_ui_bridge.bind_duplicate_controls(bridge)
+            if capability_name == "real_ui.mirror_duplicate_widgets":
+                return real_ui_bridge.mirror_duplicate_widgets(bridge)
+            if capability_name == "real_ui.sync_frontend_combo":
+                return real_ui_bridge.sync_frontend_combo_to_controller(bridge)
+            if capability_name == "real_ui.sync_frontend_slider":
+                return real_ui_bridge.sync_frontend_slider_to_controller(bridge, payload.get("value"))
+            if capability_name == "real_ui.apply_seek":
+                return real_ui_bridge.apply_seek_from_frontend(bridge)
         controller = self._ensure_controller()
         if controller is None:
             return None
-        capability_name = str(capability or "").strip().lower()
         if capability_name == "audio_story_mode.load_current_image":
-            return controller.load_current_story_image(payload or {})
+            return controller.load_current_story_image(payload)
         if capability_name == "audio_story_mode.refresh_master_style_anchor":
-            return controller.refresh_master_style_anchor(payload or {})
+            return controller.refresh_master_style_anchor(payload)
         return None
 
     def shutdown(self):

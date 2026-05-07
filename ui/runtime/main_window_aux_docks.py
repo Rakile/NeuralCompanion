@@ -5,8 +5,6 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 import shared_state
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from engine import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
 from ui.theme_support import app_theme_palette as _app_theme_palette
@@ -16,22 +14,36 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 
 class MainWindowAuxDocksMixin:
     def _build_preview_dock(self):
-        musetalk_real_ui_bridge.build_preview_dock(
-            self,
-            theme_provider=_app_theme_palette,
-            runtime_config=RUNTIME_CONFIG,
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "real_ui.build_preview_dock",
+            {
+                "bridge": self,
+                "theme_provider": _app_theme_palette,
+                "runtime_config": RUNTIME_CONFIG,
+            },
+            provider_id="musetalk",
         )
 
-        visual_reply_real_ui_bridge.build_dock(
-            self,
-            theme_provider=_app_theme_palette,
-            runtime_config=RUNTIME_CONFIG,
-            shared_state_module=shared_state,
-            storage_dir=APP_ROOT / "runtime" / "visual_replies",
+        self._invoke_addon_capability(
+            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            "real_ui.build_dock",
+            {
+                "bridge": self,
+                "theme_provider": _app_theme_palette,
+                "runtime_config": RUNTIME_CONFIG,
+                "shared_state_module": shared_state,
+                "storage_dir": APP_ROOT / "runtime" / "visual_replies",
+            },
         )
 
     def _ensure_musetalk_stage_window(self):
-        return musetalk_real_ui_bridge.ensure_stage_window(self)
+        return self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "real_ui.ensure_stage_window",
+            {"bridge": self},
+            provider_id="musetalk",
+        )
 
     def _ensure_external_avatar_return_window(self):
         if self._external_avatar_return_window is None:
@@ -58,10 +70,20 @@ class MainWindowAuxDocksMixin:
         return window
 
     def _attach_musetalk_preview_to_host(self, host):
-        return musetalk_real_ui_bridge.attach_preview_to_host(self, host)
+        return self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "real_ui.attach_preview_to_host",
+            {"bridge": self, "host": host},
+            provider_id="musetalk",
+        )
 
     def _sync_musetalk_stage_window_geometry_from_preview(self):
-        return musetalk_real_ui_bridge.sync_stage_window_geometry_from_preview(self)
+        return self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "real_ui.sync_stage_window_geometry_from_preview",
+            {"bridge": self},
+            provider_id="musetalk",
+        )
 
     def enter_external_avatar_focus(self, mode_label=None):
         mode_label = str(mode_label or self.engine_combo.currentText() or "Avatar").strip() or "Avatar"

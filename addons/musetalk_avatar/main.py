@@ -25,7 +25,6 @@ class Addon(BaseAddon):
                 "kind": "avatar",
                 "transport": "musetalk_worker",
                 "runtime_context": True,
-                "real_ui_bridge_module": "addons.musetalk_avatar.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(
@@ -104,6 +103,42 @@ class Addon(BaseAddon):
             return real_ui_bridge.build_legacy_utility_buttons(backend)
         if capability == "legacy.build_runtime_widgets" and backend is not None:
             return real_ui_bridge.build_legacy_runtime_widgets(backend, runtime_config)
+        bridge = payload.get("bridge")
+        if bridge is not None:
+            if capability == "real_ui.build_preview_dock":
+                return real_ui_bridge.build_preview_dock(
+                    bridge,
+                    theme_provider=payload.get("theme_provider"),
+                    runtime_config=payload.get("runtime_config") or {},
+                )
+            if capability == "real_ui.ensure_stage_window":
+                return real_ui_bridge.ensure_stage_window(bridge)
+            if capability == "real_ui.attach_preview_to_host":
+                return real_ui_bridge.attach_preview_to_host(bridge, payload.get("host"))
+            if capability == "real_ui.sync_stage_window_geometry_from_preview":
+                return real_ui_bridge.sync_stage_window_geometry_from_preview(bridge)
+            if capability == "real_ui.set_provider_controls_enabled":
+                return real_ui_bridge.set_provider_controls_enabled(bridge, bool(payload.get("enabled", False)))
+            if capability == "real_ui.bind_runtime_controls":
+                return real_ui_bridge.bind_runtime_controls(bridge)
+            if capability == "real_ui.bind_preview_controls":
+                return real_ui_bridge.bind_preview_controls(bridge)
+            if capability == "real_ui.redirect_preview_runtime_surface":
+                return real_ui_bridge.redirect_preview_runtime_surface(bridge)
+            if capability == "real_ui.set_focus_button_text":
+                return real_ui_bridge.set_focus_button_text(bridge, payload.get("text"))
+            if capability == "real_ui.show_preview":
+                return real_ui_bridge.show_preview(bridge)
+            if capability == "real_ui.enter_avatar_focus":
+                return real_ui_bridge.enter_avatar_focus(bridge)
+            if capability == "real_ui.exit_avatar_focus":
+                return real_ui_bridge.exit_avatar_focus(bridge, raise_main=bool(payload.get("raise_main", False)))
+            if capability == "real_ui.toggle_avatar_focus":
+                return real_ui_bridge.toggle_avatar_focus(bridge)
+            if capability == "real_ui.show_main_interface_from_focus":
+                return real_ui_bridge.show_main_interface_from_focus(bridge)
+            if capability == "real_ui.stop_preview":
+                return real_ui_bridge.stop_preview(bridge)
         return None
 
     def shutdown(self):

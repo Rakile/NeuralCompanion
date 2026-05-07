@@ -26,7 +26,6 @@ class Addon(BaseAddon):
                 "kind": "avatar",
                 "transport": "vam_bridge",
                 "runtime_context": True,
-                "real_ui_bridge_module": "addons.vam_avatar.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(
@@ -76,6 +75,14 @@ class Addon(BaseAddon):
             )
         if capability == "legacy.build_runtime_widgets" and backend is not None:
             return real_ui_bridge.build_legacy_runtime_widgets(backend, runtime_config)
+        if capability == "real_ui.bind_runtime_controls":
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.bind_runtime_controls(bridge)
+        if capability == "real_ui.apply_provider_selected_defaults":
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.apply_provider_selected_defaults(backend, bool(payload.get("active", False)))
         return None
 
     def shutdown(self):

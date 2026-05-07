@@ -1,12 +1,5 @@
 from PySide6 import QtCore, QtWidgets
 
-from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
-from addons.chat_session_player import real_ui_bridge as chat_session_player_real_ui_bridge
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
-from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
-from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
-
 
 def configure_real_ui_binding_dependencies(namespace):
     """Inject qt_app-owned constants used by the extracted real-UI binding mixin."""
@@ -15,6 +8,28 @@ def configure_real_ui_binding_dependencies(namespace):
 
 class MainUiRealBindingMixin:
     """Signal wiring helpers for connecting main.ui controls to backend/runtime callbacks."""
+
+    def _invoke_backend_addon_capability(self, addon_id, capability, payload=None, default=None):
+            callback = getattr(self.backend, "_invoke_addon_capability", None)
+            if not callable(callback):
+                return default
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(addon_id, capability, payload, default=default)
+
+    def _invoke_backend_service_capability(self, service_id, capability, payload=None, default=None, **metadata_match):
+            callback = getattr(self.backend, "_invoke_addon_service_capability", None)
+            if not callable(callback):
+                return default
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(service_id, capability, payload, default=default, **metadata_match)
+
+    def _visual_reply_addon_id(self):
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                return callback("visual_reply", fallback="nc.visual_reply")
+            return "nc.visual_reply"
 
     def _bind_basic_runtime_mirrors(self):
             bindings = {
@@ -137,7 +152,11 @@ class MainUiRealBindingMixin:
                 menu = chat_edit.createStandardContextMenu()
             except Exception:
                 menu = QtWidgets.QMenu(chat_edit)
-            chat_session_player_real_ui_bridge.add_replay_context_menu_action(self, menu, chat_edit, point)
+            self._invoke_backend_addon_capability(
+                "nc.chat_session_player",
+                "real_ui.add_replay_context_menu_action",
+                {"menu": menu, "chat_edit": chat_edit, "point": point},
+            )
             try:
                 menu.exec(chat_edit.viewport().mapToGlobal(point))
             except Exception:
@@ -180,8 +199,15 @@ class MainUiRealBindingMixin:
                 widget.currentIndexChanged.connect(handler)
 
     def _bind_musetalk_visual_runtime_controls(self):
-            musetalk_real_ui_bridge.bind_runtime_controls(self)
-            visual_reply_real_ui_bridge.bind_runtime_controls(self)
+            self._invoke_backend_service_capability(
+                "avatar_provider_registry",
+                "real_ui.bind_runtime_controls",
+                provider_id="musetalk",
+            )
+            self._invoke_backend_addon_capability(
+                self._visual_reply_addon_id(),
+                "real_ui.bind_runtime_controls",
+            )
             combo_bindings = (
                 ("sensory_feedback_source_combo", self._on_frontend_sensory_feedback_source_changed),
                 ("chat_font_size_combo", self._on_frontend_chat_font_size_changed),
@@ -223,14 +249,22 @@ class MainUiRealBindingMixin:
                 if button is None or not hasattr(button, "clicked"):
                     continue
                 button.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
-            vseeface_real_ui_bridge.bind_runtime_controls(
-                self,
-                UI_SHELL_BODY_POSE_SPECS,
-                value_to_raw=_ui_shell_body_value_to_slider_raw,
-                raw_to_value=_ui_shell_body_slider_raw_to_value,
-                update_label=_ui_shell_update_body_label,
+            self._invoke_backend_service_capability(
+                "avatar_provider_registry",
+                "real_ui.bind_runtime_controls",
+                {
+                    "pose_specs": UI_SHELL_BODY_POSE_SPECS,
+                    "value_to_raw": _ui_shell_body_value_to_slider_raw,
+                    "raw_to_value": _ui_shell_body_slider_raw_to_value,
+                    "update_label": _ui_shell_update_body_label,
+                },
+                provider_id="vseeface",
             )
-            vam_real_ui_bridge.bind_runtime_controls(self)
+            self._invoke_backend_service_capability(
+                "avatar_provider_registry",
+                "real_ui.bind_runtime_controls",
+                provider_id="vam",
+            )
 
     def _bind_profile_utility_runtime_controls(self):
             combo_bindings = (
@@ -335,13 +369,17 @@ class MainUiRealBindingMixin:
                 prompt_reset.clicked.connect(self._reset_frontend_sensory_prompt_to_default)
 
     def _bind_audio_story_duplicate_controls(self):
-            audio_story_real_ui_bridge.bind_duplicate_controls(self)
+            self._invoke_backend_addon_capability("nc.audio_story_mode", "real_ui.bind_duplicate_controls")
 
     def _bind_musetalk_preview_controls(self):
-            musetalk_real_ui_bridge.bind_preview_controls(self)
+            self._invoke_backend_service_capability(
+                "avatar_provider_registry",
+                "real_ui.bind_preview_controls",
+                provider_id="musetalk",
+            )
 
     def _bind_visual_reply_controls(self):
-            visual_reply_real_ui_bridge.bind_show_button(self)
+            self._invoke_backend_addon_capability(self._visual_reply_addon_id(), "real_ui.bind_show_button")
 
     def _bind_provider_model_workflow_controls(self):
             provider_combo = self._ui_object("chat_provider_combo")

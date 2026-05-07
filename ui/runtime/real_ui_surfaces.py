@@ -1,8 +1,5 @@
 from PySide6 import QtCore, QtWidgets
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
-
 
 def configure_real_ui_surfaces_dependencies(namespace):
     """Inject qt_app-owned globals used by the extracted real-UI surface mixin."""
@@ -11,6 +8,34 @@ def configure_real_ui_surfaces_dependencies(namespace):
 
 class MainUiRealSurfacesMixin:
     """Runtime surface redirection helpers for mounting hidden-backend widgets into main.ui."""
+
+    def _invoke_surface_addon_capability(self, addon_id, capability, payload=None, default=None):
+            callback = getattr(self.backend, "_invoke_addon_capability", None)
+            if not callable(callback):
+                return default
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(addon_id, capability, payload, default=default)
+
+    def _invoke_surface_avatar_capability(self, provider_id, capability, payload=None, default=None):
+            callback = getattr(self.backend, "_invoke_addon_service_capability", None)
+            if not callable(callback):
+                return default
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(
+                "avatar_provider_registry",
+                capability,
+                payload,
+                default=default,
+                provider_id=provider_id,
+            )
+
+    def _visual_reply_addon_id_for_surface(self):
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                return callback("visual_reply", fallback="nc.visual_reply")
+            return "nc.visual_reply"
 
     def _disable_unwired_phase5_controls(self):
             tooltip = "Deferred in --ui-real Phase 5. This still belongs to a later runtime migration slice."
@@ -302,7 +327,13 @@ class MainUiRealSurfacesMixin:
                 print(f"[UI Real] Addons management surface redirect failed: {exc}")
 
     def _redirect_backend_musetalk_preview_runtime_surface(self):
-            musetalk_real_ui_bridge.redirect_preview_runtime_surface(self)
+            self._invoke_surface_avatar_capability(
+                "musetalk",
+                "real_ui.redirect_preview_runtime_surface",
+            )
 
     def _redirect_backend_visual_reply_runtime_surface(self):
-            visual_reply_real_ui_bridge.redirect_runtime_surface(self)
+            self._invoke_surface_addon_capability(
+                self._visual_reply_addon_id_for_surface(),
+                "real_ui.redirect_runtime_surface",
+            )
