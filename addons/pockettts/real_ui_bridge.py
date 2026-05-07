@@ -14,6 +14,17 @@ def estimated_runtime_overhead_gib():
     return 2.0
 
 
+def build_status_snapshot(backend, runtime_config=None):
+    """Expose PocketTTS-owned fields for runtime/addon status snapshots."""
+    runtime = dict(runtime_config or {})
+    return {
+        "pocket_tts_python": backend._live_text(
+            "pocket_tts_python_edit",
+            runtime.get("pocket_tts_python", ""),
+        ).strip()
+    }
+
+
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, tts_backend=""):
     from engine import update_runtime_config
 

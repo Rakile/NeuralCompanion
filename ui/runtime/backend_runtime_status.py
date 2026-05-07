@@ -4,6 +4,7 @@ from PySide6 import QtCore
 
 import shared_state
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from core.runtime_status import build_runtime_status_snapshot
 
@@ -77,7 +78,7 @@ class BackendRuntimeStatusMixin:
         return {
             "backend": self._current_tts_backend_value(),
             "voice_path": str(config.get("voice_path", "") or ""),
-            "pocket_tts_python": str(config.get("pocket_tts_python", "") or ""),
+            **pockettts_real_ui_bridge.build_status_snapshot(self, config),
         }
 
     def _build_addon_avatar_snapshot(self):
