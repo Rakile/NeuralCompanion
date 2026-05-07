@@ -1,7 +1,8 @@
 try:
-    from PySide6 import QtCore
+    from PySide6 import QtCore, QtWidgets
 except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
     QtCore = None
+    QtWidgets = None
 
 
 VRAM_MODE_LABELS = {
@@ -339,6 +340,79 @@ def stop_preview(bridge):
     if panel is not None and hasattr(panel, "reset_preview"):
         panel.reset_preview()
     bridge._refresh_musetalk_preview_frontend()
+
+
+def redirect_preview_runtime_surface(bridge):
+    """Mount the backend MuseTalk preview panel into the real main.ui dock."""
+    frontend_dock = bridge._ui_object("PreviewDock")
+    if frontend_dock is None or not hasattr(frontend_dock, "setWidget") or QtWidgets is None:
+        return
+    panel = getattr(bridge.backend, "embedded_musetalk_preview", None)
+    if panel is None:
+        return
+    old_widget = None
+    try:
+        old_widget = frontend_dock.widget()
+    except Exception:
+        old_widget = None
+    container = QtWidgets.QWidget()
+    container.setObjectName("preview_dock_content")
+    layout = QtWidgets.QVBoxLayout(container)
+    layout.setObjectName("previewDockLayout")
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    try:
+        old_parent = panel.parentWidget()
+        if old_parent is not None and old_parent.layout() is not None:
+            old_parent.layout().removeWidget(panel)
+    except Exception:
+        pass
+    panel.setParent(None)
+    layout.addWidget(panel)
+    try:
+        focus_signal = getattr(panel, "focusModeRequested", None)
+        if focus_signal is not None:
+            focus_signal.disconnect()
+            focus_signal.connect(bridge._toggle_frontend_musetalk_avatar_focus)
+    except Exception:
+        pass
+    try:
+        show_interface_signal = getattr(panel, "showInterfaceRequested", None)
+        if show_interface_signal is not None:
+            show_interface_signal.disconnect()
+            show_interface_signal.connect(bridge._show_frontend_main_interface_from_musetalk_focus)
+    except Exception:
+        pass
+    stage_window = None
+    try:
+        stage_window = bridge.backend._ensure_musetalk_stage_window()
+    except Exception:
+        stage_window = None
+    if stage_window is not None:
+        try:
+            stage_window.closeRequested.connect(bridge._show_frontend_main_interface_from_musetalk_focus)
+        except Exception:
+            pass
+    try:
+        frontend_dock.setWidget(container)
+        bridge.backend.preview_dock = frontend_dock
+        bridge.backend.preview_dock_container = container
+        bridge.backend.preview_dock_layout = layout
+        bridge.backend.embedded_musetalk_preview = panel
+        bridge._frontend_musetalk_preview_panel = panel
+        setattr(bridge.window, "show_musetalk_preview", bridge._show_frontend_musetalk_preview)
+        setattr(bridge.window, "toggle_musetalk_avatar_focus", bridge._toggle_frontend_musetalk_avatar_focus)
+        setattr(bridge.window, "show_main_interface_from_musetalk_focus", bridge._show_frontend_main_interface_from_musetalk_focus)
+        setattr(bridge.window, "stop_musetalk_preview", bridge._stop_frontend_musetalk_preview)
+        bridge._musetalk_preview_runtime_redirected = True
+    except Exception as exc:
+        print(f"[UI Real] MuseTalk preview runtime surface redirect failed: {exc}")
+        return
+    if old_widget is not None and old_widget is not container:
+        try:
+            old_widget.deleteLater()
+        except Exception:
+            pass
 
 
 def bind_preview_controls(bridge):

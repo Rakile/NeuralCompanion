@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 
 
@@ -304,75 +305,7 @@ class MainUiRealSurfacesMixin:
             return visual_reply_real_ui_bridge.build_runtime_panel(self)
 
     def _redirect_backend_musetalk_preview_runtime_surface(self):
-            frontend_dock = self._ui_object("PreviewDock")
-            if frontend_dock is None or not hasattr(frontend_dock, "setWidget"):
-                return
-            panel = getattr(self.backend, "embedded_musetalk_preview", None)
-            if panel is None:
-                return
-            old_widget = None
-            try:
-                old_widget = frontend_dock.widget()
-            except Exception:
-                old_widget = None
-            container = QtWidgets.QWidget()
-            container.setObjectName("preview_dock_content")
-            layout = QtWidgets.QVBoxLayout(container)
-            layout.setObjectName("previewDockLayout")
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-            try:
-                old_parent = panel.parentWidget()
-                if old_parent is not None and old_parent.layout() is not None:
-                    old_parent.layout().removeWidget(panel)
-            except Exception:
-                pass
-            panel.setParent(None)
-            layout.addWidget(panel)
-            try:
-                focus_signal = getattr(panel, "focusModeRequested", None)
-                if focus_signal is not None:
-                    focus_signal.disconnect()
-                    focus_signal.connect(self._toggle_frontend_musetalk_avatar_focus)
-            except Exception:
-                pass
-            try:
-                show_interface_signal = getattr(panel, "showInterfaceRequested", None)
-                if show_interface_signal is not None:
-                    show_interface_signal.disconnect()
-                    show_interface_signal.connect(self._show_frontend_main_interface_from_musetalk_focus)
-            except Exception:
-                pass
-            stage_window = None
-            try:
-                stage_window = self.backend._ensure_musetalk_stage_window()
-            except Exception:
-                stage_window = None
-            if stage_window is not None:
-                try:
-                    stage_window.closeRequested.connect(self._show_frontend_main_interface_from_musetalk_focus)
-                except Exception:
-                    pass
-            try:
-                frontend_dock.setWidget(container)
-                self.backend.preview_dock = frontend_dock
-                self.backend.preview_dock_container = container
-                self.backend.preview_dock_layout = layout
-                self.backend.embedded_musetalk_preview = panel
-                self._frontend_musetalk_preview_panel = panel
-                setattr(self.window, "show_musetalk_preview", self._show_frontend_musetalk_preview)
-                setattr(self.window, "toggle_musetalk_avatar_focus", self._toggle_frontend_musetalk_avatar_focus)
-                setattr(self.window, "show_main_interface_from_musetalk_focus", self._show_frontend_main_interface_from_musetalk_focus)
-                setattr(self.window, "stop_musetalk_preview", self._stop_frontend_musetalk_preview)
-                self._musetalk_preview_runtime_redirected = True
-            except Exception as exc:
-                print(f"[UI Real] MuseTalk preview runtime surface redirect failed: {exc}")
-                return
-            if old_widget is not None and old_widget is not container:
-                try:
-                    old_widget.deleteLater()
-                except Exception:
-                    pass
+            musetalk_real_ui_bridge.redirect_preview_runtime_surface(self)
 
     def _redirect_backend_visual_reply_runtime_surface(self):
             frontend_dock = self._ui_object("VisualReplyDock")
