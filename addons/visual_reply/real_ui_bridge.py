@@ -31,6 +31,35 @@ def build_status_snapshot(backend, runtime_config=None):
     }
 
 
+def apply_runtime_settings(backend, settings):
+    """Apply Visual Reply-owned settings from dry-run/profile payloads."""
+    payload = dict(settings or {})
+    widget = backend._live_widget_attr("visual_reply_mode_combo")
+    if "visual_reply_mode" in payload and widget is not None:
+        mode_text = backend._visual_reply_mode_label_from_value(payload["visual_reply_mode"])
+        widget.setCurrentText(mode_text)
+        backend.on_visual_reply_mode_changed(mode_text)
+    widget = backend._live_widget_attr("visual_reply_provider_combo")
+    if "visual_reply_provider" in payload and widget is not None:
+        provider_text = backend._visual_reply_provider_label_from_value(payload["visual_reply_provider"])
+        widget.setCurrentText(provider_text)
+        backend.on_visual_reply_provider_changed(provider_text)
+    widget = backend._live_widget_attr("visual_reply_size_combo")
+    if "visual_reply_size" in payload and widget is not None:
+        size_text = backend._normalize_visual_reply_size(payload["visual_reply_size"])
+        widget.setCurrentText(backend._visual_reply_size_label_from_value(size_text))
+        backend.on_visual_reply_size_changed(size_text)
+    widget = backend._live_widget_attr("visual_reply_model_edit")
+    if "visual_reply_model" in payload and widget is not None:
+        widget.setText(str(payload["visual_reply_model"] or "gpt-image-1"))
+        backend.on_visual_reply_model_changed()
+    widget = backend._live_widget_attr("visual_reply_auto_show_checkbox")
+    if "visual_reply_auto_show_dock" in payload and widget is not None:
+        auto_show = bool(payload["visual_reply_auto_show_dock"])
+        widget.setChecked(auto_show)
+        backend.on_visual_reply_auto_show_changed(auto_show)
+
+
 def bind_show_button(bridge):
     show_button = bridge._ui_object("btn_visual_reply")
     if show_button is not None and hasattr(show_button, "clicked"):

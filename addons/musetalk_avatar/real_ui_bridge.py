@@ -85,6 +85,24 @@ def apply_safe_tutorial_defaults(backend):
         widget.setCurrentText("Very Low VRAM")
 
 
+def apply_runtime_settings(backend, settings):
+    """Apply MuseTalk-owned settings from dry-run/profile payloads."""
+    payload = dict(settings or {})
+    widget = backend._live_widget_attr("musetalk_vram_combo")
+    if "musetalk_vram_mode" in payload and widget is not None:
+        widget.setCurrentText(vram_label_from_key(payload["musetalk_vram_mode"]))
+    widget = backend._live_widget_attr("musetalk_loop_fade_spin")
+    if "musetalk_loop_fade_ms" in payload and widget is not None:
+        fade_ms = max(0, int(payload["musetalk_loop_fade_ms"] or 0))
+        widget.setValue(fade_ms)
+        apply_loop_fade_change(backend, fade_ms)
+    widget = backend._live_widget_attr("musetalk_use_frame_cache_checkbox")
+    if "musetalk_use_frame_cache" in payload and widget is not None:
+        enabled = bool(payload["musetalk_use_frame_cache"])
+        widget.setChecked(enabled)
+        apply_frame_cache_change(backend, enabled)
+
+
 def refresh_resource_widgets(backend, runtime_config=None):
     """Refresh MuseTalk-owned widgets from runtime/session config."""
     runtime = dict(runtime_config or {})

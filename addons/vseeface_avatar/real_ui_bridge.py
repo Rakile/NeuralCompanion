@@ -2,6 +2,31 @@ def estimated_runtime_overhead_gib():
     return 0.8
 
 
+def provider_control_widgets(backend):
+    """Return VSeeFace-owned body/pose controls that depend on active provider state."""
+    names = (
+        "body_combo",
+        "btn_body_load",
+        "btn_body_save",
+        "btn_body_save_as",
+        "btn_body_delete",
+        "btn_hand_doctor",
+        "emotion_combo",
+        "live_sync_checkbox",
+    )
+    widgets = [backend._live_widget_attr(name) for name in names]
+    widgets.extend(getattr(backend, "pose_sliders", {}).values())
+    return [widget for widget in widgets if widget is not None]
+
+
+def set_provider_controls_enabled(backend, enabled):
+    is_alive = getattr(backend, "_qt_object_alive", lambda widget: widget is not None)
+    for widget in provider_control_widgets(backend):
+        if not is_alive(widget):
+            continue
+        widget.setEnabled(bool(enabled))
+
+
 def update_body_pose_slider(bridge, key, raw_value, *, raw_to_value, update_label):
     value = raw_to_value(key, raw_value)
     backend_slider = getattr(bridge.backend, "pose_sliders", {}).get(str(key))

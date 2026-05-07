@@ -5,6 +5,7 @@ from PySide6 import QtWidgets
 import dry_run
 import shared_state
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from ui.panels.input_dialog import QtInputDialog
 
 
@@ -316,42 +317,8 @@ class BackendDryRunRuntimeMixin:
             self.on_tts_backend_change(self.tts_backend_combo.currentText())
         if "stream_mode" in settings:
             self.stream_mode_combo.setCurrentText("On" if bool(settings["stream_mode"]) else "Off")
-        widget = self._live_widget_attr("musetalk_vram_combo")
-        if "musetalk_vram_mode" in settings and widget is not None:
-            widget.setCurrentText(musetalk_real_ui_bridge.vram_label_from_key(settings["musetalk_vram_mode"]))
-        widget = self._live_widget_attr("musetalk_loop_fade_spin")
-        if "musetalk_loop_fade_ms" in settings and widget is not None:
-            fade_ms = max(0, int(settings["musetalk_loop_fade_ms"] or 0))
-            widget.setValue(fade_ms)
-            musetalk_real_ui_bridge.apply_loop_fade_change(self, fade_ms)
-        widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
-        if "musetalk_use_frame_cache" in settings and widget is not None:
-            widget.setChecked(bool(settings["musetalk_use_frame_cache"]))
-            musetalk_real_ui_bridge.apply_frame_cache_change(self, bool(settings["musetalk_use_frame_cache"]))
-        widget = self._live_widget_attr("visual_reply_mode_combo")
-        if "visual_reply_mode" in settings and widget is not None:
-            mode_text = self._visual_reply_mode_label_from_value(settings["visual_reply_mode"])
-            widget.setCurrentText(mode_text)
-            self.on_visual_reply_mode_changed(mode_text)
-        widget = self._live_widget_attr("visual_reply_provider_combo")
-        if "visual_reply_provider" in settings and widget is not None:
-            provider_text = self._visual_reply_provider_label_from_value(settings["visual_reply_provider"])
-            widget.setCurrentText(provider_text)
-            self.on_visual_reply_provider_changed(provider_text)
-        widget = self._live_widget_attr("visual_reply_size_combo")
-        if "visual_reply_size" in settings and widget is not None:
-            size_text = self._normalize_visual_reply_size(settings["visual_reply_size"])
-            widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
-            self.on_visual_reply_size_changed(size_text)
-        widget = self._live_widget_attr("visual_reply_model_edit")
-        if "visual_reply_model" in settings and widget is not None:
-            widget.setText(str(settings["visual_reply_model"] or "gpt-image-1"))
-            self.on_visual_reply_model_changed()
-        widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
-        if "visual_reply_auto_show_dock" in settings and widget is not None:
-            auto_show = bool(settings["visual_reply_auto_show_dock"])
-            widget.setChecked(auto_show)
-            self.on_visual_reply_auto_show_changed(auto_show)
+        musetalk_real_ui_bridge.apply_runtime_settings(self, settings)
+        visual_reply_real_ui_bridge.apply_runtime_settings(self, settings)
         if "sensory_feedback_source" in settings and hasattr(self, "sensory_feedback_source_combo"):
             source_value = str(settings["sensory_feedback_source"] or "off")
             self.refresh_sensory_feedback_source_options(selected_value=source_value)

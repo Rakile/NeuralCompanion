@@ -2,6 +2,7 @@ from PySide6 import QtCore
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
+from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
 from core import avatar_runtime
 
 
@@ -100,22 +101,7 @@ class BackendAvatarRuntimeMixin:
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
         vam_real_ui_bridge.apply_provider_selected_defaults(self, mode == "vam")
-        controls_enabled = mode == "vseeface"
-        for widget in [
-            self._live_widget_attr("body_combo"),
-            self._live_widget_attr("btn_body_load"),
-            self._live_widget_attr("btn_body_save"),
-            self._live_widget_attr("btn_body_save_as"),
-            self._live_widget_attr("btn_body_delete"),
-            self._live_widget_attr("btn_hand_doctor"),
-            self._live_widget_attr("emotion_combo"),
-            self._live_widget_attr("live_sync_checkbox"),
-        ]:
-            if widget is not None:
-                widget.setEnabled(controls_enabled)
-        for slider in self.pose_sliders.values():
-            if self._qt_object_alive(slider):
-                slider.setEnabled(controls_enabled)
+        vseeface_real_ui_bridge.set_provider_controls_enabled(self, mode == "vseeface")
         musetalk_real_ui_bridge.set_provider_controls_enabled(self, mode == "musetalk")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
