@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
 from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 
 
 def configure_real_ui_binding_dependencies(namespace):
@@ -398,9 +399,7 @@ class MainUiRealBindingMixin:
                 focus_button.clicked.connect(self._toggle_frontend_musetalk_avatar_focus)
 
     def _bind_visual_reply_controls(self):
-            show_button = self._ui_object("btn_visual_reply")
-            if show_button is not None and hasattr(show_button, "clicked"):
-                show_button.clicked.connect(self._show_frontend_visual_reply_dock)
+            visual_reply_real_ui_bridge.bind_show_button(self)
 
     def _bind_provider_model_workflow_controls(self):
             provider_combo = self._ui_object("chat_provider_combo")

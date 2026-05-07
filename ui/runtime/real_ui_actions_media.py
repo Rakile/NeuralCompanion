@@ -2,6 +2,7 @@
 
 from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 
 
 def configure_real_ui_actions_media_dependencies(namespace):
@@ -40,11 +41,4 @@ class RealUiActionsMediaMixin:
             musetalk_real_ui_bridge.stop_preview(self)
 
     def _show_frontend_visual_reply_dock(self):
-            dock = self._ui_object("VisualReplyDock")
-            if dock is None:
-                return
-            try:
-                dock.show()
-                dock.raise_()
-            except Exception:
-                pass
+            visual_reply_real_ui_bridge.show_dock(self)
