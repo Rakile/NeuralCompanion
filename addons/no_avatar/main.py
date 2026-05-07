@@ -34,5 +34,11 @@ class Addon(BaseAddon):
                 pass
         return None
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        if capability == "runtime.estimate_overhead_gib":
+            return 0.0
+        return None
+
     def _create_adapter(self):
         return None

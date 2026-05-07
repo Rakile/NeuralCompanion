@@ -2,10 +2,6 @@ import threading
 
 from PySide6 import QtCore
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
-
 
 def _engine():
     import engine
@@ -26,6 +22,62 @@ def _update_runtime_config(key, value):
 class BackendEngineLifecycleMixin:
     """Engine start/stop lifecycle and config handoff from the Qt backend window."""
 
+    def _collect_avatar_provider_runtime_config(self, avatar_mode, runtime_config):
+        payload = {
+            "backend": self,
+            "runtime_config": dict(runtime_config or {}),
+            "avatar_mode": str(avatar_mode or ""),
+        }
+        result = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.collect_config",
+            payload,
+            default={},
+            provider_id=str(avatar_mode or ""),
+        )
+        return dict(result or {})
+
+    def _collect_tts_backend_runtime_config(self, tts_backend, runtime_config):
+        payload = {
+            "backend": self,
+            "runtime_config": dict(runtime_config or {}),
+            "tts_backend": str(tts_backend or ""),
+        }
+        result = self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.collect_config",
+            payload,
+            default={},
+            backend_id=str(tts_backend or ""),
+        )
+        return dict(result or {})
+
+    def _update_avatar_provider_runtime_config_from_widgets(self, avatar_mode, runtime_config):
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.update_config_from_widgets",
+            {
+                "backend": self,
+                "runtime_config": dict(runtime_config or {}),
+                "avatar_mode": str(avatar_mode or ""),
+            },
+            default=None,
+            provider_id=str(avatar_mode or ""),
+        )
+
+    def _update_tts_backend_runtime_config_from_widgets(self, tts_backend, runtime_config):
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.update_config_from_widgets",
+            {
+                "backend": self,
+                "runtime_config": dict(runtime_config or {}),
+                "tts_backend": str(tts_backend or ""),
+            },
+            default=None,
+            backend_id=str(tts_backend or ""),
+        )
+
     def apply_text_config(self):
         runtime_config = _runtime_config()
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(runtime_config.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
@@ -37,7 +89,7 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("input_message_role", role)
         _update_runtime_config("stream_mode", stream_mode)
         _update_runtime_config("tts_backend", tts_backend)
-        musetalk_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config)
+        self._update_avatar_provider_runtime_config_from_widgets(avatar_mode, runtime_config)
         _update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
         _update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
         _update_runtime_config("listen_idle_window_seconds", round(float(self.listen_idle_window_spin.value()), 1) if hasattr(self, "listen_idle_window_spin") else 5.0)
@@ -45,8 +97,7 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
-        pockettts_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config, tts_backend=tts_backend)
-        vam_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config, avatar_mode=avatar_mode)
+        self._update_tts_backend_runtime_config_from_widgets(tts_backend, runtime_config)
         _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
         print("[QtGUI] Text Config Updated.")
@@ -82,9 +133,8 @@ class BackendEngineLifecycleMixin:
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(runtime_config.get("audio_output_device", "Default Output") or "Default Output"),
             "offline_replay_only": bool(offline_replay_only),
             "tts_backend": self._current_tts_backend_value(),
-            **musetalk_real_ui_bridge.collect_runtime_config(self, runtime_config),
-            **vam_real_ui_bridge.collect_runtime_config(self, runtime_config, avatar_mode=mode),
-            **pockettts_real_ui_bridge.collect_runtime_config(self, runtime_config, tts_backend=self._current_tts_backend_value()),
+            **self._collect_avatar_provider_runtime_config(mode, runtime_config),
+            **self._collect_tts_backend_runtime_config(self._current_tts_backend_value(), runtime_config),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),

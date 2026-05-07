@@ -1,6 +1,5 @@
 from PySide6 import QtCore, QtWidgets
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
 
 
@@ -129,6 +128,13 @@ class BackendWorkspaceBuilderMixin:
         hint.setStyleSheet("color: #9fb3c8;")
         layout.addWidget(hint)
 
+        musetalk_chunking_specs = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.chunking_slider_specs",
+            {"backend": self, "runtime_config": runtime_config},
+            default=[],
+            provider_id="musetalk",
+        )
         groups = [
             (
                 "Standard",
@@ -139,7 +145,7 @@ class BackendWorkspaceBuilderMixin:
             ),
             (
                 "MuseTalk Non-Stream",
-                musetalk_real_ui_bridge.chunking_slider_specs(runtime_config),
+                list(musetalk_chunking_specs or []),
             ),
             (
                 "Streaming",

@@ -53,6 +53,31 @@ class Addon(BaseAddon):
     def import_preset_state(self, preset):
         return self.import_session_state(preset)
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        payload = dict(payload or {})
+        backend = payload.get("backend")
+        runtime_config = payload.get("runtime_config")
+        from addons.vam_avatar import real_ui_bridge
+
+        if capability == "runtime.estimate_overhead_gib":
+            return real_ui_bridge.estimated_runtime_overhead_gib()
+        if capability == "runtime.collect_config" and backend is not None:
+            return real_ui_bridge.collect_runtime_config(
+                backend,
+                runtime_config,
+                avatar_mode=str(payload.get("avatar_mode") or ""),
+            )
+        if capability == "runtime.update_config_from_widgets" and backend is not None:
+            return real_ui_bridge.update_runtime_config_from_widgets(
+                backend,
+                runtime_config,
+                avatar_mode=str(payload.get("avatar_mode") or ""),
+            )
+        if capability == "legacy.build_runtime_widgets" and backend is not None:
+            return real_ui_bridge.build_legacy_runtime_widgets(backend, runtime_config)
+        return None
+
     def shutdown(self):
         avatar_service = getattr(self, "_avatar_service", None)
         if avatar_service is not None:

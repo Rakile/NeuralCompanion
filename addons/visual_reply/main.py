@@ -72,10 +72,46 @@ class Addon(BaseAddon):
         return self.import_session_state(preset)
 
     def invoke_capability(self, capability, payload=None):
-        if str(capability or "").strip() != "visual_reply.build_runtime_panel":
+        capability = str(capability or "").strip()
+        payload = dict(payload or {})
+        if capability == "runtime.apply_settings":
+            from addons.visual_reply import real_ui_bridge
+
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.apply_runtime_settings(backend, payload.get("settings") or {})
+            return None
+        if capability == "runtime.status_snapshot":
+            from addons.visual_reply import real_ui_bridge
+
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.build_status_snapshot(backend, payload.get("runtime_config") or {})
+            return None
+        if capability == "legacy.build_utility_button":
+            from addons.visual_reply import real_ui_bridge
+
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.build_legacy_utility_button(backend)
+            return None
+        if capability == "legacy.build_settings_tab":
+            from addons.visual_reply import real_ui_bridge
+
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.build_legacy_settings_tab(backend)
+            return None
+        if capability == "legacy.build_runtime_widgets":
+            from addons.visual_reply import real_ui_bridge
+
+            backend = payload.get("backend")
+            if backend is not None:
+                return real_ui_bridge.build_legacy_runtime_widgets(backend, payload.get("runtime_config") or {})
+            return None
+        if capability != "visual_reply.build_runtime_panel":
             return None
         controller = self._peek_controller()
         if controller is None:
             return None
-        payload = dict(payload or {})
         return controller.build_runtime_panel(capability_bridge=payload.get("capability_bridge"))

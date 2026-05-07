@@ -4,13 +4,6 @@ import threading
 
 from PySide6 import QtCore
 
-from addons.chatterbox_tts import real_ui_bridge as chatterbox_real_ui_bridge
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.no_avatar import real_ui_bridge as no_avatar_real_ui_bridge
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
-from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
-
 try:
     from pynvml import (
         nvmlInit,
@@ -155,18 +148,27 @@ class BackendModelAdvisorRuntimeMixin:
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
         tts_backend = self._current_tts_backend_value()
 
-        if avatar_mode == "musetalk":
-            budget = musetalk_real_ui_bridge.estimated_runtime_overhead_gib(self)
-        elif avatar_mode == "vam":
-            budget = vam_real_ui_bridge.estimated_runtime_overhead_gib()
-        elif avatar_mode == "none":
-            budget = no_avatar_real_ui_bridge.estimated_runtime_overhead_gib()
-        else:
-            budget = vseeface_real_ui_bridge.estimated_runtime_overhead_gib()
-        if tts_backend == "chatterbox":
-            budget += chatterbox_real_ui_bridge.estimated_runtime_overhead_gib()
-        else:
-            budget += pockettts_real_ui_bridge.estimated_runtime_overhead_gib()
+        budget = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.estimate_overhead_gib",
+            {"backend": self, "runtime_config": getattr(_engine(), "RUNTIME_CONFIG", {})},
+            default=None,
+            provider_id=avatar_mode,
+        )
+        if budget is None:
+            budget = 6.5 if avatar_mode == "musetalk" else (1.0 if avatar_mode == "vam" else 0.8 if avatar_mode == "vseeface" else 0.0)
+        budget = float(budget or 0.0)
+
+        tts_budget = self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.estimate_overhead_gib",
+            {"backend": self, "runtime_config": getattr(_engine(), "RUNTIME_CONFIG", {})},
+            default=None,
+            backend_id=tts_backend,
+        )
+        if tts_budget is None:
+            tts_budget = 5.2 if tts_backend == "chatterbox" else (2.0 if tts_backend == "pockettts" else 0.1)
+        budget += float(tts_budget or 0.0)
         if hasattr(self, "stream_mode_combo") and self.stream_mode_combo.currentText() == "On":
             budget += MODEL_ADVISOR_STREAM_OVERHEAD_GIB
         return budget

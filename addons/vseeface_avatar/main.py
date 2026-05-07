@@ -42,6 +42,14 @@ class Addon(BaseAddon):
                 pass
         return None
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        if capability == "runtime.estimate_overhead_gib":
+            from addons.vseeface_avatar import real_ui_bridge
+
+            return real_ui_bridge.estimated_runtime_overhead_gib()
+        return None
+
     def _create_adapter(self, runtime_context=None):
         from addons.vseeface_avatar.adapter import VSeeFaceAdapter
 

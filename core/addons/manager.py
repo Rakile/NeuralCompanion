@@ -304,6 +304,67 @@ class AddonManager:
                 self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
         return None
 
+    def invoke_addon_capability(self, addon_id: str, capability: str, payload: dict[str, Any] | None = None) -> Any:
+        """Invoke a capability on one initialized addon.
+
+        This is the host-side escape hatch that keeps backend code from importing
+        addon modules just to ask addon-owned questions such as runtime budget or
+        config collection.
+        """
+        record = self.get_addon_record(addon_id)
+        if record is None or record.state != "initialized" or record.instance is None:
+            return None
+        capability = str(capability or "").strip()
+        if not capability or not hasattr(record.instance, "invoke_capability"):
+            return None
+        try:
+            return record.instance.invoke_capability(capability, dict(payload or {}))
+        except Exception:
+            self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
+            return None
+
+    def get_addon_id_for_service(self, service_id: str, **metadata_match: Any) -> str:
+        """Return the addon that declares a manifest service matching metadata.
+
+        Example: service_id='avatar_provider_registry', provider_id='musetalk'.
+        """
+        wanted_service = str(service_id or "").strip()
+        if not wanted_service:
+            return ""
+        normalized_match = {
+            str(key): str(value or "").strip().lower()
+            for key, value in dict(metadata_match or {}).items()
+            if str(key).strip()
+        }
+        for record in self._records:
+            if record.state != "initialized":
+                continue
+            for service in list(getattr(record.manifest, "services", []) or []):
+                if not isinstance(service, dict):
+                    continue
+                if str(service.get("id") or "").strip() != wanted_service:
+                    continue
+                matched = True
+                for key, value in normalized_match.items():
+                    if str(service.get(key) or "").strip().lower() != value:
+                        matched = False
+                        break
+                if matched:
+                    return str(record.manifest.id or "").strip()
+        return ""
+
+    def invoke_service_capability(
+        self,
+        service_id: str,
+        capability: str,
+        payload: dict[str, Any] | None = None,
+        **metadata_match: Any,
+    ) -> Any:
+        addon_id = self.get_addon_id_for_service(service_id, **metadata_match)
+        if not addon_id:
+            return None
+        return self.invoke_addon_capability(addon_id, capability, payload)
+
     def export_session_state(self) -> dict[str, Any]:
         session: dict[str, Any] = {}
         session["addon_registry_state"] = {

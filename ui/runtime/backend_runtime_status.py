@@ -3,9 +3,6 @@ import os
 from PySide6 import QtCore
 
 import shared_state
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from core.runtime_status import build_runtime_status_snapshot
 
 
@@ -75,19 +72,41 @@ class BackendRuntimeStatusMixin:
 
     def _build_addon_tts_snapshot(self):
         config = _runtime_config()
+        tts_backend = self._current_tts_backend_value()
+        tts_status = self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.status_snapshot",
+            {"backend": self, "runtime_config": config, "tts_backend": tts_backend},
+            default={},
+            backend_id=tts_backend,
+        )
         return {
-            "backend": self._current_tts_backend_value(),
+            "backend": tts_backend,
             "voice_path": str(config.get("voice_path", "") or ""),
-            **pockettts_real_ui_bridge.build_status_snapshot(self, config),
+            **dict(tts_status or {}),
         }
 
     def _build_addon_avatar_snapshot(self):
         engine = _engine()
         config = _runtime_config()
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else ""
+        avatar_status = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.status_snapshot",
+            {"backend": self, "runtime_config": config, "avatar_mode": avatar_mode},
+            default={},
+            provider_id=avatar_mode,
+        )
+        visual_status = self._invoke_addon_capability(
+            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            "runtime.status_snapshot",
+            {"backend": self, "runtime_config": config},
+            default={},
+        )
         return {
-            "engine": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
-            **musetalk_real_ui_bridge.build_status_snapshot(self, config),
-            **visual_reply_real_ui_bridge.build_status_snapshot(self, config),
+            "engine": avatar_mode,
+            **dict(avatar_status or {}),
+            **dict(visual_status or {}),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(config.get("sensory_pingpong_enabled", False)),

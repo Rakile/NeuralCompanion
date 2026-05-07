@@ -161,6 +161,31 @@ class BackendAddonLifecycleMixin:
         except Exception:
             return True
 
+    def _invoke_addon_capability(self, addon_id, capability, payload=None, default=None):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None or not addon_id:
+            return default
+        try:
+            result = manager.invoke_addon_capability(str(addon_id), str(capability), dict(payload or {}))
+        except Exception:
+            return default
+        return default if result is None else result
+
+    def _invoke_addon_service_capability(self, service_id, capability, payload=None, default=None, **metadata_match):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return default
+        try:
+            result = manager.invoke_service_capability(
+                str(service_id),
+                str(capability),
+                dict(payload or {}),
+                **dict(metadata_match or {}),
+            )
+        except Exception:
+            return default
+        return default if result is None else result
+
     def _addon_id_for_ui_role(self, role, fallback=""):
         manager = getattr(self, "_addon_manager", None)
         if manager is not None:

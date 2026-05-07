@@ -93,6 +93,43 @@ class Addon(BaseAddon):
             return None
         return controller.import_preset_state(preset)
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        payload = dict(payload or {})
+        backend = payload.get("backend")
+        runtime_config = payload.get("runtime_config")
+        from addons.pockettts import real_ui_bridge
+
+        if capability == "runtime.estimate_overhead_gib":
+            return real_ui_bridge.estimated_runtime_overhead_gib()
+        if capability == "runtime.collect_config" and backend is not None:
+            return real_ui_bridge.collect_runtime_config(
+                backend,
+                runtime_config,
+                tts_backend=str(payload.get("tts_backend") or ""),
+            )
+        if capability == "runtime.update_config_from_widgets" and backend is not None:
+            return real_ui_bridge.update_runtime_config_from_widgets(
+                backend,
+                runtime_config,
+                tts_backend=str(payload.get("tts_backend") or ""),
+            )
+        if capability == "runtime.status_snapshot" and backend is not None:
+            return real_ui_bridge.build_status_snapshot(backend, runtime_config)
+        if capability == "runtime.restart_sensitive_widgets" and backend is not None:
+            return real_ui_bridge.restart_sensitive_widgets(backend)
+        if capability == "runtime.refresh_resource_widgets" and backend is not None:
+            return real_ui_bridge.refresh_resource_widgets(backend, runtime_config)
+        if capability == "ui.browse_python" and backend is not None:
+            return real_ui_bridge.browse_python(backend)
+        if capability == "ui.apply_python_changed" and backend is not None:
+            return real_ui_bridge.apply_python_changed(backend)
+        if capability == "ui.ensure_python_path" and backend is not None:
+            return real_ui_bridge.ensure_python_path(backend)
+        if capability == "ui.reset_python_to_default" and backend is not None:
+            return real_ui_bridge.reset_python_to_default(backend)
+        return None
+
     def shutdown(self):
         service = getattr(self, "service", None)
         if service is not None:

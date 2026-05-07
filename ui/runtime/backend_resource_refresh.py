@@ -1,9 +1,6 @@
 import glob
 import os
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-
 
 def _engine():
     import engine
@@ -48,7 +45,13 @@ class BackendResourceRefreshMixin:
         if hasattr(self, "sensory_pingpong_prompt_text"):
             default_prompt = getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")
             self.sensory_pingpong_prompt_text.setPlainText(str(runtime_config.get("sensory_pingpong_prompt", default_prompt) or default_prompt))
-        pockettts_real_ui_bridge.refresh_resource_widgets(self, runtime_config)
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.refresh_resource_widgets",
+            {"backend": self, "runtime_config": runtime_config},
+            default=None,
+            backend_id=str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower(),
+        )
         input_mode = str(runtime_config.get("input_mode", "voice_activation") or "voice_activation").lower()
         self.input_mode_combo.setCurrentText("Push-to-Talk" if input_mode == "push_to_talk" else "Voice Activation")
         input_role = str(runtime_config.get("input_message_role", "user") or "user").lower()
@@ -60,7 +63,13 @@ class BackendResourceRefreshMixin:
         self.stream_mode_combo.setCurrentText("On" if bool(runtime_config.get("stream_mode", False)) else "Off")
         tts_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower()
         self._populate_tts_backend_combo(selected_value=tts_backend)
-        musetalk_real_ui_bridge.refresh_resource_widgets(self, runtime_config)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.refresh_resource_widgets",
+            {"backend": self, "runtime_config": runtime_config},
+            default=None,
+            provider_id=str(runtime_config.get("avatar_mode", "vseeface") or "vseeface").lower(),
+        )
         for key, slider in self.brain_sliders.items():
             slider.set_value(runtime_config.get(key, slider.value()))
         for key, slider in self.chunking_sliders.items():

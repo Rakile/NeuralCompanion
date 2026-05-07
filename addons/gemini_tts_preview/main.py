@@ -100,6 +100,12 @@ class Addon(BaseAddon):
             return controller.import_preset_state(preset)
         return None
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        if capability == "runtime.estimate_overhead_gib":
+            return 0.1
+        return None
+
     def shutdown(self):
         service = getattr(self, "service", None)
         if service is not None:

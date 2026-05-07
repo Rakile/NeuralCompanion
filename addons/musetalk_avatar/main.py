@@ -52,6 +52,60 @@ class Addon(BaseAddon):
     def import_preset_state(self, preset):
         return self.import_session_state(preset)
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        payload = dict(payload or {})
+        backend = payload.get("backend")
+        runtime_config = payload.get("runtime_config")
+        from addons.musetalk_avatar import real_ui_bridge
+
+        if capability == "runtime.estimate_overhead_gib" and backend is not None:
+            return real_ui_bridge.estimated_runtime_overhead_gib(backend)
+        if capability == "runtime.collect_config" and backend is not None:
+            return real_ui_bridge.collect_runtime_config(backend, runtime_config)
+        if capability == "runtime.update_config_from_widgets" and backend is not None:
+            return real_ui_bridge.update_runtime_config_from_widgets(backend, runtime_config)
+        if capability == "runtime.status_snapshot" and backend is not None:
+            return real_ui_bridge.build_status_snapshot(backend, runtime_config)
+        if capability == "runtime.restart_sensitive_widgets" and backend is not None:
+            return real_ui_bridge.restart_sensitive_widgets(backend)
+        if capability == "runtime.refresh_resource_widgets" and backend is not None:
+            return real_ui_bridge.refresh_resource_widgets(backend, runtime_config)
+        if capability == "runtime.apply_settings" and backend is not None:
+            return real_ui_bridge.apply_runtime_settings(backend, payload.get("settings") or {})
+        if capability == "dry_run.performance_apply_keys":
+            return real_ui_bridge.performance_profile_apply_keys()
+        if capability == "dry_run.performance_summary_keys":
+            return real_ui_bridge.performance_summary_setting_keys()
+        if capability == "dry_run.performance_label_fragment":
+            return real_ui_bridge.performance_profile_label_fragment(payload.get("item") or {})
+        if capability == "dry_run.performance_log_fragment":
+            return real_ui_bridge.performance_candidate_log_fragment(payload.get("settings") or {})
+        if capability == "dry_run.add_performance_override" and backend is not None:
+            override = dict(payload.get("override") or {})
+            return real_ui_bridge.add_performance_override(backend, override, runtime_config)
+        if capability == "tutorial.runtime_state" and backend is not None:
+            return real_ui_bridge.build_tutorial_state(backend)
+        if capability == "tutorial.apply_safe_defaults" and backend is not None:
+            return real_ui_bridge.apply_safe_tutorial_defaults(backend)
+        if capability == "ui.apply_vram_mode_change" and backend is not None:
+            return real_ui_bridge.apply_vram_mode_change(backend, payload.get("choice"))
+        if capability == "ui.apply_loop_fade_change" and backend is not None:
+            return real_ui_bridge.apply_loop_fade_change(backend, payload.get("value"))
+        if capability == "ui.apply_frame_cache_change" and backend is not None:
+            return real_ui_bridge.apply_frame_cache_change(backend, payload.get("checked"))
+        if capability == "ui.refresh_avatar_pack_list" and backend is not None:
+            return real_ui_bridge.refresh_avatar_pack_list(backend, selected_pack_id=payload.get("selected_pack_id"))
+        if capability == "ui.apply_avatar_pack_change" and backend is not None:
+            return real_ui_bridge.apply_avatar_pack_change(backend, payload.get("choice"))
+        if capability == "ui.chunking_slider_specs":
+            return real_ui_bridge.chunking_slider_specs(runtime_config)
+        if capability == "legacy.build_utility_buttons" and backend is not None:
+            return real_ui_bridge.build_legacy_utility_buttons(backend)
+        if capability == "legacy.build_runtime_widgets" and backend is not None:
+            return real_ui_bridge.build_legacy_runtime_widgets(backend, runtime_config)
+        return None
+
     def shutdown(self):
         avatar_service = getattr(self, "_avatar_service", None)
         if avatar_service is not None:

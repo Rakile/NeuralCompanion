@@ -4,13 +4,11 @@ from PySide6 import QtWidgets
 
 import dry_run
 import shared_state
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from ui.panels.input_dialog import QtInputDialog
 
 
 DRY_RUN_MAX_RESPONSE_TOKENS = 600
-PERFORMANCE_PROFILE_APPLY_KEYS = {
+BASE_PERFORMANCE_PROFILE_APPLY_KEYS = {
     "avatar_mode",
     "stream_mode",
     "tts_backend",
@@ -22,7 +20,7 @@ PERFORMANCE_PROFILE_APPLY_KEYS = {
     "stream_first_chunk_min_chars",
     "stream_force_flush_seconds",
     "stream_force_flush_later_seconds",
-}.union(musetalk_real_ui_bridge.performance_profile_apply_keys())
+}
 
 
 def _runtime_config():
@@ -39,6 +37,57 @@ def _update_runtime_config(key, value):
 
 class BackendDryRunRuntimeMixin:
     """Dry Run sessions and performance/chunking profile management."""
+
+    def _addon_performance_apply_keys(self):
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
+        keys = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "dry_run.performance_apply_keys",
+            {"backend": self, "runtime_config": _runtime_config()},
+            default=set(),
+            provider_id=avatar_mode,
+        )
+        return set(keys or ())
+
+    def _performance_profile_apply_keys(self):
+        return set(BASE_PERFORMANCE_PROFILE_APPLY_KEYS).union(self._addon_performance_apply_keys())
+
+    def _musetalk_profile_label_fragment(self, item):
+        avatar_mode = str(item.get("avatar_mode") or self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk")
+        return str(
+            self._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "dry_run.performance_label_fragment",
+                {"backend": self, "item": dict(item or {})},
+                default="",
+                provider_id=avatar_mode,
+            )
+            or ""
+        )
+
+    def _addon_performance_log_fragment(self, settings):
+        avatar_mode = str((settings or {}).get("avatar_mode") or self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk")
+        return str(
+            self._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "dry_run.performance_log_fragment",
+                {"backend": self, "settings": dict(settings or {})},
+                default="",
+                provider_id=avatar_mode,
+            )
+            or ""
+        )
+
+    def _addon_performance_summary_keys(self, settings=None):
+        avatar_mode = str((settings or {}).get("avatar_mode") or self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk")
+        keys = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "dry_run.performance_summary_keys",
+            {"backend": self, "settings": dict(settings or {})},
+            default=[],
+            provider_id=avatar_mode,
+        )
+        return list(keys or [])
 
     def _dry_run_is_active(self):
         status = dry_run.get_status()
@@ -141,7 +190,7 @@ class BackendDryRunRuntimeMixin:
                         f"{prefix}{name} | "
                         f"{'Stream' if item.get('stream_mode') else 'Non-stream'} | "
                         f"{str(item.get('tts_backend') or '').title()} | "
-                        f"{musetalk_real_ui_bridge.performance_profile_label_fragment(item)} | "
+                        f"{self._musetalk_profile_label_fragment(item)} | "
                         f"c={float(item.get('confidence', 0.0) or 0.0):.2f}"
                     )
                     combo.addItem(label, item["name"])
@@ -187,7 +236,15 @@ class BackendDryRunRuntimeMixin:
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
         }
-        musetalk_real_ui_bridge.add_performance_override(self, override, config)
+        addon_override = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "dry_run.add_performance_override",
+            {"backend": self, "runtime_config": config, "override": dict(override)},
+            default=None,
+            provider_id=self._current_avatar_mode_value(),
+        )
+        if isinstance(addon_override, dict):
+            override.update(addon_override)
         if include_chunking:
             override.update({key: slider.value() for key, slider in self.chunking_sliders.items()})
         return override
@@ -285,7 +342,7 @@ class BackendDryRunRuntimeMixin:
                     combo.setCurrentIndex(index)
                     break
         raw_settings = dict(payload.get("settings_to_apply") or {})
-        settings = {key: value for key, value in raw_settings.items() if key in PERFORMANCE_PROFILE_APPLY_KEYS}
+        settings = {key: value for key, value in raw_settings.items() if key in self._performance_profile_apply_keys()}
         self._apply_runtime_settings_dict(settings)
         self.save_session()
         print(f"[QtGUI] Loaded performance profile: {name}")
@@ -308,8 +365,19 @@ class BackendDryRunRuntimeMixin:
             self.on_tts_backend_change(self.tts_backend_combo.currentText())
         if "stream_mode" in settings:
             self.stream_mode_combo.setCurrentText("On" if bool(settings["stream_mode"]) else "Off")
-        musetalk_real_ui_bridge.apply_runtime_settings(self, settings)
-        visual_reply_real_ui_bridge.apply_runtime_settings(self, settings)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.apply_settings",
+            {"backend": self, "settings": dict(settings or {})},
+            default=None,
+            provider_id=str(settings.get("avatar_mode") or self._current_avatar_mode_value()),
+        )
+        self._invoke_addon_capability(
+            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            "runtime.apply_settings",
+            {"backend": self, "settings": dict(settings or {})},
+            default=None,
+        )
         if "sensory_feedback_source" in settings and hasattr(self, "sensory_feedback_source_combo"):
             source_value = str(settings["sensory_feedback_source"] or "off")
             self.refresh_sensory_feedback_source_options(selected_value=source_value)
@@ -337,7 +405,7 @@ class BackendDryRunRuntimeMixin:
             f"stream_max={settings.get('stream_chunk_max_chars')} "
             f"first_min={settings.get('stream_first_chunk_min_chars')} "
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"{musetalk_real_ui_bridge.performance_candidate_log_fragment(settings)}"
+            f"{self._addon_performance_log_fragment(settings)}"
         )
         shared_state.append_musetalk_preview_log(
             f"🧪 [DryRun] Applying {candidate.get('label')}: "
@@ -345,7 +413,7 @@ class BackendDryRunRuntimeMixin:
             f"stream_max={settings.get('stream_chunk_max_chars')} "
             f"first_min={settings.get('stream_first_chunk_min_chars')} "
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"{musetalk_real_ui_bridge.performance_candidate_log_fragment(settings)}"
+            f"{self._addon_performance_log_fragment(settings)}"
         )
 
     def refresh_dry_run_status(self):
@@ -465,7 +533,7 @@ class BackendDryRunRuntimeMixin:
             "stream_first_chunk_min_chars",
             "stream_force_flush_seconds",
             "stream_force_flush_later_seconds",
-        ] + musetalk_real_ui_bridge.performance_summary_setting_keys():
+        ] + self._addon_performance_summary_keys(settings):
             if key in settings:
                 lines.append(f"- {key}: {settings[key]}")
         notes = recommendation.get("notes", []) or []

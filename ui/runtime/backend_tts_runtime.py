@@ -2,8 +2,6 @@ import os
 
 from PySide6 import QtCore, QtWidgets
 
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-
 
 def _engine():
     import engine as engine_module
@@ -338,16 +336,40 @@ class BackendTtsRuntimeMixin:
         self._refresh_tts_runtime_summary()
 
     def browse_pocket_tts_python(self):
-        pockettts_real_ui_bridge.browse_python(self)
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "ui.browse_python",
+            {"backend": self},
+            default=None,
+            backend_id="pockettts",
+        )
 
     def on_pocket_tts_python_changed(self):
-        pockettts_real_ui_bridge.apply_python_changed(self)
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "ui.apply_python_changed",
+            {"backend": self},
+            default=None,
+            backend_id="pockettts",
+        )
 
     def _ensure_pocket_tts_python_path(self):
-        return pockettts_real_ui_bridge.ensure_python_path(self)
+        return self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "ui.ensure_python_path",
+            {"backend": self},
+            default="",
+            backend_id="pockettts",
+        )
 
     def reset_pocket_tts_python_to_default(self):
-        pockettts_real_ui_bridge.reset_python_to_default(self)
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "ui.reset_python_to_default",
+            {"backend": self},
+            default=None,
+            backend_id="pockettts",
+        )
 
     def on_tts_backend_change(self, choice):
         backend = self._current_tts_backend_value()

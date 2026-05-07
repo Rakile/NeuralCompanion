@@ -1,7 +1,3 @@
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
-
-
 def _runtime_config():
     import engine
 
@@ -59,8 +55,24 @@ class BackendRuntimeControlsMixin:
             getattr(self, "model_combo", None),
             getattr(self, "tts_backend_combo", None),
         ]
-        controls.extend(musetalk_real_ui_bridge.restart_sensitive_widgets(self))
-        controls.extend(pockettts_real_ui_bridge.restart_sensitive_widgets(self))
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(_runtime_config().get("avatar_mode", "") or "")
+        tts_backend = self._current_tts_backend_value() if hasattr(self, "tts_backend_combo") else str(_runtime_config().get("tts_backend", "") or "")
+        avatar_controls = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.restart_sensitive_widgets",
+            {"backend": self, "runtime_config": _runtime_config()},
+            default=[],
+            provider_id=avatar_mode,
+        )
+        tts_controls = self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "runtime.restart_sensitive_widgets",
+            {"backend": self, "runtime_config": _runtime_config()},
+            default=[],
+            backend_id=tts_backend,
+        )
+        controls.extend(list(avatar_controls or []))
+        controls.extend(list(tts_controls or []))
         for control in controls:
             if control is not None:
                 control.setEnabled(not running)

@@ -93,6 +93,14 @@ class Addon(BaseAddon):
             return None
         return controller.import_preset_state(preset)
 
+    def invoke_capability(self, capability, payload=None):
+        capability = str(capability or "").strip()
+        if capability == "runtime.estimate_overhead_gib":
+            from addons.chatterbox_tts import real_ui_bridge
+
+            return real_ui_bridge.estimated_runtime_overhead_gib()
+        return None
+
     def shutdown(self):
         service = getattr(self, "service", None)
         if service is not None:

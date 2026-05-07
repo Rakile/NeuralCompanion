@@ -1,6 +1,5 @@
 from PySide6 import QtCore, QtWidgets
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 import dry_run
 import tutorial_framework
 
@@ -27,14 +26,22 @@ class BackendTutorialRuntimeMixin:
         return error_lines[-1] if error_lines else ""
 
     def get_tutorial_runtime_state(self):
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else ""
+        avatar_tutorial_state = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "tutorial.runtime_state",
+            {"backend": self},
+            default={},
+            provider_id=avatar_mode,
+        )
         return {
             "lm_studio_running": bool(getattr(self, "_tutorial_lm_studio_running", False)),
             "model_loaded": self._tutorial_model_loaded(),
             "engine_running": bool(self.thread and self.thread.is_alive()),
-            "avatar_mode": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
+            "avatar_mode": avatar_mode,
             "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
             "tts_backend": self._current_tts_backend_value(),
-            **musetalk_real_ui_bridge.build_tutorial_state(self),
+            **dict(avatar_tutorial_state or {}),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
             "dry_run_active": bool((dry_run.get_status() or {}).get("active")),
             "dry_run_complete": bool((dry_run.get_status() or {}).get("complete")),
@@ -48,7 +55,13 @@ class BackendTutorialRuntimeMixin:
             self.engine_combo.setCurrentText("MuseTalk")
         if hasattr(self, "stream_mode_combo"):
             self.stream_mode_combo.setCurrentText("On")
-        musetalk_real_ui_bridge.apply_safe_tutorial_defaults(self)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "tutorial.apply_safe_defaults",
+            {"backend": self},
+            default=None,
+            provider_id="musetalk",
+        )
         if hasattr(self, "tts_backend_combo"):
             self._populate_tts_backend_combo(selected_value="chatterbox")
             index = self.tts_backend_combo.findData("chatterbox")

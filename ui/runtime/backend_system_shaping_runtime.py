@@ -1,6 +1,5 @@
 from PySide6 import QtCore, QtWidgets
 
-from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
@@ -109,16 +108,46 @@ class BackendSystemShapingRuntimeMixin:
         self.save_session()
 
     def on_musetalk_vram_mode_change(self, choice):
-        musetalk_real_ui_bridge.apply_vram_mode_change(self, choice)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.apply_vram_mode_change",
+            {"backend": self, "choice": choice},
+            default=None,
+            provider_id="musetalk",
+        )
 
     def on_musetalk_loop_fade_changed(self, value):
-        musetalk_real_ui_bridge.apply_loop_fade_change(self, value)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.apply_loop_fade_change",
+            {"backend": self, "value": value},
+            default=None,
+            provider_id="musetalk",
+        )
 
     def on_musetalk_use_frame_cache_changed(self, checked):
-        musetalk_real_ui_bridge.apply_frame_cache_change(self, checked)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.apply_frame_cache_change",
+            {"backend": self, "checked": checked},
+            default=None,
+            provider_id="musetalk",
+        )
 
     def refresh_musetalk_avatar_pack_list(self, selected_pack_id=None):
-        musetalk_real_ui_bridge.refresh_avatar_pack_list(self, selected_pack_id=selected_pack_id)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.refresh_avatar_pack_list",
+            {"backend": self, "selected_pack_id": selected_pack_id},
+            default=None,
+            provider_id="musetalk",
+        )
 
     def on_musetalk_avatar_pack_change(self, _choice):
-        musetalk_real_ui_bridge.apply_avatar_pack_change(self, _choice)
+        self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "ui.apply_avatar_pack_change",
+            {"backend": self, "choice": _choice},
+            default=None,
+            provider_id="musetalk",
+        )
