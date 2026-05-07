@@ -1,8 +1,9 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
-from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
+from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
 from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
 
 
@@ -107,58 +108,16 @@ class BackendSystemShapingRuntimeMixin:
         self.save_session()
 
     def on_musetalk_vram_mode_change(self, choice):
-        reverse = {label: key for key, label in UI_SHELL_MUSE_VRAM_MODE_LABELS.items()}
-        _update_runtime_config("musetalk_vram_mode", reverse.get(choice, "quality"))
-        self._advisor_context_manual_override = False
-        self.emit_tutorial_event("ui_changed", {"field": "musetalk_vram_mode", "value": choice})
-        self.update_model_budget_hint()
-        self.save_session()
+        musetalk_real_ui_bridge.apply_vram_mode_change(self, choice)
 
     def on_musetalk_loop_fade_changed(self, value):
-        fade_ms = max(0, int(value or 0))
-        _update_runtime_config("musetalk_loop_fade_ms", fade_ms)
-        self.emit_tutorial_event("ui_changed", {"field": "musetalk_loop_fade_ms", "value": fade_ms})
-        self.save_session()
+        musetalk_real_ui_bridge.apply_loop_fade_change(self, value)
 
     def on_musetalk_use_frame_cache_changed(self, checked):
-        enabled = bool(checked)
-        _update_runtime_config("musetalk_use_frame_cache", enabled)
-        self.emit_tutorial_event("ui_changed", {"field": "musetalk_use_frame_cache", "value": enabled})
-        self.save_session()
+        musetalk_real_ui_bridge.apply_frame_cache_change(self, checked)
 
     def refresh_musetalk_avatar_pack_list(self, selected_pack_id=None):
-        combo = self._live_widget_attr("musetalk_avatar_pack_combo")
-        if combo is None:
-            return
-        config = _engine().RUNTIME_CONFIG
-        requested = str(selected_pack_id or combo.currentData() or config.get("musetalk_avatar_pack_id", "") or "").strip()
-        catalog = list(_engine().get_musetalk_avatar_pack_catalog() or [])
-        combo.blockSignals(True)
-        combo.clear()
-        for item in catalog:
-            pack_id = str(item.get("id") or "").strip()
-            if not pack_id:
-                continue
-            display_name = str(item.get("display_name") or pack_id).strip()
-            default_avatar_id = str(item.get("default_avatar_id") or "default_avatar").strip()
-            source = str(item.get("source") or "manifest").strip()
-            label = f"{display_name} | {default_avatar_id} [{source}]"
-            combo.addItem(label, pack_id)
-        if combo.count() <= 0:
-            combo.addItem("No avatar packs found", "")
-        target_index = -1
-        for index in range(combo.count()):
-            if str(combo.itemData(index) or "") == requested:
-                target_index = index
-                break
-        combo.setCurrentIndex(target_index if target_index >= 0 else 0)
-        combo.blockSignals(False)
+        musetalk_real_ui_bridge.refresh_avatar_pack_list(self, selected_pack_id=selected_pack_id)
 
     def on_musetalk_avatar_pack_change(self, _choice):
-        pack_id = str(self._live_combo_data("musetalk_avatar_pack_combo", "") or "").strip()
-        if not pack_id:
-            return
-        selected_pack_id = _engine().apply_musetalk_avatar_pack_selection(pack_id)
-        _update_runtime_config("musetalk_avatar_pack_id", selected_pack_id)
-        self.emit_tutorial_event("ui_changed", {"field": "musetalk_avatar_pack_id", "value": selected_pack_id})
-        self.save_session()
+        musetalk_real_ui_bridge.apply_avatar_pack_change(self, _choice)

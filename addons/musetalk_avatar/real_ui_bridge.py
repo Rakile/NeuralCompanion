@@ -42,6 +42,90 @@ def update_runtime_config_from_widgets(backend, runtime_config=None):
         update_runtime_config(key, value)
 
 
+def _engine():
+    import engine
+
+    return engine
+
+
+def _update_runtime_config(key, value):
+    from engine import update_runtime_config
+
+    return update_runtime_config(key, value)
+
+
+def apply_vram_mode_change(backend, choice):
+    mode = vram_key_from_label(choice)
+    _update_runtime_config("musetalk_vram_mode", mode)
+    if hasattr(backend, "_advisor_context_manual_override"):
+        backend._advisor_context_manual_override = False
+    if hasattr(backend, "emit_tutorial_event"):
+        backend.emit_tutorial_event("ui_changed", {"field": "musetalk_vram_mode", "value": choice})
+    if hasattr(backend, "update_model_budget_hint"):
+        backend.update_model_budget_hint()
+    if hasattr(backend, "save_session"):
+        backend.save_session()
+
+
+def apply_loop_fade_change(backend, value):
+    fade_ms = max(0, int(value or 0))
+    _update_runtime_config("musetalk_loop_fade_ms", fade_ms)
+    if hasattr(backend, "emit_tutorial_event"):
+        backend.emit_tutorial_event("ui_changed", {"field": "musetalk_loop_fade_ms", "value": fade_ms})
+    if hasattr(backend, "save_session"):
+        backend.save_session()
+
+
+def apply_frame_cache_change(backend, checked):
+    enabled = bool(checked)
+    _update_runtime_config("musetalk_use_frame_cache", enabled)
+    if hasattr(backend, "emit_tutorial_event"):
+        backend.emit_tutorial_event("ui_changed", {"field": "musetalk_use_frame_cache", "value": enabled})
+    if hasattr(backend, "save_session"):
+        backend.save_session()
+
+
+def refresh_avatar_pack_list(backend, selected_pack_id=None):
+    combo = backend._live_widget_attr("musetalk_avatar_pack_combo")
+    if combo is None:
+        return
+    engine = _engine()
+    config = engine.RUNTIME_CONFIG
+    requested = str(selected_pack_id or combo.currentData() or config.get("musetalk_avatar_pack_id", "") or "").strip()
+    catalog = list(engine.get_musetalk_avatar_pack_catalog() or [])
+    combo.blockSignals(True)
+    combo.clear()
+    for item in catalog:
+        pack_id = str(item.get("id") or "").strip()
+        if not pack_id:
+            continue
+        display_name = str(item.get("display_name") or pack_id).strip()
+        default_avatar_id = str(item.get("default_avatar_id") or "default_avatar").strip()
+        source = str(item.get("source") or "manifest").strip()
+        combo.addItem(f"{display_name} | {default_avatar_id} [{source}]", pack_id)
+    if combo.count() <= 0:
+        combo.addItem("No avatar packs found", "")
+    target_index = -1
+    for index in range(combo.count()):
+        if str(combo.itemData(index) or "") == requested:
+            target_index = index
+            break
+    combo.setCurrentIndex(target_index if target_index >= 0 else 0)
+    combo.blockSignals(False)
+
+
+def apply_avatar_pack_change(backend, _choice=None):
+    pack_id = str(backend._live_combo_data("musetalk_avatar_pack_combo", "") or "").strip()
+    if not pack_id:
+        return
+    selected_pack_id = _engine().apply_musetalk_avatar_pack_selection(pack_id)
+    _update_runtime_config("musetalk_avatar_pack_id", selected_pack_id)
+    if hasattr(backend, "emit_tutorial_event"):
+        backend.emit_tutorial_event("ui_changed", {"field": "musetalk_avatar_pack_id", "value": selected_pack_id})
+    if hasattr(backend, "save_session"):
+        backend.save_session()
+
+
 def set_focus_button_text(bridge, text):
     focus_button = bridge._ui_object("btn_musetalk_avatar_focus")
     if focus_button is not None and hasattr(focus_button, "setText"):
@@ -175,27 +259,23 @@ def bind_preview_controls(bridge):
 
 def sync_vram_mode(bridge):
     bridge._sync_single_combo_to_backend("musetalk_vram_combo")
-    callback = getattr(bridge.backend, "on_musetalk_vram_mode_change", None)
     widget = bridge._ui_object("musetalk_vram_combo")
-    if callable(callback) and widget is not None and hasattr(widget, "currentText"):
-        callback(str(widget.currentText() or ""))
+    if widget is not None and hasattr(widget, "currentText"):
+        apply_vram_mode_change(bridge.backend, str(widget.currentText() or ""))
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
 def sync_avatar_pack(bridge):
     bridge._sync_single_combo_to_backend("musetalk_avatar_pack_combo")
-    callback = getattr(bridge.backend, "on_musetalk_avatar_pack_change", None)
     widget = bridge._ui_object("musetalk_avatar_pack_combo")
-    if callable(callback) and widget is not None and hasattr(widget, "currentText"):
-        callback(str(widget.currentText() or ""))
+    if widget is not None and hasattr(widget, "currentText"):
+        apply_avatar_pack_change(bridge.backend, str(widget.currentText() or ""))
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
 def refresh_avatar_packs(bridge):
     try:
-        callback = getattr(bridge.backend, "refresh_musetalk_avatar_pack_list", None)
-        if callable(callback):
-            callback()
+        refresh_avatar_pack_list(bridge.backend)
     finally:
         if QtCore is not None:
             QtCore.QTimer.singleShot(0, lambda: bridge._sync_backend_to_ui(force=True))
@@ -204,19 +284,17 @@ def refresh_avatar_packs(bridge):
 
 def sync_loop_fade(bridge):
     bridge._sync_single_spin_to_backend("musetalk_loop_fade_spin")
-    callback = getattr(bridge.backend, "on_musetalk_loop_fade_changed", None)
     widget = bridge._ui_object("musetalk_loop_fade_spin")
-    if callable(callback) and widget is not None and hasattr(widget, "value"):
-        callback(int(widget.value()))
+    if widget is not None and hasattr(widget, "value"):
+        apply_loop_fade_change(bridge.backend, int(widget.value()))
     bridge._refresh_profile_utility_runtime_frontend()
 
 
 def sync_frame_cache(bridge):
     bridge._sync_single_checkbox_to_backend("musetalk_use_frame_cache_checkbox")
-    callback = getattr(bridge.backend, "on_musetalk_use_frame_cache_changed", None)
     widget = bridge._ui_object("musetalk_use_frame_cache_checkbox")
-    if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
-        callback(bool(widget.isChecked()))
+    if widget is not None and hasattr(widget, "isChecked"):
+        apply_frame_cache_change(bridge.backend, bool(widget.isChecked()))
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
