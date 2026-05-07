@@ -6,6 +6,7 @@ from PySide6 import QtCore
 
 from addons.chatterbox_tts import real_ui_bridge as chatterbox_real_ui_bridge
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.no_avatar import real_ui_bridge as no_avatar_real_ui_bridge
 from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
 from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
@@ -158,6 +159,8 @@ class BackendModelAdvisorRuntimeMixin:
             budget = musetalk_real_ui_bridge.estimated_runtime_overhead_gib(self)
         elif avatar_mode == "vam":
             budget = vam_real_ui_bridge.estimated_runtime_overhead_gib()
+        elif avatar_mode == "none":
+            budget = no_avatar_real_ui_bridge.estimated_runtime_overhead_gib()
         else:
             budget = vseeface_real_ui_bridge.estimated_runtime_overhead_gib()
         if tts_backend == "chatterbox":
