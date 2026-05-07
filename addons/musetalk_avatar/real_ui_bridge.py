@@ -46,6 +46,13 @@ def update_runtime_config_from_widgets(backend, runtime_config=None):
         update_runtime_config(key, value)
 
 
+def set_provider_controls_enabled(backend, enabled):
+    for object_name in ("btn_musetalk_preview", "btn_musetalk_avatar_focus"):
+        widget = backend._live_widget_attr(object_name)
+        if widget is not None and hasattr(widget, "setEnabled"):
+            widget.setEnabled(bool(enabled))
+
+
 def _engine():
     import engine
 

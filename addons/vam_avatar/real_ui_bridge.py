@@ -32,6 +32,17 @@ def update_runtime_config_from_widgets(backend, runtime_config=None, *, avatar_m
         update_runtime_config(key, value)
 
 
+def apply_provider_selected_defaults(backend, active):
+    if not active:
+        return
+    from engine import update_runtime_config
+
+    widget = backend._live_widget_attr("vam_play_audio_in_vam_checkbox")
+    if widget is not None and hasattr(widget, "isChecked") and hasattr(widget, "setChecked") and not widget.isChecked():
+        widget.setChecked(True)
+        update_runtime_config("vam_play_audio_in_vam", True)
+
+
 def sync_checkbox_action(bridge, object_name, callback_name):
     bridge._sync_single_checkbox_to_backend(object_name)
     callback = getattr(bridge.backend, callback_name, None)

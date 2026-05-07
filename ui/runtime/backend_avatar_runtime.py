@@ -1,5 +1,7 @@
 from PySide6 import QtCore
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from core import avatar_runtime
 
 
@@ -97,10 +99,7 @@ class BackendAvatarRuntimeMixin:
     def on_engine_change(self, choice):
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
-        vam_play_audio = self._live_widget_attr("vam_play_audio_in_vam_checkbox")
-        if mode == "vam" and vam_play_audio is not None and not vam_play_audio.isChecked():
-            vam_play_audio.setChecked(True)
-            _update_runtime_config("vam_play_audio_in_vam", True)
+        vam_real_ui_bridge.apply_provider_selected_defaults(self, mode == "vam")
         controls_enabled = mode == "vseeface"
         for widget in [
             self._live_widget_attr("body_combo"),
@@ -117,12 +116,7 @@ class BackendAvatarRuntimeMixin:
         for slider in self.pose_sliders.values():
             if self._qt_object_alive(slider):
                 slider.setEnabled(controls_enabled)
-        preview_button = self._live_widget_attr("btn_musetalk_preview")
-        if preview_button is not None:
-            preview_button.setEnabled(mode == "musetalk")
-        focus_button = self._live_widget_attr("btn_musetalk_avatar_focus")
-        if focus_button is not None:
-            focus_button.setEnabled(mode == "musetalk")
+        musetalk_real_ui_bridge.set_provider_controls_enabled(self, mode == "musetalk")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()
