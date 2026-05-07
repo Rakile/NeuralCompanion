@@ -20,6 +20,10 @@ def vram_key_from_label(label):
     return "quality"
 
 
+def vram_label_from_key(value):
+    return VRAM_MODE_LABELS.get(str(value or "").strip().lower(), "Quality")
+
+
 def collect_runtime_config(backend, runtime_config=None):
     """Collect MuseTalk-owned runtime config from the current backend widgets."""
     runtime = dict(runtime_config or {})

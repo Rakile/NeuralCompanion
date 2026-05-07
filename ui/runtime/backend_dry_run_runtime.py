@@ -4,8 +4,8 @@ from PySide6 import QtWidgets
 
 import dry_run
 import shared_state
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.panels.input_dialog import QtInputDialog
-from ui.shell_specs import UI_SHELL_MUSE_VRAM_MODE_LABELS
 
 
 DRY_RUN_MAX_RESPONSE_TOKENS = 600
@@ -180,15 +180,13 @@ class BackendDryRunRuntimeMixin:
 
     def _build_current_performance_override(self, include_chunking=True):
         config = _runtime_config()
+        musetalk_settings = musetalk_real_ui_bridge.collect_runtime_config(self, config)
         override = {
             "avatar_mode": self._current_avatar_mode_value(),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", config.get("musetalk_avatar_pack_id", "")) or ""),
-            "musetalk_vram_mode": next(
-                (key for key, label in UI_SHELL_MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
-                "quality",
-            ),
+            "musetalk_avatar_pack_id": str(musetalk_settings.get("musetalk_avatar_pack_id") or ""),
+            "musetalk_vram_mode": str(musetalk_settings.get("musetalk_vram_mode") or "quality"),
             "model_name": self.model_combo.currentText(),
             "temperature": self.brain_sliders["temperature"].value(),
             "top_p": self.brain_sliders["top_p"].value(),
@@ -320,16 +318,16 @@ class BackendDryRunRuntimeMixin:
             self.stream_mode_combo.setCurrentText("On" if bool(settings["stream_mode"]) else "Off")
         widget = self._live_widget_attr("musetalk_vram_combo")
         if "musetalk_vram_mode" in settings and widget is not None:
-            widget.setCurrentText(UI_SHELL_MUSE_VRAM_MODE_LABELS.get(str(settings["musetalk_vram_mode"]).lower(), "Quality"))
+            widget.setCurrentText(musetalk_real_ui_bridge.vram_label_from_key(settings["musetalk_vram_mode"]))
         widget = self._live_widget_attr("musetalk_loop_fade_spin")
         if "musetalk_loop_fade_ms" in settings and widget is not None:
             fade_ms = max(0, int(settings["musetalk_loop_fade_ms"] or 0))
             widget.setValue(fade_ms)
-            self.on_musetalk_loop_fade_changed(fade_ms)
+            musetalk_real_ui_bridge.apply_loop_fade_change(self, fade_ms)
         widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
         if "musetalk_use_frame_cache" in settings and widget is not None:
             widget.setChecked(bool(settings["musetalk_use_frame_cache"]))
-            self.on_musetalk_use_frame_cache_changed(bool(settings["musetalk_use_frame_cache"]))
+            musetalk_real_ui_bridge.apply_frame_cache_change(self, bool(settings["musetalk_use_frame_cache"]))
         widget = self._live_widget_attr("visual_reply_mode_combo")
         if "visual_reply_mode" in settings and widget is not None:
             mode_text = self._visual_reply_mode_label_from_value(settings["visual_reply_mode"])
