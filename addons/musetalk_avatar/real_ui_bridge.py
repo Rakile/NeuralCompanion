@@ -4,6 +4,44 @@ except Exception:  # pragma: no cover - shell smoke may inspect without Qt avail
     QtCore = None
 
 
+VRAM_MODE_LABELS = {
+    "quality": "Quality",
+    "balanced": "Balanced",
+    "low_vram": "Low VRAM",
+    "very_low_vram": "Very Low VRAM",
+}
+
+
+def vram_key_from_label(label):
+    text = str(label or "").strip()
+    for key, value in VRAM_MODE_LABELS.items():
+        if text == value:
+            return key
+    return "quality"
+
+
+def collect_runtime_config(backend, runtime_config=None):
+    """Collect MuseTalk-owned runtime config from the current backend widgets."""
+    runtime = dict(runtime_config or {})
+    return {
+        "musetalk_avatar_pack_id": str(
+            backend._live_combo_data("musetalk_avatar_pack_combo", runtime.get("musetalk_avatar_pack_id", "")) or ""
+        ),
+        "musetalk_vram_mode": vram_key_from_label(backend._live_combo_text("musetalk_vram_combo", "")),
+        "musetalk_use_frame_cache": backend._live_checked(
+            "musetalk_use_frame_cache_checkbox",
+            runtime.get("musetalk_use_frame_cache", True),
+        ),
+    }
+
+
+def update_runtime_config_from_widgets(backend, runtime_config=None):
+    from engine import update_runtime_config
+
+    for key, value in collect_runtime_config(backend, runtime_config).items():
+        update_runtime_config(key, value)
+
+
 def set_focus_button_text(bridge, text):
     focus_button = bridge._ui_object("btn_musetalk_avatar_focus")
     if focus_button is not None and hasattr(focus_button, "setText"):

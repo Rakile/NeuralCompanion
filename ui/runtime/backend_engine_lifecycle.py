@@ -2,6 +2,8 @@ import threading
 
 from PySide6 import QtCore
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+
 
 def _engine():
     import engine
@@ -19,12 +21,6 @@ def _update_runtime_config(key, value):
     return update_runtime_config(key, value)
 
 
-def _musetalk_vram_mode_labels():
-    from qt_app import MUSE_VRAM_MODE_LABELS
-
-    return MUSE_VRAM_MODE_LABELS
-
-
 class BackendEngineLifecycleMixin:
     """Engine start/stop lifecycle and config handoff from the Qt backend window."""
 
@@ -35,17 +31,11 @@ class BackendEngineLifecycleMixin:
         role = self._input_role_value_from_label(self.input_role_combo.currentText())
         stream_mode = self.stream_mode_combo.currentText() == "On"
         tts_backend = self._current_tts_backend_value()
-        musetalk_vram_mode = next(
-            (key for key, label in _musetalk_vram_mode_labels().items() if label == self._live_combo_text("musetalk_vram_combo", "")),
-            "quality",
-        )
         _update_runtime_config("input_mode", mode)
         _update_runtime_config("input_message_role", role)
         _update_runtime_config("stream_mode", stream_mode)
         _update_runtime_config("tts_backend", tts_backend)
-        _update_runtime_config("musetalk_vram_mode", musetalk_vram_mode)
-        _update_runtime_config("musetalk_use_frame_cache", self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)))
-        _update_runtime_config("musetalk_avatar_pack_id", str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""))
+        musetalk_real_ui_bridge.update_runtime_config_from_widgets(self, runtime_config)
         _update_runtime_config("allow_proactive_replies", self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True)
         _update_runtime_config("require_first_user_before_proactive", self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False)
         _update_runtime_config("listen_idle_window_seconds", round(float(self.listen_idle_window_spin.value()), 1) if hasattr(self, "listen_idle_window_spin") else 5.0)
@@ -99,12 +89,7 @@ class BackendEngineLifecycleMixin:
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(runtime_config.get("audio_output_device", "Default Output") or "Default Output"),
             "offline_replay_only": bool(offline_replay_only),
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""),
-            "musetalk_vram_mode": next(
-                (key for key, label in _musetalk_vram_mode_labels().items() if label == self._live_combo_text("musetalk_vram_combo", "")),
-                "quality",
-            ),
-            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)),
+            **musetalk_real_ui_bridge.collect_runtime_config(self, runtime_config),
             "vam_vmc_enabled": self._live_checked("vam_vmc_enabled_checkbox", runtime_config.get("vam_vmc_enabled", True)),
             "vam_vmc_host": self._live_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")).strip() or "127.0.0.1",
             "vam_vmc_port": int(self._live_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539) or 39539)),
