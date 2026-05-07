@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
@@ -76,9 +77,6 @@ class BackendSystemShapingBuilderMixin:
 
         utility_row = QtWidgets.QHBoxLayout()
         utility_row.setSpacing(8)
-        self.btn_visual_reply = QtWidgets.QPushButton("Show Visual Reply")
-        self.btn_visual_reply.setObjectName("btn_visual_reply")
-        self.btn_visual_reply.clicked.connect(self.show_visual_reply_dock)
         self.btn_push_to_talk = QtWidgets.QPushButton("Hold To Talk")
         self.btn_push_to_talk.setObjectName("btn_push_to_talk")
         self.btn_push_to_talk.pressed.connect(lambda: _engine().set_push_to_talk_hold(True))
@@ -86,7 +84,9 @@ class BackendSystemShapingBuilderMixin:
         self.btn_push_to_talk.setEnabled(False)
         for button in musetalk_real_ui_bridge.build_legacy_utility_buttons(self):
             utility_row.addWidget(button)
-        utility_row.addWidget(self.btn_visual_reply)
+        visual_reply_button = visual_reply_real_ui_bridge.build_legacy_utility_button(self)
+        if visual_reply_button is not None:
+            utility_row.addWidget(visual_reply_button)
         utility_row.addWidget(self.btn_push_to_talk)
         layout.addLayout(utility_row)
 
@@ -146,37 +146,7 @@ class BackendSystemShapingBuilderMixin:
         return tab
 
     def _build_visual_reply_settings_tab(self):
-        tab = QtWidgets.QWidget()
-        layout = QtWidgets.QVBoxLayout(tab)
-        layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(10)
-
-        visual_box = QtWidgets.QGroupBox("Visual Replies")
-        visual_layout = QtWidgets.QVBoxLayout(visual_box)
-        visual_layout.setContentsMargins(12, 14, 12, 12)
-        visual_layout.setSpacing(8)
-
-        visual_form = QtWidgets.QFormLayout()
-        visual_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        visual_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        visual_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        visual_form.addRow("Mode", self.visual_reply_mode_combo)
-        visual_form.addRow("Provider", self.visual_reply_provider_combo)
-        visual_form.addRow("Image Size", self.visual_reply_size_combo)
-        visual_form.addRow("Image Model", self.visual_reply_model_edit)
-        visual_layout.addLayout(visual_form)
-        visual_layout.addWidget(self.visual_reply_auto_show_checkbox)
-
-        self.visual_reply_hint = QtWidgets.QLabel()
-        self.visual_reply_hint.setObjectName("visual_reply_hint")
-        self.visual_reply_hint.setWordWrap(True)
-        self.visual_reply_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        visual_layout.addWidget(self.visual_reply_hint)
-        self._refresh_visual_reply_hint()
-
-        layout.addWidget(visual_box)
-        layout.addStretch(1)
-        return tab
+        return visual_reply_real_ui_bridge.build_legacy_settings_tab(self)
 
     def _build_chat_runtime_card(self):
         self.chat_runtime_box = QtWidgets.QWidget()
@@ -516,38 +486,7 @@ class BackendSystemShapingBuilderMixin:
         self._populate_tts_backend_combo()
 
         musetalk_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
-
-        self.visual_reply_mode_combo = NoWheelComboBox()
-        self.visual_reply_mode_combo.setObjectName("visual_reply_mode_combo")
-        self.visual_reply_mode_combo.addItems(["Off", "Auto"])
-        self.visual_reply_mode_combo.setCurrentText("Off" if str(runtime_config.get("visual_reply_mode", "auto") or "auto").strip().lower() == "off" else "Auto")
-        self.visual_reply_mode_combo.currentTextChanged.connect(self.on_visual_reply_mode_changed)
-
-        self.visual_reply_provider_combo = NoWheelComboBox()
-        self.visual_reply_provider_combo.setObjectName("visual_reply_provider_combo")
-        self.visual_reply_provider_combo.addItems(["OpenAI", "xAI / Grok"])
-        current_visual_provider = str(runtime_config.get("visual_reply_provider", "openai") or "openai").strip().lower()
-        self.visual_reply_provider_combo.setCurrentText("xAI / Grok" if current_visual_provider == "xai" else "OpenAI")
-        self.visual_reply_provider_combo.currentTextChanged.connect(self.on_visual_reply_provider_changed)
-
-        self.visual_reply_size_combo = NoWheelComboBox()
-        self.visual_reply_size_combo.setObjectName("visual_reply_size_combo")
-        self.visual_reply_size_combo.addItems(["Auto", "1024x1024", "1024x1536", "1536x1024"])
-        current_visual_size = str(runtime_config.get("visual_reply_size", "1024x1024") or "1024x1024").strip().lower()
-        if current_visual_size not in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
-            current_visual_size = "1024x1024"
-        self.visual_reply_size_combo.setCurrentText("Auto" if current_visual_size == "auto" else current_visual_size)
-        self.visual_reply_size_combo.currentTextChanged.connect(self.on_visual_reply_size_changed)
-
-        self.visual_reply_model_edit = QtWidgets.QLineEdit()
-        self.visual_reply_model_edit.setObjectName("visual_reply_model_edit")
-        self.visual_reply_model_edit.setText(str(runtime_config.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"))
-        self.visual_reply_model_edit.editingFinished.connect(self.on_visual_reply_model_changed)
-
-        self.visual_reply_auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
-        self.visual_reply_auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
-        self.visual_reply_auto_show_checkbox.setChecked(bool(runtime_config.get("visual_reply_auto_show_dock", True)))
-        self.visual_reply_auto_show_checkbox.toggled.connect(self.on_visual_reply_auto_show_changed)
+        visual_reply_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
 
         self.sensory_feedback_source_combo = NoWheelComboBox()
         self.sensory_feedback_source_combo.setObjectName("sensory_feedback_source_combo")

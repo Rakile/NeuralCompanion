@@ -1,5 +1,17 @@
+from pathlib import Path
+
+import shared_state
 from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
 from core.addons.qt_host_services import AddonCapabilityBridgeService
+
+try:
+    from PySide6 import QtCore, QtWidgets
+except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
+    QtCore = None
+    QtWidgets = None
+
+
+APP_ROOT = Path(__file__).resolve().parents[2]
 
 
 def show_dock(bridge):
@@ -50,6 +62,138 @@ def build_runtime_panel(bridge):
         if widget is not None and hasattr(widget, "setObjectName"):
             widget.setObjectName(object_name)
     return panel
+
+
+def build_legacy_runtime_widgets(backend, runtime_config=None):
+    """Build Visual Reply-owned controls used by the backend shell."""
+    if QtWidgets is None:
+        return
+    from ui.widgets.basic import NoWheelComboBox
+
+    runtime = dict(runtime_config or {})
+    backend.visual_reply_mode_combo = NoWheelComboBox()
+    backend.visual_reply_mode_combo.setObjectName("visual_reply_mode_combo")
+    backend.visual_reply_mode_combo.addItems(["Off", "Auto"])
+    backend.visual_reply_mode_combo.setCurrentText(
+        "Off" if str(runtime.get("visual_reply_mode", "auto") or "auto").strip().lower() == "off" else "Auto"
+    )
+    backend.visual_reply_mode_combo.currentTextChanged.connect(backend.on_visual_reply_mode_changed)
+
+    backend.visual_reply_provider_combo = NoWheelComboBox()
+    backend.visual_reply_provider_combo.setObjectName("visual_reply_provider_combo")
+    backend.visual_reply_provider_combo.addItems(["OpenAI", "xAI / Grok"])
+    current_provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
+    backend.visual_reply_provider_combo.setCurrentText("xAI / Grok" if current_provider == "xai" else "OpenAI")
+    backend.visual_reply_provider_combo.currentTextChanged.connect(backend.on_visual_reply_provider_changed)
+
+    backend.visual_reply_size_combo = NoWheelComboBox()
+    backend.visual_reply_size_combo.setObjectName("visual_reply_size_combo")
+    backend.visual_reply_size_combo.addItems(["Auto", "1024x1024", "1024x1536", "1536x1024"])
+    current_size = str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024").strip().lower()
+    if current_size not in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
+        current_size = "1024x1024"
+    backend.visual_reply_size_combo.setCurrentText("Auto" if current_size == "auto" else current_size)
+    backend.visual_reply_size_combo.currentTextChanged.connect(backend.on_visual_reply_size_changed)
+
+    backend.visual_reply_model_edit = QtWidgets.QLineEdit()
+    backend.visual_reply_model_edit.setObjectName("visual_reply_model_edit")
+    backend.visual_reply_model_edit.setText(str(runtime.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"))
+    backend.visual_reply_model_edit.editingFinished.connect(backend.on_visual_reply_model_changed)
+
+    backend.visual_reply_auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
+    backend.visual_reply_auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
+    backend.visual_reply_auto_show_checkbox.setChecked(bool(runtime.get("visual_reply_auto_show_dock", True)))
+    backend.visual_reply_auto_show_checkbox.toggled.connect(backend.on_visual_reply_auto_show_changed)
+
+
+def build_legacy_settings_tab(backend):
+    """Build the Visual Reply settings tab owned by the Visual Reply addon."""
+    if QtCore is None or QtWidgets is None:
+        return None
+    tab = QtWidgets.QWidget()
+    layout = QtWidgets.QVBoxLayout(tab)
+    layout.setContentsMargins(8, 8, 8, 8)
+    layout.setSpacing(10)
+
+    visual_box = QtWidgets.QGroupBox("Visual Replies")
+    visual_layout = QtWidgets.QVBoxLayout(visual_box)
+    visual_layout.setContentsMargins(12, 14, 12, 12)
+    visual_layout.setSpacing(8)
+
+    visual_form = QtWidgets.QFormLayout()
+    visual_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+    visual_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+    visual_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+    visual_form.addRow("Mode", backend.visual_reply_mode_combo)
+    visual_form.addRow("Provider", backend.visual_reply_provider_combo)
+    visual_form.addRow("Image Size", backend.visual_reply_size_combo)
+    visual_form.addRow("Image Model", backend.visual_reply_model_edit)
+    visual_layout.addLayout(visual_form)
+    visual_layout.addWidget(backend.visual_reply_auto_show_checkbox)
+
+    backend.visual_reply_hint = QtWidgets.QLabel()
+    backend.visual_reply_hint.setObjectName("visual_reply_hint")
+    backend.visual_reply_hint.setWordWrap(True)
+    backend.visual_reply_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+    visual_layout.addWidget(backend.visual_reply_hint)
+    backend._refresh_visual_reply_hint()
+
+    layout.addWidget(visual_box)
+    layout.addStretch(1)
+    return tab
+
+
+def build_legacy_utility_button(backend):
+    """Build the Visual Reply utility button used by the backend shell."""
+    if QtWidgets is None:
+        return None
+    backend.btn_visual_reply = QtWidgets.QPushButton("Show Visual Reply")
+    backend.btn_visual_reply.setObjectName("btn_visual_reply")
+    backend.btn_visual_reply.clicked.connect(backend.show_visual_reply_dock)
+    return backend.btn_visual_reply
+
+
+def build_dock(
+    backend,
+    *,
+    theme_provider=None,
+    runtime_config=None,
+    shared_state_module=None,
+    storage_dir=None,
+):
+    """Create the Visual Reply dock owned by the Visual Reply addon."""
+    if QtCore is None or QtWidgets is None:
+        return None
+    dock = QtWidgets.QDockWidget("Visual Reply", backend)
+    dock.setObjectName("VisualReplyDock")
+    dock.setAllowedAreas(
+        QtCore.Qt.RightDockWidgetArea
+        | QtCore.Qt.BottomDockWidgetArea
+        | QtCore.Qt.LeftDockWidgetArea
+    )
+    panel = QtVisualReplyPanel(
+        theme_provider=theme_provider,
+        runtime_config=runtime_config,
+        shared_state_module=shared_state_module or shared_state,
+        storage_dir=storage_dir or (APP_ROOT / "runtime" / "visual_replies"),
+    )
+    panel.loadRequested.connect(backend.prompt_visual_reply_image)
+    panel.captionRequested.connect(backend.prompt_visual_reply_caption)
+    panel.clearRequested.connect(lambda: backend.clear_visual_reply(auto_show=False))
+    dock.setWidget(panel)
+    backend.visual_reply_dock = dock
+    backend.visual_reply_panel = panel
+    backend._register_workspace_dock(dock)
+    backend.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+    dock.hide()
+    if hasattr(backend, "preview_dock"):
+        try:
+            backend.tabifyDockWidget(backend.preview_dock, dock)
+        except Exception:
+            pass
+    if hasattr(backend, "workspace_menu"):
+        backend.workspace_menu.insertAction(backend.workspace_menu.actions()[-2], dock.toggleViewAction())
+    return dock
 
 
 def connect_runtime_panel(bridge, panel):

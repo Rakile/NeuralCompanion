@@ -6,7 +6,7 @@ from PySide6 import QtCore, QtWidgets
 
 import shared_state
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
+from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 from engine import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
 from ui.theme_support import app_theme_palette as _app_theme_palette
@@ -22,29 +22,13 @@ class MainWindowAuxDocksMixin:
             runtime_config=RUNTIME_CONFIG,
         )
 
-        self.visual_reply_dock = QtWidgets.QDockWidget("Visual Reply", self)
-        self.visual_reply_dock.setObjectName("VisualReplyDock")
-        self.visual_reply_dock.setAllowedAreas(
-            QtCore.Qt.RightDockWidgetArea
-            | QtCore.Qt.BottomDockWidgetArea
-            | QtCore.Qt.LeftDockWidgetArea
-        )
-        self.visual_reply_panel = QtVisualReplyPanel(
+        visual_reply_real_ui_bridge.build_dock(
+            self,
             theme_provider=_app_theme_palette,
             runtime_config=RUNTIME_CONFIG,
             shared_state_module=shared_state,
             storage_dir=APP_ROOT / "runtime" / "visual_replies",
         )
-        self.visual_reply_panel.loadRequested.connect(self.prompt_visual_reply_image)
-        self.visual_reply_panel.captionRequested.connect(self.prompt_visual_reply_caption)
-        self.visual_reply_panel.clearRequested.connect(lambda: self.clear_visual_reply(auto_show=False))
-        self.visual_reply_dock.setWidget(self.visual_reply_panel)
-        self._register_workspace_dock(self.visual_reply_dock)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.visual_reply_dock)
-        self.tabifyDockWidget(self.preview_dock, self.visual_reply_dock)
-        self.visual_reply_dock.hide()
-        if hasattr(self, "workspace_menu"):
-            self.workspace_menu.insertAction(self.workspace_menu.actions()[-2], self.visual_reply_dock.toggleViewAction())
 
     def _ensure_musetalk_stage_window(self):
         return musetalk_real_ui_bridge.ensure_stage_window(self)
