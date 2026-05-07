@@ -140,17 +140,3 @@ class RealUiActionsRuntimeMixin:
             self._sync_single_combo_to_backend("tts_backend_combo")
             self._refresh_host_input_runtime_frontend()
 
-    def _on_frontend_musetalk_vram_changed(self, _index=None):
-            self._sync_single_combo_to_backend("musetalk_vram_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
-
-    def _on_frontend_musetalk_avatar_pack_changed(self, _index=None):
-            self._sync_single_combo_to_backend("musetalk_avatar_pack_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
-
-    def _refresh_musetalk_avatar_packs_from_ui_real(self):
-            try:
-                self.backend.refresh_musetalk_avatar_pack_list()
-            finally:
-                QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
-                QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))

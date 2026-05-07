@@ -1,3 +1,9 @@
+try:
+    from PySide6 import QtCore
+except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
+    QtCore = None
+
+
 def set_focus_button_text(bridge, text):
     focus_button = bridge._ui_object("btn_musetalk_avatar_focus")
     if focus_button is not None and hasattr(focus_button, "setText"):
@@ -127,3 +133,75 @@ def bind_preview_controls(bridge):
     focus_button = bridge._ui_object("btn_musetalk_avatar_focus")
     if focus_button is not None and hasattr(focus_button, "clicked"):
         focus_button.clicked.connect(lambda: toggle_avatar_focus(bridge))
+
+
+def sync_vram_mode(bridge):
+    bridge._sync_single_combo_to_backend("musetalk_vram_combo")
+    callback = getattr(bridge.backend, "on_musetalk_vram_mode_change", None)
+    widget = bridge._ui_object("musetalk_vram_combo")
+    if callable(callback) and widget is not None and hasattr(widget, "currentText"):
+        callback(str(widget.currentText() or ""))
+    bridge._refresh_musetalk_visual_runtime_frontend()
+
+
+def sync_avatar_pack(bridge):
+    bridge._sync_single_combo_to_backend("musetalk_avatar_pack_combo")
+    callback = getattr(bridge.backend, "on_musetalk_avatar_pack_change", None)
+    widget = bridge._ui_object("musetalk_avatar_pack_combo")
+    if callable(callback) and widget is not None and hasattr(widget, "currentText"):
+        callback(str(widget.currentText() or ""))
+    bridge._refresh_musetalk_visual_runtime_frontend()
+
+
+def refresh_avatar_packs(bridge):
+    try:
+        callback = getattr(bridge.backend, "refresh_musetalk_avatar_pack_list", None)
+        if callable(callback):
+            callback()
+    finally:
+        if QtCore is not None:
+            QtCore.QTimer.singleShot(0, lambda: bridge._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(300, lambda: bridge._sync_backend_to_ui(force=True))
+
+
+def sync_loop_fade(bridge):
+    bridge._sync_single_spin_to_backend("musetalk_loop_fade_spin")
+    callback = getattr(bridge.backend, "on_musetalk_loop_fade_changed", None)
+    widget = bridge._ui_object("musetalk_loop_fade_spin")
+    if callable(callback) and widget is not None and hasattr(widget, "value"):
+        callback(int(widget.value()))
+    bridge._refresh_profile_utility_runtime_frontend()
+
+
+def sync_frame_cache(bridge):
+    bridge._sync_single_checkbox_to_backend("musetalk_use_frame_cache_checkbox")
+    callback = getattr(bridge.backend, "on_musetalk_use_frame_cache_changed", None)
+    widget = bridge._ui_object("musetalk_use_frame_cache_checkbox")
+    if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
+        callback(bool(widget.isChecked()))
+    bridge._refresh_musetalk_visual_runtime_frontend()
+
+
+def bind_runtime_controls(bridge):
+    """Wire MuseTalk-owned runtime controls from main.ui to MuseTalk backend callbacks."""
+    combo_bindings = {
+        "musetalk_vram_combo": sync_vram_mode,
+        "musetalk_avatar_pack_combo": sync_avatar_pack,
+    }
+    for object_name, callback in combo_bindings.items():
+        widget = bridge._ui_object(object_name)
+        if widget is None or not hasattr(widget, "currentIndexChanged"):
+            continue
+        widget.currentIndexChanged.connect(lambda _index=0, cb=callback: cb(bridge))
+
+    refresh_button = bridge._ui_object("btn_musetalk_avatar_pack_refresh")
+    if refresh_button is not None and hasattr(refresh_button, "clicked"):
+        refresh_button.clicked.connect(lambda _checked=False: refresh_avatar_packs(bridge))
+
+    loop_fade_spin = bridge._ui_object("musetalk_loop_fade_spin")
+    if loop_fade_spin is not None and hasattr(loop_fade_spin, "valueChanged"):
+        loop_fade_spin.valueChanged.connect(lambda _value=0: sync_loop_fade(bridge))
+
+    frame_cache_checkbox = bridge._ui_object("musetalk_use_frame_cache_checkbox")
+    if frame_cache_checkbox is not None and hasattr(frame_cache_checkbox, "toggled"):
+        frame_cache_checkbox.toggled.connect(lambda _checked=False: sync_frame_cache(bridge))

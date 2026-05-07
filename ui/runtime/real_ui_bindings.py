@@ -193,14 +193,10 @@ class MainUiRealBindingMixin:
                 if widget is None or not hasattr(widget, "currentIndexChanged"):
                     continue
                 widget.currentIndexChanged.connect(handler)
-            refresh_avatar_packs = self._ui_object("btn_musetalk_avatar_pack_refresh")
-            if refresh_avatar_packs is not None and hasattr(refresh_avatar_packs, "clicked"):
-                refresh_avatar_packs.clicked.connect(self._refresh_musetalk_avatar_packs_from_ui_real)
 
     def _bind_musetalk_visual_runtime_controls(self):
+            musetalk_real_ui_bridge.bind_runtime_controls(self)
             combo_bindings = (
-                ("musetalk_vram_combo", self._on_frontend_musetalk_vram_changed),
-                ("musetalk_avatar_pack_combo", self._on_frontend_musetalk_avatar_pack_changed),
                 ("visual_reply_mode_combo", self._on_frontend_visual_reply_mode_changed),
                 ("visual_reply_provider_combo", self._on_frontend_visual_reply_provider_changed),
                 ("visual_reply_size_combo", self._on_frontend_visual_reply_size_changed),
@@ -268,7 +264,6 @@ class MainUiRealBindingMixin:
                 dry_run_auto_replies_checkbox.toggled.connect(self._on_frontend_dry_run_auto_replies_changed)
             spin_bindings = (
                 ("dry_run_target_spin", self._on_frontend_dry_run_target_changed),
-                ("musetalk_loop_fade_spin", self._on_frontend_musetalk_loop_fade_changed),
             )
             for object_name, handler in spin_bindings:
                 widget = self._ui_object(object_name)

@@ -1,8 +1,5 @@
 """RealUiActionsProfileMixin extracted from real_ui_actions.py."""
 
-from PySide6 import QtCore
-
-
 def configure_real_ui_actions_profiles_dependencies(namespace):
     globals().update(dict(namespace or {}))
 
@@ -77,6 +74,3 @@ class RealUiActionsProfileMixin:
             self._sync_single_spin_to_backend("dry_run_target_spin")
             self._refresh_profile_utility_runtime_frontend()
 
-    def _on_frontend_musetalk_loop_fade_changed(self, _value):
-            self._sync_single_spin_to_backend("musetalk_loop_fade_spin")
-            self._refresh_profile_utility_runtime_frontend()
