@@ -4,6 +4,12 @@ import threading
 
 from PySide6 import QtCore
 
+from addons.chatterbox_tts import real_ui_bridge as chatterbox_real_ui_bridge
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
+from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
+from addons.vseeface_avatar import real_ui_bridge as vseeface_real_ui_bridge
+
 try:
     from pynvml import (
         nvmlInit,
@@ -18,20 +24,6 @@ except Exception:
     nvmlDeviceGetMemoryInfo = None
 
 
-MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB = {
-    "musetalk": {
-        "Quality": 5.8,
-        "Balanced": 4.0,
-        "Low VRAM": 2.3,
-        "Very Low VRAM": 1.5,
-    },
-    "vseeface": 0.8,
-    "vam": 1.0,
-}
-MODEL_ADVISOR_TTS_OVERHEAD_GIB = {
-    "pockettts": 2.0,
-    "chatterbox": 5.2,
-}
 MODEL_ADVISOR_STREAM_OVERHEAD_GIB = 0.5
 MODEL_ADVISOR_SAFETY_MARGIN_GIB = 1.5
 
@@ -161,13 +153,17 @@ class BackendModelAdvisorRuntimeMixin:
     def _estimate_setup_increment_gib(self):
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
         tts_backend = self._current_tts_backend_value()
-        vram_mode_label = self._live_combo_text("musetalk_vram_combo", "Very Low VRAM").strip() or "Very Low VRAM"
 
         if avatar_mode == "musetalk":
-            budget = MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB["musetalk"].get(vram_mode_label, 6.5)
+            budget = musetalk_real_ui_bridge.estimated_runtime_overhead_gib(self)
+        elif avatar_mode == "vam":
+            budget = vam_real_ui_bridge.estimated_runtime_overhead_gib()
         else:
-            budget = float(MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB.get("vseeface", 0.8))
-        budget += float(MODEL_ADVISOR_TTS_OVERHEAD_GIB.get(tts_backend, 2.0))
+            budget = vseeface_real_ui_bridge.estimated_runtime_overhead_gib()
+        if tts_backend == "chatterbox":
+            budget += chatterbox_real_ui_bridge.estimated_runtime_overhead_gib()
+        else:
+            budget += pockettts_real_ui_bridge.estimated_runtime_overhead_gib()
         if hasattr(self, "stream_mode_combo") and self.stream_mode_combo.currentText() == "On":
             budget += MODEL_ADVISOR_STREAM_OVERHEAD_GIB
         return budget

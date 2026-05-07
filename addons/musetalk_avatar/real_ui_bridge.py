@@ -10,6 +10,12 @@ VRAM_MODE_LABELS = {
     "low_vram": "Low VRAM",
     "very_low_vram": "Very Low VRAM",
 }
+VRAM_MODE_OVERHEAD_GIB = {
+    "Quality": 5.8,
+    "Balanced": 4.0,
+    "Low VRAM": 2.3,
+    "Very Low VRAM": 1.5,
+}
 
 
 def vram_key_from_label(label):
@@ -22,6 +28,11 @@ def vram_key_from_label(label):
 
 def vram_label_from_key(value):
     return VRAM_MODE_LABELS.get(str(value or "").strip().lower(), "Quality")
+
+
+def estimated_runtime_overhead_gib(backend):
+    label = backend._live_combo_text("musetalk_vram_combo", "Very Low VRAM").strip() or "Very Low VRAM"
+    return float(VRAM_MODE_OVERHEAD_GIB.get(label, 6.5))
 
 
 def collect_runtime_config(backend, runtime_config=None):

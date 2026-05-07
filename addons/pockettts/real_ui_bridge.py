@@ -10,6 +10,10 @@ def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
     return {"pocket_tts_python": python_path}
 
 
+def estimated_runtime_overhead_gib():
+    return 2.0
+
+
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, tts_backend=""):
     from engine import update_runtime_config
 

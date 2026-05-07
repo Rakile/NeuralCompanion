@@ -1,3 +1,7 @@
+def estimated_runtime_overhead_gib():
+    return 0.8
+
+
 def update_body_pose_slider(bridge, key, raw_value, *, raw_to_value, update_label):
     value = raw_to_value(key, raw_value)
     backend_slider = getattr(bridge.backend, "pose_sliders", {}).get(str(key))

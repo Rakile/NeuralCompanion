@@ -25,6 +25,10 @@ def collect_runtime_config(backend, runtime_config=None, *, avatar_mode=""):
     }
 
 
+def estimated_runtime_overhead_gib():
+    return 1.0
+
+
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, avatar_mode=""):
     from engine import update_runtime_config
 
