@@ -27,12 +27,6 @@ def _update_runtime_config(key, value):
     return update_runtime_config(key, value)
 
 
-def _musetalk_loop_fade_ms_default():
-    from qt_app import QT_MUSETALK_LOOP_FADE_MS
-
-    return QT_MUSETALK_LOOP_FADE_MS
-
-
 class BackendPresetBodyRuntimeMixin:
     """Preset and body-config list/save/load/delete behavior."""
     def _on_runtime_section_toggled(self):
@@ -43,7 +37,6 @@ class BackendPresetBodyRuntimeMixin:
         runtime_config = _runtime_config()
         engine = _engine()
         chat_provider_generation_settings = dict(runtime_config.get("chat_provider_generation_settings", {}) or {})
-        loop_fade_default = _musetalk_loop_fade_ms_default()
         payload = {
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(runtime_config.get("chat_provider_settings", {}) or {}),
@@ -53,9 +46,6 @@ class BackendPresetBodyRuntimeMixin:
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""),
-            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", runtime_config.get("musetalk_loop_fade_ms", loop_fade_default) or loop_fade_default)),
-            "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),
@@ -245,15 +235,6 @@ class BackendPresetBodyRuntimeMixin:
             self.input_role_combo.setCurrentText(role_text)
         if "stream_mode" in data:
             self.stream_mode_combo.setCurrentText("On" if bool(data["stream_mode"]) else "Off")
-        widget = self._live_widget_attr("musetalk_loop_fade_spin")
-        if "musetalk_loop_fade_ms" in data and widget is not None:
-            fade_ms = max(0, int(data["musetalk_loop_fade_ms"] or 0))
-            widget.setValue(fade_ms)
-            self.on_musetalk_loop_fade_changed(fade_ms)
-        widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
-        if "musetalk_use_frame_cache" in data and widget is not None:
-            widget.setChecked(bool(data["musetalk_use_frame_cache"]))
-            self.on_musetalk_use_frame_cache_changed(bool(data["musetalk_use_frame_cache"]))
         if "sensory_pingpong_enabled" in data and hasattr(self, "sensory_pingpong_checkbox"):
             pingpong_enabled = bool(data["sensory_pingpong_enabled"])
             self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)
@@ -323,16 +304,6 @@ class BackendPresetBodyRuntimeMixin:
             policy_text = self._chat_overflow_policy_label_from_value(data["chat_context_overflow_policy"])
             self.chat_overflow_policy_combo.setCurrentText(policy_text)
             self.on_chat_overflow_policy_changed(policy_text)
-        widget = self._live_widget_attr("musetalk_avatar_pack_combo")
-        if "musetalk_avatar_pack_id" in data and widget is not None:
-            self.refresh_musetalk_avatar_pack_list(selected_pack_id=data["musetalk_avatar_pack_id"])
-            widget = self._live_widget_attr("musetalk_avatar_pack_combo")
-            if widget is not None:
-                for index in range(widget.count()):
-                    if str(widget.itemData(index) or "") == str(data["musetalk_avatar_pack_id"] or ""):
-                        widget.setCurrentIndex(index)
-                        break
-                self.on_musetalk_avatar_pack_change(widget.currentText())
         self.emotional_text.setPlainText(data.get("emotional_instructions", ""))
         self.system_prompt_text.setPlainText(data.get("system_prompt", ""))
         for key, slider in self.brain_sliders.items():

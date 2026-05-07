@@ -9,6 +9,7 @@ PROVIDER_ID = "musetalk"
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
+        self._musetalk_ui_service = context.get_service("qt.musetalk_ui")
         self._avatar_service = context.get_service("qt.avatar_providers")
         if self._avatar_service is None:
             context.logger.warning("MuseTalk avatar addon could not find qt.avatar_providers service.")
@@ -31,6 +32,24 @@ class Addon(BaseAddon):
         )
         context.logger.info("MuseTalk avatar provider addon initialized.")
         return None
+
+    def export_session_state(self):
+        service = getattr(self, "_musetalk_ui_service", None)
+        if service is not None and hasattr(service, "export_avatar_runtime_settings"):
+            return service.export_avatar_runtime_settings() or {}
+        return {}
+
+    def export_preset_state(self):
+        return self.export_session_state()
+
+    def import_session_state(self, session):
+        service = getattr(self, "_musetalk_ui_service", None)
+        if service is not None and hasattr(service, "import_avatar_runtime_settings"):
+            return service.import_avatar_runtime_settings(session)
+        return None
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
 
     def shutdown(self):
         avatar_service = getattr(self, "_avatar_service", None)

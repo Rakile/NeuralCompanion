@@ -65,13 +65,6 @@ class MainWindowSessionMixin:
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
-            "musetalk_vram_mode": next(
-                (key for key, label in MUSE_VRAM_MODE_LABELS.items() if label == self._live_combo_text("musetalk_vram_combo", "")),
-                "quality",
-            ),
-            "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", RUNTIME_CONFIG.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS))),
-            "musetalk_use_frame_cache": bool(self._live_checked("musetalk_use_frame_cache_checkbox", RUNTIME_CONFIG.get("musetalk_use_frame_cache", True))),
-            "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "")) or ""),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -339,25 +332,6 @@ class MainWindowSessionMixin:
                     if self.performance_profile_combo.itemData(index) == performance_profile:
                         self.performance_profile_combo.setCurrentIndex(index)
                         break
-            musetalk_vram_mode = session.get("musetalk_vram_mode")
-            if musetalk_vram_mode:
-                label = MUSE_VRAM_MODE_LABELS.get(str(musetalk_vram_mode).strip().lower(), None)
-                widget = self._live_widget_attr("musetalk_vram_combo")
-                if label and widget is not None:
-                    index = widget.findText(label)
-                    if index >= 0:
-                        widget.setCurrentIndex(index)
-            musetalk_loop_fade_ms = session.get("musetalk_loop_fade_ms")
-            widget = self._live_widget_attr("musetalk_loop_fade_spin")
-            if musetalk_loop_fade_ms is not None and widget is not None:
-                fade_ms = max(0, int(musetalk_loop_fade_ms))
-                widget.setValue(fade_ms)
-                self.on_musetalk_loop_fade_changed(fade_ms)
-            musetalk_use_frame_cache = session.get("musetalk_use_frame_cache")
-            widget = self._live_widget_attr("musetalk_use_frame_cache_checkbox")
-            if musetalk_use_frame_cache is not None and widget is not None:
-                widget.setChecked(bool(musetalk_use_frame_cache))
-                self.on_musetalk_use_frame_cache_changed(bool(musetalk_use_frame_cache))
             sensory_feedback_source = session.get("sensory_feedback_source")
             if sensory_feedback_source is not None and hasattr(self, "sensory_feedback_source_combo"):
                 source_value = str(sensory_feedback_source or "off")
@@ -401,19 +375,6 @@ class MainWindowSessionMixin:
             saved_model_name = session.get("model_name")
             if saved_model_name:
                 QtCore.QTimer.singleShot(400, lambda wanted=str(saved_model_name or ""): self._apply_saved_model_name(wanted))
-            musetalk_avatar_pack_id = session.get("musetalk_avatar_pack_id")
-            if musetalk_avatar_pack_id == "__standalone__":
-                musetalk_avatar_pack_id = None
-            widget = self._live_widget_attr("musetalk_avatar_pack_combo")
-            if musetalk_avatar_pack_id is not None and widget is not None:
-                self.refresh_musetalk_avatar_pack_list(selected_pack_id=musetalk_avatar_pack_id)
-                widget = self._live_widget_attr("musetalk_avatar_pack_combo")
-                if widget is not None:
-                    for index in range(widget.count()):
-                        if str(widget.itemData(index) or "") == str(musetalk_avatar_pack_id or ""):
-                            widget.setCurrentIndex(index)
-                            break
-                    self.on_musetalk_avatar_pack_change(widget.currentText())
             emotional_instructions = session.get("emotional_instructions")
             if emotional_instructions is not None and hasattr(self, "emotional_text"):
                 self.emotional_text.setPlainText(str(emotional_instructions or ""))
