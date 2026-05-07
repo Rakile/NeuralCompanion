@@ -118,3 +118,12 @@ def stop_preview(bridge):
     if panel is not None and hasattr(panel, "reset_preview"):
         panel.reset_preview()
     bridge._refresh_musetalk_preview_frontend()
+
+
+def bind_preview_controls(bridge):
+    preview_button = bridge._ui_object("btn_musetalk_preview")
+    if preview_button is not None and hasattr(preview_button, "clicked"):
+        preview_button.clicked.connect(lambda: show_preview(bridge))
+    focus_button = bridge._ui_object("btn_musetalk_avatar_focus")
+    if focus_button is not None and hasattr(focus_button, "clicked"):
+        focus_button.clicked.connect(lambda: toggle_avatar_focus(bridge))

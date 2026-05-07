@@ -1,6 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
 from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 
 
@@ -391,12 +392,7 @@ class MainUiRealBindingMixin:
             audio_story_real_ui_bridge.bind_duplicate_controls(self)
 
     def _bind_musetalk_preview_controls(self):
-            preview_button = self._ui_object("btn_musetalk_preview")
-            if preview_button is not None and hasattr(preview_button, "clicked"):
-                preview_button.clicked.connect(self._show_frontend_musetalk_preview)
-            focus_button = self._ui_object("btn_musetalk_avatar_focus")
-            if focus_button is not None and hasattr(focus_button, "clicked"):
-                focus_button.clicked.connect(self._toggle_frontend_musetalk_avatar_focus)
+            musetalk_real_ui_bridge.bind_preview_controls(self)
 
     def _bind_visual_reply_controls(self):
             visual_reply_real_ui_bridge.bind_show_button(self)
