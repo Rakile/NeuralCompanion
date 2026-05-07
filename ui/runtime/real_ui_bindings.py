@@ -196,10 +196,8 @@ class MainUiRealBindingMixin:
 
     def _bind_musetalk_visual_runtime_controls(self):
             musetalk_real_ui_bridge.bind_runtime_controls(self)
+            visual_reply_real_ui_bridge.bind_runtime_controls(self)
             combo_bindings = (
-                ("visual_reply_mode_combo", self._on_frontend_visual_reply_mode_changed),
-                ("visual_reply_provider_combo", self._on_frontend_visual_reply_provider_changed),
-                ("visual_reply_size_combo", self._on_frontend_visual_reply_size_changed),
                 ("sensory_feedback_source_combo", self._on_frontend_sensory_feedback_source_changed),
                 ("chat_font_size_combo", self._on_frontend_chat_font_size_changed),
             )
@@ -270,10 +268,6 @@ class MainUiRealBindingMixin:
                 if widget is None or not hasattr(widget, "valueChanged"):
                     continue
                 widget.valueChanged.connect(handler)
-            visual_reply_model_edit = self._ui_object("visual_reply_model_edit")
-            if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "editingFinished"):
-                visual_reply_model_edit.editingFinished.connect(self._on_frontend_visual_reply_model_changed)
-
     def _bind_chunking_runtime_controls(self):
             for key, spec in UI_SHELL_CHUNKING_SPECS.items():
                 slider = self._ui_object(str(spec.get("widget") or ""))

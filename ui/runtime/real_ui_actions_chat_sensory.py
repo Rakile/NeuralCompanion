@@ -8,18 +8,6 @@ def configure_real_ui_actions_chat_sensory_dependencies(namespace):
 
 
 class RealUiActionsChatSensoryMixin:
-    def _on_frontend_visual_reply_mode_changed(self, _index=None):
-            self._sync_single_combo_to_backend("visual_reply_mode_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
-
-    def _on_frontend_visual_reply_provider_changed(self, _index=None):
-            self._sync_single_combo_to_backend("visual_reply_provider_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
-
-    def _on_frontend_visual_reply_size_changed(self, _index=None):
-            self._sync_single_combo_to_backend("visual_reply_size_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
-
     def _on_frontend_sensory_feedback_source_changed(self, _index=None):
             self._sync_single_combo_to_backend("sensory_feedback_source_combo")
             self._refresh_musetalk_visual_runtime_frontend()
@@ -27,13 +15,6 @@ class RealUiActionsChatSensoryMixin:
     def _on_frontend_chat_font_size_changed(self, _index=None):
             self._sync_single_combo_to_backend("chat_font_size_combo")
             self._refresh_musetalk_visual_runtime_frontend()
-
-    def _on_frontend_visual_reply_model_changed(self):
-            self._sync_single_line_edit_to_backend("visual_reply_model_edit")
-            callback = getattr(self.backend, "on_visual_reply_model_changed", None)
-            if callable(callback):
-                callback()
-            self._refresh_profile_utility_runtime_frontend()
 
     def _refresh_chat_session_runtime_frontend(self):
             try:
