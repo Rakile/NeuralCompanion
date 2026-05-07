@@ -47,13 +47,6 @@ class MainWindowSessionMixin:
             "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self._current_tts_backend_value(),
-            "tts_seed": int(self._live_value("tts_seed_spin", RUNTIME_CONFIG.get("tts_seed", 0) or 0)),
-            "tts_temperature": float(self._live_value("tts_temperature_spin", RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8)),
-            "tts_top_p": float(self._live_value("tts_top_p_spin", RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9)),
-            "tts_top_k": int(self._live_value("tts_top_k_spin", RUNTIME_CONFIG.get("tts_top_k", 40) or 40)),
-            "tts_repeat_penalty": float(self._live_value("tts_repeat_penalty_spin", RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2)),
-            "tts_min_p": float(self._live_value("tts_min_p_spin", RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0)),
-            "tts_normalize_loudness": self._live_checked("tts_normalize_loudness_checkbox", RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
@@ -103,11 +96,6 @@ class MainWindowSessionMixin:
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
             "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
-            "pocket_tts_python": (
-                self._ensure_pocket_tts_python_path()
-                if self._current_tts_backend_value() == "pockettts" and self._live_widget_attr("pocket_tts_python_edit") is not None
-                else self._live_text("pocket_tts_python_edit", RUNTIME_CONFIG.get("pocket_tts_python", "")).strip()
-            ),
             "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
             "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
             "temperature": self.brain_sliders["temperature"].value() if "temperature" in getattr(self, "brain_sliders", {}) else float(RUNTIME_CONFIG.get("temperature", 1.22) or 1.22),
@@ -274,41 +262,6 @@ class MainWindowSessionMixin:
                 if index >= 0:
                     self.tts_backend_combo.setCurrentIndex(index)
                 self.on_tts_backend_change(self.tts_backend_combo.currentText())
-            tts_seed = session.get("tts_seed")
-            widget = self._live_widget_attr("tts_seed_spin")
-            if tts_seed is not None and widget is not None:
-                widget.setValue(max(0, int(tts_seed)))
-                self.on_tts_seed_changed(widget.value())
-            tts_temperature = session.get("tts_temperature")
-            widget = self._live_widget_attr("tts_temperature_spin")
-            if tts_temperature is not None and widget is not None:
-                widget.setValue(max(0.05, float(tts_temperature)))
-                self.on_tts_temperature_changed(widget.value())
-            tts_top_p = session.get("tts_top_p")
-            widget = self._live_widget_attr("tts_top_p_spin")
-            if tts_top_p is not None and widget is not None:
-                widget.setValue(max(0.0, min(1.0, float(tts_top_p))))
-                self.on_tts_top_p_changed(widget.value())
-            tts_top_k = session.get("tts_top_k")
-            widget = self._live_widget_attr("tts_top_k_spin")
-            if tts_top_k is not None and widget is not None:
-                widget.setValue(max(0, int(tts_top_k)))
-                self.on_tts_top_k_changed(widget.value())
-            tts_repeat_penalty = session.get("tts_repeat_penalty")
-            widget = self._live_widget_attr("tts_repeat_penalty_spin")
-            if tts_repeat_penalty is not None and widget is not None:
-                widget.setValue(max(1.0, float(tts_repeat_penalty)))
-                self.on_tts_repeat_penalty_changed(widget.value())
-            tts_min_p = session.get("tts_min_p")
-            widget = self._live_widget_attr("tts_min_p_spin")
-            if tts_min_p is not None and widget is not None:
-                widget.setValue(max(0.0, min(1.0, float(tts_min_p))))
-                self.on_tts_min_p_changed(widget.value())
-            tts_normalize_loudness = session.get("tts_normalize_loudness")
-            widget = self._live_widget_attr("tts_normalize_loudness_checkbox")
-            if tts_normalize_loudness is not None and widget is not None:
-                widget.setChecked(bool(tts_normalize_loudness))
-                self.on_tts_normalize_loudness_changed(bool(tts_normalize_loudness))
             vam_vmc_enabled = session.get("vam_vmc_enabled")
             widget = self._live_widget_attr("vam_vmc_enabled_checkbox")
             if vam_vmc_enabled is not None and widget is not None:
@@ -550,12 +503,6 @@ class MainWindowSessionMixin:
                             widget.setCurrentIndex(index)
                             break
                     self.on_musetalk_avatar_pack_change(widget.currentText())
-            pocket_tts_python = session.get("pocket_tts_python")
-            pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-            if pocket_tts_python is not None and pocket_tts_python_edit is not None:
-                pocket_tts_python_edit.setText(str(pocket_tts_python))
-            if self._current_tts_backend_value() == "pockettts" and pocket_tts_python_edit is not None:
-                self._ensure_pocket_tts_python_path()
             emotional_instructions = session.get("emotional_instructions")
             if emotional_instructions is not None and hasattr(self, "emotional_text"):
                 self.emotional_text.setPlainText(str(emotional_instructions or ""))

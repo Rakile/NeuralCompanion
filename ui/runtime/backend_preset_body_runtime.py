@@ -42,9 +42,6 @@ class BackendPresetBodyRuntimeMixin:
     def _build_preset_payload(self, ensure_pocket_tts_path=False):
         runtime_config = _runtime_config()
         engine = _engine()
-        pocket_tts_python = self._live_text("pocket_tts_python_edit", "")
-        if ensure_pocket_tts_path and self._current_tts_backend_value() == "pockettts":
-            pocket_tts_python = self._ensure_pocket_tts_python_path()
         chat_provider_generation_settings = dict(runtime_config.get("chat_provider_generation_settings", {}) or {})
         loop_fade_default = _musetalk_loop_fade_ms_default()
         payload = {
@@ -56,13 +53,6 @@ class BackendPresetBodyRuntimeMixin:
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "tts_seed": int(self._live_value("tts_seed_spin", runtime_config.get("tts_seed", 0) or 0)),
-            "tts_temperature": float(self._live_value("tts_temperature_spin", runtime_config.get("tts_temperature", 0.8) or 0.8)),
-            "tts_top_p": float(self._live_value("tts_top_p_spin", runtime_config.get("tts_top_p", 0.9) or 0.9)),
-            "tts_top_k": int(self._live_value("tts_top_k_spin", runtime_config.get("tts_top_k", 40) or 40)),
-            "tts_repeat_penalty": float(self._live_value("tts_repeat_penalty_spin", runtime_config.get("tts_repeat_penalty", 1.2) or 1.2)),
-            "tts_min_p": float(self._live_value("tts_min_p_spin", runtime_config.get("tts_min_p", 0.0) or 0.0)),
-            "tts_normalize_loudness": self._live_checked("tts_normalize_loudness_checkbox", runtime_config.get("tts_normalize_loudness", False)),
             "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""),
             "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", runtime_config.get("musetalk_loop_fade_ms", loop_fade_default) or loop_fade_default)),
             "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)),
@@ -86,7 +76,6 @@ class BackendPresetBodyRuntimeMixin:
             "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
             "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
-            "pocket_tts_python": pocket_tts_python,
             "emotional_instructions": self.emotional_text.toPlainText().strip(),
             "system_prompt": self.system_prompt_text.toPlainText().strip(),
             "temperature": self.brain_sliders["temperature"].value(),
@@ -337,34 +326,6 @@ class BackendPresetBodyRuntimeMixin:
                     combo.setCurrentIndex(index)
             finally:
                 combo.blockSignals(False)
-        widget = self._live_widget_attr("tts_seed_spin")
-        if "tts_seed" in data and widget is not None:
-            widget.setValue(max(0, int(data["tts_seed"] or 0)))
-            self.on_tts_seed_changed(widget.value())
-        widget = self._live_widget_attr("tts_temperature_spin")
-        if "tts_temperature" in data and widget is not None:
-            widget.setValue(max(0.05, float(data["tts_temperature"] or 0.8)))
-            self.on_tts_temperature_changed(widget.value())
-        widget = self._live_widget_attr("tts_top_p_spin")
-        if "tts_top_p" in data and widget is not None:
-            widget.setValue(max(0.0, min(1.0, float(data["tts_top_p"] or 0.9))))
-            self.on_tts_top_p_changed(widget.value())
-        widget = self._live_widget_attr("tts_top_k_spin")
-        if "tts_top_k" in data and widget is not None:
-            widget.setValue(max(0, int(data["tts_top_k"] or 0)))
-            self.on_tts_top_k_changed(widget.value())
-        widget = self._live_widget_attr("tts_repeat_penalty_spin")
-        if "tts_repeat_penalty" in data and widget is not None:
-            widget.setValue(max(1.0, float(data["tts_repeat_penalty"] or 1.2)))
-            self.on_tts_repeat_penalty_changed(widget.value())
-        widget = self._live_widget_attr("tts_min_p_spin")
-        if "tts_min_p" in data and widget is not None:
-            widget.setValue(max(0.0, min(1.0, float(data["tts_min_p"] or 0.0))))
-            self.on_tts_min_p_changed(widget.value())
-        widget = self._live_widget_attr("tts_normalize_loudness_checkbox")
-        if "tts_normalize_loudness" in data and widget is not None:
-            widget.setChecked(bool(data["tts_normalize_loudness"]))
-            self.on_tts_normalize_loudness_changed(bool(data["tts_normalize_loudness"]))
         if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
             self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
             self.on_allow_proactive_replies_changed(bool(data["allow_proactive_replies"]))
@@ -401,23 +362,6 @@ class BackendPresetBodyRuntimeMixin:
                         widget.setCurrentIndex(index)
                         break
                 self.on_musetalk_avatar_pack_change(widget.currentText())
-        if "pocket_tts_python" in data:
-            preset_python = str(data["pocket_tts_python"] or "").strip()
-            pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-            if preset_python and pocket_tts_python_edit is not None:
-                pocket_tts_python_edit.setText(preset_python)
-                self.on_pocket_tts_python_changed()
-            elif self._current_tts_backend_value() == "pockettts" and pocket_tts_python_edit is not None:
-                current_python = pocket_tts_python_edit.text().strip()
-                if current_python:
-                    print(
-                        "[QtGUI] Preset requested PocketTTS but did not include a PocketTTS Python path. "
-                        f"Keeping current path: {current_python}"
-                    )
-                else:
-                    self._ensure_pocket_tts_python_path()
-        elif self._current_tts_backend_value() == "pockettts" and hasattr(self, "pocket_tts_python_edit"):
-            self._ensure_pocket_tts_python_path()
         self.emotional_text.setPlainText(data.get("emotional_instructions", ""))
         self.system_prompt_text.setPlainText(data.get("system_prompt", ""))
         for key, slider in self.brain_sliders.items():
