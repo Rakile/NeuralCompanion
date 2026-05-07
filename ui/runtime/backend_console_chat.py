@@ -311,14 +311,10 @@ class BackendConsoleChatMixin:
         return None
 
     def _show_chat_context_menu(self, point):
+        from addons.chat_session_player.real_ui_bridge import add_replay_context_menu_action_for_backend
+
         menu = self.chat_edit.createStandardContextMenu()
-        if not getattr(self, "chat_edit_mode", False):
-            cursor = self.chat_edit.cursorForPosition(point)
-            replay_index = self._assistant_replay_index_for_chat_position(cursor.position())
-            if replay_index is not None:
-                menu.addSeparator()
-                replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
-                replay_action.triggered.connect(lambda _checked=False, idx=replay_index: self.trigger_replay_from_assistant_index(idx))
+        add_replay_context_menu_action_for_backend(self, menu, self.chat_edit, point)
         menu.exec(self.chat_edit.viewport().mapToGlobal(point))
 
     def _set_chat_edit_mode(self, enabled):
