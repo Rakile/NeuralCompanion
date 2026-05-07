@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 import dry_run
 import tutorial_framework
 
@@ -33,8 +34,7 @@ class BackendTutorialRuntimeMixin:
             "avatar_mode": self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "",
             "stream_mode": self.stream_mode_combo.currentText() if hasattr(self, "stream_mode_combo") else "",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_vram_mode": self._live_combo_text("musetalk_vram_combo", ""),
-            "musetalk_avatar_pack": self._live_combo_text("musetalk_avatar_pack_combo", ""),
+            **musetalk_real_ui_bridge.build_tutorial_state(self),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
             "dry_run_active": bool((dry_run.get_status() or {}).get("active")),
             "dry_run_complete": bool((dry_run.get_status() or {}).get("complete")),
@@ -48,9 +48,7 @@ class BackendTutorialRuntimeMixin:
             self.engine_combo.setCurrentText("MuseTalk")
         if hasattr(self, "stream_mode_combo"):
             self.stream_mode_combo.setCurrentText("On")
-        widget = self._live_widget_attr("musetalk_vram_combo")
-        if widget is not None:
-            widget.setCurrentText("Very Low VRAM")
+        musetalk_real_ui_bridge.apply_safe_tutorial_defaults(self)
         if hasattr(self, "tts_backend_combo"):
             self._populate_tts_backend_combo(selected_value="chatterbox")
             index = self.tts_backend_combo.findData("chatterbox")

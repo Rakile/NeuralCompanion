@@ -60,10 +60,7 @@ class BackendResourceRefreshMixin:
         self.stream_mode_combo.setCurrentText("On" if bool(runtime_config.get("stream_mode", False)) else "Off")
         tts_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower()
         self._populate_tts_backend_combo(selected_value=tts_backend)
-        vram_mode = str(runtime_config.get("musetalk_vram_mode", "quality") or "quality").lower()
-        musetalk_vram_combo = self._live_widget_attr("musetalk_vram_combo")
-        if musetalk_vram_combo is not None:
-            musetalk_vram_combo.setCurrentText(musetalk_real_ui_bridge.vram_label_from_key(vram_mode))
+        musetalk_real_ui_bridge.refresh_resource_widgets(self, runtime_config)
         for key, slider in self.brain_sliders.items():
             slider.set_value(runtime_config.get(key, slider.value()))
         for key, slider in self.chunking_sliders.items():

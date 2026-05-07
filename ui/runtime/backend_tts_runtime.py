@@ -2,7 +2,7 @@ import os
 
 from PySide6 import QtCore, QtWidgets
 
-from core.addons.qt_host_services import QtDialogService
+from addons.pockettts import real_ui_bridge as pockettts_real_ui_bridge
 
 
 def _engine():
@@ -287,58 +287,21 @@ class BackendTtsRuntimeMixin:
         self._refresh_tts_runtime_summary()
 
     def browse_pocket_tts_python(self):
-        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-        start_dir = pocket_tts_python_edit.text().strip() if pocket_tts_python_edit is not None else ""
-        path, _ = QtDialogService(self).open_file(
-            "Select PocketTTS Python",
-            start_dir or "",
-            "Python (*.exe);;All Files (*.*)",
-        )
-        if not path:
-            return
-        if pocket_tts_python_edit is not None:
-            pocket_tts_python_edit.setText(path)
-        self.on_pocket_tts_python_changed()
+        pockettts_real_ui_bridge.browse_python(self)
 
     def on_pocket_tts_python_changed(self):
-        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-        if pocket_tts_python_edit is None:
-            return
-        _update_runtime_config("pocket_tts_python", pocket_tts_python_edit.text().strip())
-        self.save_session()
+        pockettts_real_ui_bridge.apply_python_changed(self)
 
     def _ensure_pocket_tts_python_path(self):
-        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-        fallback = str(getattr(_engine(), "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
-        if pocket_tts_python_edit is None:
-            if fallback and os.path.exists(fallback):
-                _update_runtime_config("pocket_tts_python", fallback)
-                return fallback
-            return ""
-        current = pocket_tts_python_edit.text().strip()
-        if current:
-            return current
-        if fallback and os.path.exists(fallback):
-            pocket_tts_python_edit.setText(fallback)
-            self.on_pocket_tts_python_changed()
-            print(f"[QtGUI] PocketTTS Python was empty. Using default path: {fallback}")
-            return fallback
-        return ""
+        return pockettts_real_ui_bridge.ensure_python_path(self)
 
     def reset_pocket_tts_python_to_default(self):
-        fallback = str(getattr(_engine(), "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
-        pocket_tts_python_edit = getattr(self, "pocket_tts_python_edit", None)
-        if fallback and os.path.exists(fallback) and pocket_tts_python_edit is not None:
-            pocket_tts_python_edit.setText(fallback)
-            self.on_pocket_tts_python_changed()
-            print(f"[QtGUI] PocketTTS Python reset to bundled interpreter: {fallback}")
-        else:
-            print("[QtGUI] Bundled PocketTTS interpreter was not found.")
+        pockettts_real_ui_bridge.reset_python_to_default(self)
 
     def on_tts_backend_change(self, choice):
         backend = self._current_tts_backend_value()
         _update_runtime_config("tts_backend", backend)
-        if backend == "pockettts" and hasattr(self, "pocket_tts_python_edit"):
+        if backend == "pockettts":
             self._ensure_pocket_tts_python_path()
         engine_running = bool(getattr(self, "thread", None) and self.thread.is_alive())
         if engine_running:

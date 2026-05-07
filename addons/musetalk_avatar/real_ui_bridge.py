@@ -70,6 +70,30 @@ def build_status_snapshot(backend, runtime_config=None):
     }
 
 
+def build_tutorial_state(backend):
+    """Expose MuseTalk-owned fields for tutorial condition checks."""
+    return {
+        "musetalk_vram_mode": backend._live_combo_text("musetalk_vram_combo", ""),
+        "musetalk_avatar_pack": backend._live_combo_text("musetalk_avatar_pack_combo", ""),
+    }
+
+
+def apply_safe_tutorial_defaults(backend):
+    """Apply MuseTalk-owned safe defaults used by first-run tutorials."""
+    widget = backend._live_widget_attr("musetalk_vram_combo")
+    if widget is not None:
+        widget.setCurrentText("Very Low VRAM")
+
+
+def refresh_resource_widgets(backend, runtime_config=None):
+    """Refresh MuseTalk-owned widgets from runtime/session config."""
+    runtime = dict(runtime_config or {})
+    vram_mode = str(runtime.get("musetalk_vram_mode", "quality") or "quality").lower()
+    widget = backend._live_widget_attr("musetalk_vram_combo")
+    if widget is not None:
+        widget.setCurrentText(vram_label_from_key(vram_mode))
+
+
 def update_runtime_config_from_widgets(backend, runtime_config=None):
     from engine import update_runtime_config
 
@@ -82,6 +106,15 @@ def set_provider_controls_enabled(backend, enabled):
         widget = backend._live_widget_attr(object_name)
         if widget is not None and hasattr(widget, "setEnabled"):
             widget.setEnabled(bool(enabled))
+
+
+def restart_sensitive_widgets(backend):
+    """Return MuseTalk-owned controls that should lock while the engine is running."""
+    return [
+        widget
+        for widget in (backend._live_widget_attr("musetalk_vram_combo"),)
+        if widget is not None
+    ]
 
 
 def _engine():
