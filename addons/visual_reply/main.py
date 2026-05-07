@@ -38,6 +38,39 @@ class Addon(BaseAddon):
             raise RuntimeError("Visual Reply controller is unavailable.")
         return controller.bind_core_tab(widget)
 
+    def _visual_reply_service(self):
+        context = getattr(self, "context", None)
+        if context is None:
+            return None
+        try:
+            return context.get_service("qt.visual_reply")
+        except Exception:
+            return None
+
+    def export_session_state(self):
+        service = self._visual_reply_service()
+        if service is not None and hasattr(service, "export_session_state"):
+            return service.export_session_state() or {}
+        return {}
+
+    def export_preset_state(self):
+        service = self._visual_reply_service()
+        if service is not None and hasattr(service, "export_preset_state"):
+            return service.export_preset_state() or {}
+        return self.export_session_state()
+
+    def import_session_state(self, session):
+        service = self._visual_reply_service()
+        if service is not None and hasattr(service, "import_session_state"):
+            return service.import_session_state(session)
+        return None
+
+    def import_preset_state(self, preset):
+        service = self._visual_reply_service()
+        if service is not None and hasattr(service, "import_preset_state"):
+            return service.import_preset_state(preset)
+        return self.import_session_state(preset)
+
     def invoke_capability(self, capability, payload=None):
         if str(capability or "").strip() != "visual_reply.build_runtime_panel":
             return None

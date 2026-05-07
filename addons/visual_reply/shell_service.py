@@ -92,6 +92,35 @@ class _UiShellVisualReplyService:
     def update_runtime_config(self, key, value):
         self._set_state(str(key), value)
 
+    def export_session_state(self):
+        snapshot = self.settings_snapshot()
+        return {
+            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_provider": str(snapshot.get("provider_value", "openai") or "openai"),
+            "visual_reply_size": str(snapshot.get("size_value", "1024x1024") or "1024x1024"),
+            "visual_reply_model": str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
+        }
+
+    def export_preset_state(self):
+        return self.export_session_state()
+
+    def import_session_state(self, session):
+        payload = dict(session or {})
+        for key in (
+            "visual_reply_mode",
+            "visual_reply_provider",
+            "visual_reply_size",
+            "visual_reply_model",
+            "visual_reply_auto_show_dock",
+        ):
+            if key in payload:
+                self._state[key] = payload.get(key)
+        self.refresh_hint()
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
+
     def settings_snapshot(self):
         prompts = self._theme_prompts()
         enabled = set(self._theme_enabled())

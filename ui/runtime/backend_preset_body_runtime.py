@@ -56,11 +56,6 @@ class BackendPresetBodyRuntimeMixin:
             "musetalk_avatar_pack_id": str(self._live_combo_data("musetalk_avatar_pack_combo", runtime_config.get("musetalk_avatar_pack_id", "")) or ""),
             "musetalk_loop_fade_ms": int(self._live_value("musetalk_loop_fade_spin", runtime_config.get("musetalk_loop_fade_ms", loop_fade_default) or loop_fade_default)),
             "musetalk_use_frame_cache": self._live_checked("musetalk_use_frame_cache_checkbox", runtime_config.get("musetalk_use_frame_cache", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto")),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI")),
-            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", runtime_config.get("visual_reply_size", "1024x1024"))),
-            "visual_reply_model": self._live_text("visual_reply_model_edit", runtime_config.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
-            "visual_reply_auto_show_dock": self._live_checked("visual_reply_auto_show_checkbox", runtime_config.get("visual_reply_auto_show_dock", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),
@@ -259,30 +254,6 @@ class BackendPresetBodyRuntimeMixin:
         if "musetalk_use_frame_cache" in data and widget is not None:
             widget.setChecked(bool(data["musetalk_use_frame_cache"]))
             self.on_musetalk_use_frame_cache_changed(bool(data["musetalk_use_frame_cache"]))
-        widget = self._live_widget_attr("visual_reply_mode_combo")
-        if "visual_reply_mode" in data and widget is not None:
-            mode_text = self._visual_reply_mode_label_from_value(data["visual_reply_mode"])
-            widget.setCurrentText(mode_text)
-            self.on_visual_reply_mode_changed(mode_text)
-        widget = self._live_widget_attr("visual_reply_provider_combo")
-        if "visual_reply_provider" in data and widget is not None:
-            provider_text = self._visual_reply_provider_label_from_value(data["visual_reply_provider"])
-            widget.setCurrentText(provider_text)
-            self.on_visual_reply_provider_changed(provider_text)
-        widget = self._live_widget_attr("visual_reply_size_combo")
-        if "visual_reply_size" in data and widget is not None:
-            size_text = self._normalize_visual_reply_size(data["visual_reply_size"])
-            widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
-            self.on_visual_reply_size_changed(size_text)
-        widget = self._live_widget_attr("visual_reply_model_edit")
-        if "visual_reply_model" in data and widget is not None:
-            widget.setText(str(data["visual_reply_model"] or "gpt-image-1"))
-            self.on_visual_reply_model_changed()
-        widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
-        if "visual_reply_auto_show_dock" in data and widget is not None:
-            auto_show = bool(data["visual_reply_auto_show_dock"])
-            widget.setChecked(auto_show)
-            self.on_visual_reply_auto_show_changed(auto_show)
         if "sensory_pingpong_enabled" in data and hasattr(self, "sensory_pingpong_checkbox"):
             pingpong_enabled = bool(data["sensory_pingpong_enabled"])
             self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)

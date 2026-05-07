@@ -1060,8 +1060,114 @@ class QtHotkeyService:
 
 
 class QtVisualReplyService:
+    _STATE_KEYS = (
+        "visual_reply_mode",
+        "visual_reply_provider",
+        "visual_reply_size",
+        "visual_reply_model",
+        "visual_reply_auto_show_dock",
+    )
+
     def __init__(self, window):
         self._window = window
+
+    def get_runtime_config(self, key, default=None):
+        import engine
+
+        return (getattr(engine, "RUNTIME_CONFIG", {}) or {}).get(str(key), default)
+
+    def update_runtime_config(self, key, value):
+        import engine
+
+        return engine.update_runtime_config(str(key), value)
+
+    def export_session_state(self):
+        snapshot = self.settings_snapshot()
+        return {
+            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_provider": str(snapshot.get("provider_value", "openai") or "openai"),
+            "visual_reply_size": str(snapshot.get("size_value", "1024x1024") or "1024x1024"),
+            "visual_reply_model": str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
+        }
+
+    def export_preset_state(self):
+        return self.export_session_state()
+
+    def _set_combo_text_quietly(self, widget, text):
+        if widget is None:
+            return
+        previous = False
+        try:
+            previous = bool(widget.blockSignals(True))
+            widget.setCurrentText(str(text or ""))
+        finally:
+            try:
+                widget.blockSignals(previous)
+            except Exception:
+                pass
+
+    def _set_widget_text_quietly(self, widget, text):
+        if widget is None:
+            return
+        previous = False
+        try:
+            previous = bool(widget.blockSignals(True))
+            widget.setText(str(text or ""))
+        finally:
+            try:
+                widget.blockSignals(previous)
+            except Exception:
+                pass
+
+    def _set_checked_quietly(self, widget, checked):
+        if widget is None:
+            return
+        previous = False
+        try:
+            previous = bool(widget.blockSignals(True))
+            widget.setChecked(bool(checked))
+        finally:
+            try:
+                widget.blockSignals(previous)
+            except Exception:
+                pass
+
+    def _sync_core_widgets_from_runtime(self):
+        window = self._window
+        self._set_combo_text_quietly(
+            getattr(window, "visual_reply_mode_combo", None),
+            self.mode_label_from_value(self.get_runtime_config("visual_reply_mode", "auto")),
+        )
+        self._set_combo_text_quietly(
+            getattr(window, "visual_reply_provider_combo", None),
+            self.provider_label_from_value(self.get_runtime_config("visual_reply_provider", "openai")),
+        )
+        self._set_combo_text_quietly(
+            getattr(window, "visual_reply_size_combo", None),
+            self.size_label_from_value(self.get_runtime_config("visual_reply_size", "1024x1024")),
+        )
+        self._set_widget_text_quietly(
+            getattr(window, "visual_reply_model_edit", None),
+            str(self.get_runtime_config("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+        )
+        self._set_checked_quietly(
+            getattr(window, "visual_reply_auto_show_checkbox", None),
+            bool(self.get_runtime_config("visual_reply_auto_show_dock", True)),
+        )
+        self.refresh_hint()
+
+    def import_session_state(self, session):
+        payload = dict(session or {})
+        for key in self._STATE_KEYS:
+            if key in payload:
+                self.update_runtime_config(key, payload.get(key))
+        if "visual_reply_mode" in payload:
+            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "auto").strip().lower() != "off")
+        self._sync_core_widgets_from_runtime()
+
+    def import_preset_state(self, preset):
+        return self.import_session_state(preset)
 
     def settings_snapshot(self):
         import engine

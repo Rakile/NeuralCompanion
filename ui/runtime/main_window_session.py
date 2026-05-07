@@ -82,11 +82,6 @@ class MainWindowSessionMixin:
             "vam_target_atom_uid": self._live_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")).strip() or "Person",
             "vam_target_storable_id": self._live_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", "plugin#0_NeuralCompanionBridge")).strip() or "plugin#0_NeuralCompanionBridge",
             "vam_timeline_auto_resume": self._live_checked("vam_timeline_auto_resume_checkbox", RUNTIME_CONFIG.get("vam_timeline_auto_resume", True)),
-            "visual_reply_mode": self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", RUNTIME_CONFIG.get("visual_reply_mode", "auto"))),
-            "visual_reply_provider": self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", RUNTIME_CONFIG.get("visual_reply_provider", "openai"))),
-            "visual_reply_size": self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", RUNTIME_CONFIG.get("visual_reply_size", "1024x1024"))),
-            "visual_reply_model": self._live_text("visual_reply_model_edit", RUNTIME_CONFIG.get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1",
-            "visual_reply_auto_show_dock": self._live_checked("visual_reply_auto_show_checkbox", RUNTIME_CONFIG.get("visual_reply_auto_show_dock", True)),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(RUNTIME_CONFIG.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
@@ -418,35 +413,6 @@ class MainWindowSessionMixin:
             if musetalk_use_frame_cache is not None and widget is not None:
                 widget.setChecked(bool(musetalk_use_frame_cache))
                 self.on_musetalk_use_frame_cache_changed(bool(musetalk_use_frame_cache))
-            visual_reply_mode = session.get("visual_reply_mode")
-            widget = self._live_widget_attr("visual_reply_mode_combo")
-            if visual_reply_mode is not None and widget is not None:
-                mode_text = self._visual_reply_mode_label_from_value(visual_reply_mode)
-                widget.setCurrentText(mode_text)
-                self.on_visual_reply_mode_changed(mode_text)
-            visual_reply_provider = session.get("visual_reply_provider")
-            widget = self._live_widget_attr("visual_reply_provider_combo")
-            if visual_reply_provider is not None and widget is not None:
-                provider_text = self._visual_reply_provider_label_from_value(visual_reply_provider)
-                widget.setCurrentText(provider_text)
-                self.on_visual_reply_provider_changed(provider_text)
-            visual_reply_size = session.get("visual_reply_size")
-            widget = self._live_widget_attr("visual_reply_size_combo")
-            if visual_reply_size is not None and widget is not None:
-                size_text = self._normalize_visual_reply_size(visual_reply_size)
-                widget.setCurrentText(self._visual_reply_size_label_from_value(size_text))
-                self.on_visual_reply_size_changed(size_text)
-            visual_reply_model = session.get("visual_reply_model")
-            widget = self._live_widget_attr("visual_reply_model_edit")
-            if visual_reply_model is not None and widget is not None:
-                widget.setText(str(visual_reply_model or "gpt-image-1"))
-                self.on_visual_reply_model_changed()
-            visual_reply_auto_show = session.get("visual_reply_auto_show_dock")
-            widget = self._live_widget_attr("visual_reply_auto_show_checkbox")
-            if visual_reply_auto_show is not None and widget is not None:
-                auto_show = bool(visual_reply_auto_show)
-                widget.setChecked(auto_show)
-                self.on_visual_reply_auto_show_changed(auto_show)
             sensory_feedback_source = session.get("sensory_feedback_source")
             if sensory_feedback_source is not None and hasattr(self, "sensory_feedback_source_combo"):
                 source_value = str(sensory_feedback_source or "off")
