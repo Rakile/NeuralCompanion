@@ -46,7 +46,10 @@ class Addon(BaseAddon):
                 "backend_id": self.SERVICE_NAME,
                 "label": "PocketTTS",
                 "provider": "local",
-                "supports_streaming": False,
+                "supports_streaming": True,
+                "preferred_for_streaming": True,
+                "preferred_for_non_streaming": False,
+                "supports_voice_reference": True,
             },
         )
         context.ui.register_manifest_designer_tab(

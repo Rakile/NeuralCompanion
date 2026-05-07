@@ -47,6 +47,9 @@ class Addon(BaseAddon):
                 "label": "Gemini TTS Preview",
                 "provider": "gemini",
                 "supports_streaming": False,
+                "preferred_for_streaming": False,
+                "preferred_for_non_streaming": False,
+                "supports_voice_reference": False,
             },
         )
 

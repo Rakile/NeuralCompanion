@@ -47,6 +47,9 @@ class Addon(BaseAddon):
                 "label": "Chatterbox",
                 "provider": "local",
                 "supports_streaming": False,
+                "preferred_for_streaming": False,
+                "preferred_for_non_streaming": True,
+                "supports_voice_reference": True,
             },
         )
         context.ui.register_manifest_designer_tab(

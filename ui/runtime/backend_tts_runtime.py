@@ -107,7 +107,7 @@ class BackendTtsRuntimeMixin:
             return
         backend_value = self._current_tts_backend_value()
         backend_label = self._tts_backend_label_from_value(backend_value)
-        if backend_value in {"chatterbox", "pockettts"}:
+        if self._tts_backend_supports_voice_reference(backend_value):
             voice_name = self._current_voice_file_value()
             self.tts_runtime_section.setSummary(f"{backend_label} / {voice_name}" if voice_name else f"{backend_label} / Built-in voice")
         else:
@@ -192,6 +192,57 @@ class BackendTtsRuntimeMixin:
             options.append((label, backend_id))
             seen.add(backend_id)
         return options
+
+    def _available_tts_backend_specs_by_id(self):
+        specs = {}
+        try:
+            backend_specs = list(_engine().list_available_tts_backends() or [])
+        except Exception:
+            backend_specs = []
+        for spec in backend_specs:
+            backend_id = str((spec or {}).get("id") or "").strip().lower()
+            if backend_id:
+                specs[backend_id] = dict(spec or {})
+        return specs
+
+    def _tts_backend_metadata(self, backend_id):
+        backend_id = str(backend_id or "").strip().lower()
+        spec = self._available_tts_backend_specs_by_id().get(backend_id, {})
+        metadata = dict(spec.get("metadata") or {})
+        if not metadata:
+            legacy_defaults = {
+                "chatterbox": {
+                    "supports_voice_reference": True,
+                    "preferred_for_non_streaming": True,
+                    "preferred_for_streaming": False,
+                },
+                "pockettts": {
+                    "supports_voice_reference": True,
+                    "preferred_for_non_streaming": False,
+                    "preferred_for_streaming": True,
+                    "supports_streaming": True,
+                },
+            }
+            metadata.update(legacy_defaults.get(backend_id, {}))
+        return metadata
+
+    def _tts_backend_supports_voice_reference(self, backend_id):
+        metadata = self._tts_backend_metadata(backend_id)
+        if "supports_voice_reference" in metadata:
+            return bool(metadata.get("supports_voice_reference"))
+        return str(backend_id or "").strip().lower() in {"chatterbox", "pockettts"}
+
+    def _preferred_tts_backend_for_stream_mode(self, enabled):
+        desired_key = "preferred_for_streaming" if enabled else "preferred_for_non_streaming"
+        options = self._available_tts_backend_options()
+        for _label, backend_id in options:
+            metadata = self._tts_backend_metadata(backend_id)
+            if bool(metadata.get(desired_key, False)):
+                return str(backend_id or "").strip().lower()
+        legacy = "pockettts" if enabled else "chatterbox"
+        if any(str(backend_id or "").strip().lower() == legacy for _label, backend_id in options):
+            return legacy
+        return ""
 
     def _populate_tts_backend_combo(self, selected_value=None):
         combo = getattr(self, "tts_backend_combo", None)

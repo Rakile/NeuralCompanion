@@ -99,10 +99,11 @@ class BackendSystemShapingRuntimeMixin:
         enabled = choice == "On"
         _update_runtime_config("stream_mode", enabled)
         current_backend = self._current_tts_backend_value()
-        if current_backend in {"chatterbox", "pockettts"}:
-            desired_backend = "pockettts" if enabled else "chatterbox"
-            if current_backend != desired_backend and hasattr(self, "tts_backend_combo"):
-                self.tts_backend_combo.setCurrentIndex(max(self.tts_backend_combo.findData(desired_backend), 0))
+        desired_backend = self._preferred_tts_backend_for_stream_mode(enabled)
+        if desired_backend and current_backend != desired_backend and hasattr(self, "tts_backend_combo"):
+            index = self.tts_backend_combo.findData(desired_backend)
+            if index >= 0:
+                self.tts_backend_combo.setCurrentIndex(index)
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "stream_mode", "value": choice})
         self.save_session()
