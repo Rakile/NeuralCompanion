@@ -2,6 +2,7 @@ from PySide6 import QtCore, QtWidgets
 
 from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
 from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
 from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
 
 
@@ -224,19 +225,12 @@ class MainUiRealBindingMixin:
                 widget.currentIndexChanged.connect(handler)
             checkbox_bindings = (
                 ("live_sync_checkbox", self._on_frontend_live_sync_changed),
-                ("vam_vmc_enabled_checkbox", self._on_frontend_vam_vmc_enabled_changed),
-                ("vam_bridge_enabled_checkbox", self._on_frontend_vam_bridge_enabled_changed),
-                ("vam_play_audio_in_vam_checkbox", self._on_frontend_vam_play_audio_changed),
-                ("vam_timeline_auto_resume_checkbox", self._on_frontend_vam_timeline_auto_resume_changed),
             )
             for object_name, handler in checkbox_bindings:
                 widget = self._ui_object(object_name)
                 if widget is None or not hasattr(widget, "toggled"):
                     continue
                 widget.toggled.connect(handler)
-            vam_vmc_port_spin = self._ui_object("vam_vmc_port_spin")
-            if vam_vmc_port_spin is not None and hasattr(vam_vmc_port_spin, "valueChanged"):
-                vam_vmc_port_spin.valueChanged.connect(self._on_frontend_vam_vmc_port_changed)
             for key, spec in UI_SHELL_BODY_POSE_SPECS.items():
                 slider = self._ui_object(str(spec.get("widget") or ""))
                 if slider is None or not hasattr(slider, "valueChanged"):
@@ -253,17 +247,6 @@ class MainUiRealBindingMixin:
                 except Exception:
                     pass
                 slider.valueChanged.connect(lambda value, pose_key=key: self._on_frontend_body_pose_slider_changed(pose_key, value))
-            edit_bindings = (
-                ("vam_root_edit", self._on_frontend_vam_root_changed),
-                ("vam_target_atom_uid_edit", self._on_frontend_vam_target_atom_uid_changed),
-                ("vam_target_storable_id_edit", self._on_frontend_vam_target_storable_id_changed),
-                ("vam_vmc_host_edit", self._on_frontend_vam_vmc_host_changed),
-            )
-            for object_name, handler in edit_bindings:
-                widget = self._ui_object(object_name)
-                if widget is None or not hasattr(widget, "editingFinished"):
-                    continue
-                widget.editingFinished.connect(handler)
             button_bindings = {
                 "btn_body_load": self._load_body_config_from_ui_real,
                 "btn_body_save": self._save_current_body_from_ui_real,
@@ -271,15 +254,13 @@ class MainUiRealBindingMixin:
                 "btn_body_delete": self._delete_current_body_from_ui_real,
                 "btn_hand_doctor": self._open_hand_debugger_from_ui_real,
                 "btn_vseeface_hide_interface": self._enter_vseeface_focus_from_ui_real,
-                "btn_start_vam_desktop": self._start_vam_desktop_from_ui_real,
-                "btn_start_vam_vr": self._start_vam_vr_from_ui_real,
-                "btn_vam_hide_interface": self._enter_vam_focus_from_ui_real,
             }
             for object_name, handler in button_bindings.items():
                 button = self._ui_object(object_name)
                 if button is None or not hasattr(button, "clicked"):
                     continue
                 button.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
+            vam_real_ui_bridge.bind_runtime_controls(self)
 
     def _bind_profile_utility_runtime_controls(self):
             combo_bindings = (
