@@ -4,6 +4,8 @@ import json
 from collections import OrderedDict
 from pathlib import Path
 
+from addons.chat_session_player.shell_service import _UiShellChatReplayService
+
 
 def configure_shell_services_actions_dependencies(namespace):
     globals().update(dict(namespace or {}))
@@ -222,57 +224,6 @@ class _UiShellInputActionService:
             "message": f"Audio Story seek preview moved to {payload.get('audio_story_seek_percent', 0)}%.",
         })
         return payload
-
-
-class _UiShellChatReplayService:
-    """Shell-safe replay facade for Chat Player and related addons."""
-
-    def __init__(self, window):
-        self._window = window
-        self._last_action = ""
-
-    def snapshot_chat_session(self):
-        return {
-            "conversation_history": [],
-            "shell_mode": True,
-            "message": "Chat replay is not connected in shell preview.",
-        }
-
-    def replayable_assistant_entries(self):
-        return []
-
-    def replayable_assistant_messages(self):
-        return []
-
-    def is_engine_running(self) -> bool:
-        return False
-
-    def is_offline_replay_only(self) -> bool:
-        return False
-
-    def trigger_control_action(self, action: str) -> None:
-        self._last_action = str(action or "").strip()
-
-    def replay_latest_reply(self) -> None:
-        self._last_action = "replay_latest_reply"
-
-    def replay_chat_session(self) -> None:
-        self._last_action = "replay_chat_session"
-
-    def replay_chat_session_from_index(self, start_index: int) -> None:
-        self._last_action = f"replay_chat_session_from_index:{int(start_index or 0)}"
-
-    def load_chat_context(self) -> None:
-        _ui_shell_chat_context_service(self._window).load_chat_context()
-
-    def quick_load_chat_context(self) -> None:
-        _ui_shell_chat_context_service(self._window).quick_load_chat_context()
-
-    def save_chat_context(self) -> None:
-        _ui_shell_chat_context_service(self._window).save_chat_context()
-
-    def quick_save_chat_context(self) -> None:
-        _ui_shell_chat_context_service(self._window).quick_save_chat_context()
 
 
 class _UiShellTutorialService:
