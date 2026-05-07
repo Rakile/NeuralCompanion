@@ -1,6 +1,8 @@
 import glob
 import os
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
+
 
 def _engine():
     import engine
@@ -16,12 +18,6 @@ def _update_runtime_config(key, value):
     from engine import update_runtime_config
 
     return update_runtime_config(key, value)
-
-
-def _musetalk_vram_mode_labels():
-    from qt_app import MUSE_VRAM_MODE_LABELS
-
-    return MUSE_VRAM_MODE_LABELS
 
 
 class BackendResourceRefreshMixin:
@@ -67,7 +63,7 @@ class BackendResourceRefreshMixin:
         vram_mode = str(runtime_config.get("musetalk_vram_mode", "quality") or "quality").lower()
         musetalk_vram_combo = self._live_widget_attr("musetalk_vram_combo")
         if musetalk_vram_combo is not None:
-            musetalk_vram_combo.setCurrentText(_musetalk_vram_mode_labels().get(vram_mode, "Quality"))
+            musetalk_vram_combo.setCurrentText(musetalk_real_ui_bridge.vram_label_from_key(vram_mode))
         for key, slider in self.brain_sliders.items():
             slider.set_value(runtime_config.get(key, slider.value()))
         for key, slider in self.chunking_sliders.items():
