@@ -1,12 +1,12 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
-from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
+from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
 from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
 
 
-QT_MUSETALK_LOOP_FADE_MS = 180
 DEFAULT_LOCAL_VAM_ROOT = ""
 
 
@@ -76,14 +76,6 @@ class BackendSystemShapingBuilderMixin:
 
         utility_row = QtWidgets.QHBoxLayout()
         utility_row.setSpacing(8)
-        self.btn_musetalk_preview = QtWidgets.QPushButton("Show MuseTalk Preview")
-        self.btn_musetalk_preview.setObjectName("btn_musetalk_preview")
-        self.btn_musetalk_preview.clicked.connect(self.show_musetalk_preview)
-        self.btn_musetalk_preview.setEnabled(False)
-        self.btn_musetalk_avatar_focus = QtWidgets.QPushButton("Avatar Focus")
-        self.btn_musetalk_avatar_focus.setObjectName("btn_musetalk_avatar_focus")
-        self.btn_musetalk_avatar_focus.clicked.connect(self.toggle_musetalk_avatar_focus)
-        self.btn_musetalk_avatar_focus.setEnabled(False)
         self.btn_visual_reply = QtWidgets.QPushButton("Show Visual Reply")
         self.btn_visual_reply.setObjectName("btn_visual_reply")
         self.btn_visual_reply.clicked.connect(self.show_visual_reply_dock)
@@ -92,8 +84,8 @@ class BackendSystemShapingBuilderMixin:
         self.btn_push_to_talk.pressed.connect(lambda: _engine().set_push_to_talk_hold(True))
         self.btn_push_to_talk.released.connect(lambda: _engine().set_push_to_talk_hold(False))
         self.btn_push_to_talk.setEnabled(False)
-        utility_row.addWidget(self.btn_musetalk_preview)
-        utility_row.addWidget(self.btn_musetalk_avatar_focus)
+        for button in musetalk_real_ui_bridge.build_legacy_utility_buttons(self):
+            utility_row.addWidget(button)
         utility_row.addWidget(self.btn_visual_reply)
         utility_row.addWidget(self.btn_push_to_talk)
         layout.addLayout(utility_row)
@@ -523,27 +515,7 @@ class BackendSystemShapingBuilderMixin:
         self.tts_backend_combo.currentTextChanged.connect(self.on_tts_backend_change)
         self._populate_tts_backend_combo()
 
-        self.musetalk_vram_combo = NoWheelComboBox()
-        self.musetalk_vram_combo.setObjectName("musetalk_vram_combo")
-        self.musetalk_vram_combo.addItems(list(UI_SHELL_MUSE_VRAM_MODE_LABELS.values()))
-        self.musetalk_vram_combo.currentTextChanged.connect(self.on_musetalk_vram_mode_change)
-
-        self.musetalk_loop_fade_spin = ContextTokenStepper()
-        self.musetalk_loop_fade_spin.setObjectName("musetalk_loop_fade_spin")
-        self.musetalk_loop_fade_spin.setRange(0, 1000)
-        self.musetalk_loop_fade_spin.setSingleStep(50)
-        self.musetalk_loop_fade_spin.setValue(max(0, int(runtime_config.get("musetalk_loop_fade_ms", QT_MUSETALK_LOOP_FADE_MS) or QT_MUSETALK_LOOP_FADE_MS)))
-        self.musetalk_loop_fade_spin.valueChanged.connect(self.on_musetalk_loop_fade_changed)
-        self.musetalk_loop_fade_spin.setMinimumWidth(112)
-        self.musetalk_loop_fade_spin.setMaximumWidth(132)
-
-        self.musetalk_use_frame_cache_checkbox = QtWidgets.QCheckBox("Use .npy startup cache")
-        self.musetalk_use_frame_cache_checkbox.setObjectName("musetalk_use_frame_cache_checkbox")
-        self.musetalk_use_frame_cache_checkbox.setChecked(bool(runtime_config.get("musetalk_use_frame_cache", True)))
-        self.musetalk_use_frame_cache_checkbox.setToolTip(
-            "Use/create MuseTalk NumPy frame caches during chat initialization. Disable to save disk space and always load PNG frames instead."
-        )
-        self.musetalk_use_frame_cache_checkbox.toggled.connect(self.on_musetalk_use_frame_cache_changed)
+        musetalk_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
 
         self.visual_reply_mode_combo = NoWheelComboBox()
         self.visual_reply_mode_combo.setObjectName("visual_reply_mode_combo")
@@ -634,21 +606,6 @@ class BackendSystemShapingBuilderMixin:
         self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Use Recommended")
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
-
-        self.musetalk_avatar_pack_combo = NoWheelComboBox()
-        self.musetalk_avatar_pack_combo.setObjectName("musetalk_avatar_pack_combo")
-        self.musetalk_avatar_pack_combo.currentTextChanged.connect(self.on_musetalk_avatar_pack_change)
-        self.btn_musetalk_avatar_pack_refresh = QtWidgets.QPushButton("Refresh")
-        self.btn_musetalk_avatar_pack_refresh.setObjectName("btn_musetalk_avatar_pack_refresh")
-        self.btn_musetalk_avatar_pack_refresh.clicked.connect(self.refresh_musetalk_avatar_pack_list)
-        pack_row = QtWidgets.QHBoxLayout()
-        pack_row.setContentsMargins(0, 0, 0, 0)
-        pack_row.setSpacing(8)
-        pack_row.addWidget(self.musetalk_avatar_pack_combo, 1)
-        pack_row.addWidget(self.btn_musetalk_avatar_pack_refresh, 0)
-        pack_row_widget = QtWidgets.QWidget()
-        pack_row_widget.setLayout(pack_row)
-        self.musetalk_avatar_pack_row_widget = pack_row_widget
 
         self.vam_vmc_enabled_checkbox = QtWidgets.QCheckBox("Relay motion to VaM over VMC")
         self.vam_vmc_enabled_checkbox.setObjectName("vam_vmc_enabled_checkbox")

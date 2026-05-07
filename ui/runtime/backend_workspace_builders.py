@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
 
 
@@ -138,14 +139,7 @@ class BackendWorkspaceBuilderMixin:
             ),
             (
                 "MuseTalk Non-Stream",
-                [
-                    ("Target Chars", "musetalk_chunk_target_chars", 60, 220, int(runtime_config.get("musetalk_chunk_target_chars", 110) or 110), True),
-                    ("Max Chars", "musetalk_chunk_max_chars", 80, 320, int(runtime_config.get("musetalk_chunk_max_chars", 220) or 220), True),
-                    ("Quickstart 1 Target", "musetalk_quickstart_1_target_chars", 60, 260, int(runtime_config.get("musetalk_quickstart_1_target_chars", 170) or 170), True),
-                    ("Quickstart 1 Max", "musetalk_quickstart_1_max_chars", 80, 360, int(runtime_config.get("musetalk_quickstart_1_max_chars", 320) or 320), True),
-                    ("Quickstart 2 Target", "musetalk_quickstart_2_target_chars", 60, 240, int(runtime_config.get("musetalk_quickstart_2_target_chars", 130) or 130), True),
-                    ("Quickstart 2 Max", "musetalk_quickstart_2_max_chars", 80, 320, int(runtime_config.get("musetalk_quickstart_2_max_chars", 240) or 240), True),
-                ],
+                musetalk_real_ui_bridge.chunking_slider_specs(runtime_config),
             ),
             (
                 "Streaming",

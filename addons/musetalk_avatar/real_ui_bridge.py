@@ -18,6 +18,23 @@ VRAM_MODE_OVERHEAD_GIB = {
     "Very Low VRAM": 1.5,
 }
 DEFAULT_LOOP_FADE_MS = 180
+PERFORMANCE_PROFILE_APPLY_KEYS = {
+    "musetalk_vram_mode",
+    "musetalk_chunk_target_chars",
+    "musetalk_chunk_max_chars",
+    "musetalk_quickstart_1_target_chars",
+    "musetalk_quickstart_1_max_chars",
+    "musetalk_quickstart_2_target_chars",
+    "musetalk_quickstart_2_max_chars",
+}
+PERFORMANCE_SUMMARY_SETTING_KEYS = [
+    "musetalk_chunk_target_chars",
+    "musetalk_chunk_max_chars",
+    "musetalk_quickstart_1_target_chars",
+    "musetalk_quickstart_1_max_chars",
+    "musetalk_quickstart_2_target_chars",
+    "musetalk_quickstart_2_max_chars",
+]
 
 
 def vram_key_from_label(label):
@@ -35,6 +52,67 @@ def vram_label_from_key(value):
 def estimated_runtime_overhead_gib(backend):
     label = backend._live_combo_text("musetalk_vram_combo", "Very Low VRAM").strip() or "Very Low VRAM"
     return float(VRAM_MODE_OVERHEAD_GIB.get(label, 6.5))
+
+
+def performance_profile_apply_keys():
+    return set(PERFORMANCE_PROFILE_APPLY_KEYS)
+
+
+def performance_summary_setting_keys():
+    return list(PERFORMANCE_SUMMARY_SETTING_KEYS)
+
+
+def performance_profile_label_fragment(item):
+    return str(item.get("musetalk_vram_mode") or "").replace("_", " ").title()
+
+
+def performance_candidate_log_fragment(settings):
+    return (
+        f"muse_target={settings.get('musetalk_chunk_target_chars')} "
+        f"muse_max={settings.get('musetalk_chunk_max_chars')} "
+        f"qs1={settings.get('musetalk_quickstart_1_target_chars')}/{settings.get('musetalk_quickstart_1_max_chars')} "
+        f"qs2={settings.get('musetalk_quickstart_2_target_chars')}/{settings.get('musetalk_quickstart_2_max_chars')}"
+    )
+
+
+def chunking_slider_specs(runtime_config=None):
+    runtime = dict(runtime_config or {})
+    return [
+        ("Target Chars", "musetalk_chunk_target_chars", 60, 220, int(runtime.get("musetalk_chunk_target_chars", 110) or 110), True),
+        ("Max Chars", "musetalk_chunk_max_chars", 80, 320, int(runtime.get("musetalk_chunk_max_chars", 220) or 220), True),
+        (
+            "Quickstart 1 Target",
+            "musetalk_quickstart_1_target_chars",
+            60,
+            260,
+            int(runtime.get("musetalk_quickstart_1_target_chars", 170) or 170),
+            True,
+        ),
+        (
+            "Quickstart 1 Max",
+            "musetalk_quickstart_1_max_chars",
+            80,
+            360,
+            int(runtime.get("musetalk_quickstart_1_max_chars", 320) or 320),
+            True,
+        ),
+        (
+            "Quickstart 2 Target",
+            "musetalk_quickstart_2_target_chars",
+            60,
+            240,
+            int(runtime.get("musetalk_quickstart_2_target_chars", 130) or 130),
+            True,
+        ),
+        (
+            "Quickstart 2 Max",
+            "musetalk_quickstart_2_max_chars",
+            80,
+            320,
+            int(runtime.get("musetalk_quickstart_2_max_chars", 240) or 240),
+            True,
+        ),
+    ]
 
 
 def collect_runtime_config(backend, runtime_config=None):
@@ -102,6 +180,18 @@ def apply_runtime_settings(backend, settings):
         enabled = bool(payload["musetalk_use_frame_cache"])
         widget.setChecked(enabled)
         apply_frame_cache_change(backend, enabled)
+
+
+def add_performance_override(backend, override, runtime_config=None):
+    """Add MuseTalk-owned performance-profile fields to a host override payload."""
+    settings = collect_runtime_config(backend, runtime_config)
+    override.update(
+        {
+            "musetalk_avatar_pack_id": str(settings.get("musetalk_avatar_pack_id") or ""),
+            "musetalk_vram_mode": str(settings.get("musetalk_vram_mode") or "quality"),
+        }
+    )
+    return override
 
 
 def refresh_resource_widgets(backend, runtime_config=None):
@@ -218,6 +308,171 @@ def apply_avatar_pack_change(backend, _choice=None):
         backend.emit_tutorial_event("ui_changed", {"field": "musetalk_avatar_pack_id", "value": selected_pack_id})
     if hasattr(backend, "save_session"):
         backend.save_session()
+
+
+def build_preview_dock(backend, *, theme_provider=None, runtime_config=None):
+    """Create the MuseTalk preview dock owned by the MuseTalk addon."""
+    if QtCore is None or QtWidgets is None:
+        return None
+    from addons.musetalk_avatar.preview_panel import QtMuseTalkPreviewPanel
+
+    dock = QtWidgets.QDockWidget("MuseTalk Preview", backend)
+    dock.setObjectName("MuseTalkPreviewDock")
+    dock.setAllowedAreas(
+        QtCore.Qt.RightDockWidgetArea
+        | QtCore.Qt.BottomDockWidgetArea
+        | QtCore.Qt.LeftDockWidgetArea
+    )
+    container = QtWidgets.QWidget()
+    container.setMinimumWidth(0)
+    container.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
+    layout = QtWidgets.QVBoxLayout(container)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setSpacing(0)
+    panel = QtMuseTalkPreviewPanel(
+        theme_provider=theme_provider,
+        runtime_config=runtime_config,
+    )
+    panel.focusModeRequested.connect(backend.toggle_musetalk_avatar_focus)
+    panel.showInterfaceRequested.connect(backend.show_main_interface_from_musetalk_focus)
+    layout.addWidget(panel)
+    dock.setWidget(container)
+
+    backend.preview_dock = dock
+    backend.preview_dock_container = container
+    backend.preview_dock_layout = layout
+    backend.embedded_musetalk_preview = panel
+    backend._register_workspace_dock(dock)
+    backend.addDockWidget(QtCore.Qt.RightDockWidgetArea, dock)
+    dock.hide()
+    backend._ensure_musetalk_stage_window()
+    if hasattr(backend, "workspace_menu"):
+        backend.workspace_menu.insertAction(backend.workspace_menu.actions()[-2], dock.toggleViewAction())
+    return dock
+
+
+def build_legacy_runtime_widgets(backend, runtime_config=None):
+    """Build MuseTalk-owned controls used by the legacy/backend shell."""
+    if QtWidgets is None:
+        return
+    from ui.widgets.basic import ContextTokenStepper, NoWheelComboBox
+
+    runtime = dict(runtime_config or {})
+    backend.musetalk_vram_combo = NoWheelComboBox()
+    backend.musetalk_vram_combo.setObjectName("musetalk_vram_combo")
+    backend.musetalk_vram_combo.addItems(list(VRAM_MODE_LABELS.values()))
+    backend.musetalk_vram_combo.currentTextChanged.connect(backend.on_musetalk_vram_mode_change)
+
+    backend.musetalk_loop_fade_spin = ContextTokenStepper()
+    backend.musetalk_loop_fade_spin.setObjectName("musetalk_loop_fade_spin")
+    backend.musetalk_loop_fade_spin.setRange(0, 1000)
+    backend.musetalk_loop_fade_spin.setSingleStep(50)
+    backend.musetalk_loop_fade_spin.setValue(
+        max(0, int(runtime.get("musetalk_loop_fade_ms", DEFAULT_LOOP_FADE_MS) or DEFAULT_LOOP_FADE_MS))
+    )
+    backend.musetalk_loop_fade_spin.valueChanged.connect(backend.on_musetalk_loop_fade_changed)
+    backend.musetalk_loop_fade_spin.setMinimumWidth(112)
+    backend.musetalk_loop_fade_spin.setMaximumWidth(132)
+
+    backend.musetalk_use_frame_cache_checkbox = QtWidgets.QCheckBox("Use .npy startup cache")
+    backend.musetalk_use_frame_cache_checkbox.setObjectName("musetalk_use_frame_cache_checkbox")
+    backend.musetalk_use_frame_cache_checkbox.setChecked(bool(runtime.get("musetalk_use_frame_cache", True)))
+    backend.musetalk_use_frame_cache_checkbox.setToolTip(
+        "Use/create MuseTalk NumPy frame caches during chat initialization. Disable to save disk space and always load PNG frames instead."
+    )
+    backend.musetalk_use_frame_cache_checkbox.toggled.connect(backend.on_musetalk_use_frame_cache_changed)
+
+    backend.musetalk_avatar_pack_combo = NoWheelComboBox()
+    backend.musetalk_avatar_pack_combo.setObjectName("musetalk_avatar_pack_combo")
+    backend.musetalk_avatar_pack_combo.currentTextChanged.connect(backend.on_musetalk_avatar_pack_change)
+    backend.btn_musetalk_avatar_pack_refresh = QtWidgets.QPushButton("Refresh")
+    backend.btn_musetalk_avatar_pack_refresh.setObjectName("btn_musetalk_avatar_pack_refresh")
+    backend.btn_musetalk_avatar_pack_refresh.clicked.connect(backend.refresh_musetalk_avatar_pack_list)
+    pack_row = QtWidgets.QHBoxLayout()
+    pack_row.setContentsMargins(0, 0, 0, 0)
+    pack_row.setSpacing(8)
+    pack_row.addWidget(backend.musetalk_avatar_pack_combo, 1)
+    pack_row.addWidget(backend.btn_musetalk_avatar_pack_refresh, 0)
+    pack_row_widget = QtWidgets.QWidget()
+    pack_row_widget.setLayout(pack_row)
+    backend.musetalk_avatar_pack_row_widget = pack_row_widget
+
+
+def build_legacy_utility_buttons(backend):
+    """Build MuseTalk-owned utility buttons used by the legacy/backend shell."""
+    if QtWidgets is None:
+        return []
+    backend.btn_musetalk_preview = QtWidgets.QPushButton("Show MuseTalk Preview")
+    backend.btn_musetalk_preview.setObjectName("btn_musetalk_preview")
+    backend.btn_musetalk_preview.clicked.connect(backend.show_musetalk_preview)
+    backend.btn_musetalk_preview.setEnabled(False)
+    backend.btn_musetalk_avatar_focus = QtWidgets.QPushButton("Avatar Focus")
+    backend.btn_musetalk_avatar_focus.setObjectName("btn_musetalk_avatar_focus")
+    backend.btn_musetalk_avatar_focus.clicked.connect(backend.toggle_musetalk_avatar_focus)
+    backend.btn_musetalk_avatar_focus.setEnabled(False)
+    return [backend.btn_musetalk_preview, backend.btn_musetalk_avatar_focus]
+
+
+def ensure_stage_window(backend):
+    """Create the standalone MuseTalk avatar-focus stage window."""
+    if backend._musetalk_stage_window is None:
+        from addons.musetalk_avatar.stage_window import QtMuseTalkStageWindow
+
+        backend._musetalk_stage_window = QtMuseTalkStageWindow()
+        backend._musetalk_stage_window.closeRequested.connect(backend.show_main_interface_from_musetalk_focus)
+    return backend._musetalk_stage_window
+
+
+def attach_preview_to_host(backend, host):
+    panel = getattr(backend, "embedded_musetalk_preview", None)
+    if panel is None:
+        return False
+    target_layout = getattr(backend, "preview_dock_layout", None)
+    if host == "stage":
+        stage_window = backend._ensure_musetalk_stage_window()
+        stage_window.attach_preview_widget(panel)
+        return True
+    if target_layout is None:
+        return False
+    old_parent = panel.parentWidget()
+    if old_parent is not None and old_parent.layout() is not None:
+        old_parent.layout().removeWidget(panel)
+    panel.setParent(None)
+    target_layout.addWidget(panel)
+    panel.show()
+    return True
+
+
+def sync_stage_window_geometry_from_preview(backend):
+    stage_window = backend._ensure_musetalk_stage_window()
+    source_rect = None
+    preview_dock = getattr(backend, "preview_dock", None)
+    if preview_dock is not None:
+        try:
+            dock_rect = preview_dock.frameGeometry()
+            if dock_rect.isValid() and dock_rect.width() > 120 and dock_rect.height() > 120:
+                source_rect = QtCore.QRect(dock_rect)
+        except Exception:
+            source_rect = None
+    if source_rect is None:
+        panel = getattr(backend, "embedded_musetalk_preview", None)
+        if panel is not None:
+            try:
+                panel_size = panel.size()
+                if panel_size.width() <= 32 or panel_size.height() <= 32:
+                    panel_size = panel.sizeHint()
+                top_left = panel.mapToGlobal(QtCore.QPoint(0, 0))
+                source_rect = QtCore.QRect(top_left, panel_size)
+            except Exception:
+                source_rect = None
+    if source_rect is None or source_rect.width() <= 32 or source_rect.height() <= 32:
+        return False
+    try:
+        stage_window.showNormal()
+    except Exception:
+        pass
+    stage_window.setGeometry(source_rect)
+    return True
 
 
 def set_focus_button_text(bridge, text):

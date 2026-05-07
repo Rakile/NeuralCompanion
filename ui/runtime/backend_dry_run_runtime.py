@@ -14,22 +14,15 @@ PERFORMANCE_PROFILE_APPLY_KEYS = {
     "avatar_mode",
     "stream_mode",
     "tts_backend",
-    "musetalk_vram_mode",
     "model_name",
     "chunk_target_chars",
     "chunk_max_chars",
-    "musetalk_chunk_target_chars",
-    "musetalk_chunk_max_chars",
-    "musetalk_quickstart_1_target_chars",
-    "musetalk_quickstart_1_max_chars",
-    "musetalk_quickstart_2_target_chars",
-    "musetalk_quickstart_2_max_chars",
     "stream_chunk_target_chars",
     "stream_chunk_max_chars",
     "stream_first_chunk_min_chars",
     "stream_force_flush_seconds",
     "stream_force_flush_later_seconds",
-}
+}.union(musetalk_real_ui_bridge.performance_profile_apply_keys())
 
 
 def _runtime_config():
@@ -148,7 +141,7 @@ class BackendDryRunRuntimeMixin:
                         f"{prefix}{name} | "
                         f"{'Stream' if item.get('stream_mode') else 'Non-stream'} | "
                         f"{str(item.get('tts_backend') or '').title()} | "
-                        f"{str(item.get('musetalk_vram_mode') or '').replace('_', ' ').title()} | "
+                        f"{musetalk_real_ui_bridge.performance_profile_label_fragment(item)} | "
                         f"c={float(item.get('confidence', 0.0) or 0.0):.2f}"
                     )
                     combo.addItem(label, item["name"])
@@ -181,13 +174,10 @@ class BackendDryRunRuntimeMixin:
 
     def _build_current_performance_override(self, include_chunking=True):
         config = _runtime_config()
-        musetalk_settings = musetalk_real_ui_bridge.collect_runtime_config(self, config)
         override = {
             "avatar_mode": self._current_avatar_mode_value(),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
-            "musetalk_avatar_pack_id": str(musetalk_settings.get("musetalk_avatar_pack_id") or ""),
-            "musetalk_vram_mode": str(musetalk_settings.get("musetalk_vram_mode") or "quality"),
             "model_name": self.model_combo.currentText(),
             "temperature": self.brain_sliders["temperature"].value(),
             "top_p": self.brain_sliders["top_p"].value(),
@@ -197,6 +187,7 @@ class BackendDryRunRuntimeMixin:
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
         }
+        musetalk_real_ui_bridge.add_performance_override(self, override, config)
         if include_chunking:
             override.update({key: slider.value() for key, slider in self.chunking_sliders.items()})
         return override
@@ -346,10 +337,7 @@ class BackendDryRunRuntimeMixin:
             f"stream_max={settings.get('stream_chunk_max_chars')} "
             f"first_min={settings.get('stream_first_chunk_min_chars')} "
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"muse_target={settings.get('musetalk_chunk_target_chars')} "
-            f"muse_max={settings.get('musetalk_chunk_max_chars')} "
-            f"qs1={settings.get('musetalk_quickstart_1_target_chars')}/{settings.get('musetalk_quickstart_1_max_chars')} "
-            f"qs2={settings.get('musetalk_quickstart_2_target_chars')}/{settings.get('musetalk_quickstart_2_max_chars')}"
+            f"{musetalk_real_ui_bridge.performance_candidate_log_fragment(settings)}"
         )
         shared_state.append_musetalk_preview_log(
             f"🧪 [DryRun] Applying {candidate.get('label')}: "
@@ -357,10 +345,7 @@ class BackendDryRunRuntimeMixin:
             f"stream_max={settings.get('stream_chunk_max_chars')} "
             f"first_min={settings.get('stream_first_chunk_min_chars')} "
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
-            f"muse_target={settings.get('musetalk_chunk_target_chars')} "
-            f"muse_max={settings.get('musetalk_chunk_max_chars')} "
-            f"qs1={settings.get('musetalk_quickstart_1_target_chars')}/{settings.get('musetalk_quickstart_1_max_chars')} "
-            f"qs2={settings.get('musetalk_quickstart_2_target_chars')}/{settings.get('musetalk_quickstart_2_max_chars')}"
+            f"{musetalk_real_ui_bridge.performance_candidate_log_fragment(settings)}"
         )
 
     def refresh_dry_run_status(self):
@@ -480,13 +465,7 @@ class BackendDryRunRuntimeMixin:
             "stream_first_chunk_min_chars",
             "stream_force_flush_seconds",
             "stream_force_flush_later_seconds",
-            "musetalk_chunk_target_chars",
-            "musetalk_chunk_max_chars",
-            "musetalk_quickstart_1_target_chars",
-            "musetalk_quickstart_1_max_chars",
-            "musetalk_quickstart_2_target_chars",
-            "musetalk_quickstart_2_max_chars",
-        ]:
+        ] + musetalk_real_ui_bridge.performance_summary_setting_keys():
             if key in settings:
                 lines.append(f"- {key}: {settings[key]}")
         notes = recommendation.get("notes", []) or []

@@ -5,8 +5,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 import shared_state
-from addons.musetalk_avatar.preview_panel import QtMuseTalkPreviewPanel
-from addons.musetalk_avatar.stage_window import QtMuseTalkStageWindow
+from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
 from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
 from engine import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
@@ -17,33 +16,11 @@ APP_ROOT = Path(__file__).resolve().parents[2]
 
 class MainWindowAuxDocksMixin:
     def _build_preview_dock(self):
-        self.preview_dock = QtWidgets.QDockWidget("MuseTalk Preview", self)
-        self.preview_dock.setObjectName("MuseTalkPreviewDock")
-        self.preview_dock.setAllowedAreas(
-            QtCore.Qt.RightDockWidgetArea
-            | QtCore.Qt.BottomDockWidgetArea
-            | QtCore.Qt.LeftDockWidgetArea
-        )
-        self.preview_dock_container = QtWidgets.QWidget()
-        self.preview_dock_container.setMinimumWidth(0)
-        self.preview_dock_container.setSizePolicy(QtWidgets.QSizePolicy.Ignored, QtWidgets.QSizePolicy.Preferred)
-        self.preview_dock_layout = QtWidgets.QVBoxLayout(self.preview_dock_container)
-        self.preview_dock_layout.setContentsMargins(0, 0, 0, 0)
-        self.preview_dock_layout.setSpacing(0)
-        self.embedded_musetalk_preview = QtMuseTalkPreviewPanel(
+        musetalk_real_ui_bridge.build_preview_dock(
+            self,
             theme_provider=_app_theme_palette,
             runtime_config=RUNTIME_CONFIG,
         )
-        self.embedded_musetalk_preview.focusModeRequested.connect(self.toggle_musetalk_avatar_focus)
-        self.embedded_musetalk_preview.showInterfaceRequested.connect(self.show_main_interface_from_musetalk_focus)
-        self.preview_dock_layout.addWidget(self.embedded_musetalk_preview)
-        self.preview_dock.setWidget(self.preview_dock_container)
-        self._register_workspace_dock(self.preview_dock)
-        self.addDockWidget(QtCore.Qt.RightDockWidgetArea, self.preview_dock)
-        self.preview_dock.hide()
-        self._ensure_musetalk_stage_window()
-        if hasattr(self, "workspace_menu"):
-            self.workspace_menu.insertAction(self.workspace_menu.actions()[-2], self.preview_dock.toggleViewAction())
 
         self.visual_reply_dock = QtWidgets.QDockWidget("Visual Reply", self)
         self.visual_reply_dock.setObjectName("VisualReplyDock")
@@ -70,10 +47,7 @@ class MainWindowAuxDocksMixin:
             self.workspace_menu.insertAction(self.workspace_menu.actions()[-2], self.visual_reply_dock.toggleViewAction())
 
     def _ensure_musetalk_stage_window(self):
-        if self._musetalk_stage_window is None:
-            self._musetalk_stage_window = QtMuseTalkStageWindow()
-            self._musetalk_stage_window.closeRequested.connect(self.show_main_interface_from_musetalk_focus)
-        return self._musetalk_stage_window
+        return musetalk_real_ui_bridge.ensure_stage_window(self)
 
     def _ensure_external_avatar_return_window(self):
         if self._external_avatar_return_window is None:
@@ -100,54 +74,10 @@ class MainWindowAuxDocksMixin:
         return window
 
     def _attach_musetalk_preview_to_host(self, host):
-        panel = getattr(self, "embedded_musetalk_preview", None)
-        if panel is None:
-            return False
-        target_layout = getattr(self, "preview_dock_layout", None)
-        if host == "stage":
-            stage_window = self._ensure_musetalk_stage_window()
-            stage_window.attach_preview_widget(panel)
-            return True
-        if target_layout is None:
-            return False
-        old_parent = panel.parentWidget()
-        if old_parent is not None and old_parent.layout() is not None:
-            old_parent.layout().removeWidget(panel)
-        panel.setParent(None)
-        target_layout.addWidget(panel)
-        panel.show()
-        return True
+        return musetalk_real_ui_bridge.attach_preview_to_host(self, host)
 
     def _sync_musetalk_stage_window_geometry_from_preview(self):
-        stage_window = self._ensure_musetalk_stage_window()
-        source_rect = None
-        preview_dock = getattr(self, "preview_dock", None)
-        if preview_dock is not None:
-            try:
-                dock_rect = preview_dock.frameGeometry()
-                if dock_rect.isValid() and dock_rect.width() > 120 and dock_rect.height() > 120:
-                    source_rect = QtCore.QRect(dock_rect)
-            except Exception:
-                source_rect = None
-        if source_rect is None:
-            panel = getattr(self, "embedded_musetalk_preview", None)
-            if panel is not None:
-                try:
-                    panel_size = panel.size()
-                    if panel_size.width() <= 32 or panel_size.height() <= 32:
-                        panel_size = panel.sizeHint()
-                    top_left = panel.mapToGlobal(QtCore.QPoint(0, 0))
-                    source_rect = QtCore.QRect(top_left, panel_size)
-                except Exception:
-                    source_rect = None
-        if source_rect is None or source_rect.width() <= 32 or source_rect.height() <= 32:
-            return False
-        try:
-            stage_window.showNormal()
-        except Exception:
-            pass
-        stage_window.setGeometry(source_rect)
-        return True
+        return musetalk_real_ui_bridge.sync_stage_window_geometry_from_preview(self)
 
     def enter_external_avatar_focus(self, mode_label=None):
         mode_label = str(mode_label or self.engine_combo.currentText() or "Avatar").strip() or "Avatar"
