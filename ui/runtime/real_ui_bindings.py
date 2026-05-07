@@ -1,5 +1,7 @@
 from PySide6 import QtCore, QtWidgets
 
+from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
+
 
 def configure_real_ui_binding_dependencies(namespace):
     """Inject qt_app-owned constants used by the extracted real-UI binding mixin."""
@@ -385,30 +387,7 @@ class MainUiRealBindingMixin:
                 prompt_reset.clicked.connect(self._reset_frontend_sensory_prompt_to_default)
 
     def _bind_audio_story_duplicate_controls(self):
-            import_button = self._ui_object("import_audio_button")
-            if import_button is not None and hasattr(import_button, "clicked"):
-                import_button.clicked.connect(lambda: self._invoke_audio_story_controller("_choose_audio_file"))
-            transcribe_button = self._ui_object("transcribe_audio_button")
-            if transcribe_button is not None and hasattr(transcribe_button, "clicked"):
-                transcribe_button.clicked.connect(lambda: self._invoke_audio_story_controller("_start_transcription"))
-            play_button = self._ui_object("audio_story_play_button")
-            if play_button is not None and hasattr(play_button, "clicked"):
-                play_button.clicked.connect(lambda: self._invoke_audio_story_controller("_play_story"))
-            pause_button = self._ui_object("audio_story_pause_button")
-            if pause_button is not None and hasattr(pause_button, "clicked"):
-                pause_button.clicked.connect(lambda: self._invoke_audio_story_controller("_pause_story"))
-            stop_button = self._ui_object("audio_story_stop_button")
-            if stop_button is not None and hasattr(stop_button, "clicked"):
-                stop_button.clicked.connect(lambda: self._invoke_audio_story_controller("_stop_story"))
-            playback_combo = self._ui_object("audio_story_playback_combo")
-            if playback_combo is not None and hasattr(playback_combo, "currentIndexChanged"):
-                playback_combo.currentIndexChanged.connect(lambda _index: self._sync_audio_story_frontend_combo_to_controller())
-            transcribe_slider = self._ui_object("transcribe_seconds_slider")
-            if transcribe_slider is not None and hasattr(transcribe_slider, "valueChanged"):
-                transcribe_slider.valueChanged.connect(lambda value: self._sync_audio_story_frontend_slider_to_controller(value))
-            seek_slider = self._ui_object("audio_story_seek_slider")
-            if seek_slider is not None and hasattr(seek_slider, "sliderReleased"):
-                seek_slider.sliderReleased.connect(self._apply_audio_story_seek_from_frontend)
+            audio_story_real_ui_bridge.bind_duplicate_controls(self)
 
     def _bind_musetalk_preview_controls(self):
             preview_button = self._ui_object("btn_musetalk_preview")

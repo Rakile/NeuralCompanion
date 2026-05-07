@@ -1,6 +1,6 @@
 """RealUiActionsMediaMixin extracted from real_ui_actions.py."""
 
-from PySide6 import QtCore
+from addons.audio_story_mode import real_ui_bridge as audio_story_real_ui_bridge
 
 
 def configure_real_ui_actions_media_dependencies(namespace):
@@ -9,41 +9,13 @@ def configure_real_ui_actions_media_dependencies(namespace):
 
 class RealUiActionsMediaMixin:
     def _sync_audio_story_frontend_combo_to_controller(self):
-            controller = self._audio_story_controller()
-            frontend_combo = self._ui_object("audio_story_playback_combo")
-            backend_combo = getattr(controller, "audio_story_playback_mode_combo", None) if controller is not None else None
-            if frontend_combo is None or backend_combo is None:
-                return
-            self._sync_combo_like_widget(frontend_combo, backend_combo)
-            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            audio_story_real_ui_bridge.sync_frontend_combo_to_controller(self)
 
     def _sync_audio_story_frontend_slider_to_controller(self, value):
-            controller = self._audio_story_controller()
-            backend_slider = getattr(controller, "audio_story_transcribe_seconds_slider", None) if controller is not None else None
-            if backend_slider is None or not hasattr(backend_slider, "setValue"):
-                return
-            try:
-                backend_slider.setValue(int(value))
-            except Exception:
-                return
-            QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            audio_story_real_ui_bridge.sync_frontend_slider_to_controller(self, value)
 
     def _apply_audio_story_seek_from_frontend(self):
-            controller = self._audio_story_controller()
-            frontend_slider = self._ui_object("audio_story_seek_slider")
-            backend_slider = getattr(controller, "audio_story_position_slider", None) if controller is not None else None
-            if frontend_slider is None or backend_slider is None or not hasattr(frontend_slider, "value") or not hasattr(backend_slider, "setValue"):
-                return
-            try:
-                backend_slider.setValue(int(frontend_slider.value()))
-            except Exception:
-                return
-            callback = getattr(controller, "_on_slider_released", None)
-            if callable(callback):
-                try:
-                    callback()
-                finally:
-                    QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            audio_story_real_ui_bridge.apply_seek_from_frontend(self)
 
     def _set_frontend_musetalk_focus_button_text(self, text):
             focus_button = self._ui_object("btn_musetalk_avatar_focus")
