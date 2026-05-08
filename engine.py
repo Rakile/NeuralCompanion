@@ -418,6 +418,30 @@ def _env_json_dict(name, default):
     return {str(key): value for key, value in parsed.items()} if isinstance(parsed, dict) else dict(default)
 
 
+def _addon_runtime_defaults():
+    defaults = {}
+    addons_root = Path(__file__).resolve().parent / "addons"
+    if not addons_root.exists():
+        return defaults
+    for manifest_path in sorted(addons_root.glob("*/addon.json")):
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if not isinstance(manifest, dict):
+            continue
+        runtime_defaults = manifest.get("runtime_defaults")
+        if isinstance(runtime_defaults, dict):
+            defaults.update({str(key): value for key, value in runtime_defaults.items()})
+        env_overrides = manifest.get("runtime_env_overrides")
+        if isinstance(env_overrides, dict):
+            for key, env_name in env_overrides.items():
+                env_value = os.environ.get(str(env_name or ""))
+                if env_value is not None:
+                    defaults[str(key)] = env_value
+    return defaults
+
+
 def _normalized_abs_path(raw_path):
     return runtime_paths.normalized_abs_path(raw_path)
 
@@ -635,27 +659,8 @@ RUNTIME_CONFIG = {
     "require_first_user_before_proactive": False,
     "listen_idle_window_seconds": 5.0,
     "proactive_delay_seconds": 10.0,
-    "musetalk_avatar_id": "default_avatar",
-    "musetalk_avatar_pack_id": "",
-    "musetalk_enabled_pack_emotions": {},
-    "musetalk_video_path": os.path.join("data", "video", "ani.mp4"),
-    "musetalk_fps": 24,
-    "musetalk_vram_mode": "quality",
-    "musetalk_loop_fade_ms": 180,
-    "visual_replies_enabled": True,
-    "visual_reply_mode": os.environ.get("NC_VISUAL_REPLY_MODE", "auto"),
-    "visual_reply_provider": os.environ.get("NC_VISUAL_REPLY_PROVIDER", "openai"),
-    "visual_reply_model": os.environ.get("NC_VISUAL_REPLY_MODEL", "gpt-image-1"),
-    "visual_reply_size": os.environ.get("NC_VISUAL_REPLY_SIZE", "1024x1024"),
-    "visual_reply_auto_show_dock": True,
-    "visual_reply_story_mode": False,
-    "visual_reply_story_max_images": 3,
-    "visual_reply_story_continuity_strength": 0.8,
+    **_addon_runtime_defaults(),
     "visual_reply_story_theme_prompts": _default_visual_reply_story_theme_prompts(),
-    "visual_reply_story_theme_enabled": [],
-    "visual_reply_master_style_prompt": "",
-    "visual_reply_master_prompt_safe": False,
-    "visual_reply_master_prompt_no_speech_bubbles": False,
     "sensory_feedback_source": os.environ.get("NC_SENSORY_FEEDBACK_SOURCE", "off"),
     "sensory_feedback_interval_seconds": float(os.environ.get("NC_SENSORY_FEEDBACK_INTERVAL_SECONDS", "7.0") or 7.0),
     "sensory_pingpong_enabled": str(os.environ.get("NC_SENSORY_PINGPONG_ENABLED", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},

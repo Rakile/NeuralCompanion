@@ -8,6 +8,27 @@
   "permissions": [
     "ui.tabs"
   ],
+  "runtime_defaults": {
+    "visual_replies_enabled": true,
+    "visual_reply_mode": "auto",
+    "visual_reply_provider": "openai",
+    "visual_reply_model": "gpt-image-1",
+    "visual_reply_size": "1024x1024",
+    "visual_reply_auto_show_dock": true,
+    "visual_reply_story_mode": false,
+    "visual_reply_story_max_images": 3,
+    "visual_reply_story_continuity_strength": 0.8,
+    "visual_reply_story_theme_enabled": [],
+    "visual_reply_master_style_prompt": "",
+    "visual_reply_master_prompt_safe": false,
+    "visual_reply_master_prompt_no_speech_bubbles": false
+  },
+  "runtime_env_overrides": {
+    "visual_reply_mode": "NC_VISUAL_REPLY_MODE",
+    "visual_reply_provider": "NC_VISUAL_REPLY_PROVIDER",
+    "visual_reply_model": "NC_VISUAL_REPLY_MODEL",
+    "visual_reply_size": "NC_VISUAL_REPLY_SIZE"
+  },
   "ui": [
     {
       "id": "visuals_host",

@@ -8,6 +8,15 @@
   "permissions": [
     "ui.tabs"
   ],
+  "runtime_defaults": {
+    "musetalk_avatar_id": "default_avatar",
+    "musetalk_avatar_pack_id": "",
+    "musetalk_enabled_pack_emotions": {},
+    "musetalk_video_path": "data\\video\\ani.mp4",
+    "musetalk_fps": 24,
+    "musetalk_vram_mode": "quality",
+    "musetalk_loop_fade_ms": 180
+  },
   "services": [
     {
       "id": "avatar_provider_registry",
