@@ -31,8 +31,8 @@ class RealUiActionsMediaMixin:
     def _visual_reply_addon_id_for_media(self):
             callback = getattr(self.backend, "_addon_id_for_ui_role", None)
             if callable(callback):
-                return callback("visual_reply", fallback="nc.visual_reply")
-            return "nc.visual_reply"
+                return callback("visual_reply", fallback="")
+            return ""
 
     def _audio_story_addon_id_for_media(self):
             callback = getattr(self.backend, "_addon_id_for_ui_role", None)

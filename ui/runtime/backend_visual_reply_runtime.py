@@ -13,9 +13,9 @@ class BackendVisualReplyRuntimeMixin:
             return default
         addon_id_callback = getattr(self, "_addon_id_for_ui_role", None)
         addon_id = (
-            addon_id_callback("visual_reply", fallback="nc.visual_reply")
+            addon_id_callback("visual_reply", fallback="")
             if callable(addon_id_callback)
-            else "nc.visual_reply"
+            else ""
         )
         return callback(
             addon_id,

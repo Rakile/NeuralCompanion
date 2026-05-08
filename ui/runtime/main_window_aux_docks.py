@@ -26,7 +26,7 @@ class MainWindowAuxDocksMixin:
         )
 
         self._invoke_addon_capability(
-            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            self._addon_id_for_ui_role("visual_reply", fallback=""),
             "real_ui.build_dock",
             {
                 "bridge": self,

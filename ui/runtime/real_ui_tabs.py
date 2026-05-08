@@ -212,7 +212,7 @@ class MainUiRealTabAdoptionMixin:
             return str(fallback or "").strip()
 
     def _visual_reply_addon_enabled(self):
-            addon_id = self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply")
+            addon_id = self._addon_id_for_ui_role("visual_reply", fallback="")
             return self._addon_effectively_enabled(addon_id)
 
     def _remove_static_addon_placeholder_tab(self, tab_widget_name, placeholder_name, fallback_title=""):

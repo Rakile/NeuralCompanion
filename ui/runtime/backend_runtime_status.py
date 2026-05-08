@@ -98,7 +98,7 @@ class BackendRuntimeStatusMixin:
             provider_id=avatar_mode,
         )
         visual_status = self._invoke_addon_capability(
-            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            self._addon_id_for_ui_role("visual_reply", fallback=""),
             "runtime.status_snapshot",
             {"backend": self, "runtime_config": config},
             default={},

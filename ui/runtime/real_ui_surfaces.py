@@ -34,8 +34,8 @@ class MainUiRealSurfacesMixin:
     def _visual_reply_addon_id_for_surface(self):
             callback = getattr(self.backend, "_addon_id_for_ui_role", None)
             if callable(callback):
-                return callback("visual_reply", fallback="nc.visual_reply")
-            return "nc.visual_reply"
+                return callback("visual_reply", fallback="")
+            return ""
 
     def _disable_unwired_phase5_controls(self):
             tooltip = "Deferred in --ui-real Phase 5. This still belongs to a later runtime migration slice."

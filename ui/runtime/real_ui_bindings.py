@@ -28,8 +28,8 @@ class MainUiRealBindingMixin:
     def _visual_reply_addon_id(self):
             callback = getattr(self.backend, "_addon_id_for_ui_role", None)
             if callable(callback):
-                return callback("visual_reply", fallback="nc.visual_reply")
-            return "nc.visual_reply"
+                return callback("visual_reply", fallback="")
+            return ""
 
     def _bind_basic_runtime_mirrors(self):
             bindings = {

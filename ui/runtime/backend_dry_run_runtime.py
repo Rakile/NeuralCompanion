@@ -373,7 +373,7 @@ class BackendDryRunRuntimeMixin:
             provider_id=str(settings.get("avatar_mode") or self._current_avatar_mode_value()),
         )
         self._invoke_addon_capability(
-            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            self._addon_id_for_ui_role("visual_reply", fallback=""),
             "runtime.apply_settings",
             {"backend": self, "settings": dict(settings or {})},
             default=None,
