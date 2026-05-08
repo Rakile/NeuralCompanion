@@ -88,11 +88,9 @@ def known_addon_service_ids() -> tuple[str, ...]:
 
 
 def ui_fallback_targets_for_manifest(addon_id: str | None, category: str | None) -> tuple[str, ...]:
-    addon_id = str(addon_id or "").strip().lower()
     category = str(category or "other").strip().lower() or "other"
-    if addon_id.startswith("nc.chat_provider_") or addon_id == "nc.claude_provider":
-        return ("chat_provider_combo",)
     category_targets = {
+        "chat_provider": ("chat_provider_combo",),
         "vision": ("sensory_feedback_tabs",),
         "musetalk": ("musetalk_tabs",),
         "visuals": ("host_settings_tabs",),

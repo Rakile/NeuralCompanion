@@ -99,7 +99,7 @@ def _ui_shell_static_service_hints(addon_dir, manifest):
     addon_id = str(manifest.get("id", "") or "").strip().lower()
     name = str(manifest.get("name", "") or "").strip().lower()
     hints = []
-    if addon_id.startswith("nc.chat_provider_") or "chat provider" in name or addon_id == "nc.claude_provider":
+    if "chat provider" in name:
         hints.append("chat_provider_registry")
     if addon_id.endswith("_avatar") or "avatar provider" in name:
         hints.append("avatar_provider_registry")

@@ -2604,7 +2604,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              <item>
               <widget class="QPlainTextEdit" name="console_edit">
                <property name="plainText">
-                <string>[Addons] Loaded: nc.audio_story_mode, nc.visual_reply, nc.hotkeys</string>
+                <string>[Addons] Loaded: runtime roles and services discovered from manifests</string>
                </property>
               </widget>
              </item>
