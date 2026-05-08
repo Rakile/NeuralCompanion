@@ -420,15 +420,19 @@ def _env_json_dict(name, default):
 
 def _addon_runtime_defaults():
     defaults = {}
-    addons_root = Path(__file__).resolve().parent / "addons"
+    app_root = Path(__file__).resolve().parent
+    addons_root = app_root / "addons"
     if not addons_root.exists():
         return defaults
+    registry_state = _addon_registry_state_for_defaults(app_root)
     for manifest_path in sorted(addons_root.glob("*/addon.json")):
         try:
             manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         except Exception:
             continue
         if not isinstance(manifest, dict):
+            continue
+        if not _addon_manifest_enabled_for_defaults(manifest, registry_state):
             continue
         runtime_defaults = manifest.get("runtime_defaults")
         if isinstance(runtime_defaults, dict):
@@ -440,6 +444,29 @@ def _addon_runtime_defaults():
                 if env_value is not None:
                     defaults[str(key)] = _coerce_addon_env_value(defaults.get(str(key)), env_value)
     return defaults
+
+
+def _addon_registry_state_for_defaults(app_root):
+    registry_path = Path(app_root) / "runtime" / "addons" / "addon_registry.json"
+    try:
+        if registry_path.exists():
+            payload = json.loads(registry_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+    except Exception:
+        return {}
+    return {}
+
+
+def _addon_manifest_enabled_for_defaults(manifest, registry_state):
+    addon_id = str(manifest.get("id") or "").strip()
+    category = str(manifest.get("category") or "other").strip().lower() or "other"
+    manifest_enabled = bool(manifest.get("enabled", True))
+    categories = dict((registry_state or {}).get("categories", {}) or {})
+    addons = dict((registry_state or {}).get("addons", {}) or {})
+    category_enabled = bool(categories.get(category, True))
+    addon_enabled = bool(addons.get(addon_id, manifest_enabled))
+    return bool(category_enabled and addon_enabled)
 
 
 def _coerce_addon_env_value(default_value, raw_value):
