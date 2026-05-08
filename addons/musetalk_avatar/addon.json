@@ -15,7 +15,13 @@
     "musetalk_video_path": "data\\video\\ani.mp4",
     "musetalk_fps": 24,
     "musetalk_vram_mode": "quality",
-    "musetalk_loop_fade_ms": 180
+    "musetalk_loop_fade_ms": 180,
+    "musetalk_chunk_target_chars": 110,
+    "musetalk_chunk_max_chars": 220,
+    "musetalk_quickstart_1_target_chars": 90,
+    "musetalk_quickstart_1_max_chars": 130,
+    "musetalk_quickstart_2_target_chars": 130,
+    "musetalk_quickstart_2_max_chars": 180
   },
   "services": [
     {
