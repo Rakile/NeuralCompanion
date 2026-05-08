@@ -58,6 +58,14 @@ class Addon(BaseAddon):
         runtime_config = payload.get("runtime_config")
         if capability == "runtime.create_adapter":
             return self._create_adapter(runtime_context=payload.get("runtime_context"))
+        if capability == "runtime.discover_avatar_packs":
+            from core.musetalk_avatar_packs import discover_avatar_packs
+
+            return discover_avatar_packs(**dict(payload.get("kwargs") or {}))
+        if capability == "runtime.get_avatar_pack":
+            from core.musetalk_avatar_packs import get_avatar_pack
+
+            return get_avatar_pack(**dict(payload.get("kwargs") or {}))
         from addons.musetalk_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib" and backend is not None:

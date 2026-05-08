@@ -53,7 +53,6 @@ import shared_state
 from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
-from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
 from pydub import AudioSegment
 
 
@@ -694,6 +693,34 @@ def get_musetalk_enabled_pack_emotions(pack_id):
     if not clean_pack_id or clean_pack_id not in mapping:
         return None
     return set(mapping.get(clean_pack_id) or [])
+
+
+def _discover_musetalk_avatar_packs(**kwargs):
+    result = _invoke_avatar_addon_capability(
+        "musetalk",
+        "runtime.discover_avatar_packs",
+        payload={"kwargs": dict(kwargs or {})},
+        default=None,
+    )
+    if result is not None:
+        return result
+    from core.musetalk_avatar_packs import discover_avatar_packs
+
+    return discover_avatar_packs(**kwargs)
+
+
+def _get_musetalk_avatar_pack(**kwargs):
+    result = _invoke_avatar_addon_capability(
+        "musetalk",
+        "runtime.get_avatar_pack",
+        payload={"kwargs": dict(kwargs or {})},
+        default=None,
+    )
+    if result is not None:
+        return result
+    from core.musetalk_avatar_packs import get_avatar_pack
+
+    return get_avatar_pack(**kwargs)
 
 
 # ============================================================================
@@ -1386,7 +1413,7 @@ def get_available_emotion_names(force_refresh=False):
         pass
     avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
     try:
-        packs = discover_avatar_packs(
+        packs = _discover_musetalk_avatar_packs(
             default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
             legacy_transitions=MUSE_AVATAR_TRANSITIONS,
@@ -3249,7 +3276,7 @@ def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
 
 
 def get_musetalk_avatar_pack_catalog():
-    packs = discover_avatar_packs(
+    packs = _discover_musetalk_avatar_packs(
         default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
         legacy_map=MUSE_EMOTION_AVATAR_MAP,
         legacy_transitions=MUSE_AVATAR_TRANSITIONS,
@@ -3276,7 +3303,7 @@ def apply_musetalk_avatar_pack_selection(pack_id):
     if not requested_pack_id:
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
     try:
-        selected = get_avatar_pack(
+        selected = _get_musetalk_avatar_pack(
             default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
             requested_pack_id=requested_pack_id,
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
