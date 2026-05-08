@@ -24,7 +24,6 @@ from collections import OrderedDict
 from pathlib import Path
 
 from core.expression_api import start_expression_api
-from core.musetalk_avatar_packs import discover_avatar_packs
 from core.runtime_paths import (
     derive_vam_bridge_root as _derive_vam_bridge_root_safe,
     legacy_vam_bridge_roots as _legacy_vam_bridge_roots_safe,
