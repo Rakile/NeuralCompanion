@@ -35,7 +35,6 @@ warnings.filterwarnings(
     category=UserWarning,
 )
 
-from chatterbox.tts_turbo import ChatterboxTurboTTS
 import tkinter as tk
 from PIL import ImageTk
 import re
@@ -1390,6 +1389,12 @@ class PocketTTSSubprocessAdapter(tts_runtime.PocketTTSSubprocessAdapter):
 AddonTTSBackendAdapter = tts_runtime.AddonTTSBackendAdapter
 
 
+def _legacy_chatterbox_factory(*, device):
+    from chatterbox.tts_turbo import ChatterboxTurboTTS
+
+    return ChatterboxTurboTTS.from_pretrained(device=device)
+
+
 def init_tts():
     global tts_model, tts_backend_name
     state = tts_runtime.initialize_tts_backend(
@@ -1399,7 +1404,7 @@ def init_tts():
         addon_resolver=_resolve_addon_tts_backend,
         addon_adapter_cls=AddonTTSBackendAdapter,
         pocket_adapter_cls=PocketTTSSubprocessAdapter,
-        chatterbox_factory=ChatterboxTurboTTS.from_pretrained,
+        chatterbox_factory=_legacy_chatterbox_factory,
         tts_device=TTS_DEVICE,
         default_pocket_tts_python=DEFAULT_POCKET_TTS_PYTHON,
         allow_legacy_builtin_fallback=(_get_addon_manager() is None),
