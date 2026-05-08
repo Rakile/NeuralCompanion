@@ -34,18 +34,24 @@ class RealUiActionsMediaMixin:
                 return callback("visual_reply", fallback="nc.visual_reply")
             return "nc.visual_reply"
 
+    def _audio_story_addon_id_for_media(self):
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                return callback("audio_story", fallback="")
+            return ""
+
     def _sync_audio_story_frontend_combo_to_controller(self):
-            self._invoke_realtime_addon_capability("nc.audio_story_mode", "real_ui.sync_frontend_combo")
+            self._invoke_realtime_addon_capability(self._audio_story_addon_id_for_media(), "real_ui.sync_frontend_combo")
 
     def _sync_audio_story_frontend_slider_to_controller(self, value):
             self._invoke_realtime_addon_capability(
-                "nc.audio_story_mode",
+                self._audio_story_addon_id_for_media(),
                 "real_ui.sync_frontend_slider",
                 {"value": value},
             )
 
     def _apply_audio_story_seek_from_frontend(self):
-            self._invoke_realtime_addon_capability("nc.audio_story_mode", "real_ui.apply_seek")
+            self._invoke_realtime_addon_capability(self._audio_story_addon_id_for_media(), "real_ui.apply_seek")
 
     def _set_frontend_musetalk_focus_button_text(self, text):
             self._invoke_realtime_avatar_capability(

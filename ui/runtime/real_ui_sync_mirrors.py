@@ -478,7 +478,11 @@ class RealUiSyncMirrorMixin:
                         pass
 
     def _mirror_audio_story_duplicate_widgets(self):
-            self._invoke_mirror_addon_capability("nc.audio_story_mode", "real_ui.mirror_duplicate_widgets")
+            addon_id = ""
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                addon_id = callback("audio_story", fallback="")
+            self._invoke_mirror_addon_capability(addon_id, "real_ui.mirror_duplicate_widgets")
 
     def _mirror_provider_runtime_labels(self):
             settings_label = self._ui_object("provider_settings_label")

@@ -39,7 +39,7 @@ class MainUiRealTabAdoptionMixin:
                 return ""
 
     def _audio_story_controller(self):
-            addon_id = self._addon_id_for_ui_role("audio_story", fallback="nc.audio_story_mode")
+            addon_id = self._addon_id_for_ui_role("audio_story", fallback="")
             if not addon_id:
                 return None
             try:

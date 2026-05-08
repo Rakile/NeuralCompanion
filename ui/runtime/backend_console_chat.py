@@ -312,8 +312,9 @@ class BackendConsoleChatMixin:
 
     def _show_chat_context_menu(self, point):
         menu = self.chat_edit.createStandardContextMenu()
+        addon_id = self._addon_id_for_ui_role("chat_replay", fallback="")
         self._invoke_addon_capability(
-            "nc.chat_session_player",
+            addon_id,
             "backend.add_replay_context_menu_action",
             {"backend": self, "menu": menu, "chat_edit": self.chat_edit, "point": point},
         )

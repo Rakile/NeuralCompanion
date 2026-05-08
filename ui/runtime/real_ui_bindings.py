@@ -152,8 +152,12 @@ class MainUiRealBindingMixin:
                 menu = chat_edit.createStandardContextMenu()
             except Exception:
                 menu = QtWidgets.QMenu(chat_edit)
+            replay_addon_id = ""
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                replay_addon_id = callback("chat_replay", fallback="")
             self._invoke_backend_addon_capability(
-                "nc.chat_session_player",
+                replay_addon_id,
                 "real_ui.add_replay_context_menu_action",
                 {"menu": menu, "chat_edit": chat_edit, "point": point},
             )
@@ -369,7 +373,11 @@ class MainUiRealBindingMixin:
                 prompt_reset.clicked.connect(self._reset_frontend_sensory_prompt_to_default)
 
     def _bind_audio_story_duplicate_controls(self):
-            self._invoke_backend_addon_capability("nc.audio_story_mode", "real_ui.bind_duplicate_controls")
+            addon_id = ""
+            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
+            if callable(callback):
+                addon_id = callback("audio_story", fallback="")
+            self._invoke_backend_addon_capability(addon_id, "real_ui.bind_duplicate_controls")
 
     def _bind_musetalk_preview_controls(self):
             self._invoke_backend_service_capability(
