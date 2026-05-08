@@ -9,6 +9,15 @@
     "services.register",
     "ui.tabs"
   ],
+  "runtime_defaults": {
+    "tts_seed": 0,
+    "tts_temperature": 0.8,
+    "tts_top_p": 0.9,
+    "tts_top_k": 40,
+    "tts_repeat_penalty": 1.2,
+    "tts_min_p": 0.0,
+    "tts_normalize_loudness": false
+  },
   "services": [
     {
       "id": "tts_backend_service",

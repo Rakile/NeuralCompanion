@@ -438,8 +438,29 @@ def _addon_runtime_defaults():
             for key, env_name in env_overrides.items():
                 env_value = os.environ.get(str(env_name or ""))
                 if env_value is not None:
-                    defaults[str(key)] = env_value
+                    defaults[str(key)] = _coerce_addon_env_value(defaults.get(str(key)), env_value)
     return defaults
+
+
+def _coerce_addon_env_value(default_value, raw_value):
+    if isinstance(default_value, bool):
+        return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+    if isinstance(default_value, int) and not isinstance(default_value, bool):
+        try:
+            return int(raw_value)
+        except (TypeError, ValueError):
+            return default_value
+    if isinstance(default_value, float):
+        try:
+            return float(raw_value)
+        except (TypeError, ValueError):
+            return default_value
+    if isinstance(default_value, (dict, list)):
+        try:
+            return json.loads(raw_value)
+        except Exception:
+            return default_value
+    return raw_value
 
 
 def _normalized_abs_path(raw_path):
@@ -606,16 +627,8 @@ RUNTIME_CONFIG = {
     "tts_backend": "chatterbox",
     "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
     "avatar_mode": "vseeface",
-    "vam_vmc_enabled": _env_flag("NC_VAM_VMC_ENABLED", True),
-    "vam_vmc_host": str(os.environ.get("NC_VAM_VMC_HOST", "127.0.0.1") or "127.0.0.1"),
-    "vam_vmc_port": int(os.environ.get("NC_VAM_VMC_PORT", "39539") or 39539),
-    "vam_bridge_enabled": _env_flag("NC_VAM_BRIDGE_ENABLED", True),
     "vam_root": DEFAULT_VAM_ROOT,
     "vam_bridge_root": DEFAULT_VAM_BRIDGE_ROOT,
-    "vam_play_audio_in_vam": _env_flag("NC_VAM_PLAY_AUDIO_IN_VAM", True),
-    "vam_target_atom_uid": str(os.environ.get("NC_VAM_TARGET_ATOM_UID", "Person") or "Person"),
-    "vam_target_storable_id": str(os.environ.get("NC_VAM_TARGET_STORABLE_ID", "plugin#0_NeuralCompanionBridge") or "plugin#0_NeuralCompanionBridge"),
-    "vam_timeline_auto_resume": _env_flag("NC_VAM_TIMELINE_AUTO_RESUME", True),
     "vam_emotion_preset_map": _env_json_dict("NC_VAM_EMOTION_PRESET_MAP", DEFAULT_VAM_EMOTION_PRESET_MAP),
     "vam_timeline_clip_map": _env_json_dict("NC_VAM_TIMELINE_CLIP_MAP", DEFAULT_VAM_TIMELINE_CLIP_MAP),
     "input_mode": "voice_activation",
@@ -646,13 +659,6 @@ RUNTIME_CONFIG = {
     "top_k": 40,
     "min_p": 0.05,
     "repeat_penalty": 1.15,
-    "tts_seed": 0,
-    "tts_temperature": 0.8,
-    "tts_top_p": 0.9,
-    "tts_top_k": 40,
-    "tts_repeat_penalty": 1.2,
-    "tts_min_p": 0.0,
-    "tts_normalize_loudness": False,
     "limit_response_length": False,
     "max_response_tokens": 600,
     "allow_proactive_replies": True,

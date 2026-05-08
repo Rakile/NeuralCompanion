@@ -8,6 +8,26 @@
   "permissions": [
     "ui.tabs"
   ],
+  "runtime_defaults": {
+    "vam_vmc_enabled": true,
+    "vam_vmc_host": "127.0.0.1",
+    "vam_vmc_port": 39539,
+    "vam_bridge_enabled": true,
+    "vam_play_audio_in_vam": true,
+    "vam_target_atom_uid": "Person",
+    "vam_target_storable_id": "plugin#0_NeuralCompanionBridge",
+    "vam_timeline_auto_resume": true
+  },
+  "runtime_env_overrides": {
+    "vam_vmc_enabled": "NC_VAM_VMC_ENABLED",
+    "vam_vmc_host": "NC_VAM_VMC_HOST",
+    "vam_vmc_port": "NC_VAM_VMC_PORT",
+    "vam_bridge_enabled": "NC_VAM_BRIDGE_ENABLED",
+    "vam_play_audio_in_vam": "NC_VAM_PLAY_AUDIO_IN_VAM",
+    "vam_target_atom_uid": "NC_VAM_TARGET_ATOM_UID",
+    "vam_target_storable_id": "NC_VAM_TARGET_STORABLE_ID",
+    "vam_timeline_auto_resume": "NC_VAM_TIMELINE_AUTO_RESUME"
+  },
   "services": [
     {
       "id": "avatar_provider_registry",
