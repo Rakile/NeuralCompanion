@@ -99,6 +99,15 @@ class QtTextRedirector:
             except Exception:
                 pass
 
+    def close(self):
+        # Some third-party logging handlers call close() on the active stream
+        # during interpreter shutdown. Flush pending text, but do not close the
+        # mirrored stdio stream owned by Python/Codex.
+        try:
+            self.flush()
+        except Exception:
+            pass
+
     def _append_chat_stream(self, value):
         self._chat_buffer += value
         normalized = re.sub(r"(?<!\n)(💬 You(?: \([^)]*\))?:|🤖 Assistant:)", r"\n\1", self._chat_buffer)
