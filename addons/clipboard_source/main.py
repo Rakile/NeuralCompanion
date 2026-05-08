@@ -1,4 +1,5 @@
 from pathlib import Path
+import json
 import hashlib
 import shutil
 import time
@@ -6,6 +7,15 @@ import time
 from PySide6 import QtCore, QtWidgets
 
 from core.addons.base import BaseAddon
+
+
+def _load_metadata(root_dir: Path) -> dict:
+    path = root_dir / "sensory_metadata.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return dict(payload or {}) if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 class Addon(BaseAddon):
@@ -33,19 +43,15 @@ class Addon(BaseAddon):
 
         sensory_service = context.get_service("qt.sensory")
         if sensory_service is not None and not self._shell_preview:
+            metadata_payload = _load_metadata(context.manifest.root_dir)
             sensory_service.register_provider(
                 provider_id="clipboard",
-                label="Clipboard",
-                instruction=(
-                    "Optional clipboard reference image may be attached as hidden ambient context or "
-                    "armed for the next user turn when a copied image is available."
-                ),
-                order=120,
+                label=str(metadata_payload.get("label") or "Clipboard"),
+                instruction=str(metadata_payload.get("instruction") or ""),
+                description=str(metadata_payload.get("description") or ""),
+                order=int(metadata_payload.get("order", 120) or 120),
                 capture_handler=self._capture_sensory_snapshot,
-                metadata={
-                    "kind": "image",
-                    "prompt_fragment_enabled": False,
-                },
+                metadata=dict(metadata_payload.get("metadata") or {}),
             )
 
         context.ui.register_manifest_designer_tab(

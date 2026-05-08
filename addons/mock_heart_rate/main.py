@@ -1,6 +1,17 @@
+import json
 import time
+from pathlib import Path
 
 from core.addons import BaseAddon
+
+
+def _load_sensory_metadata(root_dir: Path) -> dict:
+    path = root_dir / "sensory_metadata.json"
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return dict(payload or {}) if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 class _Subscriber:
@@ -211,25 +222,15 @@ class Addon(BaseAddon):
 
         sensory_service = context.get_service("qt.sensory")
         if sensory_service is not None:
+            metadata_payload = _load_sensory_metadata(context.manifest.root_dir)
             sensory_service.register_provider(
                 provider_id="heart_rate",
-                label="Heart Rate",
-                instruction="Hidden sensory input may include the user's current heart rate in BPM.",
-                description="Text-only heart-rate provider published by the Mock Heart Rate addon.",
-                order=280,
+                label=str(metadata_payload.get("label") or "Heart Rate"),
+                instruction=str(metadata_payload.get("instruction") or ""),
+                description=str(metadata_payload.get("description") or ""),
+                order=int(metadata_payload.get("order", 280) or 280),
                 capture_handler=self._capture_sensory_snapshot,
-                metadata={
-                    "kind": "physiology",
-                    "unit": "bpm",
-                    "prompt_fragment_enabled": False,
-                    "ping_payload": [
-                        {"field": "content", "description": "This is the user's current heart rate in BPM"},
-                        {"field": "metadata.kind", "description": "physiology"},
-                        {"field": "metadata.metric", "description": "heart_rate_bpm"},
-                        {"field": "metadata.unit", "description": "bpm"},
-                        {"field": "metadata.value", "description": "<current BPM integer>"},
-                    ],
-                },
+                metadata=dict(metadata_payload.get("metadata") or {}),
             )
 
         context.ui.register_manifest_designer_tab(

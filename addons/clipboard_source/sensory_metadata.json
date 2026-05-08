@@ -1,0 +1,40 @@
+{
+  "provider_id": "clipboard",
+  "label": "Clipboard",
+  "instruction": "Optional clipboard reference image may be attached as hidden ambient context or armed for the next user turn when a copied image is available.",
+  "description": "Image provider published by the Clipboard Source addon. It can attach the latest copied image to hidden sensory feedback when enabled.",
+  "order": 120,
+  "metadata": {
+    "kind": "image",
+    "prompt_fragment_enabled": false,
+    "ping_payload": [
+      {
+        "field": "content_text",
+        "description": "Hidden sensory feedback marker and whether the clipboard image is new or unchanged."
+      },
+      {
+        "field": "image_path",
+        "description": "Local path to the latest captured clipboard image."
+      }
+    ],
+    "pong_influences": [
+      {
+        "field": "attention",
+        "description": "What the clipboard image appears to contain, if relevant."
+      },
+      {
+        "field": "summary",
+        "description": "Brief visual summary of the clipboard image."
+      },
+      {
+        "field": "visual_candidate",
+        "description": "Optional image-generation idea if the clipboard image suggests a visual reply."
+      },
+      {
+        "field": "should_speak",
+        "description": "Whether enabled clipboard behavior rules should trigger a proactive interruption."
+      }
+    ],
+    "tag_subscriptions": []
+  }
+}

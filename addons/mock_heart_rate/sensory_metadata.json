@@ -1,0 +1,49 @@
+{
+  "provider_id": "heart_rate",
+  "label": "Heart Rate",
+  "instruction": "Hidden sensory input may include the user's current heart rate in BPM.",
+  "description": "Text-only heart-rate provider published by the Mock Heart Rate addon.",
+  "order": 280,
+  "metadata": {
+    "kind": "physiology",
+    "unit": "bpm",
+    "prompt_fragment_enabled": false,
+    "ping_payload": [
+      {
+        "field": "content",
+        "description": "This is the user's current heart rate in BPM."
+      },
+      {
+        "field": "metadata.kind",
+        "description": "physiology"
+      },
+      {
+        "field": "metadata.metric",
+        "description": "heart_rate_bpm"
+      },
+      {
+        "field": "metadata.unit",
+        "description": "bpm"
+      },
+      {
+        "field": "metadata.value",
+        "description": "<current BPM integer>"
+      }
+    ],
+    "pong_influences": [
+      {
+        "field": "emotion",
+        "description": "Optional emotional interpretation of the current heart-rate state."
+      },
+      {
+        "field": "summary",
+        "description": "Brief interpretation of the current BPM."
+      },
+      {
+        "field": "should_speak",
+        "description": "Whether enabled heart-rate behavior rules should trigger a proactive interruption."
+      }
+    ],
+    "tag_subscriptions": []
+  }
+}
