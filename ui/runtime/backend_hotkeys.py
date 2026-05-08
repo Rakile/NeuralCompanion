@@ -6,8 +6,9 @@ class BackendHotkeyMixin:
         callback = getattr(self, "_invoke_addon_capability", None)
         if not callable(callback):
             return default
+        addon_id = self._addon_id_for_ui_role("hotkeys", fallback="")
         return callback(
-            "nc.hotkeys",
+            addon_id,
             f"runtime.backend.{method_name}",
             {"backend": self, "args": list(args), "kwargs": dict(kwargs)},
             default=default,

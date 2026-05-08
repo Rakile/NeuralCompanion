@@ -14,6 +14,7 @@ from pathlib import Path
 
 _ADDON_ENTRY_BY_ID = {}
 _ADDON_ID_BY_UI_ROLE = {}
+_ADDON_ID_BY_SERVICE = {}
 
 
 def _iter_addon_manifests():
@@ -43,6 +44,10 @@ def _addon_entry_path(addon_id):
     return None
 
 
+def addon_entry_path(addon_id):
+    return _addon_entry_path(addon_id)
+
+
 def addon_id_for_ui_role(role):
     role = str(role or "").strip().lower()
     if not role:
@@ -61,6 +66,39 @@ def addon_id_for_ui_role(role):
                 _ADDON_ID_BY_UI_ROLE[role] = addon_id
                 return addon_id
     _ADDON_ID_BY_UI_ROLE[role] = ""
+    return ""
+
+
+def addon_id_for_service(service_id, **metadata_match):
+    service_id = str(service_id or "").strip()
+    if not service_id:
+        return ""
+    normalized_match = {
+        str(key): str(value or "").strip().lower()
+        for key, value in dict(metadata_match or {}).items()
+        if str(key or "").strip()
+    }
+    cache_key = (service_id, tuple(sorted(normalized_match.items())))
+    if cache_key in _ADDON_ID_BY_SERVICE:
+        return _ADDON_ID_BY_SERVICE[cache_key]
+    for _manifest_path, payload in _iter_addon_manifests():
+        addon_id = str(payload.get("id") or "").strip()
+        if not addon_id:
+            continue
+        for service in list(payload.get("services") or []):
+            if not isinstance(service, dict):
+                continue
+            if str(service.get("id") or "").strip() != service_id:
+                continue
+            matched = True
+            for key, value in normalized_match.items():
+                if str(service.get(key) or "").strip().lower() != value:
+                    matched = False
+                    break
+            if matched:
+                _ADDON_ID_BY_SERVICE[cache_key] = addon_id
+                return addon_id
+    _ADDON_ID_BY_SERVICE[cache_key] = ""
     return ""
 
 

@@ -1,10 +1,12 @@
 import importlib.util
+import importlib.util
 from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
+from ui.runtime.shell_addon_services import addon_entry_path, addon_id_for_service, addon_id_for_ui_role
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
 from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
 
@@ -46,16 +48,10 @@ class BackendSystemShapingBuilderMixin:
                     return result
             except Exception:
                 pass
-        addon_dir_name = {
-            "nc.musetalk_avatar": "musetalk_avatar",
-            "nc.visual_reply": "visual_reply",
-            "nc.vam_avatar": "vam_avatar",
-        }.get(str(addon_id or "").strip())
-        if not addon_dir_name:
+        entry_path = addon_entry_path(addon_id)
+        if entry_path is None or not entry_path.exists():
             return default
-        entry_path = Path(__file__).resolve().parents[2] / "addons" / addon_dir_name / "main.py"
-        if not entry_path.exists():
-            return default
+        addon_dir_name = entry_path.parent.name
         try:
             module_name = f"nc_bootstrap_{addon_dir_name}"
             spec = importlib.util.spec_from_file_location(module_name, entry_path)
@@ -74,10 +70,8 @@ class BackendSystemShapingBuilderMixin:
             return default
 
     def _invoke_avatar_bootstrap_capability(self, provider_id, capability, payload=None, default=None):
-        addon_id = {
-            "musetalk": "nc.musetalk_avatar",
-            "vam": "nc.vam_avatar",
-        }.get(str(provider_id or "").strip().lower())
+        provider = str(provider_id or "").strip().lower()
+        addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
         if not addon_id:
             return default
         result = self._invoke_addon_service_capability(
@@ -85,22 +79,22 @@ class BackendSystemShapingBuilderMixin:
             capability,
             payload,
             default=None,
-            provider_id=str(provider_id or "").strip().lower(),
-        )
+                provider_id=provider,
+            )
         if result is not None:
             return result
         return self._invoke_bootstrap_addon_capability(addon_id, capability, payload, default=default)
 
     def _invoke_visual_reply_capability(self, capability, payload=None, default=None):
         result = self._invoke_addon_capability(
-            self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
+            self._addon_id_for_ui_role("visual_reply", fallback=addon_id_for_ui_role("visual_reply")),
             capability,
             payload,
             default=None,
         )
         if result is not None:
             return result
-        return self._invoke_bootstrap_addon_capability("nc.visual_reply", capability, payload, default=default)
+        return self._invoke_bootstrap_addon_capability(addon_id_for_ui_role("visual_reply"), capability, payload, default=default)
 
     def _build_runtime_shell_tab(self):
         tab = QtWidgets.QWidget()
