@@ -26,6 +26,7 @@ class Addon(BaseAddon):
                 "kind": "avatar",
                 "transport": "vam_bridge",
                 "runtime_context": True,
+                "real_ui_bridge_module": "addons.vam_avatar.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(

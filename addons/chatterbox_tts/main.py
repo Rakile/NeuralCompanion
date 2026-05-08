@@ -50,6 +50,8 @@ class Addon(BaseAddon):
                 "preferred_for_streaming": False,
                 "preferred_for_non_streaming": True,
                 "supports_voice_reference": True,
+                "runtime_overhead_gib": 5.2,
+                "real_ui_bridge_module": "addons.chatterbox_tts.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(

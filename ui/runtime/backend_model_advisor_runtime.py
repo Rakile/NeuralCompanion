@@ -145,7 +145,7 @@ class BackendModelAdvisorRuntimeMixin:
         }
 
     def _estimate_setup_increment_gib(self):
-        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else "musetalk"
+        avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(getattr(_engine(), "RUNTIME_CONFIG", {}).get("avatar_mode", "") or "")
         tts_backend = self._current_tts_backend_value()
 
         budget = self._invoke_addon_service_capability(
@@ -156,7 +156,7 @@ class BackendModelAdvisorRuntimeMixin:
             provider_id=avatar_mode,
         )
         if budget is None:
-            budget = 6.5 if avatar_mode == "musetalk" else (1.0 if avatar_mode == "vam" else 0.8 if avatar_mode == "vseeface" else 0.0)
+            budget = 0.0
         budget = float(budget or 0.0)
 
         tts_budget = self._invoke_addon_service_capability(
@@ -167,7 +167,7 @@ class BackendModelAdvisorRuntimeMixin:
             backend_id=tts_backend,
         )
         if tts_budget is None:
-            tts_budget = 5.2 if tts_backend == "chatterbox" else (2.0 if tts_backend == "pockettts" else 0.1)
+            tts_budget = 0.0
         budget += float(tts_budget or 0.0)
         if hasattr(self, "stream_mode_combo") and self.stream_mode_combo.currentText() == "On":
             budget += MODEL_ADVISOR_STREAM_OVERHEAD_GIB

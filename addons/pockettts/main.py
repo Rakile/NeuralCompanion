@@ -50,6 +50,8 @@ class Addon(BaseAddon):
                 "preferred_for_streaming": True,
                 "preferred_for_non_streaming": False,
                 "supports_voice_reference": True,
+                "runtime_overhead_gib": 2.0,
+                "real_ui_bridge_module": "addons.pockettts.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(

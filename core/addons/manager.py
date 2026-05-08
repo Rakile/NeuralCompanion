@@ -304,6 +304,32 @@ class AddonManager:
                 self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
         return None
 
+    def invoke_all_capabilities(self, capability: str, payload: dict[str, Any] | None = None) -> list[Any]:
+        """Invoke a capability on every initialized addon and collect results.
+
+        This is useful for addon-owned UI binding phases where there is no
+        single selected addon. Addons that do not implement the capability simply
+        return ``None`` and are ignored.
+        """
+
+        capability = str(capability or "").strip()
+        if not capability:
+            return []
+        request = dict(payload or {})
+        results: list[Any] = []
+        for record in self._records:
+            if record.state != "initialized" or record.instance is None:
+                continue
+            try:
+                if not hasattr(record.instance, "invoke_capability"):
+                    continue
+                result = record.instance.invoke_capability(capability, request)
+                if result is not None:
+                    results.append(result)
+            except Exception:
+                self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
+        return results
+
     def invoke_addon_capability(self, addon_id: str, capability: str, payload: dict[str, Any] | None = None) -> Any:
         """Invoke a capability on one initialized addon.
 

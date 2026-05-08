@@ -24,6 +24,7 @@ class Addon(BaseAddon):
                 "kind": "avatar",
                 "transport": "vmc_osc",
                 "runtime_context": True,
+                "real_ui_bridge_module": "addons.vseeface_avatar.real_ui_bridge",
             },
         )
         context.ui.register_manifest_designer_tab(

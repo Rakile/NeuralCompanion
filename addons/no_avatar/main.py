@@ -20,7 +20,12 @@ class Addon(BaseAddon):
             description="Audio-only mode with no external avatar engine.",
             order=900,
             factory=self._create_adapter,
-            metadata={"kind": "avatar", "audio_only": True},
+            metadata={
+                "kind": "avatar",
+                "audio_only": True,
+                "runtime_overhead_gib": 0.0,
+                "real_ui_bridge_module": "addons.no_avatar.real_ui_bridge",
+            },
         )
         context.logger.info("No Avatar provider addon initialized.")
         return None

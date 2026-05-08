@@ -176,11 +176,6 @@ class BackendTtsRuntimeMixin:
             backend_specs = list(_engine().list_available_tts_backends() or [])
         except Exception:
             backend_specs = []
-        if not backend_specs:
-            backend_specs = [
-                {"id": "chatterbox", "label": "Chatterbox"},
-                {"id": "pockettts", "label": "PocketTTS"},
-            ]
         seen = set()
         for spec in backend_specs:
             backend_id = str(spec.get("id") or "").strip().lower()
@@ -206,29 +201,13 @@ class BackendTtsRuntimeMixin:
     def _tts_backend_metadata(self, backend_id):
         backend_id = str(backend_id or "").strip().lower()
         spec = self._available_tts_backend_specs_by_id().get(backend_id, {})
-        metadata = dict(spec.get("metadata") or {})
-        if not metadata:
-            legacy_defaults = {
-                "chatterbox": {
-                    "supports_voice_reference": True,
-                    "preferred_for_non_streaming": True,
-                    "preferred_for_streaming": False,
-                },
-                "pockettts": {
-                    "supports_voice_reference": True,
-                    "preferred_for_non_streaming": False,
-                    "preferred_for_streaming": True,
-                    "supports_streaming": True,
-                },
-            }
-            metadata.update(legacy_defaults.get(backend_id, {}))
-        return metadata
+        return dict(spec.get("metadata") or {})
 
     def _tts_backend_supports_voice_reference(self, backend_id):
         metadata = self._tts_backend_metadata(backend_id)
         if "supports_voice_reference" in metadata:
             return bool(metadata.get("supports_voice_reference"))
-        return str(backend_id or "").strip().lower() in {"chatterbox", "pockettts"}
+        return False
 
     def _preferred_tts_backend_for_stream_mode(self, enabled):
         desired_key = "preferred_for_streaming" if enabled else "preferred_for_non_streaming"
@@ -237,29 +216,26 @@ class BackendTtsRuntimeMixin:
             metadata = self._tts_backend_metadata(backend_id)
             if bool(metadata.get(desired_key, False)):
                 return str(backend_id or "").strip().lower()
-        legacy = "pockettts" if enabled else "chatterbox"
-        if any(str(backend_id or "").strip().lower() == legacy for _label, backend_id in options):
-            return legacy
         return ""
 
     def _populate_tts_backend_combo(self, selected_value=None):
         combo = getattr(self, "tts_backend_combo", None)
         if combo is None:
             return
+        options = self._available_tts_backend_options()
+        first_backend = str(options[0][1] if options else "none").strip().lower() or "none"
         desired = str(
             selected_value
             or self._current_tts_backend_value()
-            or _runtime_config().get("tts_backend", "chatterbox")
-            or "chatterbox"
+            or _runtime_config().get("tts_backend", first_backend)
+            or first_backend
         ).strip().lower()
         combo.blockSignals(True)
         try:
             combo.clear()
-            for label, backend_id in self._available_tts_backend_options():
+            for label, backend_id in options:
                 combo.addItem(label, backend_id)
             index = combo.findData(desired)
-            if index < 0:
-                index = combo.findData("chatterbox")
             if index < 0 and combo.count() > 0:
                 index = 0
             if index >= 0:
@@ -276,7 +252,13 @@ class BackendTtsRuntimeMixin:
             text = str(combo.currentText() or "").strip()
             if text:
                 return self._tts_backend_value_from_label(text)
-        return str(_runtime_config().get("tts_backend", "chatterbox") or "chatterbox").strip().lower()
+        configured = str(_runtime_config().get("tts_backend", "") or "").strip().lower()
+        if configured:
+            return configured
+        options = self._available_tts_backend_options()
+        if options:
+            return str(options[0][1] or "").strip().lower()
+        return "none"
 
     def _tts_backend_value_from_label(self, label):
         normalized = str(label or "").strip().lower()
@@ -285,8 +267,6 @@ class BackendTtsRuntimeMixin:
                 return str(backend_id or "").strip().lower()
             if normalized == str(backend_id or "").strip().lower():
                 return str(backend_id or "").strip().lower()
-        if normalized in {"chatterbox", "pockettts"}:
-            return normalized
         return normalized
 
     def _tts_backend_label_from_value(self, value):
@@ -294,10 +274,6 @@ class BackendTtsRuntimeMixin:
         for display_label, backend_id in self._available_tts_backend_options():
             if normalized == str(backend_id or "").strip().lower():
                 return str(display_label or backend_id).strip()
-        if normalized == "chatterbox":
-            return "Chatterbox"
-        if normalized == "pockettts":
-            return "PocketTTS"
         return str(value or "").strip() or "External TTS"
 
     def on_tts_seed_changed(self, value):
@@ -374,8 +350,13 @@ class BackendTtsRuntimeMixin:
     def on_tts_backend_change(self, choice):
         backend = self._current_tts_backend_value()
         _update_runtime_config("tts_backend", backend)
-        if backend == "pockettts":
-            self._ensure_pocket_tts_python_path()
+        self._invoke_addon_service_capability(
+            "tts_backend_service",
+            "ui.ensure_python_path",
+            {"backend": self},
+            default=None,
+            backend_id=backend,
+        )
         engine_running = bool(getattr(self, "thread", None) and self.thread.is_alive())
         if engine_running:
             try:

@@ -171,6 +171,19 @@ class BackendAddonLifecycleMixin:
             return default
         return default if result is None else result
 
+    def _invoke_all_addon_capabilities(self, capability, payload=None):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return []
+        try:
+            invoke_all = getattr(manager, "invoke_all_capabilities", None)
+            if callable(invoke_all):
+                return list(invoke_all(str(capability), dict(payload or {})) or [])
+            result = manager.invoke_capability(str(capability), dict(payload or {}))
+            return [] if result is None else [result]
+        except Exception:
+            return []
+
     def _invoke_addon_service_capability(self, service_id, capability, payload=None, default=None, **metadata_match):
         manager = getattr(self, "_addon_manager", None)
         if manager is None:
