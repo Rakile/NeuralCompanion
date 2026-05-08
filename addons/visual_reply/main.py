@@ -159,6 +159,10 @@ class Addon(BaseAddon):
             if backend is not None and callable(method):
                 return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
             return None
+        if capability == "shell.create_visual_reply_service":
+            from addons.visual_reply.shell_service import _UiShellVisualReplyService
+
+            return _UiShellVisualReplyService(payload.get("window"))
         if capability != "visual_reply.build_runtime_panel":
             return None
         controller = self._peek_controller()

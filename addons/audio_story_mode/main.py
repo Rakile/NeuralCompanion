@@ -198,6 +198,10 @@ class Addon(BaseAddon):
                 return real_ui_bridge.sync_frontend_slider_to_controller(bridge, payload.get("value"))
             if capability_name == "real_ui.apply_seek":
                 return real_ui_bridge.apply_seek_from_frontend(bridge)
+        if capability_name == "shell.create_audio_story_preview":
+            from addons.audio_story_mode.shell_preview import AudioStoryShellPreview
+
+            return AudioStoryShellPreview(payload.get("window"))
         controller = self._ensure_controller()
         if controller is None:
             return None

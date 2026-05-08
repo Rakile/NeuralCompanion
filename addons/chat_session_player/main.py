@@ -58,4 +58,8 @@ class Addon(BaseAddon):
                 payload.get("chat_edit"),
                 payload.get("point"),
             )
+        if capability == "shell.create_chat_replay_service":
+            from addons.chat_session_player.shell_service import _UiShellChatReplayService
+
+            return _UiShellChatReplayService(payload.get("window"))
         return None

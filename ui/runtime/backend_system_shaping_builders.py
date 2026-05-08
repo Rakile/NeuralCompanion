@@ -1,3 +1,6 @@
+import importlib.util
+from pathlib import Path
+
 from PySide6 import QtCore, QtWidgets
 
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
@@ -28,13 +31,76 @@ class BackendSystemShapingPanelMixin:
     """Build the backend System Shaping and Workspace panels."""
 
 class BackendSystemShapingBuilderMixin:
+    def _invoke_bootstrap_addon_capability(self, addon_id, capability, payload=None, default=None):
+        """Invoke an addon capability before the full addon manager exists.
+
+        The hidden backend builds some compatibility widgets before normal addon
+        initialization. Keep that bootstrap path going through addon entrypoints
+        instead of importing addon UI bridge modules directly from the host.
+        """
+        manager = getattr(self, "_addon_manager", None)
+        if manager is not None:
+            try:
+                result = manager.invoke_addon_capability(str(addon_id), str(capability), dict(payload or {}))
+                if result is not None:
+                    return result
+            except Exception:
+                pass
+        addon_dir_name = {
+            "nc.musetalk_avatar": "musetalk_avatar",
+            "nc.visual_reply": "visual_reply",
+            "nc.vam_avatar": "vam_avatar",
+        }.get(str(addon_id or "").strip())
+        if not addon_dir_name:
+            return default
+        entry_path = Path(__file__).resolve().parents[2] / "addons" / addon_dir_name / "main.py"
+        if not entry_path.exists():
+            return default
+        try:
+            module_name = f"nc_bootstrap_{addon_dir_name}"
+            spec = importlib.util.spec_from_file_location(module_name, entry_path)
+            if spec is None or spec.loader is None:
+                return default
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+            addon_cls = getattr(module, "Addon", None)
+            addon = addon_cls() if callable(addon_cls) else None
+            invoker = getattr(addon, "invoke_capability", None)
+            if not callable(invoker):
+                return default
+            result = invoker(str(capability), dict(payload or {}))
+            return default if result is None else result
+        except Exception:
+            return default
+
+    def _invoke_avatar_bootstrap_capability(self, provider_id, capability, payload=None, default=None):
+        addon_id = {
+            "musetalk": "nc.musetalk_avatar",
+            "vam": "nc.vam_avatar",
+        }.get(str(provider_id or "").strip().lower())
+        if not addon_id:
+            return default
+        result = self._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            capability,
+            payload,
+            default=None,
+            provider_id=str(provider_id or "").strip().lower(),
+        )
+        if result is not None:
+            return result
+        return self._invoke_bootstrap_addon_capability(addon_id, capability, payload, default=default)
+
     def _invoke_visual_reply_capability(self, capability, payload=None, default=None):
-        return self._invoke_addon_capability(
+        result = self._invoke_addon_capability(
             self._addon_id_for_ui_role("visual_reply", fallback="nc.visual_reply"),
             capability,
             payload,
-            default=default,
+            default=None,
         )
+        if result is not None:
+            return result
+        return self._invoke_bootstrap_addon_capability("nc.visual_reply", capability, payload, default=default)
 
     def _build_runtime_shell_tab(self):
         tab = QtWidgets.QWidget()
@@ -85,17 +151,12 @@ class BackendSystemShapingBuilderMixin:
         self.btn_push_to_talk.pressed.connect(lambda: _engine().set_push_to_talk_hold(True))
         self.btn_push_to_talk.released.connect(lambda: _engine().set_push_to_talk_hold(False))
         self.btn_push_to_talk.setEnabled(False)
-        musetalk_buttons = self._invoke_addon_service_capability(
-            "avatar_provider_registry",
+        musetalk_buttons = self._invoke_avatar_bootstrap_capability(
+            "musetalk",
             "legacy.build_utility_buttons",
             {"backend": self},
             default=None,
-            provider_id="musetalk",
         )
-        if musetalk_buttons is None:
-            from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-
-            musetalk_buttons = musetalk_real_ui_bridge.build_legacy_utility_buttons(self)
         for button in list(musetalk_buttons or []):
             utility_row.addWidget(button)
         visual_reply_button = self._invoke_visual_reply_capability(
@@ -171,12 +232,6 @@ class BackendSystemShapingBuilderMixin:
         )
         if tab is not None:
             return tab
-        try:
-            from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
-
-            return visual_reply_real_ui_bridge.build_legacy_settings_tab(self)
-        except Exception:
-            pass
         fallback = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(fallback)
         layout.addWidget(QtWidgets.QLabel("Visual Reply addon is not available."))
@@ -520,26 +575,17 @@ class BackendSystemShapingBuilderMixin:
         self.tts_backend_combo.currentTextChanged.connect(self.on_tts_backend_change)
         self._populate_tts_backend_combo()
 
-        built = self._invoke_addon_service_capability(
-            "avatar_provider_registry",
+        built = self._invoke_avatar_bootstrap_capability(
+            "musetalk",
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
-            provider_id="musetalk",
         )
-        if not built:
-            from addons.musetalk_avatar import real_ui_bridge as musetalk_real_ui_bridge
-
-            musetalk_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
         built = self._invoke_visual_reply_capability(
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
         )
-        if not built:
-            from addons.visual_reply import real_ui_bridge as visual_reply_real_ui_bridge
-
-            visual_reply_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
 
         self.sensory_feedback_source_combo = NoWheelComboBox()
         self.sensory_feedback_source_combo.setObjectName("sensory_feedback_source_combo")
@@ -599,17 +645,12 @@ class BackendSystemShapingBuilderMixin:
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
 
-        built = self._invoke_addon_service_capability(
-            "avatar_provider_registry",
+        built = self._invoke_avatar_bootstrap_capability(
+            "vam",
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
-            provider_id="vam",
         )
-        if not built:
-            from addons.vam_avatar import real_ui_bridge as vam_real_ui_bridge
-
-            vam_real_ui_bridge.build_legacy_runtime_widgets(self, runtime_config)
 
         self.chat_provider_combo = NoWheelComboBox()
         self.chat_provider_combo.setObjectName("chat_provider_combo")

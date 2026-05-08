@@ -2,12 +2,46 @@
 
 from collections import OrderedDict
 
-from addons.hotkeys.shell_service import _UiShellHotkeyService
-from addons.visual_reply.shell_service import _UiShellVisualReplyService
+from ui.runtime.shell_addon_services import create_shell_addon_service
 
 
 def configure_shell_services_providers_dependencies(namespace):
     globals().update(dict(namespace or {}))
+
+
+class _UiShellHotkeyService:
+    """Read-only shell hotkey service supplied by the Hotkeys addon."""
+
+    def __init__(self):
+        self._service = create_shell_addon_service(
+            "nc.hotkeys",
+            "shell.create_hotkey_service",
+            default=None,
+        )
+
+    def __getattr__(self, name):
+        service = object.__getattribute__(self, "_service")
+        if service is None:
+            raise AttributeError(name)
+        return getattr(service, name)
+
+
+class _UiShellVisualReplyService:
+    """Shell-only visual reply service supplied by the Visual Reply addon."""
+
+    def __init__(self, window):
+        self._service = create_shell_addon_service(
+            "nc.visual_reply",
+            "shell.create_visual_reply_service",
+            {"window": window},
+            default=None,
+        )
+
+    def __getattr__(self, name):
+        service = object.__getattribute__(self, "_service")
+        if service is None:
+            raise AttributeError(name)
+        return getattr(service, name)
 
 
 class _UiShellSensoryService:

@@ -4,8 +4,7 @@ import json
 from collections import OrderedDict
 from pathlib import Path
 
-from addons.audio_story_mode.shell_preview import AudioStoryShellPreview
-from addons.chat_session_player.shell_service import _UiShellChatReplayService
+from ui.runtime.shell_addon_services import create_shell_addon_service
 
 
 def configure_shell_services_actions_dependencies(namespace):
@@ -15,14 +14,19 @@ def configure_shell_services_actions_dependencies(namespace):
 class _UiShellInputActionService:
     """Shell-safe input/runtime-adjacent control facade."""
 
-    AUDIO_STORY_PLAYBACK_MODES = AudioStoryShellPreview.PLAYBACK_MODES
-    AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS = AudioStoryShellPreview.DEFAULT_TRANSCRIBE_SECONDS
+    AUDIO_STORY_PLAYBACK_MODES = ("Play Imported Audio", "Use TTS Narration")
+    AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS = 8
 
     def __init__(self, window):
         self._window = window
         self._last_action = ""
         self._push_to_talk_held = False
-        self._audio_story = AudioStoryShellPreview(window)
+        self._audio_story = create_shell_addon_service(
+            "nc.audio_story_mode",
+            "shell.create_audio_story_preview",
+            {"window": window},
+            default=_NullAudioStoryPreview(),
+        )
 
     def _push_to_talk_enabled(self) -> bool:
         session = dict(_read_ui_shell_session_snapshot() or {})
@@ -111,6 +115,55 @@ class _UiShellInputActionService:
         payload = self._audio_story.seek(position_percent)
         payload.update({"last_action": self._last_action, "shell_mode": True, "source": "ui_shell"})
         return payload
+
+
+class _NullAudioStoryPreview:
+    def snapshot(self):
+        return {
+            "audio_story_has_audio": False,
+            "audio_story_playback_state": "stopped",
+            "audio_story_seek_percent": 0,
+            "audio_story_position_text": "00:00 / 00:00",
+        }
+
+    def set_audio_file_path(self, _path):
+        return self.snapshot()
+
+    def request_audio_import(self):
+        return self.snapshot()
+
+    def request_audio_transcription(self):
+        return self.snapshot()
+
+    def play(self):
+        return self.snapshot()
+
+    def pause(self):
+        return self.snapshot()
+
+    def stop(self):
+        return self.snapshot()
+
+    def seek(self, _position_percent):
+        return self.snapshot()
+
+
+class _UiShellChatReplayService:
+    """Shell-safe replay facade supplied by the Chat Player addon."""
+
+    def __init__(self, window):
+        self._service = create_shell_addon_service(
+            "nc.chat_session_player",
+            "shell.create_chat_replay_service",
+            {"window": window},
+            default=None,
+        )
+
+    def __getattr__(self, name):
+        service = object.__getattribute__(self, "_service")
+        if service is None:
+            raise AttributeError(name)
+        return getattr(service, name)
 
 
 class _UiShellTutorialService:

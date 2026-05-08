@@ -46,4 +46,8 @@ class Addon(BaseAddon):
             method = getattr(BackendHotkeyMixin, method_name, None)
             if backend is not None and callable(method):
                 return method(backend, *list(payload.get("args") or []), **dict(payload.get("kwargs") or {}))
+        if capability == "shell.create_hotkey_service":
+            from addons.hotkeys.shell_service import _UiShellHotkeyService
+
+            return _UiShellHotkeyService()
         return None
