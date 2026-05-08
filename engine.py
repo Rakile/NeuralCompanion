@@ -54,7 +54,6 @@ import shared_state
 from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
-from addons.vam_avatar import config as vam_avatar_config
 from pydub import AudioSegment
 
 
@@ -427,33 +426,141 @@ def _path_endswith_parts(path_value, *parts):
     return runtime_paths.path_endswith_parts(path_value, *parts)
 
 
+_AVATAR_ADDON_MODULE_CACHE = {}
+_AVATAR_PROVIDER_FOLDER_CACHE = {}
+
+
+def _avatar_addon_folder_for_provider(provider_id):
+    provider = avatar_runtime.normalize_provider_id(provider_id, fallback="")
+    if not provider:
+        return ""
+    if provider in _AVATAR_PROVIDER_FOLDER_CACHE:
+        return _AVATAR_PROVIDER_FOLDER_CACHE[provider]
+    addons_root = Path(__file__).resolve().parent / "addons"
+    for manifest_path in sorted(addons_root.glob("*/addon.json")):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        for service in list(payload.get("services") or []):
+            if not isinstance(service, dict):
+                continue
+            if str(service.get("id") or "").strip() != "avatar_provider_registry":
+                continue
+            if str(service.get("provider_id") or "").strip().lower() == provider:
+                folder = manifest_path.parent.name
+                _AVATAR_PROVIDER_FOLDER_CACHE[provider] = folder
+                return folder
+    _AVATAR_PROVIDER_FOLDER_CACHE[provider] = ""
+    return ""
+
+
+def _load_avatar_addon_module(provider_id):
+    folder = _avatar_addon_folder_for_provider(provider_id)
+    if not folder:
+        return None
+    if folder in _AVATAR_ADDON_MODULE_CACHE:
+        return _AVATAR_ADDON_MODULE_CACHE[folder]
+    module_path = Path(__file__).resolve().parent / "addons" / folder / "main.py"
+    if not module_path.exists():
+        return None
+    module_name = f"_nc_engine_avatar_bootstrap_{folder}"
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        return None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    _AVATAR_ADDON_MODULE_CACHE[folder] = module
+    return module
+
+
+def _invoke_avatar_addon_capability(provider_id, capability, payload=None, default=None):
+    module = _load_avatar_addon_module(provider_id)
+    addon_cls = getattr(module, "Addon", None) if module is not None else None
+    if addon_cls is None:
+        return default
+    try:
+        addon = addon_cls()
+        result = addon.invoke_capability(capability, payload or {})
+    except Exception:
+        logging.getLogger(__name__).exception("Avatar addon capability failed: %s/%s", provider_id, capability)
+        return default
+    return default if result is None else result
+
+
+def _vam_config():
+    return _invoke_avatar_addon_capability("vam", "runtime.vam_config", default={}) or {}
+
+
 def _detect_default_vam_root():
-    return vam_avatar_config.detect_default_root()
+    fn = _vam_config().get("detect_default_root")
+    if callable(fn):
+        return fn()
+    return runtime_paths.detect_default_vam_root(app_root=Path(__file__).resolve().parent, environ=os.environ)
 
 
 def derive_vam_bridge_root(vam_root):
-    return vam_avatar_config.derive_bridge_root(vam_root)
+    fn = _vam_config().get("derive_bridge_root")
+    if callable(fn):
+        return fn(vam_root)
+    return runtime_paths.derive_vam_bridge_root(vam_root, app_root=Path(__file__).resolve().parent)
 
 
 def derive_vam_plugin_dir(vam_root):
-    return vam_avatar_config.derive_plugin_dir(vam_root)
+    fn = _vam_config().get("derive_plugin_dir")
+    if callable(fn):
+        return fn(vam_root)
+    return runtime_paths.derive_vam_plugin_dir(vam_root)
 
 
-DEFAULT_VAM_ROOT = vam_avatar_config.DEFAULT_ROOT
-LEGACY_VAM_BRIDGE_ROOTS = vam_avatar_config.LEGACY_BRIDGE_ROOTS
+DEFAULT_VAM_ROOT = _vam_config().get("default_root") or _detect_default_vam_root()
+LEGACY_VAM_BRIDGE_ROOTS = tuple(_vam_config().get("legacy_bridge_roots") or runtime_paths.legacy_vam_bridge_roots(app_root=Path(__file__).resolve().parent))
 
 
 def normalize_vam_root(raw_value=None, migrate_legacy=True):
-    return vam_avatar_config.normalize_root(raw_value, migrate_legacy=migrate_legacy)
+    fn = _vam_config().get("normalize_root")
+    if callable(fn):
+        return fn(raw_value, migrate_legacy=migrate_legacy)
+    return runtime_paths.normalize_vam_root(
+        raw_value,
+        default_vam_root=DEFAULT_VAM_ROOT,
+        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
+        migrate_legacy=migrate_legacy,
+    )
 
 
 def normalize_vam_bridge_root(raw_value=None, migrate_legacy=True):
-    return vam_avatar_config.normalize_bridge_root(raw_value, migrate_legacy=migrate_legacy)
+    fn = _vam_config().get("normalize_bridge_root")
+    if callable(fn):
+        return fn(raw_value, migrate_legacy=migrate_legacy)
+    return runtime_paths.normalize_vam_bridge_root(
+        raw_value,
+        app_root=Path(__file__).resolve().parent,
+        default_vam_root=DEFAULT_VAM_ROOT,
+        legacy_roots=LEGACY_VAM_BRIDGE_ROOTS,
+        migrate_legacy=migrate_legacy,
+    )
 
 
-DEFAULT_VAM_EMOTION_PRESET_MAP = vam_avatar_config.DEFAULT_EMOTION_PRESET_MAP
-DEFAULT_VAM_TIMELINE_CLIP_MAP = vam_avatar_config.DEFAULT_TIMELINE_CLIP_MAP
-DEFAULT_VAM_BRIDGE_ROOT = vam_avatar_config.DEFAULT_BRIDGE_ROOT
+DEFAULT_VAM_EMOTION_PRESET_MAP = dict(_vam_config().get("default_emotion_preset_map") or {
+    "neutral": "nc_neutral",
+    "happy": "nc_happy",
+    "angry": "nc_angry",
+    "sad": "nc_sad",
+    "surprised": "nc_surprised",
+    "shy": "nc_shy",
+    "default": "nc_neutral",
+})
+DEFAULT_VAM_TIMELINE_CLIP_MAP = dict(_vam_config().get("default_timeline_clip_map") or {
+    "happy": "talk_happy",
+    "angry": "talk_angry",
+    "sad": "talk_sad",
+    "surprised": "talk_surprised",
+    "shy": "talk_shy",
+    "default": "talk_default",
+})
+DEFAULT_VAM_BRIDGE_ROOT = _vam_config().get("default_bridge_root") or derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 
 VISUAL_REPLY_STORY_THEME_PRESETS = visual_reply_runtime.VISUAL_REPLY_STORY_THEME_PRESETS
 
@@ -5930,17 +6037,15 @@ def _build_avatar_runtime_context():
 def _create_fallback_avatar_adapter(mode, runtime_context):
     if mode == "none":
         return None
-    if mode == "musetalk":
-        from addons.musetalk_avatar.main import Addon as MuseTalkAvatarAddon
-
-        return MuseTalkAvatarAddon()._create_adapter(runtime_context=runtime_context)
-    if mode == "vam":
-        from addons.vam_avatar.main import Addon as VaMAvatarAddon
-
-        return VaMAvatarAddon()._create_adapter(runtime_context=runtime_context)
-    from addons.vseeface_avatar.main import Addon as VSeeFaceAvatarAddon
-
-    return VSeeFaceAvatarAddon()._create_adapter(runtime_context=runtime_context)
+    adapter = _invoke_avatar_addon_capability(
+        mode,
+        "runtime.create_adapter",
+        payload={"runtime_context": runtime_context},
+        default=None,
+    )
+    if adapter is None:
+        print(f"⚠️ Avatar provider '{mode}' is unavailable; continuing without avatar.")
+    return adapter
 
 
 def create_avatar_adapter_for_mode(avatar_mode: str):

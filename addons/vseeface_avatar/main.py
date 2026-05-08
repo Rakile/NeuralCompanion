@@ -66,6 +66,8 @@ class Addon(BaseAddon):
             backend = payload.get("backend")
             if backend is not None:
                 return real_ui_bridge.set_provider_controls_enabled(backend, bool(payload.get("enabled", False)))
+        if capability == "runtime.create_adapter":
+            return self._create_adapter(runtime_context=payload.get("runtime_context"))
         return None
 
     def _create_adapter(self, runtime_context=None):

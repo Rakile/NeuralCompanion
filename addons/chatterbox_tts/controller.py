@@ -8,7 +8,9 @@ class ChatterboxTTSController:
     def __init__(self, context=None):
         self.context = context
         self.shell = context.get_service("qt.shell") if context is not None else None
-        self._shell_preview = bool(context.get_service("qt.chatterbox_tts_shell_preview")) if context is not None else False
+        self._shell_preview = bool(
+            context.get_service("qt.shell_preview") or context.get_service("qt.chatterbox_tts_shell_preview")
+        ) if context is not None else False
         self._shell_state = self._initial_shell_state()
         self._widget = None
         self._build_pending = False

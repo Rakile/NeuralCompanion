@@ -20,7 +20,9 @@ def _load_controller_class():
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
-        self._shell_preview = bool(context.get_service("qt.musetalk_preprocess_shell_preview") if context is not None else False)
+        self._shell_preview = bool(
+            context.get_service("qt.shell_preview") or context.get_service("qt.musetalk_preprocess_shell_preview")
+        ) if context is not None else False
         self._controller_cls = None
         self.controller = None
         context.ui.register_manifest_designer_tab(

@@ -240,14 +240,9 @@ def _ui_shell_mount_live_addons(window, report):
         "qt.runtime_status": _ui_shell_runtime_status_service(window),
         "qt.sensory": sensory_registry,
         "qt.shell": _UiShellShellService(),
+        "qt.shell_preview": True,
         "qt.tutorials": _ui_shell_tutorial_service(window),
         "qt.visual_reply": _UiShellVisualReplyService(window),
-        "qt.audio_story_mode_shell_preview": True,
-        "qt.chatterbox_tts_shell_preview": True,
-        "qt.pockettts_shell_preview": True,
-        "qt.clipboard_source_shell_preview": True,
-        "qt.gemini_tts_preview_shell_preview": True,
-        "qt.musetalk_preprocess_shell_preview": True,
         "qt.shell_session_snapshot": _read_ui_shell_session_snapshot,
     }
 

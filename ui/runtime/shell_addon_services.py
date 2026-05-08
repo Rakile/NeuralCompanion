@@ -8,26 +8,41 @@ ask addon entrypoints for shell services through capability names.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 
 
-_ADDON_DIR_BY_ID = {
-    "nc.audio_story_mode": "audio_story_mode",
-    "nc.chat_session_player": "chat_session_player",
-    "nc.hotkeys": "hotkeys",
-    "nc.visual_reply": "visual_reply",
-}
+_ADDON_ENTRY_BY_ID = {}
+
+
+def _addon_entry_path(addon_id):
+    addon_id = str(addon_id or "").strip()
+    if not addon_id:
+        return None
+    if addon_id in _ADDON_ENTRY_BY_ID:
+        return _ADDON_ENTRY_BY_ID[addon_id]
+    addons_root = Path(__file__).resolve().parents[2] / "addons"
+    for manifest_path in sorted(addons_root.glob("*/addon.json")):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if str(payload.get("id") or "").strip() != addon_id:
+            continue
+        entry_point = str(payload.get("entry_point") or "main.py").strip() or "main.py"
+        entry_path = manifest_path.parent / entry_point
+        _ADDON_ENTRY_BY_ID[addon_id] = entry_path
+        return entry_path
+    _ADDON_ENTRY_BY_ID[addon_id] = None
+    return None
 
 
 def create_shell_addon_service(addon_id, capability, payload=None, default=None):
-    addon_dir_name = _ADDON_DIR_BY_ID.get(str(addon_id or "").strip())
-    if not addon_dir_name:
-        return default
-    entry_path = Path(__file__).resolve().parents[2] / "addons" / addon_dir_name / "main.py"
-    if not entry_path.exists():
+    entry_path = _addon_entry_path(addon_id)
+    if entry_path is None or not entry_path.exists():
         return default
     try:
-        module_name = f"nc_shell_service_{addon_dir_name}"
+        module_name = "nc_shell_service_" + str(addon_id or "addon").replace(".", "_")
         spec = importlib.util.spec_from_file_location(module_name, entry_path)
         if spec is None or spec.loader is None:
             return default

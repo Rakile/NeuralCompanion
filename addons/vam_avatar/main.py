@@ -57,6 +57,21 @@ class Addon(BaseAddon):
         payload = dict(payload or {})
         backend = payload.get("backend")
         runtime_config = payload.get("runtime_config")
+        if capability == "runtime.create_adapter":
+            return self._create_adapter(runtime_context=payload.get("runtime_context"))
+        if capability == "runtime.vam_config":
+            return {
+                "detect_default_root": vam_config.detect_default_root,
+                "derive_bridge_root": vam_config.derive_bridge_root,
+                "derive_plugin_dir": vam_config.derive_plugin_dir,
+                "normalize_root": vam_config.normalize_root,
+                "normalize_bridge_root": vam_config.normalize_bridge_root,
+                "default_root": vam_config.DEFAULT_ROOT,
+                "legacy_bridge_roots": vam_config.LEGACY_BRIDGE_ROOTS,
+                "default_bridge_root": vam_config.DEFAULT_BRIDGE_ROOT,
+                "default_emotion_preset_map": vam_config.DEFAULT_EMOTION_PRESET_MAP,
+                "default_timeline_clip_map": vam_config.DEFAULT_TIMELINE_CLIP_MAP,
+            }
         from addons.vam_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib":

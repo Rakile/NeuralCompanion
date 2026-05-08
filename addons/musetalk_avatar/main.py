@@ -56,6 +56,8 @@ class Addon(BaseAddon):
         payload = dict(payload or {})
         backend = payload.get("backend")
         runtime_config = payload.get("runtime_config")
+        if capability == "runtime.create_adapter":
+            return self._create_adapter(runtime_context=payload.get("runtime_context"))
         from addons.musetalk_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib" and backend is not None:

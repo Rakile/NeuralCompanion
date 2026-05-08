@@ -63,7 +63,9 @@ VOICE_OPTIONS = [
 class GeminiTTSPreviewService:
     def __init__(self, context):
         self._context = context
-        self._shell_preview = bool(context.get_service("qt.gemini_tts_preview_shell_preview")) if context is not None else False
+        self._shell_preview = bool(
+            context.get_service("qt.shell_preview") or context.get_service("qt.gemini_tts_preview_shell_preview")
+        ) if context is not None else False
         self._lock = threading.RLock()
         self._settings = {
             "api_key": self._env_value("NC_TTS_GEMINI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"),

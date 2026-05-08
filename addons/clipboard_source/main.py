@@ -23,7 +23,9 @@ class Addon(BaseAddon):
         self.last_auto_attached_image_hash = ""
         self.last_delivery_status = "No clipboard image captured yet."
         self._tab_refreshers = []
-        self._shell_preview = bool(context.get_service("qt.clipboard_source_shell_preview"))
+        self._shell_preview = bool(
+            context.get_service("qt.shell_preview") or context.get_service("qt.clipboard_source_shell_preview")
+        )
         if self._shell_preview:
             self.last_delivery_status = "Shell preview: clipboard monitoring, capture, and send actions are disabled."
         else:

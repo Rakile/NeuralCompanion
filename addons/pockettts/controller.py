@@ -10,7 +10,9 @@ class PocketTTSController:
         self.context = context
         self.dialogs = context.get_service("qt.dialogs") if context is not None else None
         self.shell = context.get_service("qt.shell") if context is not None else None
-        self._shell_preview = bool(context.get_service("qt.pockettts_shell_preview")) if context is not None else False
+        self._shell_preview = bool(
+            context.get_service("qt.shell_preview") or context.get_service("qt.pockettts_shell_preview")
+        ) if context is not None else False
         self._shell_python = self._initial_shell_python()
         self._widget = None
         self._advanced_group = None
