@@ -5,10 +5,24 @@
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+  "permissions": [
+    "ui.tabs"
+  ],
   "services": [
     {
       "id": "sensory_registry",
       "provider_id": "screen"
+    }
+  ],
+  "ui": [
+    {
+      "id": "screen_source_capture_tab",
+      "title": "Capture",
+      "area": "vision_source",
+      "parent_tab_id": "screen",
+      "ui_path": "ui/screen_source_capture.ui",
+      "order": 205,
+      "tooltip": "Screen screenshot size and compression settings."
     }
   ],
   "enabled": true
