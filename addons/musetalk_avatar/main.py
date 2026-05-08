@@ -59,6 +59,12 @@ class Addon(BaseAddon):
         runtime_config = payload.get("runtime_config")
         if capability == "runtime.create_adapter":
             return self._create_adapter(runtime_context=payload.get("runtime_context"))
+        if capability == "real_ui.sync_widget_names":
+            return {
+                "combo": ["musetalk_vram_combo", "musetalk_avatar_pack_combo"],
+                "checkbox": ["musetalk_use_frame_cache_checkbox"],
+                "spin": ["musetalk_loop_fade_spin"],
+            }
         if capability == "runtime.discover_avatar_packs":
             from core.musetalk_avatar_packs import discover_avatar_packs
 

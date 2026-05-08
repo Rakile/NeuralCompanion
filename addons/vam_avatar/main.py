@@ -60,6 +60,23 @@ class Addon(BaseAddon):
         runtime_config = payload.get("runtime_config")
         if capability == "runtime.create_adapter":
             return self._create_adapter(runtime_context=payload.get("runtime_context"))
+        if capability == "real_ui.sync_widget_names":
+            return {
+                "checkbox": [
+                    "vam_vmc_enabled_checkbox",
+                    "vam_bridge_enabled_checkbox",
+                    "vam_play_audio_in_vam_checkbox",
+                    "vam_timeline_auto_resume_checkbox",
+                ],
+                "spin": ["vam_vmc_port_spin"],
+                "line_edit": [
+                    "vam_root_edit",
+                    "vam_bridge_root_edit",
+                    "vam_target_atom_uid_edit",
+                    "vam_target_storable_id_edit",
+                    "vam_vmc_host_edit",
+                ],
+            }
         if capability == "runtime.vam_config":
             return {
                 "detect_default_root": vam_config.detect_default_root,
@@ -95,6 +112,13 @@ class Addon(BaseAddon):
             bridge = payload.get("bridge")
             if bridge is not None:
                 return real_ui_bridge.bind_runtime_controls(bridge)
+        if capability == "real_ui.mirror_runtime_widgets":
+            bridge = payload.get("bridge")
+            if bridge is not None:
+                return real_ui_bridge.mirror_runtime_widgets(
+                    bridge,
+                    force=bool(payload.get("force", False)),
+                )
         if capability == "real_ui.apply_provider_selected_defaults":
             backend = payload.get("backend")
             if backend is not None:

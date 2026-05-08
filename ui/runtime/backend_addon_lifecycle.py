@@ -8,34 +8,12 @@ except Exception:
     shiboken6 = None
 
 from ui.widgets.basic import NoWheelTabWidget
+from ui.runtime.addon_host_services import build_qt_host_services
 
 class BackendAddonLifecycleMixin:
     def _initialize_addons(self):
         import engine
         from core.addons.manager import AddonManager
-        from core.addons.qt_host_services import (
-            AddonCapabilityBridgeService,
-            QtAvatarProviderService,
-            QtChatContextService,
-            QtChatProviderService,
-            QtChatReplayService,
-            QtDialogService,
-            QtDryRunService,
-            QtEngineLifecycleService,
-            QtHotkeyService,
-            QtInputActionService,
-            QtInputSettingsService,
-            QtModelRefreshService,
-            QtMuseTalkUIService,
-            QtPerformanceProfileService,
-            QtPersonaAvatarService,
-            QtRuntimeControlService,
-            QtRuntimeStatusService,
-            QtSensoryService,
-            QtShellService,
-            QtTutorialService,
-            QtVisualReplyService,
-        )
 
         try:
             app_root = Path(__file__).resolve().parents[2]
@@ -45,30 +23,7 @@ class BackendAddonLifecycleMixin:
                 llm_snapshot_getter=self._build_addon_llm_snapshot,
                 tts_snapshot_getter=self._build_addon_tts_snapshot,
                 avatar_snapshot_getter=self._build_addon_avatar_snapshot,
-                host_services={
-                    "qt.chat_context": QtChatContextService(self),
-                    "qt.dialogs": QtDialogService(self),
-                    "qt.dry_run": QtDryRunService(self),
-                    "qt.engine_lifecycle": QtEngineLifecycleService(self),
-                    "qt.hotkeys": QtHotkeyService(self),
-                    "qt.input_actions": QtInputActionService(self),
-                    "qt.input_settings": QtInputSettingsService(self),
-                    "qt.persona_avatar": QtPersonaAvatarService(self),
-                    "qt.performance_profiles": QtPerformanceProfileService(self),
-                    "qt.model_refresh": QtModelRefreshService(self),
-                    "qt.runtime_controls": QtRuntimeControlService(self),
-                    "qt.runtime_status": QtRuntimeStatusService(self),
-                    "qt.shell": QtShellService(self),
-                    "qt.tutorials": QtTutorialService(self),
-                    "qt.musetalk_ui": QtMuseTalkUIService(self),
-                    "qt.visual_reply": QtVisualReplyService(self),
-                    "qt.avatar_providers": QtAvatarProviderService(self),
-                    "qt.sensory": QtSensoryService(self),
-                    "qt.chat_providers": QtChatProviderService(self),
-                    "qt.chat_replay": QtChatReplayService(self),
-                    "qt.bind_designer_widgets": self._bind_designer_widgets,
-                    "addons.capabilities": AddonCapabilityBridgeService(lambda: self._addon_manager),
-                },
+                host_services=build_qt_host_services(self),
             )
             manager.discover()
             manager.load_all()
@@ -161,6 +116,21 @@ class BackendAddonLifecycleMixin:
         except Exception:
             return True
 
+    def _addon_surface_runtime_available(self, addon_id):
+        target = str(addon_id or "").strip()
+        if not target:
+            return True
+        if not self._addon_effectively_enabled(target):
+            return False
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return True
+        try:
+            record = manager.get_addon_record(target)
+        except Exception:
+            return True
+        return bool(record is not None and str(getattr(record, "state", "") or "").strip() == "initialized")
+
     def _invoke_addon_capability(self, addon_id, capability, payload=None, default=None):
         manager = getattr(self, "_addon_manager", None)
         if manager is None or not addon_id:
@@ -212,7 +182,7 @@ class BackendAddonLifecycleMixin:
 
     def _visual_reply_addon_enabled(self):
         addon_id = self._addon_id_for_ui_role("visual_reply", fallback="")
-        return self._addon_effectively_enabled(addon_id)
+        return self._addon_surface_runtime_available(addon_id)
 
     def _remove_tab_by_widget_name_or_title(self, tabs, widget_name, fallback_title=""):
         if tabs is None or not hasattr(tabs, "count"):
@@ -319,6 +289,10 @@ class BackendAddonLifecycleMixin:
             placeholder_specs = list(manager.get_ui_placeholder_specs() if manager is not None else [])
         except Exception:
             placeholder_specs = []
+        try:
+            disabled_surface_specs = list(manager.get_ui_disabled_surface_specs() if manager is not None else [])
+        except Exception:
+            disabled_surface_specs = []
         tab_widgets = {
             "left_tabs": getattr(self, "tabs", None),
             "host_settings_tabs": getattr(self, "host_settings_tabs", None),
@@ -328,7 +302,7 @@ class BackendAddonLifecycleMixin:
         }
         for spec in placeholder_specs:
             addon_id = str(spec.get("addon_id") or "").strip()
-            if self._addon_effectively_enabled(addon_id):
+            if self._addon_surface_runtime_available(addon_id):
                 continue
             tabs = tab_widgets.get(str(spec.get("target") or "").strip())
             self._remove_tab_by_widget_name_or_title(
@@ -336,25 +310,40 @@ class BackendAddonLifecycleMixin:
                 str(spec.get("placeholder") or "").strip(),
                 str(spec.get("title") or "").strip(),
             )
-        if self._visual_reply_addon_enabled():
-            return
-        dock = getattr(self, "visual_reply_dock", None)
-        if dock is not None:
-            try:
-                dock.hide()
-            except Exception:
-                pass
-            try:
-                action = dock.toggleViewAction()
+        for spec in disabled_surface_specs:
+            addon_id = str(spec.get("addon_id") or "").strip()
+            if self._addon_surface_runtime_available(addon_id):
+                continue
+            dock_name = str(spec.get("dock_name") or "").strip()
+            if dock_name:
+                dock = getattr(self, dock_name, None)
+                if dock is not None:
+                    try:
+                        dock.hide()
+                    except Exception:
+                        pass
+                    try:
+                        action = dock.toggleViewAction()
+                        if action is not None:
+                            action.setVisible(False)
+                            action.setEnabled(False)
+                    except Exception:
+                        pass
+            button_name = str(spec.get("button_name") or "").strip()
+            if button_name:
+                button = getattr(self, button_name, None)
+                if button is not None:
+                    try:
+                        button.setVisible(False)
+                        button.setEnabled(False)
+                    except Exception:
+                        pass
+            action_name = str(spec.get("action_name") or "").strip()
+            if action_name:
+                action = getattr(self, action_name, None)
                 if action is not None:
-                    action.setVisible(False)
-                    action.setEnabled(False)
-            except Exception:
-                pass
-        button = getattr(self, "btn_visual_reply", None)
-        if button is not None:
-            try:
-                button.setVisible(False)
-                button.setEnabled(False)
-            except Exception:
-                pass
+                    try:
+                        action.setVisible(False)
+                        action.setEnabled(False)
+                    except Exception:
+                        pass

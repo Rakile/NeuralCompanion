@@ -3,7 +3,6 @@ from __future__ import annotations
 import base64
 import json
 import os
-import tempfile
 import threading
 import urllib.error
 import urllib.parse
@@ -12,6 +11,8 @@ import uuid
 import wave
 from pathlib import Path
 from typing import Any
+
+from core import runtime_paths
 
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -77,7 +78,7 @@ class GeminiTTSPreviewService:
             "language_code": self._env_value("NC_TTS_GEMINI_LANGUAGE_CODE", fallback=DEFAULT_LANGUAGE_CODE),
             "style_prompt": self._env_value("NC_TTS_GEMINI_STYLE_PROMPT", fallback=DEFAULT_STYLE_PROMPT),
         }
-        self._output_dir = Path(tempfile.gettempdir()) / "NeuralInterface" / "gemini_tts_preview"
+        self._output_dir = runtime_paths.runtime_temp_dir("gemini_tts_preview", create=not self._shell_preview)
         if not self._shell_preview:
             self._output_dir.mkdir(parents=True, exist_ok=True)
 

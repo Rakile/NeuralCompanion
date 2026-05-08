@@ -3,47 +3,11 @@ from ui.runtime.qt_app_cli import maybe_handle_ui_shell, maybe_handle_validate_u
 from ui.runtime.qt_app_shell_namespace import export_qt_app_shell_namespace
 
 globals().update(export_qt_app_shell_namespace())
-
 def validate_ui_file(raw_path):
     return _validate_ui_file(raw_path, base_path=__file__)
-
-
 def _resolve_ui_path(raw_path):
     return _resolve_ui_path_base(raw_path, base_path=__file__)
-
-
 maybe_handle_validate_ui(sys.argv, base_path=__file__)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 from ui.runtime.qt_app_shell_config import (
     configure_qt_app_shell_dependencies,
     _configure_app_entry_dependencies,
@@ -53,7 +17,6 @@ from ui.runtime.qt_app_shell_config import (
 )
 
 configure_qt_app_shell_dependencies(globals())
-
 
 maybe_handle_ui_shell(
     sys.argv,
@@ -70,16 +33,12 @@ from ui.runtime.qt_app_runtime_namespace import configure_runtime_environment, e
 configure_runtime_environment()
 globals().update(export_qt_app_runtime_namespace())
 
-
 from ui.main_window import *
-
-
 
 def main():
     configure_qt_app_shell_dependencies(globals())
     _configure_app_entry_dependencies()
     run_qt_app()
-
 
 if __name__ == "__main__":
     main()

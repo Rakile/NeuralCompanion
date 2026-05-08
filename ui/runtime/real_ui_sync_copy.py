@@ -266,7 +266,7 @@ class RealUiSyncCopyMixin:
             self._mirror_persona_runtime_widgets(force=force)
             self._copy_runtime_plain_text_state("sensory_pingpong_prompt_text", "sensory_pingpong_prompt")
             self._mirror_body_pose_runtime_widgets(force=force)
-            self._mirror_vam_runtime_widgets(force=force)
+            self._mirror_addon_runtime_widgets(force=force)
             self._mirror_chunking_runtime_widgets(force=force)
             self._mirror_provider_runtime_labels()
             self._refresh_frontend_theme_controls()

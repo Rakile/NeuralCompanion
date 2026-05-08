@@ -200,6 +200,21 @@ class MainUiRealTabAdoptionMixin:
             except Exception:
                 return True
 
+    def _addon_surface_runtime_available(self, addon_id):
+            target = str(addon_id or "").strip()
+            if not target:
+                return True
+            if not self._addon_effectively_enabled(target):
+                return False
+            manager = getattr(self.backend, "_addon_manager", None)
+            if manager is None:
+                return True
+            try:
+                record = manager.get_addon_record(target)
+            except Exception:
+                return True
+            return bool(record is not None and str(getattr(record, "state", "") or "").strip() == "initialized")
+
     def _addon_id_for_ui_role(self, role, fallback=""):
             manager = getattr(self.backend, "_addon_manager", None)
             if manager is not None:
@@ -213,7 +228,7 @@ class MainUiRealTabAdoptionMixin:
 
     def _visual_reply_addon_enabled(self):
             addon_id = self._addon_id_for_ui_role("visual_reply", fallback="")
-            return self._addon_effectively_enabled(addon_id)
+            return self._addon_surface_runtime_available(addon_id)
 
     def _remove_static_addon_placeholder_tab(self, tab_widget_name, placeholder_name, fallback_title=""):
             tabs = self._ui_object(tab_widget_name)
@@ -283,7 +298,7 @@ class MainUiRealTabAdoptionMixin:
             # absent, otherwise the disabled addon still appears in the real UI.
             placeholders = list(self._manifest_static_addon_placeholder_specs())
             for item in placeholders:
-                if self._addon_effectively_enabled(item.get("addon_id")):
+                if self._addon_surface_runtime_available(item.get("addon_id")):
                     continue
                 self._remove_static_addon_placeholder_tab(
                     item.get("tabs"),
@@ -344,6 +359,20 @@ class MainUiRealTabAdoptionMixin:
                 self._configure_frontend_tab_bars()
             except Exception:
                 pass
+            try:
+                self._fix_workspace_tab_content_layouts()
+            except Exception:
+                pass
+            self._refresh_audio_story_runtime_enabled()
+
+    def _refresh_audio_story_runtime_enabled(self):
+            try:
+                controller = self._audio_story_controller()
+                refresh = getattr(controller, "_force_audio_story_runtime_enabled", None)
+                if callable(refresh):
+                    refresh()
+            except Exception:
+                pass
 
     def _on_frontend_left_tab_changed(self, index):
             try:
@@ -356,3 +385,7 @@ class MainUiRealTabAdoptionMixin:
                     self.backend._sync_tab_widget_height(tabs)
                 except Exception:
                     pass
+            try:
+                self._fix_workspace_tab_content_layouts()
+            except Exception:
+                pass

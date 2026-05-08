@@ -129,6 +129,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.preload_lock = threading.Lock()
         self.preload_requests = queue.Queue(maxsize=256)
         self.preload_enqueued = set()
+        self._preload_shutdown = False
         self.preload_worker_thread = threading.Thread(target=self._preload_worker, daemon=True)
         self.preload_worker_thread.start()
 
@@ -230,6 +231,57 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     self.debug_mask_stroke_accumulator = None
                     return True
         return super().eventFilter(watched, event)
+
+    def closeEvent(self, event):
+        self.shutdown()
+        super().closeEvent(event)
+
+    def shutdown(self):
+        if getattr(self, "_preload_shutdown", False):
+            return
+        self._preload_shutdown = True
+        for timer_name in ("poll_timer", "loop_fade_timer"):
+            timer = getattr(self, timer_name, None)
+            if timer is None:
+                continue
+            try:
+                timer.stop()
+            except Exception:
+                pass
+        try:
+            self.image_label.removeEventFilter(self)
+        except Exception:
+            pass
+        try:
+            self.image_scroll.removeEventFilter(self)
+        except Exception:
+            pass
+        try:
+            self.image_scroll.viewport().removeEventFilter(self)
+        except Exception:
+            pass
+        with self.preload_lock:
+            self.preload_generation += 1
+            self.preload_enqueued.clear()
+            self.preloaded_frame_images.clear()
+        while True:
+            try:
+                self.preload_requests.get_nowait()
+                self.preload_requests.task_done()
+            except queue.Empty:
+                break
+            except Exception:
+                break
+        try:
+            self.preload_requests.put_nowait((None, None))
+        except Exception:
+            pass
+        worker = getattr(self, "preload_worker_thread", None)
+        if worker is not None and worker.is_alive() and threading.current_thread() is not worker:
+            try:
+                worker.join(timeout=0.35)
+            except Exception:
+                pass
 
     def _map_label_pos_to_image(self, pos):
         if self.current_pixmap is None or self.current_pixmap.isNull():
@@ -656,6 +708,8 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 self.preloaded_frame_images.popitem(last=False)
 
     def _start_frame_preload(self, start_index=0, count=12, *, wrap=False):
+        if getattr(self, "_preload_shutdown", False):
+            return
         if not self.frame_paths or not self.isVisible():
             return
         target_size = self._get_target_size()
@@ -689,6 +743,10 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         while True:
             generation, frame_path = self.preload_requests.get()
             try:
+                if generation is None and frame_path is None:
+                    break
+                if getattr(self, "_preload_shutdown", False):
+                    continue
                 if generation != self.preload_generation:
                     continue
                 if not frame_path or not os.path.exists(frame_path):
@@ -698,6 +756,8 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 try:
                     image = self._build_cached_preview_image(frame_path, self.preload_target_size)
                 except Exception:
+                    continue
+                if getattr(self, "_preload_shutdown", False):
                     continue
                 self._store_cached_preview_image(frame_path, image)
             finally:

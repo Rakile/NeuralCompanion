@@ -192,7 +192,7 @@ class Addon(BaseAddon):
 
             if capability_name == "real_ui.bind_duplicate_controls":
                 return real_ui_bridge.bind_duplicate_controls(bridge)
-            if capability_name == "real_ui.mirror_duplicate_widgets":
+            if capability_name in {"real_ui.mirror_duplicate_widgets", "real_ui.mirror_runtime_widgets"}:
                 return real_ui_bridge.mirror_duplicate_widgets(bridge)
             if capability_name == "real_ui.sync_frontend_combo":
                 return real_ui_bridge.sync_frontend_combo_to_controller(bridge)

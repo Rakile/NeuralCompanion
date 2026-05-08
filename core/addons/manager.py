@@ -537,6 +537,36 @@ class AddonManager:
                 )
         return specs
 
+    def get_ui_disabled_surface_specs(self) -> list[dict[str, str]]:
+        specs: list[dict[str, str]] = []
+        for record in self._records:
+            addon_id = str(record.manifest.id or "").strip()
+            for entry in list(getattr(record.manifest, "ui", []) or []):
+                if not isinstance(entry, dict):
+                    continue
+                metadata = dict(entry.get("metadata") or {})
+                raw_surfaces = metadata.get("disabled_surfaces") or entry.get("disabled_surfaces") or []
+                if isinstance(raw_surfaces, dict):
+                    raw_surfaces = [raw_surfaces]
+                for surface in list(raw_surfaces or []):
+                    if not isinstance(surface, dict):
+                        continue
+                    dock_name = str(surface.get("dock_name") or surface.get("dock") or "").strip()
+                    button_name = str(surface.get("button_name") or surface.get("button") or "").strip()
+                    action_name = str(surface.get("action_name") or surface.get("action") or "").strip()
+                    if not dock_name and not button_name and not action_name:
+                        continue
+                    specs.append(
+                        {
+                            "addon_id": addon_id,
+                            "dock_name": dock_name,
+                            "button_name": button_name,
+                            "action_name": action_name,
+                            "session_visible_key": str(surface.get("session_visible_key") or "").strip(),
+                        }
+                    )
+        return specs
+
     def get_addon_id_for_ui_role(self, role: str) -> str:
         wanted = str(role or "").strip().lower()
         if not wanted:

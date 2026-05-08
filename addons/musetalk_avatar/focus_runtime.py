@@ -105,4 +105,7 @@ class BackendMuseTalkPreviewRuntimeMixin:
             self._musetalk_stage_window.hide()
             self._musetalk_stage_window.allow_internal_close(False)
         if hasattr(self, "embedded_musetalk_preview"):
-            self.embedded_musetalk_preview.reset_preview()
+            if bool(getattr(self, "_closing", False)) and hasattr(self.embedded_musetalk_preview, "shutdown"):
+                self.embedded_musetalk_preview.shutdown()
+            else:
+                self.embedded_musetalk_preview.reset_preview()

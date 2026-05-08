@@ -617,19 +617,90 @@ class AudioStoryModeController(QtCore.QObject):
 
     def eventFilter(self, watched, event):
         root = getattr(self, "audio_story_tab_widget", None)
-        if root is not None and watched is root:
+        if root is not None:
             event_type = event.type() if event is not None else None
-            qevent_type = getattr(QtCore.QEvent, "Type", QtCore.QEvent)
-            theme_event_types = {
-                getattr(qevent_type, "ApplicationPaletteChange", None),
-                getattr(qevent_type, "PaletteChange", None),
-                getattr(qevent_type, "Polish", None),
-                getattr(qevent_type, "Show", None),
-                getattr(qevent_type, "StyleChange", None),
-            }
-            if event_type in theme_event_types:
-                self._schedule_theme_palette_refresh()
+            if watched is root:
+                qevent_type = getattr(QtCore.QEvent, "Type", QtCore.QEvent)
+                theme_event_types = {
+                    getattr(qevent_type, "ApplicationPaletteChange", None),
+                    getattr(qevent_type, "PaletteChange", None),
+                    getattr(qevent_type, "Polish", None),
+                    getattr(qevent_type, "Show", None),
+                    getattr(qevent_type, "StyleChange", None),
+                }
+                if event_type in theme_event_types:
+                    self._schedule_theme_palette_refresh()
+            wheel_type = getattr(getattr(QtCore.QEvent, "Type", QtCore.QEvent), "Wheel", None)
+            if event_type == wheel_type and self._watched_inside_audio_story_panel(watched):
+                if self._scroll_audio_story_panel_from_wheel(event):
+                    return True
         return super().eventFilter(watched, event)
+
+    def _watched_inside_audio_story_panel(self, watched):
+        root = getattr(self, "audio_story_tab_widget", None)
+        if root is None or watched is None:
+            return False
+        if watched is root:
+            return True
+        if not isinstance(watched, QtCore.QObject):
+            return False
+        parent = watched
+        while parent is not None:
+            if parent is root:
+                return True
+            try:
+                parent = parent.parent()
+            except Exception:
+                return False
+        return False
+
+    def _scroll_audio_story_panel_from_wheel(self, event):
+        scroll_area = getattr(self, "audio_story_scroll_area", None)
+        if scroll_area is None or not hasattr(scroll_area, "verticalScrollBar"):
+            return False
+        try:
+            scrollbar = scroll_area.verticalScrollBar()
+            delta = event.angleDelta().y() if hasattr(event, "angleDelta") else 0
+        except Exception:
+            return False
+        if scrollbar is None or not delta:
+            return False
+        try:
+            step = scrollbar.singleStep() or 20
+            scrollbar.setValue(scrollbar.value() - int(delta / 120) * step * 3)
+            return True
+        except Exception:
+            return False
+
+    def _install_audio_story_interaction_filters(self, root):
+        if root is None:
+            return
+        widgets = [root]
+        try:
+            widgets.extend(root.findChildren(QtWidgets.QWidget))
+        except Exception:
+            pass
+        for widget in widgets:
+            try:
+                widget.installEventFilter(self)
+            except Exception:
+                pass
+
+    def _force_audio_story_runtime_enabled(self):
+        root = getattr(self, "audio_story_tab_widget", None)
+        if root is None:
+            return
+        widgets = [root]
+        try:
+            widgets.extend(root.findChildren(QtWidgets.QWidget))
+        except Exception:
+            pass
+        for widget in widgets:
+            try:
+                widget.setEnabled(True)
+            except Exception:
+                pass
+        self._refresh_controls()
 
     def _schedule_theme_palette_refresh(self):
         timer = getattr(self, "_theme_refresh_timer", None)
@@ -961,7 +1032,22 @@ class AudioStoryModeController(QtCore.QObject):
             return None
 
         root.setObjectName("audio_story_mode_tab")
+        root.setEnabled(True)
         self.audio_story_tab_widget = root
+        self.audio_story_scroll_area = self._ui_child(root, "audio_story_scroll_area", QtWidgets.QScrollArea)
+        if self.audio_story_scroll_area is not None:
+            self.audio_story_scroll_area.setEnabled(True)
+            self.audio_story_scroll_area.setWidgetResizable(True)
+            try:
+                self.audio_story_scroll_area.viewport().installEventFilter(self)
+            except Exception:
+                pass
+        scroll_content = self._ui_child(root, "audio_story_scroll_content", QtWidgets.QWidget)
+        if scroll_content is not None:
+            scroll_content.setEnabled(True)
+        self._install_audio_story_interaction_filters(root)
+        QtCore.QTimer.singleShot(0, self._force_audio_story_runtime_enabled)
+        QtCore.QTimer.singleShot(250, self._force_audio_story_runtime_enabled)
 
         compact_button_style = self._audio_story_compact_button_style()
         style_button_style = (

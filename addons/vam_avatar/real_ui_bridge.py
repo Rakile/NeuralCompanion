@@ -230,3 +230,80 @@ def bind_runtime_controls(bridge):
         if button is None or not hasattr(button, "clicked"):
             continue
         button.clicked.connect(lambda _checked=False, cb=callback: bridge._invoke_runtime_callback(lambda: cb(bridge)))
+
+
+def mirror_runtime_widgets(bridge, *, force=False):
+    """Mirror VaM-owned labels and derived fields into the real main.ui surface."""
+    runtime_config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+    bridge_root_front = bridge._ui_object("vam_bridge_root_edit")
+    bridge_root_back = bridge._backend_widget("vam_bridge_root_edit")
+    if bridge_root_front is not None and hasattr(bridge_root_front, "setReadOnly"):
+        try:
+            bridge_root_front.setReadOnly(True)
+        except Exception:
+            pass
+    if bridge_root_front is not None and bridge_root_back is not None:
+        if force or not getattr(bridge_root_front, "hasFocus", lambda: False)():
+            bridge._copy_text_state(bridge_root_back, bridge_root_front)
+
+    def line_text(object_name, default=""):
+        widget = bridge._ui_object(object_name)
+        if widget is not None and hasattr(widget, "text"):
+            try:
+                return str(widget.text() or "").strip()
+            except Exception:
+                pass
+        widget = bridge._backend_widget(object_name)
+        if widget is not None and hasattr(widget, "text"):
+            try:
+                return str(widget.text() or "").strip()
+            except Exception:
+                pass
+        return str(default or "").strip()
+
+    def checked_text(object_name):
+        widget = bridge._ui_object(object_name)
+        if widget is None or not hasattr(widget, "isChecked"):
+            widget = bridge._backend_widget(object_name)
+        try:
+            return "on" if bool(widget.isChecked()) else "off"
+        except Exception:
+            return "off"
+
+    def spin_value(object_name, default):
+        widget = bridge._ui_object(object_name)
+        if widget is None or not hasattr(widget, "value"):
+            widget = bridge._backend_widget(object_name)
+        try:
+            return int(widget.value())
+        except Exception:
+            return int(default)
+
+    def set_label(object_name, value):
+        label = bridge._ui_object(object_name)
+        if label is not None and hasattr(label, "setText"):
+            try:
+                label.setText(str(value))
+            except Exception:
+                pass
+
+    vam_root = line_text("vam_root_edit", runtime_config.get("vam_root", ""))
+    bridge_root = line_text("vam_bridge_root_edit", runtime_config.get("vam_bridge_root", ""))
+    target_atom = line_text("vam_target_atom_uid_edit", runtime_config.get("vam_target_atom_uid", "Person")) or "Person"
+    target_storable = line_text("vam_target_storable_id_edit", runtime_config.get("vam_target_storable_id", ""))
+    vmc_host = line_text("vam_vmc_host_edit", runtime_config.get("vam_vmc_host", "127.0.0.1")) or "127.0.0.1"
+    vmc_port = spin_value("vam_vmc_port_spin", runtime_config.get("vam_vmc_port", 39539))
+
+    set_label("vam_summary_label", f"VaM target: {target_atom}" + (f" / {target_storable}" if target_storable else ""))
+    set_label(
+        "vam_runtime_label",
+        f"VMC {checked_text('vam_vmc_enabled_checkbox')} | "
+        f"File bridge {checked_text('vam_bridge_enabled_checkbox')} | "
+        f"Head audio {checked_text('vam_play_audio_in_vam_checkbox')}",
+    )
+    set_label("vam_bridge_status_label", f"Bridge root: {bridge_root or '(derived when VaM root is set)'}")
+    set_label(
+        "vam_bridge_detail_label",
+        f"VaM root: {vam_root or '(not set)'} | VMC: {vmc_host}:{vmc_port} | "
+        f"Timeline auto-resume {checked_text('vam_timeline_auto_resume_checkbox')}",
+    )

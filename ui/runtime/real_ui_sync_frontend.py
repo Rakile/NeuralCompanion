@@ -66,6 +66,7 @@ class RealUiSyncFrontendMixin:
             return False
 
     def _bind_frontend_to_backend_sync(self):
+            addon_combo_names = self._addon_sync_widget_names("combo")
             for object_name in self._combo_sync_names():
                 if object_name in {
                     "audio_input_device_combo",
@@ -75,14 +76,9 @@ class RealUiSyncFrontendMixin:
                     "input_role_combo",
                     "stream_mode_combo",
                     "tts_backend_combo",
-                    "musetalk_vram_combo",
-                    "musetalk_avatar_pack_combo",
                     "chat_provider_combo",
                     "model_combo",
                     "preset_combo",
-                    "visual_reply_mode_combo",
-                    "visual_reply_provider_combo",
-                    "visual_reply_size_combo",
                     "sensory_feedback_source_combo",
                     "chat_font_size_combo",
                     "voice_combo",
@@ -91,11 +87,12 @@ class RealUiSyncFrontendMixin:
                     "chat_overflow_policy_combo",
                     "chunking_profile_combo",
                     "performance_profile_combo",
-                }:
+                } | addon_combo_names:
                     continue
                 front = self._ui_object(object_name)
                 if front is not None and hasattr(front, "currentIndexChanged"):
                     front.currentIndexChanged.connect(lambda _index, name=object_name: self._sync_single_combo_to_backend(name))
+            addon_checkbox_names = self._addon_sync_widget_names("checkbox")
             for object_name in self._checkbox_sync_names():
                 if object_name in {
                     "limit_response_checkbox",
@@ -106,16 +103,13 @@ class RealUiSyncFrontendMixin:
                     "sensory_allow_hidden_proactive_checkbox",
                     "sensory_allow_hidden_visual_checkbox",
                     "live_sync_checkbox",
-                    "vam_vmc_enabled_checkbox",
-                    "vam_bridge_enabled_checkbox",
-                    "vam_play_audio_in_vam_checkbox",
-                    "vam_timeline_auto_resume_checkbox",
                     "dry_run_auto_replies_checkbox",
-                }:
+                } | addon_checkbox_names:
                     continue
                 front = self._ui_object(object_name)
                 if front is not None and hasattr(front, "toggled"):
                     front.toggled.connect(lambda _checked, name=object_name: self._sync_single_checkbox_to_backend(name))
+            addon_spin_names = self._addon_sync_widget_names("spin")
             for object_name in self._spin_sync_names():
                 if object_name in {
                     "max_response_tokens_spin",
@@ -125,30 +119,55 @@ class RealUiSyncFrontendMixin:
                     "proactive_delay_spin",
                     "sensory_feedback_interval_spin",
                     "sensory_pingpong_history_spin",
-                    "vam_vmc_port_spin",
                     "dry_run_target_spin",
-                    "musetalk_loop_fade_spin",
-                }:
+                } | addon_spin_names:
                     continue
                 front = self._ui_object(object_name)
                 if front is not None and hasattr(front, "valueChanged"):
                     front.valueChanged.connect(lambda _value, name=object_name: self._sync_single_spin_to_backend(name))
+            addon_line_edit_names = self._addon_sync_widget_names("line_edit")
             for object_name in self._line_edit_sync_names():
-                if object_name in {
-                    "vam_root_edit",
-                    "vam_bridge_root_edit",
-                    "vam_target_atom_uid_edit",
-                    "vam_target_storable_id_edit",
-                    "vam_vmc_host_edit",
-                    "visual_reply_model_edit",
-                }:
+                if object_name in addon_line_edit_names:
                     continue
                 front = self._ui_object(object_name)
                 if front is not None and hasattr(front, "editingFinished"):
                     front.editingFinished.connect(lambda name=object_name: self._sync_single_line_edit_to_backend(name))
 
+    def _addon_sync_widget_names(self, kind=None):
+            callback = getattr(self.backend, "_invoke_all_addon_capabilities", None)
+            if not callable(callback):
+                return set()
+            wanted_kind = str(kind or "").strip()
+            try:
+                results = callback(
+                    "real_ui.sync_widget_names",
+                    {"bridge": self, "kind": wanted_kind},
+                )
+            except Exception:
+                return set()
+            names = set()
+            for result in list(results or []):
+                if isinstance(result, dict):
+                    values = result.get(wanted_kind) if wanted_kind else result.values()
+                    if wanted_kind:
+                        iterable = values if isinstance(values, (list, tuple, set)) else [values]
+                    else:
+                        iterable = []
+                        for value in values:
+                            iterable.extend(value if isinstance(value, (list, tuple, set)) else [value])
+                elif isinstance(result, (list, tuple, set)):
+                    iterable = result
+                else:
+                    iterable = [result]
+                for name in iterable:
+                    text = str(name or "").strip()
+                    if text:
+                        names.add(text)
+            return names
+
     def _combo_sync_names(self):
-            return (
+            return tuple(
+                list((
                 "audio_input_device_combo",
                 "audio_output_device_combo",
                 "engine_combo",
@@ -156,15 +175,10 @@ class RealUiSyncFrontendMixin:
                 "input_role_combo",
                 "stream_mode_combo",
                 "tts_backend_combo",
-                "musetalk_vram_combo",
-                "musetalk_avatar_pack_combo",
                 "preset_combo",
                 "chat_provider_combo",
                 "model_combo",
                 "model_requires_vision_checkbox",
-                "visual_reply_mode_combo",
-                "visual_reply_provider_combo",
-                "visual_reply_size_combo",
                 "sensory_feedback_source_combo",
                 "chat_font_size_combo",
                 "voice_combo",
@@ -173,10 +187,13 @@ class RealUiSyncFrontendMixin:
                 "chat_overflow_policy_combo",
                 "chunking_profile_combo",
                 "performance_profile_combo",
+                ))
+                + sorted(self._addon_sync_widget_names("combo"))
             )
 
     def _checkbox_sync_names(self):
-            return (
+            return tuple(
+                list((
                 "limit_response_checkbox",
                 "allow_proactive_checkbox",
                 "require_first_user_checkbox",
@@ -184,37 +201,28 @@ class RealUiSyncFrontendMixin:
                 "sensory_allow_hidden_proactive_checkbox",
                 "sensory_allow_hidden_visual_checkbox",
                 "live_sync_checkbox",
-                "musetalk_use_frame_cache_checkbox",
-                "vam_vmc_enabled_checkbox",
-                "vam_bridge_enabled_checkbox",
-                "vam_play_audio_in_vam_checkbox",
-                "vam_timeline_auto_resume_checkbox",
                 "dry_run_auto_replies_checkbox",
+                ))
+                + sorted(self._addon_sync_widget_names("checkbox"))
             )
 
     def _spin_sync_names(self):
-            return (
+            return tuple(
+                list((
                 "max_response_tokens_spin",
                 "chat_context_window_spin",
                 "stored_chat_history_limit_spin",
                 "listen_idle_window_spin",
                 "proactive_delay_spin",
-                "musetalk_loop_fade_spin",
                 "sensory_feedback_interval_spin",
                 "sensory_pingpong_history_spin",
-                "vam_vmc_port_spin",
                 "dry_run_target_spin",
+                ))
+                + sorted(self._addon_sync_widget_names("spin"))
             )
 
     def _line_edit_sync_names(self):
-            return (
-                "visual_reply_model_edit",
-                "vam_root_edit",
-                "vam_bridge_root_edit",
-                "vam_target_atom_uid_edit",
-                "vam_target_storable_id_edit",
-                "vam_vmc_host_edit",
-            )
+            return tuple(sorted(self._addon_sync_widget_names("line_edit")))
 
     def _sync_frontend_to_backend(self):
             for object_name in self._combo_sync_names():

@@ -41,7 +41,15 @@
       "tooltip": "Visual reply runtime settings and future visual addons.",
       "metadata": {
         "nested_title": "Core",
-        "runtime_role": "visual_reply"
+        "runtime_role": "visual_reply",
+        "disabled_surfaces": [
+          {
+            "dock_name": "visual_reply_dock",
+            "button_name": "btn_visual_reply",
+            "session_visible_key": "visual_reply_visible"
+          }
+        ],
+        "real_ui_bridge_module": "addons.visual_reply.real_ui_bridge"
       }
     }
   ],

@@ -1871,7 +1871,13 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
               <number>8</number>
              </property>
              <item>
-              <widget class="QGroupBox" name="conversation_flow_box">
+             <widget class="QGroupBox" name="conversation_flow_box">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
                <property name="title">
                 <string>Conversation Flow</string>
                </property>
@@ -2056,7 +2062,13 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
               </widget>
              </item>
              <item>
-              <widget class="QGroupBox" name="session_box">
+             <widget class="QGroupBox" name="session_box">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Preferred" vsizetype="Maximum">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
                <property name="title">
                 <string>Session</string>
                </property>
@@ -2098,6 +2110,19 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </item>
                </layout>
               </widget>
+             </item>
+             <item>
+              <spacer name="chatTabBottomSpacer">
+               <property name="orientation">
+                <enum>Qt::Vertical</enum>
+               </property>
+               <property name="sizeHint" stdset="0">
+                <size>
+                 <width>20</width>
+                 <height>40</height>
+                </size>
+               </property>
+              </spacer>
              </item>
             </layout>
            </widget>

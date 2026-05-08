@@ -7,7 +7,6 @@ import json
 import os
 from pathlib import Path
 import subprocess
-import tempfile
 import threading
 import time
 import uuid
@@ -15,6 +14,8 @@ import uuid
 import numpy as np
 import torch
 import torchaudio as ta
+
+from core import runtime_paths
 
 
 @dataclass
@@ -260,7 +261,7 @@ class PocketTTSSubprocessAdapter:
         if self.process is None or self.process.poll() is not None:
             raise RuntimeError("PocketTTS worker is not available")
         request_id = uuid.uuid4().hex[:8]
-        output_path = os.path.join(tempfile.gettempdir(), f"pocket_tts_{request_id}.wav")
+        output_path = str(runtime_paths.runtime_temp_file(f"pocket_tts_{request_id}.wav", "tts", "pocket_tts"))
         payload = {
             "cmd": "synthesize",
             "request_id": request_id,

@@ -86,6 +86,34 @@ def _loaded_addon_ids(backend):
     return addon_ids
 
 
+def _addon_manifest_bridge_modules(backend, addon_id):
+    manager = getattr(backend, "_addon_manager", None)
+    if manager is None:
+        return []
+    try:
+        record = manager.get_addon_record(str(addon_id or "").strip())
+    except Exception:
+        record = None
+    if record is None or str(getattr(record, "state", "") or "") != "initialized":
+        return []
+    manifest = getattr(record, "manifest", None)
+    module_names = []
+    for entry in list(getattr(manifest, "ui", []) or []):
+        if not isinstance(entry, dict):
+            continue
+        metadata = dict(entry.get("metadata") or {})
+        module_name = (
+            metadata.get("real_ui_bridge_module")
+            or metadata.get("ui_bridge_module")
+            or entry.get("real_ui_bridge_module")
+            or entry.get("ui_bridge_module")
+            or ""
+        )
+        if module_name:
+            module_names.append(module_name)
+    return module_names
+
+
 def tts_bridge_modules(backend):
     module_names = []
     for entry in _service_entries(backend):
@@ -162,7 +190,11 @@ def named_addon_bridge_modules(backend, addon_ids):
             continue
         if loaded and normalized not in loaded:
             continue
-        module_names.append(_ADDON_BRIDGE_FALLBACKS.get(normalized, ""))
+        manifest_modules = _addon_manifest_bridge_modules(backend, normalized)
+        if manifest_modules:
+            module_names.extend(manifest_modules)
+        else:
+            module_names.append(_ADDON_BRIDGE_FALLBACKS.get(normalized, ""))
     if not loaded and getattr(backend, "_addon_manager", None) is None:
         for addon_id in addon_ids:
             module_names.append(_ADDON_BRIDGE_FALLBACKS.get(str(addon_id or "").strip(), ""))

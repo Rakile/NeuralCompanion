@@ -148,6 +148,54 @@ class MainUiRealSurfacesMixin:
             }
             if frontend_widgets["chat_session_hint"] is None:
                 return
+            backend_widgets = {
+                name: getattr(self.backend, name, None)
+                for name in frontend_widgets
+            }
+
+            def _copy_checked(source, target):
+                if source is None or target is None or not hasattr(source, "isChecked") or not hasattr(target, "setChecked"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setChecked(bool(source.isChecked()))
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            def _copy_value(source, target):
+                if source is None or target is None or not hasattr(source, "value") or not hasattr(target, "setValue"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setValue(source.value())
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            def _copy_combo(source, target):
+                if source is None or target is None or not hasattr(source, "currentText") or not hasattr(target, "setCurrentText"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setCurrentText(str(source.currentText() or ""))
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            # Preserve values restored into the hidden backend before replacing
+            # backend widget references with the live Designer controls.
+            _copy_checked(backend_widgets.get("allow_proactive_checkbox"), frontend_widgets.get("allow_proactive_checkbox"))
+            _copy_checked(backend_widgets.get("require_first_user_checkbox"), frontend_widgets.get("require_first_user_checkbox"))
+            _copy_value(backend_widgets.get("listen_idle_window_spin"), frontend_widgets.get("listen_idle_window_spin"))
+            _copy_value(backend_widgets.get("proactive_delay_spin"), frontend_widgets.get("proactive_delay_spin"))
+            _copy_value(backend_widgets.get("chat_context_window_spin"), frontend_widgets.get("chat_context_window_spin"))
+            _copy_value(backend_widgets.get("stored_chat_history_limit_spin"), frontend_widgets.get("stored_chat_history_limit_spin"))
+            _copy_combo(backend_widgets.get("chat_overflow_policy_combo"), frontend_widgets.get("chat_overflow_policy_combo"))
+
             redirected = False
             for attribute_name, widget in frontend_widgets.items():
                 if widget is None:
@@ -211,6 +259,55 @@ class MainUiRealSurfacesMixin:
                     frontend_sources_layout = None
             if frontend_tabs is None or frontend_sources_widget is None or frontend_sources_layout is None:
                 return
+            backend_interval_spin = getattr(self.backend, "sensory_feedback_interval_spin", None)
+            backend_pingpong_checkbox = getattr(self.backend, "sensory_pingpong_checkbox", None)
+            backend_hidden_proactive_checkbox = getattr(self.backend, "sensory_allow_hidden_proactive_checkbox", None)
+            backend_hidden_visual_checkbox = getattr(self.backend, "sensory_allow_hidden_visual_checkbox", None)
+            backend_history_spin = getattr(self.backend, "sensory_pingpong_history_spin", None)
+            backend_prompt_text = getattr(self.backend, "sensory_pingpong_prompt_text", None)
+
+            def _copy_checked(source, target):
+                if source is None or target is None or not hasattr(source, "isChecked") or not hasattr(target, "setChecked"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setChecked(bool(source.isChecked()))
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            def _copy_value(source, target):
+                if source is None or target is None or not hasattr(source, "value") or not hasattr(target, "setValue"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setValue(source.value())
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            def _copy_plain_text(source, target):
+                if source is None or target is None or not hasattr(source, "toPlainText") or not hasattr(target, "setPlainText"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setPlainText(str(source.toPlainText() or ""))
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
+            # Preserve values restored into the hidden backend before replacing
+            # backend widget references with the live Designer controls.
+            _copy_value(backend_interval_spin, frontend_interval_spin)
+            _copy_checked(backend_pingpong_checkbox, frontend_pingpong_checkbox)
+            _copy_checked(backend_hidden_proactive_checkbox, frontend_hidden_proactive_checkbox)
+            _copy_checked(backend_hidden_visual_checkbox, frontend_hidden_visual_checkbox)
+            _copy_value(backend_history_spin, frontend_history_spin)
+            _copy_plain_text(backend_prompt_text, frontend_prompt_text)
+
             self.backend.sensory_feedback_tabs = frontend_tabs
             self.backend.sensory_feedback_sources_widget = frontend_sources_widget
             self.backend.sensory_feedback_sources_layout = frontend_sources_layout

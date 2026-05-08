@@ -16,6 +16,14 @@ class RealUiSyncMirrorMixin:
             payload.setdefault("bridge", self)
             return callback(addon_id, capability, payload, default=default)
 
+    def _invoke_all_mirror_addon_capabilities(self, capability, payload=None):
+            callback = getattr(self.backend, "_invoke_all_addon_capabilities", None)
+            if not callable(callback):
+                return []
+            payload = dict(payload or {})
+            payload.setdefault("bridge", self)
+            return callback(capability, payload)
+
     def _mirror_pipeline_telemetry_widgets(self):
             ready_bar = getattr(self, "_frontend_render_ready_bar", None)
             preview_bar = getattr(self, "_frontend_preview_playback_bar", None)
@@ -149,70 +157,11 @@ class RealUiSyncMirrorMixin:
                             pass
                 _ui_shell_update_body_label(self.window, str(key), value)
 
-    def _mirror_vam_runtime_widgets(self, *, force=False):
-            bridge_root_front = self._ui_object("vam_bridge_root_edit")
-            bridge_root_back = self._backend_widget("vam_bridge_root_edit")
-            if bridge_root_front is not None and hasattr(bridge_root_front, "setReadOnly"):
-                try:
-                    bridge_root_front.setReadOnly(True)
-                except Exception:
-                    pass
-            if bridge_root_front is not None and bridge_root_back is not None:
-                if force or not getattr(bridge_root_front, "hasFocus", lambda: False)():
-                    self._copy_text_state(bridge_root_back, bridge_root_front)
-
-            def line_text(object_name, default=""):
-                widget = self._ui_object(object_name)
-                if widget is not None and hasattr(widget, "text"):
-                    try:
-                        return str(widget.text() or "").strip()
-                    except Exception:
-                        pass
-                widget = self._backend_widget(object_name)
-                if widget is not None and hasattr(widget, "text"):
-                    try:
-                        return str(widget.text() or "").strip()
-                    except Exception:
-                        pass
-                return str(default or "").strip()
-
-            def checked_text(object_name):
-                widget = self._ui_object(object_name)
-                if widget is None or not hasattr(widget, "isChecked"):
-                    widget = self._backend_widget(object_name)
-                try:
-                    return "on" if bool(widget.isChecked()) else "off"
-                except Exception:
-                    return "off"
-
-            def spin_value(object_name, default):
-                widget = self._ui_object(object_name)
-                if widget is None or not hasattr(widget, "value"):
-                    widget = self._backend_widget(object_name)
-                try:
-                    return int(widget.value())
-                except Exception:
-                    return int(default)
-
-            def set_label(object_name, value):
-                label = self._ui_object(object_name)
-                if label is not None and hasattr(label, "setText"):
-                    try:
-                        label.setText(str(value))
-                    except Exception:
-                        pass
-
-            vam_root = line_text("vam_root_edit", RUNTIME_CONFIG.get("vam_root", ""))
-            bridge_root = line_text("vam_bridge_root_edit", RUNTIME_CONFIG.get("vam_bridge_root", ""))
-            target_atom = line_text("vam_target_atom_uid_edit", RUNTIME_CONFIG.get("vam_target_atom_uid", "Person")) or "Person"
-            target_storable = line_text("vam_target_storable_id_edit", RUNTIME_CONFIG.get("vam_target_storable_id", ""))
-            vmc_host = line_text("vam_vmc_host_edit", RUNTIME_CONFIG.get("vam_vmc_host", "127.0.0.1")) or "127.0.0.1"
-            vmc_port = spin_value("vam_vmc_port_spin", RUNTIME_CONFIG.get("vam_vmc_port", 39539))
-
-            set_label("vam_summary_label", f"VaM target: {target_atom}" + (f" / {target_storable}" if target_storable else ""))
-            set_label("vam_runtime_label", f"VMC {checked_text('vam_vmc_enabled_checkbox')} | File bridge {checked_text('vam_bridge_enabled_checkbox')} | Head audio {checked_text('vam_play_audio_in_vam_checkbox')}")
-            set_label("vam_bridge_status_label", f"Bridge root: {bridge_root or '(derived when VaM root is set)'}")
-            set_label("vam_bridge_detail_label", f"VaM root: {vam_root or '(not set)'} | VMC: {vmc_host}:{vmc_port} | Timeline auto-resume {checked_text('vam_timeline_auto_resume_checkbox')}")
+    def _mirror_addon_runtime_widgets(self, *, force=False):
+            self._invoke_all_mirror_addon_capabilities(
+                "real_ui.mirror_runtime_widgets",
+                {"force": bool(force)},
+            )
 
     def _mirror_runtime_text_views(self):
             backend_console = self._backend_widget("console_edit")
@@ -365,7 +314,6 @@ class RealUiSyncMirrorMixin:
                         pass
             self._mirror_chat_edit_state()
             self._mirror_dry_run_widgets()
-            self._mirror_audio_story_duplicate_widgets()
             self._mirror_provider_model_widgets()
 
     def _mirror_chat_edit_state(self):
@@ -431,7 +379,7 @@ class RealUiSyncMirrorMixin:
                         pass
 
     def _mirror_runtime_selection_widgets(self):
-            for object_name in (
+            core_names = (
                 "limit_response_checkbox",
                 "max_response_tokens_spin",
                 "engine_combo",
@@ -439,34 +387,23 @@ class RealUiSyncMirrorMixin:
                 "input_role_combo",
                 "stream_mode_combo",
                 "tts_backend_combo",
-                "musetalk_vram_combo",
-                "musetalk_avatar_pack_combo",
-                "visual_reply_mode_combo",
-                "visual_reply_provider_combo",
-                "visual_reply_size_combo",
                 "sensory_feedback_source_combo",
                 "chat_font_size_combo",
                 "voice_combo",
                 "body_combo",
                 "emotion_combo",
                 "live_sync_checkbox",
-                "vam_vmc_enabled_checkbox",
-                "vam_bridge_enabled_checkbox",
-                "vam_play_audio_in_vam_checkbox",
-                "vam_timeline_auto_resume_checkbox",
-                "vam_vmc_port_spin",
                 "chunking_profile_combo",
                 "performance_profile_combo",
                 "dry_run_auto_replies_checkbox",
                 "dry_run_target_spin",
-                "musetalk_loop_fade_spin",
-                "visual_reply_model_edit",
-                "vam_root_edit",
-                "vam_bridge_root_edit",
-                "vam_target_atom_uid_edit",
-                "vam_target_storable_id_edit",
-                "vam_vmc_host_edit",
-            ):
+            )
+            addon_names = set()
+            addon_names.update(self._addon_sync_widget_names("combo"))
+            addon_names.update(self._addon_sync_widget_names("checkbox"))
+            addon_names.update(self._addon_sync_widget_names("spin"))
+            addon_names.update(self._addon_sync_widget_names("line_edit"))
+            for object_name in tuple(core_names) + tuple(sorted(addon_names)):
                 backend_widget = self._backend_widget(object_name)
                 frontend_widget = self._ui_object(object_name)
                 if backend_widget is None or frontend_widget is None:
@@ -476,13 +413,6 @@ class RealUiSyncMirrorMixin:
                         frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
                     except Exception:
                         pass
-
-    def _mirror_audio_story_duplicate_widgets(self):
-            addon_id = ""
-            callback = getattr(self.backend, "_addon_id_for_ui_role", None)
-            if callable(callback):
-                addon_id = callback("audio_story", fallback="")
-            self._invoke_mirror_addon_capability(addon_id, "real_ui.mirror_duplicate_widgets")
 
     def _mirror_provider_runtime_labels(self):
             settings_label = self._ui_object("provider_settings_label")

@@ -124,6 +124,132 @@ class MainUiRealLayoutMixin:
             except Exception:
                 pass
 
+    def _fix_workspace_tab_content_layouts(self):
+            """Keep sparse workspace tabs packed at the top instead of stretched apart."""
+            def widget(name, cls=None):
+                return self._ui(name, cls or QtWidgets.QWidget)
+
+            def set_policy(target, *, vertical=QtWidgets.QSizePolicy.Preferred, horizontal=QtWidgets.QSizePolicy.Expanding):
+                if target is None or not hasattr(target, "sizePolicy"):
+                    return
+                try:
+                    policy = target.sizePolicy()
+                    policy.setHorizontalPolicy(horizontal)
+                    policy.setVerticalPolicy(vertical)
+                    target.setSizePolicy(policy)
+                    target.setMinimumHeight(0)
+                    target.updateGeometry()
+                except Exception:
+                    pass
+
+            def align_layout(name):
+                owner = widget(name)
+                layout = owner.layout() if owner is not None and hasattr(owner, "layout") else None
+                if layout is None:
+                    return
+                try:
+                    layout.setAlignment(QtCore.Qt.AlignTop)
+                    layout.invalidate()
+                    layout.activate()
+                except Exception:
+                    pass
+
+            def align_named_layout(owner_name, layout_name):
+                owner = widget(owner_name)
+                if owner is None:
+                    return
+                layout = owner.findChild(QtWidgets.QLayout, layout_name)
+                if layout is None:
+                    return
+                try:
+                    layout.setAlignment(QtCore.Qt.AlignTop)
+                    layout.invalidate()
+                    layout.activate()
+                except Exception:
+                    pass
+
+            for name in (
+                "chunking_tab",
+                "dry_run_tab",
+                "vseeface_tab",
+                "body_tab",
+                "dynamics_tab",
+            ):
+                align_layout(name)
+                set_policy(widget(name), vertical=QtWidgets.QSizePolicy.Preferred)
+
+            for owner_name, layout_name in (
+                ("chunking_tab", "chunkingLayout"),
+                ("dry_run_tab", "dryRunLayout"),
+                ("vseeface_tab", "vseefaceLayout"),
+                ("body_tab", "bodyTabLayout"),
+                ("body_tab", "bodyPresetsLayout"),
+                ("body_tab", "bodyPoseSlidersSectionLayout"),
+                ("dynamics_tab", "dynamicsTabLayout"),
+            ):
+                align_named_layout(owner_name, layout_name)
+
+            for name in (
+                "standard_chunking_box",
+                "musetalk_chunking_box",
+                "streaming_chunking_box",
+                "chunking_profiles_box",
+                "performance_profiles_box",
+            ):
+                box = widget(name, QtWidgets.QGroupBox)
+                set_policy(box, vertical=QtWidgets.QSizePolicy.Maximum)
+
+            dry_run_summary = widget("dry_run_summary", QtWidgets.QPlainTextEdit)
+            if dry_run_summary is not None:
+                set_policy(dry_run_summary, vertical=QtWidgets.QSizePolicy.Preferred)
+                try:
+                    dry_run_summary.setMinimumHeight(180)
+                    dry_run_summary.setMaximumHeight(360)
+                except Exception:
+                    pass
+
+            vseeface_tabs = widget("vseeface_tabs", QtWidgets.QTabWidget)
+            if vseeface_tabs is not None:
+                set_policy(vseeface_tabs, vertical=QtWidgets.QSizePolicy.Preferred)
+                try:
+                    vseeface_tabs.setMinimumHeight(0)
+                    vseeface_tabs.setMaximumHeight(720)
+                except Exception:
+                    pass
+                for index in range(vseeface_tabs.count()):
+                    page = vseeface_tabs.widget(index)
+                    set_policy(page, vertical=QtWidgets.QSizePolicy.Preferred)
+                    if page is not None and page.layout() is not None:
+                        try:
+                            page.layout().setAlignment(QtCore.Qt.AlignTop)
+                            page.layout().invalidate()
+                            page.layout().activate()
+                        except Exception:
+                            pass
+
+            for name in (
+                "body_combo",
+                "emotion_combo",
+                "btn_hand_doctor",
+                "btn_vseeface_hide_interface",
+                "btn_reset_chunking_defaults",
+            ):
+                set_policy(widget(name), vertical=QtWidgets.QSizePolicy.Maximum)
+
+            for name in ("left_tabs", "vseeface_tabs"):
+                tabs = widget(name, QtWidgets.QTabWidget)
+                if tabs is None:
+                    continue
+                try:
+                    tabs.adjustSize()
+                    tabs.updateGeometry()
+                    current = tabs.currentWidget()
+                    if current is not None:
+                        current.adjustSize()
+                        current.updateGeometry()
+                except Exception:
+                    pass
+
     def _load_frontend_session_payload(self):
             if not SESSION_PATH.exists():
                 return {}

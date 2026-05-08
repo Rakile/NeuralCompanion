@@ -189,9 +189,15 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._bind_frontend_layout_persistence_hooks()
         self._restore_frontend_layout_state()
         self._sync_backend_to_ui(force=True)
+        QtCore.QTimer.singleShot(0, self._refresh_audio_story_runtime_enabled)
+        QtCore.QTimer.singleShot(600, self._refresh_audio_story_runtime_enabled)
+        QtCore.QTimer.singleShot(1500, self._refresh_audio_story_runtime_enabled)
         self._fix_sensory_feedback_initial_alignment()
         QtCore.QTimer.singleShot(0, self._fix_sensory_feedback_initial_alignment)
         QtCore.QTimer.singleShot(100, self._fix_sensory_feedback_initial_alignment)
+        self._fix_workspace_tab_content_layouts()
+        QtCore.QTimer.singleShot(0, self._fix_workspace_tab_content_layouts)
+        QtCore.QTimer.singleShot(150, self._fix_workspace_tab_content_layouts)
 
         # Fix Designer-loaded scroll/content/tab sizing after runtime state has populated the UI.
         #self._fix_system_shaping_scroll_content_size()

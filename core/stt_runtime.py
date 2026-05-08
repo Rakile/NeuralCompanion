@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import math
 import re
-import tempfile
 import time
+import uuid
+
+from core import runtime_paths
 
 
 def whisper_runtime_config(runtime_config, *, cuda_available: bool):
@@ -52,9 +54,9 @@ def transcribe_audio_with_whisper(audio, *, model_getter, init_model, safe_delet
         init_model()
     temp_path = None
     try:
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+        temp_path = str(runtime_paths.runtime_temp_file(f"whisper_{uuid.uuid4().hex}.wav", "stt"))
+        with open(temp_path, "wb") as tmp:
             tmp.write(audio.get_wav_data())
-            temp_path = tmp.name
         segments, _info = model_getter().transcribe(temp_path, language=language)
         text = " ".join((segment.text or "").strip() for segment in segments).strip()
         return text or None

@@ -81,6 +81,16 @@ class Addon(BaseAddon):
             if backend is not None:
                 return real_ui_bridge.apply_runtime_settings(backend, payload.get("settings") or {})
             return None
+        if capability == "real_ui.sync_widget_names":
+            return {
+                "combo": [
+                    "visual_reply_mode_combo",
+                    "visual_reply_provider_combo",
+                    "visual_reply_size_combo",
+                ],
+                "line_edit": ["visual_reply_model_edit"],
+                "checkbox": ["visual_reply_auto_show_checkbox"],
+            }
         if capability == "runtime.status_snapshot":
             from addons.visual_reply import real_ui_bridge
 
