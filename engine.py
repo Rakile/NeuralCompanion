@@ -1271,24 +1271,7 @@ def setup_nltk():
     sent_tokenize = _safe_sent_tokenize
 
 
-class PocketTTSSubprocessAdapter(tts_runtime.PocketTTSSubprocessAdapter):
-    def __init__(self, python_exe):
-        # Keep the engine-facing constructor stable for existing addons.
-        super().__init__(
-            python_exe,
-            app_root=os.path.dirname(__file__),
-            safe_delete_with_retry=safe_delete_with_retry,
-            logger=print,
-        )
-
-
 AddonTTSBackendAdapter = tts_runtime.AddonTTSBackendAdapter
-
-
-def _legacy_chatterbox_factory(*, device):
-    from chatterbox.tts_turbo import ChatterboxTurboTTS
-
-    return ChatterboxTurboTTS.from_pretrained(device=device)
 
 
 def init_tts():
@@ -1299,11 +1282,6 @@ def init_tts():
         current_backend_name=tts_backend_name,
         addon_resolver=_resolve_addon_tts_backend,
         addon_adapter_cls=AddonTTSBackendAdapter,
-        pocket_adapter_cls=PocketTTSSubprocessAdapter,
-        chatterbox_factory=_legacy_chatterbox_factory,
-        tts_device=TTS_DEVICE,
-        default_pocket_tts_python=DEFAULT_POCKET_TTS_PYTHON,
-        allow_legacy_builtin_fallback=(_get_addon_manager() is None),
         logger=print,
     )
     tts_model = state.model

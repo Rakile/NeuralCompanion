@@ -130,14 +130,9 @@ def initialize_tts_backend(
     current_backend_name,
     addon_resolver,
     addon_adapter_cls,
-    pocket_adapter_cls,
-    chatterbox_factory,
-    tts_device: str,
-    default_pocket_tts_python: str,
-    allow_legacy_builtin_fallback=True,
     logger=print,
 ):
-    desired_backend = str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower().strip()
+    desired_backend = str(runtime_config.get("tts_backend", "none") or "none").lower().strip()
 
     if desired_backend in {"none", "off", "disabled", "no_tts", "no-tts"}:
         if current_model is not None and hasattr(current_model, "close"):
@@ -175,45 +170,11 @@ def initialize_tts_backend(
                 return TTSRuntimeState(True, model, backend_name)
             except Exception as exc:
                 logger(f"✗ Failed to load addon TTS backend '{resolved['label']}': {exc}")
-                if allow_legacy_builtin_fallback:
-                    logger("↩️ Falling back to built-in TTS backends...")
-                else:
-                    logger("↩️ Continuing without TTS because legacy fallback is disabled.")
-                    return TTSRuntimeState(True, None, "none")
+                logger("↩️ Continuing without TTS because the selected addon backend failed.")
+                return TTSRuntimeState(True, None, "none")
 
-    if not allow_legacy_builtin_fallback:
-        logger(f"⚠️ TTS backend '{desired_backend}' is unavailable or disabled; continuing without TTS.")
-        return TTSRuntimeState(True, None, "none")
-
-    if desired_backend == "pockettts":
-        logger("Loading PocketTTS via isolated interpreter...")
-        try:
-            python_exe = str(runtime_config.get("pocket_tts_python", "") or "").strip()
-            if not python_exe:
-                fallback = str(default_pocket_tts_python or "").strip()
-                if fallback and os.path.exists(fallback):
-                    python_exe = fallback
-                    runtime_config["pocket_tts_python"] = fallback
-                    logger(f"[PocketTTS] Runtime path was empty. Using default interpreter: {fallback}")
-            if not python_exe:
-                raise RuntimeError("Set 'PocketTTS Python' in the addon tab first.")
-            model = pocket_adapter_cls(python_exe)
-            backend_name = "pockettts"
-            logger("✓ PocketTTS backend loaded successfully")
-            return TTSRuntimeState(True, model, backend_name)
-        except Exception as exc:
-            logger(f"✗ Failed to load PocketTTS: {exc}")
-            logger("↩️ Falling back to ChatterboxTurboTTS...")
-
-    logger(f"Loading ChatterboxTurboTTS on {tts_device}...")
-    try:
-        model = chatterbox_factory(device=tts_device)
-        backend_name = "chatterbox"
-        logger("✓ ChatterboxTurboTTS loaded successfully")
-        return TTSRuntimeState(True, model, backend_name)
-    except Exception as exc:
-        logger(f"✗ Failed to load TTS model: {exc}")
-        return TTSRuntimeState(False, None, None)
+    logger(f"⚠️ TTS backend '{desired_backend}' is unavailable or disabled; continuing without TTS.")
+    return TTSRuntimeState(True, None, "none")
 
 
 def build_generation_kwargs(runtime_config, *, set_seed=None, path_exists=os.path.exists, logger=print):

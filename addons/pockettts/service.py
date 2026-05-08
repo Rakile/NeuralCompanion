@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import os
 import threading
 from pathlib import Path
+
+from core.tts_runtime import PocketTTSSubprocessAdapter
 
 
 class PocketTTSService:
@@ -40,7 +43,12 @@ class PocketTTSService:
                     pass
             if not python_exe:
                 raise RuntimeError("Set PocketTTS Python in the addon tab first.")
-            self._adapter = engine.PocketTTSSubprocessAdapter(python_exe)
+            self._adapter = PocketTTSSubprocessAdapter(
+                python_exe,
+                app_root=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                safe_delete_with_retry=getattr(engine, "safe_delete_with_retry", None),
+                logger=print,
+            )
             self._python_exe = python_exe
             self.sr = int(getattr(self._adapter, "sr", self.sr) or self.sr or 24000)
             return self._adapter
