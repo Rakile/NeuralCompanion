@@ -72,64 +72,6 @@ if getattr(subprocess.Popen, "__name__", "") != "_safe_text_mode_popen":
     subprocess.Popen = _safe_text_mode_popen
 
 
-class _SilentTqdm:
-    def __init__(self, iterable=None, *args, **kwargs):
-        self.iterable = iterable
-
-    def __iter__(self):
-        if self.iterable is None:
-            return iter(())
-        return iter(self.iterable)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, exc_type, exc, tb):
-        return False
-
-    def update(self, *args, **kwargs):
-        return None
-
-    def close(self):
-        return None
-
-    def set_description(self, *args, **kwargs):
-        return None
-
-    def set_postfix(self, *args, **kwargs):
-        return None
-
-
-def _silent_tqdm(iterable=None, *args, **kwargs):
-    return _SilentTqdm(iterable, *args, **kwargs)
-
-
-class _SuppressReferenceMelFilter(logging.Filter):
-    def filter(self, record):
-        try:
-            return "Reference mel length is not equal to 2 * reference token length." not in record.getMessage()
-        except Exception:
-            return True
-
-
-def _suppress_chatterbox_console_noise():
-    try:
-        logging.getLogger().addFilter(_SuppressReferenceMelFilter())
-    except Exception:
-        pass
-    for module_name in (
-        "chatterbox.models.t3.t3",
-        "chatterbox.models.s3gen.flow_matching",
-    ):
-        try:
-            module = importlib.import_module(module_name)
-            setattr(module, "tqdm", _silent_tqdm)
-        except Exception:
-            continue
-
-
-_suppress_chatterbox_console_noise()
-
 # Try importing speech recognition
 try:
     import speech_recognition as sr
