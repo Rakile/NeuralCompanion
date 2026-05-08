@@ -4,7 +4,7 @@ import json
 from collections import OrderedDict
 from pathlib import Path
 
-from ui.runtime.shell_addon_services import create_shell_addon_service
+from ui.runtime.shell_addon_services import create_shell_addon_service_for_ui_role
 
 
 def configure_shell_services_actions_dependencies(namespace):
@@ -21,8 +21,8 @@ class _UiShellInputActionService:
         self._window = window
         self._last_action = ""
         self._push_to_talk_held = False
-        self._audio_story = create_shell_addon_service(
-            "nc.audio_story_mode",
+        self._audio_story = create_shell_addon_service_for_ui_role(
+            "audio_story",
             "shell.create_audio_story_preview",
             {"window": window},
             default=_NullAudioStoryPreview(),
@@ -152,8 +152,8 @@ class _UiShellChatReplayService:
     """Shell-safe replay facade supplied by the Chat Player addon."""
 
     def __init__(self, window):
-        self._service = create_shell_addon_service(
-            "nc.chat_session_player",
+        self._service = create_shell_addon_service_for_ui_role(
+            "chat_replay",
             "shell.create_chat_replay_service",
             {"window": window},
             default=None,

@@ -17,7 +17,10 @@
       "placeholder": "chat_player_tab",
       "icon_path": "ui/icons/chat_player.png",
       "order": 920,
-      "tooltip": "Standalone chat session replay and context loading tools."
+      "tooltip": "Standalone chat session replay and context loading tools.",
+      "metadata": {
+        "runtime_role": "chat_replay"
+      }
     }
   ],
   "enabled": true

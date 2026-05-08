@@ -13,6 +13,17 @@ from pathlib import Path
 
 
 _ADDON_ENTRY_BY_ID = {}
+_ADDON_ID_BY_UI_ROLE = {}
+
+
+def _iter_addon_manifests():
+    addons_root = Path(__file__).resolve().parents[2] / "addons"
+    for manifest_path in sorted(addons_root.glob("*/addon.json")):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        yield manifest_path, payload
 
 
 def _addon_entry_path(addon_id):
@@ -21,12 +32,7 @@ def _addon_entry_path(addon_id):
         return None
     if addon_id in _ADDON_ENTRY_BY_ID:
         return _ADDON_ENTRY_BY_ID[addon_id]
-    addons_root = Path(__file__).resolve().parents[2] / "addons"
-    for manifest_path in sorted(addons_root.glob("*/addon.json")):
-        try:
-            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-        except Exception:
-            continue
+    for manifest_path, payload in _iter_addon_manifests():
         if str(payload.get("id") or "").strip() != addon_id:
             continue
         entry_point = str(payload.get("entry_point") or "main.py").strip() or "main.py"
@@ -35,6 +41,27 @@ def _addon_entry_path(addon_id):
         return entry_path
     _ADDON_ENTRY_BY_ID[addon_id] = None
     return None
+
+
+def addon_id_for_ui_role(role):
+    role = str(role or "").strip().lower()
+    if not role:
+        return ""
+    if role in _ADDON_ID_BY_UI_ROLE:
+        return _ADDON_ID_BY_UI_ROLE[role]
+    for _manifest_path, payload in _iter_addon_manifests():
+        addon_id = str(payload.get("id") or "").strip()
+        if not addon_id:
+            continue
+        for entry in list(payload.get("ui") or []):
+            if not isinstance(entry, dict):
+                continue
+            metadata = dict(entry.get("metadata") or {})
+            if str(metadata.get("runtime_role") or "").strip().lower() == role:
+                _ADDON_ID_BY_UI_ROLE[role] = addon_id
+                return addon_id
+    _ADDON_ID_BY_UI_ROLE[role] = ""
+    return ""
 
 
 def create_shell_addon_service(addon_id, capability, payload=None, default=None):
@@ -57,3 +84,12 @@ def create_shell_addon_service(addon_id, capability, payload=None, default=None)
         return default if result is None else result
     except Exception:
         return default
+
+
+def create_shell_addon_service_for_ui_role(role, capability, payload=None, default=None):
+    return create_shell_addon_service(
+        addon_id_for_ui_role(role),
+        capability,
+        payload=payload,
+        default=default,
+    )

@@ -17,7 +17,10 @@
       "placeholder": "hotkeys_tab",
       "icon_path": "ui/icons/hotkeys.png",
       "order": 918,
-      "tooltip": "Configure push-to-talk and other available shortcuts."
+      "tooltip": "Configure push-to-talk and other available shortcuts.",
+      "metadata": {
+        "runtime_role": "hotkeys"
+      }
     }
   ],
   "enabled": true

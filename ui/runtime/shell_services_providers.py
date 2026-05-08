@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 
-from ui.runtime.shell_addon_services import create_shell_addon_service
+from ui.runtime.shell_addon_services import create_shell_addon_service_for_ui_role
 
 
 def configure_shell_services_providers_dependencies(namespace):
@@ -13,8 +13,8 @@ class _UiShellHotkeyService:
     """Read-only shell hotkey service supplied by the Hotkeys addon."""
 
     def __init__(self):
-        self._service = create_shell_addon_service(
-            "nc.hotkeys",
+        self._service = create_shell_addon_service_for_ui_role(
+            "hotkeys",
             "shell.create_hotkey_service",
             default=None,
         )
@@ -30,8 +30,8 @@ class _UiShellVisualReplyService:
     """Shell-only visual reply service supplied by the Visual Reply addon."""
 
     def __init__(self, window):
-        self._service = create_shell_addon_service(
-            "nc.visual_reply",
+        self._service = create_shell_addon_service_for_ui_role(
+            "visual_reply",
             "shell.create_visual_reply_service",
             {"window": window},
             default=None,
