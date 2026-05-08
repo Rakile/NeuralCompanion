@@ -1,0 +1,15 @@
+{
+  "id": "nc.webcam_source",
+  "name": "Webcam Source",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Webcam-backed hidden Vision source for attaching webcam snapshots as ambient sensory context.",
+  "services": [
+    {
+      "id": "sensory_registry",
+      "provider_id": "webcam"
+    }
+  ],
+  "enabled": true
+}

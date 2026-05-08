@@ -143,6 +143,7 @@ class BackendEngineLifecycleMixin:
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(runtime_config.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(runtime_config.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(runtime_config.get("sensory_pingpong_source_prompts", {}) or {}),
+            "sensory_provider_metadata_overrides": self._current_sensory_provider_metadata_override_map() if hasattr(self, "_current_sensory_provider_metadata_override_map") else dict(runtime_config.get("sensory_provider_metadata_overrides", {}) or {}),
         }
         self.btn_start.setEnabled(False)
         self.btn_stop.setEnabled(True)
@@ -180,12 +181,18 @@ class BackendEngineLifecycleMixin:
         print("[QtGUI] System Halted.")
 
     def stop_engine(self):
+        if bool(getattr(self, "_engine_stop_in_progress", False)):
+            return
+        self._engine_stop_in_progress = True
         engine = _engine()
-        print("[QtGUI] Stopping...")
-        engine.stop_flag.set()
-        engine.shutdown_avatar_engine()
-        self.btn_stop.setEnabled(False)
-        self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
-        self._update_restart_sensitive_controls()
-        self._update_control_action_buttons()
-        self._update_push_to_talk_button()
+        try:
+            print("[QtGUI] Stopping...")
+            engine.stop_flag.set()
+            engine.shutdown_avatar_engine()
+            self.btn_stop.setEnabled(False)
+            self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
+            self._update_restart_sensitive_controls()
+            self._update_control_action_buttons()
+            self._update_push_to_talk_button()
+        finally:
+            self._engine_stop_in_progress = False

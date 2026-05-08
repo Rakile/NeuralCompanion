@@ -44,6 +44,8 @@ class BackendSensoryTabsMixin:
         declared_outputs = list(declared_outputs or [])
         declared_tags = list(declared_tags or [])
         contributors = list(contributors or [])
+        effective_payload = self._provider_sensory_effective_payload(provider_key) if hasattr(self, "_provider_sensory_effective_payload") else {}
+        effective_metadata = dict(effective_payload.get("metadata") or {})
 
         widget = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(widget)
@@ -74,6 +76,65 @@ class BackendSensoryTabsMixin:
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             layout.addWidget(hint)
 
+        metadata_header_row = QtWidgets.QHBoxLayout()
+        metadata_header_row.setContentsMargins(0, 6, 0, 0)
+        metadata_header = QtWidgets.QLabel("Source metadata")
+        metadata_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
+        metadata_header_row.addWidget(metadata_header)
+        metadata_header_row.addStretch(1)
+        metadata_reset_button = QtWidgets.QPushButton("Use Recommended")
+        metadata_reset_button.clicked.connect(lambda _=False, pid=provider_key: self._reset_sensory_source_metadata_to_default(pid))
+        metadata_header_row.addWidget(metadata_reset_button, 0)
+        layout.addLayout(metadata_header_row)
+
+        metadata_form = QtWidgets.QFormLayout()
+        metadata_form.setContentsMargins(0, 0, 0, 0)
+        metadata_form.setSpacing(6)
+
+        def add_text_editor(field_key, label_text, value, *, height=64, placeholder=""):
+            editor_widget = QtWidgets.QPlainTextEdit()
+            editor_widget.setMinimumHeight(height)
+            editor_widget.setPlaceholderText(placeholder)
+            editor_widget.setPlainText(str(value or ""))
+            editor_widget.textChanged.connect(lambda pid=provider_key: self._on_sensory_source_metadata_changed(pid))
+            metadata_form.addRow(label_text, editor_widget)
+            return editor_widget
+
+        def add_json_editor(field_key, label_text, value, *, height=92):
+            editor_widget = QtWidgets.QPlainTextEdit()
+            editor_widget.setMinimumHeight(height)
+            editor_widget.setPlaceholderText("Editable JSON list")
+            formatter = getattr(self, "_format_sensory_metadata_json", None)
+            text = formatter(value) if callable(formatter) else str(value or [])
+            editor_widget.setPlainText(text)
+            editor_widget.textChanged.connect(lambda pid=provider_key: self._on_sensory_source_metadata_changed(pid))
+            metadata_form.addRow(label_text, editor_widget)
+            return editor_widget
+
+        metadata_editors = {
+            "instruction": add_text_editor(
+                "instruction",
+                "Runtime instruction",
+                effective_payload.get("instruction", ""),
+                height=76,
+                placeholder=f"Runtime instruction for {label}",
+            ),
+            "description": add_text_editor(
+                "description",
+                "Description",
+                effective_payload.get("description", ""),
+                height=58,
+                placeholder=f"User-facing description for {label}",
+            ),
+            "ping_payload": add_json_editor("ping_payload", "PING payload", effective_metadata.get("ping_payload", declared_ping_payload)),
+            "pong_influences": add_json_editor("pong_influences", "PONG influence", effective_metadata.get("pong_influences", declared_outputs)),
+            "tag_subscriptions": add_json_editor("tag_subscriptions", "Tag subscriptions", effective_metadata.get("tag_subscriptions", declared_tags), height=72),
+        }
+        layout.addLayout(metadata_form)
+        if not hasattr(self, "_sensory_source_metadata_editors"):
+            self._sensory_source_metadata_editors = {}
+        self._sensory_source_metadata_editors[provider_key] = metadata_editors
+
         info_items_added = False
 
         def add_info_header(text):
@@ -91,20 +152,12 @@ class BackendSensoryTabsMixin:
             layout.addWidget(label_widget)
             info_items_added = True
 
-        if description or declared_ping_payload or declared_outputs or declared_tags or (contributors and include_behavior_contributors):
+        if description or (contributors and include_behavior_contributors):
             about_header = QtWidgets.QLabel(f"About {label}")
             about_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
             layout.addWidget(about_header)
             if description:
                 add_info_label(description)
-
-        if declared_ping_payload:
-            add_info_header("Declared PING payload")
-            add_info_label("\n".join([f"- {item}" for item in declared_ping_payload]))
-
-        if declared_outputs:
-            add_info_header("May influence PONG")
-            add_info_label("\n".join([f"- {item}" for item in declared_outputs]))
 
         if contributors and include_behavior_contributors:
             add_info_header("Active behavior contributors")
@@ -118,12 +171,8 @@ class BackendSensoryTabsMixin:
                     contributor_lines.append(f"- {label_text}")
             add_info_label("\n".join(contributor_lines))
 
-        if declared_tags:
-            add_info_header("Declared tag subscriptions")
-            add_info_label("\n".join([f"- {item}" for item in declared_tags]))
-
         if not info_items_added and editor is None:
-            empty = QtWidgets.QLabel(f"No additional source guidance is declared for {label}.")
+            empty = QtWidgets.QLabel(f"Metadata for {label} is editable above.")
             empty.setWordWrap(True)
             empty.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             layout.addWidget(empty)
@@ -273,6 +322,7 @@ class BackendSensoryTabsMixin:
             if widget is not None:
                 widget.deleteLater()
         self._sensory_source_prompt_editors = {}
+        self._sensory_source_metadata_editors = {}
         self._sensory_source_prompt_tabs = {}
         for provider_id in self._selected_sensory_feedback_sources():
             provider = _sensory().get_provider(provider_id)

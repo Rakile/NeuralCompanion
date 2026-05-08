@@ -54,6 +54,7 @@ class BackendPresetBodyRuntimeMixin:
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(runtime_config.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(runtime_config.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(runtime_config.get("sensory_pingpong_source_prompts", {}) or {}),
+            "sensory_provider_metadata_overrides": self._current_sensory_provider_metadata_override_map() if hasattr(self, "_current_sensory_provider_metadata_override_map") else dict(runtime_config.get("sensory_provider_metadata_overrides", {}) or {}),
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else True,
             "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
             "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,
@@ -258,6 +259,10 @@ class BackendPresetBodyRuntimeMixin:
         if "sensory_pingpong_source_prompts" in data:
             prompt_map = self._normalize_sensory_pingpong_source_prompt_map(data.get("sensory_pingpong_source_prompts", {})) if hasattr(self, "_normalize_sensory_pingpong_source_prompt_map") else dict(data.get("sensory_pingpong_source_prompts", {}) or {})
             _update_runtime_config("sensory_pingpong_source_prompts", prompt_map)
+            self._refresh_sensory_feedback_source_tabs()
+        if "sensory_provider_metadata_overrides" in data:
+            metadata_map = self._normalize_sensory_provider_metadata_override_map(data.get("sensory_provider_metadata_overrides", {})) if hasattr(self, "_normalize_sensory_provider_metadata_override_map") else dict(data.get("sensory_provider_metadata_overrides", {}) or {})
+            _update_runtime_config("sensory_provider_metadata_overrides", metadata_map)
             self._refresh_sensory_feedback_source_tabs()
         if "sensory_feedback_source" in data and hasattr(self, "sensory_feedback_source_combo"):
             source_value = str(data["sensory_feedback_source"] or "off")

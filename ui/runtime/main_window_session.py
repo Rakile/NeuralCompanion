@@ -20,6 +20,64 @@ MUSE_VRAM_MODE_LABELS = OrderedDict(UI_SHELL_MUSE_VRAM_MODE_LABELS)
 
 
 class MainWindowSessionMixin:
+    def _addon_session_surface_specs(self):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return []
+        try:
+            return [
+                dict(spec)
+                for spec in list(manager.get_ui_disabled_surface_specs() or [])
+                if str((spec or {}).get("session_visible_key") or "").strip()
+            ]
+        except Exception:
+            return []
+
+    def _save_addon_session_surface_visibility(self, session):
+        for spec in self._addon_session_surface_specs():
+            key = str(spec.get("session_visible_key") or "").strip()
+            dock_name = str(spec.get("dock_name") or "").strip()
+            if not key or not dock_name:
+                continue
+            dock = getattr(self, dock_name, None)
+            enabled = True
+            addon_id = str(spec.get("addon_id") or "").strip()
+            checker = getattr(self, "_addon_surface_runtime_available", None) or getattr(self, "_addon_effectively_enabled", None)
+            if callable(checker) and addon_id:
+                try:
+                    enabled = bool(checker(addon_id))
+                except Exception:
+                    enabled = True
+            try:
+                session[key] = bool(enabled and dock is not None and dock.isVisible())
+            except Exception:
+                session[key] = False
+
+    def _restore_addon_session_surface_visibility(self, session, *, suppress_aux_docks=False):
+        for spec in self._addon_session_surface_specs():
+            key = str(spec.get("session_visible_key") or "").strip()
+            dock_name = str(spec.get("dock_name") or "").strip()
+            if not key or not dock_name:
+                continue
+            dock = getattr(self, dock_name, None)
+            if dock is None:
+                continue
+            addon_id = str(spec.get("addon_id") or "").strip()
+            enabled = True
+            checker = getattr(self, "_addon_surface_runtime_available", None) or getattr(self, "_addon_effectively_enabled", None)
+            if callable(checker) and addon_id:
+                try:
+                    enabled = bool(checker(addon_id))
+                except Exception:
+                    enabled = True
+            try:
+                if bool(session.get(key, False)) and not suppress_aux_docks and enabled:
+                    dock.show()
+                else:
+                    dock.hide()
+            except Exception:
+                pass
+
     def save_session(self):
         if bool(getattr(self, "_session_read_only", False)):
             return
@@ -73,6 +131,7 @@ class MainWindowSessionMixin:
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
+            "sensory_provider_metadata_overrides": self._current_sensory_provider_metadata_override_map() if hasattr(self, "_current_sensory_provider_metadata_override_map") else dict(RUNTIME_CONFIG.get("sensory_provider_metadata_overrides", {}) or {}),
             "performance_profile": self.performance_profile_combo.currentData() if hasattr(self, "performance_profile_combo") else "",
             "emotional_instructions": self.emotional_text.toPlainText().strip() if hasattr(self, "emotional_text") else str(RUNTIME_CONFIG.get("emotional_instructions", "") or ""),
             "system_prompt": self.system_prompt_text.toPlainText().strip() if hasattr(self, "system_prompt_text") else str(RUNTIME_CONFIG.get("system_prompt", "") or ""),
@@ -92,11 +151,6 @@ class MainWindowSessionMixin:
             "pinned_floating_docks": sorted(getattr(self, "_pinned_floating_dock_names", set()) or []),
             "always_on_top_floating_docks": sorted(getattr(self, "_always_on_top_floating_dock_names", set()) or []),
             "preview_visible": bool(hasattr(self, "preview_dock") and self.preview_dock.isVisible()),
-            "visual_reply_visible": bool(
-                self._visual_reply_addon_enabled()
-                and hasattr(self, "visual_reply_dock")
-                and self.visual_reply_dock.isVisible()
-            ),
             "performance_guidance_visible": bool(hasattr(self, "guidance_box") and self.guidance_box.isVisible()),
             "window_state": base64.b64encode(self.saveState().data()).decode("ascii"),
             "right_dock_state": (
@@ -105,6 +159,7 @@ class MainWindowSessionMixin:
                 else ""
             ),
         }
+        self._save_addon_session_surface_visibility(session)
         if isinstance(preserved_main_ui_real_layout, dict):
             session["main_ui_real_layout"] = preserved_main_ui_real_layout
         if self._addon_manager is not None:
@@ -372,6 +427,11 @@ class MainWindowSessionMixin:
                 prompt_map = self._normalize_sensory_pingpong_source_prompt_map(sensory_pingpong_source_prompts) if hasattr(self, "_normalize_sensory_pingpong_source_prompt_map") else dict(sensory_pingpong_source_prompts or {})
                 update_runtime_config("sensory_pingpong_source_prompts", prompt_map)
                 self._refresh_sensory_feedback_source_tabs()
+            sensory_provider_metadata_overrides = session.get("sensory_provider_metadata_overrides")
+            if sensory_provider_metadata_overrides is not None:
+                metadata_map = self._normalize_sensory_provider_metadata_override_map(sensory_provider_metadata_overrides) if hasattr(self, "_normalize_sensory_provider_metadata_override_map") else dict(sensory_provider_metadata_overrides or {})
+                update_runtime_config("sensory_provider_metadata_overrides", metadata_map)
+                self._refresh_sensory_feedback_source_tabs()
             saved_model_name = session.get("model_name")
             if saved_model_name:
                 QtCore.QTimer.singleShot(400, lambda wanted=str(saved_model_name or ""): self._apply_saved_model_name(wanted))
@@ -446,14 +506,7 @@ class MainWindowSessionMixin:
                 self.preview_dock.show()
             else:
                 self.preview_dock.hide()
-            if (
-                bool(session.get("visual_reply_visible", False))
-                and not suppress_aux_docks
-                and self._visual_reply_addon_enabled()
-            ):
-                self.visual_reply_dock.show()
-            else:
-                self.visual_reply_dock.hide()
+            self._restore_addon_session_surface_visibility(session, suppress_aux_docks=suppress_aux_docks)
             performance_guidance_visible = bool(session.get("performance_guidance_visible", False))
             if hasattr(self, "performance_guidance_toggle"):
                 self.performance_guidance_toggle.setChecked(performance_guidance_visible)

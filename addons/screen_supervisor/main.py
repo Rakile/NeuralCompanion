@@ -1,3 +1,4 @@
+import json
 import uuid
 
 from PySide6 import QtCore, QtWidgets
@@ -10,9 +11,7 @@ class NoWheelComboBox(QtWidgets.QComboBox):
         event.ignore()
 
 
-DEFAULT_TEMPLATE = """This behavior applies only to screen input and should behave like a strict policy, not a vague preference.
-
-Use only clear screen evidence. If the screen cue is weak, ambiguous, unreadable, or uncertain, do not trigger this behavior.
+FALLBACK_TEMPLATE = """This behavior applies only to screen input and should behave like a strict policy, not a vague preference.
 
 Active supervisor persona: __PERSONA_NAME__.
 Persona style: __PERSONA_STYLE__.
@@ -20,24 +19,7 @@ Persona style: __PERSONA_STYLE__.
 Configured behaviors:
 __BEHAVIOR_RULES__
 
-When one configured behavior clearly matches the screen:
-- set should_speak=true
-- set proactive_candidate to a short interruption in the active persona's voice, following the matching behavior's Action guidance
-- obey the matching behavior's Strictness guidance
-- if the matching behavior specifies an Emotion override other than Auto, prefer that emotion
-- do not quote the configured trigger text verbatim unless useful
-- choose the single strongest matching behavior instead of stacking multiple reactions
-
-When no configured behavior clearly matches:
-- set should_speak=false for this behavior
-- do not invent a supervisor-style interruption
-
-Follow the matching behavior's Repeat policy.
-- For One-off, if recent retained hidden PONG context already contains a very similar interruption for the same ongoing screen pattern, prefer should_speak=false.
-- For Every Nth match, only speak again when the same ongoing screen pattern has kept matching long enough to satisfy the configured cadence.
-- For Meaningful change only, only speak again when the same overall trigger still applies but the screen changed in a clearly meaningful way.
-Even in recurring modes, avoid near-duplicate spam.
-Keep interruptions concise, playful, and in-character."""
+When one configured behavior matches the screen, decide whether to interrupt in the active persona's voice. Keep interruptions concise and relevant."""
 
 PERSONA_STYLE_HINTS = {
     "Supervisor": "cool, witty, lightly possessive digital supervisor",
@@ -113,6 +95,8 @@ class Addon(BaseAddon):
         super().initialize(context)
         self.enabled = True
         self._suppress_shell_notify = False
+        self.recommended_prompt_template = self._load_recommended_prompt_template()
+        self.prompt_template = self.recommended_prompt_template
         self.personas = self._normalize_personas(_default_personas())
         self.selected_persona_id = self.personas[0]["id"] if self.personas else ""
         self._tab_refreshers = []
@@ -162,6 +146,7 @@ class Addon(BaseAddon):
     def export_session_state(self):
         return {
             "screen_supervisor_enabled": bool(self.enabled),
+            "screen_supervisor_prompt_template": str(self.prompt_template or self.recommended_prompt_template or FALLBACK_TEMPLATE),
             "screen_supervisor_personas": self._serialize_personas(),
             "screen_supervisor_selected_persona_id": str(self.selected_persona_id or ""),
         }
@@ -176,6 +161,8 @@ class Addon(BaseAddon):
         try:
             if "screen_supervisor_enabled" in payload:
                 self.enabled = bool(payload.get("screen_supervisor_enabled"))
+            if "screen_supervisor_prompt_template" in payload:
+                self.prompt_template = self._normalize_prompt_template(payload.get("screen_supervisor_prompt_template"))
             if "screen_supervisor_personas" in payload:
                 self.personas = self._normalize_personas(payload.get("screen_supervisor_personas"))
                 self.selected_persona_id = str(payload.get("screen_supervisor_selected_persona_id") or "").strip()
@@ -233,6 +220,22 @@ class Addon(BaseAddon):
     def _style_hint_for_name(self, name):
         key = str(name or "").strip()
         return PERSONA_STYLE_HINTS.get(key, f"{key or 'Custom persona'} energy, playful and strongly in-character")
+
+    def _load_recommended_prompt_template(self):
+        try:
+            template_path = self.context.manifest.root_dir / "prompt_template.json"
+            payload = json.loads(template_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                text = str(payload.get("template") or "").strip()
+                if text:
+                    return text
+        except Exception:
+            pass
+        return FALLBACK_TEMPLATE
+
+    def _normalize_prompt_template(self, value):
+        text = str(value or "").strip()
+        return text or str(getattr(self, "recommended_prompt_template", "") or FALLBACK_TEMPLATE)
 
     def _normalize_strictness(self, value):
         text = str(value or "").strip()
@@ -394,11 +397,23 @@ class Addon(BaseAddon):
 
     def _render_prompt(self, persona=None):
         active = persona or self._selected_persona()
-        rendered = DEFAULT_TEMPLATE
+        rendered = self._normalize_prompt_template(getattr(self, "prompt_template", ""))
         rendered = rendered.replace("__PERSONA_NAME__", str(active.get("name") or "Supervisor"))
         rendered = rendered.replace("__PERSONA_STYLE__", str(active.get("style") or self._style_hint_for_name(active.get("name"))))
         rendered = rendered.replace("__BEHAVIOR_RULES__", self._render_behavior_rules(active))
         return rendered
+
+    def _set_prompt_template(self, template_text):
+        normalized = self._normalize_prompt_template(template_text)
+        if normalized == str(getattr(self, "prompt_template", "") or ""):
+            return False
+        self.prompt_template = normalized
+        self._publish_prompt_only()
+        return True
+
+    def _reset_prompt_template_to_recommended(self):
+        self.prompt_template = self._normalize_prompt_template(getattr(self, "recommended_prompt_template", "") or FALLBACK_TEMPLATE)
+        self._publish_prompt_only()
 
     def _sensory_service(self):
         return self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
@@ -468,6 +483,14 @@ class Addon(BaseAddon):
     def _publish_prompt_only(self):
         self._ensure_selected_persona()
         self._register_prompt_contributor()
+        if not bool(getattr(self, "_suppress_shell_notify", False)):
+            shell = self._shell_service()
+            notifier = getattr(shell, "notify_settings_changed", None)
+            if callable(notifier):
+                try:
+                    notifier()
+                except Exception:
+                    pass
 
     def _add_persona(self, name):
         persona_name = str(name or "").strip()
@@ -552,6 +575,7 @@ class Addon(BaseAddon):
             add_behavior_button = ui_child("btn_screen_supervisor_add_behavior", QtWidgets.QPushButton)
             behaviors_widget = ui_child("screen_supervisor_behaviors_widget", QtWidgets.QWidget)
             preview_edit = ui_child("screen_supervisor_preview_edit", QtWidgets.QPlainTextEdit)
+            preview_label = ui_child("screen_supervisor_preview_label", QtWidgets.QLabel)
             if any(
                 item is None
                 for item in (
@@ -574,6 +598,29 @@ class Addon(BaseAddon):
             behaviors_layout.setSpacing(8)
             preview_edit.setReadOnly(True)
             preview_edit.setMinimumHeight(180)
+            root_layout = widget.layout()
+            template_group = QtWidgets.QGroupBox("Supervisor Prompt Template")
+            template_layout = QtWidgets.QVBoxLayout(template_group)
+            template_header = QtWidgets.QHBoxLayout()
+            template_hint = QtWidgets.QLabel("Edit the template that wraps this addon's behavior rules before they are sent to hidden PING/PONG.")
+            template_hint.setWordWrap(True)
+            template_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            template_reset_button = QtWidgets.QPushButton("Use Recommended")
+            template_header.addWidget(template_hint, 1)
+            template_header.addWidget(template_reset_button, 0)
+            template_layout.addLayout(template_header)
+            template_edit = QtWidgets.QPlainTextEdit()
+            template_edit.setMinimumHeight(180)
+            template_layout.addWidget(template_edit)
+            if root_layout is not None:
+                insert_index = root_layout.count()
+                if preview_label is not None:
+                    for index in range(root_layout.count()):
+                        item = root_layout.itemAt(index)
+                        if item is not None and item.widget() is preview_label:
+                            insert_index = index
+                            break
+                root_layout.insertWidget(insert_index, template_group)
         else:
             widget = QtWidgets.QWidget()
             layout = QtWidgets.QVBoxLayout(widget)
@@ -630,6 +677,21 @@ class Addon(BaseAddon):
             note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             layout.addWidget(note)
 
+            template_group = QtWidgets.QGroupBox("Supervisor Prompt Template")
+            template_layout = QtWidgets.QVBoxLayout(template_group)
+            template_header = QtWidgets.QHBoxLayout()
+            template_hint = QtWidgets.QLabel("Edit the template that wraps this addon's behavior rules before they are sent to hidden PING/PONG.")
+            template_hint.setWordWrap(True)
+            template_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            template_reset_button = QtWidgets.QPushButton("Use Recommended")
+            template_header.addWidget(template_hint, 1)
+            template_header.addWidget(template_reset_button, 0)
+            template_layout.addLayout(template_header)
+            template_edit = QtWidgets.QPlainTextEdit()
+            template_edit.setMinimumHeight(180)
+            template_layout.addWidget(template_edit)
+            layout.addWidget(template_group)
+
             preview_header = QtWidgets.QLabel("Active Rendered Prompt")
             preview_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
             layout.addWidget(preview_header)
@@ -657,6 +719,21 @@ class Addon(BaseAddon):
                 preview_edit.setPlainText("Disabled. This child behavior is currently excluded by its parent Screen source tab.")
                 return
             preview_edit.setPlainText(self._render_prompt())
+
+        def commit_prompt_template():
+            if sync["active"]:
+                return
+            if self._set_prompt_template(template_edit.toPlainText()):
+                refresh_preview()
+            else:
+                refresh_preview()
+
+        def reset_prompt_template():
+            self._reset_prompt_template_to_recommended()
+            template_edit.blockSignals(True)
+            template_edit.setPlainText(str(self.prompt_template or ""))
+            template_edit.blockSignals(False)
+            refresh_preview()
 
         def commit_persona_style():
             if sync["active"]:
@@ -838,6 +915,11 @@ class Addon(BaseAddon):
                 persona_style_edit.blockSignals(False)
                 persona_combo.setEnabled(bool(self.enabled))
                 persona_style_edit.setEnabled(bool(self.enabled))
+                template_edit.blockSignals(True)
+                template_edit.setPlainText(str(self.prompt_template or self.recommended_prompt_template or FALLBACK_TEMPLATE))
+                template_edit.blockSignals(False)
+                template_edit.setEnabled(bool(self.enabled))
+                template_reset_button.setEnabled(bool(self.enabled))
                 add_persona_button.setEnabled(bool(self.enabled))
                 rename_persona_button.setEnabled(bool(self.enabled))
                 delete_persona_button.setEnabled(bool(self.enabled) and len(self.personas) > 1)
@@ -880,6 +962,8 @@ class Addon(BaseAddon):
 
         persona_combo.currentIndexChanged.connect(lambda *_args: on_persona_changed())
         persona_style_edit.textChanged.connect(lambda *_args: commit_persona_style())
+        template_edit.textChanged.connect(lambda *_args: commit_prompt_template())
+        template_reset_button.clicked.connect(lambda *_args: reset_prompt_template())
         add_persona_button.clicked.connect(add_persona)
         rename_persona_button.clicked.connect(rename_persona)
         delete_persona_button.clicked.connect(lambda *_args: self._delete_selected_persona())

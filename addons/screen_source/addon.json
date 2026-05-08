@@ -1,0 +1,15 @@
+{
+  "id": "nc.screen_source",
+  "name": "Screen Source",
+  "category": "vision",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+  "services": [
+    {
+      "id": "sensory_registry",
+      "provider_id": "screen"
+    }
+  ],
+  "enabled": true
+}

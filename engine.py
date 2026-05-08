@@ -7,7 +7,6 @@ import queue
 import os
 import sys
 import time
-import tempfile
 import base64
 import platform
 import subprocess
@@ -567,6 +566,7 @@ RUNTIME_CONFIG = {
     "sensory_pingpong_history_depth": int(os.environ.get("NC_SENSORY_PINGPONG_HISTORY_DEPTH", "3") or 3),
     "sensory_pingpong_prompt": os.environ.get("NC_SENSORY_PINGPONG_PROMPT", DEFAULT_SENSORY_PINGPONG_PROMPT),
     "sensory_pingpong_source_prompts": {},
+    "sensory_provider_metadata_overrides": {},
     "sensory_allow_hidden_proactive_speech": str(os.environ.get("NC_SENSORY_ALLOW_HIDDEN_PROACTIVE_SPEECH", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
     "sensory_allow_hidden_visual_generation": str(os.environ.get("NC_SENSORY_ALLOW_HIDDEN_VISUAL_GENERATION", "0") or "0").strip().lower() in {"1", "true", "yes", "on"},
 }
@@ -744,6 +744,7 @@ avatar_gui = None
 tts_model = None
 tts_backend_name = None
 whisper_model = None
+_shutdown_avatar_engine_lock = threading.RLock()
 recognizer = sr.Recognizer()
 conversation_history = []
 sent_tokenize = None
@@ -976,27 +977,35 @@ LAST_INPUT_TIME = 0
 def startup_cleanup():
     """Wipes lightweight runtime temp files on launch."""
     runtime_dir = os.path.abspath("runtime")
-    if not os.path.isdir(runtime_dir):
-        return
-
-    for name in os.listdir(runtime_dir):
-        if not name.endswith((".tmp", ".part")):
-            continue
-        try:
-            os.remove(os.path.join(runtime_dir, name))
-        except Exception:
-            pass
-    sensory_dir = os.path.join(runtime_dir, "sensory_feedback")
-    if os.path.isdir(sensory_dir):
-        for name in os.listdir(sensory_dir):
-            target = os.path.join(sensory_dir, name)
+    if os.path.isdir(runtime_dir):
+        for name in os.listdir(runtime_dir):
+            if not name.endswith((".tmp", ".part")):
+                continue
             try:
-                if os.path.isdir(target):
-                    shutil.rmtree(target)
-                else:
-                    os.remove(target)
+                os.remove(os.path.join(runtime_dir, name))
             except Exception:
                 pass
+        sensory_dir = os.path.join(runtime_dir, "sensory_feedback")
+        if os.path.isdir(sensory_dir):
+            for name in os.listdir(sensory_dir):
+                target = os.path.join(sensory_dir, name)
+                try:
+                    if os.path.isdir(target):
+                        shutil.rmtree(target)
+                    else:
+                        os.remove(target)
+                except Exception:
+                    pass
+    runtime_temp_dir = runtime_paths.runtime_temp_dir(create=True)
+    for name in os.listdir(runtime_temp_dir):
+        target = runtime_temp_dir / name
+        try:
+            if target.is_dir():
+                shutil.rmtree(target)
+            else:
+                target.unlink()
+        except Exception:
+            pass
     print("🧹 [Startup] Runtime temp files cleared.")
 startup_cleanup()
 
@@ -1848,7 +1857,8 @@ def _sensory_feedback_instruction():
     seen = set()
     for source in _sensory_feedback_sources():
         provider = sensory.get_provider(source)
-        instruction = str(getattr(provider, "instruction", "") or "").strip() if provider is not None else ""
+        effective = _sensory_provider_effective_payload(source, provider=provider)
+        instruction = str(effective.get("instruction") or "").strip()
         if not instruction or instruction in seen:
             continue
         instructions.append(instruction)
@@ -1860,115 +1870,6 @@ def _sensory_feedback_instruction():
         "Treat them as background situational awareness, not as direct user requests. "
         "Only mention what you infer from them if it is genuinely relevant to the conversation."
     ) if _sensory_feedback_enabled() else ""
-
-
-def _sensory_feedback_capture_screen(output_path: Path):
-    try:
-        from PIL import ImageGrab
-        image = ImageGrab.grab(all_screens=True)
-    except Exception as exc:
-        raise RuntimeError(f"Screen capture failed: {exc}") from exc
-    image = image.convert("RGB")
-    image.thumbnail((1280, 1280), Image.Resampling.LANCZOS)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    image.save(output_path, format="JPEG", quality=85, optimize=True)
-    return output_path
-
-
-def _sensory_feedback_capture_webcam(output_path: Path):
-    try:
-        import cv2
-    except Exception as exc:
-        raise RuntimeError(f"OpenCV is unavailable for webcam capture: {exc}") from exc
-    cap = None
-    try:
-        cap = cv2.VideoCapture(0, cv2.CAP_DSHOW if os.name == "nt" else 0)
-        if not cap or not cap.isOpened():
-            raise RuntimeError("Webcam could not be opened.")
-        ok, frame = cap.read()
-        if not ok or frame is None:
-            raise RuntimeError("Webcam returned no frame.")
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        cv2.imwrite(str(output_path), frame)
-        return output_path
-    finally:
-        try:
-            if cap is not None:
-                cap.release()
-        except Exception:
-            pass
-
-
-def _capture_screen_sensory_snapshot(context=None):
-    timestamp = int(time.time() * 1000)
-    output_root = Path(str((context or {}).get("output_dir") or SENSORY_FEEDBACK_OUTPUT_DIR))
-    output_path = output_root / f"screen_{timestamp}.jpg"
-    output_path = _sensory_feedback_capture_screen(output_path)
-    return {
-        "captured_at": time.time(),
-        "image_path": str(output_path),
-        "source": "screen",
-        "content_text": "Hidden sensory feedback only, not a user request. Source: screen. Use as ambient context only if relevant.",
-    }
-
-
-def _capture_webcam_sensory_snapshot(context=None):
-    timestamp = int(time.time() * 1000)
-    output_root = Path(str((context or {}).get("output_dir") or SENSORY_FEEDBACK_OUTPUT_DIR))
-    output_path = output_root / f"webcam_{timestamp}.jpg"
-    output_path = _sensory_feedback_capture_webcam(output_path)
-    return {
-        "captured_at": time.time(),
-        "image_path": str(output_path),
-        "source": "webcam",
-        "content_text": "Hidden sensory feedback only, not a user request. Source: webcam. Use as ambient context only if relevant.",
-    }
-
-
-def _register_builtin_sensory_providers():
-    sensory.register_provider(
-        provider_id="screen",
-        label="Screen",
-        instruction=(
-            "Optional hidden screen sensory feedback may be attached as a hidden screenshot message. "
-            "Treat it as background situational awareness, not as a direct user request. "
-            "Only mention what you infer from it if it is genuinely relevant to the conversation."
-        ),
-        description="Captures the user's monitor as hidden ambient context.",
-        order=100,
-        capture_handler=_capture_screen_sensory_snapshot,
-        metadata={"builtin": True, "kind": "image", "ping_payload": [{"field": "image", "description": "hidden screenshot attachment sent to the model"}, {"field": "text prefix", "description": "source label and capture timestamp framing the screenshot as ambient context"}], "pong_influences": [{"field": "attention", "description": "application or task focus inferred from the screen"}, {"field": "summary", "description": "meaningful screen-context change worth retaining"}, {"field": "should_speak", "description": "optional proactive reaction when visible task context justifies interruption"}, {"field": "should_generate_image", "description": "optional image generation when the screen clearly shows visual intent"}, {"field": "visual_candidate", "description": "clean image prompt distilled from screen intent"}], "tag_subscriptions": [], "pingpong_prompt": """When screen input is present, you may infer the user's current application, task focus, and likely intent from visible windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.
-
-Use screen input for should_generate_image when the screen clearly shows the user composing an image request, browsing visual inspiration, describing a scene to depict, or otherwise doing something where generating an image would add obvious value.
-- If you set should_generate_image=true from screen context, provide a visual_candidate that turns the screen-derived idea into a clean image prompt instead of repeating raw UI text verbatim.
-- Good screen-derived visual_candidate examples: "NC self-portrait at a glowing workstation, intimate digital companion mood" or "storybook ragdoll cat lounging by a sunlit window, soft painterly style".
-- If the screen only shows ordinary work with no strong visual intent, prefer should_generate_image=false.
-
-Use screen input for should_speak when the user appears to be actively preparing, searching, or editing something that justifies a gentle proactive reaction or question.
-- If the screen cue is weak or ambiguous, prefer should_speak=false."""},
-    )
-    sensory.register_provider(
-        provider_id="webcam",
-        label="Webcam",
-        instruction=(
-            "Optional hidden webcam sensory feedback may be attached as a hidden image message. "
-            "Treat it as background situational awareness, not as a direct user request. "
-            "Only mention what you infer from it if it is genuinely relevant to the conversation."
-        ),
-        description="Captures a webcam snapshot as hidden ambient context.",
-        order=110,
-        capture_handler=_capture_webcam_sensory_snapshot,
-        metadata={"builtin": True, "kind": "image", "ping_payload": [{"field": "image", "description": "hidden webcam snapshot attachment sent to the model"}, {"field": "text prefix", "description": "source label and capture timestamp framing the webcam snapshot as ambient context"}], "pong_influences": [{"field": "attention", "description": "gaze, pose, gesture, or presence cue"}, {"field": "summary", "description": "concise retained description of a meaningful observed moment"}, {"field": "should_speak", "description": "gesture-driven or expression-driven proactive interjection"}, {"field": "should_generate_image", "description": "rare visual generation when the observed moment is especially striking"}, {"field": "visual_candidate", "description": "image prompt inspired by the observed moment"}], "tag_subscriptions": [], "pingpong_prompt": """When webcam input is present, you may infer posture, gestures, gaze direction, visible props, and coarse facial expression, but do not claim persistent video continuity beyond the current snapshots.
-
-Use webcam input especially for attention, summary, and gesture-driven should_speak decisions.
-- If a visible gesture, expression, or posture strongly invites an in-character spoken reaction, set should_speak=true and provide a concise proactive_candidate.
-- If the webcam only shows normal presence or ambiguous body language, prefer should_speak=false.
-
-Only set should_generate_image=true from webcam input when the visible scene, pose, or moment is visually striking enough that generating an image would add real value. If you do, write visual_candidate as an image prompt inspired by the observed moment, not a literal surveillance description."""},
-    )
-
-
-_register_builtin_sensory_providers()
 
 
 def _capture_sensory_feedback_snapshot(source=None):
@@ -2154,6 +2055,18 @@ def _build_sensory_feedback_messages():
 
 def _sensory_pingpong_enabled():
     return _sensory_feedback_enabled() and bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False))
+
+
+def _hidden_sensory_pingpong_blocked():
+    """Hidden PING/PONG should not run while chat playback is paused mid-reply."""
+    return bool(
+        microphone_active.is_set()
+        or audio_playing.is_set()
+        or _llm_request_active.is_set()
+        or pause_after_chunk.is_set()
+        or playback_paused.is_set()
+        or bool(RUNTIME_CONFIG.get("offline_replay_only", False))
+    )
 
 
 def _sensory_pingpong_history_depth():
@@ -2578,20 +2491,83 @@ def _sensory_pingpong_source_prompt_map():
     return result
 
 
+def _sensory_provider_metadata_override_map():
+    payload = RUNTIME_CONFIG.get("sensory_provider_metadata_overrides", {})
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _sensory_provider_effective_payload(provider_id, provider=None):
+    provider_key = str(provider_id or "").strip().lower()
+    provider = provider if provider is not None else sensory.get_provider(provider_key)
+    base_metadata = dict(getattr(provider, "metadata", {}) or {}) if provider is not None else {}
+    payload = {
+        "label": str(getattr(provider, "label", provider_key) or provider_key),
+        "instruction": str(getattr(provider, "instruction", "") or ""),
+        "description": str(getattr(provider, "description", "") or ""),
+        "metadata": base_metadata,
+    }
+    overrides = _sensory_provider_metadata_override_map().get(provider_key, {})
+    if isinstance(overrides, dict):
+        for key in ("label", "instruction", "description"):
+            if key in overrides:
+                payload[key] = str(overrides.get(key) or "")
+        metadata_override = overrides.get("metadata", {})
+        if isinstance(metadata_override, dict):
+            merged_metadata = dict(base_metadata)
+            merged_metadata.update(dict(metadata_override))
+            payload["metadata"] = merged_metadata
+    legacy_prompt = _sensory_pingpong_source_prompt_map().get(provider_key)
+    if legacy_prompt is not None:
+        metadata = dict(payload.get("metadata") or {})
+        metadata["pingpong_prompt"] = str(legacy_prompt or "")
+        payload["metadata"] = metadata
+    return payload
+
+
+def _sensory_metadata_lines(raw, *, name_key="field", description_key="description"):
+    lines = []
+    if isinstance(raw, (list, tuple, set)):
+        for item in list(raw):
+            if isinstance(item, dict):
+                name = str(item.get(name_key) or item.get("field") or item.get("tag") or "").strip()
+                description = str(item.get(description_key) or item.get("description") or item.get("action") or "").strip()
+                text = name
+                if name and description:
+                    text = f"{name}: {description}"
+                elif description:
+                    text = description
+            else:
+                text = str(item or "").strip()
+            if text and text not in lines:
+                lines.append(text)
+    return lines
+
+
 def _sensory_pingpong_source_prompt_text(source_ids):
-    prompt_map = _sensory_pingpong_source_prompt_map()
     fragments = []
     seen = set()
     normalized_source_ids = [str(item or "").strip().lower() for item in list(source_ids or []) if str(item or "").strip()]
     for source_id in normalized_source_ids:
         provider = sensory.get_provider(source_id)
-        metadata = dict(getattr(provider, "metadata", {}) or {}) if provider is not None else {}
+        effective = _sensory_provider_effective_payload(source_id, provider=provider)
+        metadata = dict(effective.get("metadata") or {})
         if metadata.get("prompt_fragment_enabled", True) is not False:
-            label = str(getattr(provider, "label", source_id) or source_id)
-            fragment = str(prompt_map.get(source_id) or metadata.get("pingpong_prompt") or "").strip()
-            if fragment and fragment not in seen:
-                seen.add(fragment)
-                fragments.append(f"Source prompt for {label}:\n{fragment}")
+            label = str(effective.get("label") or source_id)
+            fragment = str(metadata.get("pingpong_prompt") or "").strip()
+            metadata_sections = []
+            ping_payload = _sensory_metadata_lines(metadata.get("ping_payload", []))
+            pong_influences = _sensory_metadata_lines(metadata.get("pong_influences", metadata.get("pong_outputs", [])))
+            tag_subscriptions = _sensory_metadata_lines(metadata.get("tag_subscriptions", []), name_key="tag", description_key="action")
+            if ping_payload:
+                metadata_sections.append("Declared PING payload:\n" + "\n".join(f"- {line}" for line in ping_payload))
+            if pong_influences:
+                metadata_sections.append("May influence PONG:\n" + "\n".join(f"- {line}" for line in pong_influences))
+            if tag_subscriptions:
+                metadata_sections.append("Declared tag subscriptions:\n" + "\n".join(f"- {line}" for line in tag_subscriptions))
+            full_fragment = "\n\n".join([item for item in [fragment, *metadata_sections] if item])
+            if full_fragment and full_fragment not in seen:
+                seen.add(full_fragment)
+                fragments.append(f"Source prompt for {label}:\n{full_fragment}")
         for contributor in sensory.list_prompt_contributors(source_id):
             contributor_label = str(getattr(contributor, "label", source_id) or source_id)
             fragment = str(getattr(contributor, "prompt", "") or "").strip()
@@ -2821,7 +2797,7 @@ def _apply_sensory_pong_result(result, snapshots):
 def run_hidden_sensory_pingpong_cycle(force=False):
     if not _sensory_pingpong_enabled():
         return False
-    if stop_flag.is_set() or bool(RUNTIME_CONFIG.get("offline_replay_only", False)):
+    if stop_flag.is_set() or _hidden_sensory_pingpong_blocked():
         return False
     snapshots = _maybe_refresh_sensory_feedback_snapshots(force=bool(force))
     if not snapshots:
@@ -3378,24 +3354,33 @@ def transition_musetalk_to_idle_after_interrupt(delay=0.35):
 
 def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
     global avatar_gui, tts_model, tts_backend_name, whisper_model
-    had_tts_model = tts_model is not None
-    avatar_gui, tts_model, whisper_model = runtime_shutdown.shutdown_runtime_components(
-        avatar_gui=avatar_gui,
-        tts_model=tts_model,
-        whisper_model=whisper_model,
-        unload_tts=unload_tts,
-        unload_stt=unload_stt,
-        stop_playback=stop_playback,
-        pause_after_chunk=pause_after_chunk,
-        playback_paused=playback_paused,
-        clear_avatar_stream_state=clear_avatar_stream_state,
-        schedule_musetalk_runtime_cleanup=schedule_musetalk_runtime_cleanup,
-        gc_module=gc,
-        torch_module=torch,
-        logger=print,
-    )
-    if unload_tts and had_tts_model and tts_model is None:
-        tts_backend_name = None
+    with _shutdown_avatar_engine_lock:
+        had_tts_model = tts_model is not None
+        has_tts_to_unload = bool(unload_tts and tts_model is not None)
+        has_stt_to_unload = bool(unload_stt and whisper_model is not None)
+        if avatar_gui is None and not has_tts_to_unload and not has_stt_to_unload:
+            stop_playback.set()
+            pause_after_chunk.clear()
+            playback_paused.clear()
+            clear_avatar_stream_state()
+            return
+        avatar_gui, tts_model, whisper_model = runtime_shutdown.shutdown_runtime_components(
+            avatar_gui=avatar_gui,
+            tts_model=tts_model,
+            whisper_model=whisper_model,
+            unload_tts=unload_tts,
+            unload_stt=unload_stt,
+            stop_playback=stop_playback,
+            pause_after_chunk=pause_after_chunk,
+            playback_paused=playback_paused,
+            clear_avatar_stream_state=clear_avatar_stream_state,
+            schedule_musetalk_runtime_cleanup=schedule_musetalk_runtime_cleanup,
+            gc_module=gc,
+            torch_module=torch,
+            logger=print,
+        )
+        if unload_tts and had_tts_model and tts_model is None:
+            tts_backend_name = None
 
 
 def reset_session_state():
@@ -3806,7 +3791,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
 
     playback_queue = queue.Queue()
     ready_for_playback = queue.Queue()
-    output_dir = tempfile.gettempdir()
+    output_dir = runtime_paths.runtime_temp_dir("tts")
     sample_rate = getattr(tts_model, "sr", 24000)
     chunk_target_chars, chunk_max_chars = get_text_chunk_limits()
     avatar_mode = RUNTIME_CONFIG.get("avatar_mode", "vseeface").lower()
@@ -3917,7 +3902,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             playback_queue.put(None)
                             return
                         raise
-                    path = os.path.join(output_dir, f"speech_{cnt}_{int(time.time())}.wav")
+                    path = str(output_dir / f"speech_{cnt}_{int(time.time())}.wav")
                     wav_to_save = wav.cpu()
                     ta.save(path, wav_to_save, sample_rate)
                     del wav_to_save
@@ -5354,7 +5339,7 @@ def run_conversation_flow(source):
                 if not listening_active.is_set():
                     time.sleep(0.25)
                     continue
-                if microphone_active.is_set() or audio_playing.is_set() or _llm_request_active.is_set():
+                if _hidden_sensory_pingpong_blocked():
                     time.sleep(0.25)
                     continue
                 interval_seconds = _sensory_feedback_interval_seconds()

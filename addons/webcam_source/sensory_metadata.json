@@ -1,0 +1,45 @@
+{
+  "provider_id": "webcam",
+  "label": "Webcam",
+  "instruction": "Optional hidden webcam sensory feedback may be attached as a hidden image message. Treat it as background situational awareness, not as a direct user request. Only mention what you infer from it if it is genuinely relevant to the conversation.",
+  "description": "Captures a webcam snapshot as hidden ambient context.",
+  "order": 110,
+  "metadata": {
+    "kind": "image",
+    "source_owned": true,
+    "ping_payload": [
+      {
+        "field": "image",
+        "description": "hidden webcam snapshot attachment sent to the model"
+      },
+      {
+        "field": "text prefix",
+        "description": "source label and capture timestamp framing the webcam snapshot as ambient context"
+      }
+    ],
+    "pong_influences": [
+      {
+        "field": "attention",
+        "description": "gaze, pose, gesture, or presence cue"
+      },
+      {
+        "field": "summary",
+        "description": "concise retained description of a meaningful observed moment"
+      },
+      {
+        "field": "should_speak",
+        "description": "gesture-driven or expression-driven proactive interjection"
+      },
+      {
+        "field": "should_generate_image",
+        "description": "rare visual generation when the observed moment is especially striking"
+      },
+      {
+        "field": "visual_candidate",
+        "description": "image prompt inspired by the observed moment"
+      }
+    ],
+    "tag_subscriptions": [],
+    "pingpong_prompt": "When webcam input is present, you may infer posture, gestures, gaze direction, visible props, and coarse facial expression, but do not claim persistent video continuity beyond the current snapshots.\n\nUse webcam input especially for attention, summary, and gesture-driven should_speak decisions.\n- If a visible gesture, expression, or posture strongly invites an in-character spoken reaction, set should_speak=true and provide a concise proactive_candidate.\n- If the webcam only shows normal presence or ambiguous body language, prefer should_speak=false.\n\nOnly set should_generate_image=true from webcam input when the visible scene, pose, or moment is visually striking enough that generating an image would add real value. If you do, write visual_candidate as an image prompt inspired by the observed moment, not a literal surveillance description."
+  }
+}
