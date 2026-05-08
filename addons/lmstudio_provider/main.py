@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Iterable
+from urllib.request import Request, urlopen
 
 from openai import OpenAI
 
@@ -126,6 +128,12 @@ class Addon(BaseAddon):
     def _base_url(self) -> str:
         return self._setting("base_url") or DEFAULT_BASE_URL
 
+    def _native_api_base_url(self) -> str:
+        base_url = str(self._base_url() or DEFAULT_BASE_URL).strip().rstrip("/")
+        if base_url.endswith("/v1"):
+            base_url = base_url[:-3]
+        return base_url.rstrip("/") or "http://127.0.0.1:1234"
+
     def _client(self) -> OpenAI:
         return OpenAI(base_url=self._base_url(), api_key=self._api_key())
 
@@ -138,6 +146,9 @@ class Addon(BaseAddon):
         return request_kwargs
 
     def _list_models(self, quiet: bool = False):
+        native_models = self._list_native_models(quiet=quiet)
+        if native_models is not None:
+            return native_models
         try:
             client = self._client()
             payload = client.models.list()
@@ -153,6 +164,39 @@ class Addon(BaseAddon):
             if not quiet:
                 print(f"Error fetching LM Studio models: {exc}")
             return []
+
+    def _list_native_models(self, quiet: bool = False):
+        url = f"{self._native_api_base_url()}/api/v1/models"
+        headers = {"Authorization": f"Bearer {self._api_key()}"}
+        try:
+            request = Request(url, headers=headers, method="GET")
+            with urlopen(request, timeout=5.0) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except Exception as exc:
+            if not quiet:
+                print(f"Error fetching LM Studio native model metadata: {exc}")
+            return None
+        models = payload.get("models") if isinstance(payload, dict) else None
+        if not isinstance(models, list):
+            return None
+        catalog = []
+        for model in models:
+            if not isinstance(model, dict):
+                continue
+            if str(model.get("type") or "").strip().lower() not in {"", "llm"}:
+                continue
+            model_id = str(model.get("key") or model.get("id") or "").strip()
+            if not model_id:
+                continue
+            capabilities = model.get("capabilities") if isinstance(model.get("capabilities"), dict) else {}
+            catalog.append(
+                {
+                    "id": model_id,
+                    "supports_images": bool(capabilities.get("vision", False)),
+                    "source": "lmstudio_native",
+                }
+            )
+        return sorted(catalog, key=lambda item: str(item.get("id") or "").lower())
 
     def _check_connection(self):
         try:
