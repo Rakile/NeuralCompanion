@@ -15,6 +15,8 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from addons.visual_reply import state as visual_reply_state
+
 try:
     from PySide6 import QtMultimedia
 except Exception:
@@ -39,7 +41,6 @@ class _LazyModuleProxy:
 
 
 engine = _LazyModuleProxy("engine")
-shared_state = _LazyModuleProxy("shared_state")
 chat_providers = _LazyModuleProxy("core.chat_providers")
 
 
@@ -3412,7 +3413,7 @@ class AudioStoryModeController(QtCore.QObject):
             provider_label = "xAI / Grok" if engine._visual_reply_provider() == "xai" else "image provider"
             status = f"{provider_label} rejected one story image prompt for content moderation. Skipping that chunk."
             self._set_status(status)
-            current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+            current_state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
             current_image_path = str(current_state.get("image_path", "") or "").strip()
             pending = dict(self._pending_play_request or {})
             if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
@@ -3424,7 +3425,7 @@ class AudioStoryModeController(QtCore.QObject):
                     self.audio_player.play()
                     self._set_status(status_text or status)
             if index == self._current_chunk_index and not current_image_path:
-                shared_state.set_current_visual_reply_data(
+                visual_reply_state.set_current_visual_reply_data(
                     {
                         "status": "error",
                         "status_text": "Visual Reply skipped",
@@ -3439,7 +3440,7 @@ class AudioStoryModeController(QtCore.QObject):
         pending = dict(self._pending_play_request or {})
         if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
             self._pending_play_request = None
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "error",
                 "status_text": "Visual Reply failed",
@@ -3472,7 +3473,7 @@ class AudioStoryModeController(QtCore.QObject):
         chunk = dict(self.transcript_chunks[index] or {})
         prompt_text = str(chunk.get("prompt", "") or "").strip()
         cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
-        current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+        current_state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
         current_image_path = str(current_state.get("image_path", "") or "").strip()
         retained_image_path = current_image_path if keep_current_image and current_image_path and Path(current_image_path).exists() else ""
         retained_caption = str(current_state.get("caption", "") or "").strip()
@@ -3482,7 +3483,7 @@ class AudioStoryModeController(QtCore.QObject):
                 f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
                 str(chunk.get("generation_mode", "") or "").strip(),
             ]
-            shared_state.set_current_visual_reply_data(
+            visual_reply_state.set_current_visual_reply_data(
                 {
                     "status": "ready",
                     "status_text": "Visual Reply",
@@ -3494,7 +3495,7 @@ class AudioStoryModeController(QtCore.QObject):
                 }
             )
             return
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "loading",
                 "status_text": "Visual Reply generating...",
@@ -3514,7 +3515,7 @@ class AudioStoryModeController(QtCore.QObject):
             f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
             str(image_entry.get("generation_mode", "") or chunk.get("generation_mode", "") or "").strip(),
         ]
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "ready",
                 "status_text": "Visual Reply",

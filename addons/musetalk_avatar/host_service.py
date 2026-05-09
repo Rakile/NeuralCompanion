@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import shared_state
+from addons.musetalk_avatar import state as musetalk_state
 
 
 class QtMuseTalkUIService:
@@ -178,7 +178,7 @@ class QtMuseTalkUIService:
         publish_time = time.time()
         frame_identity = Path(frame_path).stem if frame_path else "frame"
         chunk_id = f"first_frame_test:{avatar_id}:{frame_identity}"
-        shared_state.set_current_musetalk_frame_data({
+        musetalk_state.set_current_musetalk_frame_data({
             "frame_paths": [frame_path] if frame_path else [],
             "frame_dir": str(Path(frame_path).parent) if frame_path else "",
             "fps": 24,
@@ -195,7 +195,7 @@ class QtMuseTalkUIService:
             "avatar_id": avatar_id,
             "published_at": publish_time,
         })
-        shared_state.write_musetalk_preview_frame({
+        musetalk_state.write_musetalk_preview_frame({
             "chunk_id": chunk_id,
             "status": "ready",
             "loop": False,

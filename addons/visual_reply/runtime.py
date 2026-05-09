@@ -3,7 +3,7 @@ from pathlib import Path
 
 from PySide6 import QtWidgets
 
-import shared_state
+from addons.visual_reply import state as visual_reply_state
 from ui.panels.input_dialog import QtInputDialog
 
 
@@ -130,7 +130,7 @@ class BackendVisualReplyRuntimeMixin:
         if panel is None:
             return False
         panel.clear_visual_reply(status_text=status_text, detail_text=detail_text)
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "idle",
                 "status_text": str(status_text or "Visual Reply idle"),
@@ -150,7 +150,7 @@ class BackendVisualReplyRuntimeMixin:
         if panel is None:
             return False
         panel.set_loading_state(status_text=status_text, detail_text=detail_text)
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "loading",
                 "status_text": str(status_text or "Visual Reply generating..."),
@@ -172,7 +172,7 @@ class BackendVisualReplyRuntimeMixin:
         loaded = bool(panel.show_image(image_path, status_text=status_text, caption=caption))
         if loaded:
             resolved_caption = str(getattr(panel, "current_caption", "") or "").strip()
-            shared_state.set_current_visual_reply_data(
+            visual_reply_state.set_current_visual_reply_data(
                 {
                     "status": "ready",
                     "status_text": str(status_text or "Visual Reply"),
@@ -193,7 +193,7 @@ class BackendVisualReplyRuntimeMixin:
             return False
         updated = bool(panel.set_caption(caption))
         if updated:
-            shared_state.update_current_visual_reply_data(caption=str(caption or ""))
+            visual_reply_state.update_current_visual_reply_data(caption=str(caption or ""))
         return updated
 
     def prompt_visual_reply_image(self):

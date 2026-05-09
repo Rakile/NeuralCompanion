@@ -1,7 +1,7 @@
 from pathlib import Path
 
-import shared_state
 from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
+from addons.visual_reply import state as visual_reply_state
 from core.addons.qt_host_services import AddonCapabilityBridgeService
 
 try:
@@ -174,7 +174,7 @@ def build_dock(
     panel = QtVisualReplyPanel(
         theme_provider=theme_provider,
         runtime_config=runtime_config,
-        shared_state_module=shared_state_module or shared_state,
+        shared_state_module=shared_state_module or visual_reply_state,
         storage_dir=storage_dir or (APP_ROOT / "runtime" / "visual_replies"),
     )
     panel.loadRequested.connect(backend.prompt_visual_reply_image)

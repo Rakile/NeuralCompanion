@@ -14,7 +14,7 @@ import numpy as np
 from PIL import Image
 from PySide6 import QtCore, QtGui, QtWidgets
 
-import shared_state
+from addons.musetalk_avatar import state as musetalk_state
 from ui.widgets.basic import AltWheelZoomScrollArea
 
 QT_PREVIEW_CACHE_LIMIT = 384
@@ -188,7 +188,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         return True
 
     def _publish_preview_position(self):
-        state = getattr(shared_state, "current_musetalk_frame_data", None)
+        state = getattr(musetalk_state, "current_musetalk_frame_data", None)
         if not isinstance(state, dict):
             return
         state["preview_chunk_id"] = self.last_chunk_id
@@ -581,7 +581,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self._invalidate_cache_for_resize()
         self.image_label.clear()
         self.preview_label.setText("MuseTalk preview idle")
-        state = getattr(shared_state, "current_musetalk_frame_data", None)
+        state = getattr(musetalk_state, "current_musetalk_frame_data", None)
         if isinstance(state, dict):
             state["preview_chunk_id"] = None
             state["preview_frame_index"] = -1
@@ -654,7 +654,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.pending_handoff = None
         self.last_presented_chunk_id = self.last_chunk_id
         self.last_presented_source_index = 0
-        state = getattr(shared_state, "current_musetalk_frame_data", None)
+        state = getattr(musetalk_state, "current_musetalk_frame_data", None)
         current_sync_time = None
         if isinstance(state, dict):
             try:
@@ -822,7 +822,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
     def _compute_runtime_frame_index(self, state=None, now=None):
         if not self.frame_paths or not self.chunk_started_at:
             return None
-        state = state or (shared_state.current_musetalk_frame_data or {})
+        state = state or (musetalk_state.current_musetalk_frame_data or {})
         now = time.time() if now is None else float(now)
         elapsed = max(0.0, now - self.chunk_started_at)
         if state.get("loop", False):
@@ -846,7 +846,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             return
         self.current_frame_index = frame_index
         self.current_frame_path = next_frame_path
-        state = shared_state.current_musetalk_frame_data or {}
+        state = musetalk_state.current_musetalk_frame_data or {}
         if not state.get("loop", False):
             self._start_frame_preload(
                 start_index=frame_index + 1,
@@ -970,7 +970,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     message += f" publish_to_present={(now - self.last_published_at) * 1000.0:.1f} ms"
                 if self.last_audio_started_at:
                     message += f" audio_to_present={(now - self.last_audio_started_at) * 1000.0:.1f} ms"
-            shared_state.append_musetalk_preview_log(message)
+            musetalk_state.append_musetalk_preview_log(message)
             print(message)
             self.pending_handoff = None
         if render_ms >= 20.0 and (now - self.last_slow_render_log_at) > 0.25:
@@ -981,7 +981,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 f"cache={'hit' if cache_hit else 'miss'}, load={load_ms:.1f} ms, set={set_ms:.1f} ms, "
                 f"preview_cache_entries={len(self.preloaded_frame_images)}, preview_preload_pending={len(self.preload_enqueued)})"
             )
-            shared_state.append_musetalk_preview_log(message)
+            musetalk_state.append_musetalk_preview_log(message)
             print(message)
 
     def _set_preview_status(self, state):
@@ -1032,7 +1032,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 f"next_start={self.last_start_index}, buffered={len(self.frame_paths)}, expected={self.expected_frame_count}, "
                 f"preview_cache_entries={len(self.preloaded_frame_images)}, preview_preload_pending={len(self.preload_enqueued)}"
             )
-            shared_state.append_musetalk_preview_log(message)
+            musetalk_state.append_musetalk_preview_log(message)
             print(message)
             self.pending_handoff = {
                 "previous_chunk_id": previous_chunk_id,
@@ -1128,7 +1128,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             if self.loop_fade_active:
                 self._update_loop_fade_display()
             fade_locked = bool(self.loop_fade_active and time.time() < float(self.loop_fade_lock_until or 0.0))
-            state = shared_state.current_musetalk_frame_data or {}
+            state = musetalk_state.current_musetalk_frame_data or {}
             sync_time = float(state.get("sync_time", 0.0) or 0.0)
             if self.static_preview_override:
                 incoming_chunk_id = state.get("chunk_id")
@@ -1140,7 +1140,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             if sync_time != self.current_sync_time:
                 self._apply_new_state(state)
 
-            feed_updates = shared_state.consume_musetalk_preview_feed(self.last_feed_seq)
+            feed_updates = musetalk_state.consume_musetalk_preview_feed(self.last_feed_seq)
             if feed_updates:
                 latest = feed_updates[-1]
                 self.last_feed_seq = int(latest.get("_seq", self.last_feed_seq) or self.last_feed_seq)

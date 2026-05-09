@@ -5,7 +5,7 @@ from pathlib import Path
 from PIL import Image
 from PySide6 import QtCore, QtGui, QtUiTools, QtWidgets
 
-import shared_state
+from addons.visual_reply import state as visual_reply_state
 
 
 class AddonAltWheelZoomScrollArea(QtWidgets.QScrollArea):
@@ -410,7 +410,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
         caption_text = self._visual_reply_caption_from_image(target_path)
         loaded = self.show_image(str(target_path), status_text="Visual Reply history", caption=caption_text)
         if loaded:
-            shared_state.set_current_visual_reply_data(
+            visual_reply_state.set_current_visual_reply_data(
                 {
                     "status": "ready",
                     "status_text": "Visual Reply history",
@@ -481,7 +481,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
             status_text="Visual Reply storage cleared",
             detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
         )
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "idle",
                 "status_text": "Visual Reply storage cleared",
@@ -533,7 +533,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
                 target_path = entries[target_index]
                 caption_text = self._visual_reply_caption_from_image(target_path)
                 self.show_image(str(target_path), status_text="Visual Reply history", caption=caption_text)
-                shared_state.set_current_visual_reply_data(
+                visual_reply_state.set_current_visual_reply_data(
                     {
                         "status": "ready",
                         "status_text": "Visual Reply history",
@@ -549,7 +549,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
                     status_text="Visual Reply image deleted",
                     detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
                 )
-                shared_state.set_current_visual_reply_data(
+                visual_reply_state.set_current_visual_reply_data(
                     {
                         "status": "idle",
                         "status_text": "Visual Reply image deleted",
@@ -566,7 +566,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
                 status_text="Visual Reply image deleted",
                 detail_text="No visual reply yet.\nWhen NC creates an image, it will appear here.",
             )
-            shared_state.set_current_visual_reply_data(
+            visual_reply_state.set_current_visual_reply_data(
                 {
                     "status": "idle",
                     "status_text": "Visual Reply image deleted",
@@ -659,7 +659,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
 
     def poll_state(self):
         try:
-            state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+            state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
             updated_at = float(state.get("updated_at", 0.0) or 0.0)
             if updated_at <= 0.0 or updated_at == self._last_visual_reply_updated_at:
                 return

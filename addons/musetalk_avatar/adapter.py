@@ -10,6 +10,7 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
+from addons.musetalk_avatar import state as musetalk_state
 from core import avatar_runtime, musetalk_preview_runtime, runtime_files, streaming_text
 from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
 from musetalk_bridge import MuseTalkBridge
@@ -47,7 +48,7 @@ def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
     return musetalk_preview_runtime.get_current_musetalk_source_index(
         state,
         runtime_config=RUNTIME_CONFIG,
-        shared_state_module=shared_state,
+        shared_state_module=musetalk_state,
         advance_to_next_frame=advance_to_next_frame,
     )
 
@@ -57,7 +58,7 @@ def prime_musetalk_preview_frame(playback_state):
         playback_state,
         runtime_config=RUNTIME_CONFIG,
         list_png_frames=list_png_frames,
-        shared_state_module=shared_state,
+        shared_state_module=musetalk_state,
     )
 
 
@@ -568,7 +569,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         return forward_paths + backward_paths
 
     def _plan_first_chunk_idle_window(self, avatar_id):
-        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+        current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
         if current_state.get("status") != "idle":
             return None
         if current_state.get("avatar_id") != avatar_id:
@@ -606,7 +607,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 time.sleep(wait_frames / max(fps, 1))
             current_source_index = predicted_entry_index
             while not stop_flag.is_set():
-                current_plan_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                current_plan_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                 if current_plan_state.get("status") != "idle" or current_plan_state.get("avatar_id") != avatar_id:
                     return
                 active_chunk_id = current_plan_state.get("chunk_id")
@@ -630,7 +631,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             ]
             backward_indices = forward_indices[-2:0:-1] if len(forward_indices) > 1 else []
             window_source_indices = forward_indices + backward_indices
-            shared_state.append_musetalk_preview_log(
+            musetalk_state.append_musetalk_preview_log(
                 f"🕒 [MuseTalkStartup] First chunk plan armed {plan_id}: "
                 f"predicted_entry={predicted_entry_index} current_source={current_source_index} "
                 f"window_end={(predicted_entry_index + desired_pingpong_frames) % len(full_frame_paths)}"
@@ -645,7 +646,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 },
             )
             shared_state.current_expression_data = {"names": [], "frames": []}
-            shared_state.set_current_musetalk_frame_data({
+            musetalk_state.set_current_musetalk_frame_data({
                 "frame_paths": window_paths,
                 "source_indices": window_source_indices,
                 "frame_dir": "",
@@ -661,7 +662,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 "frame_count": len(window_paths),
                 "avatar_id": avatar_id,
             })
-            prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+            prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
 
         threading.Thread(target=_orbit_predicted_entry, daemon=True).start()
         return predicted_entry_index
@@ -787,7 +788,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 requested_start_timeline_idx = None
                 render_started_at = time.time()
                 if is_first_reply_chunk:
-                    shared_state.append_musetalk_preview_log(
+                    musetalk_state.append_musetalk_preview_log(
                         f"🕒 [MuseTalkStartup] First chunk render start {chunk_id}: "
                         f"avatar={active_avatar_id} emotion={self.current_emotion} "
                         f"audio_path={os.path.basename(render_audio_path)}"
@@ -916,7 +917,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 result_holder["avatar_id"] = active_avatar_id
                 result_holder["sequence_index"] = sequence_index
                 result_holder["generation"] = job_generation
-                shared_state.update_musetalk_pipeline_chunk(
+                musetalk_state.update_musetalk_pipeline_chunk(
                     sequence_index,
                     status="rendered",
                     expected_frame_count=int(result.get("frame_count", 0) or 0),
@@ -933,7 +934,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                     frame_count = int(result.get("frame_count", 0) or 0)
                     if frame_count > 0:
                         seconds_per_frame = measured_ready_delay / frame_count
-                    shared_state.append_musetalk_preview_log(
+                    musetalk_state.append_musetalk_preview_log(
                         f"🕒 [MuseTalkStartup] First chunk render ready {chunk_id}: "
                         f"ready_in={measured_ready_delay * 1000.0:.1f} ms "
                         f"frames={int(result.get('frame_count', 0) or 0)} "
