@@ -10,6 +10,13 @@
     "storage.read",
     "storage.write"
   ],
+  "host_services": [
+    {
+      "id": "qt.audio_story_actions",
+      "module": "addons.audio_story_mode.host_service",
+      "class": "QtAudioStoryActionService"
+    }
+  ],
   "ui": [
     {
       "id": "audio_story_mode_runtime",
