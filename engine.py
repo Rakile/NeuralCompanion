@@ -22,7 +22,6 @@ import torch
 import torchaudio as ta
 import sounddevice as sd
 import numpy as np
-from PIL import Image
 
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
@@ -1470,18 +1469,6 @@ _sensory_feedback_lock = threading.Lock()
 _sensory_feedback_state = {}
 
 
-def _visual_reply_api_key():
-    return _visual_reply_runtime.api_key()
-
-
-def _visual_reply_base_url():
-    return _visual_reply_runtime.base_url()
-
-
-def _visual_reply_provider():
-    return _visual_reply_runtime.provider()
-
-
 def _visual_reply_mode():
     return _visual_reply_runtime.mode()
 
@@ -1587,18 +1574,6 @@ def _story_visual_reply_prompt_from_text(prompt_text: str, emotion: str = "", st
         emotion=emotion,
         story_style_guide=story_style_guide,
     )
-
-
-def _visual_reply_model_name():
-    return _visual_reply_runtime.model_name()
-
-
-def _visual_reply_image_size():
-    return _visual_reply_runtime.image_size()
-
-
-def _visual_reply_xai_extra_body():
-    return _visual_reply_runtime.xai_extra_body()
 
 
 def _next_visual_reply_request_id():
@@ -2653,26 +2628,6 @@ def run_hidden_sensory_pingpong_cycle(force=False):
     if bool(result.pop("_repaired_json", False)):
         print("🛠️ [Sensory] Repaired near-JSON hidden PONG automatically.")
     return _apply_sensory_pong_result(result, snapshots)
-def _visual_reply_item_value(item, key):
-    return visual_reply_generation.VisualReplyGenerationService.item_value(item, key)
-
-
-def _visual_reply_image_format_and_extension(raw_bytes: bytes):
-    return visual_reply_generation.VisualReplyGenerationService.image_format_and_extension(raw_bytes)
-
-
-def _visual_reply_extension_for_bytes(raw_bytes: bytes) -> str:
-    return visual_reply_generation.VisualReplyGenerationService.extension_for_bytes(raw_bytes)
-
-
-def _write_visual_reply_caption_comment(image: Image.Image, output_path: Path, prompt_text: str, fmt: str):
-    return visual_reply_generation.VisualReplyGenerationService.write_caption_comment(image, output_path, prompt_text, fmt)
-
-
-def _write_visual_reply_image_from_response(response, output_base_path: Path):
-    return _visual_reply_generation_service.write_image_from_response(response, output_base_path)
-
-
 def request_visual_reply_generation(prompt: str, *, source_text: str = "", keep_current_image: bool = False):
     prompt_text = str(prompt or "").strip()
     if not prompt_text:

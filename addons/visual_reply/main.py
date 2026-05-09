@@ -98,6 +98,57 @@ class Addon(BaseAddon):
             if backend is not None:
                 return real_ui_bridge.build_status_snapshot(backend, payload.get("runtime_config") or {})
             return None
+        if capability == "runtime.generation":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            return {
+                "api_key": generation.api_key(runtime),
+                "base_url": generation.base_url(runtime),
+                "provider": generation.provider(runtime),
+                "enabled": generation.enabled(runtime),
+                "generation_available": generation.generation_available(runtime),
+                "model": generation.model_name(runtime),
+                "size": generation.image_size(runtime),
+                "extra_body": generation.xai_extra_body(runtime),
+            }
+        if capability == "runtime.apply_style_anchor":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            return generation.apply_style_anchor(runtime, str(payload.get("prompt") or ""))
+        if capability == "runtime.story_style_guide":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            service = generation.VisualReplyGenerationService(runtime, output_dir=generation.output_dir())
+            return service.story_style_guide_from_text(
+                str(payload.get("text") or ""),
+                continuity_strength=float(payload.get("continuity_strength", 0.8) or 0.8),
+            )
+        if capability == "runtime.story_prompt":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            service = generation.VisualReplyGenerationService(runtime, output_dir=generation.output_dir())
+            return service.story_prompt_from_text(
+                str(payload.get("text") or ""),
+                emotion=str(payload.get("emotion") or ""),
+                story_style_guide=str(payload.get("story_style_guide") or ""),
+            )
+        if capability == "runtime.normalize_prompt":
+            from addons.visual_reply import runtime_config
+
+            return runtime_config.normalize_prompt_text(str(payload.get("prompt") or ""))
+        if capability == "runtime.write_image_from_response":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            service = generation.VisualReplyGenerationService(runtime, output_dir=generation.output_dir())
+            return service.write_image_from_response(
+                payload.get("response"),
+                Path(payload.get("output_base_path")),
+            )
         if capability == "legacy.build_utility_button":
             from addons.visual_reply import real_ui_bridge
 

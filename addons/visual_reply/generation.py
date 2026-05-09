@@ -15,6 +15,54 @@ from addons.visual_reply import runtime_config, state
 from core import speech_text
 
 
+def output_dir() -> Path:
+    return Path(__file__).resolve().parents[2] / "runtime" / "visual_replies"
+
+
+def api_key(runtime) -> str:
+    return runtime.api_key()
+
+
+def base_url(runtime) -> str:
+    return runtime.base_url()
+
+
+def provider(runtime) -> str:
+    return runtime.provider()
+
+
+def enabled(runtime) -> bool:
+    return runtime.enabled()
+
+
+def generation_available(runtime) -> bool:
+    return runtime.generation_available()
+
+
+def model_name(runtime) -> str:
+    return runtime.model_name()
+
+
+def image_size(runtime) -> str:
+    return runtime.image_size()
+
+
+def xai_extra_body(runtime) -> dict[str, str]:
+    return runtime.xai_extra_body()
+
+
+def apply_style_anchor(runtime, prompt_text: str) -> str:
+    return runtime.apply_style_anchor(prompt_text)
+
+
+def client(runtime):
+    client_kwargs = {"api_key": runtime.api_key() or "visual-reply"}
+    runtime_base_url = runtime.base_url()
+    if runtime_base_url:
+        client_kwargs["base_url"] = runtime_base_url
+    return OpenAI(**client_kwargs)
+
+
 class VisualReplyGenerationService:
     def __init__(self, runtime, *, output_dir: Path):
         self.runtime = runtime
