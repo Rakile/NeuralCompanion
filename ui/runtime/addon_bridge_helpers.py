@@ -67,6 +67,19 @@ def _service_entries(backend):
         return []
 
 
+def _bridge_module_from_entry(entry):
+    if not isinstance(entry, dict):
+        return ""
+    metadata = dict(entry.get("metadata") or {})
+    return str(
+        metadata.get("real_ui_bridge_module")
+        or metadata.get("ui_bridge_module")
+        or entry.get("real_ui_bridge_module")
+        or entry.get("ui_bridge_module")
+        or ""
+    ).strip()
+
+
 def _loaded_addon_ids(backend):
     manager = getattr(backend, "_addon_manager", None)
     if manager is None:
@@ -86,6 +99,43 @@ def _loaded_addon_ids(backend):
     return addon_ids
 
 
+def _loaded_addon_records(backend):
+    manager = getattr(backend, "_addon_manager", None)
+    if manager is None:
+        return []
+    try:
+        records = list(manager.get_loaded_addons() or [])
+    except Exception:
+        return []
+    return [
+        record
+        for record in records
+        if str(getattr(record, "state", "") or "") == "initialized"
+    ]
+
+
+def _addon_manifest_service_bridge_modules(backend, service_id, metadata_key="", metadata_value=""):
+    wanted_service_id = str(service_id or "").strip()
+    wanted_key = str(metadata_key or "").strip()
+    wanted_value = str(metadata_value or "").strip().lower()
+    if not wanted_service_id:
+        return []
+    module_names = []
+    for record in _loaded_addon_records(backend):
+        manifest = getattr(record, "manifest", None)
+        for entry in list(getattr(manifest, "services", []) or []):
+            if not isinstance(entry, dict):
+                continue
+            if str(entry.get("id") or "").strip() != wanted_service_id:
+                continue
+            if wanted_key and str(entry.get(wanted_key) or "").strip().lower() != wanted_value:
+                continue
+            module_name = _bridge_module_from_entry(entry)
+            if module_name:
+                module_names.append(module_name)
+    return module_names
+
+
 def _addon_manifest_bridge_modules(backend, addon_id):
     manager = getattr(backend, "_addon_manager", None)
     if manager is None:
@@ -98,17 +148,12 @@ def _addon_manifest_bridge_modules(backend, addon_id):
         return []
     manifest = getattr(record, "manifest", None)
     module_names = []
+    for entry in list(getattr(manifest, "services", []) or []):
+        module_name = _bridge_module_from_entry(entry)
+        if module_name:
+            module_names.append(module_name)
     for entry in list(getattr(manifest, "ui", []) or []):
-        if not isinstance(entry, dict):
-            continue
-        metadata = dict(entry.get("metadata") or {})
-        module_name = (
-            metadata.get("real_ui_bridge_module")
-            or metadata.get("ui_bridge_module")
-            or entry.get("real_ui_bridge_module")
-            or entry.get("ui_bridge_module")
-            or ""
-        )
+        module_name = _bridge_module_from_entry(entry)
         if module_name:
             module_names.append(module_name)
     return module_names
@@ -122,10 +167,29 @@ def tts_bridge_modules(backend):
         if kind not in {"tts", "tts_backend", "text_to_speech"}:
             continue
         backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
-        module_name = metadata.get("real_ui_bridge_module") or metadata.get("ui_bridge_module") or ""
+        module_name = _bridge_module_from_entry(entry)
         if module_name:
             module_names.append(module_name)
-        elif getattr(backend, "_addon_manager", None) is None:
+        else:
+            module_names.extend(
+                _addon_manifest_service_bridge_modules(
+                    backend,
+                    "tts_backend_service",
+                    "backend_id",
+                    backend_id,
+                )
+            )
+    if not module_names:
+        module_names.extend(
+            _addon_manifest_service_bridge_modules(
+                backend,
+                "tts_backend_service",
+            )
+        )
+    if not module_names and getattr(backend, "_addon_manager", None) is None:
+        for entry in _service_entries(backend):
+            metadata = dict(entry.get("metadata") or {})
+            backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
             module_names.append(_TTS_BRIDGE_FALLBACKS.get(backend_id, ""))
     if not module_names and getattr(backend, "_addon_manager", None) is None:
         module_names.extend(_TTS_BRIDGE_FALLBACKS.values())
@@ -141,7 +205,25 @@ def avatar_bridge_modules(backend):
         module_name = metadata.get("real_ui_bridge_module") or metadata.get("ui_bridge_module") or ""
         if module_name:
             module_names.append(module_name)
-        elif getattr(backend, "_addon_manager", None) is None:
+        else:
+            module_names.extend(
+                _addon_manifest_service_bridge_modules(
+                    backend,
+                    "avatar_provider_registry",
+                    "provider_id",
+                    provider_id,
+                )
+            )
+    if not module_names:
+        module_names.extend(
+            _addon_manifest_service_bridge_modules(
+                backend,
+                "avatar_provider_registry",
+            )
+        )
+    if not module_names and getattr(backend, "_addon_manager", None) is None:
+        for provider in avatar_runtime.list_providers():
+            provider_id = str(provider.to_summary().get("id") or "").strip().lower()
             module_names.append(_AVATAR_BRIDGE_FALLBACKS.get(provider_id, ""))
     if not module_names and getattr(backend, "_addon_manager", None) is None:
         module_names.extend(_AVATAR_BRIDGE_FALLBACKS.values())
@@ -172,12 +254,28 @@ def tts_bridge_module_for_backend(backend, tts_backend):
         backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
         if backend_id != selected:
             continue
-        module_name = str(metadata.get("real_ui_bridge_module") or metadata.get("ui_bridge_module") or "").strip()
+        module_name = _bridge_module_from_entry(entry)
+        if not module_name:
+            module_names = _addon_manifest_service_bridge_modules(
+                backend,
+                "tts_backend_service",
+                "backend_id",
+                selected,
+            )
+            module_name = module_names[0] if module_names else ""
         if not module_name and getattr(backend, "_addon_manager", None) is None:
             module_name = _TTS_BRIDGE_FALLBACKS.get(selected, "")
         return _import_bridge_module(module_name)
     if getattr(backend, "_addon_manager", None) is None:
         return _import_bridge_module(_TTS_BRIDGE_FALLBACKS.get(selected, ""))
+    module_names = _addon_manifest_service_bridge_modules(
+        backend,
+        "tts_backend_service",
+        "backend_id",
+        selected,
+    )
+    if module_names:
+        return _import_bridge_module(module_names[0])
     return None
 
 

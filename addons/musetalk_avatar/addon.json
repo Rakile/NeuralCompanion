@@ -26,7 +26,10 @@
   "services": [
     {
       "id": "avatar_provider_registry",
-      "provider_id": "musetalk"
+      "provider_id": "musetalk",
+      "metadata": {
+        "real_ui_bridge_module": "addons.musetalk_avatar.real_ui_bridge"
+      }
     }
   ],
   "ui": [
@@ -40,7 +43,8 @@
       "order": 120,
       "tooltip": "MuseTalk avatar runtime and preview controls.",
       "metadata": {
-        "provider_id": "musetalk"
+        "provider_id": "musetalk",
+        "real_ui_bridge_module": "addons.musetalk_avatar.real_ui_bridge"
       }
     }
   ],

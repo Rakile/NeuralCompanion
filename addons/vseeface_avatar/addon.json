@@ -11,7 +11,10 @@
   "services": [
     {
       "id": "avatar_provider_registry",
-      "provider_id": "vseeface"
+      "provider_id": "vseeface",
+      "metadata": {
+        "real_ui_bridge_module": "addons.vseeface_avatar.real_ui_bridge"
+      }
     }
   ],
   "ui": [
@@ -25,7 +28,8 @@
       "order": 110,
       "tooltip": "VSeeFace body pose and runtime controls.",
       "metadata": {
-        "provider_id": "vseeface"
+        "provider_id": "vseeface",
+        "real_ui_bridge_module": "addons.vseeface_avatar.real_ui_bridge"
       }
     }
   ],

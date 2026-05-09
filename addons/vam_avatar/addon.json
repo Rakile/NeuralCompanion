@@ -31,7 +31,10 @@
   "services": [
     {
       "id": "avatar_provider_registry",
-      "provider_id": "vam"
+      "provider_id": "vam",
+      "metadata": {
+        "real_ui_bridge_module": "addons.vam_avatar.real_ui_bridge"
+      }
     }
   ],
   "ui": [
@@ -45,7 +48,8 @@
       "order": 130,
       "tooltip": "Virt-A-Mate bridge and launch controls.",
       "metadata": {
-        "provider_id": "vam"
+        "provider_id": "vam",
+        "real_ui_bridge_module": "addons.vam_avatar.real_ui_bridge"
       }
     }
   ],

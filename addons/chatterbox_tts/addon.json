@@ -21,7 +21,10 @@
   "services": [
     {
       "id": "tts_backend_service",
-      "backend_id": "chatterbox"
+      "backend_id": "chatterbox",
+      "metadata": {
+        "real_ui_bridge_module": "addons.chatterbox_tts.real_ui_bridge"
+      }
     }
   ],
   "ui": [
@@ -34,7 +37,8 @@
       "order": 100,
       "tooltip": "Local Chatterbox TTS settings.",
       "metadata": {
-        "backend_id": "chatterbox"
+        "backend_id": "chatterbox",
+        "real_ui_bridge_module": "addons.chatterbox_tts.real_ui_bridge"
       }
     }
   ],

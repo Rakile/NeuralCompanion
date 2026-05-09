@@ -12,7 +12,10 @@
   "services": [
     {
       "id": "tts_backend_service",
-      "backend_id": "pockettts"
+      "backend_id": "pockettts",
+      "metadata": {
+        "real_ui_bridge_module": "addons.pockettts.real_ui_bridge"
+      }
     }
   ],
   "ui": [
@@ -25,7 +28,8 @@
       "order": 200,
       "tooltip": "PocketTTS interpreter settings.",
       "metadata": {
-        "backend_id": "pockettts"
+        "backend_id": "pockettts",
+        "real_ui_bridge_module": "addons.pockettts.real_ui_bridge"
       }
     }
   ],

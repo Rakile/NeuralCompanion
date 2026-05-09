@@ -9,7 +9,10 @@
   "services": [
     {
       "id": "avatar_provider_registry",
-      "provider_id": "none"
+      "provider_id": "none",
+      "metadata": {
+        "real_ui_bridge_module": "addons.no_avatar.real_ui_bridge"
+      }
     }
   ],
   "enabled": true
