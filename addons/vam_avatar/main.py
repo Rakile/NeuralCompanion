@@ -10,7 +10,7 @@ PROVIDER_ID = "vam"
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
-        self._persona_service = context.get_service("qt.persona_avatar")
+        self._vam_service = context.get_service("qt.vam_avatar") or context.get_service("qt.persona_avatar")
         self._avatar_service = context.get_service("qt.avatar_providers")
         if self._avatar_service is None:
             context.logger.warning("VaM avatar addon could not find qt.avatar_providers service.")
@@ -36,7 +36,7 @@ class Addon(BaseAddon):
         return None
 
     def export_session_state(self):
-        service = getattr(self, "_persona_service", None)
+        service = getattr(self, "_vam_service", None)
         if service is not None and hasattr(service, "export_vam_settings"):
             return service.export_vam_settings() or {}
         return {}
@@ -45,7 +45,7 @@ class Addon(BaseAddon):
         return self.export_session_state()
 
     def import_session_state(self, session):
-        service = getattr(self, "_persona_service", None)
+        service = getattr(self, "_vam_service", None)
         if service is not None and hasattr(service, "import_vam_settings"):
             return service.import_vam_settings(session)
         return None

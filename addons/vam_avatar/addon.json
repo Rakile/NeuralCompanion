@@ -37,6 +37,13 @@
       }
     }
   ],
+  "host_services": [
+    {
+      "id": "qt.vam_avatar",
+      "module": "addons.vam_avatar.host_service",
+      "class": "QtVamAvatarService"
+    }
+  ],
   "ui": [
     {
       "id": "vam_avatar_tab",
