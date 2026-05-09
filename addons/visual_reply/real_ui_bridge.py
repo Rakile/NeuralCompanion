@@ -158,7 +158,7 @@ def build_dock(
     *,
     theme_provider=None,
     runtime_config=None,
-    shared_state_module=None,
+    state_module=None,
     storage_dir=None,
 ):
     """Create the Visual Reply dock owned by the Visual Reply addon."""
@@ -174,7 +174,7 @@ def build_dock(
     panel = QtVisualReplyPanel(
         theme_provider=theme_provider,
         runtime_config=runtime_config,
-        shared_state_module=shared_state_module or visual_reply_state,
+        state_module=state_module or visual_reply_state,
         storage_dir=storage_dir or (APP_ROOT / "runtime" / "visual_replies"),
     )
     panel.loadRequested.connect(backend.prompt_visual_reply_image)

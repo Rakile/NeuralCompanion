@@ -7,7 +7,7 @@ from collections import OrderedDict
 import json
 
 from PySide6 import QtCore, QtGui, QtWidgets
-from shared_state import MUSE_PREVIEW_FRAME_PATH, MUSE_PREVIEW_STATE_PATH
+from addons.musetalk_avatar.state import MUSE_PREVIEW_FRAME_PATH, MUSE_PREVIEW_STATE_PATH
 
 
 POLL_INTERVAL_MS = 8

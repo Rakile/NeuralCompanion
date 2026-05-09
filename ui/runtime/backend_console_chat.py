@@ -5,6 +5,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui
 
+from addons.musetalk_avatar import state as musetalk_state
 from core.addons.qt_host_services import QtDialogService
 
 
@@ -25,9 +26,7 @@ def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
 
 def _capture_musetalk_preview_snapshot():
     try:
-        import shared_state
-
-        state = dict(getattr(shared_state, "current_musetalk_frame_data", {}) or {})
+        state = dict(getattr(musetalk_state, "current_musetalk_frame_data", {}) or {})
     except Exception:
         return None
     if not state.get("frame_paths") and not state.get("frame_dir"):
@@ -39,13 +38,11 @@ def _restore_musetalk_preview_snapshot(snapshot):
     if not snapshot:
         return
     try:
-        import shared_state
-
         engine_module = _engine()
-        shared_state.set_current_musetalk_frame_data(dict(snapshot))
+        musetalk_state.set_current_musetalk_frame_data(dict(snapshot))
         prime = getattr(engine_module, "prime_musetalk_preview_frame", None)
         if callable(prime):
-            prime(shared_state.current_musetalk_frame_data)
+            prime(musetalk_state.current_musetalk_frame_data)
     except Exception as exc:
         print(f"⚠️ [MuseTalkPreview] Could not preserve preview during chat context load: {exc}")
 

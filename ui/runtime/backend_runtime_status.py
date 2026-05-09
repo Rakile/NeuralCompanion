@@ -2,7 +2,7 @@ import os
 
 from PySide6 import QtCore
 
-import shared_state
+from addons.musetalk_avatar import state as musetalk_state
 from core.runtime_status import build_runtime_status_snapshot
 
 
@@ -139,11 +139,11 @@ class BackendRuntimeStatusMixin:
             self.mic_status_label.setText(label)
         if hasattr(self, "pipeline_telemetry_widget"):
             pipeline_snapshot = self._build_pipeline_visual_snapshot(
-                shared_state.get_musetalk_pipeline_snapshot()
+                musetalk_state.get_musetalk_pipeline_snapshot()
             )
             self.pipeline_telemetry_widget.update_snapshot(
                 pipeline_snapshot,
-                getattr(shared_state, "current_musetalk_frame_data", {}) or {},
+                getattr(musetalk_state, "current_musetalk_frame_data", {}) or {},
             )
         paused = bool(runtime_status.playback_paused)
         if paused != self._chat_runtime_border_paused:

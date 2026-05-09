@@ -6,7 +6,7 @@ import os
 import time
 
 
-def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config, list_png_frames, shared_state_module):
+def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config, list_png_frames, musetalk_state_module):
     state = dict(playback_state or {})
     frame_paths = list(state.get("frame_paths", []) or [])
     frame_dir = state.get("frame_dir", "")
@@ -55,7 +55,7 @@ def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config
 
         frame_path = frame_paths[target_index]
         if frame_path != last_emitted_path:
-            shared_state_module.write_musetalk_preview_frame(
+            musetalk_state_module.write_musetalk_preview_frame(
                 {
                     "chunk_id": chunk_id,
                     "status": status,
@@ -81,7 +81,7 @@ def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config
             time.sleep(min(remaining, 0.005))
 
 
-def stream_delegated_audio_progress(playback_state, stop_event, *, shared_state_module):
+def stream_delegated_audio_progress(playback_state, stop_event, *, musetalk_state_module):
     state = dict(playback_state or {})
     duration_seconds = max(0.0, float(state.get("duration_seconds", 0.0) or 0.0))
     expected_frame_count = max(
@@ -97,10 +97,10 @@ def stream_delegated_audio_progress(playback_state, stop_event, *, shared_state_
         elapsed = max(0.0, time.time() - sync_time)
         progress = min(elapsed / duration_seconds, 1.0) if duration_seconds > 0 else 1.0
         preview_frame_index = min(int(progress * max(expected_frame_count - 1, 1)), expected_frame_count - 1)
-        live_state = getattr(shared_state_module, "current_musetalk_frame_data", {}) or {}
+        live_state = getattr(musetalk_state_module, "current_musetalk_frame_data", {}) or {}
         if live_state.get("chunk_id") != chunk_id:
             break
-        shared_state_module.update_current_musetalk_frame_data(
+        musetalk_state_module.update_current_musetalk_frame_data(
             sequence_index=sequence_index,
             expected_frame_count=expected_frame_count,
             frame_count=expected_frame_count,
@@ -116,7 +116,7 @@ def stream_delegated_audio_progress(playback_state, stop_event, *, shared_state_
         time.sleep(0.02)
 
 
-def prime_musetalk_preview_frame(playback_state, *, runtime_config, list_png_frames, shared_state_module):
+def prime_musetalk_preview_frame(playback_state, *, runtime_config, list_png_frames, musetalk_state_module):
     state = dict(playback_state or {})
     frame_paths = list(state.get("frame_paths", []) or [])
     if not frame_paths:
@@ -135,7 +135,7 @@ def prime_musetalk_preview_frame(playback_state, *, runtime_config, list_png_fra
     if not first_frame_path or not os.path.exists(first_frame_path):
         return
 
-    shared_state_module.write_musetalk_preview_frame(
+    musetalk_state_module.write_musetalk_preview_frame(
         {
             "chunk_id": state.get("chunk_id"),
             "status": state.get("status", "idle"),
@@ -175,13 +175,13 @@ def get_current_musetalk_source_index(
     state=None,
     *,
     runtime_config=None,
-    shared_state_module=None,
+    musetalk_state_module=None,
     advance_to_next_frame=False,
     now=None,
 ):
     """Resolve the source-frame index currently represented by preview state."""
-    if state is None and shared_state_module is not None:
-        state = getattr(shared_state_module, "current_musetalk_frame_data", {}) or {}
+    if state is None and musetalk_state_module is not None:
+        state = getattr(musetalk_state_module, "current_musetalk_frame_data", {}) or {}
     state = state or {}
     runtime_config = runtime_config or {}
     start_index = int(state.get("start_index", 0) or 0)

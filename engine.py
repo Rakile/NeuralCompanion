@@ -48,8 +48,11 @@ import gc
 import importlib
 import dry_run
 import app_help
-import shared_state
-from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_runtime
+from addons.musetalk_avatar import state as musetalk_state
+from addons.visual_reply import state as visual_reply_state
+from addons.visual_reply import runtime_config as visual_reply_runtime
+from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
+from core import expression_state
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from pydub import AudioSegment
@@ -698,7 +701,7 @@ def _discover_musetalk_avatar_packs(**kwargs):
     )
     if result is not None:
         return result
-    from core.musetalk_avatar_packs import discover_avatar_packs
+    from addons.musetalk_avatar.avatar_packs import discover_avatar_packs
 
     return discover_avatar_packs(**kwargs)
 
@@ -712,7 +715,7 @@ def _get_musetalk_avatar_pack(**kwargs):
     )
     if result is not None:
         return result
-    from core.musetalk_avatar_packs import get_avatar_pack
+    from addons.musetalk_avatar.avatar_packs import get_avatar_pack
 
     return get_avatar_pack(**kwargs)
 
@@ -1214,7 +1217,7 @@ def stream_musetalk_preview_frames(playback_state, stop_event):
         stop_event,
         runtime_config=RUNTIME_CONFIG,
         list_png_frames=list_png_frames,
-        shared_state_module=shared_state,
+        musetalk_state_module=musetalk_state,
     )
 
 
@@ -1222,7 +1225,7 @@ def stream_delegated_audio_progress(playback_state, stop_event):
     return musetalk_preview_runtime.stream_delegated_audio_progress(
         playback_state,
         stop_event,
-        shared_state_module=shared_state,
+        musetalk_state_module=musetalk_state,
     )
 
 
@@ -1231,7 +1234,7 @@ def prime_musetalk_preview_frame(playback_state):
         playback_state,
         runtime_config=RUNTIME_CONFIG,
         list_png_frames=list_png_frames,
-        shared_state_module=shared_state,
+        musetalk_state_module=musetalk_state,
     )
 
 
@@ -1635,7 +1638,7 @@ def _perform_visual_reply_generation(
             detail = "Set XAI_API_KEY (or NC_VISUAL_REPLY_XAI_API_KEY / NC_VISUAL_REPLY_XAI_BASE_URL) to enable Grok visual replies."
         else:
             detail = "Set OPENAI_API_KEY (or NC_VISUAL_REPLY_API_KEY / NC_VISUAL_REPLY_BASE_URL) to enable visual replies."
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "error",
                 "status_text": "Visual Reply unavailable",
@@ -1649,12 +1652,12 @@ def _perform_visual_reply_generation(
         print(f"⚠️ [VisualReply] {detail}")
         return False
 
-    current_state = dict(getattr(shared_state, "current_visual_reply_data", {}) or {})
+    current_state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
     current_image_path = str(current_state.get("image_path", "") or "").strip()
     preserve_visible_image = bool(keep_current_image and current_image_path)
     published_loading_state = False
     if not preserve_visible_image:
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "loading",
                 "status_text": "Visual Reply generating...",
@@ -1689,10 +1692,10 @@ def _perform_visual_reply_generation(
         response = client.images.generate(**request_kwargs)
         output_path = VISUAL_REPLY_OUTPUT_DIR / request_id
         output_path = _write_visual_reply_image_from_response(response, output_path)
-        current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+        current_request_id = str(getattr(visual_reply_state, "current_visual_reply_data", {}).get("request_id", "") or "")
         if published_loading_state and current_request_id and current_request_id != request_id:
             return True
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "ready",
                 "status_text": "Visual Reply",
@@ -1706,11 +1709,11 @@ def _perform_visual_reply_generation(
         print(f"🖼️ [VisualReply] Ready: {output_path}")
         return True
     except Exception as exc:
-        current_request_id = str(getattr(shared_state, "current_visual_reply_data", {}).get("request_id", "") or "")
+        current_request_id = str(getattr(visual_reply_state, "current_visual_reply_data", {}).get("request_id", "") or "")
         if published_loading_state and current_request_id and current_request_id != request_id:
             return False
         detail = str(exc) or repr(exc)
-        shared_state.set_current_visual_reply_data(
+        visual_reply_state.set_current_visual_reply_data(
             {
                 "status": "error",
                 "status_text": "Visual Reply failed",
@@ -2908,7 +2911,7 @@ def _write_visual_reply_image_from_response(response, output_base_path: Path):
     image_url = _visual_reply_item_value(first_item, "url")
     prompt_text = ""
     try:
-        prompt_text = str(getattr(shared_state, "current_visual_reply_data", {}).get("caption", "") or "").strip()
+        prompt_text = str(getattr(visual_reply_state, "current_visual_reply_data", {}).get("caption", "") or "").strip()
     except Exception:
         prompt_text = ""
     output_base_path.parent.mkdir(parents=True, exist_ok=True)
@@ -3036,9 +3039,9 @@ def get_text_chunk_limits():
 
 
 def clear_avatar_stream_state():
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.reset_musetalk_pipeline_data()
-    shared_state.set_current_musetalk_frame_data({
+    expression_state.reset_current_expression_data()
+    musetalk_state.reset_musetalk_pipeline_data()
+    musetalk_state.set_current_musetalk_frame_data({
         "frame_paths": [],
         "frame_dir": "",
         "fps": int(RUNTIME_CONFIG.get("musetalk_fps", 24) or 24),
@@ -3088,7 +3091,7 @@ def log_musetalk_memory_checkpoint(label, chunk_id=None, extra=None):
     if not MUSE_DIAGNOSTIC_LOGGING:
         return
     snapshot = _get_gpu_vram_snapshot()
-    state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
     rendered_dir_count = _count_rendered_chunk_dirs()
     parts = [f"🧠 [MuseTalkVRAM] {label}"]
     if chunk_id:
@@ -3118,7 +3121,7 @@ def log_musetalk_memory_checkpoint(label, chunk_id=None, extra=None):
         for key, value in dict(extra).items():
             parts.append(f"{key}={value}")
     message = " ".join(parts)
-    shared_state.append_musetalk_preview_log(message)
+    musetalk_state.append_musetalk_preview_log(message)
     print(message)
 
 
@@ -3132,8 +3135,8 @@ def set_musetalk_idle_state():
         clear_avatar_stream_state()
         return
 
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data(idle_payload)
+    expression_state.reset_current_expression_data()
+    musetalk_state.set_current_musetalk_frame_data(idle_payload)
     prime_musetalk_preview_frame(idle_payload)
     schedule_musetalk_runtime_cleanup()
 
@@ -3144,7 +3147,7 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
         return
 
     target_avatar_id = str(avatar_id or "").strip() or str(getattr(avatar_gui, "default_avatar_id", "") or "").strip()
-    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
     current_avatar_id = str(current_state.get("avatar_id", "") or "").strip()
     current_status = str(current_state.get("status", "") or "").strip().lower()
     current_frame_paths = list(current_state.get("frame_paths", []) or [])
@@ -3156,8 +3159,8 @@ def set_musetalk_idle_state_for_avatar(avatar_id):
         clear_avatar_stream_state()
         return
 
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data(idle_payload)
+    expression_state.reset_current_expression_data()
+    musetalk_state.set_current_musetalk_frame_data(idle_payload)
     prime_musetalk_preview_frame(idle_payload)
     schedule_musetalk_runtime_cleanup()
 
@@ -3166,7 +3169,7 @@ def build_musetalk_idle_payload_from_state(advance_to_next_frame=True):
     if not _is_musetalk_avatar_adapter(avatar_gui):
         return None
 
-    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
     builder = getattr(avatar_gui, "build_idle_payload_from_state", None)
     if not callable(builder):
         return None
@@ -3176,8 +3179,8 @@ def build_musetalk_idle_payload_from_state(advance_to_next_frame=True):
 def transition_musetalk_to_local_idle(advance_to_next_frame=True):
     idle_payload = build_musetalk_idle_payload_from_state(advance_to_next_frame=advance_to_next_frame)
     if idle_payload:
-        shared_state.current_expression_data = {"names": [], "frames": []}
-        shared_state.set_current_musetalk_frame_data(idle_payload)
+        expression_state.reset_current_expression_data()
+        musetalk_state.set_current_musetalk_frame_data(idle_payload)
         prime_musetalk_preview_frame(idle_payload)
         schedule_musetalk_runtime_cleanup()
         return
@@ -3199,13 +3202,13 @@ def play_musetalk_avatar_transition(from_avatar_id, to_avatar_id):
     payload = dict(transition.get("payload") or {})
     duration_seconds = float(transition.get("duration_seconds", payload.get("duration_seconds", 0.0)) or 0.0)
     transition_id = payload.get("chunk_id")
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data(payload)
-    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+    expression_state.reset_current_expression_data()
+    musetalk_state.set_current_musetalk_frame_data(payload)
+    prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
 
     def _finish_transition():
         time.sleep(duration_seconds)
-        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+        current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
         if current_state.get("chunk_id") != transition_id or stop_flag.is_set():
             return
         set_musetalk_idle_state_for_avatar(to_avatar_id)
@@ -3274,15 +3277,15 @@ def apply_musetalk_avatar_pack_selection(pack_id):
 
 
 def loop_current_musetalk_state():
-    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
     frame_paths = current_state.get("frame_paths", [])
     frame_dir = current_state.get("frame_dir", "")
     if not frame_paths and not frame_dir:
         clear_avatar_stream_state()
         return
 
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data({
+    expression_state.reset_current_expression_data()
+    musetalk_state.set_current_musetalk_frame_data({
         "frame_paths": frame_paths,
         "frame_dir": frame_dir,
         "fps": int(current_state.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or 24),
@@ -3296,12 +3299,12 @@ def loop_current_musetalk_state():
         "frame_count": int(current_state.get("frame_count", len(frame_paths)) or len(frame_paths)),
         "avatar_id": current_state.get("avatar_id"),
     })
-    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+    prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
     schedule_musetalk_runtime_cleanup(keep_frame_dirs=[frame_dir] if frame_dir else None)
 
 
 def freeze_current_musetalk_frame():
-    current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+    current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
     frame_paths = list(current_state.get("frame_paths", []) or [])
     if not frame_paths:
         frame_dir = current_state.get("frame_dir", "")
@@ -3316,8 +3319,8 @@ def freeze_current_musetalk_frame():
     frame_index = min(int(elapsed * max(fps, 1)), len(frame_paths) - 1)
     frame_path = frame_paths[frame_index]
 
-    shared_state.current_expression_data = {"names": [], "frames": []}
-    shared_state.set_current_musetalk_frame_data({
+    expression_state.reset_current_expression_data()
+    musetalk_state.set_current_musetalk_frame_data({
         "frame_paths": [frame_path],
         "frame_dir": "",
         "fps": fps,
@@ -3331,7 +3334,7 @@ def freeze_current_musetalk_frame():
         "frame_count": 1,
         "avatar_id": current_state.get("avatar_id"),
     })
-    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
+    prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
     if current_state.get("frame_dir"):
         schedule_musetalk_runtime_cleanup(keep_frame_dirs=[current_state.get("frame_dir")])
 
@@ -3630,7 +3633,7 @@ def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
     return musetalk_preview_runtime.get_current_musetalk_source_index(
         state,
         runtime_config=RUNTIME_CONFIG,
-        shared_state_module=shared_state,
+        musetalk_state_module=musetalk_state,
         advance_to_next_frame=advance_to_next_frame,
     )
 
@@ -3753,7 +3756,7 @@ def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
     while True:
         while True:
             if stop_playback.is_set() or stop_flag.is_set():
-                shared_state.append_musetalk_preview_log("🌊 [Stream] Text queue stopped before sentinel")
+                musetalk_state.append_musetalk_preview_log("🌊 [Stream] Text queue stopped before sentinel")
                 return
             try:
                 item = text_queue.get(timeout=0.1)
@@ -3761,11 +3764,11 @@ def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
             except queue.Empty:
                 continue
         if item is None:
-            shared_state.append_musetalk_preview_log("🌊 [Stream] Text queue received sentinel")
+            musetalk_state.append_musetalk_preview_log("🌊 [Stream] Text queue received sentinel")
             break
         if item and str(item).strip():
             if not first_yield_logged:
-                shared_state.append_musetalk_preview_log(
+                musetalk_state.append_musetalk_preview_log(
                     f"🌊 [Stream] First chunk dequeued for TTS: chars={len(str(item).strip())}"
                 )
                 dry_run.record_reply_event(dry_run_reply_id, "first_chunk_dequeued_at")
@@ -3798,15 +3801,15 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
     pipeline_telemetry_enabled = avatar_mode in {"musetalk", "vam", "none"}
     pipeline_reply_id = None
     if pipeline_telemetry_enabled:
-        pipeline_reply_id = shared_state.begin_musetalk_pipeline_reply(
+        pipeline_reply_id = musetalk_state.begin_musetalk_pipeline_reply(
             stream_mode=bool(text_iterable is not None or RUNTIME_CONFIG.get("stream_mode", False))
         )
-        shared_state.update_musetalk_pipeline_flags(
+        musetalk_state.update_musetalk_pipeline_flags(
             reply_id=pipeline_reply_id,
             engine_mode=avatar_mode,
         )
     else:
-        shared_state.reset_musetalk_pipeline_data()
+        musetalk_state.reset_musetalk_pipeline_data()
 
     story_mode_enabled = _visual_reply_story_mode_enabled()
     story_max_images = _visual_reply_story_max_images()
@@ -3855,7 +3858,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
             if not piece_text or not str(piece_text).strip():
                 continue
             if text_iterable is not None and not first_piece_logged:
-                shared_state.append_musetalk_preview_log(
+                musetalk_state.append_musetalk_preview_log(
                     f"🌊 [Stream] Generator received first text piece: chars={len(str(piece_text).strip())}"
                 )
                 first_piece_logged = True
@@ -3874,7 +3877,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     if stop_playback.is_set(): break
                     chunk_sequence = muse_chunk_index if avatar_mode == "musetalk" else cnt
                     if pipeline_telemetry_enabled:
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="generating_audio",
@@ -3883,7 +3886,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             emotion=str(emotion or ""),
                         )
                     if text_iterable is not None and not first_subchunk_logged:
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🌊 [Stream] First TTS subchunk prepared: chars={len(sub.strip())} emotion={emotion}"
                         )
                         dry_run.record_reply_event(dry_run_reply_id, "first_tts_subchunk_at")
@@ -3918,13 +3921,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         if estimated_duration_seconds > 0:
                             estimated_frame_count = max(1, int(round(estimated_duration_seconds * max(fps, 1))))
                     if text_iterable is not None and not first_wav_logged:
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🌊 [Stream] First audio chunk generated: file={os.path.basename(path)} chars={len(sub.strip())}"
                         )
                         dry_run.record_reply_event(dry_run_reply_id, "first_audio_chunk_at")
                         first_wav_logged = True
                     if pipeline_telemetry_enabled:
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="queued_for_render",
@@ -3947,7 +3950,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         muse_chunk_index += 1
         playback_queue.put(None)
         if pipeline_telemetry_enabled:
-            shared_state.update_musetalk_pipeline_flags(
+            musetalk_state.update_musetalk_pipeline_flags(
                 reply_id=pipeline_reply_id,
                 stream_open=False,
             )
@@ -4008,7 +4011,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                 if avatar_gui:
                     avatar_gui.set_emotion(emotion)
                     if avatar_mode == "musetalk":
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="rendering",
@@ -4032,7 +4035,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         2,
                         int(round(delegated_duration_seconds * 50.0)) if delegated_duration_seconds > 0 else 2,
                     )
-                    shared_state.set_current_musetalk_frame_data({
+                    musetalk_state.set_current_musetalk_frame_data({
                         "frame_paths": [],
                         "frame_dir": "",
                         "fps": 50,
@@ -4063,7 +4066,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
 
                 if chunk_result.get("ok"):
                     if avatar_mode == "musetalk":
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="rendering",
@@ -4073,7 +4076,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             fps=int(chunk_result.get("fps", RUNTIME_CONFIG.get("musetalk_fps", 24)) or RUNTIME_CONFIG.get("musetalk_fps", 24) or 24),
                         )
                     elif avatar_mode == "vam":
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="rendered",
@@ -4083,7 +4086,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             chunk_id=str(chunk_result.get("chunk_id", "") or ""),
                         )
                     elif avatar_mode == "none":
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="rendered",
@@ -4097,7 +4100,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         safe_delete_with_retry(vocal_only_path)
                 else:
                     if pipeline_telemetry_enabled:
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
                             status="failed",
@@ -4130,7 +4133,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
 
                 if kind == "musetalk":
                     current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
-                    previous_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                    previous_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                     try:
                         chunk_duration_seconds = float(sf.info(path).duration or 0.0)
                     except Exception:
@@ -4140,7 +4143,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     ready_event = chunk_result.get("ready_event")
                     result_holder = chunk_result.get("result_holder", {})
                     if result_holder.get("cancelled"):
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             status="cancelled",
@@ -4151,7 +4154,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     if _is_musetalk_avatar_adapter(avatar_gui):
                         chunk_generation = int(result_holder.get("generation", -1))
                         if chunk_generation != int(getattr(avatar_gui, "reply_generation", chunk_generation)):
-                            shared_state.update_musetalk_pipeline_chunk(
+                            musetalk_state.update_musetalk_pipeline_chunk(
                                 current_sequence,
                                 reply_id=pipeline_reply_id,
                                 status="cancelled",
@@ -4164,7 +4167,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     stream_fast_start = bool(RUNTIME_CONFIG.get("stream_mode", False))
                     if is_first_reply_chunk and stream_fast_start:
                         min_buffer_frames = max(10, min(int(fps * 0.5), 16))
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🌊 [Stream] First chunk fast-start gate {chunk_result.get('chunk_id')}: "
                             f"min_buffer_frames={min_buffer_frames}"
                         )
@@ -4173,14 +4176,14 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     else:
                         min_buffer_frames = max(24, min(int(fps * 2.5), 72))
                     if is_first_reply_chunk:
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             startup_buffer_frames=min_buffer_frames,
                         )
                     wait_start = time.time()
                     if is_first_reply_chunk:
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🕒 [MuseTalkStartup] First chunk buffer wait start {chunk_result.get('chunk_id')}: "
                             f"min_buffer_frames={min_buffer_frames}"
                         )
@@ -4210,7 +4213,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             break
 
                     if result_holder.get("cancelled"):
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             status="cancelled",
@@ -4220,7 +4223,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         continue
 
                     if is_first_reply_chunk:
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🕒 [MuseTalkStartup] First chunk buffer wait done {chunk_result.get('chunk_id')}: "
                             f"waited_ms={(time.time() - wait_start) * 1000.0:.1f} "
                             f"buffered={len(frame_paths)} ready_event={bool(ready_event and ready_event.is_set())}"
@@ -4268,7 +4271,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                 frame_paths = trimmed_paths
 
                     if not frame_paths:
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             status="failed",
@@ -4282,7 +4285,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         continue
 
                     visible_start_index = int(result_holder.get("start_index", 0) or 0)
-                    live_previous_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                    live_previous_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                     previous_avatar_id = live_previous_state.get("avatar_id", previous_state.get("avatar_id"))
                     current_avatar_id = chunk_result.get("avatar_id")
                     previous_status = live_previous_state.get("status", previous_state.get("status"))
@@ -4320,7 +4323,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                     not stop_flag.is_set()
                                     and (time.time() - wait_started_at) < max_wait_seconds
                                 ):
-                                    live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                                    live_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                                     if live_state.get("chunk_id") != previous_chunk_id:
                                         break
                                     live_preview_source = live_state.get("preview_source_index")
@@ -4332,9 +4335,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                         visible_start_index = target_entry_index
                                         break
                                     time.sleep(0.01)
-                                shared_state.append_musetalk_preview_log(
+                                musetalk_state.append_musetalk_preview_log(
                                     f"🕒 [MuseTalkStartup] First chunk plan sync {chunk_result.get('chunk_id')}: "
-                                    f"target={target_entry_index} final_preview={getattr(shared_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
+                                    f"target={target_entry_index} final_preview={getattr(musetalk_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
                                     f"waited_ms={(time.time() - wait_started_at) * 1000.0:.1f}"
                                 )
                                 log_musetalk_memory_checkpoint(
@@ -4342,7 +4345,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                     chunk_result.get("chunk_id"),
                                     {
                                         "target": target_entry_index,
-                                        "final_preview": getattr(shared_state, "current_musetalk_frame_data", {}).get("preview_source_index"),
+                                        "final_preview": getattr(musetalk_state, "current_musetalk_frame_data", {}).get("preview_source_index"),
                                     },
                                 )
                                 dry_run.record_reply_metric(
@@ -4371,7 +4374,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                     not stop_flag.is_set()
                                     and (time.time() - wait_started_at) < max_wait_seconds
                                 ):
-                                    live_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                                    live_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                                     if live_state.get("chunk_id") != "idle":
                                         break
                                     live_preview_source = live_state.get("preview_source_index")
@@ -4383,9 +4386,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                         visible_start_index = target_entry_index
                                         break
                                     time.sleep(0.01)
-                                shared_state.append_musetalk_preview_log(
+                                musetalk_state.append_musetalk_preview_log(
                                     f"🕒 [MuseTalkStartup] First chunk idle sync {chunk_result.get('chunk_id')}: "
-                                    f"target={target_entry_index} final_preview={getattr(shared_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
+                                    f"target={target_entry_index} final_preview={getattr(musetalk_state, 'current_musetalk_frame_data', {}).get('preview_source_index')} "
                                     f"waited_ms={(time.time() - wait_started_at) * 1000.0:.1f}"
                                 )
                                 dry_run.record_reply_metric(
@@ -4437,7 +4440,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                 round(followup_headroom_ms, 1),
                             )
 
-                    shared_state.set_current_musetalk_frame_data({
+                    musetalk_state.set_current_musetalk_frame_data({
                         "frame_paths": frame_paths,
                         "frame_dir": frame_dir,
                         "fps": fps,
@@ -4459,7 +4462,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         "preview_frame_index": -1,
                         "preview_source_index": None,
                     })
-                    shared_state.update_musetalk_pipeline_chunk(
+                    musetalk_state.update_musetalk_pipeline_chunk(
                         current_sequence,
                         reply_id=pipeline_reply_id,
                         playback_state="buffered",
@@ -4473,8 +4476,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     startup_resume_ms = None
                     if last_resumed_at and (time.time() - last_resumed_at) < 30.0:
                         startup_resume_ms = (time.time() - last_resumed_at) * 1000.0
-                    prime_musetalk_preview_frame(shared_state.current_musetalk_frame_data)
-                    save_musetalk_seam_debug_images(previous_state, shared_state.current_musetalk_frame_data)
+                    prime_musetalk_preview_frame(musetalk_state.current_musetalk_frame_data)
+                    save_musetalk_seam_debug_images(previous_state, musetalk_state.current_musetalk_frame_data)
                     schedule_musetalk_runtime_cleanup(keep_frame_dirs=[frame_dir])
                     print(
                         f"✅ [MuseTalk] Initial buffer {len(frame_paths)} frame(s): {txt[:20]}... "
@@ -4486,9 +4489,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             f"{startup_resume_ms:.1f} ms"
                         )
                         print(message)
-                        shared_state.append_musetalk_preview_log(message)
+                        musetalk_state.append_musetalk_preview_log(message)
                     if is_first_reply_chunk:
-                        shared_state.append_musetalk_preview_log(
+                        musetalk_state.append_musetalk_preview_log(
                             f"🕒 [MuseTalkStartup] First chunk published {chunk_result.get('chunk_id')}: "
                             f"buffered={len(frame_paths)} expected={expected_frame_count} "
                             f"start_index={visible_start_index}"
@@ -4519,7 +4522,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         int(chunk_result.get("expected_frame_count", 0) or 0),
                         int(round(delegated_duration_seconds * 50.0)) if delegated_duration_seconds > 0 else 2,
                     )
-                    shared_state.set_current_musetalk_frame_data({
+                    musetalk_state.set_current_musetalk_frame_data({
                         "frame_paths": [],
                         "frame_dir": "",
                         "fps": 50,
@@ -4539,7 +4542,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         "preview_source_index": 0,
                         "avatar_id": kind,
                     })
-                    shared_state.update_musetalk_pipeline_chunk(
+                    musetalk_state.update_musetalk_pipeline_chunk(
                         current_sequence,
                         reply_id=pipeline_reply_id,
                         playback_state="buffered",
@@ -4563,18 +4566,18 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     if kind == "musetalk":
                         audio_start_time = time.time()
                         _queue_story_visual_reply(txt, emotion)
-                        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                        current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                         if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
                             current_state["sync_time"] = audio_start_time
                             current_state["audio_started_at"] = audio_start_time
-                            shared_state.write_musetalk_preview_snapshot(current_state)
+                            musetalk_state.write_musetalk_preview_snapshot(current_state)
                             preview_stream_thread = threading.Thread(
                                 target=stream_musetalk_preview_frames,
                                 args=(current_state, preview_stream_stop),
                                 daemon=True,
                             )
                             preview_stream_thread.start()
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             playback_state="playing",
@@ -4585,7 +4588,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             startup_audio_ms = (audio_start_time - last_resumed_at) * 1000.0
                         print(
                             f"⏱️ [MuseTalk] Audio start {chunk_result.get('chunk_id')}: "
-                            f"audio={chunk_duration_seconds:.2f}s preview={float(shared_state.current_musetalk_frame_data.get('duration_seconds', 0.0) or 0.0):.2f}s"
+                            f"audio={chunk_duration_seconds:.2f}s preview={float(musetalk_state.current_musetalk_frame_data.get('duration_seconds', 0.0) or 0.0):.2f}s"
                         )
                         if startup_audio_ms is not None:
                             message = (
@@ -4593,9 +4596,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                                 f"{startup_audio_ms:.1f} ms"
                             )
                             print(message)
-                            shared_state.append_musetalk_preview_log(message)
+                            musetalk_state.append_musetalk_preview_log(message)
                         if is_first_reply_chunk:
-                            shared_state.append_musetalk_preview_log(
+                            musetalk_state.append_musetalk_preview_log(
                                 f"🕒 [MuseTalkStartup] First chunk audio start {chunk_result.get('chunk_id')}: "
                                 f"buffered={len(current_state.get('frame_paths', []) or [])} "
                                 f"preview_duration={float(current_state.get('duration_seconds', 0.0) or 0.0):.2f}s"
@@ -4621,18 +4624,18 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         audio_start_time = time.time()
                         _queue_story_visual_reply(txt, emotion)
                         current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
-                        current_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                        current_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                         if current_state.get("chunk_id") == chunk_result.get("chunk_id"):
                             current_state["sync_time"] = audio_start_time
                             current_state["audio_started_at"] = audio_start_time
-                            shared_state.write_musetalk_preview_snapshot(current_state)
+                            musetalk_state.write_musetalk_preview_snapshot(current_state)
                             preview_stream_thread = threading.Thread(
                                 target=stream_delegated_audio_progress,
                                 args=(current_state, preview_stream_stop),
                                 daemon=True,
                             )
                             preview_stream_thread.start()
-                        shared_state.update_musetalk_pipeline_chunk(
+                        musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
                             playback_state="playing",
@@ -4680,7 +4683,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     clear_avatar_stream_state()
                 safe_delete_with_retry(path)
                 if kind in {"musetalk", "vam", "none"}:
-                    shared_state.update_musetalk_pipeline_chunk(
+                    musetalk_state.update_musetalk_pipeline_chunk(
                         int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
                         reply_id=pipeline_reply_id,
                         playback_state="completed",
@@ -4689,7 +4692,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                     if kind == "musetalk":
                         print(f"⏹️ [MuseTalk] Finished chunk {chunk_result.get('chunk_id')}")
                     else:
-                        shared_state.update_current_musetalk_frame_data(
+                        musetalk_state.update_current_musetalk_frame_data(
                             preview_frame_index=max(
                                 0,
                                 int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
@@ -4724,15 +4727,15 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                             resume_ms = (last_resumed_at - last_resume_requested_at) * 1000.0
                             message = f"- - - RESUMED - - - ({resume_ms:.1f} ms after request)"
                             print(message)
-                            shared_state.append_musetalk_preview_log(message)
+                            musetalk_state.append_musetalk_preview_log(message)
                         else:
                             message = "- - - RESUMED - - -"
                             print(message)
-                            shared_state.append_musetalk_preview_log(message)
+                            musetalk_state.append_musetalk_preview_log(message)
 
         finally:
             if pipeline_telemetry_enabled:
-                shared_state.update_musetalk_pipeline_flags(
+                musetalk_state.update_musetalk_pipeline_flags(
                     reply_id=pipeline_reply_id,
                     active=False,
                     stream_open=False,
@@ -4750,7 +4753,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                 if stop_playback.is_set():
                     transition_musetalk_to_local_idle(advance_to_next_frame=True)
                 else:
-                    current_avatar_id = getattr(shared_state, "current_musetalk_frame_data", {}).get("avatar_id")
+                    current_avatar_id = getattr(musetalk_state, "current_musetalk_frame_data", {}).get("avatar_id")
                     if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
                         transition_musetalk_to_local_idle(advance_to_next_frame=True)
             elif avatar_mode == "vam" and not stop_flag.is_set():
@@ -5043,7 +5046,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                 visual_tail_open = True
             return cleaned
 
-        shared_state.append_musetalk_preview_log(
+        musetalk_state.append_musetalk_preview_log(
             f"🌊 [Stream] Reply stream started: target_chars={stream_target_chars} max_chars={stream_max_chars}"
         )
         dry_run.record_reply_event(dry_run_reply_id, "stream_reply_started_at")
@@ -5059,7 +5062,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                 now = time.time()
                 if first_token_at is None:
                     first_token_at = now
-                    shared_state.append_musetalk_preview_log(
+                    musetalk_state.append_musetalk_preview_log(
                         f"🌊 [Stream] First token received: len={len(content)}"
                     )
                     dry_run.record_reply_event(dry_run_reply_id, "first_token_at")
@@ -5085,7 +5088,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                         int(chunk_info.get("chars", len(raw_chunk_text)) or len(raw_chunk_text)),
                     )
                     dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_chars_count", 1)
-                    shared_state.append_musetalk_preview_log(
+                    musetalk_state.append_musetalk_preview_log(
                         f"🌊 [Stream] Chunk emitted: chars={len(chunk_text.strip())} "
                         f"quality={float(chunk_info.get('quality', 0.0) or 0.0):.2f} "
                         f"reason={chunk_info.get('reason', 'unknown')} "
@@ -5112,7 +5115,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                     int(chunk_info.get("chars", len(raw_chunk_text)) or len(raw_chunk_text)),
                 )
                 dry_run.accumulate_reply_metric(dry_run_reply_id, "chunk_chars_count", 1)
-                shared_state.append_musetalk_preview_log(
+                musetalk_state.append_musetalk_preview_log(
                     f"🌊 [Stream] Final chunk emitted: chars={len(chunk_text.strip())} "
                     f"quality={float(chunk_info.get('quality', 0.0) or 0.0):.2f} "
                     f"reason={chunk_info.get('reason', 'unknown')} "
@@ -5122,10 +5125,10 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
             state.error = str(e)
             text_queue.put(str(e))
             print(f"⚠️ Streamed context limit reached: {e}")
-            shared_state.append_musetalk_preview_log(f"🌊 [Stream] Context limit: {e}")
+            musetalk_state.append_musetalk_preview_log(f"🌊 [Stream] Context limit: {e}")
         except Exception as e:
             error_text = str(e) or repr(e)
-            shared_state.append_musetalk_preview_log(f"🌊 [Stream] Error: {error_text}")
+            musetalk_state.append_musetalk_preview_log(f"🌊 [Stream] Error: {error_text}")
             if first_token_at is None and not state.cancel_requested.is_set() and not stop_playback.is_set():
                 try:
                     print(f"⚠️ LLM Stream startup failed, falling back to non-stream reply: {error_text}")
@@ -5141,7 +5144,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                 except Exception as fallback_exc:
                     state.error = str(fallback_exc) or repr(fallback_exc)
                     print(f"✗ LLM Stream Error: {error_text}")
-                    shared_state.append_musetalk_preview_log(f"🌊 [Stream] Fallback error: {state.error}")
+                    musetalk_state.append_musetalk_preview_log(f"🌊 [Stream] Fallback error: {state.error}")
             else:
                 state.error = error_text
                 print(f"✗ LLM Stream Error: {error_text}")
@@ -5150,7 +5153,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
             state.full_text = "".join(full_parts).strip()
             text_queue.put(None)
             state.done.set()
-            shared_state.append_musetalk_preview_log(
+            musetalk_state.append_musetalk_preview_log(
                 f"🌊 [Stream] Reply stream done: total_chars={len(state.full_text)} emitted_any={state.first_chunk_emitted.is_set()}"
             )
 
@@ -5927,7 +5930,7 @@ def _build_avatar_runtime_context():
             "default_vam_timeline_clip_map": DEFAULT_VAM_TIMELINE_CLIP_MAP,
             "audio_segment_cls": AudioSegment,
             "invalidate_available_emotion_names_fn": invalidate_available_emotion_names,
-            "shared_state_module": shared_state,
+            "musetalk_state_module": musetalk_state,
             "log_memory_checkpoint_fn": log_musetalk_memory_checkpoint,
             "stop_flag_event": stop_flag,
             "stop_playback_event": stop_playback,

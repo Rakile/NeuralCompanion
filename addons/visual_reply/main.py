@@ -135,7 +135,7 @@ class Addon(BaseAddon):
                     bridge,
                     theme_provider=payload.get("theme_provider"),
                     runtime_config=payload.get("runtime_config") or {},
-                    shared_state_module=payload.get("shared_state_module"),
+                    state_module=payload.get("state_module"),
                     storage_dir=payload.get("storage_dir"),
                 )
             return None

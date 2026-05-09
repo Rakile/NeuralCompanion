@@ -103,7 +103,9 @@ def _configure_real_ui_bridge_dependencies():
         "_ui_shell_update_chunking_label": _ui_shell_update_chunking_label,
         "ctypes": ctypes,
         "engine": engine,
-        "shared_state": shared_state,
+        "musetalk_state": musetalk_state,
+        "visual_reply_state": visual_reply_state,
+        "expression_state": expression_state,
         "tutorial_framework": tutorial_framework,
         "update_runtime_config": update_runtime_config,
     })

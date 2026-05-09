@@ -34,8 +34,8 @@ class RealUiSyncMirrorMixin:
             if telemetry_widget is None:
                 return
             try:
-                raw_snapshot = shared_state.get_musetalk_pipeline_snapshot()
-                preview_state = getattr(shared_state, "current_musetalk_frame_data", {}) or {}
+                raw_snapshot = musetalk_state.get_musetalk_pipeline_snapshot()
+                preview_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
                 snapshot = self.backend._build_pipeline_visual_snapshot(raw_snapshot)
                 telemetry_widget.update_snapshot(snapshot, preview_state)
             except Exception:

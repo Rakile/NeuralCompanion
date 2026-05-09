@@ -7,8 +7,9 @@ import threading
 from PySide6 import QtCore
 
 import engine
-import shared_state
 import tutorial_framework
+from addons.musetalk_avatar import state as musetalk_state
+from core import expression_state
 from core.expression_api import start_expression_api
 from engine import RUNTIME_CONFIG
 from ui.runtime.console_redirect import QtConsoleBridge, QtTextRedirector
@@ -23,7 +24,7 @@ from ui.runtime.main_window_theme import (
 
 
 def start_api():
-    start_expression_api(shared_state, port=5005)
+    start_expression_api(expression_state, musetalk_state_module=musetalk_state, port=5005)
 
 
 class MainWindowStartupMixin:

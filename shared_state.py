@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from addons.musetalk_avatar import state as musetalk_state
 from addons.visual_reply import state as visual_reply_state
+from core import expression_state
 
-
-current_expression_data = {}
 
 MUSE_PREVIEW_STATE_PATH = musetalk_state.MUSE_PREVIEW_STATE_PATH
 MUSE_PREVIEW_FRAME_PATH = musetalk_state.MUSE_PREVIEW_FRAME_PATH
@@ -21,6 +20,9 @@ _MUSE_DYNAMIC_NAMES = {
 _VISUAL_DYNAMIC_NAMES = {
     "current_visual_reply_data",
 }
+_EXPRESSION_DYNAMIC_NAMES = {
+    "current_expression_data",
+}
 
 
 def __getattr__(name):
@@ -28,6 +30,8 @@ def __getattr__(name):
         return getattr(musetalk_state, name)
     if name in _VISUAL_DYNAMIC_NAMES:
         return getattr(visual_reply_state, name)
+    if name in _EXPRESSION_DYNAMIC_NAMES:
+        return getattr(expression_state, name)
     raise AttributeError(name)
 
 
@@ -85,3 +89,11 @@ def update_musetalk_pipeline_flags(reply_id=None, **updates):
 
 def get_musetalk_pipeline_snapshot():
     return musetalk_state.get_musetalk_pipeline_snapshot()
+
+
+def set_current_expression_data(state):
+    return expression_state.set_current_expression_data(state)
+
+
+def reset_current_expression_data():
+    return expression_state.reset_current_expression_data()

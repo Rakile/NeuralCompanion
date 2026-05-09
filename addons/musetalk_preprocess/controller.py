@@ -11,7 +11,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from core.musetalk_avatar_packs import MUSE_AVATAR_PACKS_DIR, MuseTalkAvatarPack, MuseTalkAvatarVariant, avatar_pack_search_dirs, discover_avatar_packs, save_avatar_pack_manifest
+from addons.musetalk_avatar.avatar_packs import MUSE_AVATAR_PACKS_DIR, MuseTalkAvatarPack, MuseTalkAvatarVariant, avatar_pack_search_dirs, discover_avatar_packs, save_avatar_pack_manifest
 from qt_shared_widgets import ContextTokenStepper, NoWheelComboBox
 
 

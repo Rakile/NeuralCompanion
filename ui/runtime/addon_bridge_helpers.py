@@ -10,27 +10,14 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
 from collections.abc import Iterable
+from pathlib import Path
 
 from core import avatar_runtime
 
 
-_TTS_BRIDGE_FALLBACKS = {
-    "chatterbox": "addons.chatterbox_tts.real_ui_bridge",
-    "pockettts": "addons.pockettts.real_ui_bridge",
-}
-
-_AVATAR_BRIDGE_FALLBACKS = {
-    "musetalk": "addons.musetalk_avatar.real_ui_bridge",
-    "vam": "addons.vam_avatar.real_ui_bridge",
-    "vseeface": "addons.vseeface_avatar.real_ui_bridge",
-    "none": "addons.no_avatar.real_ui_bridge",
-}
-
-_ADDON_BRIDGE_FALLBACKS = {
-    "nc.visual_reply": "addons.visual_reply.real_ui_bridge",
-    "visual_reply": "addons.visual_reply.real_ui_bridge",
-}
+APP_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _import_bridge_module(module_name):
@@ -114,6 +101,47 @@ def _loaded_addon_records(backend):
     ]
 
 
+def _iter_manifest_payloads_from_disk():
+    addons_dir = APP_ROOT / "addons"
+    if not addons_dir.is_dir():
+        return
+    for manifest_path in sorted(addons_dir.glob("*/addon.json")):
+        try:
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        if isinstance(payload, dict):
+            yield payload
+
+
+def _disk_manifest_bridge_modules(addon_id="", service_id="", metadata_key="", metadata_value=""):
+    wanted_addon_id = str(addon_id or "").strip()
+    wanted_service_id = str(service_id or "").strip()
+    wanted_key = str(metadata_key or "").strip()
+    wanted_value = str(metadata_value or "").strip().lower()
+    module_names = []
+    for manifest in _iter_manifest_payloads_from_disk() or []:
+        manifest_id = str(manifest.get("id") or "").strip()
+        aliases = {manifest_id, manifest_id.removeprefix("nc.")}
+        if wanted_addon_id and wanted_addon_id not in aliases:
+            continue
+        entries = []
+        if wanted_service_id:
+            entries.extend(entry for entry in list(manifest.get("services") or []) if isinstance(entry, dict))
+        else:
+            entries.extend(entry for entry in list(manifest.get("services") or []) if isinstance(entry, dict))
+            entries.extend(entry for entry in list(manifest.get("ui") or []) if isinstance(entry, dict))
+        for entry in entries:
+            if wanted_service_id and str(entry.get("id") or "").strip() != wanted_service_id:
+                continue
+            if wanted_key and str(entry.get(wanted_key) or "").strip().lower() != wanted_value:
+                continue
+            module_name = _bridge_module_from_entry(entry)
+            if module_name:
+                module_names.append(module_name)
+    return module_names
+
+
 def _addon_manifest_service_bridge_modules(backend, service_id, metadata_key="", metadata_value=""):
     wanted_service_id = str(service_id or "").strip()
     wanted_key = str(metadata_key or "").strip()
@@ -190,9 +218,15 @@ def tts_bridge_modules(backend):
         for entry in _service_entries(backend):
             metadata = dict(entry.get("metadata") or {})
             backend_id = str(metadata.get("backend_id") or entry.get("name") or "").strip().lower()
-            module_names.append(_TTS_BRIDGE_FALLBACKS.get(backend_id, ""))
+            module_names.extend(
+                _disk_manifest_bridge_modules(
+                    service_id="tts_backend_service",
+                    metadata_key="backend_id",
+                    metadata_value=backend_id,
+                )
+            )
     if not module_names and getattr(backend, "_addon_manager", None) is None:
-        module_names.extend(_TTS_BRIDGE_FALLBACKS.values())
+        module_names.extend(_disk_manifest_bridge_modules(service_id="tts_backend_service"))
     return _unique_modules(module_names)
 
 
@@ -224,9 +258,15 @@ def avatar_bridge_modules(backend):
     if not module_names and getattr(backend, "_addon_manager", None) is None:
         for provider in avatar_runtime.list_providers():
             provider_id = str(provider.to_summary().get("id") or "").strip().lower()
-            module_names.append(_AVATAR_BRIDGE_FALLBACKS.get(provider_id, ""))
+            module_names.extend(
+                _disk_manifest_bridge_modules(
+                    service_id="avatar_provider_registry",
+                    metadata_key="provider_id",
+                    metadata_value=provider_id,
+                )
+            )
     if not module_names and getattr(backend, "_addon_manager", None) is None:
-        module_names.extend(_AVATAR_BRIDGE_FALLBACKS.values())
+        module_names.extend(_disk_manifest_bridge_modules(service_id="avatar_provider_registry"))
     return _unique_modules(module_names)
 
 
@@ -241,7 +281,12 @@ def avatar_bridge_module_for_provider(provider_id):
         metadata = dict(summary.get("metadata") or {})
         module_name = str(metadata.get("real_ui_bridge_module") or metadata.get("ui_bridge_module") or "").strip()
     if not module_name:
-        module_name = _AVATAR_BRIDGE_FALLBACKS.get(selected, "")
+        module_names = _disk_manifest_bridge_modules(
+            service_id="avatar_provider_registry",
+            metadata_key="provider_id",
+            metadata_value=selected,
+        )
+        module_name = module_names[0] if module_names else ""
     return _import_bridge_module(module_name)
 
 
@@ -264,10 +309,20 @@ def tts_bridge_module_for_backend(backend, tts_backend):
             )
             module_name = module_names[0] if module_names else ""
         if not module_name and getattr(backend, "_addon_manager", None) is None:
-            module_name = _TTS_BRIDGE_FALLBACKS.get(selected, "")
+            module_names = _disk_manifest_bridge_modules(
+                service_id="tts_backend_service",
+                metadata_key="backend_id",
+                metadata_value=selected,
+            )
+            module_name = module_names[0] if module_names else ""
         return _import_bridge_module(module_name)
     if getattr(backend, "_addon_manager", None) is None:
-        return _import_bridge_module(_TTS_BRIDGE_FALLBACKS.get(selected, ""))
+        module_names = _disk_manifest_bridge_modules(
+            service_id="tts_backend_service",
+            metadata_key="backend_id",
+            metadata_value=selected,
+        )
+        return _import_bridge_module(module_names[0] if module_names else "")
     module_names = _addon_manifest_service_bridge_modules(
         backend,
         "tts_backend_service",
@@ -292,10 +347,10 @@ def named_addon_bridge_modules(backend, addon_ids):
         if manifest_modules:
             module_names.extend(manifest_modules)
         else:
-            module_names.append(_ADDON_BRIDGE_FALLBACKS.get(normalized, ""))
+            module_names.extend(_disk_manifest_bridge_modules(addon_id=normalized))
     if not loaded and getattr(backend, "_addon_manager", None) is None:
         for addon_id in addon_ids:
-            module_names.append(_ADDON_BRIDGE_FALLBACKS.get(str(addon_id or "").strip(), ""))
+            module_names.extend(_disk_manifest_bridge_modules(addon_id=str(addon_id or "").strip()))
     return _unique_modules(module_names)
 
 

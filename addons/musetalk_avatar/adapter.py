@@ -11,8 +11,9 @@ from pathlib import Path
 from pydub import AudioSegment
 
 from addons.musetalk_avatar import state as musetalk_state
+from addons.musetalk_avatar.avatar_packs import discover_avatar_packs, get_avatar_pack
 from core import avatar_runtime, musetalk_preview_runtime, runtime_files, streaming_text
-from core.musetalk_avatar_packs import discover_avatar_packs, get_avatar_pack
+from core import expression_state
 from musetalk_bridge import MuseTalkBridge
 
 
@@ -48,7 +49,7 @@ def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
     return musetalk_preview_runtime.get_current_musetalk_source_index(
         state,
         runtime_config=RUNTIME_CONFIG,
-        shared_state_module=musetalk_state,
+        musetalk_state_module=musetalk_state,
         advance_to_next_frame=advance_to_next_frame,
     )
 
@@ -58,7 +59,7 @@ def prime_musetalk_preview_frame(playback_state):
         playback_state,
         runtime_config=RUNTIME_CONFIG,
         list_png_frames=list_png_frames,
-        shared_state_module=musetalk_state,
+        musetalk_state_module=musetalk_state,
     )
 
 
@@ -95,7 +96,7 @@ def configure_runtime_symbols(
     *,
     runtime_config,
     invalidate_available_emotion_names_fn,
-    shared_state_module,
+    musetalk_state_module,
     log_memory_checkpoint_fn,
     stop_flag_event,
     stop_playback_event,
@@ -104,7 +105,6 @@ def configure_runtime_symbols(
     """Install host-owned runtime hooks without making the addon import engine."""
     global RUNTIME_CONFIG
     global invalidate_available_emotion_names
-    global shared_state
     global log_musetalk_memory_checkpoint
     global stop_flag
     global stop_playback
@@ -113,7 +113,6 @@ def configure_runtime_symbols(
 
     RUNTIME_CONFIG = runtime_config
     invalidate_available_emotion_names = invalidate_available_emotion_names_fn
-    shared_state = shared_state_module
     log_musetalk_memory_checkpoint = log_memory_checkpoint_fn
     stop_flag = stop_flag_event
     stop_playback = stop_playback_event
@@ -131,7 +130,7 @@ def _hydrate_engine_symbols():
     configure_runtime_symbols(
         runtime_config=engine.RUNTIME_CONFIG,
         invalidate_available_emotion_names_fn=engine.invalidate_available_emotion_names,
-        shared_state_module=engine.shared_state,
+        musetalk_state_module=None,
         log_memory_checkpoint_fn=engine.log_musetalk_memory_checkpoint,
         stop_flag_event=engine.stop_flag,
         stop_playback_event=engine.stop_playback,
@@ -148,7 +147,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         *,
         runtime_config=None,
         invalidate_available_emotion_names_fn=None,
-        shared_state_module=None,
+        musetalk_state_module=None,
         log_memory_checkpoint_fn=None,
         stop_flag_event=None,
         stop_playback_event=None,
@@ -158,7 +157,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             configure_runtime_symbols(
                 runtime_config=runtime_config,
                 invalidate_available_emotion_names_fn=invalidate_available_emotion_names_fn,
-                shared_state_module=shared_state_module,
+                musetalk_state_module=musetalk_state_module,
                 log_memory_checkpoint_fn=log_memory_checkpoint_fn,
                 stop_flag_event=stop_flag_event,
                 stop_playback_event=stop_playback_event,
@@ -645,7 +644,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                     "window_size": len(window_paths),
                 },
             )
-            shared_state.current_expression_data = {"names": [], "frames": []}
+            expression_state.reset_current_expression_data()
             musetalk_state.set_current_musetalk_frame_data({
                 "frame_paths": window_paths,
                 "source_indices": window_source_indices,

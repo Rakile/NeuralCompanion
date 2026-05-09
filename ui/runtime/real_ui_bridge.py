@@ -94,7 +94,7 @@ def _configure_real_ui_sync_dependencies():
         "_ui_shell_update_body_label": _ui_shell_update_body_label,
         "_ui_shell_update_chunking_label": _ui_shell_update_chunking_label,
         "engine": engine,
-        "shared_state": shared_state,
+        "musetalk_state": musetalk_state,
     })
 
 

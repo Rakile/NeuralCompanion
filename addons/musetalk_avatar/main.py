@@ -66,11 +66,11 @@ class Addon(BaseAddon):
                 "spin": ["musetalk_loop_fade_spin"],
             }
         if capability == "runtime.discover_avatar_packs":
-            from core.musetalk_avatar_packs import discover_avatar_packs
+            from addons.musetalk_avatar.avatar_packs import discover_avatar_packs
 
             return discover_avatar_packs(**dict(payload.get("kwargs") or {}))
         if capability == "runtime.get_avatar_pack":
-            from core.musetalk_avatar_packs import get_avatar_pack
+            from addons.musetalk_avatar.avatar_packs import get_avatar_pack
 
             return get_avatar_pack(**dict(payload.get("kwargs") or {}))
         from addons.musetalk_avatar import real_ui_bridge
@@ -190,7 +190,7 @@ class Addon(BaseAddon):
         return MuseTalkAdapter(
             runtime_config=runtime_context.runtime_config,
             invalidate_available_emotion_names_fn=runtime_context.get("invalidate_available_emotion_names_fn"),
-            shared_state_module=runtime_context.get("shared_state_module"),
+            musetalk_state_module=runtime_context.get("musetalk_state_module"),
             log_memory_checkpoint_fn=runtime_context.get("log_memory_checkpoint_fn"),
             stop_flag_event=runtime_context.get("stop_flag_event"),
             stop_playback_event=runtime_context.get("stop_playback_event"),

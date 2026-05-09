@@ -3,7 +3,7 @@ import time
 from PySide6 import QtWidgets
 
 import dry_run
-import shared_state
+from addons.musetalk_avatar import state as musetalk_state
 from ui.panels.input_dialog import QtInputDialog
 
 
@@ -128,7 +128,7 @@ class BackendDryRunRuntimeMixin:
             f"system_prompt={self.system_prompt_text.toPlainText().strip()[:220]!r} "
             f"emotional_instructions={self.emotional_text.toPlainText().strip()[:220]!r}"
         )
-        shared_state.append_musetalk_preview_log(
+        musetalk_state.append_musetalk_preview_log(
             f"🧪 [DryRun] Session armed: id={status.get('session_id')} profile={status.get('profile_key')} target_samples={status.get('target_samples')} max_tokens={DRY_RUN_MAX_RESPONSE_TOKENS}"
         )
         if bool(status.get("auto_mode")):
@@ -145,7 +145,7 @@ class BackendDryRunRuntimeMixin:
             self.dry_run_last_applied_candidate_index = None
             self._apply_runtime_settings_dict(status.get("config_snapshot", {}) or {})
             self.save_session()
-            shared_state.append_musetalk_preview_log(
+            musetalk_state.append_musetalk_preview_log(
                 f"🧪 [DryRun] Session stopped: id={status.get('session_id')} confidence={status.get('confidence')}"
             )
             print("[QtGUI] Dry Run stopped.")
@@ -407,7 +407,7 @@ class BackendDryRunRuntimeMixin:
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
             f"{self._addon_performance_log_fragment(settings)}"
         )
-        shared_state.append_musetalk_preview_log(
+        musetalk_state.append_musetalk_preview_log(
             f"🧪 [DryRun] Applying {candidate.get('label')}: "
             f"stream_target={settings.get('stream_chunk_target_chars')} "
             f"stream_max={settings.get('stream_chunk_max_chars')} "
