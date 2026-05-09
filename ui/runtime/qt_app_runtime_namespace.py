@@ -37,7 +37,6 @@ from core.addons.qt_host_services import (
     QtInputActionService,
     QtInputSettingsService,
     QtModelRefreshService,
-    QtMuseTalkUIService,
     QtPerformanceProfileService,
     QtPersonaAvatarService,
     QtRuntimeControlService,
@@ -45,8 +44,9 @@ from core.addons.qt_host_services import (
     QtSensoryService,
     QtShellService,
     QtTutorialService,
-    QtVisualReplyService,
 )
+from addons.musetalk_avatar.host_service import QtMuseTalkUIService
+from addons.visual_reply.host_service import QtVisualReplyService
 from engine import (
     AVATAR_PROFILE,
     HAND_CALIBRATION,

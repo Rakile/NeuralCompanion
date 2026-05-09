@@ -20,7 +20,8 @@
       "order": 120,
       "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback.",
       "metadata": {
-        "runtime_role": "audio_story"
+        "runtime_role": "audio_story",
+        "real_ui_bridge_module": "addons.audio_story_mode.real_ui_bridge"
       }
     }
   ],

@@ -32,6 +32,13 @@
       }
     }
   ],
+  "host_services": [
+    {
+      "id": "qt.musetalk_ui",
+      "module": "addons.musetalk_avatar.host_service",
+      "class": "QtMuseTalkUIService"
+    }
+  ],
   "ui": [
     {
       "id": "musetalk_avatar_tab",

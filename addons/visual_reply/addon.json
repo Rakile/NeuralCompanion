@@ -29,6 +29,13 @@
     "visual_reply_model": "NC_VISUAL_REPLY_MODEL",
     "visual_reply_size": "NC_VISUAL_REPLY_SIZE"
   },
+  "host_services": [
+    {
+      "id": "qt.visual_reply",
+      "module": "addons.visual_reply.host_service",
+      "class": "QtVisualReplyService"
+    }
+  ],
   "ui": [
     {
       "id": "visuals_host",

@@ -19,7 +19,8 @@
       "order": 920,
       "tooltip": "Standalone chat session replay and context loading tools.",
       "metadata": {
-        "runtime_role": "chat_replay"
+        "runtime_role": "chat_replay",
+        "real_ui_bridge_module": "addons.chat_session_player.real_ui_bridge"
       }
     }
   ],
