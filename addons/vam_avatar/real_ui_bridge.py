@@ -241,7 +241,7 @@ def bind_runtime_controls(bridge):
 
 def mirror_runtime_widgets(bridge, *, force=False):
     """Mirror VaM-owned labels and derived fields into the real main.ui surface."""
-    runtime_config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+    runtime_config = _runtime_config_service(bridge.backend).snapshot()
     bridge_root_front = bridge._ui_object("vam_bridge_root_edit")
     bridge_root_back = bridge._backend_widget("vam_bridge_root_edit")
     if bridge_root_front is not None and hasattr(bridge_root_front, "setReadOnly"):
