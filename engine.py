@@ -46,9 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from addons.visual_reply import generation as visual_reply_generation
-from addons.visual_reply import runtime_config as visual_reply_runtime
-from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
+from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_avatar_pack_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_generation, visual_reply_runtime
 from core import expression_state
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
@@ -661,60 +659,11 @@ def update_runtime_config(key, value):
 
 
 def _normalize_musetalk_enabled_pack_emotions(value):
-    mapping = {}
-    if not isinstance(value, dict):
-        return mapping
-    for raw_pack_id, raw_tags in value.items():
-        pack_id = str(raw_pack_id or "").strip()
-        if not pack_id:
-            continue
-        if isinstance(raw_tags, (list, tuple, set)):
-            iterable = list(raw_tags)
-        else:
-            iterable = str(raw_tags or "").split(",")
-        tags = []
-        for raw_tag in iterable:
-            clean_tag = str(raw_tag or "").strip().strip("[]").strip().lower()
-            if clean_tag and clean_tag not in tags:
-                tags.append(clean_tag)
-        mapping[pack_id] = tags
-    return mapping
+    return musetalk_avatar_pack_runtime.normalize_enabled_pack_emotions(value)
 
 
 def get_musetalk_enabled_pack_emotions(pack_id):
-    mapping = _normalize_musetalk_enabled_pack_emotions(RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
-    clean_pack_id = str(pack_id or "").strip()
-    if not clean_pack_id or clean_pack_id not in mapping:
-        return None
-    return set(mapping.get(clean_pack_id) or [])
-
-
-def _discover_musetalk_avatar_packs(**kwargs):
-    result = _invoke_avatar_addon_capability(
-        "musetalk",
-        "runtime.discover_avatar_packs",
-        payload={"kwargs": dict(kwargs or {})},
-        default=None,
-    )
-    if result is not None:
-        return result
-    from addons.musetalk_avatar.avatar_packs import discover_avatar_packs
-
-    return discover_avatar_packs(**kwargs)
-
-
-def _get_musetalk_avatar_pack(**kwargs):
-    result = _invoke_avatar_addon_capability(
-        "musetalk",
-        "runtime.get_avatar_pack",
-        payload={"kwargs": dict(kwargs or {})},
-        default=None,
-    )
-    if result is not None:
-        return result
-    from addons.musetalk_avatar.avatar_packs import get_avatar_pack
-
-    return get_avatar_pack(**kwargs)
+    return musetalk_avatar_pack_runtime.enabled_pack_emotions(RUNTIME_CONFIG, pack_id)
 
 
 # ============================================================================
@@ -1381,50 +1330,22 @@ def get_available_emotion_names(force_refresh=False):
     ):
         return set(_EMOTION_REGISTRY.get("names") or set(DEFAULT_EMOTION_NAMES))
 
-    names = set(DEFAULT_EMOTION_NAMES)
-    try:
-        names.update(str(key or "").strip().lower() for key in AVATAR_PROFILE.keys() if str(key or "").strip())
-    except Exception:
-        pass
     avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
     try:
-        packs = _discover_musetalk_avatar_packs(
-            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+        names = musetalk_avatar_pack_runtime.available_pack_emotion_names(
+            RUNTIME_CONFIG,
+            default_names=DEFAULT_EMOTION_NAMES,
+            avatar_profile=AVATAR_PROFILE,
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
             legacy_transitions=MUSE_AVATAR_TRANSITIONS,
             avatars_dir=Path(avatars_root),
-            include_legacy=False,
-            include_standalone=False,
         )
-        selected_pack_id = str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
-        pack_iterable = [packs[selected_pack_id]] if selected_pack_id in packs else list(packs.values())
-        for pack in pack_iterable:
-            try:
-                full_map = pack.emotion_avatar_map()
-                enabled_tags = get_musetalk_enabled_pack_emotions(pack.pack_id)
-                if enabled_tags is None:
-                    names.update(
-                        str(tag or "").strip().lower()
-                        for tag in full_map.keys()
-                        if str(tag or "").strip()
-                    )
-                else:
-                    locked_tags = {
-                        str(tag or "").strip().lower()
-                        for tag, avatar_id in full_map.items()
-                        if str(tag or "").strip()
-                        and str(avatar_id or "").strip() == str(pack.default_avatar_id or "").strip()
-                    }
-                    names.update(
-                        str(tag or "").strip().lower()
-                        for tag in full_map.keys()
-                        if str(tag or "").strip()
-                        and str(tag or "").strip().lower() in (enabled_tags | locked_tags)
-                    )
-            except Exception:
-                continue
     except Exception:
-        pass
+        names = set(DEFAULT_EMOTION_NAMES)
+        try:
+            names.update(str(key or "").strip().lower() for key in AVATAR_PROFILE.keys() if str(key or "").strip())
+        except Exception:
+            pass
 
     _EMOTION_REGISTRY["loaded_at"] = now
     _EMOTION_REGISTRY["names"] = set(names)
@@ -2920,26 +2841,11 @@ def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
 
 
 def get_musetalk_avatar_pack_catalog():
-    packs = _discover_musetalk_avatar_packs(
-        default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+    return musetalk_avatar_pack_runtime.pack_catalog(
+        RUNTIME_CONFIG,
         legacy_map=MUSE_EMOTION_AVATAR_MAP,
         legacy_transitions=MUSE_AVATAR_TRANSITIONS,
-        include_legacy=False,
-        include_standalone=False,
     )
-    catalog = []
-    for pack_id, pack in packs.items():
-        catalog.append(
-            {
-                "id": pack_id,
-                "display_name": str(pack.display_name or pack_id),
-                "default_avatar_id": str(pack.default_avatar_id or "default_avatar"),
-                "default_variant": str(pack.default_variant or "default"),
-                "source": str(pack.source or "manifest"),
-                "variant_count": len(pack.variants or {}),
-            }
-        )
-    return catalog
 
 
 def apply_musetalk_avatar_pack_selection(pack_id):
@@ -2947,26 +2853,24 @@ def apply_musetalk_avatar_pack_selection(pack_id):
     if not requested_pack_id:
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
     try:
-        selected = _get_musetalk_avatar_pack(
-            default_avatar_id=str(RUNTIME_CONFIG.get("musetalk_avatar_id", "default_avatar") or "default_avatar"),
+        selected_pack_id = musetalk_avatar_pack_runtime.select_pack(
+            RUNTIME_CONFIG,
             requested_pack_id=requested_pack_id,
             legacy_map=MUSE_EMOTION_AVATAR_MAP,
             legacy_transitions=MUSE_AVATAR_TRANSITIONS,
-            include_legacy=False,
-            include_standalone=False,
         )
     except LookupError:
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
-    update_runtime_config("musetalk_avatar_pack_id", selected.pack_id)
+    update_runtime_config("musetalk_avatar_pack_id", selected_pack_id)
     invalidate_available_emotion_names()
     if _is_musetalk_avatar_adapter(avatar_gui):
-        avatar_gui.select_avatar_pack(selected.pack_id)
+        avatar_gui.select_avatar_pack(selected_pack_id)
         if not audio_playing.is_set() and not stop_flag.is_set():
             try:
                 set_musetalk_idle_state_for_avatar(avatar_gui.default_avatar_id)
             except Exception:
                 pass
-    return selected.pack_id
+    return selected_pack_id
 
 
 def loop_current_musetalk_state():

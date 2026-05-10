@@ -10,7 +10,7 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
-from addons.musetalk_avatar import state as musetalk_state
+from addons.musetalk_avatar import pack_runtime, state as musetalk_state
 from addons.musetalk_avatar.avatar_packs import discover_avatar_packs, get_avatar_pack
 from core import avatar_runtime, musetalk_preview_runtime, runtime_files, streaming_text
 from core import expression_state
@@ -64,32 +64,11 @@ def prime_musetalk_preview_frame(playback_state):
 
 
 def _normalize_musetalk_enabled_pack_emotions(value):
-    mapping = {}
-    if not isinstance(value, dict):
-        return mapping
-    for raw_pack_id, raw_tags in value.items():
-        pack_id = str(raw_pack_id or "").strip()
-        if not pack_id:
-            continue
-        if isinstance(raw_tags, (list, tuple, set)):
-            iterable = list(raw_tags)
-        else:
-            iterable = str(raw_tags or "").split(",")
-        tags = []
-        for raw_tag in iterable:
-            clean_tag = str(raw_tag or "").strip().strip("[]").strip().lower()
-            if clean_tag and clean_tag not in tags:
-                tags.append(clean_tag)
-        mapping[pack_id] = tags
-    return mapping
+    return pack_runtime.normalize_enabled_pack_emotions(value)
 
 
 def get_musetalk_enabled_pack_emotions(pack_id):
-    mapping = _normalize_musetalk_enabled_pack_emotions(RUNTIME_CONFIG.get("musetalk_enabled_pack_emotions"))
-    clean_pack_id = str(pack_id or "").strip()
-    if not clean_pack_id or clean_pack_id not in mapping:
-        return None
-    return set(mapping.get(clean_pack_id) or [])
+    return pack_runtime.enabled_pack_emotions(RUNTIME_CONFIG, pack_id)
 
 
 def configure_runtime_symbols(

@@ -66,13 +66,13 @@ class Addon(BaseAddon):
                 "spin": ["musetalk_loop_fade_spin"],
             }
         if capability == "runtime.discover_avatar_packs":
-            from addons.musetalk_avatar.avatar_packs import discover_avatar_packs
+            from addons.musetalk_avatar import pack_runtime
 
-            return discover_avatar_packs(**dict(payload.get("kwargs") or {}))
+            return pack_runtime.discover_packs(**dict(payload.get("kwargs") or {}))
         if capability == "runtime.get_avatar_pack":
-            from addons.musetalk_avatar.avatar_packs import get_avatar_pack
+            from addons.musetalk_avatar import pack_runtime
 
-            return get_avatar_pack(**dict(payload.get("kwargs") or {}))
+            return pack_runtime.get_pack(**dict(payload.get("kwargs") or {}))
         from addons.musetalk_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib" and backend is not None:
