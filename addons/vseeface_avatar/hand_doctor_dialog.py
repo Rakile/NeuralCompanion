@@ -2,14 +2,14 @@
 
 from PySide6 import QtCore, QtWidgets
 
-from core.addons.qt_host_services import QtRuntimeConfigService
+from core.addons.qt_host_services import QtHandCalibrationService
 
 
-def _host_value(owner, name: str, default):
+def _hand_service(owner):
     try:
-        return QtRuntimeConfigService(owner).engine_attr(name, default)
+        return QtHandCalibrationService(owner)
     except Exception:
-        return default
+        return None
 
 
 class HandDoctorDialog(QtWidgets.QDialog):
@@ -153,7 +153,9 @@ class HandDoctorDialog(QtWidgets.QDialog):
 
         def on_value_changed(raw_value):
             value = raw_value / 10.0
-            self._hand_debug()[key] = value
+            service = self._hand_service()
+            if service is not None:
+                service.set_debug_axis(key, value)
             value_label.setText(f"{value:.1f}")
 
         slider.valueChanged.connect(on_value_changed)
@@ -162,16 +164,17 @@ class HandDoctorDialog(QtWidgets.QDialog):
         self.axis_controls[key] = (slider, value_label)
         return row_widget
 
-    def _hand_debug(self):
-        return _host_value(self.owner, "HAND_DEBUG", {"active": False})
+    def _hand_service(self):
+        return _hand_service(self.owner)
 
-    def _hand_calibration(self):
-        return _host_value(self.owner, "HAND_CALIBRATION", {})
+    def _hand_debug(self):
+        service = self._hand_service()
+        return service.debug_state() if service is not None else {"active": False}
 
     def _on_toggle_debug(self, checked):
-        hand_debug = self._hand_debug()
-        hand_debug["active"] = bool(checked)
-        print(f"[QtGUI] Hand Debug Mode: {hand_debug['active']}")
+        service = self._hand_service()
+        active = service.set_debug_active(bool(checked)) if service is not None else bool(checked)
+        print(f"[QtGUI] Hand Debug Mode: {active}")
 
     def refresh_from_debug_state(self):
         hand_debug = self._hand_debug()
@@ -183,27 +186,20 @@ class HandDoctorDialog(QtWidgets.QDialog):
             label.setText(f"{value:.1f}")
 
     def load_values(self, target_key):
-        hand_debug = self._hand_debug()
-        data = self._hand_calibration().get(target_key)
-        if not data:
+        service = self._hand_service()
+        if service is None or not service.load_calibration_preset(target_key):
             print(f"[QtGUI] No calibration data for {target_key}")
             return
         print(f"[QtGUI] Loading '{target_key}' for editing...")
-        hand_debug.update(data)
-        hand_debug["active"] = True
         self.debug_toggle.setChecked(True)
         self.refresh_from_debug_state()
 
     def save_as(self, target_key):
-        hand_debug = self._hand_debug()
-        self._hand_calibration()[target_key] = {
-            "finger_x": float(hand_debug["finger_x"]),
-            "finger_y": float(hand_debug["finger_y"]),
-            "finger_z": float(hand_debug["finger_z"]),
-            "thumb_x": float(hand_debug["thumb_x"]),
-            "thumb_y": float(hand_debug["thumb_y"]),
-            "thumb_z": float(hand_debug["thumb_z"]),
-        }
+        service = self._hand_service()
+        if service is None:
+            print(f"[QtGUI] Could not save hand calibration for {target_key}")
+            return
+        service.save_calibration_preset(target_key)
         print(f"[QtGUI] Saved hand calibration for {target_key}")
         self.owner.save_current_body()
         if target_key == "relaxed":

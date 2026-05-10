@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import avatar_runtime, sensory, chat_providers
+from core import avatar_hand_state, avatar_runtime, sensory, chat_providers
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
@@ -115,6 +115,51 @@ class QtUserImageTurnService:
 
     def queue_image_turn(self, image_path: str, *, content: str | None = None, source: str = "clipboard") -> None:
         self._engine().queue_user_image_turn(str(image_path or ""), content=content, source=str(source or "clipboard"))
+
+
+class QtHandCalibrationService:
+    def __init__(self, window):
+        self._window = window
+
+    def debug_state(self) -> dict:
+        return avatar_hand_state.hand_debug()
+
+    def calibration(self) -> dict:
+        return avatar_hand_state.hand_calibration()
+
+    def set_debug_active(self, active: bool) -> bool:
+        debug = self.debug_state()
+        debug["active"] = bool(active)
+        return bool(debug["active"])
+
+    def set_debug_axis(self, key: str, value) -> float:
+        normalized = str(key or "").strip()
+        if normalized not in self.debug_state():
+            raise KeyError(f"Unknown hand debug axis: {normalized}")
+        numeric = float(value)
+        self.debug_state()[normalized] = numeric
+        return numeric
+
+    def load_calibration_preset(self, preset_id: str) -> bool:
+        preset = self.calibration().get(str(preset_id or "").strip())
+        if not preset:
+            return False
+        self.debug_state().update(dict(preset))
+        self.set_debug_active(True)
+        return True
+
+    def save_calibration_preset(self, preset_id: str) -> dict:
+        debug = self.debug_state()
+        payload = {
+            "finger_x": float(debug["finger_x"]),
+            "finger_y": float(debug["finger_y"]),
+            "finger_z": float(debug["finger_z"]),
+            "thumb_x": float(debug["thumb_x"]),
+            "thumb_y": float(debug["thumb_y"]),
+            "thumb_z": float(debug["thumb_z"]),
+        }
+        self.calibration()[str(preset_id or "").strip()] = payload
+        return payload
 
 
 class QtRuntimeStatusService:

@@ -4,7 +4,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-from core import chat_providers
+from core import avatar_hand_state, chat_providers
 from ui.panels.input_dialog import QtInputDialog
 
 
@@ -398,7 +398,7 @@ class BackendPresetBodyRuntimeMixin:
     def save_body_config(self, name):
         data = {
             "profile": _engine().AVATAR_PROFILE,
-            "hands": _engine().HAND_CALIBRATION,
+            "hands": avatar_hand_state.HAND_CALIBRATION,
         }
         path = Path("body_configs") / f"{name}.json"
         path.write_text(json.dumps(data, indent=4), encoding="utf-8")
@@ -425,7 +425,7 @@ class BackendPresetBodyRuntimeMixin:
         if "profile" in data:
             _engine().AVATAR_PROFILE.update(data["profile"])
             if "hands" in data:
-                _engine().HAND_CALIBRATION.update(data["hands"])
+                avatar_hand_state.HAND_CALIBRATION.update(data["hands"])
         else:
             _engine().AVATAR_PROFILE.update(data)
         emotion_combo = self._live_widget_attr("emotion_combo")

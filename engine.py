@@ -46,7 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
+from core import sensory, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -648,27 +648,8 @@ AVATAR_PROFILE = {
 CURRENT_BODY_STATE = DEFAULT_POSE.copy()
 EDIT_EMOTION = "neutral"
 FORCE_EDIT_MODE = True
-# NEW: Hand Debugging State
-HAND_DEBUG = {
-    "active": False,        # Toggle to override animation
-    "thumb_x": 0.0,
-    "thumb_y": 0.0,
-    "thumb_z": 0.0,
-    "finger_x": 0.0,
-    "finger_y": 0.0,
-    "finger_z": 0.0
-}
-
-HAND_CALIBRATION = {
-    "relaxed": {
-        "finger_x": -180.0, "finger_y": -180.0, "finger_z": -180.0,
-        "thumb_x": -180.0,  "thumb_y": -180.0,  "thumb_z": -180.0
-    },
-    "fist": {
-        "finger_x": -180.0, "finger_y": -170.0, "finger_z": -82.0,
-        "thumb_x": -167.0,  "thumb_y": -121.0,  "thumb_z": -160.0
-    }
-}
+HAND_DEBUG = avatar_hand_state.HAND_DEBUG
+HAND_CALIBRATION = avatar_hand_state.HAND_CALIBRATION
 
 def update_runtime_config(key, value):
     """Called by GUI to update settings in real-time"""
@@ -5575,8 +5556,8 @@ def create_avatar_adapter_for_mode(avatar_mode: str):
         current_body_state=CURRENT_BODY_STATE,
         edit_emotion_getter=lambda: EDIT_EMOTION,
         force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
-        hand_debug=HAND_DEBUG,
-        hand_calibration=HAND_CALIBRATION,
+        hand_debug=avatar_hand_state.HAND_DEBUG,
+        hand_calibration=avatar_hand_state.HAND_CALIBRATION,
         normalize_vam_root=normalize_vam_root,
         derive_vam_bridge_root=derive_vam_bridge_root,
         default_vam_root=DEFAULT_VAM_ROOT,
