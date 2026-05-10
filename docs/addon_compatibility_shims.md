@@ -43,6 +43,23 @@ state names while delegating lazily to addon-owned modules.
 | VaM path helper facade | `core/runtime_paths.py` | VaM addon `runtime.vam_config` and addon-owned path helpers | Keep while `core.runtime_paths` remains the stable place for startup/path normalization. |
 | `ui.runtime.engine_access` re-export | `ui/runtime/engine_access.py` | `core.engine_access` | Keep while UI runtime modules still import the old UI-local facade. This is not addon-specific, but it is part of the same compatibility layer. |
 
+## Static Boundary Allow-List
+
+`tools/addon_smoke.py` treats these addon module references as intentional
+compatibility shims. Keep this list in sync with
+`ALLOWED_ADDON_MODULE_REFERENCES`; the smoke helper fails if either the file or
+module reference is undocumented here.
+
+| File | Allowed addon module reference |
+| --- | --- |
+| `core/musetalk_preview_runtime.py` | `addons.musetalk_avatar.preview_runtime` |
+| `core/runtime_paths.py` | `addons.vam_avatar.path_helpers` |
+| `engine.py` | `addons.musetalk_avatar.state` |
+| `shared_state.py` | `addons.musetalk_avatar.state` |
+| `shared_state.py` | `addons.visual_reply.state` |
+| `ui/runtime/qt_app_runtime_namespace.py` | `addons.musetalk_avatar.state` |
+| `ui/runtime/qt_app_runtime_namespace.py` | `addons.visual_reply.state` |
+
 ## Cleanup Candidates
 
 These can be removed later, but only after their call sites are migrated to
@@ -54,9 +71,19 @@ manifest UI entries or direct addon capability routing.
 | `legacy.build_runtime_widgets` | MuseTalk, VaM, and Visual Reply addon capabilities | Designer-backed addon UI and `real_ui.bind_runtime_controls`. |
 | `legacy.build_utility_button` and `legacy.build_settings_tab` | Visual Reply addon capabilities | Visual Reply dock/settings manifest UI and `real_ui.*` capabilities. |
 | Bootstrap addon entrypoint loading before the full manager exists | `ui/runtime/backend_system_shaping_builders.py` | Normal initialized `AddonManager` capability calls. |
-| Panel import facades `ui.panels.visual_reply_panel`, `ui.panels.musetalk_preview_panel`, and `ui.panels.hand_doctor_dialog` | `ui/panels/*.py` | `invoke_addon_capability(...)` from the caller. |
-| `_mount_musetalk_addon_tabs` alias | `ui/runtime/backend_addon_tab_mounts.py` | `_mount_avatar_tools_addon_tabs`. |
 | Legacy dock helpers | `ui/runtime/legacy_dock_titles.py`, `ui/runtime/legacy_workspace_docks.py` | Real UI dock ownership and addon manifest dock metadata. |
+
+## Retired Cleanup Shims
+
+These cleanup candidates have already been removed after internal call sites
+were migrated or confirmed absent.
+
+| Removed shim | Former location | Replacement |
+| --- | --- | --- |
+| `ui.panels.visual_reply_panel` | `ui/panels/visual_reply_panel.py` | Visual Reply capability routing and addon-owned panel classes. |
+| `ui.panels.musetalk_preview_panel` | `ui/panels/musetalk_preview_panel.py` | MuseTalk capability routing and addon-owned preview panel classes. |
+| `ui.panels.hand_doctor_dialog` | `ui/panels/hand_doctor_dialog.py` | VSeeFace capability routing and addon-owned dialog classes. |
+| `_mount_musetalk_addon_tabs` | `ui/runtime/backend_addon_tab_mounts.py` | `_mount_avatar_tools_addon_tabs`. |
 
 ## Internal Aliases
 

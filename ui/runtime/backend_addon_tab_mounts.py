@@ -169,9 +169,6 @@ class BackendAddonTabMountMixin:
             log_label="Avatar Tools",
         )
 
-    def _mount_musetalk_addon_tabs(self):
-        return self._mount_avatar_tools_addon_tabs()
-
     def _mount_host_settings_addon_tabs(self):
         if self._addon_manager is None or not hasattr(self, "host_settings_tabs"):
             return

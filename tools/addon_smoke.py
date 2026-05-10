@@ -348,6 +348,26 @@ def _iter_addon_module_reference_violations(path: Path, app_root: Path, text: st
             yield f"{relative}:{line_number}: direct addon module reference {reference!r}"
 
 
+def check_shim_register(app_root: Path) -> int:
+    register_path = app_root / "docs" / "addon_compatibility_shims.md"
+    if not register_path.exists():
+        raise SmokeFailure("Missing docs/addon_compatibility_shims.md for boundary allow-list documentation")
+    try:
+        text = register_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = register_path.read_text(encoding="utf-8", errors="ignore")
+    missing = []
+    for relative, references in sorted(ALLOWED_ADDON_MODULE_REFERENCES.items()):
+        if relative not in text:
+            missing.append(f"{relative}: file not documented")
+        for reference in sorted(references):
+            if reference not in text:
+                missing.append(f"{relative}: {reference} not documented")
+    if missing:
+        raise SmokeFailure("Shim register does not cover static boundary allow-list:\n" + "\n".join(missing))
+    return 0
+
+
 def run_manager_permutation(app_root: Path, *, disabled_addons=(), disabled_categories=()) -> dict[str, int]:
     manager = SmokeAddonManager(
         app_root=app_root,
@@ -429,6 +449,7 @@ def main(argv=None) -> int:
 
     if not args.skip_static_boundary:
         check_static_boundaries(app_root)
+        check_shim_register(app_root)
         print("static-boundary-check: ok")
 
     wanted = set(args.permutation or [])
