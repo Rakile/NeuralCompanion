@@ -3,7 +3,7 @@ import time
 from PySide6 import QtWidgets
 
 import dry_run
-from addons.musetalk_avatar import state as musetalk_state
+import shared_state as musetalk_state
 from ui.panels.input_dialog import QtInputDialog
 
 

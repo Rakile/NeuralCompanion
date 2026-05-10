@@ -2,7 +2,7 @@ import os
 
 from PySide6 import QtCore
 
-from addons.musetalk_avatar import state as musetalk_state
+import shared_state as musetalk_state
 from core.runtime_status import build_runtime_status_snapshot
 
 

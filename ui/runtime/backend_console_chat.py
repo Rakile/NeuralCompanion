@@ -5,7 +5,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui
 
-from addons.musetalk_avatar import state as musetalk_state
+import shared_state as musetalk_state
 from core.addons.qt_host_services import QtDialogService
 
 

@@ -7,8 +7,8 @@ import threading
 from PySide6 import QtCore
 
 import engine
+import shared_state as musetalk_state
 import tutorial_framework
-from addons.musetalk_avatar import state as musetalk_state
 from core import expression_state
 from core.expression_api import start_expression_api
 from engine import RUNTIME_CONFIG
