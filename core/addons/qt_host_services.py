@@ -175,6 +175,7 @@ class QtRuntimeStatusService:
 class QtInputSettingsService:
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def _combo(self, name: str):
         return getattr(self._window, str(name), None)
@@ -259,9 +260,7 @@ class QtInputSettingsService:
             pass
 
     def snapshot(self):
-        import engine
-
-        runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+        runtime = self._runtime_config.snapshot()
         overflow_label_fn = getattr(self._window, "_chat_overflow_policy_label_from_value", None)
         overflow_label = (
             overflow_label_fn(runtime.get("chat_context_overflow_policy", "rolling_window"))
@@ -335,6 +334,7 @@ class QtInputSettingsService:
 class QtInputActionService:
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
         self._last_action = ""
         self._push_to_talk_held = False
 
@@ -374,8 +374,8 @@ class QtInputActionService:
 
     def snapshot(self):
         try:
-            import engine
-            push_to_talk_hotkey = str(engine.get_push_to_talk_hotkey() or "Right Ctrl").strip() or "Right Ctrl"
+            getter = self._runtime_config.engine_attr("get_push_to_talk_hotkey", None)
+            push_to_talk_hotkey = str(getter() if callable(getter) else "Right Ctrl").strip() or "Right Ctrl"
         except Exception:
             push_to_talk_hotkey = "Right Ctrl"
         push_enabled = self._push_to_talk_enabled()
@@ -404,8 +404,10 @@ class QtInputActionService:
             return payload
         accepted = False
         try:
-            import engine
-            engine.set_push_to_talk_hold(bool(held))
+            setter = self._runtime_config.engine_attr("set_push_to_talk_hold", None)
+            if not callable(setter):
+                raise RuntimeError("Push-to-Talk runtime action unavailable.")
+            setter(bool(held))
             self._push_to_talk_held = bool(held)
             accepted = True
         except Exception:
@@ -967,13 +969,13 @@ class QtHotkeyService:
 class QtSensoryService:
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def _refresh_ui(self):
         if hasattr(self._window, "refresh_sensory_feedback_source_options"):
             selected_value = None
             try:
-                import engine
-                selected_value = str(getattr(engine, "RUNTIME_CONFIG", {}).get("sensory_feedback_source", "off") or "off")
+                selected_value = str(self._runtime_config.get("sensory_feedback_source", "off") or "off")
             except Exception:
                 selected_value = None
             self._window.refresh_sensory_feedback_source_options(selected_value=selected_value)
@@ -1142,21 +1144,19 @@ class QtAvatarProviderService:
 class QtChatReplayService:
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def snapshot_chat_session(self):
-        import engine
-
-        return dict(engine.export_chat_session_state() or {})
+        exporter = self._runtime_config.engine_attr("export_chat_session_state", None)
+        return dict(exporter() if callable(exporter) else {})
 
     def replayable_assistant_entries(self):
-        import engine
-
-        return list(engine.collect_replayable_assistant_entries())
+        collector = self._runtime_config.engine_attr("collect_replayable_assistant_entries", None)
+        return list(collector() if callable(collector) else [])
 
     def replayable_assistant_messages(self):
-        import engine
-
-        return list(engine.collect_replayable_assistant_messages())
+        collector = self._runtime_config.engine_attr("collect_replayable_assistant_messages", None)
+        return list(collector() if callable(collector) else [])
 
     def is_engine_running(self) -> bool:
         thread = getattr(self._window, "thread", None)
@@ -1181,9 +1181,9 @@ class QtChatReplayService:
         self.trigger_control_action("replay_chat_session")
 
     def replay_chat_session_from_index(self, start_index: int) -> None:
-        import engine
-
-        self.trigger_control_action(engine.build_replay_chat_session_from_action(start_index))
+        builder = self._runtime_config.engine_attr("build_replay_chat_session_from_action", None)
+        if callable(builder):
+            self.trigger_control_action(builder(start_index))
 
     def load_chat_context(self) -> None:
         self._window.load_chat_context()
