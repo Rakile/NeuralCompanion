@@ -15,6 +15,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from addons.audio_story_mode import runtime_bridge as audio_story_runtime
 from addons.visual_reply import generation as visual_reply_generation
 from addons.visual_reply import state as visual_reply_state
 from addons.visual_reply import runtime_config as visual_reply_runtime
@@ -42,12 +43,11 @@ class _LazyModuleProxy:
         return getattr(self._resolve(), str(item))
 
 
-engine = _LazyModuleProxy("engine")
 chat_providers = _LazyModuleProxy("core.chat_providers")
 
 
 def _visual_reply_runtime():
-    return visual_reply_runtime.VisualReplyRuntime(lambda: getattr(engine, "RUNTIME_CONFIG", {}) or {})
+    return visual_reply_runtime.VisualReplyRuntime(audio_story_runtime.runtime_config)
 
 
 def _visual_reply_generation_service():
@@ -2375,7 +2375,7 @@ class AudioStoryModeController(QtCore.QObject):
             self._story_rebuild_timer.stop()
         except Exception:
             pass
-        if engine.is_loaded():
+        if audio_story_runtime.engine_loaded():
             self._sync_story_generated_master_prompt(refresh_visuals=False)
         self._stop_story()
         return None
@@ -2420,7 +2420,7 @@ class AudioStoryModeController(QtCore.QObject):
             return
         self.imported_audio_path = path
         try:
-            self.imported_audio_duration_seconds = max(0.0, float(engine.AudioSegment.from_file(path).duration_seconds or 0.0))
+            self.imported_audio_duration_seconds = max(0.0, audio_story_runtime.audio_duration_seconds(path))
         except Exception:
             self.imported_audio_duration_seconds = 0.0
         self.transcript_chunks = []
@@ -2469,12 +2469,10 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
         try:
-            if getattr(engine, "whisper_model", None) is None:
-                engine.init_whisper()
-                if getattr(engine, "whisper_model", None) is None:
-                    raise RuntimeError("Failed to initialize the local Whisper model.")
-            audio_duration = float(engine.AudioSegment.from_file(path).duration_seconds or 0.0)
-            segments, _info = engine.whisper_model.transcribe(path)
+            if not audio_story_runtime.ensure_whisper_ready():
+                raise RuntimeError("Failed to initialize the local Whisper model.")
+            audio_duration = audio_story_runtime.audio_duration_seconds(path)
+            segments, _info = audio_story_runtime.transcribe_audio(path)
             raw_segments = []
             for segment in segments:
                 text = str(getattr(segment, "text", "") or "").strip()
@@ -3107,51 +3105,42 @@ class AudioStoryModeController(QtCore.QObject):
                 self.ttsRenderFinished.emit(metadata)
                 return
 
-            if not engine.init_tts():
+            if not audio_story_runtime.init_tts():
                 raise RuntimeError("Failed to initialize the active TTS backend.")
 
-            chunk_target_chars, chunk_max_chars = engine.get_text_chunk_limits()
-            combined_audio = engine.AudioSegment.silent(duration=0)
+            chunk_target_chars, chunk_max_chars = audio_story_runtime.get_text_chunk_limits()
+            combined_audio = audio_story_runtime.audio_silent(duration=0)
             rendered_chunks = []
-            sample_rate = int(getattr(engine.tts_model, "sr", 24000) or 24000)
-            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "") or "").strip()
-            if voice_path and not Path(voice_path).exists():
-                voice_path = ""
+            sample_rate = audio_story_runtime.tts_sample_rate(default=24000)
+            voice_path = audio_story_runtime.tts_voice_path()
 
             for chunk in transcript_chunks:
                 if job_id != self._tts_render_job_id:
                     return
                 chunk_text = str(chunk.get("text", "") or "").strip()
                 if not chunk_text:
-                    segment_audio = engine.AudioSegment.silent(duration=250)
+                    segment_audio = audio_story_runtime.audio_silent(duration=250)
                 else:
-                    subchunks = engine.intelligent_chunk_text(chunk_text, chunk_target_chars, chunk_max_chars)
+                    subchunks = audio_story_runtime.intelligent_chunk_text(chunk_text, chunk_target_chars, chunk_max_chars)
                     if not subchunks:
                         subchunks = [chunk_text]
-                    segment_audio = engine.AudioSegment.silent(duration=0)
+                    segment_audio = audio_story_runtime.audio_silent(duration=0)
                     for subchunk in subchunks:
                         if job_id != self._tts_render_job_id:
                             return
-                        configured_seed = int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0)
+                        configured_seed = audio_story_runtime.tts_seed()
                         if configured_seed > 0:
-                            engine.set_seed(configured_seed)
-                        kwargs = {
-                            "temperature": float(engine.RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-                            "top_p": float(engine.RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-                            "top_k": int(engine.RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-                            "repetition_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-                            "min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-                            "norm_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
-                        }
+                            audio_story_runtime.set_seed(configured_seed)
+                        kwargs = audio_story_runtime.tts_generation_kwargs()
                         if voice_path:
                             kwargs["audio_prompt_path"] = voice_path
-                        wav = engine.tts_model.generate(subchunk, **kwargs)
+                        wav = audio_story_runtime.generate_tts(subchunk, **kwargs)
                         temp_subchunk_path = self._cache_file(f"tts_piece_{job_id}_{uuid.uuid4().hex[:10]}.wav")
-                        engine.ta.save(str(temp_subchunk_path), wav.cpu(), sample_rate)
+                        audio_story_runtime.save_tts_wav(str(temp_subchunk_path), wav, sample_rate)
                         try:
-                            segment_audio += engine.AudioSegment.from_wav(str(temp_subchunk_path))
+                            segment_audio += audio_story_runtime.audio_from_wav(str(temp_subchunk_path))
                         finally:
-                            engine.safe_delete_with_retry(str(temp_subchunk_path))
+                            audio_story_runtime.safe_delete(str(temp_subchunk_path))
                 playback_start_seconds = max(0.0, float(combined_audio.duration_seconds or 0.0))
                 combined_audio += segment_audio
                 playback_end_seconds = max(playback_start_seconds, float(combined_audio.duration_seconds or 0.0))
@@ -3177,15 +3166,7 @@ class AudioStoryModeController(QtCore.QObject):
     def _compute_tts_signature(self):
         payload = {
             "texts": [str(item.get("text", "") or "").strip() for item in self.transcript_chunks],
-            "backend": str(engine.RUNTIME_CONFIG.get("tts_backend", "chatterbox") or "chatterbox"),
-            "voice_path": str(engine.RUNTIME_CONFIG.get("voice_path", "") or ""),
-            "tts_seed": int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0),
-            "tts_temperature": float(engine.RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-            "tts_top_p": float(engine.RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-            "tts_top_k": int(engine.RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-            "tts_repeat_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-            "tts_min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-            "tts_normalize_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+            **audio_story_runtime.tts_settings_snapshot(),
         }
         raw = json.dumps(payload, sort_keys=True, ensure_ascii=True).encode("utf-8", errors="ignore")
         return hashlib.sha1(raw).hexdigest()[:16]
@@ -3812,7 +3793,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _story_analysis_provider_id(self):
         runtime_provider = chat_providers.normalize_provider_id(
-            engine.RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            audio_story_runtime.runtime_config_value("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
             fallback=chat_providers.DEFAULT_PROVIDER_ID,
         )
         if self._story_analysis_provider_mode() == "lmstudio":
@@ -3855,7 +3836,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _story_analysis_model_candidates(self, provider: str):
         if self._story_analysis_provider_mode() != "lmstudio":
-            runtime_model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
+            runtime_model = str(audio_story_runtime.runtime_config_value("model_name", "") or "").strip()
             return [runtime_model] if runtime_model else []
         try:
             error_placeholder = chat_providers.provider_model_error(provider)
@@ -4014,13 +3995,13 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _active_story_analysis_chat_provider(self):
         runtime_provider = chat_providers.normalize_provider_id(
-            engine.RUNTIME_CONFIG.get("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
+            audio_story_runtime.runtime_config_value("chat_provider", chat_providers.DEFAULT_PROVIDER_ID),
             fallback=chat_providers.DEFAULT_PROVIDER_ID,
         )
         provider = self._story_analysis_provider_id()
         model = self._story_analysis_model_override()
         if not model and provider == runtime_provider:
-            model = str(engine.RUNTIME_CONFIG.get("model_name", "") or "").strip()
+            model = str(audio_story_runtime.runtime_config_value("model_name", "") or "").strip()
         if not model:
             try:
                 error_placeholder = chat_providers.provider_model_error(provider)
@@ -5170,10 +5151,10 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _set_visual_reply_master_prompt_runtime(self, prompt_text: str):
         normalized_prompt = str(prompt_text or "").strip()
-        current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+        current_prompt = str(audio_story_runtime.runtime_config_value("visual_reply_master_style_prompt", "") or "").strip()
         if current_prompt == normalized_prompt:
             return False
-        engine.update_runtime_config("visual_reply_master_style_prompt", normalized_prompt)
+        audio_story_runtime.update_runtime_config("visual_reply_master_style_prompt", normalized_prompt)
         if self.visual_reply_service is not None:
             try:
                 self.visual_reply_service.refresh_hint()
@@ -5188,7 +5169,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _sync_story_generated_master_prompt(self, *, refresh_visuals: bool = False):
         if not self._stored_story_master_prompt_enabled:
-            current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+            current_prompt = str(audio_story_runtime.runtime_config_value("visual_reply_master_style_prompt", "") or "").strip()
             restore_prompt = self._story_master_prompt_previous_runtime_value
             if restore_prompt is None:
                 self._story_generated_master_prompt = ""
@@ -5204,7 +5185,7 @@ class AudioStoryModeController(QtCore.QObject):
         if not self.full_transcript_text:
             return False
         generated_prompt = self._build_story_generated_master_prompt()
-        current_prompt = str(engine.RUNTIME_CONFIG.get("visual_reply_master_style_prompt", "") or "").strip()
+        current_prompt = str(audio_story_runtime.runtime_config_value("visual_reply_master_style_prompt", "") or "").strip()
         if self._story_master_prompt_previous_runtime_value is None:
             if current_prompt != str(self._story_generated_master_prompt or "").strip():
                 self._story_master_prompt_previous_runtime_value = current_prompt
