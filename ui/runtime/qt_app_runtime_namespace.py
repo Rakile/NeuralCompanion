@@ -1,6 +1,7 @@
 """Heavy runtime compatibility namespace for qt_app.py."""
 
 import os
+import importlib
 import warnings
 
 import dry_run
@@ -21,8 +22,6 @@ except Exception:  # pragma: no cover - defensive for tooling without full PySid
     shiboken6 = None
 
 from ui.runtime import engine_access as engine
-from addons.musetalk_avatar import state as musetalk_state
-from addons.visual_reply import state as visual_reply_state
 from core import expression_state
 from core import avatar_runtime, chat_providers, sensory
 from core.addons import AddonManager
@@ -64,6 +63,24 @@ from ui.runtime.engine_access import (
     update_runtime_config,
 )
 from musetalk_bridge import MuseTalkBridge
+
+
+class _AddonModuleProxy:
+    def __init__(self, module_name):
+        self._module_name = str(module_name or "")
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+musetalk_state = _AddonModuleProxy("addons.musetalk_avatar.state")
+visual_reply_state = _AddonModuleProxy("addons.visual_reply.state")
 
 try:
     from pynvml import (

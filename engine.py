@@ -45,7 +45,6 @@ import gc
 import importlib
 import dry_run
 import app_help
-from addons.musetalk_avatar import state as musetalk_state
 from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
@@ -55,6 +54,23 @@ from pydub import AudioSegment
 
 
 _ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
+
+
+class _AddonModuleProxy:
+    def __init__(self, module_name):
+        self._module_name = str(module_name or "")
+        self._module = None
+
+    def _load(self):
+        if self._module is None:
+            self._module = importlib.import_module(self._module_name)
+        return self._module
+
+    def __getattr__(self, name):
+        return getattr(self._load(), name)
+
+
+musetalk_state = _AddonModuleProxy("addons.musetalk_avatar.state")
 
 
 def _safe_text_mode_popen(*args, **kwargs):

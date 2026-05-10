@@ -117,7 +117,7 @@ class Addon(BaseAddon):
         box_layout.addWidget(title)
 
         text = QtWidgets.QLabel(
-            "The real MuseTalk Preprocess tab is runtime-sensitive: it imports engine, OpenCV, "
+            "The real MuseTalk Preprocess tab is runtime-sensitive: it uses OpenCV, "
             "and the MuseTalk bridge, and can start preprocessing/debug workers.\n\n"
             "This Designer shell tab confirms the addon mount point and ordering without loading "
             "MuseTalk runtime modules, starting bridge workers, scanning avatar folders, or mutating runtime state."

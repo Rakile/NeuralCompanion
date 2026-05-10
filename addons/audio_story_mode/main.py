@@ -116,7 +116,7 @@ class Addon(BaseAddon):
         box_layout.addWidget(title)
 
         intro = QtWidgets.QLabel(
-            "The real Audio Story Mode tab is runtime-sensitive: it imports engine/shared state, "
+            "The real Audio Story Mode tab is runtime-sensitive: it uses host audio/STT services, "
             "creates a media player, and connects controls to transcription, TTS narration, visual generation, "
             "timeline sync, and Visual Reply publication.\n\n"
             "This Designer shell tab proves the addon mount boundary and tab replacement without importing the "

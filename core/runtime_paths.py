@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import os
+import importlib
 from pathlib import Path
 
 
 APP_ROOT = Path(__file__).resolve().parent.parent
 RUNTIME_DIR = APP_ROOT / "runtime"
 RUNTIME_TEMP_DIR = RUNTIME_DIR / "temp"
+
+
+def _vam_path_helpers():
+    return importlib.import_module("addons.vam_avatar.path_helpers")
 
 
 def normalized_abs_path(raw_path) -> str:
@@ -45,32 +50,27 @@ def path_endswith_parts(path_value, *parts) -> bool:
 
 
 def detect_default_vam_root(*, app_root: Path, environ=None) -> str:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.detect_default_root(app_root=app_root, environ=environ)
 
 
 def derive_vam_bridge_root(vam_root, *, app_root: Path) -> str:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.derive_bridge_root(vam_root, app_root=app_root)
 
 
 def derive_vam_plugin_dir(vam_root) -> str:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.derive_plugin_dir(vam_root)
 
 
 def legacy_vam_bridge_roots(*, app_root: Path) -> tuple[str, ...]:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.legacy_bridge_roots(app_root=app_root)
 
 
 def normalize_vam_root(raw_value=None, *, default_vam_root: str = "", legacy_roots: tuple[str, ...] = (), migrate_legacy=True) -> str:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.normalize_root(
         raw_value,
         default_root=default_vam_root,
@@ -80,8 +80,7 @@ def normalize_vam_root(raw_value=None, *, default_vam_root: str = "", legacy_roo
 
 
 def normalize_vam_bridge_root(raw_value=None, *, app_root: Path, default_vam_root: str = "", legacy_roots: tuple[str, ...] = (), migrate_legacy=True) -> str:
-    from addons.vam_avatar import path_helpers
-
+    path_helpers = _vam_path_helpers()
     return path_helpers.normalize_bridge_root(
         raw_value,
         app_root=app_root,
