@@ -46,7 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
+from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -4406,6 +4406,23 @@ def transcribe_audio_with_main_whisper(audio, language="en"):
         safe_delete_with_retry=safe_delete_with_retry,
         language=language,
     )
+
+
+audio_story_runtime.configure_runtime(
+    runtime_config=RUNTIME_CONFIG,
+    update_runtime_config=update_runtime_config,
+    audio_segment_cls=AudioSegment,
+    whisper_model_getter=lambda: whisper_model,
+    init_whisper=init_whisper,
+    init_tts=init_tts,
+    get_text_chunk_limits=get_text_chunk_limits,
+    intelligent_chunk_text=intelligent_chunk_text,
+    tts_model_getter=lambda: tts_model,
+    set_seed=set_seed,
+    save_wav=lambda path, wav, sample_rate: ta.save(str(path), wav.cpu(), int(sample_rate)),
+    safe_delete=safe_delete_with_retry,
+)
+
 
 def listen_for_speech(source, timeout=None):
     return stt_runtime.listen_for_speech(

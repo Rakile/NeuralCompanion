@@ -33,7 +33,6 @@ class _LazyModuleProxy:
 
 
 cv2 = _LazyModuleProxy("cv2")
-engine = _LazyModuleProxy("engine")
 musetalk_bridge = _LazyModuleProxy("musetalk_bridge")
 
 MUSE_AVATAR_RESULTS_DIR = Path("MuseTalk") / "results" / "v15" / "avatars"
@@ -140,12 +139,70 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if notify:
             self._notify_settings_changed()
 
+    def _musetalk_legacy_emotion_avatar_map(self):
+        service = getattr(self, "musetalk_ui", None)
+        getter = getattr(service, "legacy_emotion_avatar_map", None)
+        if callable(getter):
+            try:
+                return dict(getter() or {})
+            except Exception:
+                return {}
+        return {}
+
+    def _musetalk_legacy_avatar_transitions(self):
+        service = getattr(self, "musetalk_ui", None)
+        getter = getattr(service, "legacy_avatar_transitions", None)
+        if callable(getter):
+            try:
+                return dict(getter() or {})
+            except Exception:
+                return {}
+        return {}
+
+    def _musetalk_live_bridge(self):
+        service = getattr(self, "musetalk_ui", None)
+        getter = getattr(service, "live_bridge", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception:
+                return None
+        return None
+
+    def _musetalk_live_fps(self, default=24) -> int:
+        service = getattr(self, "musetalk_ui", None)
+        getter = getattr(service, "live_fps", None)
+        if callable(getter):
+            try:
+                return int(getter(default) or default)
+            except Exception:
+                return int(default)
+        return int(default)
+
+    def _reload_musetalk_pose_connections(self):
+        service = getattr(self, "musetalk_ui", None)
+        reloader = getattr(service, "reload_pose_connections", None)
+        if callable(reloader):
+            try:
+                reloader()
+            except Exception:
+                pass
+
+    def _refresh_available_emotion_names(self):
+        service = getattr(self, "musetalk_ui", None)
+        refresher = getattr(service, "refresh_available_emotions", None)
+        if callable(refresher):
+            try:
+                refresher()
+            except Exception:
+                pass
+
     def _discover_musetalk_pack_catalog(self):
         try:
             return discover_avatar_packs(
                 default_avatar_id=str(self._runtime_config_value("musetalk_avatar_id", "default_avatar") or "default_avatar"),
-                legacy_map=getattr(engine, "MUSE_EMOTION_AVATAR_MAP", {}) if engine.is_loaded() else {},
-                legacy_transitions=getattr(engine, "MUSE_AVATAR_TRANSITIONS", {}) if engine.is_loaded() else {},
+                legacy_map=self._musetalk_legacy_emotion_avatar_map(),
+                legacy_transitions=self._musetalk_legacy_avatar_transitions(),
                 avatars_dir=MUSE_AVATAR_RESULTS_DIR,
                 include_legacy=False,
                 include_standalone=False,
@@ -262,12 +319,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         else:
             mapping[selected_pack_id] = []
         self._set_musetalk_enabled_pack_emotions(mapping, notify=True)
-        live_adapter = getattr(engine, "avatar_gui", None)
-        if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
-            try:
-                live_adapter._reload_avatar_pose_connections()
-            except Exception:
-                pass
+        self._reload_musetalk_pose_connections()
         self._refresh_musetalk_pack_emotion_editor()
 
     def _on_musetalk_pack_emotion_toggled(self, pack_id, emotion_tag, checked):
@@ -303,12 +355,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         else:
             current[clean_pack_id] = normalized_optional_selection
         self._set_musetalk_enabled_pack_emotions(current, notify=True)
-        live_adapter = getattr(engine, "avatar_gui", None)
-        if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
-            try:
-                live_adapter._reload_avatar_pose_connections()
-            except Exception:
-                pass
+        self._reload_musetalk_pose_connections()
         self._refresh_musetalk_pack_emotion_editor()
 
     def _current_musetalk_vram_mode_key(self):
@@ -2204,13 +2251,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
             }
             bridge = None
             try:
-                live_adapter = getattr(engine, "avatar_gui", None)
-                if (
-                    live_adapter is not None
-                    and isinstance(live_adapter, getattr(engine, "MuseTalkAdapter"))
-                    and getattr(live_adapter, "bridge", None) is not None
-                ):
-                    bridge = live_adapter.bridge
+                live_bridge = self._musetalk_live_bridge()
+                if live_bridge is not None:
+                    bridge = live_bridge
                     result["used_live_bridge"] = True
                 else:
                     bridge = musetalk_bridge.MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": vram_mode})
@@ -2316,11 +2359,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
                     },
                     timeout=1800,
                 )
-                fps_value = 24
-                try:
-                    fps_value = int(getattr(getattr(engine, "avatar_gui", None), "fps", 24) or 24)
-                except Exception:
-                    fps_value = 24
+                fps_value = self._musetalk_live_fps(24)
                 chunk_id = f"first_frame_test_{avatar_id}_{int(time.time())}"
                 response = bridge.request(
                     {
@@ -2426,13 +2465,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
             }
             bridge = None
             try:
-                live_adapter = getattr(engine, "avatar_gui", None)
-                if (
-                    live_adapter is not None
-                    and isinstance(live_adapter, getattr(engine, "MuseTalkAdapter"))
-                    and getattr(live_adapter, "bridge", None) is not None
-                ):
-                    bridge = live_adapter.bridge
+                live_bridge = self._musetalk_live_bridge()
+                if live_bridge is not None:
+                    bridge = live_bridge
                     result["used_live_bridge"] = True
                 else:
                     bridge = self._get_cached_musetalk_tool_bridge(vram_mode)
@@ -2633,16 +2668,8 @@ class MuseTalkPreprocessController(QtCore.QObject):
             )
             return
         pose_path = self._write_musetalk_avatar_metadata(avatar_id, avatar_root)
-        live_adapter = getattr(engine, "avatar_gui", None)
-        if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
-            try:
-                live_adapter._reload_avatar_pose_connections()
-            except Exception:
-                pass
-        try:
-            engine.get_available_emotion_names(force_refresh=True)
-        except Exception:
-            pass
+        self._reload_musetalk_pose_connections()
+        self._refresh_available_emotion_names()
         self._refresh_musetalk_pack_emotion_editor()
         self.musetalk_avatar_status_label.setText(f"Saved tag mapping for '{avatar_id}'.")
         print(f"[QtGUI] MuseTalk avatar metadata saved: {pose_path}")
@@ -2678,16 +2705,8 @@ class MuseTalkPreprocessController(QtCore.QObject):
                     self.musetalk_avatar_combo.setCurrentIndex(index)
             if hasattr(self, "musetalk_emotion_tags_edit"):
                 self.musetalk_emotion_tags_edit.setText(str(emotion_tags_text or ""))
-            live_adapter = getattr(engine, "avatar_gui", None)
-            if live_adapter is not None and hasattr(live_adapter, "_reload_avatar_pose_connections"):
-                try:
-                    live_adapter._reload_avatar_pose_connections()
-                except Exception:
-                    pass
-            try:
-                engine.get_available_emotion_names(force_refresh=True)
-            except Exception:
-                pass
+            self._reload_musetalk_pose_connections()
+            self._refresh_available_emotion_names()
             self._refresh_musetalk_pack_emotion_editor()
             if hasattr(self, "musetalk_avatar_status_label"):
                 status_text = f"Prepared '{avatar_id}' successfully."

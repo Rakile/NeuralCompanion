@@ -171,6 +171,40 @@ class QtMuseTalkUIService:
             self._set_checked_quietly("musetalk_use_frame_cache_checkbox", enabled)
         return None
 
+    def legacy_emotion_avatar_map(self):
+        return dict(self._runtime_config.engine_attr("MUSE_EMOTION_AVATAR_MAP", {}) or {})
+
+    def legacy_avatar_transitions(self):
+        return dict(self._runtime_config.engine_attr("MUSE_AVATAR_TRANSITIONS", {}) or {})
+
+    def live_adapter(self):
+        return self._runtime_config.engine_attr("avatar_gui", None)
+
+    def live_bridge(self):
+        adapter = self.live_adapter()
+        if adapter is None:
+            return None
+        if str(getattr(adapter, "avatar_provider_id", "") or "").strip().lower() != "musetalk":
+            return None
+        return getattr(adapter, "bridge", None)
+
+    def live_fps(self, default: int = 24) -> int:
+        try:
+            return int(getattr(self.live_adapter(), "fps", int(default)) or int(default))
+        except Exception:
+            return int(default)
+
+    def reload_pose_connections(self) -> None:
+        adapter = self.live_adapter()
+        reloader = getattr(adapter, "_reload_avatar_pose_connections", None)
+        if callable(reloader):
+            reloader()
+
+    def refresh_available_emotions(self) -> None:
+        refresher = self._runtime_config.engine_attr("get_available_emotion_names", None)
+        if callable(refresher):
+            refresher(force_refresh=True)
+
     def publish_preview_frame(self, *, frame_path: str, avatar_id: str, mode_label: str) -> bool:
         import time
 
