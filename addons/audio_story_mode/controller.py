@@ -16,9 +16,6 @@ from pathlib import Path
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from addons.audio_story_mode import runtime_bridge as audio_story_runtime
-from addons.visual_reply import generation as visual_reply_generation
-from addons.visual_reply import state as visual_reply_state
-from addons.visual_reply import runtime_config as visual_reply_runtime
 
 try:
     from PySide6 import QtMultimedia
@@ -44,39 +41,6 @@ class _LazyModuleProxy:
 
 
 chat_providers = _LazyModuleProxy("core.chat_providers")
-
-
-def _visual_reply_runtime():
-    return visual_reply_runtime.VisualReplyRuntime(audio_story_runtime.runtime_config)
-
-
-def _visual_reply_generation_service():
-    return visual_reply_generation.VisualReplyGenerationService(
-        _visual_reply_runtime(),
-        output_dir=visual_reply_generation.output_dir(),
-    )
-
-
-def _visual_reply_generation_info():
-    runtime = _visual_reply_runtime()
-    return {
-        "api_key": visual_reply_generation.api_key(runtime),
-        "base_url": visual_reply_generation.base_url(runtime),
-        "provider": visual_reply_generation.provider(runtime),
-        "enabled": visual_reply_generation.enabled(runtime),
-        "generation_available": visual_reply_generation.generation_available(runtime),
-        "model": visual_reply_generation.model_name(runtime),
-        "size": visual_reply_generation.image_size(runtime),
-        "extra_body": visual_reply_generation.xai_extra_body(runtime),
-    }
-
-
-def _visual_reply_output_base(prefix: str, index: int):
-    return visual_reply_generation.output_dir() / f"{prefix}_{int(time.time())}_{index}_{uuid.uuid4().hex[:8]}"
-
-
-def _visual_reply_client():
-    return visual_reply_generation.client(_visual_reply_runtime())
 
 
 class _AudioStoryNoWheelComboBox(QtWidgets.QComboBox):
@@ -555,6 +519,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.context = context
         self.dialogs = context.get_service("qt.dialogs") if context is not None else None
         self.shell = context.get_service("qt.shell") if context is not None else None
+        self.capability_bridge = context.get_service("addons.capabilities") if context is not None else None
         self.visual_reply_service = context.get_service("qt.visual_reply") if context is not None else None
         self.audio_story_tab_widget = None
         self.audio_player = None
@@ -650,6 +615,91 @@ class AudioStoryModeController(QtCore.QObject):
         self.ttsRenderFailed.connect(self._on_tts_render_failed)
         self.imageReady.connect(self._on_image_ready)
         self.imageFailed.connect(self._on_image_failed)
+
+    def _visual_reply_capability(self, capability: str, payload=None, default=None):
+        bridge = getattr(self, "capability_bridge", None)
+        invoker = getattr(bridge, "invoke", None)
+        if not callable(invoker):
+            return default
+        request = dict(payload or {})
+        request.setdefault("runtime_config", audio_story_runtime.runtime_config())
+        try:
+            result = invoker(str(capability or ""), request)
+        except Exception:
+            return default
+        return default if result is None else result
+
+    def _visual_reply_generation_info(self) -> dict:
+        return dict(self._visual_reply_capability("runtime.generation", {}, {}) or {})
+
+    def _visual_reply_current_state(self) -> dict:
+        return dict(self._visual_reply_capability("runtime.current_state", {}, {}) or {})
+
+    def _visual_reply_set_state(self, state: dict) -> bool:
+        return bool(self._visual_reply_capability("runtime.set_state", {"state": dict(state or {})}, False))
+
+    def _visual_reply_story_style_guide(self, text: str, *, continuity_strength: float = 0.8) -> str:
+        return str(
+            self._visual_reply_capability(
+                "runtime.story_style_guide",
+                {
+                    "text": str(text or ""),
+                    "continuity_strength": float(continuity_strength),
+                },
+                "",
+            )
+            or ""
+        )
+
+    def _visual_reply_story_prompt(self, text: str, *, emotion: str = "", story_style_guide: str = "") -> str:
+        return str(
+            self._visual_reply_capability(
+                "runtime.story_prompt",
+                {
+                    "text": str(text or ""),
+                    "emotion": str(emotion or ""),
+                    "story_style_guide": str(story_style_guide or ""),
+                },
+                "",
+            )
+            or ""
+        )
+
+    def _visual_reply_normalize_prompt_text(self, prompt: str) -> str:
+        return str(self._visual_reply_capability("runtime.normalize_prompt", {"prompt": str(prompt or "")}, "") or "")
+
+    def _visual_reply_apply_style_anchor(self, prompt: str) -> str:
+        return str(self._visual_reply_capability("runtime.apply_style_anchor", {"prompt": str(prompt or "")}, str(prompt or "")) or "")
+
+    def _visual_reply_output_base(self, prefix: str, index: int):
+        value = self._visual_reply_capability(
+            "runtime.output_base",
+            {
+                "prefix": str(prefix or "visual_reply"),
+                "index": int(index),
+            },
+            None,
+        )
+        return Path(value) if value is not None else Path("runtime") / "visual_replies" / f"{prefix}_{int(time.time())}_{index}"
+
+    def _visual_reply_client(self):
+        client = self._visual_reply_capability("runtime.client", {}, None)
+        if client is None:
+            raise RuntimeError("Visual Reply client is unavailable.")
+        return client
+
+    def _visual_reply_write_image_from_response(self, response, output_base_path):
+        output_path = self._visual_reply_capability(
+            "runtime.write_image_from_response",
+            {
+                "response": response,
+                "output_base_path": str(output_base_path),
+            },
+            None,
+        )
+        if output_path is None:
+            raise RuntimeError("Visual Reply image writer is unavailable.")
+        return Path(output_path)
 
     def eventFilter(self, watched, event):
         root = getattr(self, "audio_story_tab_widget", None)
@@ -2587,7 +2637,7 @@ class AudioStoryModeController(QtCore.QObject):
         if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > 0.0:
             image_chunks[0]["start_seconds"] = 0.0
         full_text = " ".join(str(item.get("text", "") or "").strip() for item in image_chunks).strip()
-        story_style_guide = _visual_reply_generation_service().story_style_guide_from_text(
+        story_style_guide = self._visual_reply_story_style_guide(
             full_text,
             continuity_strength=self._normalize_continuity_strength(continuity_strength),
         )
@@ -3322,9 +3372,9 @@ class AudioStoryModeController(QtCore.QObject):
         prompt_text = str(prompt_text or "").strip()
         if not prompt_text:
             raise RuntimeError("Visual prompt is empty.")
-        if not bool(_visual_reply_generation_info().get("enabled")):
+        if not bool(self._visual_reply_generation_info().get("enabled")):
             raise RuntimeError("Visual replies are disabled in the Visuals tab.")
-        if not bool(_visual_reply_generation_info().get("generation_available")):
+        if not bool(self._visual_reply_generation_info().get("generation_available")):
             raise RuntimeError("Visual reply generation is unavailable. Check your image provider credentials.")
         scene_entry = dict(scene_entry or {})
         previous_scene = self._scene_entry_for_index(index - 1)
@@ -3426,10 +3476,10 @@ class AudioStoryModeController(QtCore.QObject):
         index = int(payload.get("index", -1) or -1)
         detail = str(payload.get("detail", "") or "").strip() or "Visual generation failed."
         if bool(payload.get("moderated", False)):
-            provider_label = "xAI / Grok" if str(_visual_reply_generation_info().get("provider") or "") == "xai" else "image provider"
+            provider_label = "xAI / Grok" if str(self._visual_reply_generation_info().get("provider") or "") == "xai" else "image provider"
             status = f"{provider_label} rejected one story image prompt for content moderation. Skipping that chunk."
             self._set_status(status)
-            current_state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
+            current_state = dict(self._visual_reply_current_state() or {})
             current_image_path = str(current_state.get("image_path", "") or "").strip()
             pending = dict(self._pending_play_request or {})
             if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
@@ -3441,7 +3491,7 @@ class AudioStoryModeController(QtCore.QObject):
                     self.audio_player.play()
                     self._set_status(status_text or status)
             if index == self._current_chunk_index and not current_image_path:
-                visual_reply_state.set_current_visual_reply_data(
+                self._visual_reply_set_state(
                     {
                         "status": "error",
                         "status_text": "Visual Reply skipped",
@@ -3456,7 +3506,7 @@ class AudioStoryModeController(QtCore.QObject):
         pending = dict(self._pending_play_request or {})
         if pending and int(pending.get("token", 0) or 0) == token and int(pending.get("index", -1) or -1) == index:
             self._pending_play_request = None
-        visual_reply_state.set_current_visual_reply_data(
+        self._visual_reply_set_state(
             {
                 "status": "error",
                 "status_text": "Visual Reply failed",
@@ -3489,7 +3539,7 @@ class AudioStoryModeController(QtCore.QObject):
         chunk = dict(self.transcript_chunks[index] or {})
         prompt_text = str(chunk.get("prompt", "") or "").strip()
         cached = self._matching_cached_image_entry(index, prompt_text, scene_entry=chunk)
-        current_state = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
+        current_state = dict(self._visual_reply_current_state() or {})
         current_image_path = str(current_state.get("image_path", "") or "").strip()
         retained_image_path = current_image_path if keep_current_image and current_image_path and Path(current_image_path).exists() else ""
         retained_caption = str(current_state.get("caption", "") or "").strip()
@@ -3499,7 +3549,7 @@ class AudioStoryModeController(QtCore.QObject):
                 f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
                 str(chunk.get("generation_mode", "") or "").strip(),
             ]
-            visual_reply_state.set_current_visual_reply_data(
+            self._visual_reply_set_state(
                 {
                     "status": "ready",
                     "status_text": "Visual Reply",
@@ -3511,7 +3561,7 @@ class AudioStoryModeController(QtCore.QObject):
                 }
             )
             return
-        visual_reply_state.set_current_visual_reply_data(
+        self._visual_reply_set_state(
             {
                 "status": "loading",
                 "status_text": "Visual Reply generating...",
@@ -3531,7 +3581,7 @@ class AudioStoryModeController(QtCore.QObject):
             f"scene {int(chunk.get('scene_index', 0) or 0)}" if chunk.get("scene_index") else "",
             str(image_entry.get("generation_mode", "") or chunk.get("generation_mode", "") or "").strip(),
         ]
-        visual_reply_state.set_current_visual_reply_data(
+        self._visual_reply_set_state(
             {
                 "status": "ready",
                 "status_text": "Visual Reply",
@@ -3929,7 +3979,7 @@ class AudioStoryModeController(QtCore.QObject):
                 if story_style_guide:
                     prompt = f"{prompt} {story_style_guide}"
             else:
-                prompt = _visual_reply_generation_service().story_prompt_from_text(base_text, story_style_guide=story_style_guide)
+                prompt = self._visual_reply_story_prompt(base_text, story_style_guide=story_style_guide)
             if style_suffix:
                 prompt = prompt.strip()
             if len(prompt) > 760:
@@ -3948,7 +3998,7 @@ class AudioStoryModeController(QtCore.QObject):
         return mode if mode in valid else "medium"
 
     def _build_story_generated_master_prompt(self):
-        full_text = visual_reply_runtime.normalize_prompt_text(self.full_transcript_text)
+        full_text = self._visual_reply_normalize_prompt_text(self.full_transcript_text)
         story_style_guide = str(self.story_style_guide or "").strip()
         style_suffix = self._current_audio_story_style_suffix()
         mode = self._audio_story_master_prompt_mode()
@@ -4964,25 +5014,25 @@ class AudioStoryModeController(QtCore.QObject):
         return hashlib.sha1(raw).hexdigest()
 
     def _visual_provider_supports_reference_edits(self):
-        provider = str(str(_visual_reply_generation_info().get("provider") or "") or "").strip().lower()
+        provider = str(str(self._visual_reply_generation_info().get("provider") or "") or "").strip().lower()
         if provider != "openai":
             return False
-        return bool(bool(_visual_reply_generation_info().get("generation_available")))
+        return bool(bool(self._visual_reply_generation_info().get("generation_available")))
 
     def _generate_visual_image_from_fresh(self, prompt_text: str, *, index: int):
         client = self._get_visual_client()
         request_kwargs = {
-            "model": str(_visual_reply_generation_info().get("model") or ""),
+            "model": str(self._visual_reply_generation_info().get("model") or ""),
             "prompt": str(prompt_text or "").strip(),
         }
-        if str(_visual_reply_generation_info().get("provider") or "") == "xai":
+        if str(self._visual_reply_generation_info().get("provider") or "") == "xai":
             request_kwargs["response_format"] = "b64_json"
-            request_kwargs["extra_body"] = dict(_visual_reply_generation_info().get("extra_body") or {})
+            request_kwargs["extra_body"] = dict(self._visual_reply_generation_info().get("extra_body") or {})
         else:
-            request_kwargs["size"] = str(_visual_reply_generation_info().get("size") or "")
+            request_kwargs["size"] = str(self._visual_reply_generation_info().get("size") or "")
         response = client.images.generate(**request_kwargs)
-        output_path = _visual_reply_output_base("audio_story", index)
-        output_path = _visual_reply_generation_service().write_image_from_response(response, output_path)
+        output_path = self._visual_reply_output_base("audio_story", index)
+        output_path = self._visual_reply_write_image_from_response(response, output_path)
         return {
             "image_path": str(output_path),
             "prompt_text": str(prompt_text or "").strip(),
@@ -4998,10 +5048,10 @@ class AudioStoryModeController(QtCore.QObject):
             raise RuntimeError("The active image provider does not support reference edits.")
         client = self._get_visual_client()
         request_kwargs = {
-            "model": str(_visual_reply_generation_info().get("model") or ""),
+            "model": str(self._visual_reply_generation_info().get("model") or ""),
             "prompt": str(prompt_text or "").strip(),
             "image": [],
-            "size": str(_visual_reply_generation_info().get("size") or ""),
+            "size": str(self._visual_reply_generation_info().get("size") or ""),
         }
         with ExitStack() as stack:
             handles = []
@@ -5021,8 +5071,8 @@ class AudioStoryModeController(QtCore.QObject):
                     response = client.images.edit(**request_kwargs)
                 else:
                     raise
-        output_path = _visual_reply_output_base("audio_story", index)
-        output_path = _visual_reply_generation_service().write_image_from_response(response, output_path)
+        output_path = self._visual_reply_output_base("audio_story", index)
+        output_path = self._visual_reply_write_image_from_response(response, output_path)
         return {
             "image_path": str(output_path),
             "prompt_text": str(prompt_text or "").strip(),
@@ -5247,7 +5297,7 @@ class AudioStoryModeController(QtCore.QObject):
     def _apply_live_prompt_changes(self):
         if not self.transcript_chunks:
             return
-        story_style_guide = _visual_reply_generation_service().story_style_guide_from_text(
+        story_style_guide = self._visual_reply_story_style_guide(
             self.full_transcript_text,
             continuity_strength=self._normalize_continuity_strength(self._stored_continuity_strength),
         )
@@ -5699,16 +5749,16 @@ class AudioStoryModeController(QtCore.QObject):
         }
 
     def _visual_request_signature(self, prompt_text: str, *, scene_entry=None, generation_mode: str = "", reference_image_paths=None):
-        effective_prompt = visual_reply_generation.apply_style_anchor(_visual_reply_runtime(), str(prompt_text or "").strip())
-        provider = str(str(_visual_reply_generation_info().get("provider") or "") or "openai").strip().lower()
+        effective_prompt = self._visual_reply_apply_style_anchor(str(prompt_text or "").strip())
+        provider = str(str(self._visual_reply_generation_info().get("provider") or "") or "openai").strip().lower()
         scene_entry = dict(scene_entry or {}) if isinstance(scene_entry, dict) else {}
         reference_image_paths = list(reference_image_paths or [])
         payload = {
             "provider": provider,
-            "base_url": str(str(_visual_reply_generation_info().get("base_url") or "") or "").strip(),
-            "model": str(str(_visual_reply_generation_info().get("model") or "") or "").strip(),
-            "size": str(str(_visual_reply_generation_info().get("size") or "") or "").strip(),
-            "extra_body": dict(_visual_reply_generation_info().get("extra_body") or {}) if provider == "xai" else {},
+            "base_url": str(str(self._visual_reply_generation_info().get("base_url") or "") or "").strip(),
+            "model": str(str(self._visual_reply_generation_info().get("model") or "") or "").strip(),
+            "size": str(str(self._visual_reply_generation_info().get("size") or "") or "").strip(),
+            "extra_body": dict(self._visual_reply_generation_info().get("extra_body") or {}) if provider == "xai" else {},
             "prompt": effective_prompt,
             "generation_mode": str(generation_mode or "fresh").strip().lower(),
             "scene_id": str(scene_entry.get("scene_id", "") or "").strip(),
@@ -5804,8 +5854,8 @@ class AudioStoryModeController(QtCore.QObject):
             self._image_cache = rebuilt_cache
 
     def _get_visual_client(self):
-        client_kwargs = {"api_key": str(_visual_reply_generation_info().get("api_key") or "") or "visual-reply"}
-        base_url = str(_visual_reply_generation_info().get("base_url") or "")
+        client_kwargs = {"api_key": str(self._visual_reply_generation_info().get("api_key") or "") or "visual-reply"}
+        base_url = str(self._visual_reply_generation_info().get("base_url") or "")
         if base_url:
             client_kwargs["base_url"] = base_url
         signature = json.dumps(
@@ -5818,7 +5868,7 @@ class AudioStoryModeController(QtCore.QObject):
         )
         if self._visual_client is not None and self._visual_client_signature == signature:
             return self._visual_client
-        self._visual_client = _visual_reply_client()
+        self._visual_client = self._visual_reply_client()
         self._visual_client_signature = signature
         return self._visual_client
 

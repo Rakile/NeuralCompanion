@@ -124,6 +124,29 @@ class Addon(BaseAddon):
                 "size": generation.image_size(runtime),
                 "extra_body": generation.xai_extra_body(runtime),
             }
+        if capability == "runtime.current_state":
+            from addons.visual_reply import state
+
+            return dict(getattr(state, "current_visual_reply_data", {}) or {})
+        if capability == "runtime.set_state":
+            from addons.visual_reply import state
+
+            state.set_current_visual_reply_data(dict(payload.get("state") or {}))
+            return True
+        if capability == "runtime.output_base":
+            import time
+            import uuid
+
+            from addons.visual_reply import generation
+
+            prefix = str(payload.get("prefix") or "visual_reply").strip() or "visual_reply"
+            index = int(payload.get("index", 0) or 0)
+            return generation.output_dir() / f"{prefix}_{int(time.time())}_{index}_{uuid.uuid4().hex[:8]}"
+        if capability == "runtime.client":
+            from addons.visual_reply import generation, runtime_config
+
+            runtime = runtime_config.VisualReplyRuntime(lambda: payload.get("runtime_config") or {})
+            return generation.client(runtime)
         if capability == "runtime.apply_style_anchor":
             from addons.visual_reply import generation, runtime_config
 
