@@ -7,7 +7,6 @@ import threading
 from PySide6 import QtCore
 
 from ui.runtime import engine_access as engine
-import shared_state as musetalk_state
 import tutorial_framework
 from core import expression_state
 from core.expression_api import start_expression_api
@@ -23,8 +22,8 @@ from ui.runtime.main_window_theme import (
 )
 
 
-def start_api():
-    start_expression_api(expression_state, musetalk_state_module=musetalk_state, port=5005)
+def start_api(preview_state_getter=None):
+    start_expression_api(expression_state, preview_state_getter=preview_state_getter, port=5005)
 
 
 class MainWindowStartupMixin:
@@ -145,13 +144,28 @@ class MainWindowStartupMixin:
         os.makedirs("voices", exist_ok=True)
         os.makedirs("body_configs", exist_ok=True)
 
-        threading.Thread(target=start_api, daemon=True).start()
+        threading.Thread(
+            target=start_api,
+            kwargs={"preview_state_getter": self._musetalk_preview_state_for_api},
+            daemon=True,
+        ).start()
         print("📡 [API] Expression server running on port 5005")
 
         self.refresh_resources()
         self.restore_session()
         self.refresh_tutorial_list()
         QtCore.QTimer.singleShot(250, self.maybe_prompt_first_run_tutorial)
+
+    def _musetalk_preview_state_for_api(self):
+        if hasattr(self, "_invoke_addon_service_capability"):
+            return self._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "runtime.preview.current_state",
+                {},
+                default={},
+                provider_id="musetalk",
+            )
+        return {}
 
     def showEvent(self, event):
         super().showEvent(event)

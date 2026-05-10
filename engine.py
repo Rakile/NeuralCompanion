@@ -45,7 +45,7 @@ import gc
 import importlib
 import dry_run
 import app_help
-import shared_state as musetalk_state
+from addons.musetalk_avatar import state as musetalk_state
 from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
@@ -1452,7 +1452,7 @@ def _looks_like_control_tag_prefix(fragment):
 
 
 def _looks_like_visual_reply_tag_prefix(fragment):
-    return text_tags.looks_like_visual_reply_tag_prefix(fragment)
+    return _visual_reply_bridge.looks_like_visual_reply_tag_prefix(fragment)
 
 
 VISUAL_REPLY_TAG_RE = _visual_reply_bridge.VISUAL_REPLY_TAG_RE

@@ -12,7 +12,7 @@ def _load_flask_runtime():
     return Flask, jsonify, CORS
 
 
-def create_expression_api(expression_state_module, *, musetalk_state_module=None):
+def create_expression_api(expression_state_module, *, musetalk_state_module=None, preview_state_getter=None):
     Flask, jsonify, CORS = _load_flask_runtime()
     if Flask is None:
         return None
@@ -31,13 +31,22 @@ def create_expression_api(expression_state_module, *, musetalk_state_module=None
 
     @app.route("/get-musetalk-preview")
     def get_musetalk_preview():
+        if callable(preview_state_getter):
+            try:
+                return jsonify(dict(preview_state_getter() or {}))
+            except Exception:
+                pass
         return jsonify(getattr(musetalk_state_module, "current_musetalk_frame_data", {}))
 
     return app
 
 
-def start_expression_api(expression_state_module, *, musetalk_state_module=None, port=5005):
-    app = create_expression_api(expression_state_module, musetalk_state_module=musetalk_state_module)
+def start_expression_api(expression_state_module, *, musetalk_state_module=None, preview_state_getter=None, port=5005):
+    app = create_expression_api(
+        expression_state_module,
+        musetalk_state_module=musetalk_state_module,
+        preview_state_getter=preview_state_getter,
+    )
     if app is None:
         print("[API] Flask is unavailable in this environment; expression API server not started.")
         return

@@ -253,6 +253,22 @@ def strip_visual_reply_tail(text: str):
     return cleaned, (prompt_text or None)
 
 
+def looks_like_visual_reply_tag_prefix(fragment):
+    value = str(fragment or "").strip().lower()
+    if not value:
+        return False
+    for starter in ("visualize", "image"):
+        if starter.startswith(value):
+            return True
+        if value.startswith(starter):
+            remainder = value[len(starter):]
+            if not remainder:
+                return True
+            if re.fullmatch(r"\s*:\s*[^\]\n]*", remainder):
+                return True
+    return False
+
+
 def extract_visual_reply_prompt(text: str):
     value = str(text or "")
     cleaned, prompt = strip_visual_reply_tail(value)

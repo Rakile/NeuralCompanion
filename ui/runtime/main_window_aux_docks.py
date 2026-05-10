@@ -4,7 +4,6 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-import shared_state as visual_reply_state
 from ui.runtime.engine_access import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
 from ui.theme_support import app_theme_palette as _app_theme_palette
@@ -32,7 +31,6 @@ class MainWindowAuxDocksMixin:
                 "bridge": self,
                 "theme_provider": _app_theme_palette,
                 "runtime_config": RUNTIME_CONFIG,
-                "state_module": visual_reply_state,
                 "storage_dir": APP_ROOT / "runtime" / "visual_replies",
             },
         )

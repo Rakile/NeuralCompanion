@@ -5,7 +5,6 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui
 
-import shared_state as musetalk_state
 from core.addons.qt_host_services import QtDialogService
 
 
@@ -21,9 +20,18 @@ def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
     )
 
 
-def _capture_musetalk_preview_snapshot():
+def _capture_musetalk_preview_snapshot(backend=None):
     try:
-        state = dict(getattr(musetalk_state, "current_musetalk_frame_data", {}) or {})
+        state = {}
+        if backend is not None and hasattr(backend, "_invoke_addon_service_capability"):
+            state = backend._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "runtime.preview.current_state",
+                {},
+                default={},
+                provider_id="musetalk",
+            )
+        state = dict(state or {})
     except Exception:
         return None
     if not state.get("frame_paths") and not state.get("frame_dir"):
@@ -31,15 +39,25 @@ def _capture_musetalk_preview_snapshot():
     return state
 
 
-def _restore_musetalk_preview_snapshot(snapshot):
+def _restore_musetalk_preview_snapshot(snapshot, backend=None):
     if not snapshot:
         return
     try:
-        engine_module = _engine()
-        musetalk_state.set_current_musetalk_frame_data(dict(snapshot))
-        prime = getattr(engine_module, "prime_musetalk_preview_frame", None)
-        if callable(prime):
-            prime(musetalk_state.current_musetalk_frame_data)
+        if backend is not None and hasattr(backend, "_invoke_addon_service_capability"):
+            backend._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "runtime.preview.set_state",
+                {"state": dict(snapshot)},
+                default=None,
+                provider_id="musetalk",
+            )
+            backend._invoke_addon_service_capability(
+                "avatar_provider_registry",
+                "runtime.preview.prime_frame",
+                {"playback_state": dict(snapshot), "runtime_config": getattr(_engine(), "RUNTIME_CONFIG", {})},
+                default=None,
+                provider_id="musetalk",
+            )
     except Exception as exc:
         print(f"⚠️ [MuseTalkPreview] Could not preserve preview during chat context load: {exc}")
 
@@ -513,9 +531,9 @@ class BackendConsoleChatMixin:
         if not path:
             return
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
-        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot()
+        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
-        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot)
+        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
         print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
@@ -526,9 +544,9 @@ class BackendConsoleChatMixin:
             print(f"[QtGUI] Quick chat context not found: {path}")
             return
         payload = json.loads(path.read_text(encoding="utf-8"))
-        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot()
+        musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
-        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot)
+        _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
         print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")

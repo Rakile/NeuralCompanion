@@ -92,18 +92,3 @@ def looks_like_control_tag_prefix(fragment):
             return True
     return False
 
-
-def looks_like_visual_reply_tag_prefix(fragment):
-    value = str(fragment or "").strip().lower()
-    if not value:
-        return False
-    for starter in ("visualize", "image"):
-        if starter.startswith(value):
-            return True
-        if value.startswith(starter):
-            remainder = value[len(starter):]
-            if not remainder:
-                return True
-            if re.fullmatch(r"\s*:\s*[^\]\n]*", remainder):
-                return True
-    return False

@@ -34,10 +34,22 @@ class RealUiSyncMirrorMixin:
             if telemetry_widget is None:
                 return
             try:
-                raw_snapshot = musetalk_state.get_musetalk_pipeline_snapshot()
-                preview_state = getattr(musetalk_state, "current_musetalk_frame_data", {}) or {}
+                raw_snapshot = self.backend._invoke_addon_service_capability(
+                    "avatar_provider_registry",
+                    "runtime.pipeline_snapshot",
+                    {},
+                    default={},
+                    provider_id="musetalk",
+                )
+                preview_state = self.backend._invoke_addon_service_capability(
+                    "avatar_provider_registry",
+                    "runtime.preview.current_state",
+                    {},
+                    default={},
+                    provider_id="musetalk",
+                )
                 snapshot = self.backend._build_pipeline_visual_snapshot(raw_snapshot)
-                telemetry_widget.update_snapshot(snapshot, preview_state)
+                telemetry_widget.update_snapshot(snapshot, dict(preview_state or {}))
             except Exception:
                 return
             chunks = list((getattr(getattr(telemetry_widget, "ready_bar", None), "_snapshot", {}) or {}).get("chunks", []) or [])

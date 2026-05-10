@@ -110,6 +110,9 @@ class VisualReplyEngineBridge:
     def strip_visual_reply_tail(self, text: str):
         return runtime_config.strip_visual_reply_tail(text)
 
+    def looks_like_visual_reply_tag_prefix(self, fragment):
+        return runtime_config.looks_like_visual_reply_tag_prefix(fragment)
+
     def extract_visual_reply_prompt(self, text: str):
         return runtime_config.extract_visual_reply_prompt(text)
 

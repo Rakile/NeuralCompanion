@@ -21,8 +21,8 @@ except Exception:  # pragma: no cover - defensive for tooling without full PySid
     shiboken6 = None
 
 from ui.runtime import engine_access as engine
-import shared_state as musetalk_state
-import shared_state as visual_reply_state
+from addons.musetalk_avatar import state as musetalk_state
+from addons.visual_reply import state as visual_reply_state
 from core import expression_state
 from core import avatar_runtime, chat_providers, sensory
 from core.addons import AddonManager

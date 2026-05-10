@@ -3,11 +3,24 @@ import time
 from PySide6 import QtWidgets
 
 import dry_run
-import shared_state as musetalk_state
 from ui.panels.input_dialog import QtInputDialog
 
 
 DRY_RUN_MAX_RESPONSE_TOKENS = 600
+
+
+def _append_avatar_preview_log(backend, message):
+    if hasattr(backend, "_invoke_addon_service_capability"):
+        return backend._invoke_addon_service_capability(
+            "avatar_provider_registry",
+            "runtime.preview.append_log",
+            {"message": str(message or "")},
+            default=None,
+            provider_id="musetalk",
+        )
+    return None
+
+
 BASE_PERFORMANCE_PROFILE_APPLY_KEYS = {
     "avatar_mode",
     "stream_mode",
@@ -128,7 +141,8 @@ class BackendDryRunRuntimeMixin:
             f"system_prompt={self.system_prompt_text.toPlainText().strip()[:220]!r} "
             f"emotional_instructions={self.emotional_text.toPlainText().strip()[:220]!r}"
         )
-        musetalk_state.append_musetalk_preview_log(
+        _append_avatar_preview_log(
+            self,
             f"🧪 [DryRun] Session armed: id={status.get('session_id')} profile={status.get('profile_key')} target_samples={status.get('target_samples')} max_tokens={DRY_RUN_MAX_RESPONSE_TOKENS}"
         )
         if bool(status.get("auto_mode")):
@@ -145,7 +159,8 @@ class BackendDryRunRuntimeMixin:
             self.dry_run_last_applied_candidate_index = None
             self._apply_runtime_settings_dict(status.get("config_snapshot", {}) or {})
             self.save_session()
-            musetalk_state.append_musetalk_preview_log(
+            _append_avatar_preview_log(
+                self,
                 f"🧪 [DryRun] Session stopped: id={status.get('session_id')} confidence={status.get('confidence')}"
             )
             print("[QtGUI] Dry Run stopped.")
@@ -407,7 +422,8 @@ class BackendDryRunRuntimeMixin:
             f"flush={settings.get('stream_force_flush_seconds')}/{settings.get('stream_force_flush_later_seconds')} "
             f"{self._addon_performance_log_fragment(settings)}"
         )
-        musetalk_state.append_musetalk_preview_log(
+        _append_avatar_preview_log(
+            self,
             f"🧪 [DryRun] Applying {candidate.get('label')}: "
             f"stream_target={settings.get('stream_chunk_target_chars')} "
             f"stream_max={settings.get('stream_chunk_max_chars')} "

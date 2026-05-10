@@ -146,6 +146,24 @@ class Addon(BaseAddon):
                 advance_to_next_frame=bool(payload.get("advance_to_next_frame", False)),
                 now=payload.get("now"),
             )
+        if capability == "runtime.preview.current_state":
+            from addons.musetalk_avatar import state as musetalk_state
+
+            return dict(getattr(musetalk_state, "current_musetalk_frame_data", {}) or {})
+        if capability == "runtime.preview.set_state":
+            from addons.musetalk_avatar import state as musetalk_state
+
+            musetalk_state.set_current_musetalk_frame_data(dict(payload.get("state") or {}))
+            return True
+        if capability == "runtime.pipeline_snapshot":
+            from addons.musetalk_avatar import state as musetalk_state
+
+            return musetalk_state.get_musetalk_pipeline_snapshot()
+        if capability == "runtime.preview.append_log":
+            from addons.musetalk_avatar import state as musetalk_state
+
+            musetalk_state.append_musetalk_preview_log(str(payload.get("message") or ""))
+            return True
         if capability == "runtime.available_pack_emotion_names":
             from addons.musetalk_avatar import pack_runtime
 
