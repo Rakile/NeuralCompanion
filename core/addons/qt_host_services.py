@@ -98,6 +98,25 @@ class QtRuntimeConfigService:
         return getattr(self._engine(), str(name), default)
 
 
+class QtUserImageTurnService:
+    def __init__(self, window):
+        self._window = window
+
+    def _engine(self):
+        import engine
+
+        return engine
+
+    def clear_pending_attachment(self) -> None:
+        self._engine().clear_pending_user_image_attachment()
+
+    def set_pending_attachment(self, image_path: str, *, source: str = "clipboard") -> None:
+        self._engine().set_pending_user_image_attachment(str(image_path or ""), source=str(source or "clipboard"))
+
+    def queue_image_turn(self, image_path: str, *, content: str | None = None, source: str = "clipboard") -> None:
+        self._engine().queue_user_image_turn(str(image_path or ""), content=content, source=str(source or "clipboard"))
+
+
 class QtRuntimeStatusService:
     def __init__(self, window):
         self._window = window

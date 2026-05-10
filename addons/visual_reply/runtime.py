@@ -4,19 +4,20 @@ from pathlib import Path
 from PySide6 import QtWidgets
 
 from addons.visual_reply import state as visual_reply_state
+from core.addons.qt_host_services import QtRuntimeConfigService
 from ui.panels.input_dialog import QtInputDialog
 
 
-def _runtime_config():
-    import engine
-
-    return getattr(engine, "RUNTIME_CONFIG", {})
+def _runtime_config_service(backend):
+    return QtRuntimeConfigService(backend)
 
 
-def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+def _runtime_config(backend):
+    return _runtime_config_service(backend).snapshot()
 
-    return update_runtime_config(key, value)
+
+def _update_runtime_config(backend, key, value):
+    return _runtime_config_service(backend).update(key, value)
 
 
 class BackendVisualReplyRuntimeMixin:
@@ -51,7 +52,7 @@ class BackendVisualReplyRuntimeMixin:
         mode = self._visual_reply_mode_value_from_label(self._live_combo_text("visual_reply_mode_combo", "Auto"))
         provider = self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI"))
         size = self._normalize_visual_reply_size(self._live_combo_text("visual_reply_size_combo", "1024x1024"))
-        model = self._live_text("visual_reply_model_edit", _runtime_config().get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1"
+        model = self._live_text("visual_reply_model_edit", _runtime_config(self).get("visual_reply_model", "gpt-image-1")).strip() or "gpt-image-1"
         auto_show = self._live_checked("visual_reply_auto_show_checkbox", True)
         if mode == "off":
             summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."
@@ -66,24 +67,24 @@ class BackendVisualReplyRuntimeMixin:
 
     def on_visual_reply_mode_changed(self, choice):
         mode = self._visual_reply_mode_value_from_label(choice)
-        _update_runtime_config("visual_reply_mode", mode)
-        _update_runtime_config("visual_replies_enabled", mode != "off")
+        _update_runtime_config(self, "visual_reply_mode", mode)
+        _update_runtime_config(self, "visual_replies_enabled", mode != "off")
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_mode", "value": mode})
         self.save_session()
 
     def on_visual_reply_provider_changed(self, choice):
         provider = self._visual_reply_provider_value_from_label(choice)
-        _update_runtime_config("visual_reply_provider", provider)
+        _update_runtime_config(self, "visual_reply_provider", provider)
         current_model = str(self.visual_reply_model_edit.text() if hasattr(self, "visual_reply_model_edit") else "").strip()
         if provider == "xai":
             if not current_model or current_model == "gpt-image-1":
                 self.visual_reply_model_edit.setText("grok-imagine-image")
-                _update_runtime_config("visual_reply_model", "grok-imagine-image")
+                _update_runtime_config(self, "visual_reply_model", "grok-imagine-image")
         else:
             if not current_model or current_model == "grok-imagine-image":
                 self.visual_reply_model_edit.setText("gpt-image-1")
-                _update_runtime_config("visual_reply_model", "gpt-image-1")
+                _update_runtime_config(self, "visual_reply_model", "gpt-image-1")
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_provider", "value": provider})
         self.save_session()
@@ -94,7 +95,7 @@ class BackendVisualReplyRuntimeMixin:
             label = self._visual_reply_size_label_from_value(size)
             if self.visual_reply_size_combo.currentText() != label:
                 self.visual_reply_size_combo.setCurrentText(label)
-        _update_runtime_config("visual_reply_size", size)
+        _update_runtime_config(self, "visual_reply_size", size)
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_size", "value": size})
         self.save_session()
@@ -103,14 +104,14 @@ class BackendVisualReplyRuntimeMixin:
         model_name = str(self.visual_reply_model_edit.text() if hasattr(self, "visual_reply_model_edit") else "").strip() or "gpt-image-1"
         if hasattr(self, "visual_reply_model_edit") and self.visual_reply_model_edit.text().strip() != model_name:
             self.visual_reply_model_edit.setText(model_name)
-        _update_runtime_config("visual_reply_model", model_name)
+        _update_runtime_config(self, "visual_reply_model", model_name)
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_model", "value": model_name})
         self.save_session()
 
     def on_visual_reply_auto_show_changed(self, checked):
         enabled = bool(checked)
-        _update_runtime_config("visual_reply_auto_show_dock", enabled)
+        _update_runtime_config(self, "visual_reply_auto_show_dock", enabled)
         self._refresh_visual_reply_hint()
         self.emit_tutorial_event("ui_changed", {"field": "visual_reply_auto_show_dock", "value": enabled})
         self.save_session()

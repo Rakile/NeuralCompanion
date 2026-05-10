@@ -4,6 +4,8 @@ except Exception:  # pragma: no cover - shell smoke may inspect without Qt avail
     QtCore = None
     QtWidgets = None
 
+from core.addons.qt_host_services import QtRuntimeConfigService
+
 
 VRAM_MODE_LABELS = {
     "quality": "Quality",
@@ -204,10 +206,8 @@ def refresh_resource_widgets(backend, runtime_config=None):
 
 
 def update_runtime_config_from_widgets(backend, runtime_config=None):
-    from engine import update_runtime_config
-
     for key, value in collect_runtime_config(backend, runtime_config).items():
-        update_runtime_config(key, value)
+        _update_runtime_config(backend, key, value)
 
 
 def set_provider_controls_enabled(backend, enabled):
@@ -226,21 +226,21 @@ def restart_sensitive_widgets(backend):
     ]
 
 
-def _engine():
-    import engine
-
-    return engine
+def _runtime_config_service(backend):
+    return QtRuntimeConfigService(backend)
 
 
-def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+def _update_runtime_config(backend, key, value):
+    return _runtime_config_service(backend).update(key, value)
 
-    return update_runtime_config(key, value)
+
+def _engine_attr(backend, name: str, default=None):
+    return _runtime_config_service(backend).engine_attr(name, default)
 
 
 def apply_vram_mode_change(backend, choice):
     mode = vram_key_from_label(choice)
-    _update_runtime_config("musetalk_vram_mode", mode)
+    _update_runtime_config(backend, "musetalk_vram_mode", mode)
     if hasattr(backend, "_advisor_context_manual_override"):
         backend._advisor_context_manual_override = False
     if hasattr(backend, "emit_tutorial_event"):
@@ -253,7 +253,7 @@ def apply_vram_mode_change(backend, choice):
 
 def apply_loop_fade_change(backend, value):
     fade_ms = max(0, int(value or 0))
-    _update_runtime_config("musetalk_loop_fade_ms", fade_ms)
+    _update_runtime_config(backend, "musetalk_loop_fade_ms", fade_ms)
     if hasattr(backend, "emit_tutorial_event"):
         backend.emit_tutorial_event("ui_changed", {"field": "musetalk_loop_fade_ms", "value": fade_ms})
     if hasattr(backend, "save_session"):
@@ -262,7 +262,7 @@ def apply_loop_fade_change(backend, value):
 
 def apply_frame_cache_change(backend, checked):
     enabled = bool(checked)
-    _update_runtime_config("musetalk_use_frame_cache", enabled)
+    _update_runtime_config(backend, "musetalk_use_frame_cache", enabled)
     if hasattr(backend, "emit_tutorial_event"):
         backend.emit_tutorial_event("ui_changed", {"field": "musetalk_use_frame_cache", "value": enabled})
     if hasattr(backend, "save_session"):
@@ -273,10 +273,10 @@ def refresh_avatar_pack_list(backend, selected_pack_id=None):
     combo = backend._live_widget_attr("musetalk_avatar_pack_combo")
     if combo is None:
         return
-    engine = _engine()
-    config = engine.RUNTIME_CONFIG
+    config = _runtime_config_service(backend).snapshot()
     requested = str(selected_pack_id or combo.currentData() or config.get("musetalk_avatar_pack_id", "") or "").strip()
-    catalog = list(engine.get_musetalk_avatar_pack_catalog() or [])
+    catalog_getter = _engine_attr(backend, "get_musetalk_avatar_pack_catalog", lambda: [])
+    catalog = list(catalog_getter() or [])
     combo.blockSignals(True)
     combo.clear()
     for item in catalog:
@@ -302,8 +302,9 @@ def apply_avatar_pack_change(backend, _choice=None):
     pack_id = str(backend._live_combo_data("musetalk_avatar_pack_combo", "") or "").strip()
     if not pack_id:
         return
-    selected_pack_id = _engine().apply_musetalk_avatar_pack_selection(pack_id)
-    _update_runtime_config("musetalk_avatar_pack_id", selected_pack_id)
+    selector = _engine_attr(backend, "apply_musetalk_avatar_pack_selection", lambda value: value)
+    selected_pack_id = selector(pack_id)
+    _update_runtime_config(backend, "musetalk_avatar_pack_id", selected_pack_id)
     if hasattr(backend, "emit_tutorial_event"):
         backend.emit_tutorial_event("ui_changed", {"field": "musetalk_avatar_pack_id", "value": selected_pack_id})
     if hasattr(backend, "save_session"):

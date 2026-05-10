@@ -20,6 +20,19 @@ from musetalk_bridge import MuseTalkBridge
 _RUNTIME_SYMBOLS_READY = False
 
 
+class _DryRunNoop:
+    def record_reply_metric(self, *args, **kwargs):
+        return None
+
+
+RUNTIME_CONFIG = {}
+invalidate_available_emotion_names = lambda: None
+log_musetalk_memory_checkpoint = lambda *args, **kwargs: None
+stop_flag = threading.Event()
+stop_playback = threading.Event()
+dry_run = _DryRunNoop()
+
+
 MUSE_MAX_INFLIGHT_RENDERS = 3
 MUSE_FIRST_CHUNK_PREDICTED_DELAY_SECONDS = 2.0
 MUSE_FIRST_CHUNK_DELAY_SAMPLE_LIMIT = 8
@@ -100,21 +113,10 @@ def configure_runtime_symbols(
 
 
 def _hydrate_engine_symbols():
-    # Transitional dependency bridge: this class has moved into the addon,
-    # while several MuseTalk helper contracts still live in engine.py.
+    # Modern hosts pass runtime hooks through AvatarRuntimeContext. Older hosts
+    # fall back to addon-local no-op hooks instead of importing engine.
     if _RUNTIME_SYMBOLS_READY:
         return
-    import engine
-
-    configure_runtime_symbols(
-        runtime_config=engine.RUNTIME_CONFIG,
-        invalidate_available_emotion_names_fn=engine.invalidate_available_emotion_names,
-        musetalk_state_module=None,
-        log_memory_checkpoint_fn=engine.log_musetalk_memory_checkpoint,
-        stop_flag_event=engine.stop_flag,
-        stop_playback_event=engine.stop_playback,
-        dry_run_module=engine.dry_run,
-    )
 
 
 class MuseTalkAdapter(avatar_runtime.AvatarAdapter):

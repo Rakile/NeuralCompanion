@@ -59,6 +59,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         super().__setattr__("dialogs", context.get_service("qt.dialogs") if context is not None else None)
         super().__setattr__("shell", context.get_service("qt.shell") if context is not None else None)
         super().__setattr__("musetalk_ui", context.get_service("qt.musetalk_ui") if context is not None else None)
+        super().__setattr__("runtime_config", context.get_service("qt.runtime_config") if context is not None else None)
 
 
     def _initialize_host_state(self):
@@ -95,12 +96,20 @@ class MuseTalkPreprocessController(QtCore.QObject):
             notifier()
 
     def _runtime_config_value(self, key, default=None):
-        if not engine.is_loaded():
-            return default
         try:
-            return engine.RUNTIME_CONFIG.get(str(key), default)
+            if self.runtime_config is not None:
+                return self.runtime_config.get(str(key), default)
         except Exception:
-            return default
+            pass
+        return default
+
+    def _update_runtime_config(self, key, value):
+        try:
+            if self.runtime_config is not None:
+                return self.runtime_config.update(str(key), value)
+        except Exception:
+            pass
+        return None
 
     def _normalize_musetalk_enabled_pack_emotions(self, raw_value):
         mapping = {}
@@ -127,7 +136,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
     def _set_musetalk_enabled_pack_emotions(self, mapping, notify=True):
         normalized = self._normalize_musetalk_enabled_pack_emotions(mapping)
-        engine.update_runtime_config("musetalk_enabled_pack_emotions", normalized)
+        self._update_runtime_config("musetalk_enabled_pack_emotions", normalized)
         if notify:
             self._notify_settings_changed()
 

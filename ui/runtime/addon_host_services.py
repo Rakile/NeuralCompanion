@@ -29,6 +29,7 @@ from core.addons.qt_host_services import (
     QtSensoryService,
     QtShellService,
     QtTutorialService,
+    QtUserImageTurnService,
 )
 
 
@@ -83,6 +84,7 @@ def build_qt_host_services(window):
         "qt.runtime_status": QtRuntimeStatusService(window),
         "qt.shell": QtShellService(window),
         "qt.tutorials": QtTutorialService(window),
+        "qt.user_image_turns": QtUserImageTurnService(window),
         "qt.avatar_providers": QtAvatarProviderService(window),
         "qt.sensory": QtSensoryService(window),
         "qt.chat_providers": QtChatProviderService(window),

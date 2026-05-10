@@ -3,14 +3,22 @@ try:
 except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
     QtWidgets = None
 
+from core.addons.qt_host_services import QtRuntimeConfigService
+
 
 DEFAULT_LOCAL_VAM_ROOT = ""
 
 
-def _engine():
-    import engine
+def _runtime_config_service(backend):
+    return QtRuntimeConfigService(backend)
 
-    return engine
+
+def _engine_attr(backend, name: str, default=None):
+    return _runtime_config_service(backend).engine_attr(name, default)
+
+
+def _update_runtime_config(backend, key, value):
+    return _runtime_config_service(backend).update(key, value)
 
 
 def collect_runtime_config(backend, runtime_config=None, *, avatar_mode=""):
@@ -51,7 +59,9 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     from ui.widgets.basic import NoWheelSpinBox
 
     runtime = dict(runtime_config or {})
-    engine_module = _engine()
+    normalize_vam_root = _engine_attr(backend, "normalize_vam_root", lambda value: str(value or "").strip())
+    derive_vam_bridge_root = _engine_attr(backend, "derive_vam_bridge_root", lambda value: str(value or "").strip())
+    default_vam_root = _engine_attr(backend, "DEFAULT_VAM_ROOT", "")
 
     backend.vam_vmc_enabled_checkbox = QtWidgets.QCheckBox("Relay motion to VaM over VMC")
     backend.vam_vmc_enabled_checkbox.setObjectName("vam_vmc_enabled_checkbox")
@@ -88,20 +98,20 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.vam_root_edit = QtWidgets.QLineEdit()
     backend.vam_root_edit.setObjectName("vam_root_edit")
     backend.vam_root_edit.setText(
-        engine_module.normalize_vam_root(
-            runtime.get("vam_root", getattr(engine_module, "DEFAULT_VAM_ROOT", ""))
-            or getattr(engine_module, "DEFAULT_VAM_ROOT", "")
+        normalize_vam_root(
+            runtime.get("vam_root", default_vam_root)
+            or default_vam_root
         )
     )
     if not backend.vam_root_edit.text().strip():
-        backend.vam_root_edit.setText(engine_module.normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT))
+        backend.vam_root_edit.setText(normalize_vam_root(DEFAULT_LOCAL_VAM_ROOT))
     backend.vam_root_edit.setToolTip("Path to the VaM installation root. NC derives the bridge folder from this.")
     backend.vam_root_edit.editingFinished.connect(backend.on_vam_root_changed)
 
     backend.vam_bridge_root_edit = QtWidgets.QLineEdit()
     backend.vam_bridge_root_edit.setObjectName("vam_bridge_root_edit")
     backend.vam_bridge_root_edit.setReadOnly(True)
-    backend.vam_bridge_root_edit.setText(engine_module.derive_vam_bridge_root(backend.vam_root_edit.text().strip()))
+    backend.vam_bridge_root_edit.setText(derive_vam_bridge_root(backend.vam_root_edit.text().strip()))
     backend.vam_bridge_root_edit.setToolTip(
         "Derived from the VaM Root. The plugin's default Bridge Root already matches this location inside VaM."
     )
@@ -120,21 +130,18 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
 
 
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, avatar_mode=""):
-    from engine import update_runtime_config
-
     for key, value in collect_runtime_config(backend, runtime_config, avatar_mode=avatar_mode).items():
-        update_runtime_config(key, value)
+        _update_runtime_config(backend, key, value)
 
 
 def apply_provider_selected_defaults(backend, active):
     if not active:
         return
-    from engine import update_runtime_config
 
     widget = backend._live_widget_attr("vam_play_audio_in_vam_checkbox")
     if widget is not None and hasattr(widget, "isChecked") and hasattr(widget, "setChecked") and not widget.isChecked():
         widget.setChecked(True)
-        update_runtime_config("vam_play_audio_in_vam", True)
+        _update_runtime_config(backend, "vam_play_audio_in_vam", True)
 
 
 def sync_checkbox_action(bridge, object_name, callback_name):

@@ -6,6 +6,7 @@ from PIL import Image
 from PySide6 import QtCore, QtGui, QtUiTools, QtWidgets
 
 from addons.visual_reply import state as visual_reply_state
+from core.addons.qt_host_services import QtRuntimeConfigService
 
 
 class AddonAltWheelZoomScrollArea(QtWidgets.QScrollArea):
@@ -442,6 +443,13 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
             self.status_label.setText("Audio Story Mode request failed")
             return None
 
+    def _runtime_config_value(self, key, default=None):
+        host_window = self.window()
+        try:
+            return QtRuntimeConfigService(host_window).get(str(key), default)
+        except Exception:
+            return default
+
     def load_current_story_image(self):
         result = self._invoke_addon_capability("audio_story_mode.load_current_image", {})
         if isinstance(result, dict) and result.get("ok"):
@@ -666,12 +674,7 @@ class AddonVisualReplyPanel(QtWidgets.QWidget):
             self._last_visual_reply_updated_at = updated_at
             status = str(state.get("status", "idle") or "idle").strip().lower()
             host_window = self.window()
-            try:
-                import engine
-
-                auto_show_enabled = bool(getattr(engine, "RUNTIME_CONFIG", {}).get("visual_reply_auto_show_dock", True))
-            except Exception:
-                auto_show_enabled = True
+            auto_show_enabled = bool(self._runtime_config_value("visual_reply_auto_show_dock", True))
             if auto_show_enabled and status in {"loading", "ready", "error"} and hasattr(host_window, "show_visual_reply_dock"):
                 try:
                     host_window.show_visual_reply_dock()

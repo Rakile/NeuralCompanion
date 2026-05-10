@@ -1,6 +1,6 @@
 import os
 
-from core.addons.qt_host_services import QtDialogService
+from core.addons.qt_host_services import QtDialogService, QtRuntimeConfigService
 
 
 def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
@@ -48,16 +48,16 @@ def restart_sensitive_widgets(backend):
     ]
 
 
-def _engine():
-    import engine
-
-    return engine
+def _runtime_config_service(backend):
+    return QtRuntimeConfigService(backend)
 
 
-def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+def _update_runtime_config(backend, key, value):
+    return _runtime_config_service(backend).update(key, value)
 
-    return update_runtime_config(key, value)
+
+def _engine_attr(backend, name: str, default=None):
+    return _runtime_config_service(backend).engine_attr(name, default)
 
 
 def browse_python(backend):
@@ -79,17 +79,17 @@ def apply_python_changed(backend):
     widget = backend._live_widget_attr("pocket_tts_python_edit")
     if widget is None:
         return
-    _update_runtime_config("pocket_tts_python", widget.text().strip())
+    _update_runtime_config(backend, "pocket_tts_python", widget.text().strip())
     if hasattr(backend, "save_session"):
         backend.save_session()
 
 
 def ensure_python_path(backend):
     widget = backend._live_widget_attr("pocket_tts_python_edit")
-    fallback = str(getattr(_engine(), "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+    fallback = str(_engine_attr(backend, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
     if widget is None:
         if fallback and os.path.exists(fallback):
-            _update_runtime_config("pocket_tts_python", fallback)
+            _update_runtime_config(backend, "pocket_tts_python", fallback)
             return fallback
         return ""
     current = widget.text().strip()
@@ -104,7 +104,7 @@ def ensure_python_path(backend):
 
 
 def reset_python_to_default(backend):
-    fallback = str(getattr(_engine(), "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+    fallback = str(_engine_attr(backend, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
     widget = backend._live_widget_attr("pocket_tts_python_edit")
     if fallback and os.path.exists(fallback) and widget is not None:
         widget.setText(fallback)
@@ -115,7 +115,5 @@ def reset_python_to_default(backend):
 
 
 def update_runtime_config_from_widgets(backend, runtime_config=None, *, tts_backend=""):
-    from engine import update_runtime_config
-
     for key, value in collect_runtime_config(backend, runtime_config, tts_backend=tts_backend).items():
-        update_runtime_config(key, value)
+        _update_runtime_config(backend, key, value)

@@ -2,11 +2,14 @@
 
 from PySide6 import QtCore, QtWidgets
 
+from core.addons.qt_host_services import QtRuntimeConfigService
 
-def _engine():
-    import engine
 
-    return engine
+def _host_value(owner, name: str, default):
+    try:
+        return QtRuntimeConfigService(owner).engine_attr(name, default)
+    except Exception:
+        return default
 
 
 class HandDoctorDialog(QtWidgets.QDialog):
@@ -81,8 +84,8 @@ class HandDoctorDialog(QtWidgets.QDialog):
         layout.setSpacing(12)
 
         self.debug_toggle = QtWidgets.QCheckBox("Activate Debug Override")
-        engine = _engine()
-        self.debug_toggle.setChecked(bool(engine.HAND_DEBUG.get("active", False)))
+        hand_debug = self._hand_debug()
+        self.debug_toggle.setChecked(bool(hand_debug.get("active", False)))
         self.debug_toggle.toggled.connect(self._on_toggle_debug)
         layout.addWidget(self.debug_toggle)
 
@@ -150,8 +153,7 @@ class HandDoctorDialog(QtWidgets.QDialog):
 
         def on_value_changed(raw_value):
             value = raw_value / 10.0
-            engine = _engine()
-            engine.HAND_DEBUG[key] = value
+            self._hand_debug()[key] = value
             value_label.setText(f"{value:.1f}")
 
         slider.valueChanged.connect(on_value_changed)
@@ -160,41 +162,47 @@ class HandDoctorDialog(QtWidgets.QDialog):
         self.axis_controls[key] = (slider, value_label)
         return row_widget
 
+    def _hand_debug(self):
+        return _host_value(self.owner, "HAND_DEBUG", {"active": False})
+
+    def _hand_calibration(self):
+        return _host_value(self.owner, "HAND_CALIBRATION", {})
+
     def _on_toggle_debug(self, checked):
-        engine = _engine()
-        engine.HAND_DEBUG["active"] = bool(checked)
-        print(f"[QtGUI] Hand Debug Mode: {engine.HAND_DEBUG['active']}")
+        hand_debug = self._hand_debug()
+        hand_debug["active"] = bool(checked)
+        print(f"[QtGUI] Hand Debug Mode: {hand_debug['active']}")
 
     def refresh_from_debug_state(self):
-        engine = _engine()
+        hand_debug = self._hand_debug()
         for key, (slider, label) in self.axis_controls.items():
-            value = float(engine.HAND_DEBUG.get(key, 0.0))
+            value = float(hand_debug.get(key, 0.0))
             slider.blockSignals(True)
             slider.setValue(int(round(value * 10.0)))
             slider.blockSignals(False)
             label.setText(f"{value:.1f}")
 
     def load_values(self, target_key):
-        engine = _engine()
-        data = engine.HAND_CALIBRATION.get(target_key)
+        hand_debug = self._hand_debug()
+        data = self._hand_calibration().get(target_key)
         if not data:
             print(f"[QtGUI] No calibration data for {target_key}")
             return
         print(f"[QtGUI] Loading '{target_key}' for editing...")
-        engine.HAND_DEBUG.update(data)
-        engine.HAND_DEBUG["active"] = True
+        hand_debug.update(data)
+        hand_debug["active"] = True
         self.debug_toggle.setChecked(True)
         self.refresh_from_debug_state()
 
     def save_as(self, target_key):
-        engine = _engine()
-        engine.HAND_CALIBRATION[target_key] = {
-            "finger_x": float(engine.HAND_DEBUG["finger_x"]),
-            "finger_y": float(engine.HAND_DEBUG["finger_y"]),
-            "finger_z": float(engine.HAND_DEBUG["finger_z"]),
-            "thumb_x": float(engine.HAND_DEBUG["thumb_x"]),
-            "thumb_y": float(engine.HAND_DEBUG["thumb_y"]),
-            "thumb_z": float(engine.HAND_DEBUG["thumb_z"]),
+        hand_debug = self._hand_debug()
+        self._hand_calibration()[target_key] = {
+            "finger_x": float(hand_debug["finger_x"]),
+            "finger_y": float(hand_debug["finger_y"]),
+            "finger_z": float(hand_debug["finger_z"]),
+            "thumb_x": float(hand_debug["thumb_x"]),
+            "thumb_y": float(hand_debug["thumb_y"]),
+            "thumb_z": float(hand_debug["thumb_z"]),
         }
         print(f"[QtGUI] Saved hand calibration for {target_key}")
         self.owner.save_current_body()

@@ -301,12 +301,11 @@ class Addon(BaseAddon):
             return True
         return self._capture_current_clipboard_image(trigger_actions=False, allow_existing=True)
 
-    def _engine_module(self):
-        import engine
-        return engine
-
     def _runtime_config_service(self):
         return self.context.get_service("qt.runtime_config") if getattr(self, "context", None) is not None else None
+
+    def _user_image_turn_service(self):
+        return self.context.get_service("qt.user_image_turns") if getattr(self, "context", None) is not None else None
 
     def _source_is_enabled(self) -> bool:
         if getattr(self, "_shell_preview", False):
@@ -338,7 +337,9 @@ class Addon(BaseAddon):
         if getattr(self, "_shell_preview", False):
             return
         try:
-            self._engine_module().clear_pending_user_image_attachment()
+            service = self._user_image_turn_service()
+            if service is not None:
+                service.clear_pending_attachment()
         except Exception:
             pass
 
@@ -362,7 +363,10 @@ class Addon(BaseAddon):
                 self._notify_tab_refreshers()
             return False
         try:
-            self._engine_module().set_pending_user_image_attachment(self.latest_image_path, source="clipboard")
+            service = self._user_image_turn_service()
+            if service is None:
+                return False
+            service.set_pending_attachment(self.latest_image_path, source="clipboard")
         except Exception as exc:
             print(f"[Clipboard] Could not arm the clipboard image for the next user turn: {exc}")
             return False
@@ -383,7 +387,10 @@ class Addon(BaseAddon):
                 print("[Clipboard] Start the engine before sending a clipboard image immediately.")
             return False
         try:
-            self._engine_module().queue_user_image_turn(
+            service = self._user_image_turn_service()
+            if service is None:
+                return False
+            service.queue_image_turn(
                 self.latest_image_path,
                 content="Please respond to the image I just sent you.",
                 source="clipboard",

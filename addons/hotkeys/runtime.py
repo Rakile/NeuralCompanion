@@ -3,11 +3,22 @@ from collections import OrderedDict
 
 from PySide6 import QtCore, QtGui
 
+from core.addons.qt_host_services import QtRuntimeConfigService
 
-def _engine():
-    import engine as engine_module
 
-    return engine_module
+def _runtime_config_service(backend):
+    return QtRuntimeConfigService(backend)
+
+
+def _engine_attr(backend, name: str, default=None):
+    return _runtime_config_service(backend).engine_attr(name, default)
+
+
+def _engine_call(backend, name: str, default=None, *args, **kwargs):
+    callback = _engine_attr(backend, name, None)
+    if callable(callback):
+        return callback(*args, **kwargs)
+    return default
 
 
 class BackendHotkeyMixin:
@@ -46,9 +57,8 @@ class BackendHotkeyMixin:
         )
 
     def _dispatch_hotkey_action(self, action):
-        engine = _engine()
         action_key = str(action or "").strip()
-        if action_key in engine.DEFAULT_MANUAL_ACTION_HOTKEYS:
+        if action_key in _engine_attr(self, "DEFAULT_MANUAL_ACTION_HOTKEYS", {}):
             self.trigger_control_action(action_key)
             return
         handler = self._supported_ui_hotkey_actions().get(action_key)
@@ -72,16 +82,15 @@ class BackendHotkeyMixin:
             return
         if self._closing:
             return
-        engine = _engine()
         actions = self._supported_ui_hotkey_actions()
-        bindings = engine.get_ui_action_hotkeys()
+        bindings = _engine_call(self, "get_ui_action_hotkeys", {}) or {}
         now = time.time()
         debounce_seconds = 0.35
         for action, handler in actions.items():
             binding = str(bindings.get(action, "") or "").strip()
             if not binding:
                 continue
-            if not engine.is_hotkey_binding_pressed(binding):
+            if not _engine_call(self, "is_hotkey_binding_pressed", False, binding):
                 continue
             last_triggered = float(self._ui_hotkey_last_triggered_at.get(action, 0.0) or 0.0)
             if now - last_triggered < debounce_seconds:
@@ -91,41 +100,41 @@ class BackendHotkeyMixin:
                 handler()
 
     def _refresh_hotkey_labels(self):
-        engine = _engine()
         if hasattr(self, "input_mode_hint"):
             mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
             if mode == "push_to_talk":
-                binding = engine.get_push_to_talk_hotkey()
+                binding = _engine_call(self, "get_push_to_talk_hotkey", "Right Ctrl")
                 self.input_mode_hint.setText(f"Push-to-Talk hotkey: {binding} (fallback button below)")
             else:
                 self.input_mode_hint.setText("Voice activation listens for speech automatically")
         button_titles = self._hotkey_button_titles()
         button_map = getattr(self, "_control_action_buttons", {}) or {}
-        configured = engine.get_manual_action_hotkeys()
+        configured = _engine_call(self, "get_manual_action_hotkeys", {}) or {}
+        labels = _engine_attr(self, "HOTKEY_ACTION_LABELS", {})
         for action, button in button_map.items():
-            title = str(button_titles.get(action, engine.HOTKEY_ACTION_LABELS.get(action, action)) or action)
+            title = str(button_titles.get(action, labels.get(action, action)) or action)
             binding = str(configured.get(action, "") or "").strip()
             button.setText(f"{title}\n{binding}" if binding else title)
 
     def hotkey_catalog(self):
-        engine = _engine()
+        labels = _engine_attr(self, "HOTKEY_ACTION_LABELS", {})
         entries = [
             {
                 "action": "push_to_talk",
-                "label": str(engine.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
-                "binding": engine.get_push_to_talk_hotkey(),
-                "default_binding": str(engine.DEFAULT_PUSH_TO_TALK_HOTKEY),
+                "label": str(labels.get("push_to_talk", "Push-to-Talk")),
+                "binding": _engine_call(self, "get_push_to_talk_hotkey", "Right Ctrl"),
+                "default_binding": str(_engine_attr(self, "DEFAULT_PUSH_TO_TALK_HOTKEY", "Right Ctrl")),
                 "category": "input",
                 "scope": "global",
                 "description": "Hold this key to talk while input mode is Push-to-Talk.",
             }
         ]
-        manual_bindings = engine.get_manual_action_hotkeys()
-        for action, default_binding in engine.DEFAULT_MANUAL_ACTION_HOTKEYS.items():
+        manual_bindings = _engine_call(self, "get_manual_action_hotkeys", {}) or {}
+        for action, default_binding in (_engine_attr(self, "DEFAULT_MANUAL_ACTION_HOTKEYS", {}) or {}).items():
             entries.append(
                 {
                     "action": action,
-                    "label": str(engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                    "label": str(labels.get(action, action)),
                     "binding": str(manual_bindings.get(action, "") or ""),
                     "default_binding": str(default_binding or ""),
                     "category": "manual_controls",
@@ -133,12 +142,12 @@ class BackendHotkeyMixin:
                     "description": "Manual runtime control handled by the core hotkey spine.",
                 }
             )
-        ui_bindings = engine.get_ui_action_hotkeys()
-        for action, default_binding in engine.DEFAULT_UI_ACTION_HOTKEYS.items():
+        ui_bindings = _engine_call(self, "get_ui_action_hotkeys", {}) or {}
+        for action, default_binding in (_engine_attr(self, "DEFAULT_UI_ACTION_HOTKEYS", {}) or {}).items():
             entries.append(
                 {
                     "action": action,
-                    "label": str(engine.HOTKEY_ACTION_LABELS.get(action, action)),
+                    "label": str(labels.get(action, action)),
                     "binding": str(ui_bindings.get(action, "") or ""),
                     "default_binding": str(default_binding or ""),
                     "category": "ui_actions",
@@ -149,15 +158,16 @@ class BackendHotkeyMixin:
         return entries
 
     def set_hotkey_binding(self, action, binding):
-        engine = _engine()
         action_key = str(action or "").strip()
-        binding_text = engine.normalize_hotkey_text(binding)
+        normalize = _engine_attr(self, "normalize_hotkey_text", lambda value: str(value or "").strip())
+        binding_text = normalize(binding)
         if action_key == "push_to_talk":
-            value = engine.set_push_to_talk_hotkey(binding_text or engine.DEFAULT_PUSH_TO_TALK_HOTKEY)
-        elif action_key in engine.DEFAULT_MANUAL_ACTION_HOTKEYS:
-            value = engine.set_manual_action_hotkey(action_key, binding_text)
-        elif action_key in engine.DEFAULT_UI_ACTION_HOTKEYS:
-            value = engine.set_ui_action_hotkey(action_key, binding_text)
+            default_binding = _engine_attr(self, "DEFAULT_PUSH_TO_TALK_HOTKEY", "Right Ctrl")
+            value = _engine_call(self, "set_push_to_talk_hotkey", default_binding, binding_text or default_binding)
+        elif action_key in (_engine_attr(self, "DEFAULT_MANUAL_ACTION_HOTKEYS", {}) or {}):
+            value = _engine_call(self, "set_manual_action_hotkey", binding_text, action_key, binding_text)
+        elif action_key in (_engine_attr(self, "DEFAULT_UI_ACTION_HOTKEYS", {}) or {}):
+            value = _engine_call(self, "set_ui_action_hotkey", binding_text, action_key, binding_text)
         else:
             raise KeyError(f"Unknown hotkey action: {action_key}")
         self._refresh_hotkey_shortcuts()
@@ -166,7 +176,7 @@ class BackendHotkeyMixin:
         return value
 
     def reset_hotkey_bindings(self):
-        bindings = _engine().reset_hotkeys_to_defaults()
+        bindings = _engine_call(self, "reset_hotkeys_to_defaults", {}) or {}
         self._refresh_hotkey_shortcuts()
         self._refresh_hotkey_labels()
         self.save_session()
