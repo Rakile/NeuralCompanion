@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import avatar_hand_state, avatar_runtime, sensory, chat_providers, user_image_turns
+from core import avatar_hand_state, avatar_runtime, sensory, chat_providers, engine_access, user_image_turns
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
@@ -78,9 +78,7 @@ class QtRuntimeConfigService:
         self._window = window
 
     def _engine(self):
-        import engine
-
-        return engine
+        return engine_access.engine_module()
 
     def snapshot(self) -> dict:
         return dict(getattr(self._engine(), "RUNTIME_CONFIG", {}) or {})
