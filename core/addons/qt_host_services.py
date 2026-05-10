@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core import avatar_hand_state, avatar_runtime, sensory, chat_providers
+from core import avatar_hand_state, avatar_runtime, sensory, chat_providers, user_image_turns
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
@@ -102,19 +102,14 @@ class QtUserImageTurnService:
     def __init__(self, window):
         self._window = window
 
-    def _engine(self):
-        import engine
-
-        return engine
-
     def clear_pending_attachment(self) -> None:
-        self._engine().clear_pending_user_image_attachment()
+        user_image_turns.clear_pending_attachment()
 
     def set_pending_attachment(self, image_path: str, *, source: str = "clipboard") -> None:
-        self._engine().set_pending_user_image_attachment(str(image_path or ""), source=str(source or "clipboard"))
+        user_image_turns.set_pending_attachment(str(image_path or ""), source=str(source or "clipboard"))
 
     def queue_image_turn(self, image_path: str, *, content: str | None = None, source: str = "clipboard") -> None:
-        self._engine().queue_user_image_turn(str(image_path or ""), content=content, source=str(source or "clipboard"))
+        user_image_turns.queue_image_turn(str(image_path or ""), content=content, source=str(source or "clipboard"))
 
 
 class QtHandCalibrationService:

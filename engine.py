@@ -46,7 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
+from core import sensory, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -246,7 +246,6 @@ assistant_memory = {
 }
 chat_session_state_generation = 0
 pending_loaded_input_turn = None
-pending_next_user_attachment = None
 CHAT_REBUILD_SENTINEL = "[[CHAT_REBUILD]]"
 
 
@@ -3048,9 +3047,9 @@ def reset_session_state():
 
 
 def reset_chat_runtime_state():
-    global last_resume_requested_at, pending_loaded_input_turn, pending_next_user_attachment
+    global last_resume_requested_at, pending_loaded_input_turn
     pending_loaded_input_turn = None
-    pending_next_user_attachment = None
+    user_image_turns.clear_pending_attachment()
     _clear_pending_hidden_proactive_candidate()
     _clear_active_hidden_proactive_candidate()
     stop_playback.set()
@@ -3092,43 +3091,19 @@ def _sanitize_chat_turn(entry):
 
 
 def set_pending_user_image_attachment(image_path, *, source="clipboard"):
-    global pending_next_user_attachment
-    path = os.path.abspath(str(image_path or "").strip())
-    if not path or not os.path.isfile(path):
-        raise ValueError("Image path does not exist.")
-    pending_next_user_attachment = {
-        "attachment_image_path": path,
-        "attachment_source": str(source or "image").strip().lower() or "image",
-    }
-    print(f"📋 [Clipboard] Pending image attachment armed for next user turn: {path}")
-    return dict(pending_next_user_attachment)
+    return user_image_turns.set_pending_attachment(image_path, source=source)
 
 
 def clear_pending_user_image_attachment():
-    global pending_next_user_attachment
-    pending_next_user_attachment = None
+    user_image_turns.clear_pending_attachment()
 
 
 def queue_user_image_turn(image_path, *, content=None, source="clipboard"):
-    global pending_loaded_input_turn, conversation_history
-    path = os.path.abspath(str(image_path or "").strip())
-    if not path or not os.path.isfile(path):
-        raise ValueError("Image path does not exist.")
-    turn = _sanitize_chat_turn({
-        "role": "user",
-        "content": str(content or "").strip() or "Please respond to the image I just sent you.",
-        "origin": "input",
-        "attachment_image_path": path,
-        "attachment_source": str(source or "image").strip().lower() or "image",
-    })
-    if not turn:
-        raise ValueError("Could not prepare image input turn.")
-    conversation_history.append(dict(turn))
-    _apply_stored_chat_history_limit()
-    pending_loaded_input_turn = dict(turn)
-    print(f"📋 [Clipboard] Queued image input for next model request: {path}")
-    _request_chat_view_rebuild()
-    return dict(turn)
+    return user_image_turns.queue_image_turn(
+        image_path,
+        content=content,
+        source=source,
+    )
 
 
 def export_chat_session_state():
@@ -4501,10 +4476,28 @@ def _request_chat_view_rebuild():
     print(CHAT_REBUILD_SENTINEL)
 
 
+def _append_chat_turn(turn):
+    conversation_history.append(dict(turn))
+
+
+def _set_pending_loaded_input_turn(turn):
+    global pending_loaded_input_turn
+    pending_loaded_input_turn = dict(turn)
+
+
 def _apply_stored_chat_history_limit():
     global conversation_history
     limit = _stored_chat_history_limit()
     conversation_history = conversation_history_runtime.apply_stored_chat_history_limit(conversation_history, limit)
+
+
+user_image_turns.configure_queue_runtime(
+    sanitize_chat_turn=_sanitize_chat_turn,
+    append_chat_turn=_append_chat_turn,
+    apply_stored_chat_history_limit=_apply_stored_chat_history_limit,
+    set_pending_loaded_input_turn=_set_pending_loaded_input_turn,
+    request_chat_view_rebuild=_request_chat_view_rebuild,
+)
 
 
 def _chat_context_overflow_policy():
@@ -5270,9 +5263,10 @@ def run_conversation_flow(source):
                     else:
                         print(f"💬 You: {content}")
                     input_turn = {"role": role, "content": content, "origin": "input"}
-                    if role == "user" and not is_placeholder and pending_next_user_attachment:
-                        attachment_image_path = str(pending_next_user_attachment.get("attachment_image_path", "") or "").strip()
-                        attachment_source = str(pending_next_user_attachment.get("attachment_source", "image") or "image")
+                    pending_attachment = user_image_turns.pending_attachment()
+                    if role == "user" and not is_placeholder and pending_attachment:
+                        attachment_image_path = str(pending_attachment.get("attachment_image_path", "") or "").strip()
+                        attachment_source = str(pending_attachment.get("attachment_source", "image") or "image")
                         clipboard_source_enabled = "clipboard" in _sensory_feedback_sources()
                         if attachment_source == "clipboard" and not clipboard_source_enabled:
                             print("📋 [Clipboard] Skipped pending clipboard image because Clipboard source is disabled.")
