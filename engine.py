@@ -45,7 +45,7 @@ import gc
 import importlib
 import dry_run
 import app_help
-from addons.musetalk_avatar import state as musetalk_state
+import shared_state as musetalk_state
 from addons.visual_reply import generation as visual_reply_generation
 from addons.visual_reply import runtime_config as visual_reply_runtime
 from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
