@@ -35,11 +35,6 @@ DEFAULT_UI_ACTION_HOTKEYS = {
     "reset_chat_session": "",
     "clear_console": "",
     "clear_chat": "",
-    "show_musetalk_preview": "",
-    "toggle_musetalk_avatar_focus": "",
-    "show_visual_reply": "",
-    "start_vam_desktop": "",
-    "start_vam_vr": "",
 }
 HOTKEY_ACTION_LABELS = {
     "push_to_talk": "Push-to-Talk",
@@ -55,11 +50,6 @@ HOTKEY_ACTION_LABELS = {
     "reset_chat_session": "Reset Chat Memory",
     "clear_console": "Clear Console",
     "clear_chat": "Clear Chat",
-    "show_musetalk_preview": "Show MuseTalk Preview",
-    "toggle_musetalk_avatar_focus": "Toggle MuseTalk Avatar Focus",
-    "show_visual_reply": "Show Visual Reply",
-    "start_vam_desktop": "Start VaM Desktop",
-    "start_vam_vr": "Start VaM VR",
 }
 
 PYNPUT_HOTKEY_AVAILABLE = pynput_keyboard is not None
@@ -342,6 +332,20 @@ def normalize_ui_action_hotkeys(raw):
                 continue
             result[key] = normalize_hotkey_text(binding)
     return result
+
+
+def register_ui_action_hotkeys(actions=None, labels=None):
+    for action, default_binding in dict(actions or {}).items():
+        key = str(action or "").strip()
+        if not key:
+            continue
+        DEFAULT_UI_ACTION_HOTKEYS[key] = normalize_hotkey_text(default_binding)
+    for action, label in dict(labels or {}).items():
+        key = str(action or "").strip()
+        if not key:
+            continue
+        HOTKEY_ACTION_LABELS[key] = str(label or key)
+    return dict(DEFAULT_UI_ACTION_HOTKEYS)
 
 
 class HotkeyRuntimeService(RuntimeService):

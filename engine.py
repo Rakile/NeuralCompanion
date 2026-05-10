@@ -165,6 +165,13 @@ def _normalize_ui_action_hotkeys(raw):
     return runtime_hotkeys.normalize_ui_action_hotkeys(raw)
 
 
+def register_ui_hotkey_actions(actions=None, labels=None):
+    defaults = runtime_hotkeys.register_ui_action_hotkeys(actions, labels)
+    current = _normalize_ui_action_hotkeys(RUNTIME_CONFIG.get("ui_action_hotkeys", defaults))
+    update_runtime_config("ui_action_hotkeys", current)
+    return defaults
+
+
 def get_push_to_talk_hotkey():
     configured = normalize_hotkey_text(RUNTIME_CONFIG.get("push_to_talk_hotkey", DEFAULT_PUSH_TO_TALK_HOTKEY))
     return configured or DEFAULT_PUSH_TO_TALK_HOTKEY

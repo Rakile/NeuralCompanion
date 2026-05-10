@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 
 from core.addons import BaseAddon
+from addons.hotkeys import actions
 
 
 def _load_controller_class():
@@ -18,6 +19,10 @@ def _load_controller_class():
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
+        runtime_config = context.get_service("qt.runtime_config")
+        registrar = getattr(runtime_config, "engine_attr", lambda *_args, **_kwargs: None)("register_ui_hotkey_actions", None)
+        if callable(registrar):
+            registrar(actions.UI_ACTION_HOTKEYS, actions.UI_ACTION_LABELS)
         controller_cls = _load_controller_class()
         self.controller = controller_cls(context)
         context.ui.register_manifest_designer_tab(

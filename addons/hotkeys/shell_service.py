@@ -9,8 +9,13 @@ class _UiShellHotkeyService:
     def list_bindings(self):
         try:
             from core import runtime_hotkeys as _hotkeys
+            from addons.hotkeys import actions
 
             session = self._session_snapshot()
+            ui_defaults = dict(_hotkeys.DEFAULT_UI_ACTION_HOTKEYS)
+            ui_defaults.update(actions.UI_ACTION_HOTKEYS)
+            labels = dict(_hotkeys.HOTKEY_ACTION_LABELS)
+            labels.update(actions.UI_ACTION_LABELS)
             push_to_talk = _hotkeys.normalize_hotkey_text(
                 session.get("push_to_talk_hotkey", _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY)
             ) or _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY
@@ -18,12 +23,12 @@ class _UiShellHotkeyService:
                 session.get("manual_action_hotkeys", _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS)
             )
             ui_bindings = _hotkeys.normalize_ui_action_hotkeys(
-                session.get("ui_action_hotkeys", _hotkeys.DEFAULT_UI_ACTION_HOTKEYS)
+                session.get("ui_action_hotkeys", ui_defaults)
             )
             entries = [
                 {
                     "action": "push_to_talk",
-                    "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get("push_to_talk", "Push-to-Talk")),
+                    "label": str(labels.get("push_to_talk", "Push-to-Talk")),
                     "binding": str(push_to_talk or ""),
                     "default_binding": str(_hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY),
                     "category": "input",
@@ -35,7 +40,7 @@ class _UiShellHotkeyService:
                 entries.append(
                     {
                         "action": action,
-                        "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "label": str(labels.get(action, action)),
                         "binding": str(manual_bindings.get(action, "") or ""),
                         "default_binding": str(default_binding or ""),
                         "category": "manual_controls",
@@ -43,11 +48,11 @@ class _UiShellHotkeyService:
                         "description": "Read-only shell preview of a manual control binding.",
                     }
                 )
-            for action, default_binding in _hotkeys.DEFAULT_UI_ACTION_HOTKEYS.items():
+            for action, default_binding in ui_defaults.items():
                 entries.append(
                     {
                         "action": action,
-                        "label": str(_hotkeys.HOTKEY_ACTION_LABELS.get(action, action)),
+                        "label": str(labels.get(action, action)),
                         "binding": str(ui_bindings.get(action, "") or ""),
                         "default_binding": str(default_binding or ""),
                         "category": "ui_actions",
