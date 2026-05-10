@@ -112,6 +112,16 @@ class Addon(BaseAddon):
                 legacy_map=payload.get("legacy_map") or {},
                 legacy_transitions=payload.get("legacy_transitions") or {},
             )
+        if capability == "ui.preview_panel_exports":
+            from addons.musetalk_avatar import preview_panel
+
+            return {
+                "QT_MUSETALK_LOOP_FADE_MS": preview_panel.QT_MUSETALK_LOOP_FADE_MS,
+                "QT_PREVIEW_AHEAD_PRELOAD": preview_panel.QT_PREVIEW_AHEAD_PRELOAD,
+                "QT_PREVIEW_CACHE_LIMIT": preview_panel.QT_PREVIEW_CACHE_LIMIT,
+                "QT_PREVIEW_INITIAL_PRELOAD": preview_panel.QT_PREVIEW_INITIAL_PRELOAD,
+                "QtMuseTalkPreviewPanel": preview_panel.QtMuseTalkPreviewPanel,
+            }
         from addons.musetalk_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib" and backend is not None:

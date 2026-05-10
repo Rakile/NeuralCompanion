@@ -45,6 +45,10 @@ class Addon(BaseAddon):
     def invoke_capability(self, capability, payload=None):
         capability = str(capability or "").strip()
         payload = dict(payload or {})
+        if capability == "ui.hand_doctor_dialog_class":
+            from addons.vseeface_avatar.hand_doctor_dialog import HandDoctorDialog
+
+            return HandDoctorDialog
         if capability == "runtime.estimate_overhead_gib":
             from addons.vseeface_avatar import real_ui_bridge
 

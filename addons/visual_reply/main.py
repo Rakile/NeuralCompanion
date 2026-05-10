@@ -82,6 +82,10 @@ class Addon(BaseAddon):
                 environ=payload.get("environ"),
                 output_dir=payload.get("output_dir"),
             )
+        if capability == "ui.panel_class":
+            from addons.visual_reply.controller import AddonVisualReplyPanel
+
+            return AddonVisualReplyPanel
         if capability == "runtime.apply_settings":
             from addons.visual_reply import real_ui_bridge
 
