@@ -305,11 +305,15 @@ class Addon(BaseAddon):
         import engine
         return engine
 
+    def _runtime_config_service(self):
+        return self.context.get_service("qt.runtime_config") if getattr(self, "context", None) is not None else None
+
     def _source_is_enabled(self) -> bool:
         if getattr(self, "_shell_preview", False):
             return False
         try:
-            raw_value = self._engine_module().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
+            service = self._runtime_config_service()
+            raw_value = service.get("sensory_feedback_source", "off") if service is not None else "off"
         except Exception:
             return False
         if isinstance(raw_value, (list, tuple, set)):

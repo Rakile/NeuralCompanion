@@ -74,6 +74,15 @@ class ChatterboxTTSService:
         self._model = None
         self.sr = 24000
 
+    def _runtime_config_service(self):
+        return self._context.get_service("qt.runtime_config") if self._context is not None else None
+
+    def _engine_attr(self, name: str, default=None):
+        service = self._runtime_config_service()
+        if service is not None and hasattr(service, "engine_attr"):
+            return service.engine_attr(name, default)
+        return default
+
     def _install_abort_hook(self, model):
         if bool(getattr(model, "_nc_abort_hook_installed", False)):
             return
@@ -98,10 +107,9 @@ class ChatterboxTTSService:
             if self._model is not None:
                 return self._model
             from chatterbox.tts_turbo import ChatterboxTurboTTS
-            import engine
 
             self._abort_event.clear()
-            self._model = ChatterboxTurboTTS.from_pretrained(device=getattr(engine, "TTS_DEVICE", "cpu"))
+            self._model = ChatterboxTurboTTS.from_pretrained(device=self._engine_attr("TTS_DEVICE", "cpu"))
             self._install_abort_hook(self._model)
             self.sr = int(getattr(self._model, "sr", self.sr) or self.sr or 24000)
             return self._model
@@ -115,9 +123,8 @@ class ChatterboxTTSService:
         if audio_prompt_path is not None:
             request.setdefault("audio_prompt_path", audio_prompt_path)
         elif "audio_prompt_path" not in request:
-            import engine
-
-            voice_path = str(engine.RUNTIME_CONFIG.get("voice_path", "") or "").strip()
+            service = self._runtime_config_service()
+            voice_path = str((service.get("voice_path", "") if service is not None else "") or "").strip()
             if voice_path and os.path.exists(voice_path):
                 request["audio_prompt_path"] = voice_path
             elif voice_path:

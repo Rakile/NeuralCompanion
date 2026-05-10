@@ -20,10 +20,14 @@ class PocketTTSController:
         self._python_edit = None
         self._bundled_label = None
 
-    def _engine(self):
-        import engine
+    def _runtime_config_service(self):
+        return self.context.get_service("qt.runtime_config") if self.context is not None else None
 
-        return engine
+    def _default_python(self) -> str:
+        service = self._runtime_config_service()
+        if service is None or not hasattr(service, "engine_attr"):
+            return ""
+        return str(service.engine_attr("DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
 
     def _initial_shell_python(self) -> str:
         if not self._shell_preview:
@@ -45,26 +49,28 @@ class PocketTTSController:
     def _current_python(self) -> str:
         if self._shell_preview:
             return str(self._shell_python or "").strip()
-        engine = self._engine()
-        return str(engine.RUNTIME_CONFIG.get("pocket_tts_python", "") or "").strip()
+        service = self._runtime_config_service()
+        if service is None:
+            return ""
+        return str(service.get("pocket_tts_python", "") or "").strip()
 
     def _set_python(self, value: str):
         if self._shell_preview:
             self._shell_python = str(value or "").strip()
             self._notify_settings_changed()
             return
-        engine = self._engine()
-        engine.update_runtime_config("pocket_tts_python", str(value or "").strip())
+        service = self._runtime_config_service()
+        if service is not None:
+            service.update("pocket_tts_python", str(value or "").strip())
         self._notify_settings_changed()
 
     def _ensure_default_python(self):
         if self._shell_preview:
             return self._current_python()
-        engine = self._engine()
         current = self._current_python()
         if current:
             return current
-        fallback = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+        fallback = self._default_python()
         if fallback and Path(fallback).exists():
             if self._python_edit is not None:
                 self._python_edit.setText(fallback)
@@ -128,8 +134,7 @@ class PocketTTSController:
             self._set_python("")
             self._toggle_advanced(self._advanced_toggle.isChecked() if self._widget_alive(self._advanced_toggle) else False)
             return
-        engine = self._engine()
-        fallback = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+        fallback = self._default_python()
         if fallback and Path(fallback).exists() and self._widget_alive(self._python_edit):
             self._python_edit.setText(fallback)
             self._set_python(fallback)
@@ -150,7 +155,6 @@ class PocketTTSController:
 
         if widget is None:
             raise RuntimeError("PocketTTS Designer UI did not provide a widget.")
-        engine = None if self._shell_preview else self._engine()
         self._advanced_group = self._ui_child(widget, "pockettts_advanced_group", QtWidgets.QGroupBox)
         self._advanced_toggle = self._ui_child(widget, "btn_pockettts_advanced_toggle", QtWidgets.QPushButton)
         self._python_edit = self._ui_child(widget, "pockettts_python_edit", QtWidgets.QLineEdit)
@@ -171,8 +175,8 @@ class PocketTTSController:
             raise RuntimeError("PocketTTS Designer UI is missing one or more required controls.")
 
         bundled_text = "Shell preview: bundled interpreter lookup is disabled."
-        if engine is not None:
-            bundled_text = str(getattr(engine, "DEFAULT_POCKET_TTS_PYTHON", "") or "").strip() or "Bundled PocketTTS interpreter not found."
+        if not self._shell_preview:
+            bundled_text = self._default_python() or "Bundled PocketTTS interpreter not found."
         self._bundled_label.setText(f"Bundled interpreter: {bundled_text}")
         self._python_edit.setPlaceholderText("Optional override path to PocketTTS python.exe")
         self._python_edit.editingFinished.connect(lambda: self._set_python(self._python_edit.text()))

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from core.addons.qt_host_services import QtRuntimeConfigService
+
 from addons.musetalk_avatar import state as musetalk_state
 
 
@@ -15,6 +17,7 @@ class QtMuseTalkUIService:
 
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def _preview_widget(self):
         return getattr(self._window, "embedded_musetalk_preview", None)
@@ -67,10 +70,8 @@ class QtMuseTalkUIService:
         return "quality"
 
     def export_avatar_runtime_settings(self):
-        import engine
-
-        runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
-        default_fade = int(getattr(engine, "QT_MUSETALK_LOOP_FADE_MS", 150) or 150)
+        runtime = self._runtime_config.snapshot()
+        default_fade = int(self._runtime_config.engine_attr("QT_MUSETALK_LOOP_FADE_MS", 150) or 150)
         return {
             "musetalk_avatar_pack_id": self._combo_data("musetalk_avatar_pack_combo", runtime.get("musetalk_avatar_pack_id", "")),
             "musetalk_vram_mode": self._vram_key_from_label(self._combo_text("musetalk_vram_combo", self._VRAM_LABELS.get(str(runtime.get("musetalk_vram_mode", "quality") or "quality"), "Quality"))),
@@ -141,8 +142,6 @@ class QtMuseTalkUIService:
                 pass
 
     def import_avatar_runtime_settings(self, payload):
-        import engine
-
         data = dict(payload or {})
         keys = {
             "musetalk_avatar_pack_id",
@@ -154,21 +153,21 @@ class QtMuseTalkUIService:
             return None
         if "musetalk_avatar_pack_id" in data:
             pack_id = str(data.get("musetalk_avatar_pack_id") or "").strip()
-            engine.update_runtime_config("musetalk_avatar_pack_id", pack_id)
+            self._runtime_config.update("musetalk_avatar_pack_id", pack_id)
             self._select_avatar_pack_quietly(pack_id)
         if "musetalk_vram_mode" in data:
             mode = str(data.get("musetalk_vram_mode") or "quality").strip().lower()
             if mode not in self._VRAM_LABELS:
                 mode = "quality"
-            engine.update_runtime_config("musetalk_vram_mode", mode)
+            self._runtime_config.update("musetalk_vram_mode", mode)
             self._set_combo_text_quietly("musetalk_vram_combo", self._VRAM_LABELS.get(mode, "Quality"))
         if "musetalk_loop_fade_ms" in data:
             fade_ms = max(0, int(data.get("musetalk_loop_fade_ms") or 0))
-            engine.update_runtime_config("musetalk_loop_fade_ms", fade_ms)
+            self._runtime_config.update("musetalk_loop_fade_ms", fade_ms)
             self._set_spin_value_quietly("musetalk_loop_fade_spin", fade_ms)
         if "musetalk_use_frame_cache" in data:
             enabled = bool(data.get("musetalk_use_frame_cache"))
-            engine.update_runtime_config("musetalk_use_frame_cache", enabled)
+            self._runtime_config.update("musetalk_use_frame_cache", enabled)
             self._set_checked_quietly("musetalk_use_frame_cache_checkbox", enabled)
         return None
 

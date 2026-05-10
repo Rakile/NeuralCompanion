@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.addons.qt_host_services import QtRuntimeConfigService
+
 
 class QtVamAvatarService:
     _STATE_KEYS = (
@@ -17,6 +19,7 @@ class QtVamAvatarService:
 
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def _checkbox(self, name: str):
         return getattr(self._window, str(name), None)
@@ -104,15 +107,15 @@ class QtVamAvatarService:
                 pass
 
     def import_vam_settings(self, payload):
-        import engine
-
         data = dict(payload or {})
         if not any(key in data for key in self._STATE_KEYS):
             return None
 
-        raw_root = data.get("vam_root") or data.get("vam_bridge_root") or getattr(engine, "DEFAULT_VAM_ROOT", "")
-        normalized_root = engine.normalize_vam_root(raw_root)
-        bridge_root = engine.derive_vam_bridge_root(normalized_root)
+        raw_root = data.get("vam_root") or data.get("vam_bridge_root") or self._runtime_config.engine_attr("DEFAULT_VAM_ROOT", "")
+        normalize_vam_root = self._runtime_config.engine_attr("normalize_vam_root", lambda value: str(value or "").strip())
+        derive_vam_bridge_root = self._runtime_config.engine_attr("derive_vam_bridge_root", lambda value: str(value or "").strip())
+        normalized_root = normalize_vam_root(raw_root)
+        bridge_root = derive_vam_bridge_root(normalized_root)
         state = {
             "vam_root": normalized_root,
             "vam_bridge_root": bridge_root,
@@ -126,7 +129,7 @@ class QtVamAvatarService:
             "vam_timeline_auto_resume": bool(data.get("vam_timeline_auto_resume", True)),
         }
         for key, value in state.items():
-            engine.update_runtime_config(key, value)
+            self._runtime_config.update(key, value)
 
         self._set_line_text_quietly("vam_root_edit", state["vam_root"])
         self._set_line_text_quietly("vam_bridge_root_edit", state["vam_bridge_root"])

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from core.addons.qt_host_services import QtRuntimeConfigService
+
 
 class QtVisualReplyService:
     _STATE_KEYS = (
@@ -12,16 +14,13 @@ class QtVisualReplyService:
 
     def __init__(self, window):
         self._window = window
+        self._runtime_config = QtRuntimeConfigService(window)
 
     def get_runtime_config(self, key, default=None):
-        import engine
-
-        return (getattr(engine, "RUNTIME_CONFIG", {}) or {}).get(str(key), default)
+        return self._runtime_config.get(str(key), default)
 
     def update_runtime_config(self, key, value):
-        import engine
-
-        return engine.update_runtime_config(str(key), value)
+        return self._runtime_config.update(str(key), value)
 
     def export_session_state(self):
         snapshot = self.settings_snapshot()
@@ -112,10 +111,8 @@ class QtVisualReplyService:
         return self.import_session_state(preset)
 
     def settings_snapshot(self):
-        import engine
-
-        runtime = getattr(engine, "RUNTIME_CONFIG", {}) or {}
-        theme_presets = list(getattr(engine, "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
+        runtime = self._runtime_config.snapshot()
+        theme_presets = list(self._runtime_config.engine_attr("VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
         raw_theme_prompts = runtime.get("visual_reply_story_theme_prompts", {})
         if not isinstance(raw_theme_prompts, dict):
             raw_theme_prompts = {}

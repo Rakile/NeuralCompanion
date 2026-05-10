@@ -21,10 +21,8 @@ class VisualStorySettingsController:
         self.no_speech_bubbles_checkbox = None
         self.hint_label = None
 
-    def _engine(self):
-        import engine
-
-        return engine
+    def _runtime_config_service(self):
+        return self.context.get_service("qt.runtime_config") if self.context is not None else None
 
     def _visual_config_service(self):
         service = self.visual_reply_service
@@ -33,17 +31,22 @@ class VisualStorySettingsController:
         return None
 
     def _runtime_config_get(self, key, default=None):
+        runtime_config = self._runtime_config_service()
+        if runtime_config is not None:
+            return runtime_config.get(str(key), default)
         service = self._visual_config_service()
         if service is not None:
             return service.get_runtime_config(str(key), default)
-        return self._engine().RUNTIME_CONFIG.get(str(key), default)
+        return default
 
     def _runtime_config_set(self, key, value):
+        runtime_config = self._runtime_config_service()
+        if runtime_config is not None:
+            runtime_config.update(str(key), value)
+            return
         service = self._visual_config_service()
         if service is not None:
             service.update_runtime_config(str(key), value)
-            return
-        self._engine().update_runtime_config(str(key), value)
 
     def export_session_state(self):
         return {
@@ -180,7 +183,10 @@ class VisualStorySettingsController:
         service = self._visual_config_service()
         if service is not None and hasattr(service, "story_theme_presets"):
             return list(service.story_theme_presets() or ())
-        return list(getattr(self._engine(), "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
+        runtime_config = self._runtime_config_service()
+        if runtime_config is not None and hasattr(runtime_config, "engine_attr"):
+            return list(runtime_config.engine_attr("VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
+        return []
 
     def _default_theme_prompts(self):
         prompts = {}

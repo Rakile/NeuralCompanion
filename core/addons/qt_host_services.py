@@ -73,6 +73,31 @@ class QtShellService:
             self._window.save_session()
 
 
+class QtRuntimeConfigService:
+    def __init__(self, window):
+        self._window = window
+
+    def _engine(self):
+        import engine
+
+        return engine
+
+    def snapshot(self) -> dict:
+        return dict(getattr(self._engine(), "RUNTIME_CONFIG", {}) or {})
+
+    def get(self, key, default=None):
+        return (getattr(self._engine(), "RUNTIME_CONFIG", {}) or {}).get(str(key), default)
+
+    def set(self, key, value):
+        return self.update(str(key), value)
+
+    def update(self, key, value):
+        return self._engine().update_runtime_config(str(key), value)
+
+    def engine_attr(self, name: str, default=None):
+        return getattr(self._engine(), str(name), default)
+
+
 class QtRuntimeStatusService:
     def __init__(self, window):
         self._window = window

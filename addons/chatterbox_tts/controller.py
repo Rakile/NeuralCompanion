@@ -22,10 +22,8 @@ class ChatterboxTTSController:
         self._min_p_spin = None
         self._normalize_loudness_checkbox = None
 
-    def _engine(self):
-        import engine
-
-        return engine
+    def _runtime_config_service(self):
+        return self.context.get_service("qt.runtime_config") if self.context is not None else None
 
     def _initial_shell_state(self):
         if not self._shell_preview:
@@ -55,15 +53,16 @@ class ChatterboxTTSController:
     def _current_state(self):
         if self._shell_preview:
             return dict(self._shell_state)
-        engine = self._engine()
+        runtime_config = self._runtime_config_service()
+        getter = runtime_config.get if runtime_config is not None else (lambda _key, default=None: default)
         return {
-            "tts_seed": int(engine.RUNTIME_CONFIG.get("tts_seed", 0) or 0),
-            "tts_temperature": float(engine.RUNTIME_CONFIG.get("tts_temperature", 0.8) or 0.8),
-            "tts_top_p": float(engine.RUNTIME_CONFIG.get("tts_top_p", 0.9) or 0.9),
-            "tts_top_k": int(engine.RUNTIME_CONFIG.get("tts_top_k", 40) or 40),
-            "tts_repeat_penalty": float(engine.RUNTIME_CONFIG.get("tts_repeat_penalty", 1.2) or 1.2),
-            "tts_min_p": float(engine.RUNTIME_CONFIG.get("tts_min_p", 0.0) or 0.0),
-            "tts_normalize_loudness": bool(engine.RUNTIME_CONFIG.get("tts_normalize_loudness", False)),
+            "tts_seed": int(getter("tts_seed", 0) or 0),
+            "tts_temperature": float(getter("tts_temperature", 0.8) or 0.8),
+            "tts_top_p": float(getter("tts_top_p", 0.9) or 0.9),
+            "tts_top_k": int(getter("tts_top_k", 40) or 40),
+            "tts_repeat_penalty": float(getter("tts_repeat_penalty", 1.2) or 1.2),
+            "tts_min_p": float(getter("tts_min_p", 0.0) or 0.0),
+            "tts_normalize_loudness": bool(getter("tts_normalize_loudness", False)),
         }
 
     def _set_runtime(self, key: str, value):
@@ -71,8 +70,9 @@ class ChatterboxTTSController:
             self._shell_state[str(key)] = value
             self._notify_settings_changed()
             return
-        engine = self._engine()
-        engine.update_runtime_config(key, value)
+        runtime_config = self._runtime_config_service()
+        if runtime_config is not None:
+            runtime_config.update(key, value)
         self._notify_settings_changed()
 
     def _sync_widgets_from_runtime(self):
@@ -215,7 +215,6 @@ class ChatterboxTTSController:
                 self._sync_widgets_from_runtime()
                 self._notify_settings_changed()
             return None
-        engine = self._engine()
         payload = dict(session or {})
         changed = False
         mapping = {
@@ -231,7 +230,7 @@ class ChatterboxTTSController:
             if key not in payload:
                 continue
             try:
-                engine.update_runtime_config(key, converter(payload.get(key)))
+                self._set_runtime(key, converter(payload.get(key)))
                 changed = True
             except Exception:
                 pass
