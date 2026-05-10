@@ -12,7 +12,7 @@ from openai import OpenAI
 from PIL import Image, PngImagePlugin
 
 from addons.visual_reply import runtime_config, state
-from core import speech_text
+from core import speech_text, text_tags
 
 
 def output_dir() -> Path:
@@ -61,6 +61,18 @@ def client(runtime):
     if runtime_base_url:
         client_kwargs["base_url"] = runtime_base_url
     return OpenAI(**client_kwargs)
+
+
+def _sanitize_story_visual_text(text: str) -> str:
+    return speech_text.sanitize_assistant_text_for_speech(
+        text,
+        preserve_emotion_tags=False,
+        strip_visual_tail=runtime_config.strip_visual_reply_tail,
+        visual_reply_tag_re=runtime_config.VISUAL_REPLY_TAG_RE,
+        normalize_bracket_tag=text_tags.normalize_bracket_tag,
+        is_sound_tag=text_tags.is_sound_tag,
+        is_emotion_tag=lambda tag: text_tags.is_single_word_control_tag(tag) and not text_tags.is_sound_tag(tag),
+    )
 
 
 class VisualReplyGenerationService:
@@ -255,7 +267,7 @@ class VisualReplyGenerationService:
             return False
 
     def story_style_guide_from_text(self, story_text: str, continuity_strength: float = 0.8) -> str:
-        story_prompt = speech_text.sanitize_assistant_text_for_speech(story_text, preserve_emotion_tags=False)
+        story_prompt = _sanitize_story_visual_text(story_text)
         story_prompt = runtime_config.normalize_prompt_text(story_prompt)
         strength = max(0.0, min(1.0, float(continuity_strength or 0.0)))
         continuity_parts = []
@@ -281,7 +293,7 @@ class VisualReplyGenerationService:
         return f"{continuity} Story context: {story_prompt}"
 
     def story_prompt_from_text(self, prompt_text: str, emotion: str = "", story_style_guide: str = "") -> str:
-        prompt = speech_text.sanitize_assistant_text_for_speech(prompt_text, preserve_emotion_tags=False)
+        prompt = _sanitize_story_visual_text(prompt_text)
         prompt = runtime_config.normalize_prompt_text(prompt)
         if not prompt:
             return ""
