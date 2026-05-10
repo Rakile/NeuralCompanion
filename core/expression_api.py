@@ -1,4 +1,4 @@
-"""Small local HTTP API for expression and MuseTalk preview state."""
+"""Small local HTTP API for expression and avatar preview state."""
 
 import logging
 
@@ -12,14 +12,16 @@ def _load_flask_runtime():
     return Flask, jsonify, CORS
 
 
-def create_expression_api(expression_state_module, *, musetalk_state_module=None, preview_state_getter=None):
+def create_expression_api(expression_state_module, *, avatar_preview_state_module=None, musetalk_state_module=None, preview_state_getter=None):
     Flask, jsonify, CORS = _load_flask_runtime()
     if Flask is None:
         return None
-    if musetalk_state_module is None:
+    if avatar_preview_state_module is None:
+        avatar_preview_state_module = musetalk_state_module
+    if avatar_preview_state_module is None:
         # Backward-compatible path for older callers that passed one combined
-        # module carrying both expression and MuseTalk state.
-        musetalk_state_module = expression_state_module
+        # module carrying both expression and avatar preview state.
+        avatar_preview_state_module = expression_state_module
 
     app = Flask(__name__)
     if callable(CORS):
@@ -29,21 +31,29 @@ def create_expression_api(expression_state_module, *, musetalk_state_module=None
     def get_expression():
         return jsonify(getattr(expression_state_module, "current_expression_data", {}))
 
-    @app.route("/get-musetalk-preview")
-    def get_musetalk_preview():
+    def _preview_payload():
         if callable(preview_state_getter):
             try:
-                return jsonify(dict(preview_state_getter() or {}))
+                return dict(preview_state_getter() or {})
             except Exception:
                 pass
-        return jsonify(getattr(musetalk_state_module, "current_musetalk_frame_data", {}))
+        return getattr(avatar_preview_state_module, "current_musetalk_frame_data", {})
+
+    @app.route("/get-avatar-preview")
+    def get_avatar_preview():
+        return jsonify(_preview_payload())
+
+    @app.route("/get-musetalk-preview")
+    def get_musetalk_preview():
+        return jsonify(_preview_payload())
 
     return app
 
 
-def start_expression_api(expression_state_module, *, musetalk_state_module=None, preview_state_getter=None, port=5005):
+def start_expression_api(expression_state_module, *, avatar_preview_state_module=None, musetalk_state_module=None, preview_state_getter=None, port=5005):
     app = create_expression_api(
         expression_state_module,
+        avatar_preview_state_module=avatar_preview_state_module,
         musetalk_state_module=musetalk_state_module,
         preview_state_getter=preview_state_getter,
     )

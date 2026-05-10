@@ -316,7 +316,7 @@ class Addon(BaseAddon):
         return MuseTalkAdapter(
             runtime_config=runtime_context.runtime_config,
             invalidate_available_emotion_names_fn=runtime_context.get("invalidate_available_emotion_names_fn"),
-            musetalk_state_module=runtime_context.get("musetalk_state_module"),
+            musetalk_state_module=runtime_context.get("avatar_preview_state_module", runtime_context.get("musetalk_state_module")),
             log_memory_checkpoint_fn=runtime_context.get("log_memory_checkpoint_fn"),
             stop_flag_event=runtime_context.get("stop_flag_event"),
             stop_playback_event=runtime_context.get("stop_playback_event"),

@@ -13,6 +13,9 @@ def _runtime_config():
     return engine.RUNTIME_CONFIG
 
 class BackendWorkspaceFocusMixin:
+    def _avatar_tools_tabs(self):
+        return getattr(self, "musetalk_tabs", None)
+
     def _current_ui_focus_path(self):
         path = []
         top_title = ""
@@ -22,10 +25,11 @@ class BackendWorkspaceFocusMixin:
                 top_title = str(self.tabs.tabText(top_index) or "").strip()
                 if top_title:
                     path.append(top_title)
-        if top_title.lower() == "musetalk" and hasattr(self, "musetalk_tabs"):
-            nested_index = self.musetalk_tabs.currentIndex()
+        avatar_tools_tabs = self._avatar_tools_tabs()
+        if top_title.lower() == "musetalk" and avatar_tools_tabs is not None:
+            nested_index = avatar_tools_tabs.currentIndex()
             if nested_index >= 0:
-                nested_title = str(self.musetalk_tabs.tabText(nested_index) or "").strip()
+                nested_title = str(avatar_tools_tabs.tabText(nested_index) or "").strip()
                 if nested_title:
                     path.append(nested_title)
         return path
@@ -54,11 +58,13 @@ class BackendWorkspaceFocusMixin:
             current_title=current_title,
         )
 
-    def _on_musetalk_tab_changed(self, index):
-        if not hasattr(self, "musetalk_tabs"):
+    def _on_avatar_tools_tab_changed(self, index):
+        avatar_tools_tabs = self._avatar_tools_tabs()
+        if avatar_tools_tabs is None:
             return
-        current_title = str(self.musetalk_tabs.tabText(index) or "").strip()
-        previous_title = getattr(self, "_last_musetalk_tab_title", "")
+        current_title = str(avatar_tools_tabs.tabText(index) or "").strip()
+        previous_title = getattr(self, "_last_avatar_tools_tab_title", getattr(self, "_last_musetalk_tab_title", ""))
+        self._last_avatar_tools_tab_title = current_title
         self._last_musetalk_tab_title = current_title
         self._emit_tab_focus_changed_event(
             scope="nested",
@@ -66,6 +72,9 @@ class BackendWorkspaceFocusMixin:
             previous_title=previous_title,
             current_title=current_title,
         )
+
+    def _on_musetalk_tab_changed(self, index):
+        return self._on_avatar_tools_tab_changed(index)
 
     def _sync_tab_widget_height(self, tabs):
         if tabs is None:

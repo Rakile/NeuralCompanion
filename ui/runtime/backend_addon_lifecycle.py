@@ -40,7 +40,7 @@ class BackendAddonLifecycleMixin:
             self._mount_addon_tabs()
             self._mount_host_settings_addon_tabs()
             self._mount_operational_view_addon_tabs()
-            self._mount_musetalk_addon_tabs()
+            self._mount_avatar_tools_addon_tabs()
             self._apply_disabled_addon_surfaces()
             self._refresh_addons_management_ui()
             loaded = [record.manifest.id for record in manager.get_loaded_addons() if record.state == "initialized"]

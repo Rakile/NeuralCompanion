@@ -27,12 +27,15 @@ def build_avatar_runtime_context(
     default_vam_timeline_clip_map: dict[str, Any],
     audio_segment_cls: type | None,
     invalidate_available_emotion_names_fn: Callable[[], None],
-    musetalk_state_module: Any,
+    avatar_preview_state_module: Any = None,
+    musetalk_state_module: Any = None,
     log_memory_checkpoint_fn: Callable[..., None],
     stop_flag_event: Any,
     stop_playback_event: Any,
     dry_run_module: Any,
 ) -> avatar_runtime.AvatarRuntimeContext:
+    if avatar_preview_state_module is None:
+        avatar_preview_state_module = musetalk_state_module
     return avatar_runtime.AvatarRuntimeContext(
         runtime_config=runtime_config,
         dependencies={
@@ -49,7 +52,8 @@ def build_avatar_runtime_context(
             "default_vam_timeline_clip_map": default_vam_timeline_clip_map,
             "audio_segment_cls": audio_segment_cls,
             "invalidate_available_emotion_names_fn": invalidate_available_emotion_names_fn,
-            "musetalk_state_module": musetalk_state_module,
+            "avatar_preview_state_module": avatar_preview_state_module,
+            "musetalk_state_module": avatar_preview_state_module,
             "log_memory_checkpoint_fn": log_memory_checkpoint_fn,
             "stop_flag_event": stop_flag_event,
             "stop_playback_event": stop_playback_event,

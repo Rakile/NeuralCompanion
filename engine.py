@@ -5643,7 +5643,7 @@ def create_avatar_adapter_for_mode(avatar_mode: str):
         default_vam_timeline_clip_map=DEFAULT_VAM_TIMELINE_CLIP_MAP,
         audio_segment_cls=AudioSegment,
         invalidate_available_emotion_names_fn=invalidate_available_emotion_names,
-        musetalk_state_module=musetalk_state,
+        avatar_preview_state_module=musetalk_state,
         log_memory_checkpoint_fn=log_musetalk_memory_checkpoint,
         stop_flag_event=stop_flag,
         stop_playback_event=stop_playback,
