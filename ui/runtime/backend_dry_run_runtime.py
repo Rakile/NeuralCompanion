@@ -24,13 +24,13 @@ BASE_PERFORMANCE_PROFILE_APPLY_KEYS = {
 
 
 def _runtime_config():
-    import engine
+    from ui.runtime import engine_access as engine
 
     return engine.RUNTIME_CONFIG
 
 
 def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+    from ui.runtime.engine_access import update_runtime_config
 
     return update_runtime_config(key, value)
 

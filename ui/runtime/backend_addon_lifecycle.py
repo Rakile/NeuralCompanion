@@ -12,7 +12,7 @@ from ui.runtime.addon_host_services import build_qt_host_services
 
 class BackendAddonLifecycleMixin:
     def _initialize_addons(self):
-        import engine
+        from ui.runtime import engine_access as engine
         from core.addons.manager import AddonManager
 
         try:

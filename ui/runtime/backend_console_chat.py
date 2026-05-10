@@ -9,14 +9,11 @@ import shared_state as musetalk_state
 from core.addons.qt_host_services import QtDialogService
 
 
-def _engine():
-    import engine as engine_module
-
-    return engine_module
+from ui.runtime.engine_access import engine_module as _engine
 
 
 def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
-    from engine import replace_chat_conversation_history
+    from ui.runtime.engine_access import replace_chat_conversation_history
 
     return replace_chat_conversation_history(
         entries,

@@ -1,6 +1,6 @@
 """Theme helpers and theme application behavior for the Qt main window."""
 
-from engine import RUNTIME_CONFIG, update_runtime_config
+from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
 from ui.theme_support import (
     APP_THEME_PRESET_LABELS,
     APP_THEME_PRESET_WIDGETS,

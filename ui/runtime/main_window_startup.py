@@ -6,12 +6,12 @@ import threading
 
 from PySide6 import QtCore
 
-import engine
+from ui.runtime import engine_access as engine
 import shared_state as musetalk_state
 import tutorial_framework
 from core import expression_state
 from core.expression_api import start_expression_api
-from engine import RUNTIME_CONFIG
+from ui.runtime.engine_access import RUNTIME_CONFIG
 from ui.runtime.console_redirect import QtConsoleBridge, QtTextRedirector
 from ui.runtime.main_window_theme import (
     DEFAULT_APP_THEME_PRESET,

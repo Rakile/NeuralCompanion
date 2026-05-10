@@ -20,7 +20,7 @@ try:
 except Exception:  # pragma: no cover - defensive for tooling without full PySide install
     shiboken6 = None
 
-import engine
+from ui.runtime import engine_access as engine
 import shared_state as musetalk_state
 import shared_state as visual_reply_state
 from core import expression_state
@@ -47,7 +47,7 @@ from core.addons.qt_host_services import (
     QtShellService,
     QtTutorialService,
 )
-from engine import (
+from ui.runtime.engine_access import (
     AVATAR_PROFILE,
     HAND_CALIBRATION,
     RUNTIME_CONFIG,

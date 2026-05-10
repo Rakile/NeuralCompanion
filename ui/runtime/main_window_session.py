@@ -8,8 +8,8 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
-import engine
-from engine import RUNTIME_CONFIG, update_runtime_config
+from ui.runtime import engine_access as engine
+from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
 
 SESSION_PATH = Path("qt_session.json")

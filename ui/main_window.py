@@ -7,7 +7,7 @@ in focused mixins under ui.runtime.
 
 from PySide6 import QtWidgets
 
-from engine import update_runtime_config
+from ui.runtime.engine_access import update_runtime_config
 from ui.runtime.backend_addon_mounts import BackendAddonMountMixin
 from ui.runtime.backend_avatar_runtime import BackendAvatarRuntimeMixin
 from ui.runtime.backend_chat_runtime import BackendChatRuntimeMixin

@@ -6,10 +6,7 @@ import shared_state as musetalk_state
 from core.runtime_status import build_runtime_status_snapshot
 
 
-def _engine():
-    import engine
-
-    return engine
+from ui.runtime.engine_access import engine_module as _engine
 
 
 def _runtime_config():

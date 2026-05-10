@@ -11,19 +11,19 @@ DEFAULT_MAX_RESPONSE_TOKENS = 600
 
 
 def _runtime_config():
-    import engine
+    from ui.runtime import engine_access as engine
 
     return getattr(engine, "RUNTIME_CONFIG", {})
 
 
 def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+    from ui.runtime.engine_access import update_runtime_config
 
     return update_runtime_config(key, value)
 
 
 def _get_chat_models(provider=None, quiet=True):
-    from engine import get_chat_models
+    from ui.runtime.engine_access import get_chat_models
 
     return get_chat_models(provider=provider, quiet=quiet)
 

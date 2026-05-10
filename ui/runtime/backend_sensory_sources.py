@@ -3,10 +3,7 @@ from PySide6 import QtCore, QtWidgets
 from ui.widgets.basic import NoWheelTabWidget
 
 
-def _engine():
-    import engine
-
-    return engine
+from ui.runtime.engine_access import engine_module as _engine
 
 
 def _sensory():

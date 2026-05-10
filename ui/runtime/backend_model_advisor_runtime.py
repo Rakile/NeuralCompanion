@@ -22,10 +22,7 @@ MODEL_ADVISOR_STREAM_OVERHEAD_GIB = 0.5
 MODEL_ADVISOR_SAFETY_MARGIN_GIB = 1.5
 
 
-def _engine():
-    import engine
-
-    return engine
+from ui.runtime.engine_access import engine_module as _engine
 
 
 class BackendModelAdvisorRuntimeMixin:

@@ -8,7 +8,7 @@ DEFAULT_MAX_RESPONSE_TOKENS = 600
 
 def _runtime_config():
     # Imported lazily because qt_app imports this mixin before it imports engine.
-    import engine
+    from ui.runtime import engine_access as engine
 
     return engine.RUNTIME_CONFIG
 

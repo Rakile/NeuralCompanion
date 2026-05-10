@@ -3,10 +3,7 @@ import threading
 from PySide6 import QtCore
 
 
-def _engine():
-    import engine
-
-    return engine
+from ui.runtime.engine_access import engine_module as _engine
 
 
 def _runtime_config():
@@ -14,7 +11,7 @@ def _runtime_config():
 
 
 def _update_runtime_config(key, value):
-    from engine import update_runtime_config
+    from ui.runtime.engine_access import update_runtime_config
 
     return update_runtime_config(key, value)
 

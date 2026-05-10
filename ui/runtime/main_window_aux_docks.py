@@ -5,7 +5,7 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 import shared_state as visual_reply_state
-from engine import RUNTIME_CONFIG
+from ui.runtime.engine_access import RUNTIME_CONFIG
 from ui.panels.avatar_windows import QtExternalAvatarReturnWindow
 from ui.theme_support import app_theme_palette as _app_theme_palette
 

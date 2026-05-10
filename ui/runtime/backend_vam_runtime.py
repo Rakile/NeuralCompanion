@@ -1,10 +1,7 @@
 """Host shims for the VaM avatar addon runtime."""
 
 
-def _engine():
-    import engine as engine_module
-
-    return engine_module
+from ui.runtime.engine_access import engine_module as _engine
 
 
 def _runtime_config():
