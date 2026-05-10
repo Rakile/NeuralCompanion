@@ -46,7 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
+from core import sensory, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -5567,57 +5567,40 @@ def run_conversation_flow(source):
 AvatarAdapter = avatar_runtime.AvatarAdapter
 
 
-def _build_avatar_runtime_context():
-    return avatar_runtime.AvatarRuntimeContext(
-        runtime_config=RUNTIME_CONFIG,
-        dependencies={
-            "avatar_profile": AVATAR_PROFILE,
-            "current_body_state": CURRENT_BODY_STATE,
-            "edit_emotion_getter": lambda: EDIT_EMOTION,
-            "force_edit_mode_getter": lambda: FORCE_EDIT_MODE,
-            "hand_debug": HAND_DEBUG,
-            "hand_calibration": HAND_CALIBRATION,
-            "normalize_vam_root": normalize_vam_root,
-            "derive_vam_bridge_root": derive_vam_bridge_root,
-            "default_vam_root": DEFAULT_VAM_ROOT,
-            "default_vam_emotion_preset_map": DEFAULT_VAM_EMOTION_PRESET_MAP,
-            "default_vam_timeline_clip_map": DEFAULT_VAM_TIMELINE_CLIP_MAP,
-            "audio_segment_cls": AudioSegment,
-            "invalidate_available_emotion_names_fn": invalidate_available_emotion_names,
-            "musetalk_state_module": musetalk_state,
-            "log_memory_checkpoint_fn": log_musetalk_memory_checkpoint,
-            "stop_flag_event": stop_flag,
-            "stop_playback_event": stop_playback,
-            "dry_run_module": dry_run,
-        },
-    )
-
-
-def _create_fallback_avatar_adapter(mode, runtime_context):
-    if mode == "none":
-        return None
-    adapter = _invoke_avatar_addon_capability(
-        mode,
-        "runtime.create_adapter",
-        payload={"runtime_context": runtime_context},
-        default=None,
-    )
-    if adapter is None:
-        print(f"⚠️ Avatar provider '{mode}' is unavailable; continuing without avatar.")
-    return adapter
-
-
 def create_avatar_adapter_for_mode(avatar_mode: str):
-    """Create the selected avatar adapter from addon registry, then addon fallback."""
-    mode = avatar_runtime.normalize_provider_id(avatar_mode, fallback="vseeface")
-    runtime_context = _build_avatar_runtime_context()
-    registered_provider = avatar_runtime.get_provider(mode)
-    if registered_provider is not None:
-        return avatar_runtime.create_avatar_adapter(mode, runtime_context=runtime_context)
-    if avatar_runtime.list_providers() or _get_addon_manager() is not None:
-        print(f"⚠️ Avatar provider '{mode}' is unavailable or disabled; continuing without avatar.")
-        return None
-    return _create_fallback_avatar_adapter(mode, runtime_context)
+    """Create the selected avatar adapter through the core avatar host context."""
+    runtime_context = avatar_runtime_context.build_avatar_runtime_context(
+        runtime_config=RUNTIME_CONFIG,
+        avatar_profile=AVATAR_PROFILE,
+        current_body_state=CURRENT_BODY_STATE,
+        edit_emotion_getter=lambda: EDIT_EMOTION,
+        force_edit_mode_getter=lambda: FORCE_EDIT_MODE,
+        hand_debug=HAND_DEBUG,
+        hand_calibration=HAND_CALIBRATION,
+        normalize_vam_root=normalize_vam_root,
+        derive_vam_bridge_root=derive_vam_bridge_root,
+        default_vam_root=DEFAULT_VAM_ROOT,
+        default_vam_emotion_preset_map=DEFAULT_VAM_EMOTION_PRESET_MAP,
+        default_vam_timeline_clip_map=DEFAULT_VAM_TIMELINE_CLIP_MAP,
+        audio_segment_cls=AudioSegment,
+        invalidate_available_emotion_names_fn=invalidate_available_emotion_names,
+        musetalk_state_module=musetalk_state,
+        log_memory_checkpoint_fn=log_musetalk_memory_checkpoint,
+        stop_flag_event=stop_flag,
+        stop_playback_event=stop_playback,
+        dry_run_module=dry_run,
+    )
+    return avatar_runtime_context.create_avatar_adapter_for_mode(
+        avatar_mode,
+        runtime_context=runtime_context,
+        addon_capability_invoker=lambda addon_id, capability, payload: _invoke_avatar_addon_capability(
+            addon_id,
+            capability,
+            payload=payload,
+            default=None,
+        ),
+        addon_manager_available=_get_addon_manager() is not None,
+    )
 
 
 # ============================================================================
