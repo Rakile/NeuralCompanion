@@ -9,6 +9,7 @@ permutation broke before the UI can even open.
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import logging
 import re
@@ -29,8 +30,24 @@ from core.addons.manifest import AddonManifest
 
 
 STATIC_BOUNDARY_RE = re.compile(
-    r"(^|\s)(?:import\s+shared_state|from\s+shared_state\s+import|import\s+engine(?:\s|$)|from\s+engine\s+import|from\s+addons\.|import\s+addons\.)"
+    r"(^|\s)(?:import\s+shared_state|from\s+shared_state\s+import|import\s+engine(?:\s|$)|from\s+engine\s+import)"
 )
+
+HOST_BOUNDARY_ROOTS = ("core", "ui", "engine.py", "qt_app.py", "shared_state.py")
+
+ALLOWED_ADDON_MODULE_REFERENCES = {
+    "core/musetalk_preview_runtime.py": {"addons.musetalk_avatar.preview_runtime"},
+    "core/runtime_paths.py": {"addons.vam_avatar.path_helpers"},
+    "engine.py": {"addons.musetalk_avatar.state"},
+    "shared_state.py": {
+        "addons.musetalk_avatar.state",
+        "addons.visual_reply.state",
+    },
+    "ui/runtime/qt_app_runtime_namespace.py": {
+        "addons.musetalk_avatar.state",
+        "addons.visual_reply.state",
+    },
+}
 
 
 class SmokeFailure(RuntimeError):
@@ -266,6 +283,71 @@ def check_manifests(app_root: Path) -> list[AddonManifest]:
     return manifests
 
 
+def _host_boundary_files(app_root: Path) -> list[Path]:
+    files: list[Path] = []
+    for root_name in HOST_BOUNDARY_ROOTS:
+        root = app_root / root_name
+        if not root.exists():
+            continue
+        if root.is_file():
+            files.append(root)
+            continue
+        files.extend(path for path in sorted(root.rglob("*.py")) if "__pycache__" not in path.parts)
+    return files
+
+
+def _addon_module_reference_re(app_root: Path) -> re.Pattern[str]:
+    names = []
+    addons_root = app_root / "addons"
+    if addons_root.exists():
+        names = [
+            re.escape(path.name)
+            for path in sorted(addons_root.iterdir())
+            if path.is_dir() and (path / "addon.json").exists()
+        ]
+    if not names:
+        names = [r"[A-Za-z_][A-Za-z0-9_]*"]
+    return re.compile(rf"\baddons\.({'|'.join(names)})(?:\.[A-Za-z_][A-Za-z0-9_]*)*\b")
+
+
+def _iter_static_import_violations(path: Path, app_root: Path, text: str):
+    relative = path.relative_to(app_root).as_posix()
+    try:
+        tree = ast.parse(text, filename=str(path))
+    except SyntaxError as exc:
+        yield f"{relative}:{exc.lineno or 0}: syntax error while scanning imports: {exc.msg}"
+        return
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                name = str(alias.name or "").strip()
+                if name == "addons" or name.startswith("addons."):
+                    yield f"{relative}:{node.lineno}: import {name}"
+                if name == "engine" or name == "shared_state":
+                    yield f"{relative}:{node.lineno}: import {name}"
+        elif isinstance(node, ast.ImportFrom):
+            module = str(node.module or "").strip()
+            if module == "addons" or module.startswith("addons."):
+                yield f"{relative}:{node.lineno}: from {module} import ..."
+            if module == "engine" or module == "shared_state":
+                yield f"{relative}:{node.lineno}: from {module} import ..."
+
+
+def _iter_addon_module_reference_violations(path: Path, app_root: Path, text: str, addon_reference_re: re.Pattern[str]):
+    relative = path.relative_to(app_root).as_posix()
+    allowed = set(ALLOWED_ADDON_MODULE_REFERENCES.get(relative, set()))
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        for match in addon_reference_re.finditer(line):
+            reference = match.group(0)
+            if reference in allowed:
+                continue
+            yield f"{relative}:{line_number}: direct addon module reference {reference!r}"
+
+
 def run_manager_permutation(app_root: Path, *, disabled_addons=(), disabled_categories=()) -> dict[str, int]:
     manager = SmokeAddonManager(
         app_root=app_root,
@@ -295,24 +377,21 @@ def run_manager_permutation(app_root: Path, *, disabled_addons=(), disabled_cate
 
 
 def check_static_boundaries(app_root: Path) -> int:
-    roots = [app_root / "core", app_root / "ui", app_root / "engine.py", app_root / "qt_app.py"]
     violations = []
-    for root in roots:
-        files = [root] if root.is_file() else sorted(root.rglob("*.py"))
-        for path in files:
-            if "__pycache__" in path.parts:
+    addon_reference_re = _addon_module_reference_re(app_root)
+    for path in _host_boundary_files(app_root):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        violations.extend(_iter_static_import_violations(path, app_root, text))
+        violations.extend(_iter_addon_module_reference_violations(path, app_root, text, addon_reference_re))
+        for line_number, line in enumerate(text.splitlines(), start=1):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
                 continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                text = path.read_text(encoding="utf-8", errors="ignore")
-            for line_number, line in enumerate(text.splitlines(), start=1):
-                stripped = line.strip()
-                if not stripped or stripped.startswith("#"):
-                    continue
-                if STATIC_BOUNDARY_RE.search(line):
-                    # Allowed facades use importlib strings, not static imports.
-                    violations.append(f"{path.relative_to(app_root)}:{line_number}: {stripped}")
+            if STATIC_BOUNDARY_RE.search(line):
+                violations.append(f"{path.relative_to(app_root)}:{line_number}: {stripped}")
     if violations:
         raise SmokeFailure("Static boundary violations:\n" + "\n".join(violations[:80]))
     return 0
