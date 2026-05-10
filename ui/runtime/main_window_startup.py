@@ -78,7 +78,8 @@ class MainWindowStartupMixin:
         self._pipeline_frame_count_cache = {}
         self._addon_manager = None
         self._mounted_addon_tab_ids = set()
-        self._mounted_musetalk_addon_tab_ids = set()
+        self._mounted_avatar_tools_addon_tab_ids = set()
+        self._mounted_musetalk_addon_tab_ids = self._mounted_avatar_tools_addon_tab_ids
         self._mounted_host_settings_addon_tab_ids = set()
         self._mounted_tts_runtime_addon_tab_ids = set()
         self._mounted_operational_view_addon_tab_ids = set()

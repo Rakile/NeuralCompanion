@@ -84,6 +84,68 @@ class Addon(BaseAddon):
                 payload.get("runtime_config") or {},
                 payload.get("pack_id"),
             )
+        if capability == "runtime.vram_mode":
+            from addons.musetalk_avatar import text_policy
+
+            return text_policy.vram_mode(
+                payload.get("runtime_config") or {},
+                default=str(payload.get("default") or "quality"),
+            )
+        if capability == "runtime.chunk_limits_for_index":
+            from addons.musetalk_avatar import text_policy
+
+            return text_policy.chunk_limits_for_index(
+                int(payload.get("chunk_index", 0) or 0),
+                payload.get("runtime_config") or {},
+                payload.get("defaults") or {},
+            )
+        if capability == "runtime.preview.stream_frames":
+            from addons.musetalk_avatar import preview_runtime, state as musetalk_state
+            from core import runtime_files
+
+            return preview_runtime.stream_musetalk_preview_frames(
+                payload.get("playback_state") or {},
+                payload.get("stop_event"),
+                runtime_config=payload.get("runtime_config") or {},
+                list_png_frames=runtime_files.list_png_frames,
+                musetalk_state_module=musetalk_state,
+            )
+        if capability == "runtime.preview.stream_delegated_audio_progress":
+            from addons.musetalk_avatar import preview_runtime, state as musetalk_state
+
+            return preview_runtime.stream_delegated_audio_progress(
+                payload.get("playback_state") or {},
+                payload.get("stop_event"),
+                musetalk_state_module=musetalk_state,
+            )
+        if capability == "runtime.preview.prime_frame":
+            from addons.musetalk_avatar import preview_runtime, state as musetalk_state
+            from core import runtime_files
+
+            return preview_runtime.prime_musetalk_preview_frame(
+                payload.get("playback_state") or {},
+                runtime_config=payload.get("runtime_config") or {},
+                list_png_frames=runtime_files.list_png_frames,
+                musetalk_state_module=musetalk_state,
+            )
+        if capability == "runtime.preview.estimate_displayed_frames":
+            from addons.musetalk_avatar import preview_runtime
+
+            return preview_runtime.estimate_displayed_musetalk_frames(
+                payload.get("state") or {},
+                payload.get("now"),
+                runtime_config=payload.get("runtime_config") or {},
+            )
+        if capability == "runtime.preview.current_source_index":
+            from addons.musetalk_avatar import preview_runtime, state as musetalk_state
+
+            return preview_runtime.get_current_musetalk_source_index(
+                payload.get("state"),
+                runtime_config=payload.get("runtime_config") or {},
+                musetalk_state_module=musetalk_state,
+                advance_to_next_frame=bool(payload.get("advance_to_next_frame", False)),
+                now=payload.get("now"),
+            )
         if capability == "runtime.available_pack_emotion_names":
             from addons.musetalk_avatar import pack_runtime
 

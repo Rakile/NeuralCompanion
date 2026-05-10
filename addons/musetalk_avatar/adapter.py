@@ -10,9 +10,9 @@ from pathlib import Path
 
 from pydub import AudioSegment
 
-from addons.musetalk_avatar import pack_runtime, state as musetalk_state
+from addons.musetalk_avatar import pack_runtime, preview_runtime, state as musetalk_state
 from addons.musetalk_avatar.avatar_packs import discover_avatar_packs, get_avatar_pack
-from core import avatar_runtime, musetalk_preview_runtime, runtime_files, streaming_text
+from core import avatar_runtime, runtime_files, streaming_text
 from core import expression_state
 from musetalk_bridge import MuseTalkBridge
 
@@ -59,7 +59,7 @@ def safe_delete_with_retry(file_path, *, retries=5, delay=0.1):
 
 
 def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
-    return musetalk_preview_runtime.get_current_musetalk_source_index(
+    return preview_runtime.get_current_musetalk_source_index(
         state,
         runtime_config=RUNTIME_CONFIG,
         musetalk_state_module=musetalk_state,
@@ -68,7 +68,7 @@ def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
 
 
 def prime_musetalk_preview_frame(playback_state):
-    return musetalk_preview_runtime.prime_musetalk_preview_frame(
+    return preview_runtime.prime_musetalk_preview_frame(
         playback_state,
         runtime_config=RUNTIME_CONFIG,
         list_png_frames=list_png_frames,

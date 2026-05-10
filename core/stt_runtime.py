@@ -10,16 +10,16 @@ import uuid
 from core import runtime_paths
 
 
-def whisper_runtime_config(runtime_config, *, cuda_available: bool):
-    vram_mode = str(runtime_config.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
+def whisper_runtime_config(runtime_config, *, cuda_available: bool, vram_mode: str = "quality"):
+    vram_mode = str(vram_mode or "quality").strip().lower()
     if not cuda_available:
         return "cpu", "int8"
     # Keep the current runtime behavior: main Whisper prefers CUDA whenever available.
     return "cuda", "float16"
 
 
-def whisper_runtime_reason(runtime_config, *, cuda_available: bool):
-    vram_mode = str(runtime_config.get("musetalk_vram_mode", "quality") or "quality").strip().lower()
+def whisper_runtime_reason(runtime_config, *, cuda_available: bool, vram_mode: str = "quality"):
+    vram_mode = str(vram_mode or "quality").strip().lower()
     if not cuda_available:
         return "CUDA unavailable"
     if vram_mode in {"low", "very_low"}:
@@ -34,15 +34,16 @@ def initialize_whisper_model(
     runtime_config,
     cuda_available: bool,
     model_factory,
+    vram_mode: str = "quality",
     logger=print,
 ):
     if current_model is not None:
         logger("✓ Whisper model already loaded (Skipping reload)")
-        device, compute_type = whisper_runtime_config(runtime_config, cuda_available=cuda_available)
+        device, compute_type = whisper_runtime_config(runtime_config, cuda_available=cuda_available, vram_mode=vram_mode)
         return current_model, device, compute_type
 
-    device, compute_type = whisper_runtime_config(runtime_config, cuda_available=cuda_available)
-    reason = whisper_runtime_reason(runtime_config, cuda_available=cuda_available)
+    device, compute_type = whisper_runtime_config(runtime_config, cuda_available=cuda_available, vram_mode=vram_mode)
+    reason = whisper_runtime_reason(runtime_config, cuda_available=cuda_available, vram_mode=vram_mode)
     logger(f"Loading Whisper ({model_size}) on {device} [compute_type={compute_type}, reason={reason}]...")
     model = model_factory(model_size, device=device, compute_type=compute_type)
     logger(f"✓ Whisper model loaded on {device} ({compute_type})")

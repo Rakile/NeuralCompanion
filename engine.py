@@ -46,7 +46,7 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
+from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -396,6 +396,23 @@ def _invoke_musetalk_pack_capability(capability, payload=None, default=None):
         payload or {},
         default=default,
     )
+
+
+def _active_avatar_vram_mode(default="quality"):
+    avatar_mode = str(RUNTIME_CONFIG.get("avatar_mode", "") or "").strip().lower()
+    if avatar_mode:
+        value = _invoke_avatar_addon_capability(
+            avatar_mode,
+            "runtime.vram_mode",
+            {
+                "runtime_config": RUNTIME_CONFIG,
+                "default": default,
+            },
+            default="",
+        )
+        if value:
+            return str(value or default).strip().lower()
+    return str(RUNTIME_CONFIG.get("avatar_vram_mode", RUNTIME_CONFIG.get("vram_mode", default)) or default).strip().lower()
 
 
 def _normalized_abs_path(raw_path):
@@ -900,11 +917,19 @@ def _chat_provider_connection_check():
 
 
 def get_main_whisper_runtime_config():
-    return stt_runtime.whisper_runtime_config(RUNTIME_CONFIG, cuda_available=torch.cuda.is_available())
+    return stt_runtime.whisper_runtime_config(
+        RUNTIME_CONFIG,
+        cuda_available=torch.cuda.is_available(),
+        vram_mode=_active_avatar_vram_mode(),
+    )
 
 
 def get_main_whisper_runtime_reason():
-    return stt_runtime.whisper_runtime_reason(RUNTIME_CONFIG, cuda_available=torch.cuda.is_available())
+    return stt_runtime.whisper_runtime_reason(
+        RUNTIME_CONFIG,
+        cuda_available=torch.cuda.is_available(),
+        vram_mode=_active_avatar_vram_mode(),
+    )
 
 
 def _get_lmstudio_sdk():
@@ -1091,6 +1116,7 @@ def init_whisper():
         runtime_config=RUNTIME_CONFIG,
         cuda_available=torch.cuda.is_available(),
         model_factory=WhisperModel,
+        vram_mode=_active_avatar_vram_mode(),
         logger=print,
     )
 
@@ -1180,29 +1206,33 @@ def play_audio_file(path: str):
 
 
 def stream_musetalk_preview_frames(playback_state, stop_event):
-    return musetalk_preview_runtime.stream_musetalk_preview_frames(
-        playback_state,
-        stop_event,
-        runtime_config=RUNTIME_CONFIG,
-        list_png_frames=list_png_frames,
-        musetalk_state_module=musetalk_state,
+    return _invoke_musetalk_pack_capability(
+        "runtime.preview.stream_frames",
+        {
+            "playback_state": playback_state,
+            "stop_event": stop_event,
+            "runtime_config": RUNTIME_CONFIG,
+        },
     )
 
 
 def stream_delegated_audio_progress(playback_state, stop_event):
-    return musetalk_preview_runtime.stream_delegated_audio_progress(
-        playback_state,
-        stop_event,
-        musetalk_state_module=musetalk_state,
+    return _invoke_musetalk_pack_capability(
+        "runtime.preview.stream_delegated_audio_progress",
+        {
+            "playback_state": playback_state,
+            "stop_event": stop_event,
+        },
     )
 
 
 def prime_musetalk_preview_frame(playback_state):
-    return musetalk_preview_runtime.prime_musetalk_preview_frame(
-        playback_state,
-        runtime_config=RUNTIME_CONFIG,
-        list_png_frames=list_png_frames,
-        musetalk_state_module=musetalk_state,
+    return _invoke_musetalk_pack_capability(
+        "runtime.preview.prime_frame",
+        {
+            "playback_state": playback_state,
+            "runtime_config": RUNTIME_CONFIG,
+        },
     )
 
 
@@ -1290,23 +1320,33 @@ def intelligent_chunk_text(long_text: str, target_chars: int, max_chars: int) ->
     )
 
 
-def get_musetalk_chunk_limits_for_index(chunk_index: int):
-    return text_chunking.musetalk_chunk_limits_for_index(
-        chunk_index,
-        RUNTIME_CONFIG,
-        {
-            "quickstart": MUSE_QUICKSTART_CHUNK_LIMITS,
-            "musetalk_target": MUSE_TARGET_CHARS_PER_CHUNK,
-            "musetalk_max": MUSE_MAX_CHARS_PER_CHUNK,
-        },
-    )
+def get_avatar_chunk_limits_for_index(chunk_index: int):
+    avatar_mode = str(RUNTIME_CONFIG.get("avatar_mode", "") or "").strip().lower()
+    if avatar_mode and avatar_mode != "vseeface":
+        value = _invoke_avatar_addon_capability(
+            avatar_mode,
+            "runtime.chunk_limits_for_index",
+            {
+                "chunk_index": chunk_index,
+                "runtime_config": RUNTIME_CONFIG,
+                "defaults": {
+                    "quickstart": MUSE_QUICKSTART_CHUNK_LIMITS,
+                    "target": MUSE_TARGET_CHARS_PER_CHUNK,
+                    "max": MUSE_MAX_CHARS_PER_CHUNK,
+                },
+            },
+            default=None,
+        )
+        if value:
+            return value
+    return (MUSE_TARGET_CHARS_PER_CHUNK, MUSE_MAX_CHARS_PER_CHUNK)
 
 
 def intelligent_chunk_text_progressive(long_text: str, start_chunk_index: int = 0) -> list:
     return text_chunking.progressive_chunk_text(
         long_text,
         start_chunk_index=start_chunk_index,
-        limit_getter=get_musetalk_chunk_limits_for_index,
+        limit_getter=get_avatar_chunk_limits_for_index,
         min_chunk_size=MIN_CHUNK_SIZE,
         sentence_splitter=sent_tokenize,
         logger=print,
@@ -2676,10 +2716,7 @@ def get_stream_chunk_limits():
 
 def get_text_chunk_limits():
     if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
-        return (
-            int(RUNTIME_CONFIG.get("musetalk_chunk_target_chars", MUSE_TARGET_CHARS_PER_CHUNK) or MUSE_TARGET_CHARS_PER_CHUNK),
-            int(RUNTIME_CONFIG.get("musetalk_chunk_max_chars", MUSE_MAX_CHARS_PER_CHUNK) or MUSE_MAX_CHARS_PER_CHUNK),
-        )
+        return get_avatar_chunk_limits_for_index(2)
     return (
         int(RUNTIME_CONFIG.get("chunk_target_chars", TARGET_CHARS_PER_CHUNK) or TARGET_CHARS_PER_CHUNK),
         int(RUNTIME_CONFIG.get("chunk_max_chars", MAX_CHARS_PER_CHUNK) or MAX_CHARS_PER_CHUNK),
@@ -3239,19 +3276,26 @@ def list_png_frames(frame_dir):
 
 
 def estimate_displayed_musetalk_frames(state, now=None):
-    return musetalk_preview_runtime.estimate_displayed_musetalk_frames(
-        state,
-        now=now,
-        runtime_config=RUNTIME_CONFIG,
+    return _invoke_musetalk_pack_capability(
+        "runtime.preview.estimate_displayed_frames",
+        {
+            "state": state,
+            "now": now,
+            "runtime_config": RUNTIME_CONFIG,
+        },
+        default=0,
     )
 
 
 def get_current_musetalk_source_index(state=None, advance_to_next_frame=False):
-    return musetalk_preview_runtime.get_current_musetalk_source_index(
-        state,
-        runtime_config=RUNTIME_CONFIG,
-        musetalk_state_module=musetalk_state,
-        advance_to_next_frame=advance_to_next_frame,
+    return _invoke_musetalk_pack_capability(
+        "runtime.preview.current_source_index",
+        {
+            "state": state,
+            "runtime_config": RUNTIME_CONFIG,
+            "advance_to_next_frame": advance_to_next_frame,
+        },
+        default=int((state or {}).get("start_index", 0) or 0),
     )
 
 

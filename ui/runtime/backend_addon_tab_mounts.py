@@ -161,13 +161,16 @@ class BackendAddonTabMountMixin:
             child_ids = ", ".join(str(child.id or "") for child in children)
             print(f"⚠️ [Addons] Child tabs {child_ids} declared missing parent '{parent_tab_id}'.")
 
-    def _mount_musetalk_addon_tabs(self):
+    def _mount_avatar_tools_addon_tabs(self):
         self._mount_simple_addon_tabs(
-            area="musetalk",
+            area="avatar_tools",
             tabs_attr="musetalk_tabs",
-            mounted_set_attr="_mounted_musetalk_addon_tab_ids",
-            log_label="MuseTalk",
+            mounted_set_attr="_mounted_avatar_tools_addon_tab_ids",
+            log_label="Avatar Tools",
         )
+
+    def _mount_musetalk_addon_tabs(self):
+        return self._mount_avatar_tools_addon_tabs()
 
     def _mount_host_settings_addon_tabs(self):
         if self._addon_manager is None or not hasattr(self, "host_settings_tabs"):

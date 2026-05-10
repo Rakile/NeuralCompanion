@@ -26,7 +26,6 @@ class LoadedAddon:
 class AddonManager:
     CATEGORY_LABELS = {
         "vision": "Vision",
-        "musetalk": "MuseTalk",
         "visuals": "Visuals",
         "chat": "Chat",
         "avatar": "Avatar",

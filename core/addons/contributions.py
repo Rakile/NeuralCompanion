@@ -26,7 +26,7 @@ ADDON_UI_MOUNTS: tuple[AddonUIMount, ...] = (
     AddonUIMount("top_level", "left_tabs", "Workspace Tabs"),
     AddonUIMount("host_settings", "host_settings_tabs", "System Shaping"),
     AddonUIMount("operational_view", "right_tabs", "Operational View"),
-    AddonUIMount("musetalk", "musetalk_tabs", "MuseTalk", deferred=True),
+    AddonUIMount("avatar_tools", "musetalk_tabs", "Avatar Tools", deferred=True),
     AddonUIMount("tts_runtime", "tts_runtime_addon_tabs", "TTS Runtime"),
     AddonUIMount("vision_source", "sensory_feedback_tabs", "Vision Sources"),
 )
@@ -92,7 +92,7 @@ def ui_fallback_targets_for_manifest(addon_id: str | None, category: str | None)
     category_targets = {
         "chat_provider": ("chat_provider_combo",),
         "vision": ("sensory_feedback_tabs",),
-        "musetalk": ("musetalk_tabs",),
+        "avatar": ("musetalk_tabs",),
         "visuals": ("host_settings_tabs",),
         "chat": ("left_tabs",),
         "global": ("left_tabs",),

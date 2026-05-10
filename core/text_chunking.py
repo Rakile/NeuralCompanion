@@ -128,26 +128,6 @@ def chunk_text(
             return []
 
 
-def musetalk_chunk_limits_for_index(chunk_index: int, config: dict, defaults: dict) -> tuple[int, int]:
-    chunk_index = max(0, int(chunk_index))
-    quickstart_limits = [
-        (
-            int(config.get("musetalk_quickstart_1_target_chars", defaults["quickstart"][0][0]) or defaults["quickstart"][0][0]),
-            int(config.get("musetalk_quickstart_1_max_chars", defaults["quickstart"][0][1]) or defaults["quickstart"][0][1]),
-        ),
-        (
-            int(config.get("musetalk_quickstart_2_target_chars", defaults["quickstart"][1][0]) or defaults["quickstart"][1][0]),
-            int(config.get("musetalk_quickstart_2_max_chars", defaults["quickstart"][1][1]) or defaults["quickstart"][1][1]),
-        ),
-    ]
-    if chunk_index < len(quickstart_limits):
-        return quickstart_limits[chunk_index]
-    return (
-        int(config.get("musetalk_chunk_target_chars", defaults["musetalk_target"]) or defaults["musetalk_target"]),
-        int(config.get("musetalk_chunk_max_chars", defaults["musetalk_max"]) or defaults["musetalk_max"]),
-    )
-
-
 def progressive_chunk_text(
     long_text: str,
     *,
