@@ -46,8 +46,9 @@ import importlib
 import dry_run
 import app_help
 import shared_state as musetalk_state
-from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_avatar_pack_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, visual_reply_generation, visual_reply_runtime
+from core import sensory, avatar_runtime, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, musetalk_preview_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback
 from core import expression_state
+from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
 from pydub import AudioSegment
@@ -360,6 +361,37 @@ def _addon_runtime_defaults():
     return addon_runtime_defaults(Path(__file__).resolve().parent, environ=os.environ)
 
 
+def _invoke_bootstrap_addon_capability(addon_id, capability, payload=None, default=None):
+    return bootstrap_runtime.invoke_addon_capability(
+        addon_id,
+        capability,
+        payload or {},
+        app_root=Path(__file__).resolve().parent,
+        default=default,
+    )
+
+
+def _create_visual_reply_engine_bridge():
+    return _invoke_bootstrap_addon_capability(
+        "nc.visual_reply",
+        "runtime.engine_bridge",
+        {
+            "config_getter": lambda: RUNTIME_CONFIG,
+            "environ": os.environ,
+            "output_dir": Path(__file__).resolve().parent / "runtime" / "visual_replies",
+        },
+    )
+
+
+def _invoke_musetalk_pack_capability(capability, payload=None, default=None):
+    return _invoke_bootstrap_addon_capability(
+        "nc.musetalk_avatar",
+        capability,
+        payload or {},
+        default=default,
+    )
+
+
 def _normalized_abs_path(raw_path):
     return runtime_paths.normalized_abs_path(raw_path)
 
@@ -504,11 +536,14 @@ DEFAULT_VAM_TIMELINE_CLIP_MAP = dict(_vam_config().get("default_timeline_clip_ma
 })
 DEFAULT_VAM_BRIDGE_ROOT = _vam_config().get("default_bridge_root") or derive_vam_bridge_root(DEFAULT_VAM_ROOT)
 
-VISUAL_REPLY_STORY_THEME_PRESETS = visual_reply_runtime.VISUAL_REPLY_STORY_THEME_PRESETS
+_visual_reply_bridge = _create_visual_reply_engine_bridge()
+VISUAL_REPLY_STORY_THEME_PRESETS = tuple(getattr(_visual_reply_bridge, "VISUAL_REPLY_STORY_THEME_PRESETS", ()) or ())
 
 
 def _default_visual_reply_story_theme_prompts():
-    return visual_reply_runtime.default_story_theme_prompts()
+    if _visual_reply_bridge is not None:
+        return _visual_reply_bridge.default_story_theme_prompts()
+    return {}
 
 RUNTIME_CONFIG = {
     "active_preset_name": "",
@@ -659,11 +694,22 @@ def update_runtime_config(key, value):
 
 
 def _normalize_musetalk_enabled_pack_emotions(value):
-    return musetalk_avatar_pack_runtime.normalize_enabled_pack_emotions(value)
+    return _invoke_musetalk_pack_capability(
+        "runtime.normalize_enabled_pack_emotions",
+        {"value": value},
+        default={},
+    )
 
 
 def get_musetalk_enabled_pack_emotions(pack_id):
-    return musetalk_avatar_pack_runtime.enabled_pack_emotions(RUNTIME_CONFIG, pack_id)
+    return _invoke_musetalk_pack_capability(
+        "runtime.enabled_pack_emotions",
+        {
+            "runtime_config": RUNTIME_CONFIG,
+            "pack_id": pack_id,
+        },
+        default=None,
+    )
 
 
 # ============================================================================
@@ -721,11 +767,6 @@ sensory_hidden_action_state = {
 _addon_event_publisher = None
 _addon_manager_getter = None
 _chat_runtime = runtime_chat.ChatProviderRuntime(lambda: RUNTIME_CONFIG)
-_visual_reply_runtime = visual_reply_runtime.VisualReplyRuntime(lambda: RUNTIME_CONFIG, environ=os.environ)
-_visual_reply_generation_service = visual_reply_generation.VisualReplyGenerationService(
-    _visual_reply_runtime,
-    output_dir=Path(__file__).resolve().parent / "runtime" / "visual_replies",
-)
 
 
 def set_addon_event_publisher(callback):
@@ -1332,14 +1373,20 @@ def get_available_emotion_names(force_refresh=False):
 
     avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
     try:
-        names = musetalk_avatar_pack_runtime.available_pack_emotion_names(
-            RUNTIME_CONFIG,
-            default_names=DEFAULT_EMOTION_NAMES,
-            avatar_profile=AVATAR_PROFILE,
-            legacy_map=MUSE_EMOTION_AVATAR_MAP,
-            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
-            avatars_dir=Path(avatars_root),
+        names = _invoke_musetalk_pack_capability(
+            "runtime.available_pack_emotion_names",
+            {
+                "runtime_config": RUNTIME_CONFIG,
+                "default_names": list(DEFAULT_EMOTION_NAMES),
+                "avatar_profile": AVATAR_PROFILE,
+                "legacy_map": MUSE_EMOTION_AVATAR_MAP,
+                "legacy_transitions": MUSE_AVATAR_TRANSITIONS,
+                "avatars_dir": Path(avatars_root),
+            },
+            default=None,
         )
+        if names is None:
+            raise RuntimeError("MuseTalk pack runtime unavailable.")
     except Exception:
         names = set(DEFAULT_EMOTION_NAMES)
         try:
@@ -1381,85 +1428,85 @@ def _looks_like_visual_reply_tag_prefix(fragment):
     return text_tags.looks_like_visual_reply_tag_prefix(fragment)
 
 
-VISUAL_REPLY_TAG_RE = visual_reply_runtime.VISUAL_REPLY_TAG_RE
-VISUAL_REPLY_TAG_START_RE = visual_reply_runtime.VISUAL_REPLY_TAG_START_RE
+VISUAL_REPLY_TAG_RE = _visual_reply_bridge.VISUAL_REPLY_TAG_RE
+VISUAL_REPLY_TAG_START_RE = _visual_reply_bridge.VISUAL_REPLY_TAG_START_RE
 VISUAL_REPLY_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "visual_replies"
 SENSORY_FEEDBACK_OUTPUT_DIR = Path(__file__).resolve().parent / "runtime" / "sensory_feedback"
-VISUAL_REPLY_XAI_BASE_URL = visual_reply_runtime.VISUAL_REPLY_XAI_BASE_URL
+VISUAL_REPLY_XAI_BASE_URL = _visual_reply_bridge.VISUAL_REPLY_XAI_BASE_URL
 _sensory_feedback_lock = threading.Lock()
 _sensory_feedback_state = {}
 
 
 def _visual_reply_mode():
-    return _visual_reply_runtime.mode()
+    return _visual_reply_bridge.mode()
 
 
 def _visual_reply_enabled():
-    return _visual_reply_runtime.enabled()
+    return _visual_reply_bridge.enabled()
 
 
 def _visual_reply_generation_available():
-    return _visual_reply_runtime.generation_available()
+    return _visual_reply_bridge.generation_available()
 
 
 def _visual_reply_story_mode_enabled():
-    return _visual_reply_runtime.story_mode_enabled()
+    return _visual_reply_bridge.story_mode_enabled()
 
 
 def _visual_reply_story_max_images():
-    return _visual_reply_runtime.story_max_images()
+    return _visual_reply_bridge.story_max_images()
 
 
 def _visual_reply_story_continuity_strength():
-    return _visual_reply_runtime.story_continuity_strength()
+    return _visual_reply_bridge.story_continuity_strength()
 
 
 def _visual_reply_story_theme_prompts():
-    return _visual_reply_runtime.story_theme_prompts()
+    return _visual_reply_bridge.story_theme_prompts()
 
 
 def _visual_reply_story_theme_enabled():
-    return _visual_reply_runtime.story_theme_enabled()
+    return _visual_reply_bridge.story_theme_enabled()
 
 
 def _visual_reply_story_theme_suffix():
-    return _visual_reply_runtime.story_theme_suffix()
+    return _visual_reply_bridge.story_theme_suffix()
 
 
 def _visual_reply_master_style_prompt():
-    return _visual_reply_runtime.master_style_prompt()
+    return _visual_reply_bridge.master_style_prompt()
 
 
 def _visual_reply_master_style_suffix():
-    return _visual_reply_runtime.master_style_suffix()
+    return _visual_reply_bridge.master_style_suffix()
 
 
 def _visual_reply_master_prompt_safety_suffix():
-    return _visual_reply_runtime.master_prompt_safety_suffix()
+    return _visual_reply_bridge.master_prompt_safety_suffix()
 
 
 def _visual_reply_no_speech_bubbles_suffix():
-    return _visual_reply_runtime.no_speech_bubbles_suffix()
+    return _visual_reply_bridge.no_speech_bubbles_suffix()
 
 
 def _apply_visual_reply_style_anchor(prompt_text: str):
-    return _visual_reply_runtime.apply_style_anchor(prompt_text)
+    return _visual_reply_bridge.apply_style_anchor(prompt_text)
 
 
 def _ensure_visual_reply_story_worker():
-    return _visual_reply_generation_service._ensure_story_worker()
+    return _visual_reply_bridge.ensure_story_worker()
 
 
 def begin_visual_reply_story_session():
-    return _visual_reply_generation_service.begin_story_session()
+    return _visual_reply_bridge.begin_story_session()
 
 
 def clear_visual_reply_story_queue():
-    return _visual_reply_generation_service.clear_story_queue()
+    return _visual_reply_bridge.clear_story_queue()
 
 
 def enqueue_visual_reply_story_generation(prompt: str, *, source_text: str = "", session_id: int | None = None, request_id: str | None = None):
-    return _visual_reply_generation_service.enqueue_story_generation(
+    return _visual_reply_bridge.enqueue_story_generation(
         prompt,
         source_text=source_text,
         session_id=session_id,
@@ -1474,7 +1521,7 @@ def _perform_visual_reply_generation(
     request_id: str | None = None,
     keep_current_image: bool = False,
 ):
-    return _visual_reply_generation_service.perform_generation(
+    return _visual_reply_bridge.perform_generation(
         prompt_text,
         source_text=source_text,
         request_id=request_id,
@@ -1483,14 +1530,14 @@ def _perform_visual_reply_generation(
 
 
 def _story_visual_reply_style_guide_from_text(story_text: str, continuity_strength: float = 0.8) -> str:
-    return _visual_reply_generation_service.story_style_guide_from_text(
+    return _visual_reply_bridge.story_style_guide_from_text(
         story_text,
         continuity_strength=continuity_strength,
     )
 
 
 def _story_visual_reply_prompt_from_text(prompt_text: str, emotion: str = "", story_style_guide: str = "") -> str:
-    return _visual_reply_generation_service.story_prompt_from_text(
+    return _visual_reply_bridge.story_prompt_from_text(
         prompt_text,
         emotion=emotion,
         story_style_guide=story_style_guide,
@@ -1498,19 +1545,19 @@ def _story_visual_reply_prompt_from_text(prompt_text: str, emotion: str = "", st
 
 
 def _next_visual_reply_request_id():
-    return _visual_reply_generation_service.next_request_id()
+    return _visual_reply_bridge.next_request_id()
 
 
 def _normalize_visual_reply_prompt_text(prompt_text: str) -> str:
-    return visual_reply_runtime.normalize_prompt_text(prompt_text)
+    return _visual_reply_bridge.normalize_prompt_text(prompt_text)
 
 
 def _strip_visual_reply_tail(text: str):
-    return visual_reply_runtime.strip_visual_reply_tail(text)
+    return _visual_reply_bridge.strip_visual_reply_tail(text)
 
 
 def extract_visual_reply_prompt(text: str):
-    return visual_reply_runtime.extract_visual_reply_prompt(text)
+    return _visual_reply_bridge.extract_visual_reply_prompt(text)
 
 
 def _visual_reply_generation_instruction():
@@ -2841,10 +2888,14 @@ def maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
 
 
 def get_musetalk_avatar_pack_catalog():
-    return musetalk_avatar_pack_runtime.pack_catalog(
-        RUNTIME_CONFIG,
-        legacy_map=MUSE_EMOTION_AVATAR_MAP,
-        legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+    return _invoke_musetalk_pack_capability(
+        "runtime.pack_catalog",
+        {
+            "runtime_config": RUNTIME_CONFIG,
+            "legacy_map": MUSE_EMOTION_AVATAR_MAP,
+            "legacy_transitions": MUSE_AVATAR_TRANSITIONS,
+        },
+        default=[],
     )
 
 
@@ -2853,12 +2904,18 @@ def apply_musetalk_avatar_pack_selection(pack_id):
     if not requested_pack_id:
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
     try:
-        selected_pack_id = musetalk_avatar_pack_runtime.select_pack(
-            RUNTIME_CONFIG,
-            requested_pack_id=requested_pack_id,
-            legacy_map=MUSE_EMOTION_AVATAR_MAP,
-            legacy_transitions=MUSE_AVATAR_TRANSITIONS,
+        selected_pack_id = _invoke_musetalk_pack_capability(
+            "runtime.select_pack",
+            {
+                "runtime_config": RUNTIME_CONFIG,
+                "requested_pack_id": requested_pack_id,
+                "legacy_map": MUSE_EMOTION_AVATAR_MAP,
+                "legacy_transitions": MUSE_AVATAR_TRANSITIONS,
+            },
+            default="",
         )
+        if not selected_pack_id:
+            raise LookupError(requested_pack_id)
     except LookupError:
         return str(RUNTIME_CONFIG.get("musetalk_avatar_pack_id", "") or "").strip()
     update_runtime_config("musetalk_avatar_pack_id", selected_pack_id)

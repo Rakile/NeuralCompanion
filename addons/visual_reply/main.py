@@ -74,6 +74,14 @@ class Addon(BaseAddon):
     def invoke_capability(self, capability, payload=None):
         capability = str(capability or "").strip()
         payload = dict(payload or {})
+        if capability == "runtime.engine_bridge":
+            from addons.visual_reply.engine_bridge import create_engine_bridge
+
+            return create_engine_bridge(
+                payload.get("config_getter") or (lambda: payload.get("runtime_config") or {}),
+                environ=payload.get("environ"),
+                output_dir=payload.get("output_dir"),
+            )
         if capability == "runtime.apply_settings":
             from addons.visual_reply import real_ui_bridge
 

@@ -73,6 +73,45 @@ class Addon(BaseAddon):
             from addons.musetalk_avatar import pack_runtime
 
             return pack_runtime.get_pack(**dict(payload.get("kwargs") or {}))
+        if capability == "runtime.normalize_enabled_pack_emotions":
+            from addons.musetalk_avatar import pack_runtime
+
+            return pack_runtime.normalize_enabled_pack_emotions(payload.get("value"))
+        if capability == "runtime.enabled_pack_emotions":
+            from addons.musetalk_avatar import pack_runtime
+
+            return pack_runtime.enabled_pack_emotions(
+                payload.get("runtime_config") or {},
+                payload.get("pack_id"),
+            )
+        if capability == "runtime.available_pack_emotion_names":
+            from addons.musetalk_avatar import pack_runtime
+
+            return pack_runtime.available_pack_emotion_names(
+                payload.get("runtime_config") or {},
+                default_names=set(payload.get("default_names") or []),
+                avatar_profile=payload.get("avatar_profile") or {},
+                legacy_map=payload.get("legacy_map") or {},
+                legacy_transitions=payload.get("legacy_transitions") or {},
+                avatars_dir=payload.get("avatars_dir"),
+            )
+        if capability == "runtime.pack_catalog":
+            from addons.musetalk_avatar import pack_runtime
+
+            return pack_runtime.pack_catalog(
+                payload.get("runtime_config") or {},
+                legacy_map=payload.get("legacy_map") or {},
+                legacy_transitions=payload.get("legacy_transitions") or {},
+            )
+        if capability == "runtime.select_pack":
+            from addons.musetalk_avatar import pack_runtime
+
+            return pack_runtime.select_pack(
+                payload.get("runtime_config") or {},
+                payload.get("requested_pack_id"),
+                legacy_map=payload.get("legacy_map") or {},
+                legacy_transitions=payload.get("legacy_transitions") or {},
+            )
         from addons.musetalk_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib" and backend is not None:
