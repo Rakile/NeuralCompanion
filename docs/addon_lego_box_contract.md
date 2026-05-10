@@ -6,6 +6,9 @@ short: use it as a checklist when moving new behavior into addons.
 For the concrete capability names and payload conventions used by the runtime,
 see `docs/addon_capability_contracts.md`.
 
+For the remaining compatibility aliases and their removal criteria, see
+`docs/addon_compatibility_shims.md`.
+
 ## Host Responsibilities
 
 - Discover, load, initialize, and unload addons through `core.addons.manager`.
