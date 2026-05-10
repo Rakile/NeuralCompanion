@@ -133,58 +133,57 @@ def _signal(*_args, **_kwargs):
 
 
 def install_optional_dependency_stubs() -> None:
-    """Install tiny stubs for heavy GUI/provider deps absent in WSL smoke runs."""
-    if importlib.util.find_spec("PySide6") is None:
-        pyside = types.ModuleType("PySide6")
-        qtcore = types.ModuleType("PySide6.QtCore")
-        qtgui = types.ModuleType("PySide6.QtGui")
-        qtwidgets = types.ModuleType("PySide6.QtWidgets")
-        qtuitools = types.ModuleType("PySide6.QtUiTools")
-        for module in (qtcore, qtgui, qtwidgets, qtuitools):
-            module.__getattr__ = lambda _name, _module=module: _DummyQtObject
-        qtcore.Signal = _signal
-        qtcore.Slot = lambda *_args, **_kwargs: (lambda fn: fn)
-        qtcore.Property = lambda *_args, **_kwargs: property(lambda _self: None)
-        qtcore.Qt = _DummyQtNamespace()
-        qtcore.QIODevice = _DummyQtNamespace()
-        qtwidgets.QApplication = _DummyQtObject
-        qtwidgets.QWidget = _DummyQtObject
-        qtwidgets.QDialog = _DummyQtObject
-        qtwidgets.QMainWindow = _DummyQtObject
-        qtwidgets.QDockWidget = _DummyQtObject
-        qtgui.QPixmap = _DummyQtObject
-        qtuitools.QUiLoader = _DummyQtObject
-        pyside.QtCore = qtcore
-        pyside.QtGui = qtgui
-        pyside.QtWidgets = qtwidgets
-        pyside.QtUiTools = qtuitools
-        sys.modules.setdefault("PySide6", pyside)
-        sys.modules.setdefault("PySide6.QtCore", qtcore)
-        sys.modules.setdefault("PySide6.QtGui", qtgui)
-        sys.modules.setdefault("PySide6.QtWidgets", qtwidgets)
-        sys.modules.setdefault("PySide6.QtUiTools", qtuitools)
-    if importlib.util.find_spec("shiboken6") is None:
-        shiboken = types.ModuleType("shiboken6")
-        shiboken.isValid = lambda _obj: True
-        sys.modules.setdefault("shiboken6", shiboken)
-    if importlib.util.find_spec("openai") is None:
-        openai = types.ModuleType("openai")
-        openai.OpenAI = _DummyQtObject
-        sys.modules.setdefault("openai", openai)
-    if importlib.util.find_spec("torch") is None:
-        torch = types.ModuleType("torch")
-        torch.cuda = _DummyQtObject()
-        torch.device = lambda value=None: value
-        sys.modules.setdefault("torch", torch)
-    if importlib.util.find_spec("torchaudio") is None:
-        torchaudio = types.ModuleType("torchaudio")
-        sys.modules.setdefault("torchaudio", torchaudio)
-    if importlib.util.find_spec("keyboard") is None:
-        keyboard = types.ModuleType("keyboard")
-        keyboard.is_pressed = lambda *_args, **_kwargs: False
-        keyboard.add_hotkey = lambda *_args, **_kwargs: None
-        keyboard.remove_hotkey = lambda *_args, **_kwargs: None
-        sys.modules.setdefault("keyboard", keyboard)
+    """Install tiny stubs for heavy GUI/provider deps during non-GUI smoke runs."""
+    pyside = types.ModuleType("PySide6")
+    qtcore = types.ModuleType("PySide6.QtCore")
+    qtgui = types.ModuleType("PySide6.QtGui")
+    qtwidgets = types.ModuleType("PySide6.QtWidgets")
+    qtuitools = types.ModuleType("PySide6.QtUiTools")
+    for module in (qtcore, qtgui, qtwidgets, qtuitools):
+        module.__getattr__ = lambda _name, _module=module: _DummyQtObject
+    qtcore.Signal = _signal
+    qtcore.Slot = lambda *_args, **_kwargs: (lambda fn: fn)
+    qtcore.Property = lambda *_args, **_kwargs: property(lambda _self: None)
+    qtcore.Qt = _DummyQtNamespace()
+    qtcore.QIODevice = _DummyQtNamespace()
+    qtwidgets.QApplication = _DummyQtObject
+    qtwidgets.QWidget = _DummyQtObject
+    qtwidgets.QDialog = _DummyQtObject
+    qtwidgets.QMainWindow = _DummyQtObject
+    qtwidgets.QDockWidget = _DummyQtObject
+    qtgui.QPixmap = _DummyQtObject
+    qtuitools.QUiLoader = _DummyQtObject
+    pyside.QtCore = qtcore
+    pyside.QtGui = qtgui
+    pyside.QtWidgets = qtwidgets
+    pyside.QtUiTools = qtuitools
+    sys.modules["PySide6"] = pyside
+    sys.modules["PySide6.QtCore"] = qtcore
+    sys.modules["PySide6.QtGui"] = qtgui
+    sys.modules["PySide6.QtWidgets"] = qtwidgets
+    sys.modules["PySide6.QtUiTools"] = qtuitools
+
+    shiboken = types.ModuleType("shiboken6")
+    shiboken.isValid = lambda _obj: True
+    sys.modules["shiboken6"] = shiboken
+
+    openai = types.ModuleType("openai")
+    openai.OpenAI = _DummyQtObject
+    sys.modules["openai"] = openai
+
+    torch = types.ModuleType("torch")
+    torch.cuda = _DummyQtObject()
+    torch.device = lambda value=None: value
+    sys.modules["torch"] = torch
+
+    torchaudio = types.ModuleType("torchaudio")
+    sys.modules["torchaudio"] = torchaudio
+
+    keyboard = types.ModuleType("keyboard")
+    keyboard.is_pressed = lambda *_args, **_kwargs: False
+    keyboard.add_hotkey = lambda *_args, **_kwargs: None
+    keyboard.remove_hotkey = lambda *_args, **_kwargs: None
+    sys.modules["keyboard"] = keyboard
 
 
 class SmokeAddonManager(AddonManager):
