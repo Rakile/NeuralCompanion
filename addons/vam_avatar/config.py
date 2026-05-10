@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
-from core import runtime_paths
+from addons.vam_avatar import path_helpers
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
@@ -31,11 +30,11 @@ DEFAULT_TIMELINE_CLIP_MAP = {
 
 
 def detect_default_root() -> str:
-    return runtime_paths.detect_default_vam_root(app_root=APP_ROOT, environ=os.environ)
+    return path_helpers.detect_default_root(app_root=APP_ROOT)
 
 
 def legacy_bridge_roots() -> tuple[str, ...]:
-    return tuple(runtime_paths.legacy_vam_bridge_roots(app_root=APP_ROOT))
+    return tuple(path_helpers.legacy_bridge_roots(app_root=APP_ROOT))
 
 
 DEFAULT_ROOT = detect_default_root()
@@ -43,27 +42,27 @@ LEGACY_BRIDGE_ROOTS = legacy_bridge_roots()
 
 
 def derive_bridge_root(vam_root: str) -> str:
-    return runtime_paths.derive_vam_bridge_root(vam_root, app_root=APP_ROOT)
+    return path_helpers.derive_bridge_root(vam_root, app_root=APP_ROOT)
 
 
 def derive_plugin_dir(vam_root: str) -> str:
-    return runtime_paths.derive_vam_plugin_dir(vam_root)
+    return path_helpers.derive_plugin_dir(vam_root)
 
 
 def normalize_root(raw_value=None, migrate_legacy=True) -> str:
-    return runtime_paths.normalize_vam_root(
+    return path_helpers.normalize_root(
         raw_value,
-        default_vam_root=DEFAULT_ROOT,
+        default_root=DEFAULT_ROOT,
         legacy_roots=LEGACY_BRIDGE_ROOTS,
         migrate_legacy=migrate_legacy,
     )
 
 
 def normalize_bridge_root(raw_value=None, migrate_legacy=True) -> str:
-    return runtime_paths.normalize_vam_bridge_root(
+    return path_helpers.normalize_bridge_root(
         raw_value,
         app_root=APP_ROOT,
-        default_vam_root=DEFAULT_ROOT,
+        default_root=DEFAULT_ROOT,
         legacy_roots=LEGACY_BRIDGE_ROOTS,
         migrate_legacy=migrate_legacy,
     )
