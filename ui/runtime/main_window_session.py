@@ -502,10 +502,12 @@ class MainWindowSessionMixin:
             }
             self._apply_legacy_dock_title_widgets()
             suppress_aux_docks = bool(getattr(self, "_suppress_restored_aux_docks", False))
-            if bool(session.get("preview_visible", False)) and not suppress_aux_docks:
-                self.preview_dock.show()
-            else:
-                self.preview_dock.hide()
+            preview_dock = getattr(self, "preview_dock", None)
+            if preview_dock is not None:
+                if bool(session.get("preview_visible", False)) and not suppress_aux_docks:
+                    preview_dock.show()
+                else:
+                    preview_dock.hide()
             self._restore_addon_session_surface_visibility(session, suppress_aux_docks=suppress_aux_docks)
             performance_guidance_visible = bool(session.get("performance_guidance_visible", False))
             if hasattr(self, "performance_guidance_toggle"):
