@@ -53,6 +53,21 @@ class BackendChatSessionRuntimeMixin:
             self.chat_edit.setFont(font)
             if hasattr(self.chat_edit, "document"):
                 self.chat_edit.document().setDefaultFont(font)
+                cursor = self.chat_edit.textCursor()
+                scrollbar = self.chat_edit.verticalScrollBar() if hasattr(self.chat_edit, "verticalScrollBar") else None
+                scroll_value = scrollbar.value() if scrollbar is not None else None
+                try:
+                    full_cursor = QtGui.QTextCursor(self.chat_edit.document())
+                    full_cursor.select(QtGui.QTextCursor.Document)
+                    text_format = QtGui.QTextCharFormat()
+                    text_format.setFontFamily("Segoe UI")
+                    text_format.setFontPointSize(font_size)
+                    full_cursor.mergeCharFormat(text_format)
+                finally:
+                    if hasattr(self.chat_edit, "setTextCursor"):
+                        self.chat_edit.setTextCursor(cursor)
+                    if scrollbar is not None and scroll_value is not None:
+                        scrollbar.setValue(scroll_value)
         if update_combo and hasattr(self, "chat_font_size_combo"):
             index = self.chat_font_size_combo.findData(font_size)
             if index >= 0 and self.chat_font_size_combo.currentIndex() != index:

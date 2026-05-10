@@ -1,6 +1,6 @@
 """RealUiActionsChatSensoryMixin extracted from real_ui_actions.py."""
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui
 
 
 def configure_real_ui_actions_chat_sensory_dependencies(namespace):
@@ -14,7 +14,44 @@ class RealUiActionsChatSensoryMixin:
 
     def _on_frontend_chat_font_size_changed(self, _index=None):
             self._sync_single_combo_to_backend("chat_font_size_combo")
-            self._refresh_musetalk_visual_runtime_frontend()
+            try:
+                self.backend.on_chat_font_size_changed(_index)
+            except Exception:
+                pass
+            self._apply_frontend_chat_font_size()
+            self._refresh_chat_session_runtime_frontend()
+
+    def _apply_frontend_chat_font_size(self):
+            chat_edit = self._ui_object("chat_edit")
+            combo = self._ui_object("chat_font_size_combo")
+            if chat_edit is None or combo is None:
+                return
+            try:
+                size = combo.currentData() if hasattr(combo, "currentData") else None
+                if size is None:
+                    size = int(str(combo.currentText() or "12").strip())
+                font = QtGui.QFont("Segoe UI", max(8, min(20, int(size))))
+            except Exception:
+                return
+            try:
+                chat_edit.setFont(font)
+                if hasattr(chat_edit, "document"):
+                    chat_edit.document().setDefaultFont(font)
+                    cursor = chat_edit.textCursor() if hasattr(chat_edit, "textCursor") else None
+                    scrollbar = chat_edit.verticalScrollBar() if hasattr(chat_edit, "verticalScrollBar") else None
+                    scroll_value = scrollbar.value() if scrollbar is not None else None
+                    full_cursor = QtGui.QTextCursor(chat_edit.document())
+                    full_cursor.select(QtGui.QTextCursor.Document)
+                    text_format = QtGui.QTextCharFormat()
+                    text_format.setFontFamily("Segoe UI")
+                    text_format.setFontPointSize(font.pointSize())
+                    full_cursor.mergeCharFormat(text_format)
+                    if cursor is not None and hasattr(chat_edit, "setTextCursor"):
+                        chat_edit.setTextCursor(cursor)
+                    if scrollbar is not None and scroll_value is not None:
+                        scrollbar.setValue(scroll_value)
+            except Exception:
+                pass
 
     def _refresh_chat_session_runtime_frontend(self):
             try:
