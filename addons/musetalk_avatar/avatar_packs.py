@@ -253,6 +253,13 @@ def load_avatar_pack_manifest(manifest_path: Path, avatars_dir: Path | None = No
             display_name=str(variant_payload.get("display_name") or variant_id).strip(),
             metadata={k: v for k, v in variant_payload.items() if k not in {"avatar_id", "avatar_path", "tags", "emotion_tags", "display_name"}},
         )
+    local_variants = {
+        variant_id: variant
+        for variant_id, variant in variants.items()
+        if str(variant.avatar_path or "").strip()
+    }
+    if local_variants:
+        variants = local_variants
     if not variants:
         default_avatar_id = sanitize_pack_token(payload.get("default_avatar_id") or pack_id, "default_avatar")
         variants["default"] = MuseTalkAvatarVariant(

@@ -54,6 +54,7 @@ class BackendRuntimeControlsMixin:
             getattr(self, "engine_combo", None),
             getattr(self, "model_combo", None),
             getattr(self, "tts_backend_combo", None),
+            getattr(self, "stream_mode_combo", None),
         ]
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(_runtime_config().get("avatar_mode", "") or "")
         tts_backend = self._current_tts_backend_value() if hasattr(self, "tts_backend_combo") else str(_runtime_config().get("tts_backend", "") or "")

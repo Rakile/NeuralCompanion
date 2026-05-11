@@ -93,13 +93,17 @@ class BackendSystemShapingRuntimeMixin:
 
     def on_stream_mode_change(self, choice):
         enabled = choice == "On"
+        if bool(getattr(self, "thread", None) and self.thread.is_alive()):
+            current_enabled = bool(getattr(_engine(), "RUNTIME_CONFIG", {}).get("stream_mode", False))
+            expected_label = "On" if current_enabled else "Off"
+            if str(choice or "") != expected_label and hasattr(self, "stream_mode_combo"):
+                previous_blocked = self.stream_mode_combo.blockSignals(True)
+                try:
+                    self.stream_mode_combo.setCurrentText(expected_label)
+                finally:
+                    self.stream_mode_combo.blockSignals(previous_blocked)
+            return
         _update_runtime_config("stream_mode", enabled)
-        current_backend = self._current_tts_backend_value()
-        desired_backend = self._preferred_tts_backend_for_stream_mode(enabled)
-        if desired_backend and current_backend != desired_backend and hasattr(self, "tts_backend_combo"):
-            index = self.tts_backend_combo.findData(desired_backend)
-            if index >= 0:
-                self.tts_backend_combo.setCurrentIndex(index)
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "stream_mode", "value": choice})
         self.save_session()
