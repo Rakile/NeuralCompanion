@@ -185,7 +185,11 @@ class BackendEngineLifecycleMixin:
         try:
             print("[QtGUI] Stopping...")
             engine.stop_flag.set()
-            engine.shutdown_avatar_engine()
+            if hasattr(engine, "stop_playback"):
+                engine.stop_playback.set()
+            engine_thread = getattr(self, "thread", None)
+            if not (engine_thread and engine_thread.is_alive()):
+                engine.shutdown_avatar_engine()
             self.btn_stop.setEnabled(False)
             self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
             self._update_restart_sensitive_controls()
