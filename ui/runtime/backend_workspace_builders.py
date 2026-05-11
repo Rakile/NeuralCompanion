@@ -150,11 +150,11 @@ class BackendWorkspaceBuilderMixin:
             (
                 "Streaming",
                 [
-                    ("Target Chars", "stream_chunk_target_chars", 40, 220, int(runtime_config.get("stream_chunk_target_chars", 85) or 85), True),
-                    ("Max Chars", "stream_chunk_max_chars", 60, 320, int(runtime_config.get("stream_chunk_max_chars", 170) or 170), True),
-                    ("First Chunk Min", "stream_first_chunk_min_chars", 10, 80, int(runtime_config.get("stream_first_chunk_min_chars", 28) or 28), True),
-                    ("First Flush (s)", "stream_force_flush_seconds", 0.2, 2.5, float(runtime_config.get("stream_force_flush_seconds", 0.9) or 0.9), False),
-                    ("Later Flush (s)", "stream_force_flush_later_seconds", 0.3, 4.0, float(runtime_config.get("stream_force_flush_later_seconds", 1.4) or 1.4), False),
+                    ("Target Chars", "stream_chunk_target_chars", 40, 220, int(runtime_config.get("stream_chunk_target_chars", 90) or 90), True),
+                    ("Max Chars", "stream_chunk_max_chars", 60, 320, int(runtime_config.get("stream_chunk_max_chars", 200) or 200), True),
+                    ("First Chunk Min", "stream_first_chunk_min_chars", 10, 80, int(runtime_config.get("stream_first_chunk_min_chars", 25) or 25), True),
+                    ("First Flush (s)", "stream_force_flush_seconds", 0.2, 2.5, float(runtime_config.get("stream_force_flush_seconds", 0.25) or 0.25), False),
+                    ("Later Flush (s)", "stream_force_flush_later_seconds", 0.3, 4.0, float(runtime_config.get("stream_force_flush_later_seconds", 0.65) or 0.65), False),
                 ],
             ),
         ]

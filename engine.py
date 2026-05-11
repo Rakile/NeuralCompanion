@@ -614,8 +614,8 @@ RUNTIME_CONFIG = {
     "stored_chat_history_limit": 0,
     "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
     "chunk_max_chars": MAX_CHARS_PER_CHUNK,
-    "stream_chunk_target_chars": 85,
-    "stream_chunk_max_chars": 170,
+    "stream_chunk_target_chars": 90,
+    "stream_chunk_max_chars": 200,
     "stream_first_chunk_min_chars": STREAM_FIRST_CHUNK_MIN_CHARS,
     "stream_force_flush_seconds": STREAM_FORCE_FLUSH_SECONDS,
     "stream_force_flush_later_seconds": STREAM_FORCE_FLUSH_LATER_SECONDS,
@@ -2721,8 +2721,8 @@ def coalesce_musetalk_leading_segments(segments):
 def get_stream_chunk_limits():
     if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
         return (
-            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 85) or 85),
-            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 170) or 170),
+            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 90) or 90),
+            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 200) or 200),
         )
     return (
         int(RUNTIME_CONFIG.get("chunk_target_chars", 90) or 90),
