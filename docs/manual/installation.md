@@ -4,14 +4,7 @@ Neural Companion is currently a Windows-first Python 3.11 desktop app.
 
 ## Clone
 
-For the current release branch:
-
-```powershell
-git clone --branch post_main.ui https://github.com/Rakile/NeuralCompanion.git
-cd NeuralCompanion
-```
-
-After the release branch becomes the default branch, the normal clone command is:
+Clone the main branch:
 
 ```powershell
 git clone https://github.com/Rakile/NeuralCompanion.git
