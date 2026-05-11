@@ -13,6 +13,12 @@ The project is designed as a box of LEGO pieces:
 
 The app runs locally on Windows and is built around a PySide6 desktop UI.
 
+## Manual
+
+See the [Neural Companion Manual](docs/manual/index.md) for installation,
+first-run, avatar, TTS, PocketTTS, MuseTalk, addon, and troubleshooting
+guidance.
+
 ## Status
 
 This repository is approaching its first public release. It is usable, but still
