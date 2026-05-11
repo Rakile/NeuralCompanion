@@ -54,29 +54,35 @@ Open PowerShell in the repository root.
 
 For the detailed public install guide, see [docs/install.md](docs/install.md).
 
+Graphical installer:
+
+```powershell
+py install_neural_companion_gui.py
+```
+
 For the main app:
 
 ```powershell
-py install_neural_interface.py --main --non-interactive
+py install_neural_companion.py --main --non-interactive
 ```
 
 For a fuller install:
 
 ```powershell
-py install_neural_interface.py --all
+py install_neural_companion.py --all
 ```
 
 If Python 3.11 is not your default Python:
 
 ```powershell
-py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
+py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe"
 ```
 
 Optional installs:
 
 ```powershell
-py install_neural_interface.py --musetalk --non-interactive
-py install_neural_interface.py --pockettts --non-interactive
+py install_neural_companion.py --musetalk --non-interactive
+py install_neural_companion.py --pockettts --non-interactive
 ```
 
 ## Run

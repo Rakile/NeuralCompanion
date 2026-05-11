@@ -1,2 +1,2 @@
-"""Core package for Neural Interface."""
+"""Core package for Neural Companion."""
 

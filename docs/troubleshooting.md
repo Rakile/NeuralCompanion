@@ -7,7 +7,7 @@ packages such as `numpy` or reports `pkgutil.ImpImporter`, rerun the installer
 with a Python 3.11 executable:
 
 ```powershell
-py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
+py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe"
 ```
 
 ## No Chat Response

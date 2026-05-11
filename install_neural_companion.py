@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -94,6 +95,60 @@ def get_python_minor_version(cmd: list[str]) -> str:
         return ""
 
 
+def _add_unique_path(paths: list[str], candidate: str | Path | None) -> None:
+    if candidate is None:
+        return
+    raw = str(candidate or "").strip().strip('"')
+    if not raw:
+        return
+    normalized = str(Path(raw))
+    if normalized.lower() not in {item.lower() for item in paths}:
+        paths.append(normalized)
+
+
+def _python_launcher_paths() -> list[str]:
+    if not shutil.which("py"):
+        return []
+    try:
+        result = run_command(["py", "-0p"], capture=True, check=False)
+    except Exception:
+        return []
+    paths: list[str] = []
+    for line in (result.stdout or "").splitlines():
+        match = re.search(r"([A-Za-z]:\\.*?python\.exe)\s*$", line.strip(), re.IGNORECASE)
+        if match:
+            _add_unique_path(paths, match.group(1))
+    return paths
+
+
+def find_python311_executables() -> list[str]:
+    """Return likely Python 3.11 executable paths without requiring user input."""
+    candidates: list[str] = []
+    for path in _python_launcher_paths():
+        if get_python_minor_version([path]) == "3.11":
+            _add_unique_path(candidates, path)
+
+    for executable_name in ("python3.11", "python"):
+        resolved = shutil.which(executable_name)
+        if resolved and get_python_minor_version([resolved]) == "3.11":
+            _add_unique_path(candidates, resolved)
+
+    common_roots = [
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "Python",
+        Path(os.environ.get("ProgramFiles", "")) / "Python311",
+        Path(os.environ.get("ProgramFiles(x86)", "")) / "Python311",
+        Path("C:/Python311"),
+    ]
+    for root in common_roots:
+        if not root:
+            continue
+        for pattern in ("Python311/python.exe", "python.exe"):
+            for candidate in root.glob(pattern):
+                if candidate.exists() and get_python_minor_version([str(candidate)]) == "3.11":
+                    _add_unique_path(candidates, candidate)
+    return candidates
+
+
 def resolve_python_command(python_exe: str) -> list[str]:
     if python_exe:
         cmd = [python_exe]
@@ -105,10 +160,12 @@ def resolve_python_command(python_exe: str) -> list[str]:
             )
         return cmd
 
-    candidates = [
+    candidates = [[path] for path in find_python311_executables()]
+    candidates.extend([
         ["py", "-3.11"],
+        ["python3.11"],
         ["python"],
-    ]
+    ])
     for candidate in candidates:
         if shutil.which(candidate[0]) and get_python_minor_version(candidate) == "3.11":
             return candidate
@@ -601,8 +658,8 @@ def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, 
 
     headline("Installation Selection")
     install_main = prompt_yes_no("Install the main Neural Companion runtime?", True)
-    install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", False)
-    install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", False)
+    install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", True)
+    install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", True)
     return install_main, install_musetalk, install_pockettts
 
 

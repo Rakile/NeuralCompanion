@@ -1,4 +1,4 @@
-"""Addon framework primitives for Neural Interface."""
+"""Addon framework primitives for Neural Companion."""
 
 from .base import BaseAddon
 from .contributions import (

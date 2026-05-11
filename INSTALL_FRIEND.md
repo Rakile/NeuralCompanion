@@ -9,7 +9,7 @@ Neural Companion currently expects **Python 3.11**.
 3. Run the unified installer:
 
 ```powershell
-py install_neural_interface.py
+py install_neural_companion.py
 ```
 
 This installer can:
@@ -23,7 +23,7 @@ This installer can:
 If Python 3.11 is not your default Python, run:
 
 ```powershell
-py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
+py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe"
 ```
 
 If the installer ever shows an error mentioning `pkgutil.ImpImporter` or says it failed while building `numpy`, that almost always means it ran under Python 3.12 instead of Python 3.11. Use a Python 3.11 interpreter and rerun the installer.
@@ -33,13 +33,13 @@ If the installer instead fails while building `pandas`, that usually means pip f
 To install everything in one go instead of using the interactive prompts:
 
 ```powershell
-py install_neural_interface.py --all
+py install_neural_companion.py --all
 ```
 
 To install only the main app non-interactively:
 
 ```powershell
-py install_neural_interface.py --main --non-interactive
+py install_neural_companion.py --main --non-interactive
 ```
 
 Legacy PowerShell wrapper scripts are still present, but they now just forward into the unified Python installer:
@@ -56,7 +56,7 @@ run_neural_companion.bat
 5. Optional: if you skipped PocketTTS during the unified install, you can still add it later with:
 
 ```powershell
-py install_neural_interface.py --pockettts --non-interactive
+py install_neural_companion.py --pockettts --non-interactive
 ```
 
 PocketTTS voice cloning still needs two manual steps:
@@ -74,7 +74,7 @@ The unified installer now also checks whether a Hugging Face login is present an
 6. Optional: if you skipped MuseTalk during the unified install, you can still add it later with:
 
 ```powershell
-py install_neural_interface.py --musetalk --non-interactive
+py install_neural_companion.py --musetalk --non-interactive
 ```
 
 
@@ -99,8 +99,8 @@ The package also pins `chatterbox-tts==0.1.6`, `transformers==4.46.3`, and `nump
 `gradio` is pinned to `5.44.1` to stay aligned with the pinned Chatterbox runtime stack; the main Qt app does not depend on Gradio directly.
 `moviepy` is omitted because it is only used by the bundled MuseTalk Gradio demo path, not by the main Qt runtime, and old resolver paths can fail to build on modern Python setups.
 `pocket-tts` is omitted from the default install because current releases require `numpy>=2`, which conflicts with the pinned Chatterbox + MuseTalk runtime stack. Use Chatterbox as the default TTS backend in this package.
-Use `install_neural_interface.py --pockettts --non-interactive` to create the separate `.venvs\pockettts` runtime that the app expects for the PocketTTS backend.
-Use `install_neural_interface.py --musetalk --non-interactive` to create the separate `MuseTalk\.venv` runtime that the app expects for the MuseTalk backend. That installer uses the same MuseTalk torch stack as your working setup: `torch==2.0.1+cu118`, `torchaudio==2.0.2+cu118`, and `torchvision==0.15.2+cu118`, then installs a pinned requirement set exported from the current working MuseTalk environment.
+Use `install_neural_companion.py --pockettts --non-interactive` to create the separate `.venvs\pockettts` runtime that the app expects for the PocketTTS backend.
+Use `install_neural_companion.py --musetalk --non-interactive` to create the separate `MuseTalk\.venv` runtime that the app expects for the MuseTalk backend. That installer uses the same MuseTalk torch stack as your working setup: `torch==2.0.1+cu118`, `torchaudio==2.0.2+cu118`, and `torchvision==0.15.2+cu118`, then installs a pinned requirement set exported from the current working MuseTalk environment.
 The packaged MuseTalk requirement export is trimmed to remove stale environment-only packages like `chumpy` that are not used by the runtime path but can fail to build on a fresh machine.
 The MuseTalk installer now installs `mmcv==2.0.1` through `openmim` instead of asking plain pip to build it, and it omits `mmcv-full` from the packaged requirement export.
 The MuseTalk installer also preinstalls `chumpy==0.70` with `--no-build-isolation` before the main requirement pass, because the normal isolated build path can fail on fresh Windows machines.

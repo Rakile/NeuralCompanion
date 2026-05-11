@@ -75,7 +75,7 @@ def _looks_like_app_question(text):
     if not text_n:
         return False
     app_markers = (
-        "neural interface",
+        "neural companion",
         "this app",
         "this application",
         "lm studio",

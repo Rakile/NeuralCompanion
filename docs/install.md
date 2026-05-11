@@ -4,21 +4,33 @@ Neural Companion is currently a Windows-first Python 3.11 desktop app.
 
 The recommended public install path is the unified installer:
 
+Graphical installer:
+
 ```powershell
-py install_neural_interface.py --main --non-interactive
+py install_neural_companion_gui.py
+```
+
+Command-line installer:
+
+```powershell
+py install_neural_companion.py --main --non-interactive
 ```
 
 For a fuller local setup:
 
 ```powershell
-py install_neural_interface.py --all
+py install_neural_companion.py --all
 ```
 
 If Python 3.11 is not your default Python, pass the interpreter explicitly:
 
 ```powershell
-py install_neural_interface.py --python-exe "C:\Path\To\Python311\python.exe"
+py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe"
 ```
+
+The installer also tries to find Python 3.11 automatically through the Windows
+Python launcher, PATH, and common install folders. The graphical installer shows
+the detected interpreter and lets you browse to another `python.exe`.
 
 ## Requirement Files
 
@@ -34,13 +46,13 @@ files. The installer keeps incompatible runtime stacks separated where needed.
 MuseTalk:
 
 ```powershell
-py install_neural_interface.py --musetalk --non-interactive
+py install_neural_companion.py --musetalk --non-interactive
 ```
 
 PocketTTS:
 
 ```powershell
-py install_neural_interface.py --pockettts --non-interactive
+py install_neural_companion.py --pockettts --non-interactive
 ```
 
 The main app can run without MuseTalk, PocketTTS, VaM, VSeeFace, or API
