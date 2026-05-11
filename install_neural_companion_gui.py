@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -13,6 +14,7 @@ from install_neural_companion import REPO_ROOT, find_python311_executables, get_
 
 
 POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
+ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 class NeuralCompanionInstallerGui(tk.Tk):
@@ -86,6 +88,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.output.configure(yscrollcommand=scrollbar.set)
 
     def _append_output(self, text: str) -> None:
+        text = ANSI_ESCAPE_RE.sub("", text)
         self.output.insert(tk.END, text)
         self.output.see(tk.END)
 
@@ -235,7 +238,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
                 return
 
         if sys.platform.startswith("win"):
-            command = ["cmd.exe", "/k", f'"{hf_exe}" auth login']
+            command = ["cmd.exe", "/k", "call", str(hf_exe), "auth", "login"]
             subprocess.Popen(command, cwd=str(REPO_ROOT), creationflags=subprocess.CREATE_NEW_CONSOLE)
             self._append_output(f"\nOpened Hugging Face login window: {hf_exe} auth login\n")
             messagebox.showinfo(
@@ -291,9 +294,29 @@ class NeuralCompanionInstallerGui(tk.Tk):
         return True
 
     def _recheck_pockettts_hf_login(self, hf_exe: Path) -> None:
+        python_exe = hf_exe.parent / "python.exe"
+        checker = """
+import json
+from huggingface_hub import HfApi
+from huggingface_hub.utils import get_token
+
+token = get_token()
+status = {"has_token": bool(token), "whoami_ok": False, "identity": ""}
+if token:
+    try:
+        who = HfApi().whoami(token=token)
+        if isinstance(who, dict):
+            status["identity"] = who.get("name") or who.get("fullname") or who.get("email") or ""
+        else:
+            status["identity"] = str(who)
+        status["whoami_ok"] = True
+    except Exception as exc:
+        status["identity"] = f"token present but whoami failed: {exc}"
+print(json.dumps(status))
+"""
         try:
             result = subprocess.run(
-                [str(hf_exe), "auth", "whoami"],
+                [str(python_exe), "-c", checker],
                 cwd=str(REPO_ROOT),
                 text=True,
                 capture_output=True,
@@ -305,6 +328,25 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         combined = ((result.stdout or "") + (result.stderr or "")).strip()
         if result.returncode == 0:
+            try:
+                payload = __import__("json").loads((result.stdout or "").strip())
+            except Exception:
+                payload = {}
+            if payload.get("whoami_ok"):
+                identity = payload.get("identity") or "signed-in user"
+                self._append_output(f"\nPocketTTS Hugging Face login verified: {identity}\n")
+                messagebox.showinfo("PocketTTS Login", "Hugging Face login verified for PocketTTS.")
+                return
+            if payload.get("has_token"):
+                detail = payload.get("identity") or "token present, but account verification failed"
+                self._append_output(f"\nPocketTTS Hugging Face token detected: {detail}\n")
+                messagebox.showinfo(
+                    "PocketTTS Login",
+                    "A Hugging Face token was found. PocketTTS is installed, but gated model terms "
+                    "may still need to be accepted on Hugging Face.",
+                )
+                return
+
             self._append_output("\nPocketTTS Hugging Face login verified.\n")
             if combined:
                 self._append_output(combined + "\n")
