@@ -123,6 +123,7 @@ class MainWindowStartupMixin:
         self._restore_pinned_floating_panels_timer.timeout.connect(self._restore_pinned_floating_panels_after_main_hide)
 
     def _finish_startup(self):
+        self._initialize_addon_manager()
         self._build_ui()
         self._apply_workspace_view_constraints()
         _apply_inline_theme_styles(self, _app_theme_palette(self.current_app_theme_preset()))
@@ -131,7 +132,7 @@ class MainWindowStartupMixin:
         self._apply_legacy_dock_title_widgets()
         self._connect_console_bridge()
         self._build_status_timer()
-        self._initialize_addons()
+        self._mount_initialized_addons()
         self._build_ui_hotkey_timer()
         self._build_preview_dock()
         self._apply_disabled_addon_surfaces()

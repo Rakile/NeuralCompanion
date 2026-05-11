@@ -1,12 +1,13 @@
-import importlib.util
-import importlib.util
-from pathlib import Path
-
 from PySide6 import QtCore, QtWidgets
 
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
-from ui.runtime.shell_addon_services import addon_entry_path, addon_id_for_service, addon_id_for_ui_role
+from ui.runtime.shell_addon_services import addon_id_for_service, addon_id_for_ui_role
+from ui.runtime.addon_disabled_placeholders import (
+    ensure_musetalk_legacy_placeholders,
+    ensure_vam_legacy_placeholders,
+    ensure_visual_reply_legacy_placeholders,
+)
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
 from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
 
@@ -30,43 +31,18 @@ class BackendSystemShapingPanelMixin:
     """Build the backend System Shaping and Workspace panels."""
 
 class BackendSystemShapingBuilderMixin:
-    def _invoke_bootstrap_addon_capability(self, addon_id, capability, payload=None, default=None):
-        """Invoke an addon capability before the full addon manager exists.
-
-        The hidden backend builds some compatibility widgets before normal addon
-        initialization. Keep that bootstrap path going through addon entrypoints
-        instead of importing addon UI bridge modules directly from the host.
-        """
+    def _invoke_initialized_addon_capability(self, addon_id, capability, payload=None, default=None):
+        """Invoke an addon capability through the initialized addon manager."""
         manager = getattr(self, "_addon_manager", None)
-        if manager is not None:
-            try:
-                result = manager.invoke_addon_capability(str(addon_id), str(capability), dict(payload or {}))
-                if result is not None:
-                    return result
-            except Exception:
-                pass
-        entry_path = addon_entry_path(addon_id)
-        if entry_path is None or not entry_path.exists():
+        if manager is None:
             return default
-        addon_dir_name = entry_path.parent.name
         try:
-            module_name = f"nc_bootstrap_{addon_dir_name}"
-            spec = importlib.util.spec_from_file_location(module_name, entry_path)
-            if spec is None or spec.loader is None:
-                return default
-            module = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(module)
-            addon_cls = getattr(module, "Addon", None)
-            addon = addon_cls() if callable(addon_cls) else None
-            invoker = getattr(addon, "invoke_capability", None)
-            if not callable(invoker):
-                return default
-            result = invoker(str(capability), dict(payload or {}))
+            result = manager.invoke_addon_capability(str(addon_id), str(capability), dict(payload or {}))
             return default if result is None else result
         except Exception:
             return default
 
-    def _invoke_avatar_bootstrap_capability(self, provider_id, capability, payload=None, default=None):
+    def _invoke_avatar_legacy_capability(self, provider_id, capability, payload=None, default=None):
         provider = str(provider_id or "").strip().lower()
         addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
         if not addon_id:
@@ -76,11 +52,11 @@ class BackendSystemShapingBuilderMixin:
             capability,
             payload,
             default=None,
-                provider_id=provider,
-            )
+            provider_id=provider,
+        )
         if result is not None:
             return result
-        return self._invoke_bootstrap_addon_capability(addon_id, capability, payload, default=default)
+        return self._invoke_initialized_addon_capability(addon_id, capability, payload, default=default)
 
     def _invoke_visual_reply_capability(self, capability, payload=None, default=None):
         result = self._invoke_addon_capability(
@@ -91,7 +67,12 @@ class BackendSystemShapingBuilderMixin:
         )
         if result is not None:
             return result
-        return self._invoke_bootstrap_addon_capability(addon_id_for_ui_role("visual_reply"), capability, payload, default=default)
+        return self._invoke_initialized_addon_capability(
+            addon_id_for_ui_role("visual_reply"),
+            capability,
+            payload,
+            default=default,
+        )
 
     def _build_runtime_shell_tab(self):
         tab = QtWidgets.QWidget()
@@ -142,7 +123,7 @@ class BackendSystemShapingBuilderMixin:
         self.btn_push_to_talk.pressed.connect(lambda: _engine().set_push_to_talk_hold(True))
         self.btn_push_to_talk.released.connect(lambda: _engine().set_push_to_talk_hold(False))
         self.btn_push_to_talk.setEnabled(False)
-        musetalk_buttons = self._invoke_avatar_bootstrap_capability(
+        musetalk_buttons = self._invoke_avatar_legacy_capability(
             "musetalk",
             "legacy.build_utility_buttons",
             {"backend": self},
@@ -566,17 +547,21 @@ class BackendSystemShapingBuilderMixin:
         self.tts_backend_combo.currentTextChanged.connect(self.on_tts_backend_change)
         self._populate_tts_backend_combo()
 
-        built = self._invoke_avatar_bootstrap_capability(
+        built = self._invoke_avatar_legacy_capability(
             "musetalk",
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
         )
+        if not built:
+            ensure_musetalk_legacy_placeholders(self, runtime_config)
         built = self._invoke_visual_reply_capability(
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
         )
+        if not built:
+            ensure_visual_reply_legacy_placeholders(self, runtime_config)
 
         self.sensory_feedback_source_combo = NoWheelComboBox()
         self.sensory_feedback_source_combo.setObjectName("sensory_feedback_source_combo")
@@ -636,12 +621,14 @@ class BackendSystemShapingBuilderMixin:
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
 
-        built = self._invoke_avatar_bootstrap_capability(
+        built = self._invoke_avatar_legacy_capability(
             "vam",
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
             default=False,
         )
+        if not built:
+            ensure_vam_legacy_placeholders(self, runtime_config)
 
         self.chat_provider_combo = NoWheelComboBox()
         self.chat_provider_combo.setObjectName("chat_provider_combo")

@@ -70,7 +70,7 @@ manifest UI entries or direct addon capability routing.
 | `legacy.build_utility_buttons` | MuseTalk addon capability used by backend compatibility builders | Manifest `ui` entries plus `real_ui.*` bindings. |
 | `legacy.build_runtime_widgets` | MuseTalk, VaM, and Visual Reply addon capabilities | Designer-backed addon UI and `real_ui.bind_runtime_controls`. |
 | `legacy.build_utility_button` and `legacy.build_settings_tab` | Visual Reply addon capabilities | Visual Reply dock/settings manifest UI and `real_ui.*` capabilities. |
-| Bootstrap addon entrypoint loading before the full manager exists | `ui/runtime/backend_system_shaping_builders.py` | Normal initialized `AddonManager` capability calls. |
+| Disabled-addon backend widget placeholders | `ui/runtime/addon_disabled_placeholders.py` | Nullable session/status paths that no longer require legacy widget attributes. |
 | Legacy dock helpers | `ui/runtime/legacy_dock_titles.py`, `ui/runtime/legacy_workspace_docks.py` | Real UI dock ownership and addon manifest dock metadata. |
 
 ## Retired Cleanup Shims
@@ -84,6 +84,7 @@ were migrated or confirmed absent.
 | `ui.panels.musetalk_preview_panel` | `ui/panels/musetalk_preview_panel.py` | MuseTalk capability routing and addon-owned preview panel classes. |
 | `ui.panels.hand_doctor_dialog` | `ui/panels/hand_doctor_dialog.py` | VSeeFace capability routing and addon-owned dialog classes. |
 | `_mount_musetalk_addon_tabs` | `ui/runtime/backend_addon_tab_mounts.py` | `_mount_avatar_tools_addon_tabs`. |
+| Bootstrap addon entrypoint loading before the full manager exists | `ui/runtime/backend_system_shaping_builders.py` | Early initialized `AddonManager` capability calls plus disabled-addon placeholders. |
 
 ## Internal Aliases
 

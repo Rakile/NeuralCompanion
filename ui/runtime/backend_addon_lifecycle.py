@@ -11,13 +11,14 @@ from ui.widgets.basic import NoWheelTabWidget
 from ui.runtime.addon_host_services import build_qt_host_services
 
 class BackendAddonLifecycleMixin:
-    def _initialize_addons(self):
+    def _initialize_addon_manager(self):
         from ui.runtime import engine_access as engine
         from core.addons.manager import AddonManager
 
+        if getattr(self, "_addon_manager", None) is not None:
+            return self._addon_manager
         try:
             app_root = Path(__file__).resolve().parents[2]
-            runtime_config = getattr(engine, "RUNTIME_CONFIG", {})
             manager = AddonManager(
                 app_root=app_root,
                 llm_snapshot_getter=self._build_addon_llm_snapshot,
@@ -33,6 +34,25 @@ class BackendAddonLifecycleMixin:
                 engine.set_addon_event_publisher(manager.publish_event)
             if hasattr(engine, "set_addon_manager_getter"):
                 engine.set_addon_manager_getter(lambda: self._addon_manager)
+            return manager
+        except Exception as exc:
+            if hasattr(engine, "set_addon_event_publisher"):
+                engine.set_addon_event_publisher(None)
+            if hasattr(engine, "set_addon_manager_getter"):
+                engine.set_addon_manager_getter(None)
+            print(f"⚠️ [Addons] Initialization failed: {exc}")
+            self._refresh_addons_management_ui()
+            return None
+
+    def _mount_initialized_addons(self):
+        from ui.runtime import engine_access as engine
+
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            self._refresh_addons_management_ui()
+            return
+        try:
+            runtime_config = getattr(engine, "RUNTIME_CONFIG", {})
             self.refresh_avatar_engine_options(selected_provider_id=str(runtime_config.get("avatar_mode", "") or ""))
             self._mount_tts_runtime_addon_tabs()
             self._populate_tts_backend_combo(selected_value=self._current_tts_backend_value())
@@ -44,15 +64,16 @@ class BackendAddonLifecycleMixin:
             self._apply_disabled_addon_surfaces()
             self._refresh_addons_management_ui()
             loaded = [record.manifest.id for record in manager.get_loaded_addons() if record.state == "initialized"]
-            if loaded:
+            if loaded and not getattr(self, "_addon_loaded_message_printed", False):
                 print(f"🧩 [Addons] Loaded: {', '.join(loaded)}")
+                self._addon_loaded_message_printed = True
         except Exception as exc:
-            if hasattr(engine, "set_addon_event_publisher"):
-                engine.set_addon_event_publisher(None)
-            if hasattr(engine, "set_addon_manager_getter"):
-                engine.set_addon_manager_getter(None)
-            print(f"⚠️ [Addons] Initialization failed: {exc}")
+            print(f"⚠️ [Addons] UI mount failed: {exc}")
             self._refresh_addons_management_ui()
+
+    def _initialize_addons(self):
+        if self._initialize_addon_manager() is not None:
+            self._mount_initialized_addons()
 
     def _bind_designer_widgets(self, root_widget):
         if root_widget is None:

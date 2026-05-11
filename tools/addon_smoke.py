@@ -49,6 +49,14 @@ ALLOWED_ADDON_MODULE_REFERENCES = {
     },
 }
 
+FORBIDDEN_HOST_PATTERNS = {
+    "ui/runtime/backend_system_shaping_builders.py": {
+        "addon_entry_path": "backend builders must route through the initialized AddonManager",
+        "spec_from_file_location": "backend builders must not bootstrap addon entrypoints directly",
+        "importlib.util": "backend builders must not bootstrap addon entrypoints directly",
+    },
+}
+
 
 class SmokeFailure(RuntimeError):
     pass
@@ -410,6 +418,10 @@ def check_static_boundaries(app_root: Path) -> int:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
+            relative = path.relative_to(app_root).as_posix()
+            for pattern, reason in FORBIDDEN_HOST_PATTERNS.get(relative, {}).items():
+                if pattern in line:
+                    violations.append(f"{relative}:{line_number}: forbidden {pattern!r}: {reason}")
             if STATIC_BOUNDARY_RE.search(line):
                 violations.append(f"{path.relative_to(app_root)}:{line_number}: {stripped}")
     if violations:
