@@ -12,14 +12,20 @@ from tkinter import filedialog, messagebox, ttk
 from install_neural_companion import REPO_ROOT, find_python311_executables, get_python_minor_version
 
 
+POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
+
+
 class NeuralCompanionInstallerGui(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title("Neural Companion Installer")
         self.geometry("900x620")
         self.minsize(760, 520)
-        self.output_queue: queue.Queue[str | None] = queue.Queue()
+        self.output_queue: queue.Queue[str | tuple[str, int] | None] = queue.Queue()
         self.process: subprocess.Popen[str] | None = None
+        self.current_command: list[str] = []
+        self.current_output: list[str] = []
+        self.last_exit_code: int | None = None
 
         self.python_path = tk.StringVar(value="")
         self.install_main = tk.BooleanVar(value=True)
@@ -143,6 +149,9 @@ class NeuralCompanionInstallerGui(tk.Tk):
             return
         self.install_button.configure(state=tk.DISABLED)
         self.doctor_button.configure(state=tk.DISABLED)
+        self.current_command = list(command)
+        self.current_output = []
+        self.last_exit_code = None
         self._append_output("\n> " + " ".join(f'"{item}"' if " " in item else item for item in command) + "\n\n")
         thread = threading.Thread(target=self._run_command_thread, args=(command,), daemon=True)
         thread.start()
@@ -161,7 +170,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
             for line in self.process.stdout:
                 self.output_queue.put(line)
             code = self.process.wait()
-            self.output_queue.put(f"\nInstaller exited with code {code}.\n")
+            self.output_queue.put(("done", code))
         except Exception as exc:
             self.output_queue.put(f"\nInstaller failed to start: {exc}\n")
         finally:
@@ -175,11 +184,140 @@ class NeuralCompanionInstallerGui(tk.Tk):
                 if item is None:
                     self.install_button.configure(state=tk.NORMAL)
                     self.doctor_button.configure(state=tk.NORMAL)
+                    self._handle_command_finished()
+                elif isinstance(item, tuple) and item[0] == "done":
+                    self.last_exit_code = item[1]
+                    self._append_output(f"\nInstaller exited with code {item[1]}.\n")
                 else:
                     self._append_output(item)
+                    self.current_output.append(item)
         except queue.Empty:
             pass
         self.after(100, self._drain_output_queue)
+
+    def _handle_command_finished(self) -> None:
+        if self.last_exit_code != 0 or "--pockettts" not in self.current_command:
+            return
+        output = "".join(self.current_output)
+        if POCKETTTS_LOGIN_MISSING_TEXT not in output:
+            return
+
+        should_login = messagebox.askyesno(
+            "PocketTTS Hugging Face Login",
+            "PocketTTS installed successfully, but voice cloning needs a Hugging Face login.\n\n"
+            "Accept the terms at https://huggingface.co/kyutai/pocket-tts, then choose Yes "
+            "to open a login window now.\n\n"
+            "Choose No to skip this for now.",
+        )
+        if not should_login:
+            self._append_output("\nPocketTTS Hugging Face login skipped for now.\n")
+            return
+        self._launch_pockettts_hf_login()
+
+    def _launch_pockettts_hf_login(self) -> None:
+        hf_exe = REPO_ROOT / ".venvs" / "pockettts" / "Scripts" / "hf.exe"
+        if not hf_exe.exists():
+            should_install_cli = messagebox.askyesno(
+                "PocketTTS Login",
+                "The PocketTTS Hugging Face command was not found.\n\n"
+                "Do you want the installer to add the Hugging Face CLI to the isolated PocketTTS runtime now?",
+            )
+            if not should_install_cli:
+                self._append_output("\nPocketTTS Hugging Face CLI install skipped.\n")
+                return
+            if not self._install_pockettts_hf_cli():
+                return
+            if not hf_exe.exists():
+                messagebox.showwarning(
+                    "PocketTTS Login",
+                    f"The Hugging Face CLI still was not found at:\n{hf_exe}",
+                )
+                return
+
+        if sys.platform.startswith("win"):
+            command = ["cmd.exe", "/k", f'"{hf_exe}" auth login']
+            subprocess.Popen(command, cwd=str(REPO_ROOT), creationflags=subprocess.CREATE_NEW_CONSOLE)
+            self._append_output(f"\nOpened Hugging Face login window: {hf_exe} auth login\n")
+            messagebox.showinfo(
+                "PocketTTS Login",
+                "Complete the Hugging Face login in the terminal window.\n\n"
+                "After it reports success, close that terminal and press OK here.",
+            )
+        else:
+            messagebox.showinfo(
+                "PocketTTS Login",
+                f"Run this command in a terminal:\n\n{hf_exe} auth login",
+            )
+            return
+
+        self._recheck_pockettts_hf_login(hf_exe)
+
+    def _install_pockettts_hf_cli(self) -> bool:
+        python_exe = REPO_ROOT / ".venvs" / "pockettts" / "Scripts" / "python.exe"
+        if not python_exe.exists():
+            messagebox.showwarning(
+                "PocketTTS Login",
+                f"Could not find the PocketTTS Python runtime at:\n{python_exe}",
+            )
+            return False
+
+        command = [str(python_exe), "-m", "pip", "install", "--upgrade", "huggingface_hub[cli]"]
+        self._append_output("\nInstalling Hugging Face CLI into PocketTTS runtime...\n")
+        self._append_output("> " + " ".join(f'"{item}"' if " " in item else item for item in command) + "\n\n")
+        try:
+            result = subprocess.run(
+                command,
+                cwd=str(REPO_ROOT),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except Exception as exc:
+            self._append_output(f"\nCould not install Hugging Face CLI: {exc}\n")
+            messagebox.showwarning("PocketTTS Login", f"Could not install Hugging Face CLI:\n{exc}")
+            return False
+
+        if result.stdout:
+            self._append_output(result.stdout)
+        if result.stderr:
+            self._append_output(result.stderr)
+        if result.returncode != 0:
+            messagebox.showwarning(
+                "PocketTTS Login",
+                "The Hugging Face CLI install failed. PocketTTS remains installed, "
+                "but login could not be launched automatically.",
+            )
+            return False
+        return True
+
+    def _recheck_pockettts_hf_login(self, hf_exe: Path) -> None:
+        try:
+            result = subprocess.run(
+                [str(hf_exe), "auth", "whoami"],
+                cwd=str(REPO_ROOT),
+                text=True,
+                capture_output=True,
+                check=False,
+            )
+        except Exception as exc:
+            self._append_output(f"\nCould not recheck Hugging Face login: {exc}\n")
+            return
+
+        combined = ((result.stdout or "") + (result.stderr or "")).strip()
+        if result.returncode == 0:
+            self._append_output("\nPocketTTS Hugging Face login verified.\n")
+            if combined:
+                self._append_output(combined + "\n")
+            messagebox.showinfo("PocketTTS Login", "Hugging Face login verified for PocketTTS.")
+        else:
+            self._append_output("\nPocketTTS Hugging Face login is still not verified.\n")
+            if combined:
+                self._append_output(combined + "\n")
+            messagebox.showwarning(
+                "PocketTTS Login",
+                "Hugging Face login could not be verified yet. PocketTTS remains installed, "
+                "but voice cloning may not work until login and model terms are complete.",
+            )
 
 
 def main() -> int:
