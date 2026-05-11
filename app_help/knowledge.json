@@ -140,21 +140,18 @@
         "clear throat",
         "sniff",
         "neutral",
-        "happy",
         "sad",
-        "angry",
-        "shy",
-        "surprised"
+        "angry"
       ],
       "summary": "The app supports two main kinds of expressive tags: facial-expression tags for the avatar and vocal-action tags for speech.",
       "bullets": [
-        "Visual mood tags set the avatar expression state: [neutral], [happy], [sad], [angry], [shy], [surprised].",
+        "Visual mood tags set the default avatar expression state: [neutral], [sad], [angry].",
         "Voice sound tags trigger vocal actions: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff].",
         "Visual mood tags are state-like. They can stay active until another visual mood tag changes the expression.",
         "Voice sound tags are action-like. They are brief expressive events inside speech.",
         "Chatterbox / TurboTTS is usually the better backend for expressive vocal tags and sounds.",
         "PocketTTS is usually the faster streaming backend, but it may not express vocal-action tags as richly as Chatterbox.",
-        "Example: [surprised] You did what? [laugh] [surprised] Oh my god, are you okay? [happy] Or just clumsy?",
+        "Example: [angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?",
         "Do not use emojis in spoken output."
       ]
     },

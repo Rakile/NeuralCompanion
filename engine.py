@@ -284,14 +284,14 @@ def _default_assistant_memory():
 DEFAULT_EMOTIONAL_INSTRUCTIONS = """You have a graphical face and a voice. Use them to act out your responses vividly.
 VISUAL MOODS (State-based):
 Insert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.
-Valid Tags: [neutral], [happy], [sad], [angry], [shy], [surprised]
+Valid Tags: [neutral], [sad], [angry]
 
 VOICE SOUNDS (Action-based):
 Insert one of these tags to express a vocal emotion at any given moment.
 Valid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]
 
 Example of how to use tags in a sentence:
-"[surprised] You did what? [laugh] [surprised] Oh my god, are you okay? [happy] Or just clumsy?"
+"[angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?"
 
 Do NOT use emojis when speaking!"""
 
@@ -342,9 +342,9 @@ Examples:
 - Retain-only example:
   {"keep": true, "emotion": "neutral", "attention": "screen", "summary": "User resumed working in the text editor.", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "tags": []}
 - Proactive speech example:
-  {"keep": true, "emotion": "happy", "attention": "victory sign", "summary": "User made a victory hand gesture.", "proactive_candidate": "I noticed your victory sign and want to react to it.", "visual_candidate": "", "should_speak": true, "should_generate_image": false, "tags": []}
+  {"keep": true, "emotion": "angry", "attention": "unexpected event", "summary": "A sudden change needs NC's attention.", "proactive_candidate": "I noticed something changed and want to react to it.", "visual_candidate": "", "should_speak": true, "should_generate_image": false, "tags": []}
 - Image-generation shape example:
-  {"keep": true, "emotion": "surprised", "attention": "screen", "summary": "A source-specific cue suggests generating an image.", "proactive_candidate": "", "visual_candidate": "concise source-grounded image prompt", "should_speak": false, "should_generate_image": true, "tags": []}
+  {"keep": true, "emotion": "sad", "attention": "screen", "summary": "A source-specific cue suggests generating an image.", "proactive_candidate": "", "visual_candidate": "concise source-grounded image prompt", "should_speak": false, "should_generate_image": true, "tags": []}
 - Addon tag example:
   {"keep": true, "emotion": "neutral", "attention": "heart rate", "summary": "Heart rate crossed the addon threshold.", "proactive_candidate": "", "visual_candidate": "", "should_speak": false, "should_generate_image": false, "tags": ["[start calculator]"]}
 
