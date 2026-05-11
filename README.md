@@ -56,11 +56,17 @@ Useful external tools:
 
 ## Install
 
-Open PowerShell in the repository root.
-
 For the detailed public install guide, see [docs/install.md](docs/install.md).
 
 Graphical installer:
+
+Double-click:
+
+```text
+install_neural_companion_gui.bat
+```
+
+or run:
 
 ```powershell
 py install_neural_companion_gui.py

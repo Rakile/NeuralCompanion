@@ -15,6 +15,12 @@ cd NeuralCompanion
 
 The recommended installer is:
 
+```text
+install_neural_companion_gui.bat
+```
+
+You can double-click the batch file from Explorer. If you prefer a terminal, run:
+
 ```powershell
 py install_neural_companion_gui.py
 ```
