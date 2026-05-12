@@ -8,7 +8,7 @@ Use this as the starting point for a public GitHub release.
 
 - Release type: beta / release candidate / stable
 - Recommended platform: Windows, Python 3.11
-- Primary UI path: `py qt_app.py --ui-real main.ui`
+- Primary UI path: `py qt_app.py`
 
 ### Highlights
 

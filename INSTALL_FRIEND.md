@@ -6,7 +6,13 @@ Neural Companion currently expects **Python 3.11**.
 
 1. Make sure Python 3.11 is installed.
 2. Open PowerShell in this folder.
-3. Run the unified installer:
+3. Run the graphical installer:
+
+```text
+install_neural_companion_gui.bat
+```
+
+Or run the command-line installer:
 
 ```powershell
 py install_neural_companion.py
@@ -98,8 +104,8 @@ The package also pins `chatterbox-tts==0.1.6`, `transformers==4.46.3`, and `nump
 `diffusers` is pinned to `0.29.0` to stay compatible with the pinned Chatterbox runtime stack.
 `gradio` is pinned to `5.44.1` to stay aligned with the pinned Chatterbox runtime stack; the main Qt app does not depend on Gradio directly.
 `moviepy` is omitted because it is only used by the bundled MuseTalk Gradio demo path, not by the main Qt runtime, and old resolver paths can fail to build on modern Python setups.
-`pocket-tts` is omitted from the default install because current releases require `numpy>=2`, which conflicts with the pinned Chatterbox + MuseTalk runtime stack. Use Chatterbox as the default TTS backend in this package.
-Use `install_neural_companion.py --pockettts --non-interactive` to create the separate `.venvs\pockettts` runtime that the app expects for the PocketTTS backend.
+PocketTTS is installed into the separate `.venvs\pockettts` runtime when selected in the installer, so its `numpy>=2` dependency does not conflict with the pinned Chatterbox + MuseTalk runtime stack.
+Use `install_neural_companion.py --pockettts --non-interactive` to recreate that separate runtime if needed.
 Use `install_neural_companion.py --musetalk --non-interactive` to create the separate `MuseTalk\.venv` runtime that the app expects for the MuseTalk backend. That installer uses the same MuseTalk torch stack as your working setup: `torch==2.0.1+cu118`, `torchaudio==2.0.2+cu118`, and `torchvision==0.15.2+cu118`, then installs a pinned requirement set exported from the current working MuseTalk environment.
 The packaged MuseTalk requirement export is trimmed to remove stale environment-only packages like `chumpy` that are not used by the runtime path but can fail to build on a fresh machine.
 The MuseTalk installer now installs `mmcv==2.0.1` through `openmim` instead of asking plain pip to build it, and it omits `mmcv-full` from the packaged requirement export.

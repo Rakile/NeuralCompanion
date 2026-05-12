@@ -109,10 +109,10 @@ Or directly:
 py qt_app.py
 ```
 
-The Designer-backed UI can be launched with:
+The legacy fallback UI can be launched with:
 
 ```powershell
-py qt_app.py --ui-real main.ui
+py qt_app.py --legacy-ui
 ```
 
 ## First Run
@@ -216,7 +216,8 @@ provider, voice, avatar, or generated asset you use with the app.
 - Setup is still Windows/Python-heavy.
 - MuseTalk requires separate model weights and benefits strongly from CUDA.
 - Some integrations require external applications or plugins.
-- The new Designer-backed UI is still being integrated alongside the legacy Qt shell.
+- The Designer-backed `main.ui` shell is the default; the legacy Qt shell remains
+  as a temporary fallback.
 - Public demo assets are intentionally not bundled in the main repo.
 
 ## Community

@@ -18,7 +18,7 @@
     "tts_repeat_penalty": 1.2,
     "tts_min_p": 0.019999999999999997,
     "tts_normalize_loudness": false,
-    "musetalk_avatar_pack_id": "Echos",
+    "musetalk_avatar_pack_id": "Echo",
     "musetalk_loop_fade_ms": 300,
     "musetalk_use_frame_cache": true,
     "visual_reply_mode": "off",

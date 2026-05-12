@@ -31,10 +31,10 @@ avatar_packs/<pack_id>/
 Example:
 
 ```text
-avatar_packs/Echos/manifest.json
-avatar_packs/Echos/echo_neutral/
-avatar_packs/Echos/echo_happy/
-avatar_packs/Echos/echo_angry/
+avatar_packs/Echo/manifest.json
+avatar_packs/Echo/echo_neutral/
+avatar_packs/Echo/echo_angry/
+avatar_packs/Echo/echo_sad/
 ```
 
 Demo packs are distributed separately:
@@ -42,6 +42,8 @@ Demo packs are distributed separately:
 ```text
 https://github.com/Rakile/NeuralCompanion-AvatarPacks
 ```
+
+The current Echo demo pack uses the `neutral`, `angry`, and `sad` emotion tags.
 
 ## Performance
 

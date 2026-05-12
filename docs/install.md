@@ -6,6 +6,12 @@ The recommended public install path is the unified installer:
 
 Graphical installer:
 
+```text
+install_neural_companion_gui.bat
+```
+
+If you prefer launching it from a terminal:
+
 ```powershell
 py install_neural_companion_gui.py
 ```

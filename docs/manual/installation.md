@@ -87,8 +87,8 @@ Or directly:
 py qt_app.py
 ```
 
-The Designer-backed UI path can be launched with:
+The legacy fallback UI can be launched with:
 
 ```powershell
-py qt_app.py --ui-real main.ui
+py qt_app.py --legacy-ui
 ```
