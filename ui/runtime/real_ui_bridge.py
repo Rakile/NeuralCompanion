@@ -3,6 +3,7 @@ import time
 from PySide6 import QtCore, QtWidgets
 
 from ui.designer_loader import ui_shell_find_object as _ui_shell_find_object
+from ui.dock_utils import install_floating_dock_resize_filter
 from ui.runtime.real_ui_actions import MainUiRealActionsMixin, configure_real_ui_actions_dependencies
 from ui.runtime.real_ui_bindings import MainUiRealBindingMixin, configure_real_ui_binding_dependencies
 from ui.runtime.real_ui_input import MainUiRealInputMixin, configure_real_ui_input_dependencies
@@ -145,6 +146,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         )
         self.window.setDockNestingEnabled(True)
         self.window.setTabPosition(QtCore.Qt.AllDockWidgetAreas, QtWidgets.QTabWidget.North)
+        install_floating_dock_resize_filter(self.window)
         setattr(self.window, "_nc_ui_real_bridge", self)
         self._app = QtWidgets.QApplication.instance()
         if self._app is not None:
