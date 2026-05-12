@@ -1,0 +1,37 @@
+{
+  "id": "personas_and_chat",
+  "order": 5,
+  "title": "5. Presets, Personas, and Chat",
+  "description": "How presets, personas, system prompts, chat context, and ordinary conversation state fit together.",
+  "steps": [
+    {
+      "title": "Presets Are Starting Points",
+      "body": "Presets load a saved persona and runtime setup. Use them to switch character style quickly, then adjust details by hand if needed.",
+      "tab": "Persona",
+      "target": "preset_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Persona" }
+      ]
+    },
+    {
+      "title": "System Prompt",
+      "body": "The system prompt is the main personality and instruction surface. It shapes what the assistant thinks it is supposed to be doing.",
+      "target": "system_prompt_text"
+    },
+    {
+      "title": "Voice and Emotion",
+      "body": "Voice settings and emotion tags decide how text becomes speech and how avatar emotions are requested. Keep your available avatar emotions in mind when designing personas.",
+      "target": "voice_combo"
+    },
+    {
+      "title": "Chat Context",
+      "body": "Chat context controls how much conversation history is kept. Save or reset sessions when you want a clean narrative break.",
+      "target": "btn_save_chat_session"
+    },
+    {
+      "title": "Proactive Behavior",
+      "body": "Proactive replies let NC speak without a direct user message. Keep this conservative until the persona, sensory sources, and interruption style feel right.",
+      "target": "allow_proactive_checkbox"
+    }
+  ]
+}

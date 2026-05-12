@@ -1,16 +1,17 @@
 {
   "id": "vision_supervisors_overview",
-  "title": "Vision Supervisors Overview",
-  "description": "A guided tour of the Vision system: foundational sources, hidden PING/PONG, and the supervisor-style behavior addons attached to Screen, Clipboard, Webcam, and Heart Rate.",
+  "order": 10,
+  "title": "10. Sensory Sources",
+  "description": "The core mental model for Vision, hidden PING/PONG, source tabs, and supervisor-style behavior addons.",
   "steps": [
     {
-      "title": "Welcome",
-      "body": "This tutorial explains the newer Vision architecture. The pattern is: foundational source first, then one or more child behavior addons that react in persona.",
+      "title": "What Sensory Sources Are",
+      "body": "Sensory sources let NC observe context outside the chat box. Screen, Clipboard, Webcam, and Heart Rate are optional inputs that can become hidden context or trigger behaviors.",
       "target": "main_window"
     },
     {
-      "title": "Open the Vision Host Tab",
-      "body": "The Vision system lives inside Host -> Vision. This is where hidden sensory input, hidden PING/PONG, and source-specific tabs come together.",
+      "title": "Open Host -> Vision",
+      "body": "Vision is the host page for sensory sources. It controls which sources exist, whether hidden PING/PONG runs, and whether hidden outputs may speak or generate images.",
       "target": "host_settings_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
@@ -18,63 +19,23 @@
     },
     {
       "title": "Included Sources",
-      "body": "This control decides which sensory sources are active enough to get their own Vision sub-tabs. If a source tab is missing later in this tutorial, check here first.",
-      "target": "sensory_feedback_source_combo",
-      "actions": [
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
-      ]
+      "body": "The source selector decides which source tabs are active. If a source tutorial mentions a missing tab, add that source here first.",
+      "target": "sensory_feedback_source_combo"
     },
     {
       "title": "Hidden PING/PONG",
-      "body": "This enables the background hidden loop. When NC is idle, it can observe selected sensory sources, retain meaningful events, and use those events as ambient internal context later.",
+      "body": "Hidden PING/PONG lets NC observe in the background and keep useful context for later. It is separate from ordinary visible chat messages.",
       "target": "sensory_pingpong_checkbox"
     },
     {
-      "title": "Automatic Speech",
-      "body": "This controls whether hidden PONG results are allowed to proactively speak. It affects background interruptions, not ordinary visible user turns.",
+      "title": "Speech and Image Policy",
+      "body": "These policy toggles decide whether hidden sensory results may proactively speak or request images. Keep them off for a quieter companion.",
       "target": "sensory_allow_hidden_proactive_checkbox"
     },
     {
-      "title": "Automatic Visual Replies",
-      "body": "This is the master auto-image switch. When it is off, NC should not spontaneously generate images from hidden PONG visual requests or from assistant [visualize: ...] tags.",
-      "target": "sensory_allow_hidden_visual_checkbox"
-    },
-    {
-      "title": "Screen as a Source",
-      "body": "The Screen tab is for ambient desktop context. Its child Supervisor addon is best for reacting to what the user is doing on-screen, not to deliberate uploads.",
-      "target": "sensory_feedback_tabs",
-      "actions": [
-        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Screen" }
-      ]
-    },
-    {
-      "title": "Clipboard as a Source",
-      "body": "Clipboard is more deliberate than Screen. It watches newly copied images, so its Supervisor tends to be more confident and more directly tied to the user's chosen reference image.",
-      "target": "sensory_feedback_tabs",
-      "actions": [
-        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Clipboard" }
-      ]
-    },
-    {
-      "title": "Webcam as a Source",
-      "body": "Webcam is for posture, gaze, expression, props, and visible energy. Its Supervisor behaves like the others, but its evidence comes from the user's current appearance instead of the desktop.",
-      "target": "sensory_feedback_tabs",
-      "actions": [
-        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Webcam" }
-      ]
-    },
-    {
-      "title": "Heart Rate as a Source",
-      "body": "Heart Rate uses the same supervisor pattern, but the trigger field is named Signal Trigger instead of Visual Trigger. It reacts to BPM states rather than images.",
-      "target": "sensory_feedback_tabs",
-      "actions": [
-        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Heart Rate" }
-      ]
-    },
-    {
-      "title": "The Shared Pattern",
-      "body": "Across all of these, the mental model is now consistent: source tab, child behavior tab, persona, trigger, action, and optional Advanced controls. That consistency is the real feature.",
-      "target": "main_window"
+      "title": "Supervisor Pattern",
+      "body": "Supervisor addons attach behavior to a source. The shared pattern is source, persona, trigger, action, strictness, and optional emotion override.",
+      "target": "sensory_feedback_tabs"
     }
   ]
 }

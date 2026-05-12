@@ -7,6 +7,9 @@ from addons.visual_reply import state as visual_reply_state
 from core.addons.qt_host_services import QtRuntimeConfigService
 from ui.panels.input_dialog import QtInputDialog
 
+XAI_DEFAULT_IMAGE_MODEL = "grok-imagine-image-quality"
+XAI_DEPRECATED_IMAGE_MODELS = {"grok-imagine-image", "grok-imagine-image-pro"}
+
 
 def _runtime_config_service(backend):
     return QtRuntimeConfigService(backend)
@@ -79,10 +82,13 @@ class BackendVisualReplyRuntimeMixin:
         current_model = str(self.visual_reply_model_edit.text() if hasattr(self, "visual_reply_model_edit") else "").strip()
         if provider == "xai":
             if not current_model or current_model == "gpt-image-1":
-                self.visual_reply_model_edit.setText("grok-imagine-image")
-                _update_runtime_config(self, "visual_reply_model", "grok-imagine-image")
+                self.visual_reply_model_edit.setText(XAI_DEFAULT_IMAGE_MODEL)
+                _update_runtime_config(self, "visual_reply_model", XAI_DEFAULT_IMAGE_MODEL)
+            elif current_model in XAI_DEPRECATED_IMAGE_MODELS:
+                self.visual_reply_model_edit.setText(XAI_DEFAULT_IMAGE_MODEL)
+                _update_runtime_config(self, "visual_reply_model", XAI_DEFAULT_IMAGE_MODEL)
         else:
-            if not current_model or current_model == "grok-imagine-image":
+            if not current_model or current_model == XAI_DEFAULT_IMAGE_MODEL or current_model in XAI_DEPRECATED_IMAGE_MODELS:
                 self.visual_reply_model_edit.setText("gpt-image-1")
                 _update_runtime_config(self, "visual_reply_model", "gpt-image-1")
         self._refresh_visual_reply_hint()
@@ -102,6 +108,9 @@ class BackendVisualReplyRuntimeMixin:
 
     def on_visual_reply_model_changed(self):
         model_name = str(self.visual_reply_model_edit.text() if hasattr(self, "visual_reply_model_edit") else "").strip() or "gpt-image-1"
+        provider = self._visual_reply_provider_value_from_label(self._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        if provider == "xai" and model_name in XAI_DEPRECATED_IMAGE_MODELS:
+            model_name = XAI_DEFAULT_IMAGE_MODEL
         if hasattr(self, "visual_reply_model_edit") and self.visual_reply_model_edit.text().strip() != model_name:
             self.visual_reply_model_edit.setText(model_name)
         _update_runtime_config(self, "visual_reply_model", model_name)

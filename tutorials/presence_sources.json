@@ -1,0 +1,35 @@
+{
+  "id": "presence_sources",
+  "order": 12,
+  "title": "12. Webcam and Heart Rate",
+  "description": "How presence-style sensory sources should be used carefully, with clear consent and conservative behavior rules.",
+  "steps": [
+    {
+      "title": "Presence Sources",
+      "body": "Webcam and Heart Rate are more personal than screen or clipboard. Enable them only when the user wants this kind of awareness.",
+      "target": "main_window"
+    },
+    {
+      "title": "Webcam Context",
+      "body": "Webcam is useful for posture, gaze, expression, visible props, and presence cues. Good rules react to clear signals rather than guessing too much.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Webcam" }
+      ]
+    },
+    {
+      "title": "Heart Rate Context",
+      "body": "Heart Rate reacts to BPM states instead of images. It is best for coaching, concern, workout callouts, or persona reactions to measurable thresholds.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Heart Rate" }
+      ]
+    },
+    {
+      "title": "Avoid Overreach",
+      "body": "Presence sources should be conservative. Prefer simple observations and opt-in behavior over confident claims about mood, health, or intent.",
+      "target": "main_window"
+    }
+  ]
+}

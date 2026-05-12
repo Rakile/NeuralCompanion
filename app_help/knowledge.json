@@ -10,12 +10,12 @@
         "how do i start",
         "setup"
       ],
-      "summary": "A safe starting path is to use MuseTalk, turn Stream Mode on, keep PocketTTS as the backend, choose a low-VRAM MuseTalk mode, make sure LM Studio is running, then initialize the system.",
+      "summary": "A safe starting path is to start without an avatar, turn Stream Mode on, keep Chatterbox as the default TTS backend, make sure LM Studio is running, then initialize the system.",
       "bullets": [
-        "Choose Avatar Engine = MuseTalk for the built-in lip-sync avatar pipeline.",
+        "Choose Avatar Engine = None for the first smoke test, then enable MuseTalk after chat and speech work.",
         "Turn Stream Mode on if you want replies to begin speaking sooner.",
-        "When Stream Mode is on, the app defaults the TTS backend to PocketTTS.",
-        "Choose a MuseTalk VRAM mode based on your hardware. Low VRAM and Very Low VRAM are safer starting points on smaller GPUs.",
+        "Chatterbox is the public default TTS backend. PocketTTS is optional and uses its own isolated runtime.",
+        "If you enable MuseTalk, choose a VRAM mode based on your hardware. Low VRAM and Very Low VRAM are safer starting points on smaller GPUs.",
         "Make sure LM Studio is running and that a model is visible in the LLM Model list.",
         "Click INITIALIZE SYSTEM to launch the engine."
       ]
@@ -46,12 +46,12 @@
         "turbotts",
         "streaming"
       ],
-      "summary": "Stream Mode and the TTS backend work together to shape responsiveness and expressiveness.",
+      "summary": "Stream Mode and the TTS backend work together to shape responsiveness and expressiveness, but switching Stream Mode no longer auto-switches TTS backends.",
       "bullets": [
-        "When Stream Mode is turned on, the app defaults the TTS backend to PocketTTS.",
-        "When Stream Mode is turned off, the app defaults back to Chatterbox / TurboTTS.",
-        "PocketTTS is usually the faster streaming option.",
-        "Chatterbox is usually the more expressive option and may better handle emotional tags like laughs or other expressive sounds."
+        "Stream Mode can make replies begin speaking sooner.",
+        "Avoid changing Stream Mode while a reply is actively generating.",
+        "Chatterbox is the public default backend.",
+        "PocketTTS is optional, isolated, and may require Hugging Face terms acceptance and login for voice cloning."
       ]
     },
     {
@@ -228,11 +228,11 @@
         "first run tutorial",
         "how do i learn the app"
       ],
-      "summary": "The app includes a Tutorials tab and can show a first-run tutorial prompt once.",
+      "summary": "The app includes a Tutorials tab and can show a first-run walkthrough prompt once.",
       "bullets": [
-        "Getting Started is a guided walkthrough.",
-        "First Run is an interactive onboarding tutorial.",
-        "Tutorials are loaded from JSON, so more can be added later without hardcoding them into the UI."
+        "1. First Run is the recommended onboarding tutorial.",
+        "The numbered tutorials are intended to be followed in order like a compact manual.",
+        "Tutorials are loaded from JSON, so the manual can be refreshed without hardcoding each walkthrough into the UI."
       ]
     },
     {

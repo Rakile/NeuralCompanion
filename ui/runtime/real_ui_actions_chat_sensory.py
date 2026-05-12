@@ -1,6 +1,8 @@
 """RealUiActionsChatSensoryMixin extracted from real_ui_actions.py."""
 
-from PySide6 import QtCore, QtGui
+import threading
+
+from PySide6 import QtCore, QtGui, QtWidgets
 
 
 def configure_real_ui_actions_chat_sensory_dependencies(namespace):
@@ -106,6 +108,74 @@ class RealUiActionsChatSensoryMixin:
                 self.backend.on_chat_overflow_policy_changed(str(choice or ""))
             finally:
                 self._refresh_chat_session_runtime_frontend()
+
+    def _show_frontend_system_prompt_context_menu(self, point):
+            system_prompt_text = self._ui_object("system_prompt_text")
+            if system_prompt_text is None:
+                return
+            try:
+                menu = system_prompt_text.createStandardContextMenu()
+            except Exception:
+                menu = QtWidgets.QMenu(system_prompt_text)
+            menu.addSeparator()
+            refine_action = menu.addAction("Refine")
+            try:
+                current_text = str(system_prompt_text.toPlainText() or "").strip()
+            except Exception:
+                current_text = ""
+            refine_action.setEnabled(bool(current_text) and not bool(getattr(self, "_system_prompt_refine_in_flight", False)))
+            refine_action.triggered.connect(lambda _checked=False: self._refine_frontend_system_prompt())
+            try:
+                menu.exec(system_prompt_text.viewport().mapToGlobal(point))
+            except Exception:
+                pass
+
+    def _refine_frontend_system_prompt(self):
+            if bool(getattr(self, "_system_prompt_refine_in_flight", False)):
+                return
+            system_prompt_text = self._ui_object("system_prompt_text")
+            if system_prompt_text is None or not hasattr(system_prompt_text, "toPlainText"):
+                return
+            original = str(system_prompt_text.toPlainText() or "").strip()
+            if not original:
+                return
+            self._commit_frontend_system_prompt_to_runtime()
+            self._system_prompt_refine_in_flight = True
+
+            def worker():
+                result = ""
+                error = ""
+                try:
+                    from ui.runtime import engine_access as engine
+
+                    result = str(engine.refine_system_prompt_text(original) or "").strip()
+                except Exception as exc:
+                    error = str(exc)
+                try:
+                    self.system_prompt_refined.emit(result, error)
+                except RuntimeError:
+                    pass
+
+            threading.Thread(target=worker, name="nc-system-prompt-refine", daemon=True).start()
+
+    def _on_frontend_system_prompt_refined(self, refined_prompt, error):
+            self._system_prompt_refine_in_flight = False
+            system_prompt_text = self._ui_object("system_prompt_text")
+            error_text = str(error or "").strip()
+            if error_text:
+                try:
+                    QtWidgets.QMessageBox.warning(self.window, "Refine System Prompt", f"Prompt refinement failed:\n\n{error_text}")
+                except Exception:
+                    pass
+                return
+            refined = str(refined_prompt or "").strip()
+            if not refined or system_prompt_text is None or not hasattr(system_prompt_text, "setPlainText"):
+                return
+            try:
+                system_prompt_text.setPlainText(refined)
+                self._commit_frontend_system_prompt_to_runtime()
+            except Exception:
+                pass
 
     def _on_frontend_system_prompt_changed(self):
             if bool(getattr(self, "_frontend_system_prompt_change_in_progress", False)):
@@ -221,6 +291,8 @@ class RealUiActionsChatSensoryMixin:
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
             QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
             QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+            QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)
 
     def _on_frontend_model_selection_changed(self, _index=None):
             frontend_combo = self._ui_object("model_combo")
@@ -230,6 +302,7 @@ class RealUiActionsChatSensoryMixin:
             self._sync_combo_like_widget(frontend_combo, backend_combo)
             self._refresh_backend_preset_dirty_state()
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
+            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
 
     def _on_frontend_model_requires_vision_changed(self, checked):
             backend_checkbox = self._backend_widget("model_requires_vision_checkbox")

@@ -1,0 +1,37 @@
+{
+  "id": "speech_and_streaming",
+  "order": 6,
+  "title": "6. Speech and Streaming",
+  "description": "How Stream Mode, TTS backends, chunking, PocketTTS, and speech-related settings interact.",
+  "steps": [
+    {
+      "title": "Streaming Changes Timing",
+      "body": "Stream Mode lets speech begin before the full reply is complete. It feels more alive, but the setting should not be changed during an active generation.",
+      "target": "stream_mode_combo"
+    },
+    {
+      "title": "TTS Backend",
+      "body": "The TTS Backend chooses the installed speech engine. Chatterbox is the default; PocketTTS is isolated and may require Hugging Face terms and login for voice cloning.",
+      "target": "tts_backend_combo"
+    },
+    {
+      "title": "Chunking Basics",
+      "body": "Chunking controls how reply text is split into speech work. Smaller chunks can start faster; larger chunks can sound smoother. The defaults are meant to be safe.",
+      "tab": "Chunking",
+      "target": "chunking_tab",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chunking" }
+      ]
+    },
+    {
+      "title": "PocketTTS Login",
+      "body": "If PocketTTS cloning is installed but not ready, complete Hugging Face terms and login from the installer prompt or the PocketTTS runtime's hf command.",
+      "target": "main_window"
+    },
+    {
+      "title": "Audio Devices",
+      "body": "Choose the correct input and output devices before troubleshooting speech. Device mismatch can look like a broken TTS path even when generation succeeded.",
+      "target": "audio_output_device_combo"
+    }
+  ]
+}

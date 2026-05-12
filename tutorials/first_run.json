@@ -1,21 +1,21 @@
 {
   "id": "first_run",
-  "title": "First Run",
-  "description": "An interactive setup tutorial that guides the user through a safe first launch.",
+  "order": 1,
+  "title": "1. First Run",
+  "description": "The recommended first walkthrough: verify the installed runtime, choose safe starting settings, and start Neural Companion without optional avatar complexity.",
   "steps": [
     {
-      "title": "Welcome",
-      "body": "This interactive first-run tutorial will guide you through a safe starting setup that does not require optional avatar packs. For this tutorial, follow the requested actions when they appear.",
+      "title": "Welcome to Neural Companion",
+      "body": "This walkthrough gets the core app into a safe first-run state. It focuses on chat, model connection, speech, and the controls you need before experimenting with avatars or advanced automation.",
       "target": "main_window"
     },
     {
-      "title": "Choose No Avatar",
-      "body": "For a first launch, please choose None as the Avatar Engine. That lets you verify chat and speech before enabling heavier avatar systems such as MuseTalk.",
+      "title": "Start Without an Avatar",
+      "body": "Choose None as the Avatar Engine for the first test. That keeps startup light while you confirm that the main runtime, LM Studio connection, and TTS path are healthy.",
       "target": "engine_combo",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
-        { "type": "set_combo_text", "target": "engine_combo", "value": "VSeeFace" }
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
       ],
       "require": {
         "type": "combo_text",
@@ -25,14 +25,18 @@
       }
     },
     {
-      "title": "Enable Stream Mode",
-      "body": "For this tutorial, please turn Stream Mode on. Stream Mode lets NC start speaking before the full assistant reply is complete, which is helpful for realtime avatar testing.",
-      "target": "stream_mode_combo",
+      "title": "Pick the Chat Model",
+      "body": "Make sure LM Studio is open, has a model loaded, and that the model appears here. If the list is empty, refresh models after LM Studio is ready.",
+      "target": "model_combo",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
-        { "type": "set_combo_text", "target": "stream_mode_combo", "value": "Off" }
-      ],
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
+    },
+    {
+      "title": "Use Stream Mode for the Normal Experience",
+      "body": "Stream Mode lets replies begin speaking before the full answer is complete. Leave it On for the normal companion feel, but avoid changing it during an active reply.",
+      "target": "stream_mode_combo",
       "require": {
         "type": "combo_text",
         "target": "stream_mode_combo",
@@ -41,40 +45,18 @@
       }
     },
     {
-      "title": "Observe the TTS Backend",
-      "body": "Check the TTS Backend here. Chatterbox is the public default; optional backends such as PocketTTS or Gemini TTS can be installed and selected later.",
-      "target": "tts_backend_combo",
-      "actions": [
-        { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
-      ]
-    },
-    {
-      "title": "Check the Model",
-      "body": "This is where you choose the LM Studio model. For this tutorial, make sure LM Studio is running and that a model is available here before you continue.",
-      "target": "model_combo",
-      "actions": [
-        { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
-      ]
-    },
-    {
-      "title": "Persona Tab",
-      "body": "This is the Persona tab. It contains voice settings, expressive tags, and the system prompt. Push Next when you are ready to load the tutorial persona.",
-      "tab": "Persona",
-      "target": "persona_tab",
-      "actions": [
-        { "type": "show_dock", "target": "WorkspaceTabsDock" },
-        { "type": "open_tab", "tab_widget": "left_tabs", "value": "persona_tab" }
-      ]
+      "title": "Confirm Text to Speech",
+      "body": "Chatterbox is the default public TTS backend. PocketTTS can be selected later after its isolated runtime and Hugging Face access are ready.",
+      "target": "tts_backend_combo"
     },
     {
       "title": "Load the Tutorial Persona",
-      "body": "For this tutorial, please click Load to load the bundled Tutorial_Persona preset.",
+      "body": "Load the bundled Tutorial_Persona preset. It gives the assistant a helpful first-run prompt and keeps this walkthrough predictable.",
+      "tab": "Persona",
       "target": "btn_preset_load",
       "actions": [
-        { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Persona" },
         { "type": "set_combo_text", "target": "preset_combo", "value": "Tutorial_Persona" }
       ],
       "require": {
@@ -85,7 +67,7 @@
     },
     {
       "title": "Initialize the System",
-      "body": "When LM Studio is ready, please click INITIALIZE SYSTEM. The tutorial will continue automatically after you do it.",
+      "body": "Click INITIALIZE SYSTEM after LM Studio is ready. Watch the console if something fails; startup messages usually say whether the model, TTS backend, or runtime path needs attention.",
       "target": "btn_start_engine",
       "actions": [
         { "type": "show_dock", "target": "OperationalViewDock" }
@@ -97,22 +79,17 @@
       }
     },
     {
-      "title": "Try MuseTalk Later",
-      "body": "Once chat and speech work, MuseTalk can be enabled later from Avatar Engine after its runtime and at least one avatar pack are installed.",
-      "target": "engine_combo",
-      "actions": [
-        { "type": "show_dock", "target": "SystemShapingDock" },
-        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
-      ]
+      "title": "Send a Simple Message",
+      "body": "When startup is complete, type a short message and confirm that NC answers and speaks. Once that works, the core installation is alive.",
+      "target": "chat_edit"
     },
     {
-      "title": "Dry Run Later",
-      "body": "After you have the system working, the Dry Run tab can profile your hardware and recommend better chunking and startup settings. You do not need to do that immediately.",
-      "tab": "Dry Run",
-      "target": "dry_run_tab",
+      "title": "Next Tutorials",
+      "body": "After this, run the remaining tutorials in order. They cover the launcher, TTS choices, personas, avatars, performance tuning, visual replies, sensory sources, and routine troubleshooting.",
+      "tab": "Tutorials",
+      "target": "tutorials_tab",
       "actions": [
-        { "type": "show_dock", "target": "WorkspaceTabsDock" },
-        { "type": "open_tab", "tab_widget": "left_tabs", "value": "dry_run_tab" }
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Tutorials" }
       ]
     }
   ]

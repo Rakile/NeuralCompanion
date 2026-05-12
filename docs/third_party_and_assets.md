@@ -43,6 +43,7 @@ Hosted providers and APIs are optional and require user-supplied credentials:
 
 - OpenAI
 - xAI / Grok
+- DeepSeek
 - Anthropic Claude
 - Google Gemini TTS
 

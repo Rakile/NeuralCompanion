@@ -108,6 +108,8 @@ def _configure_real_ui_surfaces_dependencies():
 class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainUiRealTabAdoptionMixin, MainUiRealThemeMixin, MainUiRealTutorialMixin, MainUiRealBindingMixin, MainUiRealActionsMixin, MainUiRealSyncMixin, MainUiRealSurfacesMixin, QtCore.QObject):
     """Opt-in runtime-backed `main.ui` front-end backed by a hidden legacy window."""
 
+    system_prompt_refined = QtCore.Signal(str, str)
+
     POLL_INTERVAL_MS = 180
     FRONTEND_LAYOUT_SESSION_KEY = "main_ui_real_layout"
 
@@ -122,6 +124,8 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self.backend = CompanionQtMainWindow(suppress_restored_aux_docks=True)
         self.backend._session_read_only = self._session_read_only
         self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
+        self._frontend_should_prompt_first_run = bool(getattr(self.backend, "first_run", False)) and not self._session_read_only
+        self._frontend_first_run_prompt_scheduled = False
         self.backend.first_run = False
         self.backend.hide()
         self.window = _load_ui_preview_window(self.ui_path)
@@ -162,6 +166,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._frontend_system_prompt_commit_timer = QtCore.QTimer(self.window)
         self._frontend_system_prompt_commit_timer.setSingleShot(True)
         self._frontend_system_prompt_commit_timer.timeout.connect(self._commit_frontend_system_prompt_to_runtime)
+        self.system_prompt_refined.connect(self._on_frontend_system_prompt_refined)
         self._frontend_layout_save_timer = QtCore.QTimer(self.window)
         self._frontend_layout_save_timer.setSingleShot(True)
         self._frontend_layout_save_timer.setInterval(650)
@@ -259,6 +264,9 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
 
     def show(self):
         self.window.show()
+        if self._frontend_should_prompt_first_run and not self._frontend_first_run_prompt_scheduled:
+            self._frontend_first_run_prompt_scheduled = True
+            QtCore.QTimer.singleShot(350, self._maybe_prompt_first_run_tutorial_from_ui_real)
 
     def _configure_frontend_tab_bars(self):
         for tab_widget in self.window.findChildren(QtWidgets.QTabWidget):

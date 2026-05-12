@@ -9,6 +9,27 @@ def configure_real_ui_tutorial_dependencies(namespace):
 class MainUiRealTutorialMixin:
     """Tutorial list, description, and overlay controls for the runtime-backed main.ui bridge."""
 
+    def _maybe_prompt_first_run_tutorial_from_ui_real(self):
+            if not bool(getattr(self, "_frontend_should_prompt_first_run", False)):
+                return
+            self._frontend_should_prompt_first_run = False
+            backend = getattr(self, "backend", None)
+            if backend is not None:
+                try:
+                    backend.first_run = False
+                    backend.save_session()
+                except Exception:
+                    pass
+            choice = QtWidgets.QMessageBox.question(
+                self.window,
+                "First Run Tutorial",
+                "Would you like to start the guided First Run walkthrough now?",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.Yes,
+            )
+            if choice == QtWidgets.QMessageBox.Yes:
+                self._start_tutorial_from_ui_real("first_run")
+
     def _selected_frontend_tutorial_id(self):
             tutorials_list = self._ui_object("tutorials_list")
             if tutorials_list is None or not hasattr(tutorials_list, "currentItem"):

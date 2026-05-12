@@ -14,6 +14,8 @@ from typing import Any, Callable
 VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGNORECASE)
 VISUAL_REPLY_TAG_START_RE = re.compile(r"\[(visualize|image):", re.IGNORECASE)
 VISUAL_REPLY_XAI_BASE_URL = "https://api.x.ai/v1"
+VISUAL_REPLY_XAI_DEFAULT_MODEL = "grok-imagine-image-quality"
+VISUAL_REPLY_XAI_DEPRECATED_MODELS = {"grok-imagine-image", "grok-imagine-image-pro"}
 
 VISUAL_REPLY_STORY_THEME_PRESETS = (
     {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
@@ -196,14 +198,17 @@ class VisualReplyRuntime:
 
     def model_name(self) -> str:
         provider = self.provider()
-        fallback = "grok-imagine-image" if provider == "xai" else "gpt-image-1"
+        fallback = VISUAL_REPLY_XAI_DEFAULT_MODEL if provider == "xai" else "gpt-image-1"
         env = self._environ
-        return str(
+        model = str(
             self._config().get("visual_reply_model")
             or (env.get("NC_VISUAL_REPLY_XAI_MODEL") if provider == "xai" else "")
             or env.get("NC_VISUAL_REPLY_MODEL")
             or fallback
         ).strip()
+        if provider == "xai" and model in VISUAL_REPLY_XAI_DEPRECATED_MODELS:
+            return VISUAL_REPLY_XAI_DEFAULT_MODEL
+        return model
 
     def image_size(self) -> str:
         allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}

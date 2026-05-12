@@ -10,6 +10,9 @@
     "storage.read",
     "storage.write"
   ],
+  "runtime_defaults": {
+    "audio_story_analysis_mode": "scene_only"
+  },
   "host_services": [
     {
       "id": "qt.audio_story_actions",

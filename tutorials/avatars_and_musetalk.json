@@ -1,0 +1,38 @@
+{
+  "id": "avatars_and_musetalk",
+  "order": 7,
+  "title": "7. Avatars and MuseTalk",
+  "description": "How avatar engines, MuseTalk runtime settings, avatar packs, emotions, and preview/focus controls fit together.",
+  "steps": [
+    {
+      "title": "Avatar Engines",
+      "body": "Avatar Engine controls whether NC runs without an avatar, uses MuseTalk, or uses another installed avatar provider. Start with None until chat and speech are confirmed.",
+      "target": "engine_combo"
+    },
+    {
+      "title": "MuseTalk Needs a Pack",
+      "body": "MuseTalk needs a prepared avatar pack. A pack can include several emotion variants, such as neutral, angry, and sad.",
+      "target": "musetalk_avatar_pack_combo"
+    },
+    {
+      "title": "VRAM Mode",
+      "body": "VRAM mode trades quality and speed against memory use. Very Low VRAM is the safest first choice; higher modes should be tested later.",
+      "target": "musetalk_vram_combo"
+    },
+    {
+      "title": "Emotion Availability",
+      "body": "Personas should ask for emotions that actually exist in the selected avatar pack. If the pack only has neutral, angry, and sad, keep presets within those tags.",
+      "target": "main_window"
+    },
+    {
+      "title": "Preview and Focus",
+      "body": "Preview opens the avatar runtime view for checking output. Avatar Focus is for a more presentation-like view once the pipeline is stable.",
+      "target": "btn_musetalk_preview"
+    },
+    {
+      "title": "Test After Each Change",
+      "body": "Avatar changes touch heavier runtime code. Change one thing at a time, start a short chat reply, then confirm that speech, lip sync, and emotion selection still behave.",
+      "target": "btn_start_engine"
+    }
+  ]
+}

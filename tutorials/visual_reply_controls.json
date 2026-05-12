@@ -1,53 +1,39 @@
 {
   "id": "visual_reply_controls",
-  "title": "Visual Reply Controls",
-  "description": "A walkthrough of visual-reply settings, the Visual Reply dock, and the master automatic image-generation policy.",
+  "order": 9,
+  "title": "9. Visual Replies",
+  "description": "How image-generation settings, visual reply dock behavior, and automatic image policy fit together.",
   "steps": [
     {
-      "title": "Open Host -> Visuals",
-      "body": "This page controls image generation backends, size, model, and dock behavior. It is the normal home for Visual Reply configuration.",
+      "title": "What Visual Reply Does",
+      "body": "Visual Reply lets NC generate images when the assistant asks for one or when background sensory behavior is allowed to request one.",
+      "target": "main_window"
+    },
+    {
+      "title": "Open Visual Settings",
+      "body": "Visual settings choose whether image generation is enabled, which provider is used, what model is selected, and whether the dock appears automatically.",
       "target": "host_settings_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Visuals" }
       ]
     },
     {
-      "title": "Mode",
-      "body": "Visual Reply Mode controls whether NC can generate images at all. If Mode is Off, NC will not ask the model for [visualize: ...] tags or generate images automatically.",
-      "target": "visual_reply_mode_combo"
+      "title": "Mode and Provider",
+      "body": "Mode is the master Visual Reply setting. Provider and model decide where the image request is sent when generation is allowed.",
+      "target": "host_settings_tabs"
     },
     {
-      "title": "Provider and Model",
-      "body": "These controls choose the image backend and model. Use them when you want to route visual replies through OpenAI or xAI / Grok and adjust the exact image model in use.",
-      "target": "visual_reply_provider_combo"
-    },
-    {
-      "title": "Auto-Show Dock",
-      "body": "This controls whether the Visual Reply dock automatically comes forward when image generation starts or finishes.",
-      "target": "visual_reply_auto_show_checkbox"
-    },
-    {
-      "title": "Open Host -> Vision",
-      "body": "The final piece of the puzzle lives in Host -> Vision, because hidden sensory behavior can also lead to image generation requests.",
-      "target": "host_settings_tabs",
+      "title": "Automatic Images",
+      "body": "The Vision tab has the master policy for spontaneous hidden visual generation. Keep it off if you only want images when you explicitly ask.",
+      "target": "sensory_allow_hidden_visual_checkbox",
       "actions": [
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
       ]
     },
     {
-      "title": "Master Auto-Visual Switch",
-      "body": "This toggle is the master policy for spontaneous image generation. When it is off, NC should ignore both hidden PONG image requests and ordinary assistant [visualize: ...] tags.",
-      "target": "sensory_allow_hidden_visual_checkbox"
-    },
-    {
-      "title": "Show Visual Reply Dock",
-      "body": "This button opens the Visual Reply dock manually. It is useful when you want to inspect the last image, change captions, or confirm what NC generated.",
+      "title": "Open the Dock",
+      "body": "Use the Visual Reply button to inspect generated images, captions, and the latest visual output state.",
       "target": "btn_visual_reply"
-    },
-    {
-      "title": "What This Means in Practice",
-      "body": "Think of the policy as two layers: Visuals chooses whether image generation exists at all, and the master auto-visual toggle chooses whether NC may do it spontaneously without you manually requesting an image.",
-      "target": "main_window"
     }
   ]
 }

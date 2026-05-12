@@ -307,6 +307,12 @@ class BackendChatProviderFieldsMixin:
                 if hasattr(current, "updateGeometry"):
                     current.updateGeometry()
                 current = current.parentWidget()
+            self._request_frontend_layout_resync()
+            try:
+                QtCore.QTimer.singleShot(75, self._request_frontend_layout_resync)
+                QtCore.QTimer.singleShot(200, self._request_frontend_layout_resync)
+            except Exception:
+                pass
         except Exception:
             pass
 

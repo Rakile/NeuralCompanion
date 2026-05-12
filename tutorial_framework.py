@@ -31,11 +31,21 @@ def list_tutorials():
                 "id": str(payload.get("id") or path.stem),
                 "title": str(payload.get("title") or path.stem.replace("_", " ").title()),
                 "description": str(payload.get("description") or ""),
+                "order": payload.get("order"),
                 "path": str(path),
                 "step_count": len(payload.get("steps") or []),
             }
         )
-    return items
+    return sorted(items, key=_tutorial_sort_key)
+
+
+def _tutorial_sort_key(item):
+    raw_order = item.get("order")
+    try:
+        order = int(raw_order)
+    except (TypeError, ValueError):
+        order = 9999
+    return (order, str(item.get("title") or item.get("id") or "").lower())
 
 
 def load_tutorial(tutorial_id):

@@ -94,6 +94,11 @@ class BackendTtsRuntimeMixin:
                 if hasattr(current, "updateGeometry"):
                     current.updateGeometry()
                 current = current.parentWidget()
+            callback = getattr(self, "frontend_layout_resync_callback", None)
+            if callable(callback):
+                callback()
+                QtCore.QTimer.singleShot(75, callback)
+                QtCore.QTimer.singleShot(200, callback)
         except Exception:
             pass
 
@@ -133,7 +138,6 @@ class BackendTtsRuntimeMixin:
                     f"Backend '{backend_label}' does not have a mounted addon tab right now; core fallback settings may be in use."
                 )
         self._refresh_tts_runtime_summary()
-        print("[UI Real] tts_sync _refresh_tts_runtime_card")
         QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
 
     def _find_tts_runtime_tab_index(self, backend):

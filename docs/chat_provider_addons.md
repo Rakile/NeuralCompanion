@@ -26,7 +26,7 @@ chat_service = context.get_service("qt.chat_providers")
 
 Then call `register_provider(...)` with:
 
-- `provider_id`: stable lowercase id, for example `claude`.
+- `provider_id`: stable lowercase id, for example `claude` or `deepseek`.
 - `label`: user-facing dropdown label.
 - `description`: short provider description.
 - `model_list_handler(quiet)`: returns model ids or model dicts with at least `id`.

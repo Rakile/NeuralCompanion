@@ -12,6 +12,59 @@ def configure_real_ui_layout_dependencies(namespace):
 class MainUiRealLayoutMixin:
     """Layout, docking, and collapsible-card helpers for the runtime-backed main.ui bridge."""
 
+    def _normalize_frontend_tts_runtime_layout(self):
+            tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
+            tabs = self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
+            hint = self._ui("tts_runtime_hint_label", QtWidgets.QLabel)
+            combo = self._ui("tts_backend_combo", QtWidgets.QComboBox)
+
+            if tts_box is not None and tts_box.layout() is not None:
+                layout = tts_box.layout()
+                try:
+                    layout.setAlignment(QtCore.Qt.AlignTop)
+                    for index in range(layout.count()):
+                        item = layout.itemAt(index)
+                        if item is not None:
+                            layout.setAlignment(item, QtCore.Qt.AlignTop)
+                    for index in range(layout.count()):
+                        layout.setStretch(index, 0)
+                    layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+                except Exception:
+                    pass
+
+            for widget in (combo, hint):
+                if widget is None or not hasattr(widget, "sizePolicy"):
+                    continue
+                try:
+                    policy = widget.sizePolicy()
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Maximum)
+                    widget.setSizePolicy(policy)
+                    widget.setMinimumHeight(0 if widget is hint else widget.minimumHeight())
+                    widget.updateGeometry()
+                except Exception:
+                    pass
+
+            if tabs is None:
+                return
+            try:
+                policy = tabs.sizePolicy()
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Maximum)
+                tabs.setSizePolicy(policy)
+                tabs.setMinimumHeight(0)
+                active_page = tabs.currentWidget()
+                if active_page is not None:
+                    if active_page.layout() is not None:
+                        active_page.layout().invalidate()
+                        active_page.layout().activate()
+                    active_page.adjustSize()
+                    active_page.updateGeometry()
+                    wanted = active_page.sizeHint().height() + tabs.tabBar().sizeHint().height() + 44
+                    tabs.setMaximumHeight(max(160, min(900, int(wanted))))
+                tabs.adjustSize()
+                tabs.updateGeometry()
+            except Exception:
+                pass
+
     def _fix_system_shaping_scroll_content_size(self):
             scroll = self._ui("system_shaping_scroll", QtWidgets.QScrollArea)
             content = self._ui("system_shaping_content", QtWidgets.QWidget)
@@ -38,6 +91,8 @@ class MainUiRealLayoutMixin:
                 policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
                 policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
                 w.setSizePolicy(policy)
+
+            self._normalize_frontend_tts_runtime_layout()
 
             for w in (content, host_tab):
                 if w is None or w.layout() is None:
@@ -82,6 +137,23 @@ class MainUiRealLayoutMixin:
             if scroll is not None:
                 scroll.updateGeometry()
                 scroll.viewport().update()
+
+    def _resync_frontend_runtime_cards(self):
+            backend = getattr(self, "backend", None)
+            if backend is not None:
+                for callback_name in ("_sync_chat_provider_generation_fields_height", "_sync_tts_runtime_fields_height"):
+                    callback = getattr(backend, callback_name, None)
+                    if callable(callback):
+                        try:
+                            callback()
+                        except Exception:
+                            pass
+            self._fix_system_shaping_scroll_content_size()
+            try:
+                QtCore.QTimer.singleShot(75, self._fix_system_shaping_scroll_content_size)
+                QtCore.QTimer.singleShot(200, self._fix_system_shaping_scroll_content_size)
+            except Exception:
+                pass
 
     def _fix_sensory_feedback_initial_alignment(self):
             tabs = self._ui("sensory_feedback_tabs", QtWidgets.QTabWidget)
@@ -757,21 +829,8 @@ class MainUiRealLayoutMixin:
 
             self._update_frontend_collapsible_group_title(group_box)
 
-            # Original call
             QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
-
-            # NEW: Re-trigger our custom dynamic height math when expanding cards
-            backend = getattr(self, "backend", self)  # Fallback to self if backend not found
-
-            chat_sync = getattr(backend, "_sync_chat_provider_generation_fields_height", None)
-            if chat_sync:
-                print(f"[UI Real] chat_sync")
-                QtCore.QTimer.singleShot(10, chat_sync)
-
-            tts_sync = getattr(backend, "_sync_tts_runtime_fields_height", None)
-            if tts_sync:
-                print(f"[UI Real] tts_sync")
-                QtCore.QTimer.singleShot(10, tts_sync)
+            QtCore.QTimer.singleShot(10, self._resync_frontend_runtime_cards)
 
     def _apply_frontend_collapsible_group_state_old(self, group_box, expanded):
             if group_box is None:

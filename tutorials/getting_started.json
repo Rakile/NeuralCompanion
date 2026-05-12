@@ -1,66 +1,52 @@
 {
   "id": "getting_started",
-  "title": "Getting Started",
-  "description": "A quick walkthrough of the core controls, tabs, and startup flow.",
+  "order": 4,
+  "title": "4. Main Window Tour",
+  "description": "A map of the modern Neural Companion UI: runtime controls, chat, persona, chunking, dry run, tutorials, and addon-backed panels.",
   "steps": [
     {
-      "title": "Welcome",
-      "body": "This quick tour shows the main controls you need to get the app running. You can revisit this tutorial later from the Tutorials tab.",
+      "title": "One Modern GUI",
+      "body": "Neural Companion now starts into the modern main.ui interface. The old legacy GUI is no longer the user-facing path, so these tutorials focus on this single layout.",
       "target": "main_window"
     },
     {
-      "title": "Choose Avatar Engine",
-      "body": "Start here. Choose between VSeeFace and MuseTalk. MuseTalk is the advanced lip-sync avatar pipeline and the one most of the performance tuning is built around.",
-      "target": "engine_combo"
+      "title": "Host Controls",
+      "body": "The host controls choose the avatar engine, model, input mode, stream mode, TTS backend, and other runtime essentials. This is where most sessions begin.",
+      "target": "host_settings_tabs"
     },
     {
-      "title": "Pick a Model",
-      "body": "Choose the LM Studio model here. Be sure LM Studio is running and serving a model before you initialize the system.",
-      "target": "model_combo"
+      "title": "Operational Buttons",
+      "body": "INITIALIZE SYSTEM starts the companion runtime. Terminate Session stops it. Use these buttons instead of closing the app when you want to change core runtime settings.",
+      "target": "btn_start_engine"
     },
     {
-      "title": "Streaming and TTS",
-      "body": "These controls decide whether replies stream live and which text-to-speech backend is used. Chatterbox is the public default; optional backends such as PocketTTS or Gemini TTS can be installed and selected later.",
-      "target": "stream_mode_combo"
-    },
-    {
-      "title": "MuseTalk VRAM Mode",
-      "body": "This chooses how demanding MuseTalk is on the GPU. Low VRAM modes make the system more accessible on smaller cards.",
-      "target": "musetalk_vram_combo"
+      "title": "Chat Area",
+      "body": "The chat panel is the ordinary conversation surface. Use it to test the model and speech path before adding visual replies, avatars, or background sensory behavior.",
+      "target": "chat_edit"
     },
     {
       "title": "Persona Tab",
-      "body": "The Persona tab controls voice, expressive tags, and the main system prompt. Use the TTS Runtime card to choose which installed voice backend speaks replies.",
+      "body": "The Persona tab controls presets, system prompt, voice selection, emotional instructions, and TTS behavior. Presets are the fastest way to switch character setups.",
       "tab": "Persona",
       "target": "persona_tab"
     },
     {
-      "title": "Generation Settings",
-      "body": "Generation settings such as temperature and top-p live inside Chat Runtime. These shape how the assistant responds, but they are separate from performance tuning.",
-      "target": "chat_runtime_box"
-    },
-    {
       "title": "Chunking Tab",
-      "body": "The Chunking tab controls how text is split for speech and avatar rendering. Most users should start with Dry Run before adjusting these manually.",
+      "body": "Chunking controls how text is split for speech and avatar timing. The defaults are intended to work; use Dry Run before manual tuning when possible.",
       "tab": "Chunking",
       "target": "chunking_tab"
     },
     {
-      "title": "Dry Run and Profiles",
-      "body": "Dry Run measures your hardware and recommends better startup and chunking values. If you like the result, save it as a local Performance Profile for later.",
+      "title": "Dry Run Tab",
+      "body": "Dry Run measures the active configuration and can recommend better startup and streaming values for your machine.",
       "tab": "Dry Run",
       "target": "dry_run_tab"
     },
     {
       "title": "Tutorials Tab",
-      "body": "This tab is where tutorials live. Over time, more walkthroughs can be added here without changing the app code because tutorials are loaded from JSON files.",
+      "body": "Tutorials are loaded from JSON files, so the manual can grow without hardcoding every walkthrough into the app.",
       "tab": "Tutorials",
       "target": "tutorials_tab"
-    },
-    {
-      "title": "Initialize the System",
-      "body": "When LM Studio is ready and your settings look good, use this button to initialize the engine and start the companion system.",
-      "target": "btn_start_engine"
     }
   ]
 }

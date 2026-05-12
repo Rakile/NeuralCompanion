@@ -4727,6 +4727,39 @@ def chat_with_llm():
         _llm_request_active.clear()
 
 
+def refine_system_prompt_text(system_prompt):
+    """Refine a system prompt through the currently selected chat provider."""
+    original = str(system_prompt or "").strip()
+    if not original:
+        raise ValueError("System prompt is empty.")
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        raise RuntimeError("Choose a chat model before refining the system prompt.")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You refine system prompts for a local desktop AI companion. "
+                "Preserve the user's intended persona, behavioral constraints, and safety boundaries. "
+                "Improve clarity, structure, instruction hierarchy, and wording. "
+                "Return only the refined system prompt text. Do not include commentary, titles, "
+                "markdown fences, before/after notes, or explanations."
+            ),
+        },
+        {
+            "role": "user",
+            "content": "Refine this system prompt:\n\n" + original,
+        },
+    ]
+    params = {"model": model_name, "messages": messages}
+    additional_params = {}
+    _apply_chat_provider_generation_fields(params, additional_params)
+    response = str(_chat_completion_create(params, additional_params) or "").strip()
+    if not response:
+        raise RuntimeError("The provider returned an empty refined prompt.")
+    return response
+
+
 def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
     state = StreamingReplyState()
     stream_target_chars, stream_max_chars = get_stream_chunk_limits()

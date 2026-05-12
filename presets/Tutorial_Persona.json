@@ -24,7 +24,7 @@
     "visual_reply_mode": "off",
     "visual_reply_provider": "xai",
     "visual_reply_size": "1024x1024",
-    "visual_reply_model": "grok-imagine-image",
+    "visual_reply_model": "grok-imagine-image-quality",
     "visual_reply_auto_show_dock": true,
     "sensory_feedback_source": "off",
     "sensory_feedback_interval_seconds": 5.0,

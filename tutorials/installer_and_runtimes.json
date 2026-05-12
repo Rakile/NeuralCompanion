@@ -1,0 +1,38 @@
+{
+  "id": "installer_and_runtimes",
+  "order": 2,
+  "title": "2. Installer and Runtimes",
+  "description": "What the graphical installer sets up, why MuseTalk and PocketTTS are isolated, and what optional external tools still matter.",
+  "steps": [
+    {
+      "title": "What the Installer Creates",
+      "body": "The installer creates the main Neural Companion runtime and, when selected, separate isolated runtimes for MuseTalk and PocketTTS. Isolation keeps incompatible dependency stacks from colliding.",
+      "target": "main_window"
+    },
+    {
+      "title": "Main Runtime",
+      "body": "The main runtime contains the app, PySide UI, chat integration, Chatterbox TTS, addon framework, and ordinary core dependencies.",
+      "target": "main_window"
+    },
+    {
+      "title": "MuseTalk Runtime",
+      "body": "MuseTalk has its own runtime because talking-head inference depends on an older CUDA/PyTorch stack. Install it only when you want MuseTalk avatars.",
+      "target": "musetalk_vram_combo"
+    },
+    {
+      "title": "PocketTTS Runtime",
+      "body": "PocketTTS is isolated as well. Voice cloning may require accepting Hugging Face model terms and logging in through the PocketTTS runtime.",
+      "target": "tts_backend_combo"
+    },
+    {
+      "title": "External Tools",
+      "body": "FFmpeg should be on PATH. LM Studio should be installed and serving a model before you initialize chat. VSeeFace is optional if you use an external VSeeFace avatar workflow.",
+      "target": "model_combo"
+    },
+    {
+      "title": "Avatar Packs Are Separate",
+      "body": "MuseTalk avatar packs are distributed separately from the app. Import or unpack them into avatar_packs before selecting them in the MuseTalk avatar-pack control.",
+      "target": "musetalk_avatar_pack_combo"
+    }
+  ]
+}

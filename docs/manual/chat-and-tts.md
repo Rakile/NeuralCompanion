@@ -9,6 +9,7 @@ Supported provider families include:
 - LM Studio
 - OpenAI
 - xAI / Grok
+- DeepSeek
 - Anthropic Claude
 - addon-provided providers
 

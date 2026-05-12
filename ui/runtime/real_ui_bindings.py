@@ -343,6 +343,9 @@ class MainUiRealBindingMixin:
             system_prompt_text = self._ui_object("system_prompt_text")
             if system_prompt_text is not None and hasattr(system_prompt_text, "textChanged"):
                 system_prompt_text.textChanged.connect(self._on_frontend_system_prompt_changed)
+                if hasattr(system_prompt_text, "customContextMenuRequested"):
+                    system_prompt_text.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                    system_prompt_text.customContextMenuRequested.connect(self._show_frontend_system_prompt_context_menu)
             emotional_text = self._ui_object("emotional_text")
             if emotional_text is not None and hasattr(emotional_text, "textChanged"):
                 emotional_text.textChanged.connect(self._on_frontend_emotional_text_changed)

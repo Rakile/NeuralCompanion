@@ -139,4 +139,5 @@ class RealUiActionsRuntimeMixin:
     def _on_frontend_tts_backend_changed(self, _index=None):
             self._sync_single_combo_to_backend("tts_backend_combo")
             self._refresh_host_input_runtime_frontend()
-
+            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+            QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)

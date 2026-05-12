@@ -1,194 +1,43 @@
 {
   "id": "startup_self_check",
-  "title": "Startup Self-Check",
-  "description": "A reactive troubleshooting tutorial that helps the user get to a safe startup state before they need outside help.",
+  "order": 3,
+  "title": "3. Startup Self-Check",
+  "description": "A guided checklist for the pieces that must be ready before the companion can start: Python install result, LM Studio, FFmpeg, model selection, and console errors.",
   "steps": [
     {
-      "id": "entry",
-      "title": "Startup Self-Check",
-      "body": "This troubleshooting tutorial inspects the current state of the app and routes you to the next useful step. It is designed to help you self-correct common startup issues.",
-      "target": "main_window",
-      "transitions": [
-        {
-          "condition": {
-            "type": "engine_running",
-            "value": true
-          },
-          "goto": "already_running"
-        },
-        {
-          "condition": {
-            "type": "lm_studio_running",
-            "value": false
-          },
-          "goto": "lm_studio_missing"
-        },
-        {
-          "condition": {
-            "not": {
-              "type": "model_loaded",
-              "value": true
-            }
-          },
-          "goto": "lm_studio_missing"
-        },
-        {
-          "goto": "safe_defaults"
-        }
-      ],
-      "auto_route": true
+      "title": "What Startup Needs",
+      "body": "Neural Companion starts cleanly when the installer finished, LM Studio is serving a model, FFmpeg is available, and the selected TTS/avatar runtimes match what is installed.",
+      "target": "main_window"
     },
     {
-      "id": "already_running",
-      "title": "Engine Already Running",
-      "body": "The system already appears to be running. If you want to troubleshoot startup from a clean state, terminate the current session first. Otherwise, you can leave it running and finish this tutorial.",
-      "target": "btn_stop_engine",
-      "hint_only": true
+      "title": "Check the Console First",
+      "body": "The console is the first place to look after a failed start. Missing Python packages, unavailable models, Hugging Face access, and avatar-pack paths usually show up here.",
+      "target": "console_edit"
     },
     {
-      "id": "lm_studio_missing",
-      "title": "LM Studio Needs Attention",
-      "body": "A usable model does not appear to be loaded yet. Start LM Studio, load a model, and keep this window open. This step will continue automatically when a model becomes available here.",
+      "title": "Refresh Models",
+      "body": "If LM Studio is running but no model appears, refresh the model list. The model selector should show the model you intend to use before initialization.",
       "target": "model_combo",
-      "hint_only": true,
       "condition": {
-        "all": [
-          {
-            "type": "lm_studio_running",
-            "value": true
-          },
-          {
-            "type": "model_loaded",
-            "value": true
-          }
-        ],
-        "auto_advance": true
-      },
-      "listen": [
-        {
-          "event": "model_list_refreshed",
-          "condition": {
-            "all": [
-              {
-                "type": "lm_studio_running",
-                "value": true
-              },
-              {
-                "type": "model_loaded",
-                "value": true
-              }
-            ]
-          },
-          "action": "goto",
-          "goto": "safe_defaults"
-        },
-        {
-          "event": "lm_studio_connected",
-          "condition": {
-            "all": [
-              {
-                "type": "lm_studio_running",
-                "value": true
-              },
-              {
-                "type": "model_loaded",
-                "value": true
-              }
-            ]
-          },
-          "action": "goto",
-          "goto": "safe_defaults"
-        }
-      ],
-      "next": "safe_defaults"
-    },
-    {
-      "id": "safe_defaults",
-      "title": "Apply a Safe Startup Baseline",
-      "body": "This step applies a conservative startup baseline: MuseTalk, Stream Mode On, Chatterbox, and Very Low VRAM. That does not lock you in forever. It just gives troubleshooting a reliable starting point.",
-      "target": "engine_combo",
-      "actions": [
-        {
-          "type": "reset_to_safe_state"
-        }
-      ],
-      "hint_only": true,
-      "next": "load_tutorial_persona"
-    },
-    {
-      "id": "load_tutorial_persona",
-      "title": "Load Tutorial Persona",
-      "body": "For this self-check flow, please load the bundled Tutorial_Persona preset. That gives the assistant the right help context if you need to ask questions during testing.",
-      "tab": "Persona",
-      "target": "btn_preset_load",
-      "actions": [
-        {
-          "type": "set_combo_text",
-          "target": "preset_combo",
-          "value": "Tutorial_Persona"
-        }
-      ],
-      "condition": {
-        "type": "button_click",
-        "target": "btn_preset_load",
+        "type": "model_loaded",
+        "value": true,
         "auto_advance": true
       }
     },
     {
-      "id": "initialize",
-      "title": "Initialize the System",
-      "body": "Click INITIALIZE SYSTEM. This step listens for a real startup signal from the app. If the engine reaches ready state, the tutorial will move forward automatically. If a startup error is detected, it will branch to a troubleshooting note.",
-      "target": "btn_start_engine",
-      "condition": {
-        "type": "button_click",
-        "target": "btn_start_engine"
-      },
-      "listen": [
-        {
-          "event": "engine_initialized",
-          "action": "goto",
-          "goto": "success"
-        },
-        {
-          "event": "error_detected",
-          "action": "goto",
-          "goto": "startup_error"
-        }
-      ],
-      "manual_next": false
+      "title": "Use a Light Baseline",
+      "body": "For troubleshooting, use Avatar Engine None or MuseTalk with Very Low VRAM. Avoid changing several heavy settings at once until the app can start repeatedly.",
+      "target": "engine_combo"
     },
     {
-      "id": "startup_error",
-      "title": "Startup Reported an Error",
-      "body": "The app reported an error during startup. Look at the Console tab for the latest message. Common causes are LM Studio not serving a model, an unavailable backend, or a GPU/VRAM mismatch. If you press Next, the tutorial will route you back into a safer recovery path instead of pretending startup succeeded.",
-      "target": "main_window",
-      "hint_only": true,
-      "transitions": [
-        {
-          "condition": {
-            "type": "lm_studio_running",
-            "value": false
-          },
-          "goto": "lm_studio_missing"
-        },
-        {
-          "goto": "safe_defaults"
-        }
-      ]
+      "title": "Stop Before Retrying",
+      "body": "If startup partly succeeded, terminate the session before trying a different configuration. A clean restart avoids mixing old worker state with new settings.",
+      "target": "btn_stop_engine"
     },
     {
-      "id": "success",
-      "title": "Startup Succeeded",
-      "body": "The app reported a real ready signal, so the system appears to have initialized successfully. From here you can start a conversation, explore the Tutorials tab, or later run Dry Run to optimize performance for this machine.",
-      "target": "btn_start_engine",
-      "hint_only": true,
-      "listen": [
-        {
-          "event": "dry_run_completed",
-          "action": "finish",
-          "reason": "completed_after_dry_run"
-        }
-      ]
+      "title": "Healthy Startup",
+      "body": "A healthy startup means the model is selected, initialization finishes without a traceback, and chat/TTS can complete a short test reply. After that, move on to presets and avatars.",
+      "target": "btn_start_engine"
     }
   ]
 }

@@ -1,220 +1,1148 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
  <class>AudioStoryModeTab</class>
- <widget class="QWidget" name="AudioStoryModeTab">
+ <widget class="QWidget" name="audio_story_mode_tab">
   <property name="geometry">
-   <rect><x>0</x><y>0</y><width>1100</width><height>1200</height></rect>
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1240</width>
+    <height>980</height>
+   </rect>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">QWidget#audio_story_mode_tab QPushButton { min-height: 34px; }
+QWidget#audio_story_mode_tab QComboBox,
+QWidget#audio_story_mode_tab QLineEdit,
+QWidget#audio_story_mode_tab QSpinBox { min-height: 30px; }
+QWidget#audio_story_mode_tab QLabel[sectionTitle=&quot;true&quot;] { font-size: 13px; font-weight: 700; }
+QWidget#audio_story_mode_tab QGroupBox { margin-top: 14px; padding-top: 14px; font-weight: 600; }
+QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 6px; }</string>
   </property>
   <layout class="QVBoxLayout" name="root_layout">
-   <property name="leftMargin"><number>0</number></property>
-   <property name="topMargin"><number>0</number></property>
-   <property name="rightMargin"><number>0</number></property>
-   <property name="bottomMargin"><number>0</number></property>
-   <property name="spacing"><number>0</number></property>
+   <property name="spacing">
+    <number>0</number>
+   </property>
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
    <item>
     <widget class="QScrollArea" name="audio_story_scroll_area">
-     <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
-     <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
-     <property name="widgetResizable"><bool>true</bool></property>
+     <property name="frameShape">
+      <enum>QFrame::Shape::NoFrame</enum>
+     </property>
+     <property name="horizontalScrollBarPolicy">
+      <enum>Qt::ScrollBarPolicy::ScrollBarAlwaysOff</enum>
+     </property>
+     <property name="widgetResizable">
+      <bool>true</bool>
+     </property>
      <widget class="QWidget" name="audio_story_scroll_content">
-      <property name="geometry"><rect><x>0</x><y>0</y><width>1080</width><height>1160</height></rect></property>
+      <property name="geometry">
+       <rect>
+        <x>0</x>
+        <y>0</y>
+        <width>1226</width>
+        <height>1943</height>
+       </rect>
+      </property>
       <layout class="QVBoxLayout" name="audio_story_content_layout">
-       <property name="leftMargin"><number>14</number></property>
-       <property name="topMargin"><number>14</number></property>
-       <property name="rightMargin"><number>14</number></property>
-       <property name="bottomMargin"><number>14</number></property>
-       <property name="spacing"><number>10</number></property>
+       <property name="spacing">
+        <number>12</number>
+       </property>
+       <property name="leftMargin">
+        <number>14</number>
+       </property>
+       <property name="topMargin">
+        <number>14</number>
+       </property>
+       <property name="rightMargin">
+        <number>14</number>
+       </property>
+       <property name="bottomMargin">
+        <number>14</number>
+       </property>
        <item>
         <widget class="QLabel" name="audio_story_intro_label">
-         <property name="styleSheet"><string notr="true">color: #cbd5e1;</string></property>
-         <property name="text"><string>Import audiobook or story audio, transcribe it through the local Whisper runtime already in this repo, then drive visual story images from the resulting transcript while the story plays.</string></property>
-         <property name="wordWrap"><bool>true</bool></property>
+         <property name="text">
+          <string>Import audiobook or story audio, transcribe it through the local Whisper runtime already in this repo, then drive visual story images from the resulting transcript while the story plays.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="audio_story_source_box">
-         <property name="objectName"><string>Panel</string></property>
+        <widget class="QFrame" name="Panel">
          <layout class="QVBoxLayout" name="audio_story_source_layout">
-          <property name="leftMargin"><number>14</number></property>
-          <property name="topMargin"><number>12</number></property>
-          <property name="rightMargin"><number>14</number></property>
-          <property name="bottomMargin"><number>12</number></property>
-          <property name="spacing"><number>10</number></property>
-          <item><widget class="QLabel" name="audio_story_source_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Audio Source</string></property></widget></item>
+          <property name="spacing">
+           <number>12</number>
+          </property>
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
           <item>
-           <layout class="QHBoxLayout" name="audio_story_path_row">
-            <item><widget class="QLineEdit" name="audio_story_path_edit"/></item>
-            <item><widget class="QPushButton" name="audio_story_import_button"><property name="text"><string>Import Audio</string></property></widget></item>
-           </layout>
-          </item>
-          <item>
-           <layout class="QFormLayout" name="audio_story_options_form">
-            <property name="fieldGrowthPolicy"><enum>QFormLayout::ExpandingFieldsGrow</enum></property>
-            <property name="rowWrapPolicy"><enum>QFormLayout::WrapLongRows</enum></property>
-            <property name="labelAlignment"><set>Qt::AlignLeft</set></property>
-            <property name="horizontalSpacing"><number>14</number></property>
-            <property name="verticalSpacing"><number>9</number></property>
-            <item row="0" column="0"><widget class="QLabel" name="audio_story_playback_label"><property name="text"><string>Playback</string></property></widget></item>
-            <item row="0" column="1"><widget class="QComboBox" name="audio_story_playback_mode_combo"/></item>
-            <item row="1" column="0"><widget class="QLabel" name="audio_story_precision_label"><property name="text"><string>Precision</string></property></widget></item>
-            <item row="1" column="1"><widget class="QComboBox" name="audio_story_cost_profile_combo"/></item>
-            <item row="2" column="0"><widget class="QLabel" name="audio_story_settings_preset_label"><property name="text"><string>Settings Preset</string></property></widget></item>
-            <item row="2" column="1">
-             <widget class="QWidget" name="audio_story_settings_preset_widget">
-              <layout class="QHBoxLayout" name="audio_story_settings_preset_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QComboBox" name="audio_story_settings_preset_combo"/></item>
-               <item><widget class="QPushButton" name="audio_story_settings_preset_save_button"><property name="text"><string>Save</string></property></widget></item>
-               <item><widget class="QPushButton" name="audio_story_settings_preset_load_button"><property name="text"><string>Load</string></property></widget></item>
-              </layout>
-             </widget>
-            </item>
-            <item row="3" column="0"><widget class="QLabel" name="audio_story_transcribe_seconds_label"><property name="text"><string>Transcribe Seconds</string></property></widget></item>
-            <item row="3" column="1">
-             <widget class="QWidget" name="audio_story_transcribe_seconds_widget">
-              <layout class="QHBoxLayout" name="audio_story_transcribe_seconds_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QSlider" name="audio_story_transcribe_seconds_slider"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-               <item><widget class="QLabel" name="audio_story_transcribe_seconds_value_label"><property name="minimumWidth"><number>84</number></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
-              </layout>
-             </widget>
-            </item>
-            <item row="4" column="0"><widget class="QLabel" name="audio_story_image_frequency_label"><property name="text"><string>Generate Image Every</string></property></widget></item>
-            <item row="4" column="1">
-             <widget class="QWidget" name="audio_story_image_frequency_widget">
-              <layout class="QHBoxLayout" name="audio_story_image_frequency_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QSlider" name="audio_story_image_frequency_slider"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-               <item><widget class="QLabel" name="audio_story_image_frequency_value_label"><property name="minimumWidth"><number>84</number></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
-              </layout>
-             </widget>
-            </item>
-            <item row="5" column="0"><widget class="QLabel" name="audio_story_image_timing_label"><property name="text"><string>Image Timing</string></property></widget></item>
-            <item row="5" column="1"><widget class="QComboBox" name="audio_story_image_timing_combo"/></item>
-            <item row="6" column="0"><widget class="QLabel" name="audio_story_continuity_label"><property name="text"><string>Continuity</string></property></widget></item>
-            <item row="6" column="1">
-             <widget class="QWidget" name="audio_story_continuity_widget">
-              <layout class="QHBoxLayout" name="audio_story_continuity_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QSlider" name="audio_story_continuity_slider"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-               <item><widget class="QLabel" name="audio_story_continuity_value_label"><property name="minimumWidth"><number>60</number></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
-              </layout>
-             </widget>
-            </item>
-            <item row="7" column="0"><widget class="QLabel" name="audio_story_styles_label"><property name="text"><string>Styles</string></property></widget></item>
-            <item row="7" column="1">
-             <widget class="QWidget" name="audio_story_style_grid_widget">
-              <layout class="QGridLayout" name="audio_story_style_grid_layout">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-              </layout>
-             </widget>
-            </item>
-            <item row="8" column="1"><widget class="QCheckBox" name="audio_story_style_live_checkbox"><property name="text"><string>Change Style Live</string></property></widget></item>
-            <item row="9" column="0"><widget class="QLabel" name="audio_story_master_prompt_label"><property name="text"><string>Master Prompt</string></property></widget></item>
-            <item row="9" column="1">
-             <widget class="QWidget" name="audio_story_master_prompt_widget">
-              <layout class="QHBoxLayout" name="audio_story_master_prompt_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QPushButton" name="audio_story_master_prompt_button"><property name="text"><string>Visuals Master Prompt From Story</string></property></widget></item>
-               <item><widget class="QComboBox" name="audio_story_master_prompt_mode_combo"/></item>
-              </layout>
-             </widget>
-            </item>
-            <item row="10" column="0"><widget class="QLabel" name="audio_story_story_analysis_label"><property name="text"><string>Story Analysis</string></property></widget></item>
-            <item row="10" column="1"><widget class="QCheckBox" name="audio_story_llm_analysis_checkbox"><property name="text"><string>Use LLM Story Analysis</string></property></widget></item>
-            <item row="11" column="0"><widget class="QLabel" name="audio_story_analysis_provider_label"><property name="text"><string>Analysis Provider</string></property></widget></item>
-            <item row="11" column="1"><widget class="QComboBox" name="audio_story_analysis_provider_combo"/></item>
-            <item row="12" column="0"><widget class="QLabel" name="audio_story_analysis_model_label"><property name="text"><string>Analysis Model</string></property></widget></item>
-            <item row="12" column="1"><widget class="QComboBox" name="audio_story_analysis_model_combo"/></item>
-            <item row="13" column="0"><widget class="QLabel" name="audio_story_prompt_blocks_label"><property name="text"><string>Prompt Blocks</string></property></widget></item>
-            <item row="13" column="1">
-             <widget class="QWidget" name="audio_story_prompt_limits_widget">
-              <layout class="QGridLayout" name="audio_story_prompt_limits_layout">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-              </layout>
-             </widget>
-            </item>
-            <item row="14" column="0"><widget class="QLabel" name="audio_story_prompt_cap_label"><property name="text"><string>Prompt Cap</string></property></widget></item>
-            <item row="14" column="1"><widget class="QSpinBox" name="audio_story_prompt_safety_cap_spin"/></item>
-            <item row="15" column="0"><widget class="QLabel" name="audio_story_generate_ahead_label"><property name="text"><string>Generate Ahead</string></property></widget></item>
-            <item row="15" column="1">
-             <widget class="QWidget" name="audio_story_generate_ahead_widget">
-              <layout class="QHBoxLayout" name="audio_story_generate_ahead_row">
-               <property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property>
-               <item><widget class="QSlider" name="audio_story_generate_ahead_slider"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-               <item><widget class="QLabel" name="audio_story_generate_ahead_value_label"><property name="minimumWidth"><number>84</number></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
-              </layout>
-             </widget>
-            </item>
-           </layout>
-          </item>
-          <item><widget class="QPushButton" name="audio_story_transcribe_button"><property name="text"><string>Transcribe Audio</string></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_source_hint"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Visual prompt style still follows the global Visuals settings. Story continuity, visual themes, and image provider settings are reused here.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-         </layout>
-        </widget>
-       </item>
-       <item>
-        <widget class="QFrame" name="audio_story_scene_box">
-         <property name="objectName"><string>Panel</string></property>
-         <layout class="QVBoxLayout" name="audio_story_scene_layout">
-          <property name="leftMargin"><number>14</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>14</number></property><property name="bottomMargin"><number>12</number></property><property name="spacing"><number>8</number></property>
-          <item><widget class="QLabel" name="audio_story_scene_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Scene Overrides</string></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_scene_status_label"><property name="text"><string>No scene selected yet.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-          <item>
-           <widget class="QWidget" name="audio_story_scene_character_widget">
-            <layout class="QGridLayout" name="audio_story_scene_character_grid">
-             <property name="horizontalSpacing"><number>6</number></property><property name="verticalSpacing"><number>6</number></property>
-             <item row="0" column="0"><widget class="QLabel" name="audio_story_scene_character_label"><property name="text"><string>Pin Character:</string></property></widget></item>
-            </layout>
+           <widget class="QLabel" name="audio_story_source_title">
+            <property name="text">
+             <string>Source, Analysis, and Visual Plan</string>
+            </property>
+            <property name="sectionTitle" stdset="0">
+             <bool>true</bool>
+            </property>
            </widget>
           </item>
           <item>
-           <layout class="QHBoxLayout" name="audio_story_scene_mode_row">
-            <item><widget class="QPushButton" name="audio_story_pin_location_button"><property name="text"><string>Pin Location</string></property></widget></item>
-            <item><widget class="QPushButton" name="audio_story_force_fresh_button"><property name="text"><string>Force Fresh Scene</string></property></widget></item>
-            <item><widget class="QPushButton" name="audio_story_force_continuation_button"><property name="text"><string>Force Continuation</string></property></widget></item>
+           <layout class="QHBoxLayout" name="audio_story_path_row">
+            <property name="spacing">
+             <number>10</number>
+            </property>
+            <item>
+             <widget class="QLineEdit" name="audio_story_path_edit"/>
+            </item>
+            <item>
+             <widget class="QPushButton" name="audio_story_import_button">
+              <property name="text">
+               <string>Import Audio</string>
+              </property>
+             </widget>
+            </item>
            </layout>
           </item>
-          <item><widget class="QPlainTextEdit" name="audio_story_scene_anchor_edit"><property name="placeholderText"><string>Edit the extracted anchor text for the current scene...</string></property><property name="minimumHeight"><number>72</number></property></widget></item>
-          <item><widget class="QPushButton" name="audio_story_scene_anchor_apply_button"><property name="text"><string>Apply Anchor</string></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_negative_prompt_label"><property name="text"><string>Negative Prompt</string></property></widget></item>
-          <item><widget class="QPlainTextEdit" name="audio_story_scene_negative_prompt_edit"><property name="placeholderText"><string>Things to avoid for this scene image...</string></property><property name="minimumHeight"><number>58</number></property></widget></item>
-          <item><widget class="QPushButton" name="audio_story_scene_negative_prompt_apply_button"><property name="text"><string>Apply Negative Prompt</string></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_scene_hint"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>These overrides apply to the current scene and feed later prompts and continuity references.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+          <item>
+           <layout class="QGridLayout" name="audio_story_workflow_grid">
+            <property name="horizontalSpacing">
+             <number>12</number>
+            </property>
+            <property name="verticalSpacing">
+             <number>10</number>
+            </property>
+            <item row="0" column="0">
+             <widget class="QGroupBox" name="audio_story_audio_group">
+              <property name="title">
+               <string>Audio Setup</string>
+              </property>
+              <layout class="QFormLayout" name="audio_story_audio_form">
+               <property name="fieldGrowthPolicy">
+                <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+               </property>
+               <property name="rowWrapPolicy">
+                <enum>QFormLayout::RowWrapPolicy::WrapLongRows</enum>
+               </property>
+               <property name="horizontalSpacing">
+                <number>12</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>8</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="audio_story_playback_label">
+                 <property name="text">
+                  <string>Playback</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="audio_story_playback_mode_combo"/>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="audio_story_precision_label">
+                 <property name="text">
+                  <string>Precision</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="audio_story_cost_profile_combo"/>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="audio_story_settings_preset_label">
+                 <property name="text">
+                  <string>Settings Preset</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <layout class="QHBoxLayout" name="audio_story_settings_preset_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QComboBox" name="audio_story_settings_preset_combo">
+                   <property name="minimumSize">
+                    <size>
+                     <width>50</width>
+                     <height>32</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="audio_story_settings_preset_save_button">
+                   <property name="text">
+                    <string>Save</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QPushButton" name="audio_story_settings_preset_load_button">
+                   <property name="text">
+                    <string>Load</string>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="audio_story_transcribe_seconds_label">
+                 <property name="text">
+                  <string>Transcribe Seconds</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <layout class="QHBoxLayout" name="audio_story_transcribe_seconds_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QSlider" name="audio_story_transcribe_seconds_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="audio_story_transcribe_seconds_value_label">
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QGroupBox" name="audio_story_timing_group">
+              <property name="title">
+               <string>Timing and Continuity</string>
+              </property>
+              <layout class="QFormLayout" name="audio_story_timing_form">
+               <property name="fieldGrowthPolicy">
+                <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+               </property>
+               <property name="horizontalSpacing">
+                <number>12</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>8</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="audio_story_image_frequency_label">
+                 <property name="text">
+                  <string>Generate Image Every</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <layout class="QHBoxLayout" name="audio_story_image_frequency_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QSlider" name="audio_story_image_frequency_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="audio_story_image_frequency_value_label">
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="audio_story_image_timing_label">
+                 <property name="text">
+                  <string>Image Timing</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="audio_story_image_timing_combo"/>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="audio_story_continuity_label">
+                 <property name="text">
+                  <string>Continuity</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <layout class="QHBoxLayout" name="audio_story_continuity_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QSlider" name="audio_story_continuity_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="audio_story_continuity_value_label">
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="audio_story_generate_ahead_label">
+                 <property name="text">
+                  <string>Generate Ahead</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <layout class="QHBoxLayout" name="audio_story_generate_ahead_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QSlider" name="audio_story_generate_ahead_slider">
+                   <property name="orientation">
+                    <enum>Qt::Orientation::Horizontal</enum>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QLabel" name="audio_story_generate_ahead_value_label">
+                   <property name="alignment">
+                    <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QGroupBox" name="audio_story_prompt_group">
+              <property name="title">
+               <string>Prompt Strategy</string>
+              </property>
+              <layout class="QFormLayout" name="audio_story_prompt_form">
+               <property name="fieldGrowthPolicy">
+                <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+               </property>
+               <property name="horizontalSpacing">
+                <number>12</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>8</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="audio_story_styles_label">
+                 <property name="text">
+                  <string>Styles</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <layout class="QGridLayout" name="audio_story_style_grid_layout">
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                </layout>
+               </item>
+               <item row="1" column="1">
+                <widget class="QCheckBox" name="audio_story_style_live_checkbox">
+                 <property name="text">
+                  <string>Change Style Live</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="audio_story_master_prompt_label">
+                 <property name="text">
+                  <string>Master Prompt</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <layout class="QHBoxLayout" name="audio_story_master_prompt_row">
+                 <property name="spacing">
+                  <number>8</number>
+                 </property>
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                 <item>
+                  <widget class="QPushButton" name="audio_story_master_prompt_button">
+                   <property name="text">
+                    <string>Visuals Master Prompt From Story</string>
+                   </property>
+                  </widget>
+                 </item>
+                 <item>
+                  <widget class="QComboBox" name="audio_story_master_prompt_mode_combo">
+                   <property name="minimumSize">
+                    <size>
+                     <width>60</width>
+                     <height>32</height>
+                    </size>
+                   </property>
+                  </widget>
+                 </item>
+                </layout>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="audio_story_prompt_blocks_label">
+                 <property name="text">
+                  <string>Prompt Blocks</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <layout class="QGridLayout" name="audio_story_prompt_limits_layout">
+                 <property name="leftMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="topMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="rightMargin">
+                  <number>0</number>
+                 </property>
+                 <property name="bottomMargin">
+                  <number>0</number>
+                 </property>
+                </layout>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="audio_story_prompt_cap_label">
+                 <property name="text">
+                  <string>Prompt Cap</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QSpinBox" name="audio_story_prompt_safety_cap_spin"/>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QGroupBox" name="audio_story_analysis_group">
+              <property name="title">
+               <string>Story Analysis</string>
+              </property>
+              <layout class="QFormLayout" name="audio_story_analysis_form">
+               <property name="fieldGrowthPolicy">
+                <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+               </property>
+               <property name="horizontalSpacing">
+                <number>12</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>8</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="audio_story_story_analysis_label">
+                 <property name="text">
+                  <string>Story Analysis</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QCheckBox" name="audio_story_llm_analysis_checkbox">
+                 <property name="text">
+                  <string>Use LLM Story Analysis</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="audio_story_analysis_mode_label">
+                 <property name="text">
+                  <string>Image Analysis Mode</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="audio_story_analysis_mode_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="0">
+                <widget class="QLabel" name="audio_story_analysis_provider_label">
+                 <property name="text">
+                  <string>Analysis Provider</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="2" column="1">
+                <widget class="QComboBox" name="audio_story_analysis_provider_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="0">
+                <widget class="QLabel" name="audio_story_analysis_model_label">
+                 <property name="text">
+                  <string>Analysis Model</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="3" column="1">
+                <widget class="QComboBox" name="audio_story_analysis_model_combo">
+                 <property name="minimumSize">
+                  <size>
+                   <width>120</width>
+                   <height>32</height>
+                  </size>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="0">
+                <widget class="QLabel" name="audio_story_xai_image_settings_label">
+                 <property name="text">
+                  <string>xAI Image Model Settings</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="4" column="1">
+                <widget class="QLabel" name="audio_story_xai_image_settings_hint">
+                 <property name="text">
+                  <string>Settings sent to the xAI Grok Imagine image API when Visual Reply provider is xAI.</string>
+                 </property>
+                 <property name="wordWrap">
+                  <bool>true</bool>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+            <item row="2" column="0" colspan="2">
+             <widget class="QGroupBox" name="audio_story_xai_group">
+              <property name="title">
+               <string>xAI Image API</string>
+              </property>
+              <layout class="QGridLayout" name="audio_story_xai_grid">
+               <property name="horizontalSpacing">
+                <number>12</number>
+               </property>
+               <property name="verticalSpacing">
+                <number>8</number>
+               </property>
+               <item row="0" column="0">
+                <widget class="QLabel" name="audio_story_xai_aspect_ratio_label">
+                 <property name="text">
+                  <string>xAI Aspect Ratio</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="1">
+                <widget class="QComboBox" name="audio_story_xai_aspect_ratio_combo"/>
+               </item>
+               <item row="0" column="2">
+                <widget class="QLabel" name="audio_story_xai_resolution_label">
+                 <property name="text">
+                  <string>xAI Resolution</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="0" column="3">
+                <widget class="QComboBox" name="audio_story_xai_resolution_combo"/>
+               </item>
+               <item row="1" column="0">
+                <widget class="QLabel" name="audio_story_xai_response_format_label">
+                 <property name="text">
+                  <string>xAI Response</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="1">
+                <widget class="QComboBox" name="audio_story_xai_response_format_combo"/>
+               </item>
+               <item row="1" column="2">
+                <widget class="QLabel" name="audio_story_xai_n_label">
+                 <property name="text">
+                  <string>xAI Images</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="1" column="3">
+                <widget class="QSpinBox" name="audio_story_xai_n_spin">
+                 <property name="minimum">
+                  <number>1</number>
+                 </property>
+                 <property name="maximum">
+                  <number>10</number>
+                 </property>
+                </widget>
+               </item>
+              </layout>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="audio_story_transcribe_action_grid">
+            <property name="horizontalSpacing">
+             <number>10</number>
+            </property>
+            <property name="verticalSpacing">
+             <number>8</number>
+            </property>
+            <item row="0" column="0">
+             <widget class="QPushButton" name="audio_story_transcribe_button">
+              <property name="text">
+               <string>Transcribe Audio</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QProgressBar" name="audio_story_transcription_progress_bar">
+              <property name="minimum">
+               <number>0</number>
+              </property>
+              <property name="maximum">
+               <number>100</number>
+              </property>
+              <property name="value">
+               <number>0</number>
+              </property>
+              <property name="format">
+               <string>Idle</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="audio_story_source_hint">
+            <property name="text">
+             <string>Use DeepSeek for transcript analysis/prompt planning, then set Visual Reply provider to xAI / Grok for final image generation. The generated images still follow the global Visuals provider, model, size, and style-anchor settings.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="audio_story_playback_box">
-         <property name="objectName"><string>Panel</string></property>
+        <widget class="QFrame" name="Panel">
+         <layout class="QVBoxLayout" name="audio_story_scene_layout">
+          <property name="spacing">
+           <number>10</number>
+          </property>
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="audio_story_scene_title">
+            <property name="text">
+             <string>Scene Overrides</string>
+            </property>
+            <property name="sectionTitle" stdset="0">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="audio_story_scene_status_label">
+            <property name="text">
+             <string>No scene selected yet.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="audio_story_scene_grid">
+            <property name="horizontalSpacing">
+             <number>12</number>
+            </property>
+            <property name="verticalSpacing">
+             <number>10</number>
+            </property>
+            <item row="0" column="0" colspan="2">
+             <layout class="QGridLayout" name="audio_story_scene_character_grid">
+              <property name="spacing">
+               <number>6</number>
+              </property>
+              <item row="0" column="0">
+               <widget class="QLabel" name="audio_story_scene_character_label">
+                <property name="text">
+                 <string>Pin Character:</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item row="1" column="0" colspan="2">
+             <layout class="QHBoxLayout" name="audio_story_scene_mode_row">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="audio_story_pin_location_button">
+                <property name="text">
+                 <string>Pin Location</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="audio_story_force_fresh_button">
+                <property name="text">
+                 <string>Force Fresh Scene</string>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="audio_story_force_continuation_button">
+                <property name="text">
+                 <string>Force Continuation</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="audio_story_anchor_label">
+              <property name="text">
+               <string>Scene Anchor</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QLabel" name="audio_story_negative_prompt_label">
+              <property name="text">
+               <string>Negative Prompt</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QPlainTextEdit" name="audio_story_scene_anchor_edit">
+              <property name="placeholderText">
+               <string>Edit the extracted anchor text for the current scene...</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QPlainTextEdit" name="audio_story_scene_negative_prompt_edit">
+              <property name="placeholderText">
+               <string>Things to avoid for this scene image...</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
+              <property name="text">
+               <string>Apply Anchor</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <layout class="QHBoxLayout" name="audio_story_negative_prompt_button_row">
+              <property name="spacing">
+               <number>8</number>
+              </property>
+              <item>
+               <widget class="QPushButton" name="audio_story_negative_prompt_anchor_button">
+                <property name="text">
+                 <string>Pin Negative Prompt</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="audio_story_scene_negative_prompt_apply_button">
+                <property name="text">
+                 <string>Apply Negative Prompt</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+           </layout>
+          </item>
+          <item>
+           <widget class="QLabel" name="audio_story_scene_hint">
+            <property name="text">
+             <string>These overrides apply to the current scene and feed later prompts and continuity references.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </widget>
+       </item>
+       <item>
+        <widget class="QFrame" name="Panel">
          <layout class="QVBoxLayout" name="audio_story_playback_layout">
-          <property name="leftMargin"><number>14</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>14</number></property><property name="bottomMargin"><number>12</number></property><property name="spacing"><number>10</number></property>
-          <item><widget class="QLabel" name="audio_story_playback_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Playback</string></property></widget></item>
+          <property name="spacing">
+           <number>10</number>
+          </property>
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="audio_story_playback_title">
+            <property name="text">
+             <string>Playback and Visual Stream</string>
+            </property>
+            <property name="sectionTitle" stdset="0">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
           <item>
            <layout class="QGridLayout" name="audio_story_controls_row">
-            <item row="0" column="0"><widget class="QPushButton" name="audio_story_play_button"><property name="text"><string>Play</string></property></widget></item>
-            <item row="0" column="1"><widget class="QPushButton" name="audio_story_pause_button"><property name="text"><string>Pause</string></property></widget></item>
-            <item row="0" column="2"><widget class="QPushButton" name="audio_story_stop_button"><property name="text"><string>Stop</string></property></widget></item>
-            <item row="0" column="3"><widget class="QLabel" name="audio_story_time_label"><property name="text"><string>00:00 / 00:00</string></property><property name="alignment"><set>Qt::AlignRight|Qt::AlignVCenter</set></property></widget></item>
+            <property name="horizontalSpacing">
+             <number>10</number>
+            </property>
+            <item row="0" column="0">
+             <widget class="QPushButton" name="audio_story_play_button">
+              <property name="text">
+               <string>Play</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QPushButton" name="audio_story_pause_button">
+              <property name="text">
+               <string>Pause</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2">
+             <widget class="QPushButton" name="audio_story_stop_button">
+              <property name="text">
+               <string>Stop</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="3">
+             <widget class="QLabel" name="audio_story_time_label">
+              <property name="text">
+               <string>00:00 / 00:00</string>
+              </property>
+              <property name="alignment">
+               <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
+              </property>
+             </widget>
+            </item>
            </layout>
           </item>
-          <item><widget class="QSlider" name="audio_story_position_slider"><property name="orientation"><enum>Qt::Horizontal</enum></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_status_label"><property name="text"><string>Import an audio file, then transcribe it.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+          <item>
+           <widget class="QSlider" name="audio_story_position_slider">
+            <property name="orientation">
+             <enum>Qt::Orientation::Horizontal</enum>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="audio_story_status_label">
+            <property name="text">
+             <string>Import an audio file, then transcribe it.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <layout class="QGridLayout" name="audio_story_stream_grid">
+            <property name="horizontalSpacing">
+             <number>10</number>
+            </property>
+            <property name="verticalSpacing">
+             <number>8</number>
+            </property>
+            <item row="0" column="0">
+             <widget class="QCheckBox" name="audio_story_stream_enabled_checkbox">
+              <property name="text">
+               <string>Stream Visuals</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QSpinBox" name="audio_story_stream_port_spin">
+              <property name="prefix">
+               <string>Port </string>
+              </property>
+              <property name="minimum">
+               <number>1024</number>
+              </property>
+              <property name="maximum">
+               <number>65535</number>
+              </property>
+              <property name="value">
+               <number>8765</number>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="2" colspan="3">
+             <widget class="QLabel" name="audio_story_stream_url_label">
+              <property name="text">
+               <string>Stream off</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+              <property name="textInteractionFlags">
+               <set>Qt::TextInteractionFlag::TextSelectableByMouse</set>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0" colspan="2">
+             <widget class="QComboBox" name="audio_story_cast_device_combo"/>
+            </item>
+            <item row="1" column="2">
+             <widget class="QPushButton" name="audio_story_cast_refresh_button">
+              <property name="text">
+               <string>Find Casts</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="3">
+             <widget class="QPushButton" name="audio_story_cast_button">
+              <property name="text">
+               <string>Cast To</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="4">
+             <widget class="QPushButton" name="audio_story_cast_stop_button">
+              <property name="text">
+               <string>Stop Cast</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0" colspan="2">
+             <widget class="QCheckBox" name="audio_story_cast_prompt_checkbox">
+              <property name="text">
+               <string>Show Prompt On Cast</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="2" colspan="3">
+             <widget class="QLabel" name="audio_story_cast_status_label">
+              <property name="text">
+               <string>Chromecast discovery not run.</string>
+              </property>
+              <property name="wordWrap">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </item>
          </layout>
         </widget>
        </item>
        <item>
-        <widget class="QFrame" name="audio_story_transcript_box">
-         <property name="objectName"><string>Panel</string></property>
+        <widget class="QFrame" name="Panel">
          <layout class="QVBoxLayout" name="audio_story_transcript_layout">
-          <property name="leftMargin"><number>14</number></property><property name="topMargin"><number>12</number></property><property name="rightMargin"><number>14</number></property><property name="bottomMargin"><number>12</number></property><property name="spacing"><number>10</number></property>
-          <item><widget class="QLabel" name="audio_story_transcript_title"><property name="styleSheet"><string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string></property><property name="text"><string>Transcript Windows</string></property></widget></item>
-          <item><widget class="QLabel" name="audio_story_summary_label"><property name="text"><string>No transcript yet.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-          <item><widget class="QPlainTextEdit" name="audio_story_transcript_edit"><property name="readOnly"><bool>true</bool></property><property name="minimumHeight"><number>160</number></property></widget></item>
+          <property name="spacing">
+           <number>10</number>
+          </property>
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>12</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
+          <item>
+           <widget class="QLabel" name="audio_story_transcript_title">
+            <property name="text">
+             <string>Transcript Windows</string>
+            </property>
+            <property name="sectionTitle" stdset="0">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLabel" name="audio_story_summary_label">
+            <property name="text">
+             <string>No transcript yet.</string>
+            </property>
+            <property name="wordWrap">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPlainTextEdit" name="audio_story_transcript_edit">
+            <property name="readOnly">
+             <bool>true</bool>
+            </property>
+           </widget>
+          </item>
          </layout>
         </widget>
        </item>
-       <item><spacer name="audio_story_bottom_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
+       <item>
+        <spacer name="audio_story_bottom_spacer">
+         <property name="orientation">
+          <enum>Qt::Orientation::Vertical</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>20</width>
+           <height>32</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
       </layout>
      </widget>
     </widget>

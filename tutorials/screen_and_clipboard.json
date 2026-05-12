@@ -1,0 +1,35 @@
+{
+  "id": "screen_and_clipboard",
+  "order": 11,
+  "title": "11. Screen and Clipboard",
+  "description": "How to use desktop and clipboard context without turning every observation into a visible user request.",
+  "steps": [
+    {
+      "title": "Ambient vs Deliberate Context",
+      "body": "Screen is ambient: it reflects what is visible on the desktop. Clipboard is deliberate: it reflects something the user intentionally copied.",
+      "target": "main_window"
+    },
+    {
+      "title": "Screen Source",
+      "body": "Screen is best for ambient awareness: current app, visible content, or broad patterns that might deserve a character reaction.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Screen" }
+      ]
+    },
+    {
+      "title": "Clipboard Source",
+      "body": "Clipboard is best for copied screenshots, reference images, inspiration images, and anything the user explicitly places on the clipboard.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Clipboard" }
+      ]
+    },
+    {
+      "title": "Behavior Safety",
+      "body": "Use strict triggers for proactive comments. A broad trigger can feel noisy, while a specific trigger makes NC's reactions feel intentional.",
+      "target": "sensory_feedback_tabs"
+    }
+  ]
+}
