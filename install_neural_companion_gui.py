@@ -347,10 +347,14 @@ print(json.dumps(status))
                 )
                 return
 
-            self._append_output("\nPocketTTS Hugging Face login verified.\n")
+            self._append_output("\nPocketTTS Hugging Face login is still not verified: no token found.\n")
             if combined:
                 self._append_output(combined + "\n")
-            messagebox.showinfo("PocketTTS Login", "Hugging Face login verified for PocketTTS.")
+            messagebox.showwarning(
+                "PocketTTS Login",
+                "No Hugging Face token was found yet. PocketTTS remains installed, "
+                "but voice cloning may not work until login and model terms are complete.",
+            )
         else:
             self._append_output("\nPocketTTS Hugging Face login is still not verified.\n")
             if combined:
