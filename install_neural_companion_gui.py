@@ -945,23 +945,65 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.after(100, self._drain_output_queue)
 
     def _handle_command_finished(self) -> None:
-        if self.last_exit_code != 0 or "--pockettts" not in self.current_command:
+        if self.last_exit_code != 0:
             return
-        output = "".join(self.current_output)
-        if POCKETTTS_LOGIN_MISSING_TEXT not in output:
+        if "--doctor-only" in self.current_command:
             return
 
-        should_login = messagebox.askyesno(
-            "PocketTTS Hugging Face Login",
-            "PocketTTS installed successfully, but voice cloning needs a Hugging Face login.\n\n"
-            "Accept the terms at https://huggingface.co/kyutai/pocket-tts, then choose Yes "
-            "to open a login window now.\n\n"
-            "Choose No to skip this for now.",
-        )
-        if not should_login:
-            self._append_output("\nPocketTTS Hugging Face login skipped for now.\n", tag="warning")
+        output = "".join(self.current_output)
+        if "--pockettts" in self.current_command and POCKETTTS_LOGIN_MISSING_TEXT in output:
+            should_login = messagebox.askyesno(
+                "PocketTTS Hugging Face Login",
+                "PocketTTS installed successfully, but voice cloning needs a Hugging Face login.\n\n"
+                "Accept the terms at https://huggingface.co/kyutai/pocket-tts, then choose Yes "
+                "to open a login window now.\n\n"
+                "Choose No to skip this for now.",
+            )
+            if should_login:
+                self._launch_pockettts_hf_login()
+            else:
+                self._append_output("\nPocketTTS Hugging Face login skipped for now.\n", tag="warning")
+
+        self._offer_launch_after_success()
+
+    def _offer_launch_after_success(self) -> None:
+        main_python = REPO_ROOT / ".venv" / "Scripts" / "python.exe"
+        if "--main" not in self.current_command and not main_python.exists():
             return
-        self._launch_pockettts_hf_login()
+
+        should_launch = messagebox.askyesno(
+            "Installation Finished",
+            "Installation finished successfully.\n\nDo you want to start Neural Companion now?",
+        )
+        if not should_launch:
+            self._append_output("\nNeural Companion launch skipped.\n", tag="muted")
+            return
+        self._launch_neural_companion()
+
+    def _launch_neural_companion(self) -> None:
+        launcher = REPO_ROOT / "run_neural_companion.bat"
+        if not launcher.exists():
+            messagebox.showwarning("Launch Neural Companion", f"Launcher not found:\n{launcher}")
+            return
+        if not sys.platform.startswith("win"):
+            messagebox.showinfo(
+                "Launch Neural Companion",
+                f"Run this launcher on Windows:\n\n{launcher}",
+            )
+            return
+
+        try:
+            subprocess.Popen(
+                ["cmd.exe", "/c", str(launcher)],
+                cwd=str(REPO_ROOT),
+                creationflags=subprocess.CREATE_NEW_CONSOLE,
+            )
+        except Exception as exc:
+            self._append_output(f"\nCould not launch Neural Companion: {exc}\n", tag="error")
+            messagebox.showwarning("Launch Neural Companion", f"Could not launch Neural Companion:\n{exc}")
+            return
+
+        self._append_output("\nLaunched Neural Companion.\n", tag="success")
 
     def _launch_pockettts_hf_login(self) -> None:
         hf_exe = REPO_ROOT / ".venvs" / "pockettts" / "Scripts" / "hf.exe"
