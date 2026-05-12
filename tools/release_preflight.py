@@ -72,6 +72,7 @@ FORBIDDEN_TRACKED_SUFFIXES = (
 ALLOWED_TRACKED_ASSET_PATHS = {
     "avatar_packs/.gitkeep",
     "avatar_packs/README.md",
+    "Installer_Music/Circuit_Saffron.mp3",
     "MuseTalk/musetalk/whisper/whisper/assets/mel_filters.npz",
     "voices/.gitkeep",
     "voices/README.md",

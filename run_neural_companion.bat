@@ -4,12 +4,11 @@ cd /d "%~dp0"
 call :maybe_update_from_git
 if not exist ".venv\Scripts\python.exe" (
   echo Virtual environment not found.
-  echo Run install_neural_companion.ps1 first.
+  echo Run install_neural_companion_gui.bat first.
   pause
   exit /b 1
 )
-call ".venv\Scripts\activate.bat"
-python qt_app.py
+".venv\Scripts\python.exe" qt_app.py
 endlocal
 goto :eof
 

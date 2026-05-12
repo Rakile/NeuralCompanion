@@ -503,8 +503,6 @@ print(json.dumps(status))
             (MUSETALK_MODELS / subdir).mkdir(parents=True, exist_ok=True)
 
         env = os.environ.copy()
-        if "HF_ENDPOINT" not in env:
-            env["HF_ENDPOINT"] = "https://hf-mirror.com"
 
         download_jobs = [
             {
@@ -557,10 +555,12 @@ extra_kwargs = {"endpoint": endpoint} if endpoint else {}
 for job in jobs:
     local_dir = job["local_dir"]
     os.makedirs(local_dir, exist_ok=True)
+    print(f"Downloading {job['repo_id']} -> {local_dir}", flush=True)
     if job["mode"] == "snapshot":
         snapshot_download(repo_id=job["repo_id"], local_dir=local_dir, **extra_kwargs)
     else:
         for filename in job["filenames"]:
+            print(f"  {filename}", flush=True)
             hf_hub_download(
                 repo_id=job["repo_id"],
                 filename=filename,
@@ -687,7 +687,13 @@ def main() -> int:
     except subprocess.CalledProcessError as exc:
         fail("")
         fail("Installation failed.")
-        fail(f"Command: {' '.join(exc.cmd)}")
+        cmd = [str(item) for item in exc.cmd]
+        if "-c" in cmd:
+            index = cmd.index("-c")
+            compact_cmd = cmd[: index + 1] + ["<inline installer helper>"] + cmd[index + 2 :]
+        else:
+            compact_cmd = cmd
+        fail(f"Command: {' '.join(compact_cmd)}")
         fail(f"Exit code: {exc.returncode}")
         if exc.stdout:
             print(exc.stdout)

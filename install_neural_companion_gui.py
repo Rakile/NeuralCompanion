@@ -1,12 +1,15 @@
 #!/usr/bin/env python
 from __future__ import annotations
 
+import json
 import queue
 import re
+import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
+import ctypes
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -17,12 +20,127 @@ POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
+class InstallerAudioController:
+    """Small looping MP3 controller for the installer shell."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.alias = f"nc_installer_music_{id(self):x}"
+        self.backend = "windows-mci" if sys.platform.startswith("win") else "subprocess"
+        self.process: subprocess.Popen[bytes] | None = None
+        self._mci_open = False
+
+    def play(self) -> tuple[bool, str]:
+        if not self.path.exists():
+            return False, f"Music file not found: {self.path}"
+        if self.is_playing():
+            return True, "Circuit_Saffron.mp3 is already playing."
+        if self.backend == "windows-mci":
+            return self._play_windows_mci()
+        return self._play_subprocess()
+
+    def stop(self) -> None:
+        if self.backend == "windows-mci":
+            self._mci("stop " + self.alias)
+            self._mci("close " + self.alias)
+            self._mci_open = False
+            return
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+        self.process = None
+
+    def is_playing(self) -> bool:
+        if self.backend == "windows-mci":
+            if not self._mci_open:
+                return False
+            ok, status = self._mci("status " + self.alias + " mode")
+            return ok and status.strip().lower() == "playing"
+        return self.process is not None and self.process.poll() is None
+
+    def _play_windows_mci(self) -> tuple[bool, str]:
+        self.stop()
+        ok, message = self._mci(f'open "{self.path}" type mpegvideo alias {self.alias}')
+        if not ok:
+            return False, message
+        self._mci_open = True
+        ok, message = self._mci("play " + self.alias + " repeat")
+        if not ok:
+            self.stop()
+            return False, message
+        return True, "Playing Circuit_Saffron.mp3."
+
+    def _play_subprocess(self) -> tuple[bool, str]:
+        player_command = self._fallback_player_command()
+        if not player_command:
+            return False, "No MP3 player found. Install ffplay, mpg123, or cvlc for audio on this platform."
+        try:
+            self.process = subprocess.Popen(
+                player_command,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except Exception as exc:
+            return False, f"Could not start music player: {exc}"
+        return True, "Playing Circuit_Saffron.mp3."
+
+    def _fallback_player_command(self) -> list[str] | None:
+        path = str(self.path)
+        if shutil.which("ffplay"):
+            return ["ffplay", "-nodisp", "-loglevel", "quiet", "-loop", "0", path]
+        if shutil.which("mpg123"):
+            return ["mpg123", "-q", "--loop", "-1", path]
+        if shutil.which("cvlc"):
+            return ["cvlc", "--intf", "dummy", "--loop", "--play-and-exit", path]
+        return None
+
+    def _mci(self, command: str) -> tuple[bool, str]:
+        buffer = ctypes.create_unicode_buffer(512)
+        result = ctypes.windll.winmm.mciSendStringW(command, buffer, len(buffer), None)
+        if result == 0:
+            return True, buffer.value
+
+        error_buffer = ctypes.create_unicode_buffer(512)
+        ctypes.windll.winmm.mciGetErrorStringW(result, error_buffer, len(error_buffer))
+        return False, error_buffer.value or f"MCI error {result}"
+
+
 class NeuralCompanionInstallerGui(tk.Tk):
+    """Neural Companion installer shell with an NC-inspired dark UI.
+
+    The installer behavior is intentionally kept close to the original:
+    - same installer command generation
+    - same isolated runtime choices
+    - same PocketTTS Hugging Face login flow
+    - same background-process handling
+
+    The rework focuses on layout, readability, status feedback and a darker
+    Neon/Neural Companion style.
+    """
+
+    BG = "#070A12"
+    SURFACE = "#101622"
+    SURFACE_2 = "#151D2B"
+    SURFACE_3 = "#0C111B"
+    BORDER = "#26334A"
+    TEXT = "#EAF2FF"
+    MUTED = "#91A0B8"
+    ACCENT = "#6E7BFF"
+    ACCENT_2 = "#36E6C2"
+    WARNING = "#FFD166"
+    DANGER = "#FF5F7E"
+    SUCCESS = "#3EE28F"
+    OUTPUT_BG = "#05070C"
+    OUTPUT_FG = "#C9D7EF"
+
     def __init__(self) -> None:
         super().__init__()
         self.title("Neural Companion Installer")
-        self.geometry("900x620")
-        self.minsize(760, 520)
+        self._set_initial_window_size()
+
         self.output_queue: queue.Queue[str | tuple[str, int] | None] = queue.Queue()
         self.process: subprocess.Popen[str] | None = None
         self.current_command: list[str] = []
@@ -35,74 +153,692 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.install_pockettts = tk.BooleanVar(value=True)
         self.skip_main_torch = tk.BooleanVar(value=False)
 
+        self.status_text = tk.StringVar(value="Ready")
+        self.python_status_text = tk.StringVar(value="Detecting Python 3.11...")
+        self.command_preview = tk.StringVar(value="Command preview will appear here.")
+        self.music_status_text = tk.StringVar(value="Music idle")
+        self.audio_controller = InstallerAudioController(REPO_ROOT / "Installer_Music" / "Circuit_Saffron.mp3")
+        self._vibe_tick = 0
+        self._installer_running = False
+        self._feature_status_after_id: str | None = None
+        self._feature_status_index = 0
+        self._feature_status_messages = [
+            "Local realtime chat keeps the companion experience on your machine.",
+            "Speech output supports Chatterbox, Gemini TTS Preview, PocketTTS, and addon TTS backends.",
+            "Avatar output can run through MuseTalk, VSeeFace, VaM, or no-avatar mode.",
+            "MuseTalk adds local talking-head avatar generation with prepared avatar packs.",
+            "Visual replies and story visuals can generate image-based responses when enabled.",
+            "Sensory addons can use screen, webcam, clipboard, or other local context sources.",
+            "Addon-driven workflows let chat, TTS, avatars, visuals, and tools expand independently.",
+            "Isolated runtimes keep MuseTalk and PocketTTS dependencies from colliding with the main app.",
+        ]
+
+        self._configure_window()
+        self._configure_styles()
         self._build_ui()
         self._auto_detect_python()
+        self.update_idletasks()
+        self.after(90, self._animate_cracktro)
         self.after(100, self._drain_output_queue)
 
-    def _build_ui(self) -> None:
-        outer = ttk.Frame(self, padding=14)
-        outer.pack(fill=tk.BOTH, expand=True)
+    # ---------------------------------------------------------------------
+    # UI
+    # ---------------------------------------------------------------------
 
-        title = ttk.Label(outer, text="Neural Companion Installer", font=("Segoe UI", 16, "bold"))
-        title.pack(anchor=tk.W)
+    def _set_initial_window_size(self) -> None:
+        """Open at a size that shows the whole UI on normal displays.
 
-        subtitle = ttk.Label(
-            outer,
-            text="Select the runtimes to install. MuseTalk and PocketTTS are isolated so their dependencies do not collide with the main app.",
+        The installer has enough stacked controls that shorter startup sizes
+        force users to resize before they can see the whole workflow.
+        """
+        screen_w = self.winfo_screenwidth()
+        screen_h = self.winfo_screenheight()
+
+        preferred_w = 1320
+        preferred_h = 920
+        margin_w = 70
+        margin_h = 90
+
+        width = min(preferred_w, max(1120, screen_w - margin_w))
+        height = min(preferred_h, max(780, screen_h - margin_h))
+
+        x = max(0, (screen_w - width) // 2)
+        y = max(0, (screen_h - height) // 2)
+
+        self.geometry(f"{width}x{height}+{x}+{y}")
+        self.minsize(min(1120, width), min(760, height))
+
+        if sys.platform.startswith("win") and (screen_h < preferred_h + margin_h or screen_w < preferred_w + margin_w):
+            try:
+                self.state("zoomed")
+            except tk.TclError:
+                pass
+
+    def _configure_window(self) -> None:
+        self.configure(bg=self.BG)
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        try:
+            self.iconbitmap(default="")
+        except Exception:
+            pass
+
+    def _configure_styles(self) -> None:
+        style = ttk.Style(self)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
+
+        style.configure(
+            ".",
+            background=self.BG,
+            foreground=self.TEXT,
+            fieldbackground=self.SURFACE_3,
+            bordercolor=self.BORDER,
+            lightcolor=self.BORDER,
+            darkcolor=self.BORDER,
+            troughcolor=self.SURFACE_3,
+            font=("Segoe UI", 10),
         )
-        subtitle.pack(anchor=tk.W, pady=(2, 14))
 
-        python_frame = ttk.LabelFrame(outer, text="Python 3.11")
-        python_frame.pack(fill=tk.X, pady=(0, 12))
-        python_row = ttk.Frame(python_frame, padding=8)
-        python_row.pack(fill=tk.X)
-        ttk.Entry(python_row, textvariable=self.python_path).pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Button(python_row, text="Detect", command=self._auto_detect_python).pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(python_row, text="Browse...", command=self._browse_python).pack(side=tk.LEFT, padx=(8, 0))
-        self.python_status = ttk.Label(python_frame, text="", padding=(8, 0, 8, 8))
-        self.python_status.pack(anchor=tk.W)
+        style.configure("Root.TFrame", background=self.BG)
+        style.configure("Card.TFrame", background=self.SURFACE, borderwidth=1, relief="solid")
+        style.configure("SoftCard.TFrame", background=self.SURFACE_2, borderwidth=1, relief="solid")
+        style.configure("Header.TFrame", background=self.BG)
+        style.configure("Output.TFrame", background=self.OUTPUT_BG, borderwidth=1, relief="solid")
 
-        options = ttk.LabelFrame(outer, text="Install")
-        options.pack(fill=tk.X, pady=(0, 12))
-        option_inner = ttk.Frame(options, padding=8)
-        option_inner.pack(fill=tk.X)
-        ttk.Checkbutton(option_inner, text="Main Neural Companion runtime", variable=self.install_main).grid(row=0, column=0, sticky=tk.W, padx=(0, 24), pady=2)
-        ttk.Checkbutton(option_inner, text="Isolated MuseTalk runtime", variable=self.install_musetalk).grid(row=0, column=1, sticky=tk.W, padx=(0, 24), pady=2)
-        ttk.Checkbutton(option_inner, text="Isolated PocketTTS runtime", variable=self.install_pockettts).grid(row=0, column=2, sticky=tk.W, pady=2)
-        ttk.Checkbutton(option_inner, text="Skip main-app torch install", variable=self.skip_main_torch).grid(row=1, column=0, sticky=tk.W, pady=(8, 2))
+        style.configure("Title.TLabel", background=self.BG, foreground=self.TEXT, font=("Segoe UI", 21, "bold"))
+        style.configure("Subtitle.TLabel", background=self.BG, foreground=self.MUTED, font=("Segoe UI", 10))
+        style.configure("CardTitle.TLabel", background=self.SURFACE, foreground=self.TEXT, font=("Segoe UI", 12, "bold"))
+        style.configure("CardText.TLabel", background=self.SURFACE, foreground=self.MUTED, font=("Segoe UI", 9))
+        style.configure("SoftTitle.TLabel", background=self.SURFACE_2, foreground=self.TEXT, font=("Segoe UI", 10, "bold"))
+        style.configure("SoftText.TLabel", background=self.SURFACE_2, foreground=self.MUTED, font=("Segoe UI", 9))
+        style.configure("Status.TLabel", background=self.SURFACE_3, foreground=self.MUTED, font=("Segoe UI", 9))
+        style.configure("Accent.TLabel", background=self.BG, foreground=self.ACCENT_2, font=("Segoe UI", 10, "bold"))
 
-        actions = ttk.Frame(outer)
-        actions.pack(fill=tk.X, pady=(0, 10))
-        self.install_button = ttk.Button(actions, text="Install Selected", command=self._install_selected)
-        self.install_button.pack(side=tk.LEFT)
-        self.doctor_button = ttk.Button(actions, text="Run Preflight Only", command=self._run_doctor)
-        self.doctor_button.pack(side=tk.LEFT, padx=(8, 0))
-        ttk.Button(actions, text="Clear Output", command=self._clear_output).pack(side=tk.RIGHT)
+        style.configure(
+            "NC.TButton",
+            background=self.ACCENT,
+            foreground="white",
+            borderwidth=0,
+            focusthickness=0,
+            padding=(14, 9),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "NC.TButton",
+            background=[("active", "#818BFF"), ("disabled", "#313A55")],
+            foreground=[("disabled", "#8D98AF")],
+        )
 
-        output_frame = ttk.LabelFrame(outer, text="Installer Output")
-        output_frame.pack(fill=tk.BOTH, expand=True)
-        self.output = tk.Text(output_frame, wrap=tk.WORD, height=18)
-        self.output.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar = ttk.Scrollbar(output_frame, orient=tk.VERTICAL, command=self.output.yview)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        style.configure(
+            "Ghost.TButton",
+            background=self.SURFACE_2,
+            foreground=self.TEXT,
+            borderwidth=1,
+            padding=(12, 8),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map(
+            "Ghost.TButton",
+            background=[("active", "#202A3D"), ("disabled", "#101622")],
+            foreground=[("disabled", "#6F7890")],
+        )
+
+        style.configure(
+            "Danger.TButton",
+            background="#44202C",
+            foreground="#FFDDE5",
+            borderwidth=1,
+            padding=(12, 8),
+            font=("Segoe UI", 10, "bold"),
+        )
+        style.map("Danger.TButton", background=[("active", "#592A39")])
+
+        style.configure(
+            "NC.TEntry",
+            fieldbackground=self.SURFACE_3,
+            foreground=self.TEXT,
+            bordercolor=self.BORDER,
+            insertcolor=self.TEXT,
+            padding=(8, 7),
+        )
+
+        style.configure(
+            "NC.TCheckbutton",
+            background=self.SURFACE_2,
+            foreground=self.TEXT,
+            font=("Segoe UI", 10),
+            focuscolor=self.SURFACE_2,
+        )
+        style.map(
+            "NC.TCheckbutton",
+            background=[("active", self.SURFACE_2)],
+            foreground=[("disabled", "#6F7890")],
+        )
+
+        style.configure(
+            "NC.Horizontal.TProgressbar",
+            background=self.ACCENT_2,
+            troughcolor=self.SURFACE_3,
+            bordercolor=self.SURFACE_3,
+            lightcolor=self.ACCENT_2,
+            darkcolor=self.ACCENT_2,
+        )
+
+    def _build_ui(self) -> None:
+        root = ttk.Frame(self, style="Root.TFrame", padding=(14, 12, 14, 10))
+        root.pack(fill=tk.BOTH, expand=True)
+
+        self._build_header(root)
+
+        body = ttk.Frame(root, style="Root.TFrame")
+        body.pack(fill=tk.BOTH, expand=True, pady=(12, 0))
+        body.columnconfigure(0, weight=0, minsize=320)
+        body.columnconfigure(1, weight=1)
+        body.rowconfigure(0, weight=1)
+
+        left = ttk.Frame(body, style="Root.TFrame")
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        right = ttk.Frame(body, style="Root.TFrame")
+        right.grid(row=0, column=1, sticky="nsew")
+        right.rowconfigure(1, weight=1)
+        right.columnconfigure(0, weight=1)
+
+        self._build_python_card(left)
+        self._build_install_card(left)
+        self._build_actions_card(left)
+
+        self._build_command_card(right)
+        self._build_output_card(right)
+
+        self._build_footer(root)
+        self._refresh_command_preview()
+
+    def _build_header(self, parent: ttk.Frame) -> None:
+        header = ttk.Frame(parent, style="Header.TFrame")
+        header.pack(fill=tk.X)
+        header.columnconfigure(0, weight=0)
+        header.columnconfigure(1, weight=1)
+        header.columnconfigure(2, weight=0)
+        header.columnconfigure(3, weight=0)
+
+        brand = ttk.Frame(header, style="Header.TFrame")
+        brand.grid(row=0, column=0, sticky="w")
+
+        ttk.Label(brand, text="Neural Companion", style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            brand,
+            text="Installer control center · isolated runtimes · safer setup",
+            style="Subtitle.TLabel",
+        ).pack(anchor=tk.W, pady=(2, 0))
+
+        self.cracktro_canvas = tk.Canvas(
+            header,
+            width=440,
+            height=58,
+            bg=self.BG,
+            highlightthickness=0,
+            bd=0,
+        )
+        self.cracktro_canvas.grid(row=0, column=1, sticky="ew", padx=(28, 12), pady=(0, 0))
+
+        music = ttk.Frame(header, style="Header.TFrame")
+        music.grid(row=0, column=2, sticky="e", padx=(8, 10))
+        tk.Label(
+            music,
+            textvariable=self.music_status_text,
+            bg=self.BG,
+            fg=self.MUTED,
+            anchor="e",
+            justify="right",
+            font=("Segoe UI", 8),
+        ).grid(row=0, column=0, columnspan=2, sticky="e", pady=(0, 3))
+        ttk.Button(music, text="Play", style="Ghost.TButton", command=self._play_music).grid(
+            row=1,
+            column=0,
+            sticky="ew",
+            padx=(0, 4),
+        )
+        ttk.Button(music, text="Stop", style="Danger.TButton", command=self._stop_music).grid(
+            row=1,
+            column=1,
+            sticky="ew",
+        )
+
+        badge = tk.Label(
+            header,
+            text="CRACKTRO MODE",
+            bg="#101B33",
+            fg=self.ACCENT_2,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=4,
+            font=("Segoe UI", 10, "bold"),
+        )
+        badge.grid(row=0, column=3, sticky="e")
+
+    def _build_python_card(self, parent: ttk.Frame) -> None:
+        card = self._card(parent)
+        ttk.Label(card, text="Python 3.11", style="CardTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            card,
+            text="Choose the Python executable used to create and manage the runtimes.",
+            style="CardText.TLabel",
+            wraplength=275,
+        ).pack(anchor=tk.W, pady=(2, 10))
+
+        row = ttk.Frame(card, style="Card.TFrame")
+        row.pack(fill=tk.X)
+        row.columnconfigure(0, weight=1)
+
+        entry = ttk.Entry(row, textvariable=self.python_path, style="NC.TEntry")
+        entry.grid(row=0, column=0, columnspan=2, sticky="ew")
+        entry.bind("<KeyRelease>", lambda _event: self._refresh_command_preview())
+
+        ttk.Button(row, text="Detect", style="Ghost.TButton", command=self._auto_detect_python).grid(row=1, column=0, sticky="ew", pady=(8, 0), padx=(0, 4))
+        ttk.Button(row, text="Browse", style="Ghost.TButton", command=self._browse_python).grid(row=1, column=1, sticky="ew", pady=(8, 0), padx=(4, 0))
+
+        status = tk.Label(
+            card,
+            textvariable=self.python_status_text,
+            bg=self.SURFACE,
+            fg=self.MUTED,
+            anchor="w",
+            justify="left",
+            wraplength=275,
+            font=("Segoe UI", 9),
+        )
+        status.pack(fill=tk.X, pady=(10, 0))
+
+    def _build_install_card(self, parent: ttk.Frame) -> None:
+        card = self._card(parent)
+        ttk.Label(card, text="Install targets", style="CardTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            card,
+            text="MuseTalk and PocketTTS stay isolated to reduce dependency collisions.",
+            style="CardText.TLabel",
+            wraplength=275,
+        ).pack(anchor=tk.W, pady=(2, 10))
+
+        self._runtime_tile(
+            card,
+            title="Main runtime",
+            description="Core Neural Companion app dependencies.",
+            variable=self.install_main,
+        )
+        self._runtime_tile(
+            card,
+            title="MuseTalk runtime",
+            description="Isolated avatar / talking-head dependency set.",
+            variable=self.install_musetalk,
+        )
+        self._runtime_tile(
+            card,
+            title="PocketTTS runtime",
+            description="Isolated voice runtime. May require Hugging Face login.",
+            variable=self.install_pockettts,
+        )
+
+        skip = ttk.Checkbutton(
+            card,
+            text="Skip main-app Torch install",
+            variable=self.skip_main_torch,
+            style="NC.TCheckbutton",
+            command=self._refresh_command_preview,
+        )
+        skip.pack(anchor=tk.W, pady=(10, 0))
+
+    def _runtime_tile(self, parent: ttk.Frame, title: str, description: str, variable: tk.BooleanVar) -> None:
+        tile = ttk.Frame(parent, style="SoftCard.TFrame", padding=8)
+        tile.pack(fill=tk.X, pady=(0, 6))
+
+        top = ttk.Frame(tile, style="SoftCard.TFrame")
+        top.pack(fill=tk.X)
+
+        cb = ttk.Checkbutton(
+            top,
+            text=title,
+            variable=variable,
+            style="NC.TCheckbutton",
+            command=self._refresh_command_preview,
+        )
+        cb.pack(anchor=tk.W)
+
+        ttk.Label(tile, text=description, style="SoftText.TLabel", wraplength=275).pack(anchor=tk.W, pady=(2, 0))
+
+    def _build_actions_card(self, parent: ttk.Frame) -> None:
+        card = self._card(parent)
+
+        ttk.Label(card, text="Actions", style="CardTitle.TLabel").pack(anchor=tk.W, pady=(0, 10))
+
+        self.install_button = ttk.Button(card, text="Install selected", style="NC.TButton", command=self._install_selected)
+        self.install_button.pack(fill=tk.X)
+
+        self.doctor_button = ttk.Button(card, text="Run preflight only", style="Ghost.TButton", command=self._run_doctor)
+        self.doctor_button.pack(fill=tk.X, pady=(8, 0))
+
+        clear_button = ttk.Button(card, text="Clear output", style="Ghost.TButton", command=self._clear_output)
+        clear_button.pack(fill=tk.X, pady=(8, 0))
+
+        self.progress = ttk.Progressbar(card, mode="indeterminate", style="NC.Horizontal.TProgressbar")
+        self.progress.pack(fill=tk.X, pady=(10, 0))
+
+    def _build_help_card(self, parent: ttk.Frame) -> None:
+        card = self._card(parent)
+        ttk.Label(card, text="Tip", style="CardTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            card,
+            text="Run preflight first if you only want to verify Python, paths and setup requirements before installing.",
+            style="CardText.TLabel",
+            wraplength=275,
+        ).pack(anchor=tk.W, pady=(4, 0))
+
+    def _build_command_card(self, parent: ttk.Frame) -> None:
+        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+        card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        card.columnconfigure(0, weight=1)
+
+        ttk.Label(card, text="Command preview", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        self.command_preview_label = tk.Label(
+            card,
+            textvariable=self.command_preview,
+            bg=self.SURFACE_3,
+            fg=self.OUTPUT_FG,
+            anchor="w",
+            justify="left",
+            padx=12,
+            pady=6,
+            wraplength=700,
+            font=("Consolas", 9),
+            bd=1,
+            relief="solid",
+        )
+        self.command_preview_label.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.command_preview_label.bind(
+            "<Configure>",
+            lambda event: self.command_preview_label.configure(wraplength=max(360, event.width - 24)),
+        )
+
+    def _build_output_card(self, parent: ttk.Frame) -> None:
+        card = ttk.Frame(parent, style="Output.TFrame", padding=10)
+        card.grid(row=1, column=0, sticky="nsew")
+        card.rowconfigure(1, weight=1)
+        card.columnconfigure(0, weight=1)
+
+        header = ttk.Frame(card, style="Output.TFrame")
+        header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        ttk.Label(
+            header,
+            text="Installer output",
+            background=self.OUTPUT_BG,
+            foreground=self.TEXT,
+            font=("Segoe UI", 12, "bold"),
+        ).pack(side=tk.LEFT)
+
+        self.output_state = tk.Label(
+            header,
+            text="idle",
+            bg="#101B33",
+            fg=self.MUTED,
+            padx=9,
+            pady=3,
+            font=("Segoe UI", 8, "bold"),
+        )
+        self.output_state.pack(side=tk.RIGHT)
+
+        output_wrap = ttk.Frame(card, style="Output.TFrame")
+        output_wrap.grid(row=1, column=0, sticky="nsew")
+        output_wrap.rowconfigure(0, weight=1)
+        output_wrap.columnconfigure(0, weight=1)
+
+        self.output = tk.Text(
+            output_wrap,
+            wrap=tk.WORD,
+            height=14,
+            bg=self.OUTPUT_BG,
+            fg=self.OUTPUT_FG,
+            insertbackground=self.TEXT,
+            selectbackground="#2E3D67",
+            selectforeground=self.TEXT,
+            relief=tk.FLAT,
+            padx=12,
+            pady=12,
+            font=("Consolas", 9),
+        )
+        self.output.grid(row=0, column=0, sticky="nsew")
+
+        scrollbar = ttk.Scrollbar(output_wrap, orient=tk.VERTICAL, command=self.output.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
         self.output.configure(yscrollcommand=scrollbar.set)
 
-    def _append_output(self, text: str) -> None:
+        self.output.tag_configure("command", foreground=self.ACCENT_2)
+        self.output.tag_configure("error", foreground=self.DANGER)
+        self.output.tag_configure("success", foreground=self.SUCCESS)
+        self.output.tag_configure("warning", foreground=self.WARNING)
+        self.output.tag_configure("muted", foreground=self.MUTED)
+
+        self._append_output("Neural Companion installer ready.\n", tag="success")
+        self._append_output("Choose install targets or run preflight.\n\n", tag="muted")
+
+    def _build_footer(self, parent: ttk.Frame) -> None:
+        footer = ttk.Frame(parent, style="Root.TFrame")
+        footer.pack(fill=tk.X, pady=(8, 0))
+
+        status_bar = tk.Label(
+            footer,
+            textvariable=self.status_text,
+            bg=self.SURFACE_3,
+            fg=self.MUTED,
+            anchor="center",
+            justify="center",
+            padx=12,
+            pady=6,
+            font=("Segoe UI", 9),
+            bd=1,
+            relief="solid",
+        )
+        status_bar.pack(fill=tk.X)
+
+    def _card(self, parent: ttk.Frame) -> ttk.Frame:
+        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+        card.pack(fill=tk.X, pady=(0, 10))
+        return card
+
+    def _animate_cracktro(self) -> None:
+        canvas = getattr(self, "cracktro_canvas", None)
+        if canvas is None:
+            return
+
+        width = max(1, canvas.winfo_width())
+        height = max(1, canvas.winfo_height())
+        canvas.delete("all")
+        canvas.create_rectangle(0, 0, width, height, fill=self.SURFACE_3, outline=self.BORDER)
+
+        for y in range(6, height, 8):
+            color = "#111827" if (y + self._vibe_tick) % 16 else "#1B2740"
+            canvas.create_line(0, y, width, y, fill=color)
+
+        glow = self.ACCENT_2 if self.audio_controller.is_playing() else self.MUTED
+        canvas.create_text(
+            14,
+            12,
+            anchor="nw",
+            text="CIRCUIT SAFFRON",
+            fill=glow,
+            font=("Consolas", 11, "bold"),
+        )
+        canvas.create_text(
+            15,
+            34,
+            anchor="nw",
+            text="NEURAL COMPANION INSTALLER",
+            fill=self.TEXT,
+            font=("Consolas", 8, "bold"),
+        )
+
+        bars = 18
+        bar_w = 5
+        start_x = width - (bars * 9) - 12
+        base_y = height - 9
+        for index in range(bars):
+            phase = (self._vibe_tick + index * 3) % 24
+            rise = 7 + abs(12 - phase)
+            if not self.audio_controller.is_playing():
+                rise = 5 + (index % 3)
+            x = start_x + index * 9
+            color = self.ACCENT_2 if index % 3 else self.ACCENT
+            canvas.create_rectangle(x, base_y - rise, x + bar_w, base_y, fill=color, outline="")
+
+        scan_x = (self._vibe_tick * 7) % (width + 30) - 30
+        canvas.create_rectangle(scan_x, 1, scan_x + 24, height - 1, fill="#1E3358", outline="", stipple="gray50")
+
+        self._vibe_tick = (self._vibe_tick + 1) % 240
+        self.after(90, self._animate_cracktro)
+
+    def _play_music(self, autoplay: bool = False) -> None:
+        ok, message = self.audio_controller.play()
+        if ok:
+            self.music_status_text.set("Looping Circuit_Saffron.mp3")
+            if not autoplay:
+                self._append_output("\nMusic started: Circuit_Saffron.mp3\n", tag="command")
+            return
+
+        self.music_status_text.set("Music unavailable")
+        detail = f"\nMusic could not start: {message}\n"
+        self._append_output(detail, tag="warning" if autoplay else "error")
+        if not autoplay:
+            messagebox.showwarning("Installer Music", message)
+
+    def _stop_music(self) -> None:
+        self.audio_controller.stop()
+        self.music_status_text.set("Music stopped")
+        self._append_output("\nMusic stopped.\n", tag="muted")
+
+    def _stop_music_silent(self) -> None:
+        self.audio_controller.stop()
+        self.music_status_text.set("Music stopped")
+
+    def _on_close(self) -> None:
+        if self.process is not None:
+            should_close = messagebox.askyesno(
+                "Installer running",
+                "The installer is still running.\n\n"
+                "Close the window and leave the installer process running in the background?",
+            )
+            if not should_close:
+                return
+        self._cancel_feature_status_rotation()
+        self._stop_music_silent()
+        self.destroy()
+
+    # ---------------------------------------------------------------------
+    # Output helpers
+    # ---------------------------------------------------------------------
+
+    def _append_output(self, text: str, tag: str | None = None) -> None:
         text = ANSI_ESCAPE_RE.sub("", text)
-        self.output.insert(tk.END, text)
+        if tag:
+            self.output.insert(tk.END, text, tag)
+        else:
+            lower = text.lower()
+            auto_tag = None
+            if "error" in lower or "failed" in lower or "traceback" in lower:
+                auto_tag = "error"
+            elif "success" in lower or "verified" in lower or "installed successfully" in lower:
+                auto_tag = "success"
+            elif "warning" in lower or "missing" in lower or "skip" in lower:
+                auto_tag = "warning"
+
+            if auto_tag:
+                self.output.insert(tk.END, text, auto_tag)
+            else:
+                self.output.insert(tk.END, text)
+
         self.output.see(tk.END)
 
     def _clear_output(self) -> None:
         self.output.delete("1.0", tk.END)
+        self._append_output("Output cleared.\n\n", tag="muted")
+
+    def _set_running_ui(self, running: bool) -> None:
+        self._installer_running = running
+        state = tk.DISABLED if running else tk.NORMAL
+        self.install_button.configure(state=state)
+        self.doctor_button.configure(state=state)
+
+        if running:
+            self._cancel_feature_status_rotation()
+            self._feature_status_index = 0
+            self._update_running_feature_status()
+            self.output_state.configure(text="running", fg=self.ACCENT_2)
+            self.progress.start(12)
+        else:
+            self._cancel_feature_status_rotation()
+            self.progress.stop()
+            if self.last_exit_code == 0:
+                self.status_text.set("Finished successfully")
+                self.output_state.configure(text="success", fg=self.SUCCESS)
+            elif self.last_exit_code is None:
+                self.status_text.set("Ready")
+                self.output_state.configure(text="idle", fg=self.MUTED)
+            else:
+                self.status_text.set(f"Finished with exit code {self.last_exit_code}")
+                self.output_state.configure(text="attention", fg=self.WARNING)
+
+    def _update_running_feature_status(self) -> None:
+        if not self._installer_running:
+            return
+        message = self._feature_status_messages[self._feature_status_index % len(self._feature_status_messages)]
+        self.status_text.set(f"Installer running... {message}")
+        self._feature_status_index += 1
+        self._feature_status_after_id = self.after(4500, self._update_running_feature_status)
+
+    def _cancel_feature_status_rotation(self) -> None:
+        if self._feature_status_after_id is None:
+            return
+        try:
+            self.after_cancel(self._feature_status_after_id)
+        except tk.TclError:
+            pass
+        self._feature_status_after_id = None
+
+    def _format_command(self, command: list[str]) -> str:
+        return " ".join(f'"{item}"' if " " in item else item for item in command)
+
+    def _refresh_command_preview(self) -> None:
+        try:
+            command = self._installer_base_command()
+            selected = []
+            if self.install_main.get():
+                selected.append("--main")
+            if self.install_musetalk.get():
+                selected.append("--musetalk")
+            if self.install_pockettts.get():
+                selected.append("--pockettts")
+            command.extend(selected or ["<choose at least one target>"])
+            self.command_preview.set(self._format_command(command))
+        except Exception as exc:
+            self.command_preview.set(f"Could not build preview: {exc}")
+
+    # ---------------------------------------------------------------------
+    # Original installer behavior
+    # ---------------------------------------------------------------------
 
     def _auto_detect_python(self) -> None:
         candidates = find_python311_executables()
         if candidates:
             self.python_path.set(candidates[0])
-            self.python_status.configure(text=f"Detected Python 3.11: {candidates[0]}")
+            self.python_status_text.set(f"Detected Python 3.11:\n{candidates[0]}")
+            self.status_text.set("Python 3.11 detected")
         else:
             self.python_path.set("")
-            self.python_status.configure(text="No Python 3.11 executable detected. The installer will still try the Windows py launcher.")
+            self.python_status_text.set(
+                "No Python 3.11 executable detected. The installer will still try the Windows py launcher."
+            )
+            self.status_text.set("Python 3.11 not detected automatically")
+        self._refresh_command_preview()
 
     def _browse_python(self) -> None:
         selected = filedialog.askopenfilename(
@@ -114,9 +850,14 @@ class NeuralCompanionInstallerGui(tk.Tk):
         version = get_python_minor_version([selected])
         self.python_path.set(selected)
         if version == "3.11":
-            self.python_status.configure(text=f"Selected Python 3.11: {selected}")
+            self.python_status_text.set(f"Selected Python 3.11:\n{selected}")
+            self.status_text.set("Python 3.11 selected")
         else:
-            self.python_status.configure(text=f"Selected file reports Python {version or 'unknown'}; install will stop unless this is Python 3.11.")
+            self.python_status_text.set(
+                f"Selected file reports Python {version or 'unknown'}; install will stop unless this is Python 3.11."
+            )
+            self.status_text.set("Selected Python version may be incompatible")
+        self._refresh_command_preview()
 
     def _installer_base_command(self) -> list[str]:
         command = [sys.executable, str(REPO_ROOT / "install_neural_companion.py")]
@@ -150,12 +891,14 @@ class NeuralCompanionInstallerGui(tk.Tk):
         if self.process is not None:
             messagebox.showinfo("Installer running", "An installer process is already running.")
             return
-        self.install_button.configure(state=tk.DISABLED)
-        self.doctor_button.configure(state=tk.DISABLED)
+
+        self._set_running_ui(True)
         self.current_command = list(command)
         self.current_output = []
         self.last_exit_code = None
-        self._append_output("\n> " + " ".join(f'"{item}"' if " " in item else item for item in command) + "\n\n")
+
+        self._append_output("\n> " + self._format_command(command) + "\n\n", tag="command")
+
         thread = threading.Thread(target=self._run_command_thread, args=(command,), daemon=True)
         thread.start()
 
@@ -185,12 +928,15 @@ class NeuralCompanionInstallerGui(tk.Tk):
             while True:
                 item = self.output_queue.get_nowait()
                 if item is None:
-                    self.install_button.configure(state=tk.NORMAL)
-                    self.doctor_button.configure(state=tk.NORMAL)
+                    self._stop_music_silent()
+                    self._set_running_ui(False)
                     self._handle_command_finished()
                 elif isinstance(item, tuple) and item[0] == "done":
                     self.last_exit_code = item[1]
-                    self._append_output(f"\nInstaller exited with code {item[1]}.\n")
+                    if item[1] == 0:
+                        self._append_output(f"\nInstaller exited with code {item[1]}.\n", tag="success")
+                    else:
+                        self._append_output(f"\nInstaller exited with code {item[1]}.\n", tag="warning")
                 else:
                     self._append_output(item)
                     self.current_output.append(item)
@@ -213,7 +959,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
             "Choose No to skip this for now.",
         )
         if not should_login:
-            self._append_output("\nPocketTTS Hugging Face login skipped for now.\n")
+            self._append_output("\nPocketTTS Hugging Face login skipped for now.\n", tag="warning")
             return
         self._launch_pockettts_hf_login()
 
@@ -226,7 +972,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
                 "Do you want the installer to add the Hugging Face CLI to the isolated PocketTTS runtime now?",
             )
             if not should_install_cli:
-                self._append_output("\nPocketTTS Hugging Face CLI install skipped.\n")
+                self._append_output("\nPocketTTS Hugging Face CLI install skipped.\n", tag="warning")
                 return
             if not self._install_pockettts_hf_cli():
                 return
@@ -240,7 +986,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         if sys.platform.startswith("win"):
             command = ["cmd.exe", "/k", "call", str(hf_exe), "auth", "login"]
             subprocess.Popen(command, cwd=str(REPO_ROOT), creationflags=subprocess.CREATE_NEW_CONSOLE)
-            self._append_output(f"\nOpened Hugging Face login window: {hf_exe} auth login\n")
+            self._append_output(f"\nOpened Hugging Face login window: {hf_exe} auth login\n", tag="command")
             messagebox.showinfo(
                 "PocketTTS Login",
                 "Complete the Hugging Face login in the terminal window.\n\n"
@@ -265,8 +1011,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
             return False
 
         command = [str(python_exe), "-m", "pip", "install", "--upgrade", "huggingface_hub[cli]"]
-        self._append_output("\nInstalling Hugging Face CLI into PocketTTS runtime...\n")
-        self._append_output("> " + " ".join(f'"{item}"' if " " in item else item for item in command) + "\n\n")
+        self._append_output("\nInstalling Hugging Face CLI into PocketTTS runtime...\n", tag="command")
+        self._append_output("> " + self._format_command(command) + "\n\n", tag="command")
         try:
             result = subprocess.run(
                 command,
@@ -276,7 +1022,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
                 check=False,
             )
         except Exception as exc:
-            self._append_output(f"\nCould not install Hugging Face CLI: {exc}\n")
+            self._append_output(f"\nCould not install Hugging Face CLI: {exc}\n", tag="error")
             messagebox.showwarning("PocketTTS Login", f"Could not install Hugging Face CLI:\n{exc}")
             return False
 
@@ -323,23 +1069,23 @@ print(json.dumps(status))
                 check=False,
             )
         except Exception as exc:
-            self._append_output(f"\nCould not recheck Hugging Face login: {exc}\n")
+            self._append_output(f"\nCould not recheck Hugging Face login: {exc}\n", tag="error")
             return
 
         combined = ((result.stdout or "") + (result.stderr or "")).strip()
         if result.returncode == 0:
             try:
-                payload = __import__("json").loads((result.stdout or "").strip())
+                payload = json.loads((result.stdout or "").strip())
             except Exception:
                 payload = {}
             if payload.get("whoami_ok"):
                 identity = payload.get("identity") or "signed-in user"
-                self._append_output(f"\nPocketTTS Hugging Face login verified: {identity}\n")
+                self._append_output(f"\nPocketTTS Hugging Face login verified: {identity}\n", tag="success")
                 messagebox.showinfo("PocketTTS Login", "Hugging Face login verified for PocketTTS.")
                 return
             if payload.get("has_token"):
                 detail = payload.get("identity") or "token present, but account verification failed"
-                self._append_output(f"\nPocketTTS Hugging Face token detected: {detail}\n")
+                self._append_output(f"\nPocketTTS Hugging Face token detected: {detail}\n", tag="warning")
                 messagebox.showinfo(
                     "PocketTTS Login",
                     "A Hugging Face token was found. PocketTTS is installed, but gated model terms "
@@ -347,7 +1093,7 @@ print(json.dumps(status))
                 )
                 return
 
-            self._append_output("\nPocketTTS Hugging Face login is still not verified: no token found.\n")
+            self._append_output("\nPocketTTS Hugging Face login is still not verified: no token found.\n", tag="warning")
             if combined:
                 self._append_output(combined + "\n")
             messagebox.showwarning(
@@ -356,7 +1102,7 @@ print(json.dumps(status))
                 "but voice cloning may not work until login and model terms are complete.",
             )
         else:
-            self._append_output("\nPocketTTS Hugging Face login is still not verified.\n")
+            self._append_output("\nPocketTTS Hugging Face login is still not verified.\n", tag="warning")
             if combined:
                 self._append_output(combined + "\n")
             messagebox.showwarning(
