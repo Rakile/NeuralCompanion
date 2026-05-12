@@ -71,11 +71,11 @@ PocketTTS voice cloning still needs two manual steps:
 2. Log in locally before first use:
 
 ```powershell
-uvx hf auth login
+.\.venvs\pockettts\Scripts\hf.exe auth login
 ```
 
 Without that login, PocketTTS can still use its built-in catalog voices, but cloning from your own reference voice will fail.
-The unified installer now also checks whether a Hugging Face login is present and reports cloning readiness explicitly.
+The graphical installer can also open this login command after the PocketTTS install step and can offer to install the Hugging Face CLI into the isolated PocketTTS runtime if `hf.exe` is missing.
 
 6. Optional: if you skipped MuseTalk during the unified install, you can still add it later with:
 
