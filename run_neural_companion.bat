@@ -4,7 +4,7 @@ cd /d "%~dp0"
 call :maybe_update_from_git
 if not exist ".venv\Scripts\python.exe" (
   echo Virtual environment not found.
-  echo Run install_neural_companion_gui.bat first.
+  echo Run INSTALL_NEURAL_COMPANION.bat first.
   pause
   exit /b 1
 )

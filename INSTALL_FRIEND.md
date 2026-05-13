@@ -9,7 +9,7 @@ Neural Companion currently expects **Python 3.11**.
 3. Run the graphical installer:
 
 ```text
-install_neural_companion_gui.bat
+INSTALL_NEURAL_COMPANION.bat
 ```
 
 Or run the command-line installer:

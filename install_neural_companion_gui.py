@@ -197,7 +197,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         screen_h = self.winfo_screenheight()
 
         preferred_w = 1320
-        preferred_h = 920
+        preferred_h = 1110
         margin_w = 70
         margin_h = 90
 
@@ -482,17 +482,12 @@ class NeuralCompanionInstallerGui(tk.Tk):
             description="Isolated voice runtime. May require Hugging Face login.",
             variable=self.install_pockettts,
         )
-        self._runtime_tile(
+        self._avatar_pack_tile(
             card,
-            title="Echo avatar pack",
-            description="Default feminine MuseTalk avatar pack.",
-            variable=self.install_avatar_echo,
-        )
-        self._runtime_tile(
-            card,
-            title="Eon avatar pack",
-            description="Default masculine MuseTalk avatar pack.",
-            variable=self.install_avatar_eon,
+            (
+                ("Echo avatar pack", "Default feminine MuseTalk avatar pack.", self.install_avatar_echo),
+                ("Eon avatar pack", "Default masculine MuseTalk avatar pack.", self.install_avatar_eon),
+            ),
         )
 
         skip = ttk.Checkbutton(
@@ -521,6 +516,23 @@ class NeuralCompanionInstallerGui(tk.Tk):
         cb.pack(anchor=tk.W)
 
         ttk.Label(tile, text=description, style="SoftText.TLabel", wraplength=275).pack(anchor=tk.W, pady=(2, 0))
+
+    def _avatar_pack_tile(self, parent: ttk.Frame, packs: tuple[tuple[str, str, tk.BooleanVar], ...]) -> None:
+        tile = ttk.Frame(parent, style="SoftCard.TFrame", padding=8)
+        tile.pack(fill=tk.X, pady=(0, 6))
+
+        ttk.Label(tile, text="Default avatar packs", style="SoftTitle.TLabel").pack(anchor=tk.W)
+        for title, description, variable in packs:
+            row = ttk.Frame(tile, style="SoftCard.TFrame")
+            row.pack(fill=tk.X, pady=(5, 0))
+            ttk.Checkbutton(
+                row,
+                text=title,
+                variable=variable,
+                style="NC.TCheckbutton",
+                command=self._refresh_command_preview,
+            ).pack(anchor=tk.W)
+            ttk.Label(row, text=description, style="SoftText.TLabel", wraplength=275).pack(anchor=tk.W, pady=(1, 0))
 
     def _build_actions_card(self, parent: ttk.Frame) -> None:
         card = self._card(parent)

@@ -63,7 +63,7 @@ Graphical installer:
 Double-click:
 
 ```text
-install_neural_companion_gui.bat
+INSTALL_NEURAL_COMPANION.bat
 ```
 
 or run:
