@@ -57,7 +57,7 @@
        <item>
         <widget class="QLabel" name="rag_context_hint_label">
          <property name="text">
-          <string>Build a local retrieval index from selected text files and optionally inject matching chunks into chat requests.</string>
+          <string>Build a local retrieval index from selected text and PDF files and optionally inject matching chunks into chat requests.</string>
          </property>
          <property name="wordWrap">
           <bool>true</bool>
@@ -74,7 +74,7 @@
        <item>
         <widget class="QGroupBox" name="rag_context_files_group">
          <property name="title">
-          <string>Text Files</string>
+          <string>Source Files</string>
          </property>
          <layout class="QVBoxLayout" name="rag_context_files_layout">
           <property name="spacing">
@@ -95,7 +95,7 @@
             <item>
              <widget class="QPushButton" name="rag_context_add_files_button">
               <property name="text">
-               <string>Add Text Files</string>
+               <string>Add Files</string>
               </property>
              </widget>
             </item>

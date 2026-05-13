@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 
-ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".log"}
+ALLOWED_EXTENSIONS = {".txt", ".md", ".markdown", ".json", ".log", ".pdf"}
 SETTINGS_FILE = "settings.json"
 INDEX_FILE = "index.json"
 
@@ -191,7 +191,7 @@ def build_context(results: list[SearchResult], *, max_chars: int) -> str:
     if not results:
         return ""
     parts = [
-        "Relevant retrieval context from the user's selected local RAG text index.",
+        "Relevant retrieval context from the user's selected local RAG source index.",
         "Use this context when it helps answer the user's latest message. Do not invent details that are not present here.",
     ]
     used = len("\n\n".join(parts))
@@ -209,10 +209,39 @@ def _read_text_file(path: Path) -> str:
     if path.suffix.lower() == ".json":
         payload = json.loads(path.read_text(encoding="utf-8-sig"))
         return json.dumps(payload, indent=2, ensure_ascii=True)
+    if path.suffix.lower() == ".pdf":
+        return _read_pdf_file(path)
     try:
         return path.read_text(encoding="utf-8-sig")
     except UnicodeDecodeError:
         return path.read_text(encoding="cp1252", errors="replace")
+
+
+def _read_pdf_file(path: Path) -> str:
+    try:
+        from pypdf import PdfReader
+    except Exception as exc:
+        raise RuntimeError("PDF support requires the pypdf package. Re-run the installer or install pypdf.") from exc
+
+    reader = PdfReader(str(path))
+    if getattr(reader, "is_encrypted", False):
+        try:
+            reader.decrypt("")
+        except Exception as exc:
+            raise RuntimeError("PDF is encrypted and could not be opened.") from exc
+
+    page_blocks = []
+    for index, page in enumerate(reader.pages):
+        try:
+            text = page.extract_text() or ""
+        except Exception:
+            text = ""
+        text = str(text or "").strip()
+        if text:
+            page_blocks.append(f"[Page {index + 1}]\n{text}")
+    if not page_blocks:
+        raise RuntimeError("PDF contains no extractable text. Scanned/OCR-only PDFs are not supported yet.")
+    return "\n\n".join(page_blocks)
 
 
 def _chunk_text(text: str, *, target_chars: int = 1400, overlap_chars: int = 160) -> list[str]:

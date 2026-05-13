@@ -1,4 +1,5 @@
 chatterbox-tts
 gradio
 nltk
+pypdf
 pynput

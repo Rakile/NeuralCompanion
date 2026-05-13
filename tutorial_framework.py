@@ -1,10 +1,20 @@
 import json
+import os
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
 
 TUTORIALS_DIR = Path(__file__).resolve().parent / "tutorials"
+
+
+def tutorial_debug_enabled(tutorial=None):
+    raw = os.environ.get("NC_TUTORIAL_DEBUG", "")
+    if raw:
+        return raw.strip().lower() in {"1", "true", "yes", "on", "debug"}
+    if isinstance(tutorial, dict):
+        return bool(tutorial.get("debug", False))
+    return False
 
 
 class TutorialEventBus(QtCore.QObject):
@@ -79,6 +89,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         super().__init__(parent or main_window)
         self.main_window = main_window
         self.tutorial = dict(tutorial or {})
+        self.debug_enabled = tutorial_debug_enabled(self.tutorial)
         self.steps = list(self.tutorial.get("steps") or [])
         self.step_lookup = {}
         for idx, raw_step in enumerate(self.steps):
@@ -174,6 +185,8 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.hide()
 
     def _debug(self, message):
+        if not self.debug_enabled:
+            return
         tutorial_id = str(self.tutorial.get("id") or self.tutorial.get("title") or "tutorial")
         print(f"[TutorialDebug:{tutorial_id}] {message}", flush=True)
 
@@ -722,6 +735,7 @@ class TutorialOverlay(QtWidgets.QWidget):
                 pass
         self._disconnect_current_target_signals()
         self.current_button_click_count = 0
+        self.current_step_complete = False
         self._debug(
             f"show_step start: index={index} title={step.get('title')!r} target={step.get('target')!r} "
             f"tab={step.get('tab')!r} right_tab={step.get('right_tab')!r} actions={len(list(step.get('actions') or []))}"

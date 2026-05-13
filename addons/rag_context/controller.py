@@ -128,9 +128,9 @@ class RagContextController:
     def _add_files(self):
         paths, _selected_filter = QtWidgets.QFileDialog.getOpenFileNames(
             self.widget,
-            "Select RAG text files",
+            "Select RAG source files",
             "",
-            "Text files (*.txt *.md *.markdown *.json *.log);;All files (*)",
+            "RAG source files (*.txt *.md *.markdown *.json *.log *.pdf);;Text files (*.txt *.md *.markdown *.json *.log);;PDF files (*.pdf);;All files (*)",
         )
         if not paths:
             return

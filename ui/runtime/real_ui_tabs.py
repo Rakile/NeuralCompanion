@@ -161,6 +161,7 @@ class MainUiRealTabAdoptionMixin:
                         target_tabs.setTabIcon(new_index, icon)
                 except Exception:
                     pass
+                self._apply_adopted_icon_sidebar_tab_label(target_tabs, new_index, title)
                 binder = getattr(self, "_bind_adopted_addon_tab_session_save", None)
                 if callable(binder):
                     binder(widget)
@@ -170,6 +171,36 @@ class MainUiRealTabAdoptionMixin:
             except Exception:
                 pass
             return adopted
+
+    def _apply_adopted_icon_sidebar_tab_label(self, target_tabs, index, title):
+            try:
+                object_name = str(target_tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            if object_name not in {"left_tabs", "host_settings_tabs"}:
+                return
+            try:
+                icon = target_tabs.tabIcon(int(index))
+            except Exception:
+                icon = None
+            if icon is None or icon.isNull():
+                return
+            label = str(title or "").strip()
+            try:
+                if label and not str(target_tabs.tabToolTip(int(index)) or "").strip():
+                    target_tabs.setTabToolTip(int(index), label)
+            except Exception:
+                pass
+            try:
+                tab_bar = target_tabs.tabBar()
+                if tab_bar is not None and label:
+                    tab_bar.setTabData(int(index), label)
+            except Exception:
+                pass
+            try:
+                target_tabs.setTabText(int(index), "")
+            except Exception:
+                pass
 
     def _take_matching_tabs(self, source_tabs, target_tabs, titles):
             if source_tabs is None or target_tabs is None or not titles:
