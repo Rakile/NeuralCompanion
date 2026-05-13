@@ -10,6 +10,17 @@ from PySide6 import QtWidgets
 from ui.widgets.basic import ContextTokenStepper, NoWheelComboBox
 
 
+MUSETALK_LOOP_FADE_TOOLTIP = (
+    "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; "
+    "higher values smooth changes but can delay visible updates."
+)
+MUSETALK_FRAME_CACHE_TOOLTIP = (
+    "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames."
+)
+MUSETALK_AVATAR_PACK_TOOLTIP = "Prepared MuseTalk avatar pack and variant used for rendering visual speech."
+MUSETALK_AVATAR_PACK_REFRESH_TOOLTIP = "Rescan installed MuseTalk avatar packs under avatar_packs/."
+
+
 def _combo(object_name, labels=(), current_label=""):
     combo = NoWheelComboBox()
     combo.setObjectName(str(object_name or ""))
@@ -60,7 +71,9 @@ def ensure_musetalk_legacy_placeholders(backend, runtime_config=None):
     vram_label = {
         "quality": "Quality",
         "balanced": "Balanced",
+        "low": "Low VRAM",
         "low_vram": "Low VRAM",
+        "very_low": "Very Low VRAM",
         "very_low_vram": "Very Low VRAM",
     }.get(vram_value, "Quality")
     if not hasattr(backend, "musetalk_vram_combo"):
@@ -76,20 +89,24 @@ def ensure_musetalk_legacy_placeholders(backend, runtime_config=None):
             0,
             1000,
         )
+        backend.musetalk_loop_fade_spin.setToolTip(MUSETALK_LOOP_FADE_TOOLTIP)
     if not hasattr(backend, "musetalk_use_frame_cache_checkbox"):
         backend.musetalk_use_frame_cache_checkbox = _checkbox(
             "musetalk_use_frame_cache_checkbox",
             "Use .npy startup cache",
             runtime.get("musetalk_use_frame_cache", True),
         )
+        backend.musetalk_use_frame_cache_checkbox.setToolTip(MUSETALK_FRAME_CACHE_TOOLTIP)
     if not hasattr(backend, "musetalk_avatar_pack_combo"):
         backend.musetalk_avatar_pack_combo = _combo(
             "musetalk_avatar_pack_combo",
             ["MuseTalk addon disabled"],
             "MuseTalk addon disabled",
         )
+        backend.musetalk_avatar_pack_combo.setToolTip(MUSETALK_AVATAR_PACK_TOOLTIP)
     if not hasattr(backend, "btn_musetalk_avatar_pack_refresh"):
         backend.btn_musetalk_avatar_pack_refresh = _button("btn_musetalk_avatar_pack_refresh", "Refresh")
+        backend.btn_musetalk_avatar_pack_refresh.setToolTip(MUSETALK_AVATAR_PACK_REFRESH_TOOLTIP)
     if not hasattr(backend, "musetalk_avatar_pack_row_widget"):
         row = QtWidgets.QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)

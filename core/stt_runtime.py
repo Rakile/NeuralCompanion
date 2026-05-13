@@ -22,9 +22,7 @@ def whisper_runtime_reason(runtime_config, *, cuda_available: bool, vram_mode: s
     vram_mode = str(vram_mode or "quality").strip().lower()
     if not cuda_available:
         return "CUDA unavailable"
-    if vram_mode in {"low", "very_low"}:
-        return f"{vram_mode} VRAM mode prefers CPU"
-    return f"{vram_mode} VRAM mode prefers CUDA"
+    return "main STT Whisper uses CUDA when available"
 
 
 def initialize_whisper_model(

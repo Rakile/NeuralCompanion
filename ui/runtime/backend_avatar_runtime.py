@@ -19,6 +19,12 @@ def _update_runtime_config(key, value):
 class BackendAvatarRuntimeMixin:
     """Avatar provider selection and avatar-editing runtime controls."""
 
+    _MUSETALK_VRAM_TOOLTIP = (
+        "MuseTalk-only memory profile. Quality uses larger render batches and keeps MuseTalk's Whisper encoder on GPU; "
+        "Balanced lowers batch size and enables VAE slicing; Low and Very Low use smaller batches and move MuseTalk's "
+        "internal Whisper encoder to CPU. Main STT Whisper still uses GPU when available."
+    )
+
     def _avatar_provider_options(self):
         providers = []
         for provider in avatar_runtime.list_providers():
@@ -60,6 +66,30 @@ class BackendAvatarRuntimeMixin:
         if data:
             return str(data).strip().lower()
         return self._avatar_mode_value_from_label(combo.currentText())
+
+    def _refresh_musetalk_runtime_visibility(self):
+        visible = self._current_avatar_mode_value() == "musetalk"
+        for name in (
+            "musetalk_vram_label",
+            "musetalk_vram_combo",
+            "musetalk_loop_fade_label",
+            "musetalk_loop_fade_spin",
+            "musetalk_frame_cache_label",
+            "musetalk_use_frame_cache_checkbox",
+            "musetalk_avatar_label",
+            "musetalk_avatar_pack_row_widget",
+            "musetalk_vram_hint",
+        ):
+            widget = getattr(self, name, None)
+            if widget is not None and hasattr(widget, "setVisible"):
+                widget.setVisible(visible)
+        for name in ("musetalk_vram_label", "musetalk_vram_combo", "musetalk_vram_hint"):
+            widget = getattr(self, name, None)
+            if widget is not None and hasattr(widget, "setToolTip"):
+                widget.setToolTip(self._MUSETALK_VRAM_TOOLTIP)
+
+    def _refresh_musetalk_vram_visibility(self):
+        self._refresh_musetalk_runtime_visibility()
 
     def _apply_avatar_provider_ui_selection(self, selected_provider_id):
         selected = str(selected_provider_id or "").strip().lower()
@@ -111,11 +141,13 @@ class BackendAvatarRuntimeMixin:
                     _update_runtime_config("avatar_mode", provider_id)
         finally:
             combo.blockSignals(False)
+            self._refresh_musetalk_runtime_visibility()
 
     def on_engine_change(self, choice):
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
         self._apply_avatar_provider_ui_selection(mode)
+        self._refresh_musetalk_runtime_visibility()
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "avatar_mode", "value": choice})
         self.update_model_budget_hint()

@@ -5,14 +5,15 @@ from pathlib import Path
 from core.addons.qt_host_services import QtRuntimeConfigService
 
 from addons.musetalk_avatar import state as musetalk_state
+from addons.musetalk_avatar.text_policy import normalize_vram_mode
 
 
 class QtMuseTalkUIService:
     _VRAM_LABELS = {
         "quality": "Quality",
         "balanced": "Balanced",
-        "low_vram": "Low VRAM",
-        "very_low_vram": "Very Low VRAM",
+        "low": "Low VRAM",
+        "very_low": "Very Low VRAM",
     }
 
     def __init__(self, window):
@@ -72,9 +73,12 @@ class QtMuseTalkUIService:
     def export_avatar_runtime_settings(self):
         runtime = self._runtime_config.snapshot()
         default_fade = int(self._runtime_config.engine_attr("QT_MUSETALK_LOOP_FADE_MS", 150) or 150)
+        fallback_vram_label = self._VRAM_LABELS.get(normalize_vram_mode(runtime.get("musetalk_vram_mode", "quality")), "Quality")
         return {
             "musetalk_avatar_pack_id": self._combo_data("musetalk_avatar_pack_combo", runtime.get("musetalk_avatar_pack_id", "")),
-            "musetalk_vram_mode": self._vram_key_from_label(self._combo_text("musetalk_vram_combo", self._VRAM_LABELS.get(str(runtime.get("musetalk_vram_mode", "quality") or "quality"), "Quality"))),
+            "musetalk_vram_mode": normalize_vram_mode(
+                self._vram_key_from_label(self._combo_text("musetalk_vram_combo", fallback_vram_label))
+            ),
             "musetalk_loop_fade_ms": self._spin_value("musetalk_loop_fade_spin", int(runtime.get("musetalk_loop_fade_ms", default_fade) or default_fade)),
             "musetalk_use_frame_cache": self._checked("musetalk_use_frame_cache_checkbox", bool(runtime.get("musetalk_use_frame_cache", True))),
         }
@@ -156,7 +160,7 @@ class QtMuseTalkUIService:
             self._runtime_config.update("musetalk_avatar_pack_id", pack_id)
             self._select_avatar_pack_quietly(pack_id)
         if "musetalk_vram_mode" in data:
-            mode = str(data.get("musetalk_vram_mode") or "quality").strip().lower()
+            mode = normalize_vram_mode(data.get("musetalk_vram_mode"))
             if mode not in self._VRAM_LABELS:
                 mode = "quality"
             self._runtime_config.update("musetalk_vram_mode", mode)

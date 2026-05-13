@@ -10,6 +10,21 @@ from ui.widgets.basic import NoWheelComboBox, NoWheelDoubleSpinBox, NoWheelSpinB
 DEFAULT_MAX_RESPONSE_TOKENS = 600
 
 
+GENERATION_FIELD_TOOLTIPS = {
+    "temperature": "Sampling randomness. Lower values are steadier; higher values are more varied.",
+    "top_p": "Nucleus sampling limit. Lower values narrow the token pool; 1.0 leaves it mostly unrestricted.",
+    "top_k": "Limits sampling to the top K candidate tokens when the provider supports it. Use 0 only when the provider treats 0 as disabled.",
+    "repeat_penalty": "Penalty for repeated text. Higher values reduce repetition but can make phrasing less natural.",
+    "repetition_penalty": "Penalty for repeated text. Higher values reduce repetition but can make phrasing less natural.",
+    "min_p": "Minimum probability filter for token sampling. Higher values can make replies more focused.",
+    "max_tokens": "Maximum tokens the model may generate. Use -1 only for providers that support no explicit cap.",
+    "max_completion_tokens": "Maximum tokens the model may generate.",
+    "reasoning": "Enable model-side thinking when the selected model and provider expose a reasoning toggle.",
+    "enable_thinking": "Enable model-side thinking when the selected model and provider expose a thinking mode.",
+    "reasoning_effort": "Optional reasoning effort level for providers that expose one.",
+}
+
+
 def _runtime_config():
     from ui.runtime import engine_access as engine
 
@@ -26,6 +41,14 @@ def _get_chat_models(provider=None, quiet=True):
     from ui.runtime.engine_access import get_chat_models
 
     return get_chat_models(provider=provider, quiet=quiet)
+
+
+def _generation_field_tooltip(field_id, field):
+    explicit = str((field or {}).get("description") or "").strip()
+    if explicit:
+        return explicit
+    return GENERATION_FIELD_TOOLTIPS.get(str(field_id or "").strip().lower(), "")
+
 
 class BackendChatProviderFieldsMixin:
     def _current_chat_provider_settings_map(self):
@@ -267,7 +290,7 @@ class BackendChatProviderFieldsMixin:
                     editor.setPlaceholderText(str(placeholder))
                 editor.editingFinished.connect(lambda fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
 
-            tooltip = str(field.get("description") or "").strip()
+            tooltip = _generation_field_tooltip(field_id, field)
             if tooltip:
                 editor.setToolTip(tooltip)
             if kind != "note":

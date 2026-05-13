@@ -12,6 +12,7 @@ from pydub import AudioSegment
 
 from addons.musetalk_avatar import pack_runtime, preview_runtime, state as musetalk_state
 from addons.musetalk_avatar.avatar_packs import discover_avatar_packs, get_avatar_pack
+from addons.musetalk_avatar.text_policy import normalize_vram_mode
 from core import avatar_runtime, runtime_files, streaming_text
 from core import expression_state
 from musetalk_bridge import MuseTalkBridge
@@ -147,7 +148,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         else:
             _hydrate_engine_symbols()
         self.root_dir = root_dir
-        self.vram_mode = str(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality") or "quality").lower()
+        self.vram_mode = normalize_vram_mode(RUNTIME_CONFIG.get("musetalk_vram_mode", "quality"))
         self.bridge = MuseTalkBridge(root_dir=self.root_dir, worker_options={"vram_mode": self.vram_mode})
         self.current_emotion = "neutral"
         self.is_speaking = False

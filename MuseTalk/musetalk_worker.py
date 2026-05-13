@@ -59,7 +59,15 @@ def normalize_mask_overrides(mask_overrides):
 
 
 def resolve_vram_profile(mode):
-    mode = str(mode or "quality").strip().lower()
+    aliases = {
+        "quality": "quality",
+        "balanced": "balanced",
+        "low": "low",
+        "low_vram": "low",
+        "very_low": "very_low",
+        "very_low_vram": "very_low",
+    }
+    mode = aliases.get(str(mode or "quality").strip().lower(), "quality")
     profiles = {
         "quality": {
             "batch_size": 20,

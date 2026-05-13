@@ -27,6 +27,25 @@ def _default_chat_provider_id():
     return chat_providers.DEFAULT_PROVIDER_ID
 
 
+SYSTEM_SHAPING_TOOLTIPS = {
+    "engine_combo": "Avatar output provider. Use None for voice/chat only, or choose MuseTalk/VSeeFace/VaM when that addon/runtime is configured.",
+    "input_mode_combo": "How user turns enter the session. Voice Activation listens after startup; Push-to-Talk only listens while the hotkey/button is held.",
+    "input_role_combo": "Chat role used for live input. User Message is normal; System/Assistant are advanced prompt-routing modes.",
+    "stream_mode_combo": "When On, NC streams the model reply and starts chunked TTS sooner. When Off, NC waits for the full reply first.",
+    "musetalk_loop_fade_spin": "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; higher values smooth changes but can delay visible updates.",
+    "musetalk_use_frame_cache_checkbox": "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames.",
+    "musetalk_avatar_pack_combo": "Prepared MuseTalk avatar pack and variant used for rendering visual speech.",
+    "btn_musetalk_avatar_pack_refresh": "Rescan installed MuseTalk avatar packs under avatar_packs/.",
+    "preset_combo": "Saved companion preset. Presets store persona/runtime choices such as model, voice, avatar, and generation settings.",
+    "btn_preset_refresh": "Reload the preset list from disk.",
+}
+
+
+def _set_tooltip(widget, text):
+    if widget is not None and hasattr(widget, "setToolTip"):
+        widget.setToolTip(str(text or "").strip())
+
+
 class BackendSystemShapingPanelMixin:
     """Build the backend System Shaping and Workspace panels."""
 
@@ -86,12 +105,20 @@ class BackendSystemShapingBuilderMixin:
         form.addRow("Input Mode", self.input_mode_combo)
         form.addRow("Input Role", self.input_role_combo)
         form.addRow("Stream Mode", self.stream_mode_combo)
-        form.addRow("MuseTalk VRAM", self.musetalk_vram_combo)
-        form.addRow("Loop Fade (ms)", self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
-        form.addRow("Frame Cache", self.musetalk_use_frame_cache_checkbox)
-        form.addRow("MuseTalk Avatar", self.musetalk_avatar_pack_row_widget)
+        self.musetalk_vram_label = QtWidgets.QLabel("MuseTalk VRAM")
+        form.addRow(self.musetalk_vram_label, self.musetalk_vram_combo)
+        self.musetalk_loop_fade_label = QtWidgets.QLabel("Loop Fade (ms)")
+        _set_tooltip(self.musetalk_loop_fade_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_loop_fade_spin"])
+        form.addRow(self.musetalk_loop_fade_label, self._wrap_compact_form_field(self.musetalk_loop_fade_spin))
+        self.musetalk_frame_cache_label = QtWidgets.QLabel("Frame Cache")
+        _set_tooltip(self.musetalk_frame_cache_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_use_frame_cache_checkbox"])
+        form.addRow(self.musetalk_frame_cache_label, self.musetalk_use_frame_cache_checkbox)
+        self.musetalk_avatar_label = QtWidgets.QLabel("MuseTalk Avatar")
+        _set_tooltip(self.musetalk_avatar_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_avatar_pack_combo"])
+        form.addRow(self.musetalk_avatar_label, self.musetalk_avatar_pack_row_widget)
         form.addRow("Preset", self.preset_row_widget if hasattr(self, "preset_row_widget") else self.preset_combo)
         layout.addLayout(form)
+        self._refresh_musetalk_vram_visibility()
         layout.addWidget(self._build_chat_runtime_card())
         layout.addWidget(self._build_tts_runtime_card())
 
@@ -489,7 +516,11 @@ class BackendSystemShapingBuilderMixin:
 
         layout.addWidget(self._make_header("Experimental Qt Shell", "System Shaping"))
 
-        mic_row = QtWidgets.QHBoxLayout()
+        mic_row_widget = QtWidgets.QWidget()
+        mic_row_widget.setObjectName("micStatusRow")
+        mic_row = QtWidgets.QHBoxLayout(mic_row_widget)
+        mic_row.setContentsMargins(0, 0, 0, 0)
+        mic_row.setSpacing(8)
         self.listen_diode = QtWidgets.QFrame()
         self.listen_diode.setFixedSize(16, 16)
         self.listen_diode.setStyleSheet(self._status_diode_style(False, "#39d98a", "#92f0bf"))
@@ -520,26 +551,30 @@ class BackendSystemShapingBuilderMixin:
         mic_row.addWidget(QtWidgets.QLabel("Output"))
         mic_row.addWidget(self.audio_output_device_combo, 1)
         mic_row.addStretch(1)
-        layout.addLayout(mic_row)
+        self.mic_status_row_widget = mic_row_widget
 
         self.engine_combo = NoWheelComboBox()
         self.engine_combo.setObjectName("engine_combo")
+        _set_tooltip(self.engine_combo, SYSTEM_SHAPING_TOOLTIPS["engine_combo"])
         self.refresh_avatar_engine_options()
         self.engine_combo.currentTextChanged.connect(self.on_engine_change)
 
         self.input_mode_combo = NoWheelComboBox()
         self.input_mode_combo.setObjectName("input_mode_combo")
         self.input_mode_combo.addItems(["Voice Activation", "Push-to-Talk"])
+        _set_tooltip(self.input_mode_combo, SYSTEM_SHAPING_TOOLTIPS["input_mode_combo"])
         self.input_mode_combo.currentTextChanged.connect(self.on_input_mode_change)
 
         self.input_role_combo = NoWheelComboBox()
         self.input_role_combo.setObjectName("input_role_combo")
         self.input_role_combo.addItems(["User Message", "System Message", "Assistant Message"])
+        _set_tooltip(self.input_role_combo, SYSTEM_SHAPING_TOOLTIPS["input_role_combo"])
         self.input_role_combo.currentTextChanged.connect(self.on_input_role_change)
 
         self.stream_mode_combo = NoWheelComboBox()
         self.stream_mode_combo.setObjectName("stream_mode_combo")
         self.stream_mode_combo.addItems(["Off", "On"])
+        _set_tooltip(self.stream_mode_combo, SYSTEM_SHAPING_TOOLTIPS["stream_mode_combo"])
         self.stream_mode_combo.currentTextChanged.connect(self.on_stream_mode_change)
 
         self.tts_backend_combo = NoWheelComboBox()
@@ -663,9 +698,11 @@ class BackendSystemShapingBuilderMixin:
         self.preset_combo = NoWheelComboBox()
         self.preset_combo.setObjectName("preset_combo")
         self.preset_combo.addItem("Select Preset...")
+        _set_tooltip(self.preset_combo, SYSTEM_SHAPING_TOOLTIPS["preset_combo"])
         self.preset_combo.currentTextChanged.connect(self.on_preset_selection_changed)
         self.btn_preset_refresh = QtWidgets.QPushButton("Refresh")
         self.btn_preset_refresh.setObjectName("btn_preset_refresh")
+        _set_tooltip(self.btn_preset_refresh, SYSTEM_SHAPING_TOOLTIPS["btn_preset_refresh"])
         self.btn_preset_refresh.clicked.connect(self.refresh_preset_list)
         preset_row = QtWidgets.QHBoxLayout()
         preset_row.setContentsMargins(0, 0, 0, 0)

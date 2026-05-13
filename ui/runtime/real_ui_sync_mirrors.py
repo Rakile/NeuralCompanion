@@ -324,6 +324,7 @@ class RealUiSyncMirrorMixin:
                         frontend_widget.setText(str(backend_widget.text() or ""))
                     except Exception:
                         pass
+                self._copy_widget_tooltip(backend_widget, frontend_widget)
             self._mirror_chat_edit_state()
             self._mirror_dry_run_widgets()
             self._mirror_provider_model_widgets()

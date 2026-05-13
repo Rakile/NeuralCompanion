@@ -165,8 +165,11 @@ class MainUiRealLayoutMixin:
             scroll = self._ui("system_shaping_scroll", QtWidgets.QScrollArea)
             content = self._ui("system_shaping_content", QtWidgets.QWidget)
             mic_row = self._ui("micStatusRow", QtWidgets.QWidget)
+            operational_content = self._ui("operational_content", QtWidgets.QWidget)
+            right_tabs = self._ui("right_tabs", QtWidgets.QTabWidget)
             panel_layout = panel.layout()
             content_layout = content.layout() if content is not None and hasattr(content, "layout") else None
+            operational_layout = operational_content.layout() if operational_content is not None and hasattr(operational_content, "layout") else None
             if scroll is None or panel_layout is None or content_layout is None:
                 return False
 
@@ -184,7 +187,7 @@ class MainUiRealLayoutMixin:
                     continue
                 try:
                     content_layout.removeWidget(widget)
-                    widget.setParent(panel)
+                    widget.setParent(operational_content if widget is mic_row and operational_content is not None else panel)
                 except Exception:
                     pass
 
@@ -197,10 +200,11 @@ class MainUiRealLayoutMixin:
             try:
                 panel_layout.setContentsMargins(14, 14, 14, 14)
                 panel_layout.setSpacing(12)
-                if mic_row is not None:
-                    panel_layout.addWidget(mic_row, 0)
                 panel_layout.addWidget(tabs, 1)
-                panel_layout.setAlignment(mic_row, QtCore.Qt.AlignTop) if mic_row is not None else None
+                if mic_row is not None and operational_layout is not None:
+                    insert_index = operational_layout.indexOf(right_tabs) if right_tabs is not None else 1
+                    operational_layout.insertWidget(max(0, insert_index), mic_row, 0)
+                    operational_layout.setAlignment(mic_row, QtCore.Qt.AlignTop)
             except Exception:
                 pass
 
@@ -1046,7 +1050,7 @@ class MainUiRealLayoutMixin:
             try:
                 group_box.setProperty("nc_collapsible_base_title", title)
                 group_box.setProperty("nc_collapsible_summary", summary)
-                group_box.setToolTip(str(text or title or "").strip())
+                group_box.setToolTip("")
             except Exception:
                 pass
             self._update_frontend_collapsible_group_title(group_box)
@@ -1065,7 +1069,7 @@ class MainUiRealLayoutMixin:
                     group_box.setChecked(True)
                     group_box.setProperty("nc_collapsible_base_title", fallback_title)
                     group_box.setProperty("nc_collapsible_summary", "")
-                    group_box.setToolTip(f"Click to collapse or expand {fallback_title.lower()}.")
+                    group_box.setToolTip("")
                     group_box.toggled.connect(
                         lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked)
                     )

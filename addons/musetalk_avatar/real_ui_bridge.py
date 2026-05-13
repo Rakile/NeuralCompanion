@@ -5,13 +5,14 @@ except Exception:  # pragma: no cover - shell smoke may inspect without Qt avail
     QtWidgets = None
 
 from core.addons.qt_host_services import QtRuntimeConfigService
+from addons.musetalk_avatar.text_policy import normalize_vram_mode
 
 
 VRAM_MODE_LABELS = {
     "quality": "Quality",
     "balanced": "Balanced",
-    "low_vram": "Low VRAM",
-    "very_low_vram": "Very Low VRAM",
+    "low": "Low VRAM",
+    "very_low": "Very Low VRAM",
 }
 VRAM_MODE_OVERHEAD_GIB = {
     "Quality": 5.8,
@@ -19,6 +20,20 @@ VRAM_MODE_OVERHEAD_GIB = {
     "Low VRAM": 2.3,
     "Very Low VRAM": 1.5,
 }
+VRAM_MODE_TOOLTIP = (
+    "MuseTalk-only memory profile. Quality uses larger render batches and keeps MuseTalk's Whisper encoder on GPU; "
+    "Balanced lowers batch size and enables VAE slicing; Low and Very Low use smaller batches and move MuseTalk's "
+    "internal Whisper encoder to CPU. Main STT Whisper still uses GPU when available."
+)
+LOOP_FADE_TOOLTIP = (
+    "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; "
+    "higher values smooth changes but can delay visible updates."
+)
+FRAME_CACHE_TOOLTIP = (
+    "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames."
+)
+AVATAR_PACK_TOOLTIP = "Prepared MuseTalk avatar pack and variant used for rendering visual speech."
+AVATAR_PACK_REFRESH_TOOLTIP = "Rescan installed MuseTalk avatar packs under avatar_packs/."
 DEFAULT_LOOP_FADE_MS = 180
 PERFORMANCE_PROFILE_APPLY_KEYS = {
     "musetalk_vram_mode",
@@ -48,7 +63,7 @@ def vram_key_from_label(label):
 
 
 def vram_label_from_key(value):
-    return VRAM_MODE_LABELS.get(str(value or "").strip().lower(), "Quality")
+    return VRAM_MODE_LABELS.get(normalize_vram_mode(value), "Quality")
 
 
 def estimated_runtime_overhead_gib(backend):
@@ -239,7 +254,7 @@ def _engine_attr(backend, name: str, default=None):
 
 
 def apply_vram_mode_change(backend, choice):
-    mode = vram_key_from_label(choice)
+    mode = normalize_vram_mode(vram_key_from_label(choice))
     _update_runtime_config(backend, "musetalk_vram_mode", mode)
     if hasattr(backend, "_advisor_context_manual_override"):
         backend._advisor_context_manual_override = False
@@ -362,6 +377,7 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.musetalk_vram_combo = NoWheelComboBox()
     backend.musetalk_vram_combo.setObjectName("musetalk_vram_combo")
     backend.musetalk_vram_combo.addItems(list(VRAM_MODE_LABELS.values()))
+    backend.musetalk_vram_combo.setToolTip(VRAM_MODE_TOOLTIP)
     backend.musetalk_vram_combo.currentTextChanged.connect(backend.on_musetalk_vram_mode_change)
 
     backend.musetalk_loop_fade_spin = ContextTokenStepper()
@@ -374,20 +390,21 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.musetalk_loop_fade_spin.valueChanged.connect(backend.on_musetalk_loop_fade_changed)
     backend.musetalk_loop_fade_spin.setMinimumWidth(112)
     backend.musetalk_loop_fade_spin.setMaximumWidth(132)
+    backend.musetalk_loop_fade_spin.setToolTip(LOOP_FADE_TOOLTIP)
 
     backend.musetalk_use_frame_cache_checkbox = QtWidgets.QCheckBox("Use .npy startup cache")
     backend.musetalk_use_frame_cache_checkbox.setObjectName("musetalk_use_frame_cache_checkbox")
     backend.musetalk_use_frame_cache_checkbox.setChecked(bool(runtime.get("musetalk_use_frame_cache", True)))
-    backend.musetalk_use_frame_cache_checkbox.setToolTip(
-        "Use/create MuseTalk NumPy frame caches during chat initialization. Disable to save disk space and always load PNG frames instead."
-    )
+    backend.musetalk_use_frame_cache_checkbox.setToolTip(FRAME_CACHE_TOOLTIP)
     backend.musetalk_use_frame_cache_checkbox.toggled.connect(backend.on_musetalk_use_frame_cache_changed)
 
     backend.musetalk_avatar_pack_combo = NoWheelComboBox()
     backend.musetalk_avatar_pack_combo.setObjectName("musetalk_avatar_pack_combo")
+    backend.musetalk_avatar_pack_combo.setToolTip(AVATAR_PACK_TOOLTIP)
     backend.musetalk_avatar_pack_combo.currentTextChanged.connect(backend.on_musetalk_avatar_pack_change)
     backend.btn_musetalk_avatar_pack_refresh = QtWidgets.QPushButton("Refresh")
     backend.btn_musetalk_avatar_pack_refresh.setObjectName("btn_musetalk_avatar_pack_refresh")
+    backend.btn_musetalk_avatar_pack_refresh.setToolTip(AVATAR_PACK_REFRESH_TOOLTIP)
     backend.btn_musetalk_avatar_pack_refresh.clicked.connect(backend.refresh_musetalk_avatar_pack_list)
     pack_row = QtWidgets.QHBoxLayout()
     pack_row.setContentsMargins(0, 0, 0, 0)

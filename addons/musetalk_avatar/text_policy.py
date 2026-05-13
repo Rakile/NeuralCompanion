@@ -3,8 +3,23 @@
 from __future__ import annotations
 
 
+_VRAM_MODE_ALIASES = {
+    "quality": "quality",
+    "balanced": "balanced",
+    "low": "low",
+    "low_vram": "low",
+    "very_low": "very_low",
+    "very_low_vram": "very_low",
+}
+
+
+def normalize_vram_mode(value: str, default: str = "quality") -> str:
+    fallback = _VRAM_MODE_ALIASES.get(str(default or "quality").strip().lower(), "quality")
+    return _VRAM_MODE_ALIASES.get(str(value or "").strip().lower(), fallback)
+
+
 def vram_mode(runtime_config: dict, default: str = "quality") -> str:
-    return str((runtime_config or {}).get("musetalk_vram_mode", default) or default).strip().lower()
+    return normalize_vram_mode((runtime_config or {}).get("musetalk_vram_mode", default), default=default)
 
 
 def chunk_limits_for_index(chunk_index: int, runtime_config: dict, defaults: dict) -> tuple[int, int]:

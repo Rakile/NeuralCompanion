@@ -8,6 +8,69 @@ def configure_real_ui_sync_copy_dependencies(namespace):
 
 
 class RealUiSyncCopyMixin:
+    def _copy_widget_tooltip(self, source, target):
+            if source is None or target is None or not hasattr(source, "toolTip") or not hasattr(target, "setToolTip"):
+                return False
+            try:
+                tooltip = str(source.toolTip() or "").strip()
+            except Exception:
+                tooltip = ""
+            if not tooltip:
+                return False
+            try:
+                target.setToolTip(tooltip)
+                return True
+            except Exception:
+                return False
+
+    def _sync_musetalk_runtime_visibility(self):
+            backend = getattr(self, "backend", None)
+            visible = False
+            if backend is not None and hasattr(backend, "_current_avatar_mode_value"):
+                try:
+                    visible = backend._current_avatar_mode_value() == "musetalk"
+                except Exception:
+                    visible = False
+            for object_name in (
+                "musetalk_vram_label",
+                "musetalk_vram_combo",
+                "musetalk_loop_fade_label",
+                "musetalk_loop_fade_spin",
+                "musetalk_frame_cache_label",
+                "musetalk_use_frame_cache_checkbox",
+                "musetalk_avatar_label",
+                "musetalk_avatar_pack_row_widget",
+                "musetalk_vram_hint",
+            ):
+                widget = self._ui_object(object_name)
+                if widget is None:
+                    continue
+                if hasattr(widget, "setVisible"):
+                    try:
+                        widget.setVisible(visible)
+                    except Exception:
+                        pass
+            tooltip_sources = {
+                "musetalk_vram_label": "musetalk_vram_combo",
+                "musetalk_loop_fade_label": "musetalk_loop_fade_spin",
+                "musetalk_frame_cache_label": "musetalk_use_frame_cache_checkbox",
+                "musetalk_avatar_label": "musetalk_avatar_pack_combo",
+            }
+            for label_name, source_name in tooltip_sources.items():
+                self._copy_widget_tooltip(getattr(backend, source_name, None), self._ui_object(label_name))
+            if backend is not None:
+                tooltip = str(getattr(backend, "_MUSETALK_VRAM_TOOLTIP", "") or "")
+                for object_name in ("musetalk_vram_label", "musetalk_vram_combo", "musetalk_vram_hint"):
+                    widget = self._ui_object(object_name)
+                    if tooltip and widget is not None and hasattr(widget, "setToolTip"):
+                        try:
+                            widget.setToolTip(tooltip)
+                        except Exception:
+                            pass
+
+    def _sync_musetalk_vram_visibility(self):
+            self._sync_musetalk_runtime_visibility()
+
     def _combo_items_snapshot(self, combo):
             if combo is None or not hasattr(combo, "count"):
                 return []
@@ -24,6 +87,7 @@ class RealUiSyncCopyMixin:
     def _copy_combo_state(self, source, target):
             if source is None or target is None or not hasattr(source, "count") or not hasattr(target, "clear"):
                 return False
+            self._copy_widget_tooltip(source, target)
             if self._combo_popup_is_open(target):
                 return False
             items = self._combo_items_snapshot(source)
@@ -76,6 +140,7 @@ class RealUiSyncCopyMixin:
     def _copy_text_state(self, source, target):
             if source is None or target is None:
                 return False
+            self._copy_widget_tooltip(source, target)
             if hasattr(source, "toPlainText") and hasattr(target, "setPlainText"):
                 text = str(source.toPlainText() or "")
                 return self._set_text_widget_text(target, text)
@@ -147,6 +212,7 @@ class RealUiSyncCopyMixin:
     def _copy_checkbox_state(self, source, target):
             if source is None or target is None or not hasattr(source, "isChecked") or not hasattr(target, "setChecked"):
                 return False
+            self._copy_widget_tooltip(source, target)
             try:
                 target.blockSignals(True)
                 target.setChecked(bool(source.isChecked()))
@@ -162,6 +228,7 @@ class RealUiSyncCopyMixin:
     def _copy_spin_state(self, source, target):
             if source is None or target is None or not hasattr(source, "value") or not hasattr(target, "setValue"):
                 return False
+            self._copy_widget_tooltip(source, target)
             try:
                 target.blockSignals(True)
                 target.setValue(source.value())
@@ -269,4 +336,5 @@ class RealUiSyncCopyMixin:
             self._mirror_addon_runtime_widgets(force=force)
             self._mirror_chunking_runtime_widgets(force=force)
             self._mirror_provider_runtime_labels()
+            self._sync_musetalk_runtime_visibility()
             self._refresh_frontend_theme_controls()

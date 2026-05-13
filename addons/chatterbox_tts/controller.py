@@ -2,6 +2,18 @@ from __future__ import annotations
 
 import shiboken6
 
+
+CHATTERBOX_TOOLTIPS = {
+    "chatterbox_seed": "Seed for reproducible Chatterbox speech. Use 0 to pick a random seed each time.",
+    "chatterbox_temperature": "Speech sampling randomness. Lower values are steadier; higher values can sound more varied.",
+    "chatterbox_top_p": "Nucleus sampling limit for speech tokens. Lower values narrow the candidate pool.",
+    "chatterbox_top_k": "Limits speech sampling to the top K candidates. Higher values allow more variation.",
+    "chatterbox_repeat_penalty": "Penalty for repeated speech tokens. Higher values can reduce looping or stutters.",
+    "chatterbox_min_p": "Minimum probability filter for speech token sampling. Higher values can make output more focused.",
+    "chatterbox_normalize_loudness": "Normalize generated speech loudness toward -27 LUFS for steadier playback volume.",
+}
+
+
 class ChatterboxTTSController:
     STATE_KEY = "chatterbox_tts_settings"
 
@@ -119,6 +131,16 @@ class ChatterboxTTSController:
         except Exception:
             return None
 
+    def _set_tooltip_pair(self, widget, label_name, tooltip):
+        tooltip = str(tooltip or "").strip()
+        if not tooltip:
+            return
+        if self._widget_alive(widget) and hasattr(widget, "setToolTip"):
+            widget.setToolTip(tooltip)
+        label = self._ui_child(self._widget, label_name)
+        if self._widget_alive(label) and hasattr(label, "setToolTip"):
+            label.setToolTip(tooltip)
+
     def bind_designer_tab(self, widget):
         from PySide6 import QtWidgets
 
@@ -146,33 +168,42 @@ class ChatterboxTTSController:
         if any(item is None for item in required):
             raise RuntimeError("Chatterbox Designer UI is missing one or more required controls.")
 
+        self._widget = widget
+
         self._seed_spin.setRange(0, 2 ** 31 - 1)
+        self._set_tooltip_pair(self._seed_spin, "chatterbox_seed_label", CHATTERBOX_TOOLTIPS["chatterbox_seed"])
         self._seed_spin.valueChanged.connect(lambda value: self._set_runtime("tts_seed", max(0, int(value or 0))))
 
         self._temperature_spin.setRange(0.05, 2.0)
         self._temperature_spin.setSingleStep(0.05)
         self._temperature_spin.setDecimals(2)
+        self._set_tooltip_pair(self._temperature_spin, "chatterbox_temperature_label", CHATTERBOX_TOOLTIPS["chatterbox_temperature"])
         self._temperature_spin.valueChanged.connect(lambda value: self._set_runtime("tts_temperature", max(0.05, float(value or 0.8))))
 
         self._top_p_spin.setRange(0.0, 1.0)
         self._top_p_spin.setSingleStep(0.01)
         self._top_p_spin.setDecimals(2)
+        self._set_tooltip_pair(self._top_p_spin, "chatterbox_top_p_label", CHATTERBOX_TOOLTIPS["chatterbox_top_p"])
         self._top_p_spin.valueChanged.connect(lambda value: self._set_runtime("tts_top_p", max(0.0, min(1.0, float(value or 0.9)))))
 
         self._top_k_spin.setRange(0, 1000)
         self._top_k_spin.setSingleStep(1)
+        self._set_tooltip_pair(self._top_k_spin, "chatterbox_top_k_label", CHATTERBOX_TOOLTIPS["chatterbox_top_k"])
         self._top_k_spin.valueChanged.connect(lambda value: self._set_runtime("tts_top_k", max(0, int(value or 0))))
 
         self._repeat_penalty_spin.setRange(1.0, 2.0)
         self._repeat_penalty_spin.setSingleStep(0.01)
         self._repeat_penalty_spin.setDecimals(2)
+        self._set_tooltip_pair(self._repeat_penalty_spin, "chatterbox_repeat_penalty_label", CHATTERBOX_TOOLTIPS["chatterbox_repeat_penalty"])
         self._repeat_penalty_spin.valueChanged.connect(lambda value: self._set_runtime("tts_repeat_penalty", max(1.0, float(value or 1.2))))
 
         self._min_p_spin.setRange(0.0, 1.0)
         self._min_p_spin.setSingleStep(0.01)
         self._min_p_spin.setDecimals(2)
+        self._set_tooltip_pair(self._min_p_spin, "chatterbox_min_p_label", CHATTERBOX_TOOLTIPS["chatterbox_min_p"])
         self._min_p_spin.valueChanged.connect(lambda value: self._set_runtime("tts_min_p", max(0.0, min(1.0, float(value or 0.0)))))
 
+        self._normalize_loudness_checkbox.setToolTip(CHATTERBOX_TOOLTIPS["chatterbox_normalize_loudness"])
         self._normalize_loudness_checkbox.toggled.connect(lambda checked: self._set_runtime("tts_normalize_loudness", bool(checked)))
 
         info_text = "Shell preview: Chatterbox settings are local only. No model, backend, or audio path is started."
@@ -180,7 +211,6 @@ class ChatterboxTTSController:
             info_text = "Chatterbox sampling controls for local speech generation."
         info.setText(info_text)
 
-        self._widget = widget
         self._sync_widgets_from_runtime()
         return self._widget
 

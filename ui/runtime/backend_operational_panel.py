@@ -42,6 +42,10 @@ class BackendOperationalPanelMixin:
         telemetry_layout.addWidget(self.pipeline_telemetry_widget)
         layout.addWidget(self.pipeline_telemetry_box)
 
+        mic_row = getattr(self, "mic_status_row_widget", None)
+        if mic_row is not None:
+            layout.addWidget(mic_row, 0)
+
         self.right_tabs = NoWheelTabWidget()
         self.right_tabs.setObjectName("right_tabs")
         self.right_tabs.setMinimumSize(0, 0)
