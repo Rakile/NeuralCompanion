@@ -9,6 +9,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
 import urllib.request
 import zipfile
 from dataclasses import dataclass
@@ -28,6 +29,8 @@ AVATAR_PACK_BASE_URL = (
     "https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/download/"
     f"{AVATAR_PACK_RELEASE_TAG}"
 )
+AVATAR_PACK_REPO = "Rakile/NeuralCompanion-AvatarPacks"
+AVATAR_PACK_RELEASE_API_URL = f"https://api.github.com/repos/{AVATAR_PACK_REPO}/releases/tags/{AVATAR_PACK_RELEASE_TAG}"
 
 
 DEFAULT_AVATAR_PACKS = {
@@ -349,7 +352,7 @@ class Installer:
             archive_path = temp_root / filename
             extract_root = temp_root / "extract"
             note(f"Downloading {label} avatar pack...")
-            self.download_file(url, archive_path)
+            self.download_avatar_pack_file(filename, url, archive_path)
             note(f"Extracting {label} avatar pack...")
             self.extract_avatar_pack_zip(archive_path, extract_root)
 
@@ -361,12 +364,50 @@ class Installer:
             shutil.move(str(extracted_pack), str(destination))
             ok(f"{label} avatar pack installed at {destination}")
 
-    def download_file(self, url: str, destination: Path) -> None:
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        headers = {"User-Agent": "NeuralCompanionInstaller"}
-        token = str(os.environ.get("NC_AVATAR_PACK_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+    def github_token(self) -> str:
+        return str(os.environ.get("NC_AVATAR_PACK_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+
+    def download_avatar_pack_file(self, filename: str, public_url: str, destination: Path) -> None:
+        token = self.github_token()
         if token:
-            headers["Authorization"] = f"Bearer {token}"
+            try:
+                self.download_github_release_asset(filename, destination, token)
+                return
+            except urllib.error.HTTPError as exc:
+                raise SystemExit(
+                    f"Could not download private avatar pack asset {filename} from {AVATAR_PACK_REPO}: "
+                    f"GitHub API returned HTTP {exc.code}. Check that the token has read access to repository contents."
+                ) from exc
+        self.download_file(public_url, destination)
+
+    def github_headers(self, token: str, *, octet_stream: bool = False) -> dict[str, str]:
+        accept = "application/octet-stream" if octet_stream else "application/vnd.github+json"
+        return {
+            "Accept": accept,
+            "Authorization": f"Bearer {token}",
+            "User-Agent": "NeuralCompanionInstaller",
+            "X-GitHub-Api-Version": "2022-11-28",
+        }
+
+    def download_github_release_asset(self, filename: str, destination: Path, token: str) -> None:
+        release_request = urllib.request.Request(AVATAR_PACK_RELEASE_API_URL, headers=self.github_headers(token))
+        with urllib.request.urlopen(release_request, timeout=120) as response:
+            release = json.loads(response.read().decode("utf-8"))
+
+        assets = release.get("assets") or []
+        asset = next((item for item in assets if item.get("name") == filename), None)
+        if not asset:
+            raise SystemExit(f"Avatar pack release {AVATAR_PACK_RELEASE_TAG} does not contain asset: {filename}")
+
+        asset_url = str(asset.get("url") or "")
+        if not asset_url:
+            raise SystemExit(f"Avatar pack asset {filename} did not include a GitHub API download URL.")
+        note(f"Using authenticated GitHub release asset download for {filename}.")
+        self.download_file(asset_url, destination, headers=self.github_headers(token, octet_stream=True))
+
+    def download_file(self, url: str, destination: Path, headers: dict[str, str] | None = None) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        headers = headers or {"User-Agent": "NeuralCompanionInstaller"}
         request = urllib.request.Request(str(url), headers=headers)
         try:
             with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as handle:
