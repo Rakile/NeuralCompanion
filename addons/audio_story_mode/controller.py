@@ -104,6 +104,90 @@ _AUDIO_STORY_XAI_IMAGE_ASPECT_RATIOS = (
 _AUDIO_STORY_XAI_IMAGE_RESOLUTIONS = ("1k", "2k")
 _AUDIO_STORY_XAI_IMAGE_RESPONSE_FORMATS = ("b64_json",)
 
+_AUDIO_STORY_CONTROL_TOOLTIPS = {
+    "audio_story_intro_label": "Audio Story turns an imported story or audiobook into transcript windows, scene prompts, generated visuals, and synced playback.",
+    "audio_story_path_edit": "Current source audio for Audio Story Mode. Import a file, then transcribe it before playback or image generation can run.",
+    "audio_story_import_button": "Choose the audiobook or story audio file. Importing a new file clears the current transcript, images, and cached story timing.",
+    "audio_story_playback_label": "Playback source used when Audio Story plays the timeline.",
+    "audio_story_playback_mode_combo": "Playback source. Imported Audio is cheapest and fastest; TTS Narration renders a new local narration track from the transcript before playing.",
+    "audio_story_precision_label": "Overall cost and quality preset for transcript chunking, image cadence, story analysis, and prompt detail.",
+    "audio_story_cost_profile_combo": "Overall cost/quality preset. Economy avoids extra LLM analysis and makes fewer images; Detailed and Cinematic use richer prompts and denser image timing.",
+    "audio_story_settings_preset_label": "Reusable Audio Story settings profile. Presets do not include the imported audio file.",
+    "audio_story_settings_preset_combo": "Choose or type a reusable Audio Story settings preset name.",
+    "audio_story_settings_preset_save_button": "Save the current Audio Story settings to the selected preset name. Existing presets with the same name are overwritten.",
+    "audio_story_settings_preset_load_button": "Load the selected Audio Story settings preset. If a transcript is already loaded, story windows and prompts are rebuilt with the loaded settings.",
+    "audio_story_transcribe_seconds_label": "Transcript window size used when splitting the audio into story chunks.",
+    "audio_story_transcribe_seconds_slider": "Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze.",
+    "audio_story_transcribe_seconds_value_label": "Current transcript window size in seconds.",
+    "audio_story_image_frequency_label": "Target image cadence when Image Timing is Fixed Seconds.",
+    "audio_story_image_frequency_slider": "Fixed-seconds image cadence, capped at 60 seconds. Lower values create more image prompts and can increase image API cost.",
+    "audio_story_image_frequency_value_label": "Current fixed image cadence in seconds.",
+    "audio_story_image_timing_label": "Strategy used to decide when a new story image should appear.",
+    "audio_story_image_timing_combo": "Image timing mode. Fixed Seconds uses the cadence slider; Scene Changes groups transcript chunks by detected scene boundaries.",
+    "audio_story_continuity_label": "How strongly generated prompts preserve characters, locations, props, and style between scenes.",
+    "audio_story_continuity_slider": "Continuity strength. Higher values preserve recurring details more aggressively, but may make major scene changes less flexible.",
+    "audio_story_continuity_value_label": "Current continuity strength.",
+    "audio_story_generate_ahead_label": "How many future story images Audio Story may prepare before playback reaches them.",
+    "audio_story_generate_ahead_slider": "How many future story images to prepare ahead of playback. Higher values reduce visible waiting but can spend image API calls earlier.",
+    "audio_story_generate_ahead_value_label": "Current generate-ahead image count.",
+    "audio_story_styles_label": "Visual style layers added to generated story image prompts.",
+    "audio_story_style_live_checkbox": "Allow style changes during playback. When off, style edits update saved settings without regenerating visuals mid-playback.",
+    "audio_story_master_prompt_label": "Story-wide visual prompt anchoring for the global Visual Reply master prompt.",
+    "audio_story_master_prompt_button": "Temporarily drive the global Visuals master prompt from this story. Turning it off restores the previous Visuals master prompt when possible.",
+    "audio_story_master_prompt_mode_combo": "How forcefully the story-generated master prompt should anchor visual identity. Stronger modes improve consistency but make prompts longer.",
+    "audio_story_prompt_blocks_label": "Per-section character budgets used when Audio Story builds image prompts.",
+    "audio_story_prompt_cap_label": "Hard limit for the final combined image prompt.",
+    "audio_story_prompt_safety_cap_spin": "Hard cap for the final prompt sent to the image provider. Lower caps reduce payload size; higher caps preserve more continuity and scene detail.",
+    "audio_story_story_analysis_label": "Optional LLM pass that extracts story structure before image prompt generation.",
+    "audio_story_llm_analysis_checkbox": "Use an LLM to extract story bible, character/location anchors, scene boundaries, and ready image-prompt fragments.",
+    "audio_story_analysis_mode_label": "Depth of story analysis used for image prompt planning.",
+    "audio_story_analysis_mode_combo": "Scene Only keeps the per-scene prompt path. Story Bible persists character, location, prop, and style memory for stronger consistency.",
+    "audio_story_analysis_provider_label": "Provider used for transcript analysis and prompt planning.",
+    "audio_story_analysis_provider_combo": "Where transcript analysis and prompt planning runs. Current Chat Provider follows your active chat runtime.",
+    "audio_story_analysis_model_label": "Optional model override used only for Audio Story analysis.",
+    "audio_story_analysis_model_combo": "Model used only for Audio Story analysis and prompt planning. Auto uses the provider default; you can type a model id manually.",
+    "audio_story_xai_image_settings_label": "xAI image generation options used when Visual Reply is configured for xAI.",
+    "audio_story_xai_image_settings_hint": "These values are sent to the xAI image API for Audio Story visuals.",
+    "audio_story_xai_aspect_ratio_label": "Aspect ratio for generated Audio Story images.",
+    "audio_story_xai_aspect_ratio_combo": "Aspect ratio sent to xAI image generation for Audio Story visuals.",
+    "audio_story_xai_resolution_label": "Resolution for generated Audio Story images.",
+    "audio_story_xai_resolution_combo": "Resolution sent to xAI image generation. Higher values can cost more or take longer.",
+    "audio_story_xai_response_format_label": "Response format requested from the xAI image API.",
+    "audio_story_xai_response_format_combo": "Response format requested from xAI. b64_json keeps stable local files for playback and casting.",
+    "audio_story_xai_n_label": "Number of images requested from xAI per API call.",
+    "audio_story_xai_n_spin": "Number of images requested per API call. Audio Story still uses one image per timeline scene.",
+    "audio_story_transcribe_button": "Run local Whisper transcription, then build story windows, scene metadata, and image prompts for this session.",
+    "audio_story_scene_status_label": "Current scene summary and override state.",
+    "audio_story_scene_character_label": "Character continuity pins for the selected scene.",
+    "audio_story_pin_location_button": "Pin the current detected location as a continuity anchor for later images.",
+    "audio_story_force_fresh_button": "Force this image window to start as a new scene when automatic detection keeps continuing too long.",
+    "audio_story_force_continuation_button": "Force this image window to continue the previous scene when automatic detection splits too often.",
+    "audio_story_anchor_label": "Scene-specific positive anchor text.",
+    "audio_story_scene_anchor_edit": "Override the selected scene's visual anchor text. This becomes the primary scene focus for future prompts.",
+    "audio_story_scene_anchor_apply_button": "Apply this anchor override and refresh matching prompts/images for the selected scene.",
+    "audio_story_negative_prompt_label": "Scene-specific things to avoid in generated images.",
+    "audio_story_scene_negative_prompt_edit": "Extra negative prompt text for the current scene. It is added to the scene's Avoid block before image generation.",
+    "audio_story_negative_prompt_anchor_button": "Keep this negative prompt as a persistent anchor for every future scene until unpinned.",
+    "audio_story_scene_negative_prompt_apply_button": "Apply this negative prompt override and refresh matching prompts/images for the selected scene.",
+    "audio_story_play_button": "Start or resume playback from the current timeline position and sync the active story image to the audio.",
+    "audio_story_pause_button": "Pause playback without clearing the current timeline position or active image.",
+    "audio_story_stop_button": "Stop playback, return to the beginning, and show the first story image when available.",
+    "audio_story_time_label": "Current playback position and total duration.",
+    "audio_story_position_slider": "Scrub through the current audio story timeline. The preview jumps to the image window that matches the selected time.",
+    "audio_story_status_label": "Current Audio Story runtime status.",
+    "audio_story_stream_enabled_checkbox": "Serve the current story image as a local network web page for browser-capable devices and casting workflows.",
+    "audio_story_stream_port_spin": "Local HTTP port used for the visual stream page.",
+    "audio_story_stream_url_label": "Local network URL for the Audio Story visual stream when enabled.",
+    "audio_story_cast_device_combo": "Chromecast or Google Cast device to show Audio Story visuals on.",
+    "audio_story_cast_refresh_button": "Search your local network for Chromecast devices.",
+    "audio_story_cast_button": "Cast the current Audio Story visual to the selected Chromecast.",
+    "audio_story_cast_stop_button": "Stop media playback on the selected Chromecast.",
+    "audio_story_cast_prompt_checkbox": "Show or hide the current image prompt overlay on the Chromecast stream page.",
+    "audio_story_cast_status_label": "Chromecast discovery and casting status.",
+    "audio_story_summary_label": "Summary of the current transcript windows and generated visual timeline.",
+    "audio_story_transcript_edit": "Read-only transcript windows used for scene detection and prompt generation.",
+}
+
 
 def _audio_story_cost_profiles():
     return [
@@ -1210,6 +1294,24 @@ class AudioStoryModeController(QtCore.QObject):
             return None
         return widget
 
+    def _set_audio_story_tooltip(self, widget, text):
+        text = str(text or "").strip()
+        if widget is None or not text:
+            return
+        for setter_name in ("setToolTip", "setStatusTip", "setWhatsThis"):
+            setter = getattr(widget, setter_name, None)
+            if callable(setter):
+                try:
+                    setter(text)
+                except Exception:
+                    pass
+
+    def _apply_audio_story_tooltips(self, root):
+        if root is None:
+            return
+        for object_name, tooltip in _AUDIO_STORY_CONTROL_TOOLTIPS.items():
+            self._set_audio_story_tooltip(root.findChild(QtCore.QObject, str(object_name)), tooltip)
+
     def _bind_designer_runtime_widget(self, root):
         # The Designer shell owns fixed layout. Runtime code only binds behavior
         # and still creates data-driven rows such as style presets and prompt caps.
@@ -1322,11 +1424,20 @@ class AudioStoryModeController(QtCore.QObject):
                 button.setCheckable(True)
                 button.setStyleSheet(style_button_style)
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+                style_label = str(style_def.get("label") or style_id.title())
+                self._set_audio_story_tooltip(
+                    button,
+                    f"Toggle the {style_label} style layer for generated story image prompts.",
+                )
                 button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
                 edit = QtWidgets.QLineEdit()
                 edit.setClearButtonEnabled(True)
                 edit.setMinimumWidth(120)
                 edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+                self._set_audio_story_tooltip(
+                    edit,
+                    f"Prompt text injected when the {style_label} style layer is active.",
+                )
                 edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
                 style_layout.addWidget(button, button_row, column)
                 style_layout.addWidget(edit, edit_row, column)
@@ -1385,6 +1496,12 @@ class AudioStoryModeController(QtCore.QObject):
                 column = (limit_index % 2) * 2
                 label = QtWidgets.QLabel(limit_key.replace("_", " ").title())
                 spin = _AudioStoryNoWheelSpinBox()
+                tooltip = (
+                    f"Maximum characters allowed for the {limit_key.replace('_', ' ')} prompt block. "
+                    "Lower values reduce prompt size; higher values preserve more detail."
+                )
+                self._set_audio_story_tooltip(label, tooltip)
+                self._set_audio_story_tooltip(spin, tooltip)
                 spin.setRange(40, 1600)
                 spin.setSingleStep(20)
                 spin.setValue(int(self._stored_prompt_block_limits.get(limit_key, default_value) or default_value))
@@ -1524,6 +1641,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_audio_story_cost_profile_controls()
         self._refresh_audio_story_settings_presets()
         self._refresh_controls()
+        self._apply_audio_story_tooltips(root)
         self.apply_theme_palette()
         return root
 
@@ -1865,13 +1983,18 @@ class AudioStoryModeController(QtCore.QObject):
             label = QtWidgets.QLabel(limit_key.replace("_", " ").title())
             label.setStyleSheet("color: #cbd5e1;")
             label.setWordWrap(True)
+            tooltip = (
+                f"Maximum characters allowed for the {limit_key.replace('_', ' ')} prompt block. "
+                "Lower values reduce prompt size and image cost risk; higher values preserve more detail."
+            )
+            self._set_audio_story_tooltip(label, tooltip)
             spin = _AudioStoryNoWheelSpinBox()
             spin.setRange(40, 1600)
             spin.setSingleStep(20)
             spin.setValue(int(self._stored_prompt_block_limits.get(limit_key, default_value) or default_value))
             spin.setSuffix(" chars")
             spin.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            spin.setToolTip(f"Maximum characters allowed for the {limit_key.replace('_', ' ')} prompt block. Lower values reduce prompt size and image cost risk; higher values preserve more detail.")
+            self._set_audio_story_tooltip(spin, tooltip)
             spin.valueChanged.connect(lambda value, limit_key=limit_key: self._on_prompt_block_limit_changed(limit_key, value))
             prompt_limits_layout.addWidget(label, row, column)
             prompt_limits_layout.addWidget(spin, row, column + 1)
@@ -2191,6 +2314,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._sync_audio_story_cost_profile_controls()
         self._refresh_audio_story_settings_presets()
         self._refresh_controls()
+        self._apply_audio_story_tooltips(scroll)
         self.apply_theme_palette()
         return scroll
 
