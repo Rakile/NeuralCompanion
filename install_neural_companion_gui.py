@@ -342,20 +342,53 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         left = ttk.Frame(body, style="Root.TFrame")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
+        left.columnconfigure(0, weight=1)
+        left.rowconfigure(0, weight=1)
+        left.rowconfigure(1, weight=0)
+
         right = ttk.Frame(body, style="Root.TFrame")
         right.grid(row=0, column=1, sticky="nsew")
         right.rowconfigure(1, weight=1)
         right.columnconfigure(0, weight=1)
 
-        self._build_python_card(left)
-        self._build_install_card(left)
-        self._build_actions_card(left)
+        left_targets = self._build_left_scroll_area(left)
+        left_actions = ttk.Frame(left, style="Root.TFrame")
+        left_actions.grid(row=1, column=0, sticky="ew")
+
+        self._build_python_card(left_targets)
+        self._build_install_card(left_targets)
+        self._build_actions_card(left_actions)
 
         self._build_command_card(right)
         self._build_output_card(right)
 
         self._build_footer(root)
         self._refresh_command_preview()
+
+    def _build_left_scroll_area(self, parent: ttk.Frame) -> ttk.Frame:
+        shell = ttk.Frame(parent, style="Root.TFrame")
+        shell.grid(row=0, column=0, sticky="nsew")
+        shell.columnconfigure(0, weight=1)
+        shell.rowconfigure(0, weight=1)
+
+        canvas = tk.Canvas(shell, bg=self.BG, bd=0, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(shell, orient=tk.VERTICAL, command=canvas.yview)
+        content = ttk.Frame(canvas, style="Root.TFrame")
+        content_window = canvas.create_window((0, 0), window=content, anchor="nw")
+
+        def sync_scroll_region(_event: tk.Event) -> None:
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def sync_content_width(event: tk.Event) -> None:
+            canvas.itemconfigure(content_window, width=event.width)
+
+        content.bind("<Configure>", sync_scroll_region)
+        canvas.bind("<Configure>", sync_content_width)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.grid(row=0, column=0, sticky="nsew")
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        return content
 
     def _build_header(self, parent: ttk.Frame) -> None:
         header = ttk.Frame(parent, style="Header.TFrame")
