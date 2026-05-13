@@ -829,6 +829,41 @@ def _get_addon_manager():
         return None
 
 
+def _collect_addon_chat_contexts(model_history_window):
+    manager = _get_addon_manager()
+    if manager is None:
+        return []
+    invoke_all = getattr(manager, "invoke_all_capabilities", None)
+    if not callable(invoke_all):
+        return []
+    try:
+        results = invoke_all(
+            "chat_context.collect",
+            {
+                "messages": list(model_history_window or []),
+                "active_preset_name": str(RUNTIME_CONFIG.get("active_preset_name", "") or ""),
+            },
+        )
+    except Exception as exc:
+        print(f"⚠️ [Addons] Chat context collection failed: {exc}")
+        return []
+
+    contexts = []
+    for result in list(results or []):
+        if isinstance(result, str):
+            text = result.strip()
+            debug = {}
+        elif isinstance(result, dict):
+            text = str(result.get("context") or "").strip()
+            debug = dict(result.get("debug") or {})
+        else:
+            continue
+        if not text:
+            continue
+        contexts.append({"context": text, "debug": debug})
+    return contexts
+
+
 def list_available_tts_backends():
     return tts_runtime.list_available_tts_backends(_get_addon_manager, logger=print)
 
@@ -4580,11 +4615,14 @@ def queue_typed_chat_message(text, role=None):
     content = str(text or "").strip()
     if not content:
         return {"queued": False, "reason": "empty"}
-    _set_pending_loaded_input_turn({
+    turn = {
         "role": "user",
         "content": content,
         "origin": "input",
-    })
+    }
+    _append_chat_turn(turn)
+    _set_pending_loaded_input_turn(turn)
+    _request_chat_view_rebuild()
     return {"queued": True, "role": "user", "content": content}
 
 
@@ -4658,11 +4696,12 @@ def build_llm_request():
     model_history_window = _build_model_history_window()
     messages = [{"role": "system", "content": full_system_prompt}]
     active_preset_name = str(RUNTIME_CONFIG.get("active_preset_name", "") or "").strip().lower()
+    normalized_active_preset_name = active_preset_name.replace("_", " ").replace("-", " ")
     help_context = ""
     help_debug = None
-    if active_preset_name == "tutorial persona":
-        help_debug = app_help.explain_help_lookup(model_history_window)
-        help_context = app_help.build_help_context(model_history_window)
+    if normalized_active_preset_name == "tutorial persona":
+        help_debug = app_help.explain_help_lookup(model_history_window, force_app_question=True)
+        help_context = app_help.build_help_context(model_history_window, force_app_question=True)
     else:
         latest = app_help.explain_help_lookup(model_history_window)
         print(
@@ -4683,6 +4722,15 @@ def build_llm_request():
             f"(looks_like_app_question={help_debug.get('looks_like_app_question')}, "
             f"query={help_debug.get('query', '')[:120]!r})"
         )
+    for addon_context in _collect_addon_chat_contexts(model_history_window):
+        debug = dict(addon_context.get("debug") or {})
+        sources = ", ".join(str(item) for item in debug.get("sources", [])[:4])
+        print(
+            "[RAG] Injected "
+            f"{debug.get('matches', '?')} matching chunk(s)"
+            f"{f' from {sources}' if sources else ''}."
+        )
+        messages.append({"role": "system", "content": addon_context.get("context", "")})
     visual_instruction = _visual_reply_generation_instruction()
     if visual_instruction:
         messages.append({"role": "system", "content": visual_instruction})

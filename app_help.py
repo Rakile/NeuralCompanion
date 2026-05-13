@@ -6,6 +6,49 @@ from pathlib import Path
 APP_HELP_DIR = Path(__file__).resolve().parent / "app_help"
 APP_HELP_PATH = APP_HELP_DIR / "knowledge.json"
 README_PATH = Path(__file__).resolve().parent / "README.md"
+DOCS_DIR = Path(__file__).resolve().parent / "docs"
+EXCLUDED_DOC_NAMES = {
+    "release_checklist.md",
+    "release_notes_template.md",
+}
+TOKEN_STOP_WORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "can",
+    "could",
+    "do",
+    "does",
+    "for",
+    "from",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "me",
+    "of",
+    "on",
+    "or",
+    "please",
+    "tell",
+    "that",
+    "the",
+    "this",
+    "to",
+    "use",
+    "what",
+    "when",
+    "where",
+    "which",
+    "why",
+    "with",
+    "you",
+}
 
 
 def _load_knowledge():
@@ -23,6 +66,9 @@ def _load_markdown_sections():
         paths.append(README_PATH)
     for path in sorted(APP_HELP_DIR.glob("*.md")):
         paths.append(path)
+    for path in _public_doc_paths():
+        if path.exists():
+            paths.append(path)
     sections = []
     for path in paths:
         try:
@@ -49,12 +95,25 @@ def _load_markdown_sections():
     return sections
 
 
+def _public_doc_paths():
+    paths = []
+    for directory in (DOCS_DIR, DOCS_DIR / "manual"):
+        if not directory.exists():
+            continue
+        for path in sorted(directory.glob("*.md")):
+            name = path.name.lower()
+            if name in EXCLUDED_DOC_NAMES:
+                continue
+            paths.append(path)
+    return paths
+
+
 def _normalize(text):
     return re.sub(r"\s+", " ", str(text or "").strip().lower())
 
 
 def _tokenize(text):
-    return re.findall(r"[a-z0-9_]+", _normalize(text))
+    return [token for token in re.findall(r"[a-z0-9_]+", _normalize(text)) if token not in TOKEN_STOP_WORDS]
 
 
 def _latest_user_like_message(messages):
@@ -132,9 +191,9 @@ def _looks_like_app_question(text):
     return has_app_marker and has_question_marker
 
 
-def retrieve_help_topics(query, max_topics=3):
+def retrieve_help_topics(query, max_topics=3, *, force_app_question=False):
     query_n = _normalize(query)
-    if not _looks_like_app_question(query_n):
+    if not force_app_question and not _looks_like_app_question(query_n):
         return []
     query_tokens = set(_tokenize(query_n))
     ranked = []
@@ -158,9 +217,9 @@ def retrieve_help_topics(query, max_topics=3):
     return [topic for _, topic in ranked[:max_topics]]
 
 
-def retrieve_markdown_sections(query, max_sections=2):
+def retrieve_markdown_sections(query, max_sections=2, *, force_app_question=False):
     query_n = _normalize(query)
-    if not _looks_like_app_question(query_n):
+    if not force_app_question and not _looks_like_app_question(query_n):
         return []
     query_tokens = set(_tokenize(query_n))
     ranked = []
@@ -182,10 +241,10 @@ def retrieve_markdown_sections(query, max_sections=2):
     return [section for _, section in ranked[:max_sections]]
 
 
-def build_help_context(messages, max_topics=3):
+def build_help_context(messages, max_topics=3, *, force_app_question=False):
     query = _latest_user_like_message(messages)
-    topics = retrieve_help_topics(query, max_topics=max_topics)
-    sections_md = retrieve_markdown_sections(query, max_sections=1)
+    topics = retrieve_help_topics(query, max_topics=max_topics, force_app_question=force_app_question)
+    sections_md = retrieve_markdown_sections(query, max_sections=1, force_app_question=force_app_question)
     if not topics and not sections_md:
         return ""
     sections = []
@@ -216,14 +275,16 @@ def build_help_context(messages, max_topics=3):
     )
 
 
-def explain_help_lookup(messages, max_topics=3):
+def explain_help_lookup(messages, max_topics=3, *, force_app_question=False):
     query = _latest_user_like_message(messages)
     looks_like = _looks_like_app_question(query)
-    topics = retrieve_help_topics(query, max_topics=max_topics) if looks_like else []
-    markdown_sections = retrieve_markdown_sections(query, max_sections=1) if looks_like else []
+    should_lookup = bool(looks_like or force_app_question)
+    topics = retrieve_help_topics(query, max_topics=max_topics, force_app_question=force_app_question) if should_lookup else []
+    markdown_sections = retrieve_markdown_sections(query, max_sections=1, force_app_question=force_app_question) if should_lookup else []
     return {
         "query": query,
         "looks_like_app_question": looks_like,
+        "force_app_question": bool(force_app_question),
         "topic_titles": [str(topic.get("title") or "") for topic in topics],
         "topic_count": len(topics),
         "markdown_titles": [str(section.get("title") or "") for section in markdown_sections],

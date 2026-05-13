@@ -21,6 +21,23 @@
       ]
     },
     {
+      "title": "Known Limitations",
+      "keywords": [
+        "known limitations",
+        "current limitations",
+        "limitations",
+        "what are the limitations"
+      ],
+      "summary": "Neural Companion is a local experimental companion app. The first public release is Windows-first and depends on local runtimes, external tools, model weights, and user-provided assets.",
+      "bullets": [
+        "Windows and Python 3.11 are the primary supported setup targets.",
+        "MuseTalk benefits strongly from CUDA/NVIDIA hardware and can take time to start when loading avatar packs.",
+        "Some features need external tools or services, such as LM Studio, VaM, VSeeFace, API keys, or Hugging Face model access.",
+        "Voice samples and avatar packs are not bundled in the main repository.",
+        "Real-time TTS, STT, avatar rendering, and visual generation depend heavily on local hardware and selected providers."
+      ]
+    },
+    {
       "title": "LM Studio",
       "keywords": [
         "lm studio",

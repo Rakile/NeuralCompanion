@@ -153,7 +153,7 @@ class MainUiRealBindingMixin:
                 cancel_button.clicked.connect(self._cancel_chat_edit_mode_from_ui_real)
             send_button = self._ui_object("chat_send_button")
             if send_button is not None and hasattr(send_button, "clicked"):
-                send_button.clicked.connect(self._send_frontend_typed_chat_message)
+                send_button.clicked.connect(lambda _checked=False: self._send_frontend_typed_chat_message())
             message_input = self._ui_object("chat_message_input")
             if message_input is not None and hasattr(message_input, "returnPressed"):
                 message_input.returnPressed.connect(self._send_frontend_typed_chat_message)

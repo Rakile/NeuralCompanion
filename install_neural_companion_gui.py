@@ -174,9 +174,15 @@ class NeuralCompanionInstallerGui(tk.Tk):
             "Addon-driven workflows let chat, TTS, avatars, visuals, and tools expand independently.",
             "Isolated runtimes keep MuseTalk and PocketTTS dependencies from colliding with the main app.",
         ]
+        self.output_backdrops: dict[str, tk.PhotoImage] = {}
+        self._active_output_backdrop_key: str | None = None
+        self._output_backdrop_item: int | None = None
+        self._output_line_y = 12
+        self._output_font = ("Consolas", 9)
 
         self._configure_window()
         self._configure_styles()
+        self._load_output_backdrops()
         self._build_ui()
         self._auto_detect_python()
         self.update_idletasks()
@@ -652,31 +658,23 @@ class NeuralCompanionInstallerGui(tk.Tk):
         output_wrap.rowconfigure(0, weight=1)
         output_wrap.columnconfigure(0, weight=1)
 
-        self.output = tk.Text(
+        self.output = tk.Canvas(
             output_wrap,
-            wrap=tk.WORD,
-            height=14,
             bg=self.OUTPUT_BG,
-            fg=self.OUTPUT_FG,
-            insertbackground=self.TEXT,
-            selectbackground="#2E3D67",
-            selectforeground=self.TEXT,
+            bd=0,
+            highlightthickness=0,
             relief=tk.FLAT,
-            padx=12,
-            pady=12,
-            font=("Consolas", 9),
+            yscrollincrement=18,
         )
         self.output.grid(row=0, column=0, sticky="nsew")
+        self.output.bind("<Configure>", lambda _event: self._sync_output_canvas())
+        self.output.bind("<MouseWheel>", self._scroll_output_canvas)
+        self.output.bind("<Button-4>", self._scroll_output_canvas)
+        self.output.bind("<Button-5>", self._scroll_output_canvas)
 
         scrollbar = ttk.Scrollbar(output_wrap, orient=tk.VERTICAL, command=self.output.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
         self.output.configure(yscrollcommand=scrollbar.set)
-
-        self.output.tag_configure("command", foreground=self.ACCENT_2)
-        self.output.tag_configure("error", foreground=self.DANGER)
-        self.output.tag_configure("success", foreground=self.SUCCESS)
-        self.output.tag_configure("warning", foreground=self.WARNING)
-        self.output.tag_configure("muted", foreground=self.MUTED)
 
         self._append_output("Neural Companion installer ready.\n", tag="success")
         self._append_output("Choose install targets or run preflight.\n\n", tag="muted")
@@ -796,29 +794,129 @@ class NeuralCompanionInstallerGui(tk.Tk):
     # Output helpers
     # ---------------------------------------------------------------------
 
-    def _append_output(self, text: str, tag: str | None = None) -> None:
-        text = ANSI_ESCAPE_RE.sub("", text)
-        if tag:
-            self.output.insert(tk.END, text, tag)
+    def _load_output_backdrops(self) -> None:
+        assets = {
+            "echo": REPO_ROOT / "installer_assets" / "echo_output_watermark.png",
+            "eon": REPO_ROOT / "installer_assets" / "eon_output_watermark.png",
+        }
+        for key, path in assets.items():
+            if not path.exists():
+                continue
+            try:
+                self.output_backdrops[key] = tk.PhotoImage(file=str(path))
+            except tk.TclError:
+                continue
+
+    def _set_output_backdrop(self, key: str | None) -> None:
+        if key == self._active_output_backdrop_key:
+            return
+
+        self._active_output_backdrop_key = key
+        if self._output_backdrop_item is not None:
+            self.output.delete(self._output_backdrop_item)
+            self._output_backdrop_item = None
+
+        image = self.output_backdrops.get(key or "")
+        if image is None:
+            return
+
+        self._output_backdrop_item = self.output.create_image(
+            max(12, self.output.winfo_width() - 24),
+            max(12, self.output.winfo_height() - 20),
+            anchor="se",
+            image=image,
+            tags=("output_backdrop",),
+        )
+        self.output.tag_lower("output_backdrop")
+        self.output.tag_raise("log_text")
+        self._sync_output_scrollregion()
+
+    def _sync_output_canvas(self) -> None:
+        if self._output_backdrop_item is not None:
+            self.output.coords(
+                self._output_backdrop_item,
+                max(12, self.output.winfo_width() - 24),
+                max(12, self.output.winfo_height() - 20),
+            )
+        self._sync_output_scrollregion()
+
+    def _sync_output_scrollregion(self) -> None:
+        bbox = self.output.bbox("all")
+        width = max(1, self.output.winfo_width())
+        height = max(1, self.output.winfo_height(), self._output_line_y + 12)
+        if bbox:
+            height = max(height, bbox[3] + 12)
+            width = max(width, bbox[2] + 12)
+        self.output.configure(scrollregion=(0, 0, width, height))
+
+    def _scroll_output_canvas(self, event: tk.Event) -> str:
+        if getattr(event, "num", None) == 4:
+            units = -3
+        elif getattr(event, "num", None) == 5:
+            units = 3
         else:
-            lower = text.lower()
-            auto_tag = None
-            if "error" in lower or "failed" in lower or "traceback" in lower:
-                auto_tag = "error"
-            elif "success" in lower or "verified" in lower or "installed successfully" in lower:
-                auto_tag = "success"
-            elif "warning" in lower or "missing" in lower or "skip" in lower:
-                auto_tag = "warning"
+            units = -1 * int(getattr(event, "delta", 0) / 120)
+        self.output.yview_scroll(units, "units")
+        return "break"
 
-            if auto_tag:
-                self.output.insert(tk.END, text, auto_tag)
-            else:
-                self.output.insert(tk.END, text)
+    def _output_color(self, tag: str | None) -> str:
+        colors = {
+            "command": self.ACCENT_2,
+            "error": self.DANGER,
+            "success": self.SUCCESS,
+            "warning": self.WARNING,
+            "muted": self.MUTED,
+        }
+        return colors.get(tag or "", self.OUTPUT_FG)
 
-        self.output.see(tk.END)
+    def _auto_output_tag(self, text: str) -> str | None:
+        lower = text.lower()
+        if "error" in lower or "failed" in lower or "traceback" in lower:
+            return "error"
+        if "success" in lower or "verified" in lower or "installed successfully" in lower:
+            return "success"
+        if "warning" in lower or "missing" in lower or "skip" in lower:
+            return "warning"
+        return None
+
+    def _update_output_backdrop_from_text(self, text: str) -> None:
+        lower = text.lower()
+        if "downloading echo avatar pack" in lower or "extracting echo avatar pack" in lower:
+            self._set_output_backdrop("echo")
+        elif "downloading eon avatar pack" in lower or "extracting eon avatar pack" in lower:
+            self._set_output_backdrop("eon")
+        elif "installer summary" in lower or "installer exited" in lower:
+            self._set_output_backdrop(None)
+
+    def _append_output(self, text: str, tag: str | None = None) -> None:
+        text = ANSI_ESCAPE_RE.sub("", text).replace("\r", "\n")
+        self._update_output_backdrop_from_text(text)
+        active_tag = tag or self._auto_output_tag(text)
+        for segment in text.splitlines(keepends=True) or [text]:
+            line = segment.rstrip("\n") or " "
+            item = self.output.create_text(
+                12,
+                self._output_line_y,
+                anchor="nw",
+                text=line,
+                fill=self._output_color(active_tag),
+                font=self._output_font,
+                width=max(260, self.output.winfo_width() - 36),
+                tags=("log_text",),
+            )
+            bbox = self.output.bbox(item)
+            line_height = (bbox[3] - bbox[1]) if bbox else 16
+            self._output_line_y += max(16, line_height) + 2
+
+        self.output.tag_raise("log_text")
+        self._sync_output_scrollregion()
+        self.output.yview_moveto(1.0)
 
     def _clear_output(self) -> None:
-        self.output.delete("1.0", tk.END)
+        self.output.delete("log_text")
+        self._output_line_y = 12
+        self._set_output_backdrop(None)
+        self._sync_output_scrollregion()
         self._append_output("Output cleared.\n\n", tag="muted")
 
     def _set_running_ui(self, running: bool) -> None:

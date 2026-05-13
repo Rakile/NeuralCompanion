@@ -258,6 +258,7 @@ class BackendConsoleChatMixin:
         if not bool(dict(result or {}).get("queued", False)):
             print(f"[QtGUI] Typed chat message was not queued: {dict(result or {}).get('reason', 'unknown')}")
             return False
+        self._rebuild_chat_view_from_history(force=True)
         widget = getattr(self, "chat_message_input", None)
         if widget is not None and hasattr(widget, "clear"):
             widget.clear()

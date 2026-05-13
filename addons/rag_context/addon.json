@@ -1,0 +1,24 @@
+{
+  "id": "nc.rag_context",
+  "name": "RAG Context",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Optional chat retrieval context from a user-selected text-file index.",
+  "permissions": [
+    "storage.read",
+    "storage.write",
+    "ui.tabs"
+  ],
+  "ui": [
+    {
+      "id": "rag_context_tab",
+      "title": "RAG Context",
+      "area": "host_settings",
+      "ui_path": "ui/rag_context.ui",
+      "order": 132,
+      "tooltip": "Build and use a local text-file RAG index for chat sessions."
+    }
+  ],
+  "enabled": true
+}
