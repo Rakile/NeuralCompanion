@@ -81,6 +81,13 @@ class BackendPresetBodyRuntimeMixin:
     def _preset_payload_signature(self, payload):
         return json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
+    def _apply_preset_dirty_button_style(self):
+        if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
+            return
+        style = "border: 2px solid #d84a4a; border-radius: 10px;" if bool(getattr(self, "_preset_dirty_state", False)) else ""
+        self.btn_preset_save.setStyleSheet(style)
+        self.btn_preset_save_as.setStyleSheet(style)
+
     def _refresh_preset_dirty_state(self):
         if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
             return
@@ -92,6 +99,8 @@ class BackendPresetBodyRuntimeMixin:
             return
         if str(getattr(self, "_pending_preset_clean_name", "") or "").strip():
             return
+        if bool(getattr(self, "_theme_apply_in_progress", False)):
+            return
         current_signature = self._preset_payload_signature(self._build_preset_payload())
         if self._preset_reference_signature:
             dirty = current_signature != self._preset_reference_signature
@@ -101,9 +110,7 @@ class BackendPresetBodyRuntimeMixin:
             self._preset_reference_name = str(self.preset_combo.currentText() or "")
         if dirty != self._preset_dirty_state:
             self._preset_dirty_state = dirty
-            style = "border: 2px solid #d84a4a; border-radius: 10px;" if dirty else ""
-            self.btn_preset_save.setStyleSheet(style)
-            self.btn_preset_save_as.setStyleSheet(style)
+            self._apply_preset_dirty_button_style()
 
     def _update_preset_reference_from_selection(self, preset_name=None):
         name = str(preset_name or self.preset_combo.currentText() or "").strip()

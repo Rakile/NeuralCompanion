@@ -503,11 +503,22 @@ QTabWidget#right_tabs QTabBar::tab {
                 return
             self._frontend_theme_apply_in_progress = True
             callback = getattr(self.backend, "apply_app_theme_preset", None)
+            previous_backend_theme_apply = bool(getattr(self.backend, "_theme_apply_in_progress", False))
             try:
                 if callable(callback):
                     callback(preset_id, save_session=True)
+                if self.backend is not None:
+                    self.backend._theme_apply_in_progress = True
                 self._apply_theme_to_frontend_window()
                 self._apply_theme_to_runtime_panels()
                 self._refresh_frontend_theme_controls()
+                if self.backend is not None:
+                    self.backend._theme_apply_in_progress = previous_backend_theme_apply
+                self._sync_backend_to_ui(force=True)
             finally:
+                if self.backend is not None:
+                    try:
+                        self.backend._theme_apply_in_progress = previous_backend_theme_apply
+                    except Exception:
+                        pass
                 self._frontend_theme_apply_in_progress = False

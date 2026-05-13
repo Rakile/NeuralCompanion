@@ -60,6 +60,7 @@ class MainWindowThemeMixin:
             self._active_app_theme_preset = resolved_preset
             update_runtime_config("ui_theme_preset", resolved_preset)
             return resolved_preset
+        preset_dirty_state = getattr(self, "_preset_dirty_state", None)
         self._theme_apply_in_progress = True
         stylesheet = _build_app_stylesheet_for_preset(resolved_preset)
         try:
@@ -85,3 +86,7 @@ class MainWindowThemeMixin:
             return resolved_preset
         finally:
             self._theme_apply_in_progress = False
+            self._preset_dirty_state = preset_dirty_state
+            apply_dirty_style = getattr(self, "_apply_preset_dirty_button_style", None)
+            if callable(apply_dirty_style):
+                apply_dirty_style()
