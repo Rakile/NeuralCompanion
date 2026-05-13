@@ -224,11 +224,56 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             return None
         return self.window.findChild(cls or QtWidgets.QWidget, name)
 
+    def _forward_tabbar_wheel_to_parent_scroll_area(self, tab_bar, event):
+        if tab_bar is None or event is None:
+            return False
+        current = tab_bar.parentWidget()
+        scroll_area = None
+        while current is not None:
+            if isinstance(current, QtWidgets.QAbstractScrollArea):
+                scroll_area = current
+                break
+            current = current.parentWidget()
+        if scroll_area is None:
+            return False
+
+        try:
+            pixel_delta = event.pixelDelta()
+        except Exception:
+            pixel_delta = QtCore.QPoint()
+        try:
+            angle_delta = event.angleDelta()
+        except Exception:
+            angle_delta = QtCore.QPoint()
+
+        horizontal = bool(event.modifiers() & QtCore.Qt.ShiftModifier)
+        if horizontal and pixel_delta.x() == 0 and angle_delta.x() == 0:
+            horizontal = False
+        scrollbar = scroll_area.horizontalScrollBar() if horizontal else scroll_area.verticalScrollBar()
+        if scrollbar is None or not scrollbar.isEnabled() or not scrollbar.isVisible():
+            fallback = scroll_area.verticalScrollBar() if horizontal else scroll_area.horizontalScrollBar()
+            if fallback is None or not fallback.isEnabled() or not fallback.isVisible():
+                return False
+            scrollbar = fallback
+            horizontal = scrollbar.orientation() == QtCore.Qt.Horizontal
+
+        raw_delta = pixel_delta.x() if horizontal and pixel_delta.x() else pixel_delta.y()
+        if not raw_delta:
+            raw_delta = angle_delta.x() if horizontal and angle_delta.x() else angle_delta.y()
+            if raw_delta:
+                step = max(int(scrollbar.singleStep() or 0) * 3, int(scrollbar.pageStep() or 0) // 12, 24)
+                raw_delta = int(raw_delta / 120) * step
+        if not raw_delta:
+            return False
+        scrollbar.setValue(int(scrollbar.value() - raw_delta))
+        return True
+
 
     def eventFilter(self, watched, event):
         if event is not None and event.type() == QtCore.QEvent.Wheel:
             try:
                 if isinstance(watched, QtWidgets.QTabBar):
+                    self._forward_tabbar_wheel_to_parent_scroll_area(watched, event)
                     return True
             except Exception:
                 pass
