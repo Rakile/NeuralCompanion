@@ -881,9 +881,9 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
     def _update_output_backdrop_from_text(self, text: str) -> None:
         lower = text.lower()
-        if "downloading echo avatar pack" in lower or "extracting echo avatar pack" in lower:
+        if "echo avatar pack" in lower:
             self._set_output_backdrop("echo")
-        elif "downloading eon avatar pack" in lower or "extracting eon avatar pack" in lower:
+        elif "eon avatar pack" in lower:
             self._set_output_backdrop("eon")
         elif "installer summary" in lower or "installer exited" in lower:
             self._set_output_backdrop(None)
@@ -963,6 +963,13 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
     def _format_command(self, command: list[str]) -> str:
         return " ".join(f'"{item}"' if " " in item else item for item in command)
+
+    def _initial_output_backdrop_for_command(self, command: list[str]) -> str | None:
+        if "--avatar-pack-echo" in command or "--avatar-packs" in command:
+            return "echo"
+        if "--avatar-pack-eon" in command:
+            return "eon"
+        return None
 
     def _refresh_command_preview(self) -> None:
         try:
@@ -1069,6 +1076,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.last_exit_code = None
 
         self._append_output("\n> " + self._format_command(command) + "\n\n", tag="command")
+        self._set_output_backdrop(self._initial_output_backdrop_for_command(command))
 
         thread = threading.Thread(target=self._run_command_thread, args=(command,), daemon=True)
         thread.start()
