@@ -13,6 +13,7 @@ class PocketTTSService:
         self._lock = threading.RLock()
         self._adapter = None
         self._python_exe = ""
+        self._settings_signature = ()
         self.sr = 24000
 
     def _runtime_config_service(self):
@@ -35,10 +36,23 @@ class PocketTTSService:
                     service.update("pocket_tts_python", fallback)
         return python_exe
 
+    def _runtime_settings(self):
+        service = self._runtime_config_service()
+        getter = service.get if service is not None else (lambda _key, default=None: default)
+        return {
+            "temperature": max(0.05, float(getter("pocket_tts_temperature", 0.7) or 0.7)),
+            "lsd_decode_steps": max(1, int(getter("pocket_tts_lsd_decode_steps", 1) or 1)),
+            "eos_threshold": float(getter("pocket_tts_eos_threshold", -4.0) or -4.0),
+            "max_tokens": max(1, int(getter("pocket_tts_max_tokens", 50) or 50)),
+            "frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
+        }
+
     def _ensure_adapter(self):
         with self._lock:
             python_exe = self._resolve_python_exe()
-            if self._adapter is not None and python_exe == self._python_exe:
+            settings = self._runtime_settings()
+            signature = tuple((key, settings[key]) for key in sorted(settings))
+            if self._adapter is not None and python_exe == self._python_exe and signature == self._settings_signature:
                 return self._adapter
             if self._adapter is not None:
                 try:
@@ -52,8 +66,10 @@ class PocketTTSService:
                 app_root=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
                 safe_delete_with_retry=self._engine_attr("safe_delete_with_retry", None),
                 logger=print,
+                **settings,
             )
             self._python_exe = python_exe
+            self._settings_signature = signature
             self.sr = int(getattr(self._adapter, "sr", self.sr) or self.sr or 24000)
             return self._adapter
 
@@ -66,6 +82,7 @@ class PocketTTSService:
             adapter = self._adapter
             self._adapter = None
             self._python_exe = ""
+            self._settings_signature = ()
         if adapter is not None:
             try:
                 adapter.close()

@@ -350,3 +350,21 @@ class RealUiActionsChatSensoryMixin:
                 self.backend.apply_chat_edit_mode()
             finally:
                 self._sync_backend_to_ui(force=True)
+
+    def _send_frontend_typed_chat_message(self):
+            message_input = self._ui_object("chat_message_input")
+            if message_input is None or not hasattr(message_input, "text"):
+                return
+            text = str(message_input.text() or "").strip()
+            if not text:
+                return
+            queued = False
+            try:
+                queued = bool(self.backend.send_typed_chat_message(text=text))
+            finally:
+                if queued and hasattr(message_input, "clear"):
+                    try:
+                        message_input.clear()
+                    except Exception:
+                        pass
+                self._sync_backend_to_ui(force=True)

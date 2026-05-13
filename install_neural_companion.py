@@ -8,6 +8,9 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import urllib.request
+import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -19,6 +22,26 @@ POCKETTTS_VENV = REPO_ROOT / ".venvs" / "pockettts"
 MUSETALK_VENV = REPO_ROOT / "MuseTalk" / ".venv"
 MUSETALK_ROOT = REPO_ROOT / "MuseTalk"
 MUSETALK_MODELS = MUSETALK_ROOT / "models"
+AVATAR_PACKS_ROOT = REPO_ROOT / "avatar_packs"
+AVATAR_PACK_RELEASE_TAG = "v0.1.0"
+AVATAR_PACK_BASE_URL = (
+    "https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/download/"
+    f"{AVATAR_PACK_RELEASE_TAG}"
+)
+
+
+DEFAULT_AVATAR_PACKS = {
+    "echo": {
+        "id": "Echo",
+        "label": "Echo",
+        "filename": "neural-companion-avatar-pack-Echo.zip",
+    },
+    "eon": {
+        "id": "Eon",
+        "label": "Eon",
+        "filename": "neural-companion-avatar-pack-Eon.zip",
+    },
+}
 
 
 def style(text: str, color: str) -> str:
@@ -297,6 +320,80 @@ class Installer:
         script = "; ".join(f"import {name}" for name in imports)
         run_command([str(python_exe), "-c", script], cwd=REPO_ROOT)
         ok(f"{label} validation passed: imported {', '.join(imports)}")
+
+    def install_avatar_packs(self, pack_keys: list[str]) -> None:
+        if not pack_keys:
+            return
+        headline("Installing Avatar Packs")
+        AVATAR_PACKS_ROOT.mkdir(parents=True, exist_ok=True)
+        for pack_key in pack_keys:
+            self.install_avatar_pack(pack_key)
+
+    def install_avatar_pack(self, pack_key: str) -> None:
+        pack = DEFAULT_AVATAR_PACKS.get(pack_key)
+        if not pack:
+            warn(f"Unknown avatar pack target: {pack_key}")
+            return
+
+        pack_id = str(pack["id"])
+        label = str(pack["label"])
+        filename = str(pack["filename"])
+        destination = AVATAR_PACKS_ROOT / pack_id
+        if destination.exists():
+            ok(f"{label} avatar pack already installed at {destination}")
+            return
+
+        url = f"{AVATAR_PACK_BASE_URL}/{filename}"
+        with tempfile.TemporaryDirectory(prefix=f"nc_avatar_pack_{pack_key}_") as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_path = temp_root / filename
+            extract_root = temp_root / "extract"
+            note(f"Downloading {label} avatar pack...")
+            self.download_file(url, archive_path)
+            note(f"Extracting {label} avatar pack...")
+            self.extract_avatar_pack_zip(archive_path, extract_root)
+
+            extracted_pack = extract_root / pack_id
+            if not extracted_pack.is_dir():
+                raise SystemExit(
+                    f"{label} avatar pack archive did not contain the expected top-level folder: {pack_id}"
+                )
+            shutil.move(str(extracted_pack), str(destination))
+            ok(f"{label} avatar pack installed at {destination}")
+
+    def download_file(self, url: str, destination: Path) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        headers = {"User-Agent": "NeuralCompanionInstaller"}
+        token = str(os.environ.get("NC_AVATAR_PACK_GITHUB_TOKEN") or os.environ.get("GITHUB_TOKEN") or "").strip()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        request = urllib.request.Request(str(url), headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=120) as response, destination.open("wb") as handle:
+                total = int(response.headers.get("Content-Length") or 0)
+                downloaded = 0
+                next_report = 0
+                while True:
+                    chunk = response.read(1024 * 1024)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+                    downloaded += len(chunk)
+                    if total and downloaded >= next_report:
+                        percent = int((downloaded / total) * 100)
+                        note(f"  downloaded {percent}%")
+                        next_report = downloaded + max(total // 10, 1)
+        except Exception as exc:
+            raise SystemExit(f"Could not download {url}: {exc}") from exc
+
+    def extract_avatar_pack_zip(self, archive_path: Path, destination: Path) -> None:
+        destination.mkdir(parents=True, exist_ok=True)
+        with zipfile.ZipFile(archive_path) as archive:
+            for member in archive.infolist():
+                member_path = Path(member.filename)
+                if member_path.is_absolute() or ".." in member_path.parts:
+                    raise SystemExit(f"Avatar pack archive contains an unsafe path: {member.filename}")
+            archive.extractall(destination)
 
     def install_main(self) -> None:
         headline("Installing Neural Companion")
@@ -601,7 +698,7 @@ for job in jobs:
         else:
             warn(f"{label} torch CUDA check: {detail}")
 
-    def final_summary(self, install_main: bool, install_musetalk: bool, install_pockettts: bool) -> None:
+    def final_summary(self, install_main: bool, install_musetalk: bool, install_pockettts: bool, avatar_pack_keys: list[str]) -> None:
         headline("Installer Summary")
         ok("Unified installer finished.")
         note(f"Python 3.11 source: {self.selected_python_label()}")
@@ -616,12 +713,16 @@ for job in jobs:
                 ok(f"PocketTTS cloning login check: {self.pockettts_auth_detail}")
             elif self.pockettts_auth_status in {"partial", "missing", "unknown"}:
                 warn(f"PocketTTS cloning login check: {self.pockettts_auth_detail}")
+        for pack_key in avatar_pack_keys:
+            pack = DEFAULT_AVATAR_PACKS.get(pack_key, {})
+            pack_id = str(pack.get("id") or pack_key)
+            ok(f"Avatar pack ready at {AVATAR_PACKS_ROOT / pack_id}")
 
         print()
         warn("Still worth checking by hand:")
         print("  - FFmpeg is on PATH")
         print("  - LM Studio is installed and has a model loaded if you want local chat")
-        print("  - MuseTalk avatar packs are imported separately into avatar_packs/<pack_id>")
+        print("  - Optional MuseTalk avatar packs live in avatar_packs/<pack_id>")
         print("  - PocketTTS voice cloning still requires Hugging Face terms acceptance on kyutai/pocket-tts")
         print()
         ok("Launch the app with run_neural_companion.bat")
@@ -635,6 +736,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--main", action="store_true", help="Install the main Neural Companion runtime")
     parser.add_argument("--musetalk", action="store_true", help="Install the isolated MuseTalk runtime")
     parser.add_argument("--pockettts", action="store_true", help="Install the isolated PocketTTS runtime")
+    parser.add_argument("--avatar-pack-echo", action="store_true", help="Download and install the default Echo avatar pack")
+    parser.add_argument("--avatar-pack-eon", action="store_true", help="Download and install the default Eon avatar pack")
+    parser.add_argument("--avatar-packs", action="store_true", help="Download and install all default avatar packs")
     parser.add_argument("--all", action="store_true", help="Install main app, MuseTalk, and PocketTTS")
     parser.add_argument("--skip-main-torch", action="store_true", help="Skip the main app torch install")
     parser.add_argument("--doctor-only", action="store_true", help="Run preflight checks only")
@@ -642,25 +746,39 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, bool]:
-    if args.all:
-        return True, True, True
+def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, bool, list[str]]:
+    avatar_pack_keys: list[str] = []
+    if args.avatar_pack_echo:
+        avatar_pack_keys.append("echo")
+    if args.avatar_pack_eon:
+        avatar_pack_keys.append("eon")
+    if args.avatar_packs:
+        avatar_pack_keys = list(DEFAULT_AVATAR_PACKS.keys())
 
-    requested_any = args.main or args.musetalk or args.pockettts
+    if args.all:
+        return True, True, True, avatar_pack_keys
+
+    requested_any = args.main or args.musetalk or args.pockettts or bool(avatar_pack_keys)
     if requested_any:
-        return args.main, args.musetalk, args.pockettts
+        return args.main, args.musetalk, args.pockettts, avatar_pack_keys
 
     if args.doctor_only:
-        return False, False, False
+        return False, False, False, []
 
     if args.non_interactive:
-        return True, False, False
+        return True, False, False, []
 
     headline("Installation Selection")
     install_main = prompt_yes_no("Install the main Neural Companion runtime?", True)
     install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", True)
     install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", True)
-    return install_main, install_musetalk, install_pockettts
+    install_echo = prompt_yes_no("Download and install the default Echo avatar pack?", False)
+    install_eon = prompt_yes_no("Download and install the default Eon avatar pack?", False)
+    if install_echo:
+        avatar_pack_keys.append("echo")
+    if install_eon:
+        avatar_pack_keys.append("eon")
+    return install_main, install_musetalk, install_pockettts, avatar_pack_keys
 
 
 def main() -> int:
@@ -672,8 +790,8 @@ def main() -> int:
     if args.doctor_only:
         return 0
 
-    install_main, install_musetalk, install_pockettts = resolve_requested_components(args)
-    if not any([install_main, install_musetalk, install_pockettts]):
+    install_main, install_musetalk, install_pockettts, avatar_pack_keys = resolve_requested_components(args)
+    if not any([install_main, install_musetalk, install_pockettts, bool(avatar_pack_keys)]):
         warn("Nothing was selected for installation.")
         return 0
 
@@ -684,6 +802,8 @@ def main() -> int:
             installer.install_musetalk()
         if install_pockettts:
             installer.install_pockettts()
+        if avatar_pack_keys:
+            installer.install_avatar_packs(avatar_pack_keys)
     except subprocess.CalledProcessError as exc:
         fail("")
         fail("Installation failed.")
@@ -701,7 +821,7 @@ def main() -> int:
             print(exc.stderr)
         return exc.returncode or 1
 
-    installer.final_summary(install_main, install_musetalk, install_pockettts)
+    installer.final_summary(install_main, install_musetalk, install_pockettts, avatar_pack_keys)
     return 0
 
 

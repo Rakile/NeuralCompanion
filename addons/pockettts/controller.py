@@ -14,11 +14,17 @@ class PocketTTSController:
             context.get_service("qt.shell_preview") or context.get_service("qt.pockettts_shell_preview")
         ) if context is not None else False
         self._shell_python = self._initial_shell_python()
+        self._shell_generation_state = self._initial_shell_generation_state()
         self._widget = None
         self._advanced_group = None
         self._advanced_toggle = None
         self._python_edit = None
         self._bundled_label = None
+        self._temperature_spin = None
+        self._lsd_steps_spin = None
+        self._eos_threshold_spin = None
+        self._max_tokens_spin = None
+        self._frames_after_eos_spin = None
 
     def _runtime_config_service(self):
         return self.context.get_service("qt.runtime_config") if self.context is not None else None
@@ -41,6 +47,24 @@ class PocketTTSController:
                 return ""
         return ""
 
+    def _initial_shell_generation_state(self):
+        if not self._shell_preview:
+            return {}
+        session_getter = self.context.get_service("qt.shell_session_snapshot") if self.context is not None else None
+        session = {}
+        if callable(session_getter):
+            try:
+                session = dict(session_getter() or {})
+            except Exception:
+                session = {}
+        return {
+            "pocket_tts_temperature": max(0.05, float(session.get("pocket_tts_temperature", 0.7) or 0.7)),
+            "pocket_tts_lsd_decode_steps": max(1, int(session.get("pocket_tts_lsd_decode_steps", 1) or 1)),
+            "pocket_tts_eos_threshold": float(session.get("pocket_tts_eos_threshold", -4.0) or -4.0),
+            "pocket_tts_max_tokens": max(1, int(session.get("pocket_tts_max_tokens", 50) or 50)),
+            "pocket_tts_frames_after_eos": max(0, int(session.get("pocket_tts_frames_after_eos", 0) or 0)),
+        }
+
     def _notify_settings_changed(self):
         notifier = getattr(self.shell, "notify_settings_changed", None) if self.shell is not None else None
         if callable(notifier):
@@ -53,6 +77,30 @@ class PocketTTSController:
         if service is None:
             return ""
         return str(service.get("pocket_tts_python", "") or "").strip()
+
+    def _current_generation_state(self):
+        if self._shell_preview:
+            getter = self._shell_generation_state.get
+        else:
+            service = self._runtime_config_service()
+            getter = service.get if service is not None else (lambda _key, default=None: default)
+        return {
+            "pocket_tts_temperature": max(0.05, float(getter("pocket_tts_temperature", 0.7) or 0.7)),
+            "pocket_tts_lsd_decode_steps": max(1, int(getter("pocket_tts_lsd_decode_steps", 1) or 1)),
+            "pocket_tts_eos_threshold": float(getter("pocket_tts_eos_threshold", -4.0) or -4.0),
+            "pocket_tts_max_tokens": max(1, int(getter("pocket_tts_max_tokens", 50) or 50)),
+            "pocket_tts_frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
+        }
+
+    def _set_runtime(self, key: str, value):
+        if self._shell_preview:
+            self._shell_generation_state[str(key)] = value
+            self._notify_settings_changed()
+            return
+        service = self._runtime_config_service()
+        if service is not None:
+            service.update(str(key), value)
+        self._notify_settings_changed()
 
     def _set_python(self, value: str):
         if self._shell_preview:
@@ -83,6 +131,23 @@ class PocketTTSController:
             self._python_edit.blockSignals(True)
             self._python_edit.setText(self._current_python())
             self._python_edit.blockSignals(False)
+        state = self._current_generation_state()
+        for attr, key in (
+            ("_temperature_spin", "pocket_tts_temperature"),
+            ("_lsd_steps_spin", "pocket_tts_lsd_decode_steps"),
+            ("_eos_threshold_spin", "pocket_tts_eos_threshold"),
+            ("_max_tokens_spin", "pocket_tts_max_tokens"),
+            ("_frames_after_eos_spin", "pocket_tts_frames_after_eos"),
+        ):
+            widget = getattr(self, attr, None)
+            if not self._widget_alive(widget):
+                continue
+            widget.blockSignals(True)
+            try:
+                widget.setValue(state[key])
+            except Exception:
+                pass
+            widget.blockSignals(False)
         if self._widget_alive(self._advanced_toggle) and self._widget_alive(self._advanced_group):
             self._advanced_group.setVisible(bool(self._advanced_toggle.isChecked()))
 
@@ -159,6 +224,11 @@ class PocketTTSController:
         self._advanced_toggle = self._ui_child(widget, "btn_pockettts_advanced_toggle", QtWidgets.QPushButton)
         self._python_edit = self._ui_child(widget, "pockettts_python_edit", QtWidgets.QLineEdit)
         self._bundled_label = self._ui_child(widget, "pockettts_bundled_label", QtWidgets.QLabel)
+        self._temperature_spin = self._ui_child(widget, "pockettts_temperature_spin", QtWidgets.QDoubleSpinBox)
+        self._lsd_steps_spin = self._ui_child(widget, "pockettts_lsd_steps_spin", QtWidgets.QSpinBox)
+        self._eos_threshold_spin = self._ui_child(widget, "pockettts_eos_threshold_spin", QtWidgets.QDoubleSpinBox)
+        self._max_tokens_spin = self._ui_child(widget, "pockettts_max_tokens_spin", QtWidgets.QSpinBox)
+        self._frames_after_eos_spin = self._ui_child(widget, "pockettts_frames_after_eos_spin", QtWidgets.QSpinBox)
         browse = self._ui_child(widget, "btn_pockettts_browse", QtWidgets.QPushButton)
         bundled_button = self._ui_child(widget, "btn_pockettts_use_bundled", QtWidgets.QPushButton)
         note = self._ui_child(widget, "pockettts_note_label", QtWidgets.QLabel)
@@ -167,6 +237,11 @@ class PocketTTSController:
             self._advanced_group,
             self._python_edit,
             self._bundled_label,
+            self._temperature_spin,
+            self._lsd_steps_spin,
+            self._eos_threshold_spin,
+            self._max_tokens_spin,
+            self._frames_after_eos_spin,
             browse,
             bundled_button,
             note,
@@ -180,6 +255,29 @@ class PocketTTSController:
         self._bundled_label.setText(f"Bundled interpreter: {bundled_text}")
         self._python_edit.setPlaceholderText("Optional override path to PocketTTS python.exe")
         self._python_edit.editingFinished.connect(lambda: self._set_python(self._python_edit.text()))
+
+        self._temperature_spin.setRange(0.05, 2.0)
+        self._temperature_spin.setSingleStep(0.05)
+        self._temperature_spin.setDecimals(2)
+        self._temperature_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_temperature", max(0.05, float(value or 0.7))))
+
+        self._lsd_steps_spin.setRange(1, 8)
+        self._lsd_steps_spin.setSingleStep(1)
+        self._lsd_steps_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_lsd_decode_steps", max(1, int(value or 1))))
+
+        self._eos_threshold_spin.setRange(-12.0, 0.0)
+        self._eos_threshold_spin.setSingleStep(0.25)
+        self._eos_threshold_spin.setDecimals(2)
+        self._eos_threshold_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_eos_threshold", float(value if value is not None else -4.0)))
+
+        self._max_tokens_spin.setRange(10, 200)
+        self._max_tokens_spin.setSingleStep(5)
+        self._max_tokens_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_max_tokens", max(1, int(value or 50))))
+
+        self._frames_after_eos_spin.setRange(0, 10)
+        self._frames_after_eos_spin.setSingleStep(1)
+        self._frames_after_eos_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_frames_after_eos", max(0, int(value or 0))))
+
         browse.clicked.connect(self._browse_python)
         bundled_button.clicked.connect(self._reset_to_default)
         if self._widget_alive(self._advanced_toggle):
@@ -204,11 +302,13 @@ class PocketTTSController:
     def export_session_state(self):
         return {
             "pocket_tts_python": self._current_python(),
+            **self._current_generation_state(),
         }
 
     def export_preset_state(self):
         return {
             "pocket_tts_python": self._current_python(),
+            **self._current_generation_state(),
         }
 
     def import_session_state(self, session):
@@ -217,6 +317,20 @@ class PocketTTSController:
             self._set_python(str(payload.get("pocket_tts_python") or "").strip())
         elif not self._shell_preview and not self._current_python():
             self._ensure_default_python()
+        mapping = {
+            "pocket_tts_temperature": lambda v: max(0.05, float(v or 0.7)),
+            "pocket_tts_lsd_decode_steps": lambda v: max(1, int(v or 1)),
+            "pocket_tts_eos_threshold": lambda v: float(v if v is not None else -4.0),
+            "pocket_tts_max_tokens": lambda v: max(1, int(v or 50)),
+            "pocket_tts_frames_after_eos": lambda v: max(0, int(v or 0)),
+        }
+        for key, converter in mapping.items():
+            if key not in payload:
+                continue
+            try:
+                self._set_runtime(key, converter(payload.get(key)))
+            except Exception:
+                pass
         self._sync_widgets_from_runtime()
         return None
 

@@ -151,6 +151,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.install_main = tk.BooleanVar(value=True)
         self.install_musetalk = tk.BooleanVar(value=True)
         self.install_pockettts = tk.BooleanVar(value=True)
+        self.install_avatar_echo = tk.BooleanVar(value=False)
+        self.install_avatar_eon = tk.BooleanVar(value=False)
         self.skip_main_torch = tk.BooleanVar(value=False)
 
         self.status_text = tk.StringVar(value="Ready")
@@ -457,7 +459,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
         ttk.Label(card, text="Install targets", style="CardTitle.TLabel").pack(anchor=tk.W)
         ttk.Label(
             card,
-            text="MuseTalk and PocketTTS stay isolated to reduce dependency collisions.",
+            text="MuseTalk and PocketTTS stay isolated to reduce dependency collisions. Avatar packs install into avatar_packs.",
             style="CardText.TLabel",
             wraplength=275,
         ).pack(anchor=tk.W, pady=(2, 10))
@@ -479,6 +481,18 @@ class NeuralCompanionInstallerGui(tk.Tk):
             title="PocketTTS runtime",
             description="Isolated voice runtime. May require Hugging Face login.",
             variable=self.install_pockettts,
+        )
+        self._runtime_tile(
+            card,
+            title="Echo avatar pack",
+            description="Default feminine MuseTalk avatar pack.",
+            variable=self.install_avatar_echo,
+        )
+        self._runtime_tile(
+            card,
+            title="Eon avatar pack",
+            description="Default masculine MuseTalk avatar pack.",
+            variable=self.install_avatar_eon,
         )
 
         skip = ttk.Checkbutton(
@@ -817,6 +831,10 @@ class NeuralCompanionInstallerGui(tk.Tk):
                 selected.append("--musetalk")
             if self.install_pockettts.get():
                 selected.append("--pockettts")
+            if self.install_avatar_echo.get():
+                selected.append("--avatar-pack-echo")
+            if self.install_avatar_eon.get():
+                selected.append("--avatar-pack-eon")
             command.extend(selected or ["<choose at least one target>"])
             self.command_preview.set(self._format_command(command))
         except Exception as exc:
@@ -882,7 +900,17 @@ class NeuralCompanionInstallerGui(tk.Tk):
             command.append("--musetalk")
         if self.install_pockettts.get():
             command.append("--pockettts")
-        if not any((self.install_main.get(), self.install_musetalk.get(), self.install_pockettts.get())):
+        if self.install_avatar_echo.get():
+            command.append("--avatar-pack-echo")
+        if self.install_avatar_eon.get():
+            command.append("--avatar-pack-eon")
+        if not any((
+            self.install_main.get(),
+            self.install_musetalk.get(),
+            self.install_pockettts.get(),
+            self.install_avatar_echo.get(),
+            self.install_avatar_eon.get(),
+        )):
             messagebox.showwarning("Nothing selected", "Choose at least one runtime to install.")
             return
         self._start_command(command)

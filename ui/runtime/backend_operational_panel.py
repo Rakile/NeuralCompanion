@@ -131,6 +131,18 @@ class BackendOperationalPanelMixin:
         self.chat_edit.customContextMenuRequested.connect(self._show_chat_context_menu)
         chat_layout.addLayout(chat_header)
         chat_layout.addWidget(self.chat_edit, 1)
+        chat_input_row = QtWidgets.QHBoxLayout()
+        chat_input_row.setSpacing(8)
+        self.chat_message_input = QtWidgets.QLineEdit()
+        self.chat_message_input.setObjectName("chat_message_input")
+        self.chat_message_input.setPlaceholderText("Type a message...")
+        self.chat_message_input.returnPressed.connect(self.send_typed_chat_message)
+        chat_input_row.addWidget(self.chat_message_input, 1)
+        self.chat_send_button = QtWidgets.QPushButton("Send")
+        self.chat_send_button.setObjectName("chat_send_button")
+        self.chat_send_button.clicked.connect(self.send_typed_chat_message)
+        chat_input_row.addWidget(self.chat_send_button)
+        chat_layout.addLayout(chat_input_row)
         self.chat_tab = chat_tab
         self.right_tabs.addTab(chat_tab, "Chat")
 

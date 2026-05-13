@@ -52,7 +52,7 @@ class MainUiRealThemeMixin:
     def _frontend_dock_title_stylesheet(self, palette):
             window_bg = palette.get("window_bg", "#11161d")
             panel_bg = palette.get("panel_bg", "#18202a")
-            header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
+            header_bg = palette.get("panel_bg", palette.get("header_bg", palette.get("field_bg", "#131a23")))
             border = palette.get("surface_border", "#273342")
             text = palette.get("text", "#e5e9f0")
             text_strong = palette.get("text_strong", "#f2f5f9")
@@ -294,7 +294,7 @@ QDockWidget::float-button:hover {{
             if title_bar is None or not bool(title_bar.property("nc_custom_dock_title")):
                 return
             palette = title_bar.property("nc_theme_palette") or {}
-            header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
+            header_bg = palette.get("panel_bg", palette.get("header_bg", palette.get("field_bg", "#131a23")))
             panel_bg = palette.get("panel_bg", "#18202a")
             button_bg = palette.get("button_bg", "#223247")
             button_hover_bg = palette.get("button_hover_bg", "#29405b")

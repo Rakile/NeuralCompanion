@@ -88,7 +88,7 @@ class LegacyDockTitleMixin:
         if title_bar is None or not bool(title_bar.property("nc_legacy_custom_dock_title")):
             return
         palette = title_bar.property("nc_theme_palette") or {}
-        header_bg = palette.get("header_bg", palette.get("field_bg", "#131a23"))
+        header_bg = palette.get("panel_bg", palette.get("header_bg", palette.get("field_bg", "#131a23")))
         panel_bg = palette.get("panel_bg", "#18202a")
         button_bg = palette.get("button_bg", "#223247")
         button_hover_bg = palette.get("button_hover_bg", "#29405b")

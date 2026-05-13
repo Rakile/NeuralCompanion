@@ -29,5 +29,9 @@ def replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
     )
 
 
+def queue_typed_chat_message(text, role=None):
+    return engine_module().queue_typed_chat_message(text, role=role)
+
+
 def __getattr__(name: str) -> Any:
     return getattr(engine_module(), str(name))

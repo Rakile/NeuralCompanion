@@ -80,6 +80,8 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("chat_autoscroll_button", "QPushButton"),
             ("chat_clear_button", "QPushButton"),
             ("chat_edit", "QTextEdit"),
+            ("chat_message_input", "QLineEdit"),
+            ("chat_send_button", "QPushButton"),
             ("btn_regenerate", "QPushButton"),
             ("btn_retry", "QPushButton"),
             ("btn_pause", "QPushButton"),

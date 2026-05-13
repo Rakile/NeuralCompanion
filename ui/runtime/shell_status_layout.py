@@ -187,7 +187,7 @@ def _ui_shell_host_core_state(window):
         "chat_context_overflow_policy": combo_text("chat_overflow_policy_combo", overflow_label),
         "allow_proactive_replies": bool(
             _ui_shell_find_object(window, "allow_proactive_checkbox").isChecked()
-        ) if _ui_shell_find_object(window, "allow_proactive_checkbox") is not None and hasattr(_ui_shell_find_object(window, "allow_proactive_checkbox"), "isChecked") else bool(session.get("allow_proactive_replies", True)),
+        ) if _ui_shell_find_object(window, "allow_proactive_checkbox") is not None and hasattr(_ui_shell_find_object(window, "allow_proactive_checkbox"), "isChecked") else bool(session.get("allow_proactive_replies", False)),
         "require_first_user_before_proactive": bool(
             _ui_shell_find_object(window, "require_first_user_checkbox").isChecked()
         ) if _ui_shell_find_object(window, "require_first_user_checkbox") is not None and hasattr(_ui_shell_find_object(window, "require_first_user_checkbox"), "isChecked") else bool(session.get("require_first_user_before_proactive", False)),

@@ -139,7 +139,7 @@ class _UiShellInputSettingsService:
             "input_mode": self._combo_text("input_mode_combo", session.get("input_mode", "Voice Activation")),
             "input_role": self._combo_text("input_role_combo", session.get("input_message_role", "User Message")),
             "stream_mode": self._combo_text("stream_mode_combo", session.get("stream_mode", "Off")),
-            "allow_proactive_replies": self._checked("allow_proactive_checkbox", session.get("allow_proactive_replies", True)),
+            "allow_proactive_replies": self._checked("allow_proactive_checkbox", session.get("allow_proactive_replies", False)),
             "require_first_user_before_proactive": self._checked("require_first_user_checkbox", session.get("require_first_user_before_proactive", False)),
             "listen_idle_window_seconds": float(self._spin_value("listen_idle_window_spin", session.get("listen_idle_window_seconds", 5.0))),
             "proactive_delay_seconds": float(self._spin_value("proactive_delay_spin", session.get("proactive_delay_seconds", 10.0))),

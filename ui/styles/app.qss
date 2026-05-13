@@ -148,8 +148,41 @@ QDoubleSpinBox::up-button, QDoubleSpinBox::down-button, QSpinBox::up-button, QSp
     border-left: 1px solid #324055;
     width: 18px;
 }
+QDoubleSpinBox::up-button, QSpinBox::up-button {
+    subcontrol-origin: border;
+    subcontrol-position: top right;
+    border-top-right-radius: 10px;
+    border-bottom: 1px solid #324055;
+}
+QDoubleSpinBox::down-button, QSpinBox::down-button {
+    subcontrol-origin: border;
+    subcontrol-position: bottom right;
+    border-bottom-right-radius: 10px;
+}
 QDoubleSpinBox::up-button:hover, QDoubleSpinBox::down-button:hover, QSpinBox::up-button:hover, QSpinBox::down-button:hover {
     background: #223247;
+}
+QDoubleSpinBox::up-arrow, QSpinBox::up-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 5px solid #d8dee9;
+}
+QDoubleSpinBox::down-arrow, QSpinBox::down-arrow {
+    image: none;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid #d8dee9;
+}
+QDoubleSpinBox::up-arrow:disabled, QSpinBox::up-arrow:disabled {
+    border-bottom-color: #7f8791;
+}
+QDoubleSpinBox::down-arrow:disabled, QSpinBox::down-arrow:disabled {
+    border-top-color: #7f8791;
 }
 QComboBox QAbstractItemView, QListWidget {
     background: #16202b;
@@ -211,6 +244,19 @@ QTabBar::tab {
     margin-right: 4px;
 }
 QTabBar::tab:selected { background: #233245; }
+QTabBar {
+    background: #11161d;
+    border: 0;
+    qproperty-drawBase: 0;
+}
+QMainWindow::separator {
+    background: #273342;
+    width: 1px;
+    height: 1px;
+}
+QMainWindow::separator:hover {
+    background: #324b69;
+}
 QTabWidget#sensory_feedback_tabs::tab-bar,
 QTabWidget#vseeface_tabs::tab-bar,
 QTabWidget#musetalk_tabs::tab-bar,

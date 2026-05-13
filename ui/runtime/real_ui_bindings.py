@@ -151,6 +151,12 @@ class MainUiRealBindingMixin:
             cancel_button = self._ui_object("chat_cancel_edit_button")
             if cancel_button is not None and hasattr(cancel_button, "clicked"):
                 cancel_button.clicked.connect(self._cancel_chat_edit_mode_from_ui_real)
+            send_button = self._ui_object("chat_send_button")
+            if send_button is not None and hasattr(send_button, "clicked"):
+                send_button.clicked.connect(self._send_frontend_typed_chat_message)
+            message_input = self._ui_object("chat_message_input")
+            if message_input is not None and hasattr(message_input, "returnPressed"):
+                message_input.returnPressed.connect(self._send_frontend_typed_chat_message)
 
     def _show_frontend_chat_context_menu(self, point):
             chat_edit = self._ui_object("chat_edit")
@@ -173,6 +179,40 @@ class MainUiRealBindingMixin:
                 menu.exec(chat_edit.viewport().mapToGlobal(point))
             except Exception:
                 pass
+
+    def _bind_performance_guidance_controls(self):
+            toggle = self._ui_object("performance_guidance_toggle")
+            if toggle is not None and hasattr(toggle, "toggled"):
+                toggle.toggled.connect(self._toggle_frontend_performance_guidance)
+                self._toggle_frontend_performance_guidance(bool(toggle.isChecked()))
+
+    def _toggle_frontend_performance_guidance(self, checked):
+            visible = bool(checked)
+            for object_name in (
+                "stream_hint_label",
+                "musetalk_vram_hint",
+                "context_check_label",
+                "model_context_input",
+                "context_tokens_label",
+                "model_budget_label",
+            ):
+                widget = self._ui_object(object_name)
+                if widget is not None and hasattr(widget, "setVisible"):
+                    widget.setVisible(visible)
+            toggle = self._ui_object("performance_guidance_toggle")
+            if toggle is not None and hasattr(toggle, "setText"):
+                toggle.setText("Hide Performance Guidance" if visible else "Show Performance Guidance")
+            backend_toggle = getattr(self.backend, "performance_guidance_toggle", None)
+            if backend_toggle is not None and hasattr(backend_toggle, "setChecked"):
+                try:
+                    backend_toggle.setChecked(visible)
+                except Exception:
+                    pass
+            if hasattr(self.backend, "_toggle_performance_guidance"):
+                try:
+                    self.backend._toggle_performance_guidance(visible)
+                except Exception:
+                    pass
 
     def _bind_dry_run_controls(self):
             bindings = {

@@ -199,11 +199,28 @@ def build_generation_kwargs(runtime_config, *, set_seed=None, path_exists=os.pat
 
 
 class PocketTTSSubprocessAdapter:
-    def __init__(self, python_exe, *, app_root=None, safe_delete_with_retry=None, logger=print):
+    def __init__(
+        self,
+        python_exe,
+        *,
+        app_root=None,
+        safe_delete_with_retry=None,
+        logger=print,
+        temperature=0.7,
+        lsd_decode_steps=1,
+        eos_threshold=-4.0,
+        max_tokens=50,
+        frames_after_eos=0,
+    ):
         self.python_exe = python_exe
         self.app_root = app_root or os.getcwd()
         self.safe_delete_with_retry = safe_delete_with_retry or (lambda path: None)
         self.logger = logger
+        self.temperature = float(temperature or 0.7)
+        self.lsd_decode_steps = max(1, int(lsd_decode_steps or 1))
+        self.eos_threshold = float(eos_threshold if eos_threshold is not None else -4.0)
+        self.max_tokens = max(1, int(max_tokens or 50))
+        self.frames_after_eos = max(0, int(frames_after_eos or 0))
         self.process = None
         self.lock = threading.Lock()
         self.sr = 24000
@@ -216,8 +233,18 @@ class PocketTTSSubprocessAdapter:
             raise FileNotFoundError(f"PocketTTS interpreter not found: {self.python_exe}")
         if not os.path.exists(worker_script):
             raise FileNotFoundError(f"PocketTTS worker not found: {worker_script}")
+        command = [
+            self.python_exe,
+            worker_script,
+            "--temperature",
+            str(self.temperature),
+            "--lsd-decode-steps",
+            str(self.lsd_decode_steps),
+            "--eos-threshold",
+            str(self.eos_threshold),
+        ]
         self.process = subprocess.Popen(
-            [self.python_exe, worker_script],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -262,12 +289,16 @@ class PocketTTSSubprocessAdapter:
             raise RuntimeError("PocketTTS worker is not available")
         request_id = uuid.uuid4().hex[:8]
         output_path = str(runtime_paths.runtime_temp_file(f"pocket_tts_{request_id}.wav", "tts", "pocket_tts"))
+        max_tokens = max(1, int(kwargs.get("pocket_tts_max_tokens", self.max_tokens) or self.max_tokens))
+        frames_after_eos = max(0, int(kwargs.get("pocket_tts_frames_after_eos", self.frames_after_eos) or 0))
         payload = {
             "cmd": "synthesize",
             "request_id": request_id,
             "text": text,
             "voice_prompt": audio_prompt_path or "alba",
             "output_path": output_path,
+            "max_tokens": max_tokens,
+            "frames_after_eos": frames_after_eos,
         }
         with self.lock:
             self.process.stdin.write(json.dumps(payload) + "\n")

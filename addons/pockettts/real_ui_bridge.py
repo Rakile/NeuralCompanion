@@ -12,7 +12,36 @@ def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
         python_path = backend._ensure_pocket_tts_python_path()
     else:
         python_path = backend._live_text("pocket_tts_python_edit", runtime.get("pocket_tts_python", "")).strip()
-    return {"pocket_tts_python": python_path}
+    return {
+        "pocket_tts_python": python_path,
+        "pocket_tts_temperature": _live_float(backend, "pockettts_temperature_spin", runtime.get("pocket_tts_temperature", 0.7), minimum=0.05),
+        "pocket_tts_lsd_decode_steps": _live_int(backend, "pockettts_lsd_steps_spin", runtime.get("pocket_tts_lsd_decode_steps", 1), minimum=1),
+        "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
+        "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
+        "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
+    }
+
+
+def _live_float(backend, object_name, default, *, minimum=None):
+    widget = backend._live_widget_attr(object_name)
+    try:
+        value = float(widget.value()) if widget is not None and hasattr(widget, "value") else float(default)
+    except Exception:
+        value = float(default)
+    if minimum is not None:
+        value = max(float(minimum), value)
+    return value
+
+
+def _live_int(backend, object_name, default, *, minimum=None):
+    widget = backend._live_widget_attr(object_name)
+    try:
+        value = int(widget.value()) if widget is not None and hasattr(widget, "value") else int(default)
+    except Exception:
+        value = int(default)
+    if minimum is not None:
+        value = max(int(minimum), value)
+    return value
 
 
 def estimated_runtime_overhead_gib():
@@ -26,7 +55,12 @@ def build_status_snapshot(backend, runtime_config=None):
         "pocket_tts_python": backend._live_text(
             "pocket_tts_python_edit",
             runtime.get("pocket_tts_python", ""),
-        ).strip()
+        ).strip(),
+        "pocket_tts_temperature": _live_float(backend, "pockettts_temperature_spin", runtime.get("pocket_tts_temperature", 0.7), minimum=0.05),
+        "pocket_tts_lsd_decode_steps": _live_int(backend, "pockettts_lsd_steps_spin", runtime.get("pocket_tts_lsd_decode_steps", 1), minimum=1),
+        "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
+        "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
+        "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
     }
 
 
@@ -36,11 +70,30 @@ def refresh_resource_widgets(backend, runtime_config=None):
     widget = backend._live_widget_attr("pocket_tts_python_edit")
     if widget is not None:
         widget.setText(str(runtime.get("pocket_tts_python", "") or ""))
+    for object_name, key, default in (
+        ("pockettts_temperature_spin", "pocket_tts_temperature", 0.7),
+        ("pockettts_lsd_steps_spin", "pocket_tts_lsd_decode_steps", 1),
+        ("pockettts_eos_threshold_spin", "pocket_tts_eos_threshold", -4.0),
+        ("pockettts_max_tokens_spin", "pocket_tts_max_tokens", 50),
+        ("pockettts_frames_after_eos_spin", "pocket_tts_frames_after_eos", 0),
+    ):
+        spin = backend._live_widget_attr(object_name)
+        if spin is not None and hasattr(spin, "setValue"):
+            spin.setValue(runtime.get(key, default))
 
 
 def restart_sensitive_widgets(backend):
     """Return PocketTTS-owned controls that should lock while the engine is running."""
-    names = ("pocket_tts_python_edit", "pocket_tts_browse_button")
+    names = (
+        "pocket_tts_python_edit",
+        "pocket_tts_browse_button",
+        "btn_pockettts_browse",
+        "pockettts_temperature_spin",
+        "pockettts_lsd_steps_spin",
+        "pockettts_eos_threshold_spin",
+        "pockettts_max_tokens_spin",
+        "pockettts_frames_after_eos_spin",
+    )
     return [
         widget
         for widget in (backend._live_widget_attr(name) for name in names)

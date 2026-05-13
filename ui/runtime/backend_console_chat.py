@@ -240,6 +240,30 @@ class BackendConsoleChatMixin:
         self._console_redirect.chat_line_count = 0
         self._update_chat_status(0, int(self.chat_auto_scroll))
 
+    def send_typed_chat_message(self, text=None):
+        if getattr(self, "chat_edit_mode", False):
+            print("[QtGUI] Exit chat edit mode before sending a typed message.")
+            return False
+        if text is None:
+            widget = getattr(self, "chat_message_input", None)
+            text = widget.text() if widget is not None and hasattr(widget, "text") else ""
+        message = str(text or "").strip()
+        if not message:
+            return False
+        thread = getattr(self, "thread", None)
+        if thread is None or not thread.is_alive():
+            print("[QtGUI] Initialize the system before sending a typed chat message.")
+            return False
+        result = _engine().queue_typed_chat_message(message, role="user")
+        if not bool(dict(result or {}).get("queued", False)):
+            print(f"[QtGUI] Typed chat message was not queued: {dict(result or {}).get('reason', 'unknown')}")
+            return False
+        widget = getattr(self, "chat_message_input", None)
+        if widget is not None and hasattr(widget, "clear"):
+            widget.clear()
+        print("[QtGUI] Queued typed chat message.")
+        return True
+
     def _chat_label_for_entry(self, entry):
         role = str((entry or {}).get("role", "") or "").strip().lower()
         origin = str((entry or {}).get("origin", "") or "").strip().lower()

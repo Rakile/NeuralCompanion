@@ -88,7 +88,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
     if overflow_combo is not None and hasattr(overflow_combo, "setToolTip"):
         overflow_combo.setToolTip("Shell-local overflow-policy preview. Changes are not saved or applied to runtime.")
     if allow_proactive_checkbox is not None:
-        _ui_shell_set_checked(allow_proactive_checkbox, session.get("allow_proactive_replies", True))
+        _ui_shell_set_checked(allow_proactive_checkbox, session.get("allow_proactive_replies", False))
         allow_proactive_checkbox.setToolTip("Shell-local proactive-reply preview. Changes are not saved or applied to runtime.")
     if require_first_user_checkbox is not None:
         _ui_shell_set_checked(require_first_user_checkbox, session.get("require_first_user_before_proactive", False))

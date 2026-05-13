@@ -599,6 +599,11 @@ RUNTIME_CONFIG = {
     "voice_path": "",
     "tts_backend": "chatterbox",
     "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
+    "pocket_tts_temperature": 0.7,
+    "pocket_tts_lsd_decode_steps": 1,
+    "pocket_tts_eos_threshold": -4.0,
+    "pocket_tts_max_tokens": 50,
+    "pocket_tts_frames_after_eos": 0,
     "avatar_mode": "vseeface",
     "vam_root": DEFAULT_VAM_ROOT,
     "vam_bridge_root": DEFAULT_VAM_BRIDGE_ROOT,
@@ -628,7 +633,7 @@ RUNTIME_CONFIG = {
     "repeat_penalty": 1.15,
     "limit_response_length": False,
     "max_response_tokens": 600,
-    "allow_proactive_replies": True,
+    "allow_proactive_replies": False,
     "require_first_user_before_proactive": False,
     "listen_idle_window_seconds": 5.0,
     "proactive_delay_seconds": 10.0,
@@ -4571,6 +4576,18 @@ def _set_pending_loaded_input_turn(turn):
     pending_loaded_input_turn = dict(turn)
 
 
+def queue_typed_chat_message(text, role=None):
+    content = str(text or "").strip()
+    if not content:
+        return {"queued": False, "reason": "empty"}
+    _set_pending_loaded_input_turn({
+        "role": "user",
+        "content": content,
+        "origin": "input",
+    })
+    return {"queued": True, "role": "user", "content": content}
+
+
 def _apply_stored_chat_history_limit():
     global conversation_history
     limit = _stored_chat_history_limit()
@@ -5186,7 +5203,7 @@ def run_conversation_flow(source):
             current_replay_total = int(current_entry.get("total", current_replay_position) or current_replay_position)
 
         if not user_text and not regenerating and not response_text:
-            allow_proactive_replies = bool(RUNTIME_CONFIG.get("allow_proactive_replies", True))
+            allow_proactive_replies = bool(RUNTIME_CONFIG.get("allow_proactive_replies", False))
             require_first_user_before_proactive = bool(RUNTIME_CONFIG.get("require_first_user_before_proactive", False))
             hidden_proactive_request = None
             with sensory_pingpong_lock:

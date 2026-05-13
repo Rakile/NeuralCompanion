@@ -490,6 +490,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._bind_model_refresh_control()
         self._bind_push_to_talk_control()
         self._bind_chat_edit_controls()
+        self._bind_performance_guidance_controls()
         self._bind_dry_run_controls()
         self._bind_response_length_runtime_controls()
         self._bind_host_input_runtime_controls()

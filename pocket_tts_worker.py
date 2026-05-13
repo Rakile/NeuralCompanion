@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import argparse
 
 import numpy as np
 from pocket_tts import TTSModel
@@ -9,7 +10,17 @@ from scipy.io import wavfile
 
 
 def main():
-    model = TTSModel.load_model()
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--temperature", type=float, default=0.7)
+    parser.add_argument("--lsd-decode-steps", type=int, default=1)
+    parser.add_argument("--eos-threshold", type=float, default=-4.0)
+    args, _unknown = parser.parse_known_args()
+
+    model = TTSModel.load_model(
+        temp=float(args.temperature or 0.7),
+        lsd_decode_steps=max(1, int(args.lsd_decode_steps or 1)),
+        eos_threshold=float(args.eos_threshold if args.eos_threshold is not None else -4.0),
+    )
     sample_rate = int(getattr(model, "sample_rate", 24000) or 24000)
     voice_states = {}
     sys.stdout.write(json.dumps({"status": "ready", "sample_rate": sample_rate, "pid": os.getpid()}) + "\n")
@@ -46,7 +57,14 @@ def main():
             if voice_state is None:
                 voice_state = model.get_state_for_audio_prompt(voice_prompt)
                 voice_states[voice_prompt] = voice_state
-            audio = model.generate_audio(voice_state, text)
+            max_tokens = max(1, int(payload.get("max_tokens", 50) or 50))
+            frames_after_eos = max(0, int(payload.get("frames_after_eos", 0) or 0))
+            audio = model.generate_audio(
+                voice_state,
+                text,
+                max_tokens=max_tokens,
+                frames_after_eos=frames_after_eos or None,
+            )
             audio = np.asarray(audio, dtype=np.float32)
             if audio.ndim > 1:
                 audio = audio.reshape(-1)

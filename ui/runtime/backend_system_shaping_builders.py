@@ -678,7 +678,7 @@ class BackendSystemShapingBuilderMixin:
 
         self.allow_proactive_checkbox = QtWidgets.QCheckBox("Allow proactive replies after silence")
         self.allow_proactive_checkbox.setObjectName("allow_proactive_checkbox")
-        self.allow_proactive_checkbox.setChecked(bool(runtime_config.get("allow_proactive_replies", True)))
+        self.allow_proactive_checkbox.setChecked(bool(runtime_config.get("allow_proactive_replies", False)))
         self.allow_proactive_checkbox.toggled.connect(self.on_allow_proactive_replies_changed)
 
         self.require_first_user_checkbox = QtWidgets.QCheckBox("Wait for the first user message before any proactive reply")
