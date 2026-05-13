@@ -29,11 +29,11 @@ UI_SHELL_DEFAULT_CHUNKING_VALUES = {
     "musetalk_quickstart_1_max_chars": 320,
     "musetalk_quickstart_2_target_chars": 130,
     "musetalk_quickstart_2_max_chars": 240,
-    "stream_chunk_target_chars": 90,
-    "stream_chunk_max_chars": 200,
-    "stream_first_chunk_min_chars": 25,
-    "stream_force_flush_seconds": 0.25,
-    "stream_force_flush_later_seconds": 0.65,
+    "stream_chunk_target_chars": 80,
+    "stream_chunk_max_chars": 185,
+    "stream_first_chunk_min_chars": 40,
+    "stream_force_flush_seconds": 0.30,
+    "stream_force_flush_later_seconds": 0.70,
 }
 
 UI_SHELL_MUSE_VRAM_MODE_LABELS = OrderedDict([
@@ -114,7 +114,7 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "title": "Target Chars",
         "minimum": 40,
         "maximum": 220,
-        "default": 90,
+        "default": 80,
     }),
     ("stream_chunk_max_chars", {
         "widget": "stream_chunk_max_chars_slider",
@@ -122,7 +122,7 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "title": "Max Chars",
         "minimum": 60,
         "maximum": 320,
-        "default": 200,
+        "default": 185,
     }),
     ("stream_first_chunk_min_chars", {
         "widget": "stream_first_chunk_min_chars_slider",
@@ -130,7 +130,7 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "title": "First Chunk Min",
         "minimum": 10,
         "maximum": 80,
-        "default": 25,
+        "default": 40,
     }),
     ("stream_force_flush_seconds", {
         "widget": "stream_force_flush_seconds_slider",
@@ -138,7 +138,7 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "title": "First Flush (s)",
         "minimum": 0.2,
         "maximum": 2.5,
-        "default": 0.25,
+        "default": 0.30,
         "is_int": False,
         "scale": 100,
     }),
@@ -148,7 +148,7 @@ UI_SHELL_CHUNKING_SPECS = OrderedDict([
         "title": "Later Flush (s)",
         "minimum": 0.3,
         "maximum": 4.0,
-        "default": 0.65,
+        "default": 0.70,
         "is_int": False,
         "scale": 100,
     }),

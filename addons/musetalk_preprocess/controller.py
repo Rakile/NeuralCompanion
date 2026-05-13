@@ -37,6 +37,7 @@ musetalk_bridge = _LazyModuleProxy("musetalk_bridge")
 
 MUSE_AVATAR_RESULTS_DIR = Path("MuseTalk") / "results" / "v15" / "avatars"
 MUSE_STANDALONE_TARGET_PACK_ID = "__standalone__"
+MUSE_STANDALONE_STORAGE_PACK_ID = "stand_alone"
 MUSE_VRAM_MODE_LABELS = {
     "quality": "Quality",
     "balanced": "Balanced",
@@ -162,6 +163,16 @@ class MuseTalkPreprocessController(QtCore.QObject):
     def _musetalk_live_bridge(self):
         service = getattr(self, "musetalk_ui", None)
         getter = getattr(service, "live_bridge", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception:
+                return None
+        return None
+
+    def _musetalk_live_adapter(self):
+        service = getattr(self, "musetalk_ui", None)
+        getter = getattr(service, "live_adapter", None)
         if callable(getter):
             try:
                 return getter()
@@ -377,8 +388,12 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if combo is not None:
             selected = str(combo.currentData() or "").strip()
             if selected:
+                if selected == MUSE_STANDALONE_STORAGE_PACK_ID:
+                    return MUSE_STANDALONE_TARGET_PACK_ID
                 return selected
         runtime_pack_id = str(self._runtime_config_value("musetalk_avatar_pack_id", "") or "").strip()
+        if runtime_pack_id == MUSE_STANDALONE_STORAGE_PACK_ID:
+            return MUSE_STANDALONE_TARGET_PACK_ID
         if runtime_pack_id and self._musetalk_pack_root_for_id(runtime_pack_id).is_dir():
             return runtime_pack_id
         return MUSE_STANDALONE_TARGET_PACK_ID
@@ -387,6 +402,8 @@ class MuseTalkPreprocessController(QtCore.QObject):
         clean_pack_id = str(pack_id or "").strip()
         if not clean_pack_id:
             return MUSE_AVATAR_PACKS_DIR
+        if clean_pack_id in {MUSE_STANDALONE_TARGET_PACK_ID, MUSE_STANDALONE_STORAGE_PACK_ID}:
+            return MUSE_AVATAR_PACKS_DIR / MUSE_STANDALONE_STORAGE_PACK_ID
         for root in avatar_pack_search_dirs():
             candidate = Path(root) / clean_pack_id
             if candidate.is_dir():
@@ -396,7 +413,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
     def _musetalk_target_pack_root(self, pack_id=None):
         selected_pack_id = str(pack_id or self._current_musetalk_target_pack_id() or MUSE_STANDALONE_TARGET_PACK_ID).strip() or MUSE_STANDALONE_TARGET_PACK_ID
         if selected_pack_id == MUSE_STANDALONE_TARGET_PACK_ID:
-            return MUSE_AVATAR_RESULTS_DIR
+            return MUSE_AVATAR_PACKS_DIR / MUSE_STANDALONE_STORAGE_PACK_ID
         return MUSE_AVATAR_PACKS_DIR / selected_pack_id
 
     def _musetalk_target_avatar_root(self, avatar_id, pack_id=None):
@@ -735,7 +752,8 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
         musetalk_intro = QtWidgets.QLabel(
             "Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. "
-            "Pack variants are written under avatar_packs/<pack>/<avatar_id> so they can be distributed without machine-specific paths."
+            "Pack variants are written under avatar_packs/<pack>/<avatar_id>; Standalone Avatars are written under "
+            "avatar_packs/stand_alone/<avatar_id> so they can be distributed without machine-specific paths."
         )
         musetalk_intro.setWordWrap(True)
         musetalk_intro.setStyleSheet("color: #9fb3c8;")
@@ -1335,12 +1353,14 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if combo is None:
             return
         requested = str(selected_pack_id or combo.currentData() or self._current_musetalk_target_pack_id()).strip() or MUSE_STANDALONE_TARGET_PACK_ID
+        if requested == MUSE_STANDALONE_STORAGE_PACK_ID:
+            requested = MUSE_STANDALONE_TARGET_PACK_ID
         pack_ids = []
         for packs_root in avatar_pack_search_dirs():
             if not packs_root.exists():
                 continue
             for child in sorted(Path(packs_root).iterdir()):
-                if child.is_dir():
+                if child.is_dir() and child.name != MUSE_STANDALONE_STORAGE_PACK_ID:
                     pack_ids.append(child.name)
         pack_ids = list(dict.fromkeys(pack_ids))
         combo.blockSignals(True)
@@ -1379,6 +1399,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
         pack_name = self._sanitize_avatar_id(name)
         if not pack_name:
             self._warn("MuseTalk Avatar", "Enter a valid avatar pack name.")
+            return
+        if pack_name == MUSE_STANDALONE_STORAGE_PACK_ID:
+            self._warn("MuseTalk Avatar", f"'{MUSE_STANDALONE_STORAGE_PACK_ID}' is reserved for Standalone Avatars.")
             return
         pack_dir = MUSE_AVATAR_PACKS_DIR / pack_name
         if pack_dir.exists() and not pack_dir.is_dir():
@@ -2060,7 +2083,11 @@ class MuseTalkPreprocessController(QtCore.QObject):
         pack_id = self._current_musetalk_target_pack_id()
         destination = self._musetalk_target_avatar_root(avatar_id, pack_id=pack_id)
         source_text = str(self.musetalk_source_edit.text() or "").strip() if hasattr(self, "musetalk_source_edit") else ""
-        pack_label = "Standalone Avatars" if pack_id == MUSE_STANDALONE_TARGET_PACK_ID else f"Avatar Pack: {pack_id}"
+        pack_label = (
+            f"Standalone Avatars ({MUSE_STANDALONE_STORAGE_PACK_ID})"
+            if pack_id == MUSE_STANDALONE_TARGET_PACK_ID
+            else f"Avatar Pack: {pack_id}"
+        )
         lines = [pack_label, f"Destination: {destination}"]
         if source_text:
             lines.append(f"Source: {source_text}")
@@ -2251,9 +2278,11 @@ class MuseTalkPreprocessController(QtCore.QObject):
             }
             bridge = None
             try:
+                live_adapter = None
                 live_bridge = self._musetalk_live_bridge()
                 if live_bridge is not None:
                     bridge = live_bridge
+                    live_adapter = self._musetalk_live_adapter()
                     result["used_live_bridge"] = True
                 else:
                     bridge = musetalk_bridge.MuseTalkBridge(root_dir="./MuseTalk", worker_options={"vram_mode": vram_mode})

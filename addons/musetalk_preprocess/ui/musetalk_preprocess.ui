@@ -46,7 +46,7 @@
           <item>
            <widget class="QLabel" name="musetalk_intro_label">
             <property name="styleSheet"><string notr="true">color: #9fb3c8;</string></property>
-            <property name="text"><string>Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. Pack variants are written under avatar_packs/&lt;pack&gt;/&lt;avatar_id&gt; so they can be distributed without machine-specific paths.</string></property>
+            <property name="text"><string>Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. Pack variants are written under avatar_packs/&lt;pack&gt;/&lt;avatar_id&gt;; Standalone Avatars are written under avatar_packs/stand_alone/&lt;avatar_id&gt; so they can be distributed without machine-specific paths.</string></property>
             <property name="wordWrap"><bool>true</bool></property>
            </widget>
           </item>

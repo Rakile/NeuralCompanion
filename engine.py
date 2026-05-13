@@ -614,8 +614,8 @@ RUNTIME_CONFIG = {
     "stored_chat_history_limit": 0,
     "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
     "chunk_max_chars": MAX_CHARS_PER_CHUNK,
-    "stream_chunk_target_chars": 90,
-    "stream_chunk_max_chars": 200,
+    "stream_chunk_target_chars": 80,
+    "stream_chunk_max_chars": 185,
     "stream_first_chunk_min_chars": STREAM_FIRST_CHUNK_MIN_CHARS,
     "stream_force_flush_seconds": STREAM_FORCE_FLUSH_SECONDS,
     "stream_force_flush_later_seconds": STREAM_FORCE_FLUSH_LATER_SECONDS,
@@ -2721,8 +2721,8 @@ def coalesce_musetalk_leading_segments(segments):
 def get_stream_chunk_limits():
     if RUNTIME_CONFIG.get("avatar_mode", "vseeface") == "musetalk":
         return (
-            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 90) or 90),
-            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 200) or 200),
+            int(RUNTIME_CONFIG.get("stream_chunk_target_chars", 80) or 80),
+            int(RUNTIME_CONFIG.get("stream_chunk_max_chars", 185) or 185),
         )
     return (
         int(RUNTIME_CONFIG.get("chunk_target_chars", 90) or 90),
@@ -4732,6 +4732,22 @@ def refine_system_prompt_text(system_prompt):
     original = str(system_prompt or "").strip()
     if not original:
         raise ValueError("System prompt is empty.")
+    provider = _chat_provider()
+    provider_label = _chat_provider_label(provider)
+    provider_metadata = chat_providers.provider_metadata(provider)
+    if bool(provider_metadata.get("supports_hosted_runtime")) and not _chat_provider_api_key(provider):
+        env_names = []
+        for field in list(provider_metadata.get("config_fields") or []):
+            if not isinstance(field, dict) or str(field.get("id") or "").strip() != "api_key":
+                continue
+            env_names = [
+                str(name or "").strip()
+                for name in list(field.get("env") or [])
+                if str(name or "").strip()
+            ]
+            break
+        env_hint = f" or set {' / '.join(env_names)}" if env_names else ""
+        raise RuntimeError(f"{provider_label} API key is required. Add it in Chat Provider settings{env_hint}.")
     model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
     if _is_model_catalog_placeholder(model_name):
         raise RuntimeError("Choose a chat model before refining the system prompt.")
