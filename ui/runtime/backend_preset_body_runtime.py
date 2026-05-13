@@ -88,6 +88,10 @@ class BackendPresetBodyRuntimeMixin:
             return
         if bool(getattr(self, "_restoring_session", False)):
             return
+        if bool(getattr(self, "_restoring_preset", False)):
+            return
+        if str(getattr(self, "_pending_preset_clean_name", "") or "").strip():
+            return
         current_signature = self._preset_payload_signature(self._build_preset_payload())
         if self._preset_reference_signature:
             dirty = current_signature != self._preset_reference_signature
@@ -141,6 +145,8 @@ class BackendPresetBodyRuntimeMixin:
     def _finalize_pending_preset_clean_if_ready(self, *, force=False):
         name = str(getattr(self, "_pending_preset_clean_name", "") or "").strip()
         if not name:
+            return False
+        if bool(getattr(self, "_restoring_preset", False)) and not force:
             return False
         provider_id = str(getattr(self, "_pending_preset_clean_provider", "") or "").strip()
         model_name = str(getattr(self, "_pending_preset_clean_model", "") or "").strip()
@@ -199,6 +205,8 @@ class BackendPresetBodyRuntimeMixin:
         )
         _update_runtime_config("active_preset_name", name)
         data = json.loads(path.read_text(encoding="utf-8"))
+        previous_restoring_preset = bool(getattr(self, "_restoring_preset", False))
+        self._restoring_preset = True
         preset_model_name = str(data.get("model_name") or "").strip()
         preset_provider_name = chat_providers.normalize_provider_id(
             data.get("chat_provider", self._current_chat_provider_value()),
@@ -320,26 +328,33 @@ class BackendPresetBodyRuntimeMixin:
             self.max_response_tokens_spin.setValue(tokens)
             self.on_max_response_tokens_changed(tokens)
         self._refresh_chat_provider_generation_card()
-        previous_restoring_preset = bool(getattr(self, "_restoring_preset", False))
-        self._restoring_preset = True
-        try:
-            if self._addon_manager is not None:
-                try:
-                    self._addon_manager.import_preset_state(data)
-                except Exception:
-                    pass
-            self._refresh_sensory_feedback_source_tabs()
-            self._refresh_addon_group_tabs()
-            self._refresh_tts_runtime_card(activate_tab=False)
-        finally:
-            self._restoring_preset = previous_restoring_preset
+        if self._addon_manager is not None:
+            try:
+                self._addon_manager.import_preset_state(data)
+            except Exception:
+                pass
+        self._refresh_sensory_feedback_source_tabs()
+        self._refresh_addon_group_tabs()
+        self._refresh_tts_runtime_card(activate_tab=False)
         print(f"[QtGUI] Loading preset: {name}...")
         self.emit_tutorial_event("preset_loaded", {"name": name})
-        self._finalize_pending_preset_clean_if_ready()
-        self.save_session()
-        self._restore_system_shaping_scroll_state(scroll_state)
-        QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
-        QtCore.QTimer.singleShot(150, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
+
+        def finalize_preset_load():
+            generation_settings = json.loads(json.dumps(data.get("chat_provider_generation_settings", {}) or {}))
+            _update_runtime_config("chat_provider_generation_settings", generation_settings)
+            provider_generation_settings = generation_settings.get(preset_provider_name, {})
+            if isinstance(provider_generation_settings, dict):
+                for field_id, value in provider_generation_settings.items():
+                    self._apply_legacy_generation_mirror(str(field_id or ""), value)
+            self._refresh_chat_provider_generation_card()
+            self._restoring_preset = previous_restoring_preset
+            self._finalize_pending_preset_clean_if_ready(force=True)
+            self.save_session()
+            self._restore_system_shaping_scroll_state(scroll_state)
+            QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
+            QtCore.QTimer.singleShot(150, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))
+
+        QtCore.QTimer.singleShot(75, finalize_preset_load)
 
     def save_preset_dialog(self):
         name = QtInputDialog.get_text("Save Preset", "Enter Preset Name:", self)
@@ -445,4 +460,3 @@ class BackendPresetBodyRuntimeMixin:
             path.unlink()
         self.refresh_body_list()
         print(f"[QtGUI] Deleted body config: {path}")
-

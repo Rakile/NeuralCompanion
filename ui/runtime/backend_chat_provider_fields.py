@@ -197,10 +197,10 @@ class BackendChatProviderFieldsMixin:
     def _refresh_chat_provider_generation_card(self):
         if not hasattr(self, "chat_provider_generation_fields_layout"):
             return
-        while self.chat_provider_generation_fields_layout.rowCount():
-            self.chat_provider_generation_fields_layout.removeRow(0)
         self._chat_provider_generation_field_widgets = {}
         self._chat_provider_generation_field_meta = {}
+        while self.chat_provider_generation_fields_layout.rowCount():
+            self.chat_provider_generation_fields_layout.removeRow(0)
 
         provider_id = self._current_chat_provider_value()
         current_settings = self._current_chat_provider_generation_settings_for(provider_id)

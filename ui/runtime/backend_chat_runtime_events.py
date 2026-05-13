@@ -57,6 +57,11 @@ class BackendChatRuntimeEventsMixin:
         field_id = str(field_id or "").strip()
         if not field_id:
             return
+        current_widgets = getattr(self, "_chat_provider_generation_field_widgets", {}) or {}
+        if current_widgets.get(field_id) is not widget:
+            return
+        if bool(getattr(self, "_restoring_preset", False)):
+            return
         settings = self._current_chat_provider_generation_settings_for(provider_id)
         value = self._generation_field_widget_value(dict(field_meta or {}), widget)
         if value is None or value == "":
