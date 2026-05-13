@@ -91,7 +91,30 @@ class BackendChatProviderFieldsMixin:
     def _chat_provider_generation_fields(self, provider_id=None):
         metadata = self._chat_provider_metadata(provider_id)
         fields = list(metadata.get("generation_fields") or [])
-        return [dict(item) for item in fields if isinstance(item, dict)]
+        filtered = []
+        for item in fields:
+            if not isinstance(item, dict):
+                continue
+            field = dict(item)
+            required_support = str(field.get("requires_model_support") or "").strip().lower()
+            if required_support:
+                support_attr = f"_current_model_supports_{required_support}_value"
+                support_getter = getattr(self, support_attr, None)
+                if callable(support_getter):
+                    try:
+                        if not bool(support_getter()):
+                            continue
+                    except Exception:
+                        continue
+            filtered.append(field)
+        return filtered
+
+    def _bool_generation_value(self, value, default=False):
+        if value is None or value == "":
+            return bool(default)
+        if isinstance(value, str):
+            return value.strip().lower() in {"1", "true", "yes", "on", "enabled"}
+        return bool(value)
 
     def _legacy_generation_value_for_field(self, provider_id, field):
         field_id = str(field.get("id") or "").strip()
@@ -207,7 +230,7 @@ class BackendChatProviderFieldsMixin:
                 editor.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             elif kind == "bool":
                 editor = QtWidgets.QCheckBox(label)
-                editor.setChecked(bool(value))
+                editor.setChecked(self._bool_generation_value(value, field.get("default", False)))
                 editor.toggled.connect(lambda _checked, fid=field_id, widget=editor, meta=dict(field), pid=provider_id: self._on_chat_provider_generation_field_changed(pid, fid, widget, meta))
                 label = ""
             elif kind == "select":

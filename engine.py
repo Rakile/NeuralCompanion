@@ -589,6 +589,8 @@ RUNTIME_CONFIG = {
     "model_name": "",
     "model_requires_vision": False,
     "model_supports_images": None,
+    "model_supports_reasoning": False,
+    "model_supports_reasoning_toggle": False,
     "chat_provider": os.environ.get("NC_CHAT_PROVIDER", chat_providers.DEFAULT_PROVIDER_ID),
     "chat_provider_settings": {},
     "chat_provider_generation_settings": {},

@@ -81,8 +81,11 @@ class BackendChatRuntimeEventsMixin:
         selected_model = str(choice or "").strip()
         _update_runtime_config("model_name", selected_model)
         _update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
+        _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(selected_model))
+        _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(selected_model))
         self._advisor_context_manual_override = False
         self.update_model_budget_hint()
+        self._refresh_chat_provider_generation_card()
         self._refresh_chat_runtime_summary()
         self.save_session()
 

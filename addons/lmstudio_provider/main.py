@@ -95,6 +95,18 @@ class Addon(BaseAddon):
                     {"id": "repeat_penalty", "label": "Repetition Penalty", "kind": "float", "min": 1.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.15, "request_location": "additional_params"},
                     {"id": "min_p", "label": "Min P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.05, "request_location": "additional_params"},
                     {"id": "max_tokens", "label": "Max Tokens (-1 = no cap)", "kind": "int", "min": -1, "max": 131072, "step": 1, "default": -1, "request_location": "params"},
+                    {
+                        "id": "reasoning",
+                        "label": "Enable Thinking",
+                        "kind": "bool",
+                        "default": True,
+                        "request_location": "additional_params",
+                        "request_key": "reasoning",
+                        "true_value": "on",
+                        "false_value": "off",
+                        "requires_model_support": "reasoning_toggle",
+                        "description": "Shown when LM Studio reports public reasoning options with both off and on support.",
+                    },
                 ],
                 "hint": "Uses LM Studio's local OpenAI-compatible endpoint.",
                 "supports_local_runtime": True,
@@ -189,10 +201,19 @@ class Addon(BaseAddon):
             if not model_id:
                 continue
             capabilities = model.get("capabilities") if isinstance(model.get("capabilities"), dict) else {}
+            reasoning = capabilities.get("reasoning") if isinstance(capabilities.get("reasoning"), dict) else {}
+            reasoning_options = {
+                str(option or "").strip().lower()
+                for option in list(reasoning.get("allowed_options") or [])
+                if str(option or "").strip()
+            }
             catalog.append(
                 {
                     "id": model_id,
                     "supports_images": bool(capabilities.get("vision", False)),
+                    "supports_reasoning": bool(reasoning),
+                    "supports_reasoning_toggle": bool({"off", "on"}.issubset(reasoning_options)),
+                    "reasoning_options": sorted(reasoning_options),
                     "source": "lmstudio_native",
                 }
             )

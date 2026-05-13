@@ -37,16 +37,22 @@ class BackendChatModelCatalogMixin:
         if isinstance(item, dict):
             model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
             supports_images = bool(item.get("supports_images", False))
+            supports_reasoning = bool(item.get("supports_reasoning", False))
+            supports_reasoning_toggle = bool(item.get("supports_reasoning_toggle", False))
             source = str(item.get("source") or "").strip().lower()
         else:
             model_id = str(item or "").strip()
             supports_images = self._infer_model_supports_images(model_id)
+            supports_reasoning = self._infer_model_supports_reasoning(model_id)
+            supports_reasoning_toggle = bool(supports_reasoning)
             source = ""
         if not model_id:
             return None
         return {
             "id": model_id,
             "supports_images": bool(supports_images),
+            "supports_reasoning": bool(supports_reasoning or self._infer_model_supports_reasoning(model_id)),
+            "supports_reasoning_toggle": bool(supports_reasoning_toggle or self._infer_model_supports_reasoning(model_id)),
             "source": source,
         }
 
@@ -66,6 +72,22 @@ class BackendChatModelCatalogMixin:
             return False
         return any(fragment in value for fragment in positive_fragments)
 
+    def _infer_model_supports_reasoning(self, model_name):
+        value = str(model_name or "").strip().lower()
+        if self._is_model_catalog_placeholder(model_name):
+            return False
+        negative_fragments = (
+            "embedding", "rerank", "whisper", "tts", "audio", "transcribe", "grok-imagine"
+        )
+        if any(fragment in value for fragment in negative_fragments):
+            return False
+        positive_fragments = (
+            "reasoning", "thinking", "think", "qwen3", "qwen-3", "qwen/qwen3", "qwen3.5",
+            "qwen-3.5", "qwen3.6", "qwen-3.6", "qwq", "qvq", "deepseek-r1", "deepseek/r1",
+            "r1-distill", "gpt-oss", "seed-oss", "gemma-4",
+        )
+        return any(fragment in value for fragment in positive_fragments)
+
     def _current_model_supports_images_value(self, model_name=None):
         selected_model = str(model_name or (self.model_combo.currentText() if hasattr(self, "model_combo") else "") or "").strip()
         if not selected_model:
@@ -79,6 +101,26 @@ class BackendChatModelCatalogMixin:
                 continue
             return bool(entry.get("supports_images", False))
         return self._infer_model_supports_images(selected_model)
+
+    def _current_model_supports_reasoning_value(self, model_name=None):
+        selected_model = str(model_name or (self.model_combo.currentText() if hasattr(self, "model_combo") else "") or "").strip()
+        if not selected_model or self._is_model_catalog_placeholder(selected_model):
+            return False
+        for entry in list(getattr(self, "_all_model_catalog", []) or []):
+            if str(entry.get("id") or "").strip() != selected_model:
+                continue
+            return bool(entry.get("supports_reasoning", False))
+        return self._infer_model_supports_reasoning(selected_model)
+
+    def _current_model_supports_reasoning_toggle_value(self, model_name=None):
+        selected_model = str(model_name or (self.model_combo.currentText() if hasattr(self, "model_combo") else "") or "").strip()
+        if not selected_model or self._is_model_catalog_placeholder(selected_model):
+            return False
+        for entry in list(getattr(self, "_all_model_catalog", []) or []):
+            if str(entry.get("id") or "").strip() != selected_model:
+                continue
+            return bool(entry.get("supports_reasoning_toggle", False))
+        return self._infer_model_supports_reasoning(selected_model)
 
     def _set_model_catalog(self, items):
         catalog = []
@@ -215,6 +257,9 @@ class BackendChatModelCatalogMixin:
             if current:
                 _update_runtime_config("model_name", current)
                 _update_runtime_config("model_supports_images", self._current_model_supports_images_value(current))
+                _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(current))
+                _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(current))
+                self._refresh_chat_provider_generation_card()
             self.emit_tutorial_event(
                 "model_list_refreshed",
                 {"count": len(valid_models), "model_loaded": bool(valid_models), "lm_studio_running": bool(valid_models)},
@@ -239,6 +284,9 @@ class BackendChatModelCatalogMixin:
         if selected_model:
             _update_runtime_config("model_name", selected_model)
             _update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
+            _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(selected_model))
+            _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(selected_model))
+            self._refresh_chat_provider_generation_card()
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
         if pending_wanted and selected_model == pending_wanted:
             self._pending_restored_model_name = ""

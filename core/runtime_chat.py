@@ -115,6 +115,8 @@ class ChatProviderRuntime(ChatProviderAdapter):
     def _legacy_generation_value(self, field: dict[str, Any], provider: str) -> Any:
         config = self._config()
         field_id = str((field or {}).get("id") or "").strip()
+        if field_id in {"enable_thinking", "reasoning"} and str((field or {}).get("kind") or "").strip().lower() == "bool":
+            return bool((field or {}).get("default", True))
         if field_id in {"temperature", "top_p", "repeat_penalty", "min_p"}:
             return config.get(field_id, (field or {}).get("default"))
         if field_id == "top_k":
@@ -156,11 +158,21 @@ class ChatProviderRuntime(ChatProviderAdapter):
             field_id = str(field.get("id") or "").strip()
             if not field_id or str(field.get("kind") or "").strip().lower() == "note":
                 continue
+            required_support = str(field.get("requires_model_support") or "").strip().lower()
+            if required_support:
+                support_key = f"model_supports_{required_support}"
+                if not bool(config.get(support_key, False)):
+                    continue
             raw_value = settings[field_id] if field_id in settings else self._legacy_generation_value(field, provider)
             try:
                 value = self._coerce_generation_value(field, raw_value)
             except Exception:
                 value = field.get("default")
+            if str(field.get("kind") or "").strip().lower() == "bool":
+                if value is True and "true_value" in field:
+                    value = field.get("true_value")
+                elif value is False and "false_value" in field:
+                    value = field.get("false_value")
             if self._omit_generation_value(field, value):
                 continue
             request_key = str(field.get("request_key") or field_id).strip()
