@@ -45,6 +45,50 @@ MUSE_VRAM_MODE_LABELS = {
     "very_low": "Very Low VRAM",
 }
 
+MUSETALK_PREPROCESS_TOOLTIPS = {
+    "musetalk_target_pack_combo": "Avatar pack that receives new prepared variants. Standalone Avatars are stored under avatar_packs/stand_alone.",
+    "btn_musetalk_target_pack_refresh": "Refresh avatar pack choices from avatar_packs/.",
+    "btn_musetalk_target_pack_new": "Create a new avatar pack folder and manifest.",
+    "musetalk_avatar_combo": "Prepared variants already available in the selected pack.",
+    "btn_musetalk_avatar_refresh": "Refresh prepared variants for the selected pack.",
+    "btn_musetalk_clear_frame_cache": "Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.",
+    "btn_musetalk_make_default_avatar": "Make the selected prepared variant the locked base/default avatar for this pack.",
+    "musetalk_source_edit": "Source video file or PNG frame folder used to create a prepared MuseTalk avatar.",
+    "btn_musetalk_source_video": "Choose a source video for preprocessing.",
+    "btn_musetalk_source_folder": "Choose a folder of PNG frames for preprocessing.",
+    "musetalk_avatar_id_edit": "Folder-safe variant id written under the selected avatar pack.",
+    "musetalk_recreate_checkbox": "Allow preprocessing to replace an existing variant folder with the same Avatar ID.",
+    "btn_musetalk_prepare_avatar": "Run MuseTalk preprocessing for the selected source and Avatar ID.",
+    "musetalk_create_frame_cache_checkbox": "Create a NumPy cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster.",
+    "musetalk_emotion_tags_edit": "Comma-separated emotion tags that should activate this prepared variant at runtime.",
+    "btn_musetalk_avatar_save_metadata": "Save emotion tags and mask settings for the selected prepared variant.",
+    "btn_musetalk_pack_emotions_all": "Enable every emotion variant in the selected avatar pack.",
+    "btn_musetalk_pack_emotions_none": "Disable optional emotion variants while keeping the locked base/default avatar enabled.",
+    "musetalk_bbox_shift_spin": "Move the detected mouth/face crop up or down before preprocessing.",
+    "musetalk_parsing_mode_combo": "Choose how the editable inpaint mask is derived. Jaw is safer for talking heads; Raw keeps the parsed mask closer to source.",
+    "musetalk_extra_margin_spin": "Add extra pixels around the mouth/face mask.",
+    "musetalk_left_cheek_width_spin": "Width of the editable mask on the character's left cheek side.",
+    "musetalk_right_cheek_width_spin": "Width of the editable mask on the character's right cheek side.",
+    "btn_musetalk_debug_first_frame_quick": "Render a preview of the first/debug frame using current mask settings without modifying avatar files.",
+    "btn_musetalk_debug_first_frame_modified_quick": "Render a preview using the manually modified mask.",
+    "musetalk_debug_show_mask_overlay_quick_checkbox": "Show the mask overlay in debug previews.",
+    "musetalk_mask_range_start_spin": "First frame for a frame-specific mask range override.",
+    "musetalk_mask_range_end_spin": "Last frame for a frame-specific mask range override.",
+    "musetalk_mask_range_passthrough_checkbox": "Disable masking for this range and let source frames pass through unchanged.",
+    "musetalk_debug_frame_index_spin": "Frame index used for debug previews. 0 means first frame.",
+    "musetalk_debug_show_mask_overlay_checkbox": "Show the mask overlay in debug previews.",
+    "musetalk_debug_brush_size_spin": "Brush radius used by the mask editor.",
+    "musetalk_debug_brush_feather_spin": "Soft edge width for the mask editor brush.",
+    "btn_musetalk_debug_zoom_out": "Zoom debug preview out.",
+    "btn_musetalk_debug_zoom_reset": "Fit debug preview to the available area.",
+    "btn_musetalk_debug_zoom_in": "Zoom debug preview in.",
+    "musetalk_test_audio_edit": "Short audio clip used for the experimental first-frame lip-sync test.",
+    "btn_musetalk_test_audio": "Choose audio for the experimental first-frame lip-sync test.",
+    "btn_musetalk_debug_first_frame": "Render a debug frame using current mask settings without modifying prepared avatar folders.",
+    "btn_musetalk_debug_first_frame_modified": "Render a debug frame using the manually modified mask.",
+    "btn_musetalk_first_frame_test": "Run the experimental audio first-frame test with a temporary scratch avatar.",
+}
+
 
 class MuseTalkPreprocessController(QtCore.QObject):
 
@@ -494,6 +538,14 @@ class MuseTalkPreprocessController(QtCore.QObject):
             return None
         return widget
 
+    def _apply_musetalk_tooltips(self, root):
+        if root is None:
+            return
+        for object_name, tooltip in MUSETALK_PREPROCESS_TOOLTIPS.items():
+            widget = root.findChild(QtCore.QObject, str(object_name))
+            if widget is not None and hasattr(widget, "setToolTip"):
+                widget.setToolTip(str(tooltip or "").strip())
+
     def _bind_designer_runtime_widget(self, root):
         target_pack_combo = self._ui_child(root, "musetalk_target_pack_combo", QtWidgets.QComboBox)
         avatar_combo = self._ui_child(root, "musetalk_avatar_combo", QtWidgets.QComboBox)
@@ -715,6 +767,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._refresh_musetalk_pack_emotion_editor()
         self._update_musetalk_avatar_destination_hint()
         self._reset_musetalk_source_frame_info()
+        self._apply_musetalk_tooltips(root)
         return root
 
     def _configure_musetalk_table(self, table, headers, minimum_height=120, stretch_last=False):
@@ -1260,6 +1313,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._refresh_musetalk_pack_emotion_editor()
         self._update_musetalk_avatar_destination_hint()
         self._reset_musetalk_source_frame_info()
+        self._apply_musetalk_tooltips(scroll)
         return scroll
 
 

@@ -62,7 +62,10 @@ def bind_runtime_controls(bridge, pose_specs, *, value_to_raw, raw_to_value, upd
                 scale = int(spec.get("scale", 1) or 1)
                 slider.setSingleStep(max(1, scale // 10 if scale > 1 else 1))
             if hasattr(slider, "setToolTip"):
-                slider.setToolTip("Runtime-backed VSeeFace body setting. Save a body preset to persist edited pose values.")
+                slider.setToolTip(
+                    f"VSeeFace body pose control: {str(spec.get('title') or key)}. "
+                    "Save a body preset to persist edited pose values."
+                )
         except Exception:
             pass
         slider.valueChanged.connect(

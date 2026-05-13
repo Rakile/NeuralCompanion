@@ -1,5 +1,6 @@
 from PySide6 import QtCore, QtWidgets
 
+from ui.shell_specs import UI_SHELL_CHUNKING_SPECS
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
 
 
@@ -28,6 +29,7 @@ class BackendWorkspaceBuilderMixin:
 
         self.voice_combo = NoWheelComboBox()
         self.voice_combo.setObjectName("voice_combo")
+        self.voice_combo.setToolTip("Voice reference used by the selected TTS backend when voice cloning is available.")
         self.voice_combo.currentTextChanged.connect(self.on_voice_changed)
         layout.addWidget(QtWidgets.QLabel("Voice Clone"))
         layout.addWidget(self.voice_combo)
@@ -35,11 +37,13 @@ class BackendWorkspaceBuilderMixin:
         self.emotional_text = QtWidgets.QPlainTextEdit()
         self.emotional_text.setObjectName("emotional_text")
         self.emotional_text.setPlaceholderText("Technical rules / expressive tags")
+        self.emotional_text.setToolTip("Persona-facing technical rules, such as valid emotion and sound tags. Saved with presets.")
         self.emotional_text.setMinimumHeight(0)
         self.emotional_text.setMinimumSize(0, 90)
         self.system_prompt_text = QtWidgets.QPlainTextEdit()
         self.system_prompt_text.setObjectName("system_prompt_text")
         self.system_prompt_text.setPlaceholderText("System prompt")
+        self.system_prompt_text.setToolTip("The main system prompt sent to the chat provider. Right-click to refine it with the current provider.")
         self.system_prompt_text.setMinimumHeight(0)
         self.system_prompt_text.setMinimumSize(0, 90)
 
@@ -65,6 +69,7 @@ class BackendWorkspaceBuilderMixin:
 
         apply_button = QtWidgets.QPushButton("Apply Changes")
         apply_button.setObjectName("btn_apply_text_config")
+        apply_button.setToolTip("Apply persona text changes to the current runtime/session settings.")
         apply_button.clicked.connect(self.apply_text_config)
         layout.addWidget(apply_button)
         return scroll
@@ -164,6 +169,10 @@ class BackendWorkspaceBuilderMixin:
             box_layout = QtWidgets.QVBoxLayout(box)
             for label, key, minimum, maximum, default, is_int in items:
                 slider = LabeledSlider(label, minimum, maximum, default, is_int=is_int)
+                spec = UI_SHELL_CHUNKING_SPECS.get(str(key), {})
+                tooltip = str(spec.get("tooltip") or "").strip()
+                if tooltip:
+                    slider.setToolTip(tooltip)
                 slider.value_changed.connect(lambda value, k=key, integer=is_int: self.update_chunking_value(k, value, integer))
                 self.chunking_sliders[key] = slider
                 box_layout.addWidget(slider)
@@ -172,6 +181,7 @@ class BackendWorkspaceBuilderMixin:
         reset_row = QtWidgets.QHBoxLayout()
         reset_row.addStretch(1)
         reset_button = QtWidgets.QPushButton("Reset Chunking Defaults")
+        reset_button.setToolTip("Restore the built-in chunking defaults for this session.")
         reset_button.clicked.connect(self.reset_chunking_defaults)
         reset_row.addWidget(reset_button)
         layout.addLayout(reset_row)
@@ -182,9 +192,11 @@ class BackendWorkspaceBuilderMixin:
         self.chunking_profile_combo = NoWheelComboBox()
         self.chunking_profile_combo.setObjectName("chunking_profile_combo")
         self.chunking_profile_combo.addItem("No Saved Profiles")
+        self.chunking_profile_combo.setToolTip("Saved performance/chunking profiles measured by Dry Run or saved manually.")
         profile_row.addWidget(self.chunking_profile_combo, 1)
         self.btn_chunking_profile_refresh = QtWidgets.QPushButton("Refresh")
         self.btn_chunking_profile_refresh.setObjectName("btn_chunking_profile_refresh")
+        self.btn_chunking_profile_refresh.setToolTip("Refresh the list of saved performance profiles.")
         self.btn_chunking_profile_refresh.clicked.connect(self.refresh_performance_profile_list)
         profile_row.addWidget(self.btn_chunking_profile_refresh)
         profile_layout.addLayout(profile_row)
@@ -192,12 +204,15 @@ class BackendWorkspaceBuilderMixin:
         profile_buttons = QtWidgets.QHBoxLayout()
         self.btn_chunking_profile_load = QtWidgets.QPushButton("Load Profile")
         self.btn_chunking_profile_load.setObjectName("btn_chunking_profile_load")
+        self.btn_chunking_profile_load.setToolTip("Apply the selected profile's chunking and performance settings.")
         self.btn_chunking_profile_load.clicked.connect(self.load_selected_chunking_profile)
         self.btn_chunking_profile_save = QtWidgets.QPushButton("Save Current As")
         self.btn_chunking_profile_save.setObjectName("btn_chunking_profile_save")
+        self.btn_chunking_profile_save.setToolTip("Save the current chunking values as a reusable profile.")
         self.btn_chunking_profile_save.clicked.connect(self.save_current_chunking_profile)
         self.btn_chunking_profile_delete = QtWidgets.QPushButton("Delete")
         self.btn_chunking_profile_delete.setObjectName("btn_chunking_profile_delete")
+        self.btn_chunking_profile_delete.setToolTip("Delete the selected saved profile.")
         self.btn_chunking_profile_delete.clicked.connect(self.delete_selected_chunking_profile)
         profile_buttons.addWidget(self.btn_chunking_profile_load)
         profile_buttons.addWidget(self.btn_chunking_profile_save)

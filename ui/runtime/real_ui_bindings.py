@@ -277,6 +277,21 @@ class MainUiRealBindingMixin:
                 widget.currentIndexChanged.connect(handler)
 
     def _bind_avatar_body_vam_runtime_controls(self):
+            tooltips = {
+                "voice_combo": "Voice reference used by the selected TTS backend when voice cloning is available.",
+                "body_combo": "Saved VSeeFace body pose preset. Use Load to apply it to the visible sliders.",
+                "emotion_combo": "Preview/edit the body-pose values associated with this emotion.",
+                "live_sync_checkbox": "When enabled, body slider changes are sent live to the avatar runtime.",
+                "btn_body_load": "Load the selected body preset into the body pose sliders.",
+                "btn_body_save": "Save the current body pose sliders into the selected body preset.",
+                "btn_body_save_as": "Save the current body pose sliders as a new body preset.",
+                "btn_body_delete": "Delete the selected body preset.",
+                "btn_hand_doctor": "Open the hand debugging/calibration helper for avatar hand pose tuning.",
+            }
+            for object_name, tooltip in tooltips.items():
+                widget = self._ui_object(object_name)
+                if widget is not None and hasattr(widget, "setToolTip"):
+                    widget.setToolTip(tooltip)
             combo_bindings = (
                 ("voice_combo", self._on_frontend_voice_changed),
                 ("body_combo", self._on_frontend_body_selection_changed),
@@ -340,7 +355,10 @@ class MainUiRealBindingMixin:
                         int(round(float(spec.get("minimum", 0) or 0) * scale)),
                         int(round(float(spec.get("maximum", 100) or 100) * scale)),
                     )
-                    slider.setToolTip("Runtime-backed chunking setting. Changes are saved to the current session.")
+                    slider.setToolTip(
+                        str(spec.get("tooltip") or "").strip()
+                        or "Runtime-backed chunking setting. Changes are saved to the current session."
+                    )
                 except Exception:
                     pass
                 slider.valueChanged.connect(lambda value, chunk_key=key: self._on_frontend_chunking_value_changed(chunk_key, value))

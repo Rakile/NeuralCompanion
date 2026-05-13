@@ -73,6 +73,9 @@
          </item>
          <item>
           <widget class="QComboBox" name="body_combo">
+           <property name="toolTip">
+            <string>Saved VSeeFace body pose preset. Use Load to apply it to the visible sliders.</string>
+           </property>
            <item>
             <property name="text">
              <string>Default</string>
@@ -84,6 +87,9 @@
           <layout class="QHBoxLayout" name="bodyPresetButtons">
            <item>
             <widget class="QPushButton" name="btn_body_load">
+             <property name="toolTip">
+              <string>Load the selected body preset into the body pose sliders.</string>
+             </property>
              <property name="text">
               <string>Load</string>
              </property>
@@ -91,6 +97,9 @@
            </item>
            <item>
             <widget class="QPushButton" name="btn_body_save">
+             <property name="toolTip">
+              <string>Save the current body pose sliders into the selected body preset.</string>
+             </property>
              <property name="text">
               <string>Save</string>
              </property>
@@ -98,6 +107,9 @@
            </item>
            <item>
             <widget class="QPushButton" name="btn_body_save_as">
+             <property name="toolTip">
+              <string>Save the current body pose sliders as a new body preset.</string>
+             </property>
              <property name="text">
               <string>Save As</string>
              </property>
@@ -105,6 +117,9 @@
            </item>
            <item>
             <widget class="QPushButton" name="btn_body_delete">
+             <property name="toolTip">
+              <string>Delete the selected body preset.</string>
+             </property>
              <property name="text">
               <string>Delete</string>
              </property>
@@ -118,6 +133,9 @@
         <layout class="QHBoxLayout" name="bodyEmotionRow">
          <item>
           <widget class="QComboBox" name="emotion_combo">
+           <property name="toolTip">
+            <string>Preview/edit the body-pose values associated with this emotion.</string>
+           </property>
            <item>
             <property name="text">
              <string>Neutral</string>
@@ -165,6 +183,9 @@
          </item>
          <item>
           <widget class="QCheckBox" name="live_sync_checkbox">
+           <property name="toolTip">
+            <string>When enabled, body slider changes are sent live to the avatar runtime.</string>
+           </property>
            <property name="text">
             <string>Live Sync</string>
            </property>
@@ -174,6 +195,9 @@
        </item>
        <item>
         <widget class="QPushButton" name="btn_hand_doctor">
+         <property name="toolTip">
+          <string>Open the hand debugging/calibration helper for avatar hand pose tuning.</string>
+         </property>
          <property name="text">
           <string>Hand Doctor</string>
          </property>
