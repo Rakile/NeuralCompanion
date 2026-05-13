@@ -156,6 +156,7 @@ class MainUiRealLayoutMixin:
             if tabs is None or panel is None:
                 return False
 
+            self._place_preset_buttons_under_selector()
             self._wrap_host_settings_tab_pages(tabs)
 
             if bool(tabs.property("_nc_fixed_system_shaping_tabs")):
@@ -215,6 +216,49 @@ class MainUiRealLayoutMixin:
             except Exception:
                 pass
             return True
+
+    def _place_preset_buttons_under_selector(self):
+            host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
+            if host_tab is None or bool(host_tab.property("_nc_preset_buttons_near_selector")):
+                return
+            host_layout = host_tab.layout()
+            if host_layout is None:
+                return
+            form = host_tab.findChild(QtWidgets.QFormLayout, "hostRuntimeForm")
+            button_row = host_tab.findChild(QtWidgets.QHBoxLayout, "presetButtonRow")
+            if form is None or button_row is None:
+                return
+
+            form_index = -1
+            button_index = -1
+            for index in range(host_layout.count()):
+                item = host_layout.itemAt(index)
+                if item is None:
+                    continue
+                if item.layout() is form:
+                    form_index = index
+                if item.layout() is button_row:
+                    button_index = index
+            if form_index < 0 or button_index < 0 or button_index == form_index + 1:
+                try:
+                    host_tab.setProperty("_nc_preset_buttons_near_selector", True)
+                except Exception:
+                    pass
+                return
+
+            try:
+                item = host_layout.takeAt(button_index)
+                row_layout = item.layout() if item is not None else button_row
+                insert_index = form_index + 1
+                if button_index < insert_index:
+                    insert_index -= 1
+                host_layout.insertLayout(insert_index, row_layout)
+                host_layout.invalidate()
+                host_layout.activate()
+                host_tab.setProperty("_nc_preset_buttons_near_selector", True)
+                host_tab.updateGeometry()
+            except Exception:
+                pass
 
     def _wrap_host_settings_tab_pages(self, tabs):
             if tabs is None or not hasattr(tabs, "count"):
