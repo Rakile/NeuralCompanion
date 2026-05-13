@@ -77,6 +77,9 @@ class BackendRuntimeControlsMixin:
         for control in controls:
             if control is not None:
                 control.setEnabled(not running)
+        refresh_preset_load = getattr(self, "_refresh_preset_load_button_state", None)
+        if callable(refresh_preset_load):
+            refresh_preset_load()
 
     def _engine_is_offline_replay_only(self):
         return bool(self.thread and self.thread.is_alive() and _runtime_config().get("offline_replay_only", False))

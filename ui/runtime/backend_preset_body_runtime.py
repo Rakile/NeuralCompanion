@@ -26,6 +26,31 @@ def _update_runtime_config(key, value):
 
 class BackendPresetBodyRuntimeMixin:
     """Preset and body-config list/save/load/delete behavior."""
+
+    def _preset_name_is_loadable(self, name):
+        return bool(str(name or "").strip()) and str(name or "").strip() not in {
+            "No Presets",
+            "No presets found",
+            "Select Preset...",
+        }
+
+    def _preset_load_block_reason(self):
+        if bool(getattr(self, "thread", None) and self.thread.is_alive()):
+            return "Preset loading is locked while Neural Companion is running. Terminate the active session before loading a preset."
+        name = self.preset_combo.currentText() if hasattr(self, "preset_combo") else ""
+        if not self._preset_name_is_loadable(name):
+            return "No preset is available to load."
+        return ""
+
+    def _refresh_preset_load_button_state(self):
+        button = getattr(self, "btn_preset_load", None)
+        if button is None or not hasattr(button, "setEnabled"):
+            return
+        reason = self._preset_load_block_reason()
+        button.setEnabled(not bool(reason))
+        if hasattr(button, "setToolTip"):
+            button.setToolTip(reason or "Load the selected preset. Locked while a chat session is running.")
+
     def _on_runtime_section_toggled(self):
         self._sync_host_settings_tabs_height()
         self.save_session()
@@ -181,6 +206,7 @@ class BackendPresetBodyRuntimeMixin:
         else:
             _update_runtime_config("active_preset_name", selected)
         self._update_preset_reference_from_selection(selected)
+        self._refresh_preset_load_button_state()
 
     def refresh_preset_list(self):
         current = str(self.preset_combo.currentText() or "").strip() if hasattr(self, "preset_combo") else ""
@@ -189,6 +215,7 @@ class BackendPresetBodyRuntimeMixin:
         self.preset_combo.addItems(presets or ["No Presets"])
         if current and current in presets:
             self.preset_combo.setCurrentText(current)
+        self._refresh_preset_load_button_state()
 
     def refresh_body_list(self):
         body_combo = self._live_widget_attr("body_combo")
@@ -200,7 +227,13 @@ class BackendPresetBodyRuntimeMixin:
 
     def load_preset(self):
         name = self.preset_combo.currentText()
-        if not name or name in {"No Presets", "Select Preset..."}:
+        block_reason = self._preset_load_block_reason()
+        if block_reason:
+            if bool(getattr(self, "thread", None) and self.thread.is_alive()):
+                print(f"[QtGUI] Preset load blocked: {block_reason}")
+            self._refresh_preset_load_button_state()
+            return
+        if not self._preset_name_is_loadable(name):
             return
         path = Path("presets") / f"{name}.json"
         if not path.exists():

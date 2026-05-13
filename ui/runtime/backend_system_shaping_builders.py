@@ -132,7 +132,10 @@ class BackendSystemShapingBuilderMixin:
             button = QtWidgets.QPushButton(label)
             button.setObjectName(object_name)
             button.clicked.connect(handler)
-            if object_name == "btn_preset_save":
+            if object_name == "btn_preset_load":
+                self.btn_preset_load = button
+                self._refresh_preset_load_button_state()
+            elif object_name == "btn_preset_save":
                 self.btn_preset_save = button
             elif object_name == "btn_preset_save_as":
                 self.btn_preset_save_as = button
