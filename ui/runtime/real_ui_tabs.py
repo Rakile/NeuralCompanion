@@ -391,6 +391,10 @@ class MainUiRealTabAdoptionMixin:
             except Exception:
                 pass
             try:
+                self._normalize_system_shaping_fixed_tab_layout()
+            except Exception:
+                pass
+            try:
                 self._fix_workspace_tab_content_layouts()
             except Exception:
                 pass

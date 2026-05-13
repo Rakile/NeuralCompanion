@@ -66,6 +66,18 @@ class MainUiRealLayoutMixin:
                 pass
 
     def _fix_system_shaping_scroll_content_size(self):
+            if self._normalize_system_shaping_fixed_tab_layout():
+                tabs = self._ui("host_settings_tabs", QtWidgets.QTabWidget)
+                if tabs is not None:
+                    try:
+                        tabs.setMinimumHeight(0)
+                        tabs.setMaximumHeight(16777215)
+                        tabs.updateGeometry()
+                    except Exception:
+                        pass
+                self._normalize_frontend_tts_runtime_layout()
+                return
+
             scroll = self._ui("system_shaping_scroll", QtWidgets.QScrollArea)
             content = self._ui("system_shaping_content", QtWidgets.QWidget)
             tabs = self._ui("host_settings_tabs", QtWidgets.QTabWidget)
@@ -137,6 +149,145 @@ class MainUiRealLayoutMixin:
             if scroll is not None:
                 scroll.updateGeometry()
                 scroll.viewport().update()
+
+    def _normalize_system_shaping_fixed_tab_layout(self):
+            tabs = self._ui("host_settings_tabs", QtWidgets.QTabWidget)
+            panel = self._ui("system_shaping_panel", QtWidgets.QWidget)
+            if tabs is None or panel is None:
+                return False
+
+            self._wrap_host_settings_tab_pages(tabs)
+
+            if bool(tabs.property("_nc_fixed_system_shaping_tabs")):
+                return True
+
+            scroll = self._ui("system_shaping_scroll", QtWidgets.QScrollArea)
+            content = self._ui("system_shaping_content", QtWidgets.QWidget)
+            mic_row = self._ui("micStatusRow", QtWidgets.QWidget)
+            panel_layout = panel.layout()
+            content_layout = content.layout() if content is not None and hasattr(content, "layout") else None
+            if scroll is None or panel_layout is None or content_layout is None:
+                return False
+
+            style = str(scroll.styleSheet() or "").strip()
+            if style and not bool(panel.property("_nc_system_shaping_scroll_style_applied")):
+                try:
+                    existing = str(panel.styleSheet() or "").strip()
+                    panel.setStyleSheet(f"{existing}\n{style}".strip() if existing else style)
+                    panel.setProperty("_nc_system_shaping_scroll_style_applied", True)
+                except Exception:
+                    pass
+
+            for widget in (mic_row, tabs):
+                if widget is None:
+                    continue
+                try:
+                    content_layout.removeWidget(widget)
+                    widget.setParent(panel)
+                except Exception:
+                    pass
+
+            try:
+                panel_layout.removeWidget(scroll)
+                scroll.hide()
+            except Exception:
+                pass
+
+            try:
+                panel_layout.setContentsMargins(14, 14, 14, 14)
+                panel_layout.setSpacing(12)
+                if mic_row is not None:
+                    panel_layout.addWidget(mic_row, 0)
+                panel_layout.addWidget(tabs, 1)
+                panel_layout.setAlignment(mic_row, QtCore.Qt.AlignTop) if mic_row is not None else None
+            except Exception:
+                pass
+
+            try:
+                policy = tabs.sizePolicy()
+                policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Expanding)
+                tabs.setSizePolicy(policy)
+                tabs.setMinimumHeight(0)
+                tabs.setMaximumHeight(16777215)
+                tabs.setProperty("_nc_fixed_system_shaping_tabs", True)
+                tabs.updateGeometry()
+            except Exception:
+                pass
+            return True
+
+    def _wrap_host_settings_tab_pages(self, tabs):
+            if tabs is None or not hasattr(tabs, "count"):
+                return
+            current_index = -1
+            try:
+                current_index = int(tabs.currentIndex())
+            except Exception:
+                current_index = -1
+            index = 0
+            while index < tabs.count():
+                page = tabs.widget(index)
+                if page is None:
+                    index += 1
+                    continue
+                if isinstance(page, QtWidgets.QAbstractScrollArea) and bool(page.property("_nc_host_settings_page_scroll")):
+                    index += 1
+                    continue
+
+                title = ""
+                tooltip = ""
+                data = None
+                icon = None
+                try:
+                    title = str(tabs.tabText(index) or "")
+                    tooltip = str(tabs.tabToolTip(index) or "")
+                    icon = tabs.tabIcon(index)
+                    tab_bar = tabs.tabBar()
+                    if tab_bar is not None:
+                        data = tab_bar.tabData(index)
+                except Exception:
+                    pass
+
+                scroll = QtWidgets.QScrollArea()
+                object_name = str(page.objectName() or f"host_settings_page_{index}").strip()
+                scroll.setObjectName(f"{object_name}_scroll")
+                scroll.setProperty("_nc_host_settings_page_scroll", True)
+                scroll.setWidgetResizable(True)
+                scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+                scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                scroll.setStyleSheet("QScrollArea { background: transparent; border: 0; } QScrollArea > QWidget > QWidget { background: transparent; }")
+                try:
+                    scroll.viewport().setAutoFillBackground(False)
+                except Exception:
+                    pass
+
+                try:
+                    tabs.removeTab(index)
+                    page.setParent(None)
+                    if hasattr(page, "layout") and page.layout() is not None:
+                        page.layout().setAlignment(QtCore.Qt.AlignTop)
+                    page.setMinimumHeight(0)
+                    scroll.setWidget(page)
+                    tabs.insertTab(index, scroll, title)
+                    if icon is not None and not icon.isNull():
+                        tabs.setTabIcon(index, icon)
+                    if tooltip:
+                        tabs.setTabToolTip(index, tooltip)
+                    tab_bar = tabs.tabBar()
+                    if tab_bar is not None and data is not None:
+                        tab_bar.setTabData(index, data)
+                except Exception:
+                    try:
+                        scroll.deleteLater()
+                    except Exception:
+                        pass
+                index += 1
+            if current_index >= 0:
+                try:
+                    tabs.setCurrentIndex(min(current_index, tabs.count() - 1))
+                except Exception:
+                    pass
 
     def _resync_frontend_runtime_cards(self):
             backend = getattr(self, "backend", None)

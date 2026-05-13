@@ -191,6 +191,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         _configure_real_ui_surfaces_dependencies()
         self._bind_frontend_workspace_constraint_hooks()
         self._configure_frontend_runtime_slice()
+        self._normalize_system_shaping_fixed_tab_layout()
         self._configure_frontend_tab_bars()
         self._normalize_frontend_chat_runtime_editor_widths()
         self._bind_frontend_layout_persistence_hooks()
@@ -202,6 +203,8 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._fix_sensory_feedback_initial_alignment()
         QtCore.QTimer.singleShot(0, self._fix_sensory_feedback_initial_alignment)
         QtCore.QTimer.singleShot(100, self._fix_sensory_feedback_initial_alignment)
+        QtCore.QTimer.singleShot(0, self._normalize_system_shaping_fixed_tab_layout)
+        QtCore.QTimer.singleShot(150, self._normalize_system_shaping_fixed_tab_layout)
         self._fix_workspace_tab_content_layouts()
         QtCore.QTimer.singleShot(0, self._fix_workspace_tab_content_layouts)
         QtCore.QTimer.singleShot(150, self._fix_workspace_tab_content_layouts)
@@ -227,13 +230,28 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
     def _forward_tabbar_wheel_to_parent_scroll_area(self, tab_bar, event):
         if tab_bar is None or event is None:
             return False
-        current = tab_bar.parentWidget()
         scroll_area = None
-        while current is not None:
-            if isinstance(current, QtWidgets.QAbstractScrollArea):
-                scroll_area = current
-                break
-            current = current.parentWidget()
+        tab_widget = tab_bar.parentWidget()
+        if isinstance(tab_widget, QtWidgets.QTabWidget):
+            try:
+                current_page = tab_widget.currentWidget()
+            except Exception:
+                current_page = None
+            if isinstance(current_page, QtWidgets.QAbstractScrollArea):
+                scroll_area = current_page
+            elif current_page is not None:
+                try:
+                    scroll_area = current_page.findChild(QtWidgets.QAbstractScrollArea)
+                except Exception:
+                    scroll_area = None
+
+        if scroll_area is None:
+            current = tab_widget
+            while current is not None:
+                if isinstance(current, QtWidgets.QAbstractScrollArea):
+                    scroll_area = current
+                    break
+                current = current.parentWidget()
         if scroll_area is None:
             return False
 
