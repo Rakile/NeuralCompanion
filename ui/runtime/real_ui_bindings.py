@@ -279,6 +279,7 @@ class MainUiRealBindingMixin:
     def _bind_avatar_body_vam_runtime_controls(self):
             tooltips = {
                 "voice_combo": "Voice reference used by the selected TTS backend when voice cloning is available.",
+                "btn_voice_refresh": "Refresh voice reference files from the voices folder.",
                 "body_combo": "Saved VSeeFace body pose preset. Use Load to apply it to the visible sliders.",
                 "emotion_combo": "Preview/edit the body-pose values associated with this emotion.",
                 "live_sync_checkbox": "When enabled, body slider changes are sent live to the avatar runtime.",
@@ -302,6 +303,9 @@ class MainUiRealBindingMixin:
                 if widget is None or not hasattr(widget, "currentIndexChanged"):
                     continue
                 widget.currentIndexChanged.connect(handler)
+            button = self._ui_object("btn_voice_refresh")
+            if button is not None and hasattr(button, "clicked"):
+                button.clicked.connect(lambda _checked=False: self._refresh_frontend_voice_list())
             checkbox_bindings = (
                 ("live_sync_checkbox", self._on_frontend_live_sync_changed),
             )

@@ -3196,24 +3196,49 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
           </widget>
          </item>
          <item>
-          <widget class="QComboBox" name="voice_combo">
-           <property name="minimumSize">
-            <size>
-             <width>186</width>
-             <height>32</height>
-            </size>
-           </property>
-           <property name="maximumSize">
-            <size>
-             <width>200</width>
-             <height>16777215</height>
-            </size>
-           </property>
-           <item>
-            <property name="text">
-             <string>ms-twav</string>
+          <widget class="QWidget" name="voice_clone_row" native="true">
+           <layout class="QHBoxLayout" name="voiceCloneRowLayout">
+            <property name="leftMargin">
+             <number>0</number>
             </property>
-           </item>
+            <property name="topMargin">
+             <number>0</number>
+            </property>
+            <property name="rightMargin">
+             <number>0</number>
+            </property>
+            <property name="bottomMargin">
+             <number>0</number>
+            </property>
+            <item>
+             <widget class="QComboBox" name="voice_combo">
+              <property name="minimumSize">
+               <size>
+                <width>186</width>
+                <height>32</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>200</width>
+                <height>16777215</height>
+               </size>
+              </property>
+              <item>
+               <property name="text">
+                <string>ms-twav</string>
+               </property>
+              </item>
+             </widget>
+            </item>
+            <item>
+             <widget class="QPushButton" name="btn_voice_refresh">
+              <property name="text">
+               <string>Refresh</string>
+              </property>
+             </widget>
+            </item>
+           </layout>
           </widget>
          </item>
          <item>

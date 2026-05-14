@@ -18,19 +18,50 @@ def _update_runtime_config(key, value):
 class BackendResourceRefreshMixin:
     """Refresh backend UI resources from current runtime/config state."""
 
+    def refresh_voice_list(self, preferred_voice=None):
+        if not hasattr(self, "voice_combo"):
+            return []
+        voices = sorted(
+            [os.path.basename(path) for path in glob.glob("voices/*.wav")],
+            key=lambda name: name.lower(),
+        )
+        current_voice = str(preferred_voice or "").strip()
+        if not current_voice and hasattr(self, "_current_voice_file_value"):
+            current_voice = str(self._current_voice_file_value() or "").strip()
+        if not current_voice:
+            runtime_config = _runtime_config()
+            current_voice = os.path.basename(str(runtime_config.get("voice_path", "") or runtime_config.get("voice_file", "") or "").strip())
+
+        selected_voice = current_voice if current_voice in voices else (voices[0] if voices else "")
+        previous = False
+        try:
+            previous = bool(self.voice_combo.blockSignals(True))
+            self.voice_combo.clear()
+            self.voice_combo.addItems(voices or ["No .wav found"])
+            if selected_voice:
+                index = self.voice_combo.findText(selected_voice)
+                if index >= 0:
+                    self.voice_combo.setCurrentIndex(index)
+        finally:
+            try:
+                self.voice_combo.blockSignals(previous)
+            except Exception:
+                pass
+
+        if selected_voice:
+            _update_runtime_config("voice_path", os.path.join("voices", selected_voice))
+        else:
+            _update_runtime_config("voice_path", "")
+        if hasattr(self, "_refresh_tts_runtime_summary"):
+            self._refresh_tts_runtime_summary()
+        return voices
+
     def refresh_resources(self):
         engine = _engine()
         runtime_config = _runtime_config()
         self.refresh_model_list_quietly(quiet=False)
 
-        voices = [os.path.basename(path) for path in glob.glob("voices/*.wav")]
-        self.voice_combo.clear()
-        self.voice_combo.addItems(voices or ["No .wav found"])
-        if voices:
-            self.voice_combo.setCurrentIndex(0)
-            _update_runtime_config("voice_path", os.path.join("voices", voices[0]))
-        else:
-            _update_runtime_config("voice_path", "")
+        self.refresh_voice_list(runtime_config.get("voice_file", ""))
 
         self.refresh_preset_list()
         self.refresh_body_list()

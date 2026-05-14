@@ -6,6 +6,17 @@ def configure_real_ui_actions_avatar_dependencies(namespace):
 
 
 class RealUiActionsAvatarMixin:
+    def _refresh_frontend_voice_list(self):
+            current = ""
+            combo = self._ui_object("voice_combo")
+            if combo is not None and hasattr(combo, "currentText"):
+                current = str(combo.currentText() or "").strip()
+            callback = getattr(self.backend, "refresh_voice_list", None)
+            if callable(callback):
+                callback(current)
+            self._mirror_persona_runtime_widgets(force=True)
+            self._refresh_avatar_body_vam_runtime_frontend()
+
     def _on_frontend_voice_changed(self, _index=None):
             self._sync_single_combo_to_backend("voice_combo")
             self._refresh_avatar_body_vam_runtime_frontend()
