@@ -421,6 +421,8 @@ class RealUiSyncMirrorMixin:
                 frontend_widget = self._ui_object(object_name)
                 if backend_widget is None or frontend_widget is None:
                     continue
+                if backend_widget is frontend_widget:
+                    continue
                 if hasattr(frontend_widget, "setEnabled") and hasattr(backend_widget, "isEnabled"):
                     try:
                         frontend_widget.setEnabled(bool(backend_widget.isEnabled()))
