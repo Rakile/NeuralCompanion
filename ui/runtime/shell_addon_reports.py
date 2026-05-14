@@ -6,10 +6,14 @@ from pathlib import Path
 
 from addons.visual_reply.session_schema import with_flat_visual_reply_settings
 from core.chat_runtime_session_schema import with_flat_chat_runtime_settings
+from core.chunking_session_schema import with_flat_chunking_settings
+from core.dry_run_session_schema import with_flat_dry_run_settings
 from core.musetalk_session_schema import with_flat_musetalk_settings
 from core.persona_session_schema import with_flat_persona_settings
+from core.runtime_controls_session_schema import with_flat_runtime_controls_settings
 from core.sensory_session_schema import with_flat_sensory_settings
 from core.tts_session_schema import with_flat_tts_runtime_settings
+from core.ui_session_schema import with_flat_ui_settings
 from core.vam_session_schema import with_flat_vam_settings
 from core.addons.contributions import (
     ui_fallback_targets_for_manifest,
@@ -47,7 +51,17 @@ def _read_ui_shell_session_snapshot():
                 with_flat_sensory_settings(
                     with_flat_musetalk_settings(
                         with_flat_tts_runtime_settings(
-                            with_flat_visual_reply_settings(with_flat_persona_settings(with_flat_vam_settings(payload)))
+                            with_flat_visual_reply_settings(
+                                with_flat_persona_settings(
+                                    with_flat_runtime_controls_settings(
+                                        with_flat_dry_run_settings(
+                                            with_flat_chunking_settings(
+                                                with_flat_ui_settings(with_flat_vam_settings(payload))
+                                            )
+                                        )
+                                    )
+                                )
+                            )
                         )
                     )
                 )

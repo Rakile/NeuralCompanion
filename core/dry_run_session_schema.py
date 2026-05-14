@@ -5,16 +5,12 @@ from collections import OrderedDict
 from collections.abc import Mapping
 
 
-SESSION_KEY = "persona"
+SESSION_KEY = "dry_run"
 
 LEGACY_FIELD_PATHS = OrderedDict(
     (
-        ("emotional_instructions", ("prompts", "emotional_instructions")),
-        ("system_prompt", ("prompts", "system")),
-        ("last_preset", ("selection", "preset")),
-        ("active_preset_name", ("selection", "active_preset")),
-        ("last_body", ("selection", "body")),
-        ("live_sync", ("body", "live_sync")),
+        ("dry_run_target_samples", ("target_samples",)),
+        ("dry_run_auto_replies", ("auto_replies",)),
     )
 )
 
@@ -47,7 +43,7 @@ def _nested_set(payload: dict, path: tuple[str, ...], value) -> None:
     current[path[-1]] = copy.deepcopy(value)
 
 
-def normalize_persona_settings(session_or_settings) -> dict:
+def normalize_dry_run_settings(session_or_settings) -> dict:
     source = _mapping(session_or_settings)
     grouped = _mapping(source.get(SESSION_KEY))
     if not grouped and any(key in source for key in LEGACY_FIELD_PATHS):
@@ -62,21 +58,19 @@ def normalize_persona_settings(session_or_settings) -> dict:
     return grouped
 
 
-def flatten_persona_settings(session_or_settings) -> dict:
-    grouped = normalize_persona_settings(session_or_settings)
+def flatten_dry_run_settings(session_or_settings) -> dict:
+    grouped = normalize_dry_run_settings(session_or_settings)
     flattened = {}
     for legacy_key, path in LEGACY_FIELD_PATHS.items():
         value = _nested_get(grouped, path)
         if value is not _MISSING:
             flattened[legacy_key] = copy.deepcopy(value)
-    if "active_preset_name" not in flattened and "last_preset" in flattened:
-        flattened["active_preset_name"] = copy.deepcopy(flattened.get("last_preset"))
     return flattened
 
 
-def group_persona_session(session: Mapping) -> dict:
+def group_dry_run_session(session: Mapping) -> dict:
     payload = dict(session or {})
-    grouped = normalize_persona_settings(payload)
+    grouped = normalize_dry_run_settings(payload)
     for key in LEGACY_FIELD_PATHS:
         payload.pop(key, None)
     if grouped:
@@ -86,7 +80,7 @@ def group_persona_session(session: Mapping) -> dict:
     return payload
 
 
-def with_flat_persona_settings(session: Mapping) -> dict:
+def with_flat_dry_run_settings(session: Mapping) -> dict:
     payload = dict(session or {})
-    payload.update(flatten_persona_settings(payload))
+    payload.update(flatten_dry_run_settings(payload))
     return payload

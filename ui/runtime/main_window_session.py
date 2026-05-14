@@ -10,10 +10,14 @@ from PySide6 import QtCore, QtWidgets
 
 from addons.visual_reply.session_schema import group_visual_reply_session, with_flat_visual_reply_settings
 from core.chat_runtime_session_schema import group_chat_runtime_session, with_flat_chat_runtime_settings
+from core.chunking_session_schema import group_chunking_session, with_flat_chunking_settings
+from core.dry_run_session_schema import group_dry_run_session, with_flat_dry_run_settings
 from core.musetalk_session_schema import group_musetalk_session, with_flat_musetalk_settings
 from core.persona_session_schema import group_persona_session, with_flat_persona_settings
+from core.runtime_controls_session_schema import group_runtime_controls_session, with_flat_runtime_controls_settings
 from core.sensory_session_schema import group_sensory_session, with_flat_sensory_settings
 from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
+from core.ui_session_schema import group_ui_session, with_flat_ui_settings
 from core.vam_session_schema import group_vam_session, with_flat_vam_settings
 from ui.runtime import engine_access as engine
 from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
@@ -95,6 +99,7 @@ class MainWindowSessionMixin:
             if SESSION_PATH.exists():
                 previous_session = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
                 if isinstance(previous_session, dict):
+                    previous_session = with_flat_ui_settings(previous_session)
                     preserved_main_ui_real_layout = previous_session.get("main_ui_real_layout")
         except Exception:
             preserved_main_ui_real_layout = None
@@ -181,12 +186,16 @@ class MainWindowSessionMixin:
             provider_settings[active_chat_provider] = active_provider_settings
             session["chat_provider_settings"] = provider_settings
         session = group_persona_session(session)
+        session = group_runtime_controls_session(session)
+        session = group_dry_run_session(session)
+        session = group_chunking_session(session)
         session = group_chat_runtime_session(session)
         session = group_sensory_session(session)
         session = group_musetalk_session(session)
         session = group_tts_runtime_session(session)
         session = group_visual_reply_session(session)
         session = group_vam_session(session)
+        session = group_ui_session(session)
         SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
 
     def _ensure_window_on_screen(self):
@@ -223,7 +232,17 @@ class MainWindowSessionMixin:
             with_flat_sensory_settings(
                 with_flat_musetalk_settings(
                     with_flat_tts_runtime_settings(
-                        with_flat_visual_reply_settings(with_flat_persona_settings(with_flat_vam_settings(session)))
+                        with_flat_visual_reply_settings(
+                            with_flat_persona_settings(
+                                with_flat_runtime_controls_settings(
+                                    with_flat_dry_run_settings(
+                                        with_flat_chunking_settings(
+                                            with_flat_ui_settings(with_flat_vam_settings(session))
+                                        )
+                                    )
+                                )
+                            )
+                        )
                     )
                 )
             )
