@@ -27,10 +27,7 @@
     <number>10</number>
    </property>
    <item>
-    <widget class="QGroupBox" name="visual_reply_group">
-     <property name="title">
-      <string>Visual Replies</string>
-     </property>
+    <widget class="QWidget" name="visual_reply_group" native="true">
      <layout class="QVBoxLayout" name="visual_reply_group_layout">
       <property name="leftMargin">
        <number>12</number>

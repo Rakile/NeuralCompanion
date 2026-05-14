@@ -121,6 +121,9 @@ class BackendSystemShapingBuilderMixin:
         self._refresh_musetalk_vram_visibility()
         layout.addWidget(self._build_chat_runtime_card())
         layout.addWidget(self._build_tts_runtime_card())
+        visual_reply_card = self._build_visual_reply_runtime_card()
+        if visual_reply_card is not None:
+            layout.addWidget(visual_reply_card)
 
         preset_buttons = QtWidgets.QHBoxLayout()
         for label, object_name, handler in [
@@ -239,6 +242,27 @@ class BackendSystemShapingBuilderMixin:
         layout.addWidget(QtWidgets.QLabel("Visual Reply addon is not available."))
         layout.addStretch(1)
         return fallback
+
+    def _build_visual_reply_runtime_card(self):
+        settings_tab = self._build_visual_reply_settings_tab()
+        if settings_tab is None:
+            return None
+        self.visual_reply_runtime_box = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(self.visual_reply_runtime_box)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+        layout.addWidget(settings_tab)
+        self.visual_reply_runtime_section = CollapsibleSection(
+            "Visual Reply Runtime",
+            self.visual_reply_runtime_box,
+            expanded=True,
+        )
+        self.visual_reply_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
+        try:
+            self._refresh_visual_reply_hint()
+        except Exception:
+            pass
+        return self.visual_reply_runtime_section
 
     def _build_chat_runtime_card(self):
         self.chat_runtime_box = QtWidgets.QWidget()

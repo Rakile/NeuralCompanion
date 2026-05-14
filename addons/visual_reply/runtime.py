@@ -199,16 +199,25 @@ def refresh_visual_reply_hint(backend):
     model = backend._live_text("visual_reply_model_edit", visual_reply_model_for_provider(backend, provider)).strip() or default_model
     auto_show = backend._live_checked("visual_reply_auto_show_checkbox", True)
     if mode == "off":
+        title = "Visual Reply Runtime - Off"
         summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."
     else:
         dock_text = "The dock will auto-show when a request starts or finishes." if auto_show else "The dock stays where it is; use Show Visual Reply if you want to watch generation live."
         provider_text = visual_reply_provider_label_from_value(provider)
+        title = f"Visual Reply Runtime - {provider_text} / {model}"
         key_text = "A local API key is set for this provider." if visual_reply_api_key_for_provider(backend, provider) else "API key can come from this field or the provider environment variable."
         summary = (
             f"Visual replies are enabled. Automatic image generation still follows the NC auto-visual toggle; when allowed, NC may append one [visualize: ...] tag when an image would help. "
             f"Current backend request: {provider_text}, {size}, model '{model}'. {key_text} {dock_text}"
         )
     hint.setText(summary)
+    runtime_box = backend._live_widget_attr("visual_reply_runtime_box")
+    if runtime_box is not None and hasattr(runtime_box, "setTitle"):
+        try:
+            runtime_box.setTitle(title)
+            runtime_box.setToolTip(summary)
+        except Exception:
+            pass
 
 
 def on_visual_reply_mode_changed(backend, choice):

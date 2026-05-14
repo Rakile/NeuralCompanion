@@ -544,6 +544,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._redirect_backend_addons_management_surface()
         self._redirect_backend_musetalk_preview_runtime_surface()
         self._redirect_backend_visual_reply_runtime_surface()
+        self._redirect_backend_visual_reply_settings_surface()
         self._adopt_backend_runtime_tabs()
         self._cleanup_frontend_preview_only_roots()
         self._disable_unwired_phase5_controls()

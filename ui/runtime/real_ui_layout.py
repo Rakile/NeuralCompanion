@@ -87,6 +87,7 @@ class MainUiRealLayoutMixin:
 
             chat_box = self._ui("chat_runtime_box", QtWidgets.QGroupBox)
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
+            visual_reply_box = self._ui("visual_reply_runtime_box", QtWidgets.QGroupBox)
             perf_box = self._ui("performance_guidance_box", QtWidgets.QGroupBox)
 
             if scroll is not None:
@@ -94,7 +95,7 @@ class MainUiRealLayoutMixin:
                 scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
 
-            for w in (content, tabs, host_tab, chat_box, tts_box, perf_box):
+            for w in (content, tabs, host_tab, chat_box, tts_box, visual_reply_box, perf_box):
                 if w is None:
                     continue
 
@@ -1151,6 +1152,7 @@ QTabWidget QTabBar::tab:selected {
             group_specs = (
                 ("chat_runtime_box", "Chat Runtime"),
                 ("tts_runtime_box", "TTS Runtime"),
+                ("visual_reply_runtime_box", "Visual Reply Runtime"),
             )
             for object_name, fallback_title in group_specs:
                 group_box = self._ui_object(object_name)
