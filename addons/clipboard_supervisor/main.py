@@ -1,4 +1,5 @@
 import json
+import threading
 import uuid
 
 from PySide6 import QtCore, QtWidgets
@@ -9,6 +10,10 @@ from core.addons.base import BaseAddon
 class NoWheelComboBox(QtWidgets.QComboBox):
     def wheelEvent(self, event):
         event.ignore()
+
+
+class _SupervisorRefineBridge(QtCore.QObject):
+    finished = QtCore.Signal(object, str, str, str)
 
 
 FALLBACK_TEMPLATE = """This behavior applies only to clipboard image input and should behave like a clear policy, not a vague preference.
@@ -94,6 +99,8 @@ class Addon(BaseAddon):
         self.selected_persona_id = self.personas[0]["id"] if self.personas else ""
         self._tab_refreshers = []
         self._expanded_behavior_ids = set()
+        self._refine_bridge = _SupervisorRefineBridge()
+        self._refine_bridge.finished.connect(self._on_behavior_field_refined)
         self._register_prompt_contributor()
         context.ui.register_manifest_designer_tab(
             id=self.TAB_ID,
@@ -552,6 +559,79 @@ class Addon(BaseAddon):
         else:
             self._expanded_behavior_ids.discard(behavior_key)
 
+    def _install_behavior_refine_menu(self, edit, field_label):
+        if edit is None or not hasattr(edit, "customContextMenuRequested"):
+            return
+        edit.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        edit.customContextMenuRequested.connect(
+            lambda point, edit=edit, field_label=field_label: self._show_behavior_refine_menu(edit, field_label, point)
+        )
+
+    def _show_behavior_refine_menu(self, edit, field_label, point):
+        try:
+            menu = edit.createStandardContextMenu()
+        except Exception:
+            menu = QtWidgets.QMenu(edit)
+        menu.addSeparator()
+        refine_action = menu.addAction("Refine")
+        current_text = str(edit.toPlainText() if hasattr(edit, "toPlainText") else "").strip()
+        refine_action.setEnabled(bool(current_text) and not bool(edit.property("_nc_refine_in_flight")))
+        refine_action.triggered.connect(lambda _checked=False, edit=edit, field_label=field_label: self._refine_behavior_field(edit, field_label))
+        try:
+            menu.exec(edit.viewport().mapToGlobal(point))
+        except Exception:
+            pass
+
+    def _refine_behavior_field(self, edit, field_label):
+        if edit is None or not hasattr(edit, "toPlainText") or bool(edit.property("_nc_refine_in_flight")):
+            return
+        original = str(edit.toPlainText() or "").strip()
+        if not original:
+            return
+        edit.setProperty("_nc_refine_in_flight", True)
+        label = str(field_label or "Instruction").strip() or "Instruction"
+
+        def worker():
+            result = ""
+            error = ""
+            try:
+                from ui.runtime import engine_access as engine
+
+                guidance = (
+                    "This field is part of a Clipboard Supervisor behavior. "
+                    "Visual Trigger describes the clipboard image pattern to detect. "
+                    "Action describes the in-character interruption to produce when it matches."
+                )
+                result = str(engine.refine_instruction_text(original, label=label, guidance=guidance) or "").strip()
+            except Exception as exc:
+                error = str(exc)
+            try:
+                self._refine_bridge.finished.emit(edit, label, result, error)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=worker, name="nc-clipboard-supervisor-refine", daemon=True).start()
+
+    def _on_behavior_field_refined(self, edit, field_label, refined_text, error):
+        try:
+            edit.setProperty("_nc_refine_in_flight", False)
+        except RuntimeError:
+            return
+        error_text = str(error or "").strip()
+        if error_text:
+            try:
+                QtWidgets.QMessageBox.warning(edit.window(), f"Refine {field_label}", f"Refinement failed:\n\n{error_text}")
+            except Exception:
+                pass
+            return
+        refined = str(refined_text or "").strip()
+        if not refined or not hasattr(edit, "setPlainText"):
+            return
+        try:
+            edit.setPlainText(refined)
+        except RuntimeError:
+            pass
+
     def _build_runtime_widget(self, context, root=None):
         if root is not None:
             widget = root
@@ -817,6 +897,7 @@ class Addon(BaseAddon):
                 trigger_edit.setMaximumHeight(52)
                 trigger_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
                 trigger_edit.setPlainText(str(behavior.get("trigger") or ""))
+                self._install_behavior_refine_menu(trigger_edit, "Visual Trigger")
                 box_layout.addWidget(trigger_edit, 0)
 
                 action_label = QtWidgets.QLabel("Action")
@@ -827,6 +908,7 @@ class Addon(BaseAddon):
                 action_edit.setMaximumHeight(56)
                 action_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
                 action_edit.setPlainText(str(behavior.get("action") or ""))
+                self._install_behavior_refine_menu(action_edit, "Action")
                 box_layout.addWidget(action_edit, 0)
 
                 advanced_panel = QtWidgets.QWidget()

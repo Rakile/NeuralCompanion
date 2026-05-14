@@ -4891,6 +4891,58 @@ def refine_system_prompt_text(system_prompt):
     return response
 
 
+def refine_instruction_text(text, *, label="Instruction", guidance=""):
+    """Refine a short user-authored instruction through the current chat provider."""
+    original = str(text or "").strip()
+    field_label = str(label or "Instruction").strip() or "Instruction"
+    extra_guidance = str(guidance or "").strip()
+    if not original:
+        raise ValueError(f"{field_label} is empty.")
+    provider = _chat_provider()
+    provider_label = _chat_provider_label(provider)
+    provider_metadata = chat_providers.provider_metadata(provider)
+    if bool(provider_metadata.get("supports_hosted_runtime")) and not _chat_provider_api_key(provider):
+        env_names = []
+        for field in list(provider_metadata.get("config_fields") or []):
+            if not isinstance(field, dict) or str(field.get("id") or "").strip() != "api_key":
+                continue
+            env_names = [
+                str(name or "").strip()
+                for name in list(field.get("env") or [])
+                if str(name or "").strip()
+            ]
+            break
+        env_hint = f" or set {' / '.join(env_names)}" if env_names else ""
+        raise RuntimeError(f"{provider_label} API key is required. Add it in Chat Provider settings{env_hint}.")
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        raise RuntimeError(f"Choose a chat model before refining {field_label}.")
+    guidance_text = f"\nAdditional context: {extra_guidance}" if extra_guidance else ""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You refine short configuration instructions for a local desktop AI companion. "
+                "Preserve the user's intent, constraints, tone, and operational meaning. "
+                "Improve clarity, specificity, and wording without adding new requirements. "
+                "Return only the refined text. Do not include commentary, titles, markdown fences, "
+                "before/after notes, or explanations."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"Refine this {field_label}:{guidance_text}\n\n{original}",
+        },
+    ]
+    params = {"model": model_name, "messages": messages}
+    additional_params = {}
+    _apply_chat_provider_generation_fields(params, additional_params)
+    response = str(_chat_completion_create(params, additional_params) or "").strip()
+    if not response:
+        raise RuntimeError("The provider returned empty refined text.")
+    return response
+
+
 def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
     state = StreamingReplyState()
     stream_target_chars, stream_max_chars = get_stream_chunk_limits()
