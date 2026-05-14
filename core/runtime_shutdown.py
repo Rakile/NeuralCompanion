@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import time
+import os
 
 
 def _join_runtime_threads(*, name_prefixes=(), name_contains=(), timeout_seconds=4.0, logger=print):
@@ -97,7 +98,13 @@ def shutdown_runtime_components(
     )
 
     gc_module.collect()
-    if torch_module.cuda.is_available():
+    aggressive_cuda_shutdown = str(os.environ.get("NC_AGGRESSIVE_CUDA_SHUTDOWN", "") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if aggressive_cuda_shutdown and torch_module.cuda.is_available():
         try:
             torch_module.cuda.empty_cache()
             if hasattr(torch_module.cuda, "ipc_collect"):
@@ -105,7 +112,7 @@ def shutdown_runtime_components(
         except Exception:
             pass
     gc_module.collect()
-    if torch_module.cuda.is_available():
+    if aggressive_cuda_shutdown and torch_module.cuda.is_available():
         try:
             torch_module.cuda.empty_cache()
         except Exception:

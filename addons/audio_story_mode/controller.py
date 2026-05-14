@@ -774,7 +774,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._pending_story_rebuild_status_text = ""
         self._theme_refresh_timer = QtCore.QTimer(self)
         self._theme_refresh_timer.setSingleShot(True)
-        self._theme_refresh_timer.setInterval(0)
+        self._theme_refresh_timer.setInterval(80)
         self._theme_refresh_timer.timeout.connect(self.apply_theme_palette)
         self.transcriptionProgress.connect(self._on_transcription_progress)
         self.transcriptionFinished.connect(self._on_transcription_finished)
@@ -1164,6 +1164,32 @@ class AudioStoryModeController(QtCore.QObject):
         accent_border = colors["accent_border"]
         accent_text = colors["accent_text"]
         button_text = self._audio_story_contrast_text(button_bg, light=text, dark="#ffffff")
+        try:
+            widget_count = len(root.findChildren(QtWidgets.QWidget))
+        except Exception:
+            widget_count = -1
+        theme_key = (
+            id(root),
+            widget_count,
+            text,
+            muted,
+            subtle,
+            panel_bg,
+            field_bg,
+            menu_bg,
+            button_bg,
+            button_hover,
+            button_pressed,
+            disabled_bg,
+            disabled_text,
+            border,
+            accent,
+            accent_border,
+            accent_text,
+        )
+        if getattr(self, "_audio_story_theme_apply_key", None) == theme_key:
+            return
+        self._audio_story_theme_apply_key = theme_key
         root_style = (
             "QWidget#audio_story_mode_tab {{ background: {field_bg}; }}"
             "QScrollArea#audio_story_scroll_area {{ background: {field_bg}; border: 0px; }}"
