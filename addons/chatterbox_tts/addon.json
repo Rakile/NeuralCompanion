@@ -16,7 +16,9 @@
     "tts_top_k": 40,
     "tts_repeat_penalty": 1.2,
     "tts_min_p": 0.0,
-    "tts_normalize_loudness": false
+    "tts_normalize_loudness": false,
+    "tts_prewarm_on_start": true,
+    "tts_apply_watermark": true
   },
   "services": [
     {

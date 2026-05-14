@@ -19,6 +19,8 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("tts_repeat_penalty", ("chatterbox", "repeat_penalty")),
         ("tts_min_p", ("chatterbox", "min_p")),
         ("tts_normalize_loudness", ("chatterbox", "normalize_loudness")),
+        ("tts_prewarm_on_start", ("chatterbox", "prewarm_on_start")),
+        ("tts_apply_watermark", ("chatterbox", "apply_watermark")),
         ("pocket_tts_python", ("pockettts", "python")),
         ("pocket_tts_temperature", ("pockettts", "temperature")),
         ("pocket_tts_lsd_decode_steps", ("pockettts", "lsd_decode_steps")),

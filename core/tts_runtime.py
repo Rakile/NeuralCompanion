@@ -401,6 +401,12 @@ class AddonTTSBackendAdapter:
             result = fn(text)
         return self._normalize_result(result)
 
+    def warm_up(self):
+        warmer = getattr(self.service, "warm_up", None)
+        if callable(warmer):
+            return warmer()
+        return False
+
     def close(self):
         closer = getattr(self.service, "close", None)
         if callable(closer):

@@ -630,6 +630,8 @@ RUNTIME_CONFIG = {
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
     "voice_path": "",
     "tts_backend": "chatterbox",
+    "tts_prewarm_on_start": True,
+    "tts_apply_watermark": True,
     "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
     "pocket_tts_temperature": 0.7,
     "pocket_tts_lsd_decode_steps": 1,
@@ -1402,6 +1404,13 @@ def init_tts():
     )
     tts_model = state.model
     tts_backend_name = state.backend_name
+    if state.ok and tts_model is not None and bool(RUNTIME_CONFIG.get("tts_prewarm_on_start", True)):
+        warmer = getattr(tts_model, "warm_up", None)
+        if callable(warmer):
+            try:
+                warmer()
+            except Exception as exc:
+                print(f"⚠️ TTS warmup failed: {exc}")
     return bool(state.ok)
 
 
