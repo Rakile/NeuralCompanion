@@ -18,6 +18,8 @@ class RealUiSyncCopyMixin:
             if not tooltip:
                 return False
             try:
+                if str(target.toolTip() or "").strip() == tooltip:
+                    return True
                 target.setToolTip(tooltip)
                 return True
             except Exception:
@@ -105,11 +107,13 @@ class RealUiSyncCopyMixin:
                 selected_text = ""
             target.blockSignals(True)
             try:
+                changed = False
                 if existing_items != items:
                     target.clear()
                     for text, data in items:
                         if hasattr(target, "addItem"):
                             target.addItem(text, data)
+                    changed = True
                 applied = False
                 if selected_data is not None and hasattr(target, "findData"):
                     try:
@@ -118,6 +122,7 @@ class RealUiSyncCopyMixin:
                         index = -1
                     if index >= 0 and target.currentIndex() != index:
                         target.setCurrentIndex(index)
+                        changed = True
                     if index >= 0:
                         applied = True
                 if not applied and selected_text:
@@ -127,15 +132,17 @@ class RealUiSyncCopyMixin:
                         index = -1
                     if index >= 0 and target.currentIndex() != index:
                         target.setCurrentIndex(index)
+                        changed = True
                     if index >= 0:
                         applied = True
                 if not applied and target.count():
                     fallback_index = min(max(source.currentIndex(), 0), target.count() - 1)
                     if target.currentIndex() != fallback_index:
                         target.setCurrentIndex(fallback_index)
+                        changed = True
             finally:
                 target.blockSignals(False)
-            return True
+            return changed
 
     def _copy_text_state(self, source, target):
             if source is None or target is None:

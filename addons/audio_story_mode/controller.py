@@ -1284,13 +1284,13 @@ class AudioStoryModeController(QtCore.QObject):
         slider_style = (
             "QSlider {{ background: transparent; min-height: 18px; }}"
             "QSlider::groove:horizontal {{"
-            " background: {field_bg}; border: 1px solid {border}; height: 6px; border-radius: 3px;"
+            " background: {field_bg}; border: 0px; height: 6px; border-radius: 3px;"
             "}}"
             "QSlider::sub-page:horizontal {{"
-            " background: {accent}; border: 1px solid {accent_border}; height: 6px; border-radius: 3px;"
+            " background: {accent}; border: 0px; height: 6px; border-radius: 3px;"
             "}}"
             "QSlider::add-page:horizontal {{"
-            " background: {field_bg}; border: 1px solid {border}; height: 6px; border-radius: 3px;"
+            " background: {field_bg}; border: 0px; height: 6px; border-radius: 3px;"
             "}}"
             "QSlider::handle:horizontal {{"
             " background: {button_bg}; border: 1px solid {accent_border}; width: 12px; height: 12px;"
@@ -1298,8 +1298,8 @@ class AudioStoryModeController(QtCore.QObject):
             "}}"
             "QSlider::handle:horizontal:hover {{ background: {button_hover}; }}"
             "QSlider:disabled::groove:horizontal,"
-            "QSlider:disabled::add-page:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
-            "QSlider:disabled::sub-page:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
+            "QSlider:disabled::add-page:horizontal {{ background: {disabled_bg}; border: 0px; }}"
+            "QSlider:disabled::sub-page:horizontal {{ background: {disabled_bg}; border: 0px; }}"
             "QSlider:disabled::handle:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
         ).format(
             field_bg=field_bg,

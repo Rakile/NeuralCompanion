@@ -104,6 +104,7 @@ class BackendEngineLifecycleMixin:
         runtime_config = _runtime_config()
         if self.thread and self.thread.is_alive():
             return
+        self._engine_stop_in_progress = False
         self._publish_addon_event("runtime.heavy_task_starting", {"source": "engine_start"})
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
@@ -169,6 +170,7 @@ class BackendEngineLifecycleMixin:
     def reset_ui(self):
         if self._closing:
             return
+        self._engine_stop_in_progress = False
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.emit_tutorial_event("engine_stopped", self.get_tutorial_runtime_state())
@@ -196,4 +198,6 @@ class BackendEngineLifecycleMixin:
             self._update_control_action_buttons()
             self._update_push_to_talk_button()
         finally:
-            self._engine_stop_in_progress = False
+            engine_thread = getattr(self, "thread", None)
+            if not (engine_thread and engine_thread.is_alive()):
+                self._engine_stop_in_progress = False

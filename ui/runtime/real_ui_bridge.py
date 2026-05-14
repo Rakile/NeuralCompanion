@@ -795,6 +795,10 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
     def _poll_backend_state(self):
         if self._closing:
             return
+        if bool(getattr(self.backend, "_engine_stop_in_progress", False)):
+            self._mirror_runtime_status_widgets()
+            self._mirror_pipeline_telemetry_widgets()
+            return
         if self._should_lightweight_sync_for_musetalk_preview():
             now = time.monotonic()
             last_sync = float(getattr(self, "_last_frontend_heavy_sync_at", 0.0) or 0.0)

@@ -484,7 +484,7 @@ QTabWidget QTabBar::tab:!selected {
 QTabWidget QTabBar::tab:selected {
     background: FIELD_BG;
     border-color: BORDER;
-    border-bottom: 0px;
+    border-bottom-color: FIELD_BG;
     border-right: 1px solid BORDER;
     margin-right: 4px;
     margin-bottom: -1px;

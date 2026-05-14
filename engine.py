@@ -5236,7 +5236,7 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
                 f"🌊 [Stream] Reply stream done: total_chars={len(state.full_text)} emitted_any={state.first_chunk_emitted.is_set()}"
             )
 
-    threading.Thread(target=worker, daemon=True).start()
+    threading.Thread(target=worker, daemon=True, name="nc-llm-stream").start()
     return state
 
 
@@ -6141,6 +6141,7 @@ def run_companion(config_override=None):
     except Exception as e:
         print(f"CRITICAL ERROR IN LOOP: {e}")
     finally:
+        stop_flag.set()
         listening_active.clear()
         microphone_active.clear()
         push_to_talk_gui_held.clear()

@@ -6,6 +6,8 @@ import threading
 import time
 import os
 
+_DEFERRED_NATIVE_REFS = []
+
 
 def _join_runtime_threads(*, name_prefixes=(), name_contains=(), timeout_seconds=4.0, logger=print):
     """Give real-time workers a brief chance to drop model references."""
@@ -37,6 +39,17 @@ def _join_runtime_threads(*, name_prefixes=(), name_contains=(), timeout_seconds
         logger(f"⚠️ [Shutdown] Runtime worker(s) still active after cleanup wait: {', '.join(still_alive)}")
 
 
+def _env_flag(name: str) -> bool:
+    return str(os.environ.get(name, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _defer_native_ref(label, model, *, logger=print):
+    if model is None:
+        return
+    _DEFERRED_NATIVE_REFS.append(model)
+    logger(f"ℹ️ [{label}] Native model cleanup deferred for stable stop.")
+
+
 def shutdown_runtime_components(
     *,
     avatar_gui,
@@ -54,6 +67,7 @@ def shutdown_runtime_components(
     logger=print,
 ):
     """Run the existing shutdown sequence and return cleared component refs."""
+    aggressive_native_unload = _env_flag("NC_AGGRESSIVE_NATIVE_UNLOAD")
     stop_playback.set()
     pause_after_chunk.clear()
     playback_paused.clear()
@@ -70,40 +84,43 @@ def shutdown_runtime_components(
     if unload_tts and tts_model is not None:
         model = tts_model
         tts_model = None
-        try:
-            if hasattr(model, "close"):
-                model.close()
-        except Exception as exc:
-            logger(f"⚠️ [TTS] Shutdown error: {exc}")
-        finally:
-            del model
+        if aggressive_native_unload:
+            try:
+                if hasattr(model, "close"):
+                    model.close()
+            except Exception as exc:
+                logger(f"⚠️ [TTS] Shutdown error: {exc}")
+            finally:
+                del model
+        else:
+            _defer_native_ref("TTS", model, logger=logger)
 
     if unload_stt and whisper_model is not None:
         model = whisper_model
         whisper_model = None
-        try:
-            closer = getattr(model, "close", None)
-            if callable(closer):
-                closer()
-        except Exception as exc:
-            logger(f"⚠️ [STT] Shutdown error: {exc}")
-        finally:
-            del model
+        if aggressive_native_unload:
+            try:
+                closer = getattr(model, "close", None)
+                if callable(closer):
+                    closer()
+            except Exception as exc:
+                logger(f"⚠️ [STT] Shutdown error: {exc}")
+            finally:
+                del model
+        else:
+            _defer_native_ref("STT", model, logger=logger)
 
     _join_runtime_threads(
-        name_prefixes=("nc-tts-",),
+        name_prefixes=("nc-tts-", "nc-llm-stream"),
         name_contains=("stream_delegated_audio_progress",),
         timeout_seconds=4.0,
         logger=logger,
     )
 
-    gc_module.collect()
-    aggressive_cuda_shutdown = str(os.environ.get("NC_AGGRESSIVE_CUDA_SHUTDOWN", "") or "").strip().lower() in {
-        "1",
-        "true",
-        "yes",
-        "on",
-    }
+    aggressive_gc_shutdown = _env_flag("NC_AGGRESSIVE_GC_SHUTDOWN")
+    if aggressive_gc_shutdown:
+        gc_module.collect()
+    aggressive_cuda_shutdown = _env_flag("NC_AGGRESSIVE_CUDA_SHUTDOWN")
     if aggressive_cuda_shutdown and torch_module.cuda.is_available():
         try:
             torch_module.cuda.empty_cache()
@@ -111,7 +128,8 @@ def shutdown_runtime_components(
                 torch_module.cuda.ipc_collect()
         except Exception:
             pass
-    gc_module.collect()
+    if aggressive_gc_shutdown:
+        gc_module.collect()
     if aggressive_cuda_shutdown and torch_module.cuda.is_available():
         try:
             torch_module.cuda.empty_cache()

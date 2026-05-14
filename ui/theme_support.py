@@ -521,7 +521,8 @@ QTabWidget#vam_setup_tabs QTabBar::tab:selected,
 QTabWidget#right_tabs QTabBar::tab:selected {
     background: #0f141b;
     border-color: #273342;
-    border-bottom: 0px;
+    border-bottom-color: #0f141b;
+    border-right: 1px solid #273342;
     margin-bottom: -1px;
     padding-bottom: 11px;
 }
