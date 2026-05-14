@@ -1,7 +1,8 @@
 import base64
 import json
+from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from core.ui_session_schema import group_ui_session, with_flat_ui_settings
 
@@ -162,7 +163,12 @@ class MainUiRealLayoutMixin:
             self._place_preset_buttons_under_selector()
             self._wrap_host_settings_tab_pages(tabs)
             self._apply_host_settings_tabs_corner_fix(tabs)
+            left_tabs = self._ui("left_tabs", QtWidgets.QTabWidget)
+            self._apply_host_settings_tabs_corner_fix(left_tabs)
+            self._center_icon_sidebar_tabs(tabs)
+            self._center_icon_sidebar_tabs(left_tabs)
             self._apply_sensory_feedback_tabs_alignment()
+            self._apply_nested_horizontal_tab_facing()
 
             if bool(tabs.property("_nc_fixed_system_shaping_tabs")):
                 return True
@@ -237,16 +243,40 @@ class MainUiRealLayoutMixin:
             except Exception:
                 palette = {}
             field_bg = str((palette or {}).get("field_bg") or "#0f141b")
+            try:
+                if tabs.property("_nc_host_settings_corner_fix_key") == field_bg:
+                    return
+            except Exception:
+                pass
             style = """
 /* nc-host-settings-tabs-runtime-style:start */
 QTabWidget QTabBar {
     background: FIELD_BG;
 }
+QTabWidget QTabBar::tab {
+    width: 62px;
+    height: 54px;
+    min-width: 62px;
+    max-width: 62px;
+    min-height: 54px;
+    max-height: 54px;
+    padding: 0px;
+    text-align: center;
+}
+QTabWidget#host_settings_tabs QTabBar::tab {
+    padding: 0px;
+}
+QTabWidget#left_tabs QTabBar::tab {
+    padding: 0px;
+}
 QTabWidget QTabBar::tab:selected {
     background: FIELD_BG;
     border-right: 0px;
     margin-right: -1px;
-    padding-right: 13px;
+    padding: 0px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:selected {
+    padding: 0px;
 }
 QTabWidget::pane {
     background: FIELD_BG;
@@ -274,15 +304,116 @@ QTabWidget QScrollArea > QWidget > QWidget {
                     _old, after = rest.split(end, 1)
                     existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
                 style = style.replace("FIELD_BG", field_bg)
-                tabs.setStyleSheet(f"{existing}\n{style}".strip() if existing else style)
+                next_style = f"{existing}\n{style}".strip() if existing else style
+                if str(tabs.styleSheet() or "") != next_style:
+                    tabs.setStyleSheet(next_style)
                 tabs.setProperty("_nc_host_settings_corner_fix", True)
+                tabs.setProperty("_nc_host_settings_corner_fix_key", field_bg)
             except Exception:
                 pass
+
+    def _center_icon_sidebar_tabs(self, tabs):
+            if tabs is None or not hasattr(tabs, "tabBar"):
+                return
+            try:
+                object_name = str(tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            if object_name not in {"host_settings_tabs", "left_tabs"}:
+                return
+            try:
+                tab_bar = tabs.tabBar()
+            except Exception:
+                tab_bar = None
+            if tab_bar is None:
+                return
+            try:
+                icon_size = tabs.iconSize()
+            except Exception:
+                icon_size = QtCore.QSize(35, 35)
+            label_size = QtCore.QSize(62, 54)
+            host_icon_paths = (
+                "ui_icons/side_tabs/host.png",
+                "ui_icons/side_tabs/vision.png",
+                "ui_icons/side_tabs/chat.png",
+                "ui_icons/side_tabs/themes.png",
+                "addons/visual_story_settings/ui/icons/story_visuals.png",
+                "addons/rag_context/ui/icons/RAG.png",
+            )
+            for index in range(int(tabs.count())):
+                try:
+                    existing_button = tab_bar.tabButton(index, QtWidgets.QTabBar.LeftSide)
+                    if existing_button is not None and bool(existing_button.property("_nc_centered_sidebar_icon")):
+                        continue
+                except Exception:
+                    pass
+                try:
+                    existing_button = tab_bar.tabButton(index, QtWidgets.QTabBar.RightSide)
+                    if existing_button is not None and bool(existing_button.property("_nc_centered_sidebar_icon")):
+                        continue
+                except Exception:
+                    pass
+                try:
+                    icon = tabs.tabIcon(index)
+                except Exception:
+                    icon = QtGui.QIcon()
+                if (icon is None or icon.isNull()) and object_name == "host_settings_tabs":
+                    try:
+                        saved_icon = tabs.property(f"_nc_sidebar_icon_source_{index}")
+                        if isinstance(saved_icon, QtGui.QIcon) and not saved_icon.isNull():
+                            icon = saved_icon
+                    except Exception:
+                        pass
+                if (icon is None or icon.isNull()) and object_name == "host_settings_tabs" and index < len(host_icon_paths):
+                    try:
+                        icon_path = Path(host_icon_paths[index])
+                        if icon_path.exists():
+                            icon = QtGui.QIcon(str(icon_path))
+                            if not icon.isNull():
+                                tabs.setTabIcon(index, icon)
+                    except Exception:
+                        pass
+                if icon is None or icon.isNull():
+                    try:
+                        existing_button = tab_bar.tabButton(index, QtWidgets.QTabBar.LeftSide)
+                        if existing_button is not None and bool(existing_button.property("_nc_centered_sidebar_icon")):
+                            continue
+                    except Exception:
+                        pass
+                    continue
+                try:
+                    pixmap = icon.pixmap(icon_size)
+                except Exception:
+                    continue
+                label = QtWidgets.QLabel()
+                label.setProperty("_nc_centered_sidebar_icon", True)
+                label.setFixedSize(label_size)
+                label.setAlignment(QtCore.Qt.AlignCenter)
+                label.setPixmap(pixmap)
+                label.setStyleSheet("QLabel { background: transparent; border: 0px; padding: 0px; margin: 0px; }")
+                try:
+                    label.setToolTip(str(tabs.tabToolTip(index) or tab_bar.tabData(index) or ""))
+                except Exception:
+                    pass
+                try:
+                    tab_bar.setTabButton(index, QtWidgets.QTabBar.LeftSide, None)
+                    tab_bar.setTabButton(index, QtWidgets.QTabBar.RightSide, label)
+                    if object_name == "host_settings_tabs":
+                        tabs.setProperty(f"_nc_sidebar_icon_source_{index}", icon)
+                    if object_name in {"host_settings_tabs", "left_tabs"}:
+                        tabs.setTabIcon(index, QtGui.QIcon())
+                except Exception:
+                    label.deleteLater()
 
     def _apply_sensory_feedback_tabs_alignment(self):
             tabs = self._ui("sensory_feedback_tabs", QtWidgets.QTabWidget)
             if tabs is None:
                 return
+            try:
+                if bool(tabs.property("_nc_sensory_feedback_tabs_alignment_applied")):
+                    return
+            except Exception:
+                pass
             style = """
 /* nc-sensory-feedback-tabs-runtime-style:start */
 QTabWidget::tab-bar {
@@ -303,9 +434,143 @@ QTabWidget QTabBar::tab:selected {
                     before, rest = existing.split(start, 1)
                     _old, after = rest.split(end, 1)
                     existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
-                tabs.setStyleSheet(f"{existing}\n{style}".strip() if existing else style)
+                next_style = f"{existing}\n{style}".strip() if existing else style
+                if str(tabs.styleSheet() or "") != next_style:
+                    tabs.setStyleSheet(next_style)
+                tabs.setProperty("_nc_sensory_feedback_tabs_alignment_applied", True)
             except Exception:
                 pass
+
+    def _apply_nested_horizontal_tab_facing(self):
+            try:
+                current_preset = _normalize_app_theme_preset_id(
+                    getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+                )
+                palette = _app_theme_palette(current_preset)
+            except Exception:
+                palette = {}
+            field_bg = str((palette or {}).get("field_bg") or "#0f141b")
+            tab_bg = str((palette or {}).get("tab_bg") or "#17212c")
+            tab_hover = str((palette or {}).get("tab_hover_bg") or "#223247")
+            border = str((palette or {}).get("surface_border") or "#273342")
+            style_key = (field_bg, tab_bg, tab_hover, border)
+            if getattr(self, "_nested_horizontal_tab_facing_style_key", None) == style_key:
+                return
+            style = """
+/* nc-nested-horizontal-tabs-runtime-style:start */
+QTabWidget::tab-bar {
+    left: 0px;
+}
+QTabWidget QTabBar {
+    background: FIELD_BG;
+}
+QTabWidget QTabBar::tab {
+    background: TAB_BG;
+    border: 1px solid BORDER;
+    min-width: 96px;
+    max-width: 220px;
+    min-height: 0px;
+    padding: 8px 14px;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget QTabBar::tab:!selected {
+    margin-top: 3px;
+}
+QTabWidget QTabBar::tab:selected {
+    background: FIELD_BG;
+    border-color: BORDER;
+    border-bottom: 0px;
+    border-right: 1px solid BORDER;
+    margin-right: 4px;
+    margin-bottom: -1px;
+    padding-right: 14px;
+    padding-bottom: 11px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget QTabBar::tab:hover {
+    background: TAB_HOVER;
+}
+QTabWidget::pane {
+    top: -1px;
+    background: FIELD_BG;
+    border: 1px solid BORDER;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 0px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+    padding: 12px 10px 10px 10px;
+}
+QTabWidget QStackedWidget {
+    padding: 8px;
+    background: transparent;
+}
+/* nc-nested-horizontal-tabs-runtime-style:end */
+""".strip()
+            style = (
+                style.replace("FIELD_BG", field_bg)
+                .replace("TAB_BG", tab_bg)
+                .replace("TAB_HOVER", tab_hover)
+                .replace("BORDER", border)
+            )
+            roots = []
+            for name in ("host_settings_tabs", "left_tabs", "sensory_feedback_tabs", "right_tabs"):
+                root = self._ui(name, QtWidgets.QTabWidget)
+                if root is not None:
+                    roots.append(root)
+            targets = []
+            for root in roots:
+                try:
+                    targets.append(root)
+                    targets.extend(list(root.findChildren(QtWidgets.QTabWidget)))
+                except Exception:
+                    continue
+            seen = set()
+            applied_count = 0
+            for tabs in targets:
+                try:
+                    object_name = str(tabs.objectName() or "")
+                except Exception:
+                    object_name = ""
+                if not (
+                    object_name in {"right_tabs", "vseeface_tabs", "musetalk_tabs", "tts_runtime_addon_tabs", "vam_setup_tabs"}
+                    or object_name.startswith("addon_group_tabs_")
+                    or object_name.startswith("vision_source_tabs_")
+                ):
+                    continue
+                ident = id(tabs)
+                if ident in seen:
+                    continue
+                seen.add(ident)
+                try:
+                    tabs.setTabPosition(QtWidgets.QTabWidget.North)
+                    tabs.setTabShape(QtWidgets.QTabWidget.Rounded)
+                except Exception:
+                    pass
+                try:
+                    existing = str(tabs.styleSheet() or "").strip()
+                    start = "/* nc-nested-horizontal-tabs-runtime-style:start */"
+                    end = "/* nc-nested-horizontal-tabs-runtime-style:end */"
+                    if start in existing and end in existing:
+                        before, rest = existing.split(start, 1)
+                        _old, after = rest.split(end, 1)
+                        existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                    next_style = f"{existing}\n{style}".strip() if existing else style
+                    if str(tabs.styleSheet() or "") != next_style:
+                        tabs.setStyleSheet(next_style)
+                    tabs.setProperty("_nc_nested_horizontal_tab_facing", True)
+                    applied_count += 1
+                except Exception:
+                    pass
+            if applied_count:
+                self._nested_horizontal_tab_facing_style_key = style_key
 
     def _place_preset_buttons_under_selector(self):
             host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
@@ -411,6 +676,7 @@ QTabWidget QTabBar::tab:selected {
                     tab_bar = tabs.tabBar()
                     if tab_bar is not None and data is not None:
                         tab_bar.setTabData(index, data)
+                    self._center_icon_sidebar_tabs(tabs)
                 except Exception:
                     try:
                         scroll.deleteLater()
@@ -424,6 +690,7 @@ QTabWidget QTabBar::tab:selected {
                     pass
 
     def _resync_frontend_runtime_cards(self):
+            self._frontend_runtime_cards_resync_pending = False
             backend = getattr(self, "backend", None)
             if backend is not None:
                 for callback_name in ("_sync_chat_provider_generation_fields_height", "_sync_tts_runtime_fields_height"):
@@ -434,10 +701,29 @@ QTabWidget QTabBar::tab:selected {
                         except Exception:
                             pass
             self._fix_system_shaping_scroll_content_size()
+
+    def _schedule_frontend_runtime_cards_resync(self, delay_ms=40):
+            if bool(getattr(self, "_frontend_runtime_cards_resync_pending", False)):
+                return
+            self._frontend_runtime_cards_resync_pending = True
             try:
-                QtCore.QTimer.singleShot(75, self._fix_system_shaping_scroll_content_size)
-                QtCore.QTimer.singleShot(200, self._fix_system_shaping_scroll_content_size)
+                QtCore.QTimer.singleShot(max(0, int(delay_ms or 0)), self._resync_frontend_runtime_cards)
             except Exception:
+                self._frontend_runtime_cards_resync_pending = False
+                pass
+
+    def _resync_frontend_system_shaping_layout(self):
+            self._frontend_system_shaping_resync_pending = False
+            self._fix_system_shaping_scroll_content_size()
+
+    def _schedule_frontend_system_shaping_resync(self, delay_ms=40):
+            if bool(getattr(self, "_frontend_system_shaping_resync_pending", False)):
+                return
+            self._frontend_system_shaping_resync_pending = True
+            try:
+                QtCore.QTimer.singleShot(max(0, int(delay_ms or 0)), self._resync_frontend_system_shaping_layout)
+            except Exception:
+                self._frontend_system_shaping_resync_pending = False
                 pass
 
     def _fix_sensory_feedback_initial_alignment(self):
@@ -606,6 +892,7 @@ QTabWidget QTabBar::tab:selected {
                         current.updateGeometry()
                 except Exception:
                     pass
+            self._center_icon_sidebar_tabs(widget("left_tabs", QtWidgets.QTabWidget))
 
     def _load_frontend_session_payload(self):
             if not SESSION_PATH.exists():
@@ -1176,17 +1463,29 @@ QTabWidget QTabBar::tab:selected {
                 return
 
             layout = getattr(group_box, "layout", lambda: None)()
-            self._set_layout_item_tree_visible(layout, bool(expanded))
-
             try:
-                group_box.setFlat(not bool(expanded))
+                group_box.setUpdatesEnabled(False)
             except Exception:
                 pass
+            try:
+                self._set_layout_item_tree_visible(layout, bool(expanded))
+                try:
+                    group_box.setFlat(not bool(expanded))
+                except Exception:
+                    pass
+                self._update_frontend_collapsible_group_title(group_box)
+            finally:
+                try:
+                    group_box.setUpdatesEnabled(True)
+                    group_box.updateGeometry()
+                except Exception:
+                    pass
 
-            self._update_frontend_collapsible_group_title(group_box)
-
-            QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
-            QtCore.QTimer.singleShot(10, self._resync_frontend_runtime_cards)
+            try:
+                QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
+                self._schedule_frontend_system_shaping_resync(80 if bool(expanded) else 40)
+            except Exception:
+                pass
 
     def _apply_frontend_collapsible_group_state_old(self, group_box, expanded):
             if group_box is None:

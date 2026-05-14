@@ -42,6 +42,8 @@ class MainUiRealThemeMixin:
                     tabs = self._ui_object("host_settings_tabs")
                     if tabs is not None and hasattr(self, "_apply_host_settings_tabs_corner_fix"):
                         self._apply_host_settings_tabs_corner_fix(tabs)
+                    if hasattr(self, "_apply_nested_horizontal_tab_facing"):
+                        self._apply_nested_horizontal_tab_facing()
                 except Exception:
                     pass
                 try:

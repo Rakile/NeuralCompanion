@@ -62,6 +62,8 @@ class RagContextController:
         if any(item is None for item in required):
             raise RuntimeError("RAG Context Designer UI is missing one or more required controls.")
 
+        self._keep_scroll_viewport_inside_border(self.file_list)
+        self._keep_scroll_viewport_inside_border(self.result_preview)
         self.file_list.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
         self.enable_checkbox.toggled.connect(self._on_enabled_changed)
         self.top_k_spin.valueChanged.connect(self._on_numeric_changed)
@@ -83,6 +85,24 @@ class RagContextController:
             return root.findChild(cls, name)
         except Exception:
             return None
+
+    def _keep_scroll_viewport_inside_border(self, widget):
+        if widget is None or not hasattr(widget, "viewport"):
+            return
+        try:
+            viewport = widget.viewport()
+        except Exception:
+            viewport = None
+        if viewport is None:
+            return
+        try:
+            viewport.setAutoFillBackground(False)
+        except Exception:
+            pass
+        try:
+            viewport.setStyleSheet("background: transparent; border: 0px;")
+        except Exception:
+            pass
 
     def collect_chat_context(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         settings = self._current_settings()

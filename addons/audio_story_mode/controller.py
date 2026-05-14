@@ -1033,6 +1033,7 @@ class AudioStoryModeController(QtCore.QObject):
                     or "#101923"
                 )
             )
+            panel_value = panel_color.name()
             field_value = str(palette_data.get("field_bg", palette_data.get("base", "#101923")) or "#101923")
             is_dark = self._audio_story_color_luminance(panel_color) < 0.48
             if is_dark:
@@ -1040,6 +1041,7 @@ class AudioStoryModeController(QtCore.QObject):
                     "text": str(palette_data.get("text_strong", palette_data.get("text", "#f5f8fc")) or "#f5f8fc"),
                     "muted": str(palette_data.get("text", "#c2cedc") or "#c2cedc"),
                     "subtle": str(palette_data.get("text_muted", "#93a7bc") or "#93a7bc"),
+                    "panel_bg": panel_value,
                     "field_bg": field_value,
                     "menu_bg": str(palette_data.get("menu_bg", palette_data.get("field_bg", "#162232")) or "#162232"),
                     "button_bg": str(palette_data.get("button_bg", "#22344c") or "#22344c"),
@@ -1056,6 +1058,7 @@ class AudioStoryModeController(QtCore.QObject):
                 "text": str(palette_data.get("text_strong", palette_data.get("text", "#15110c")) or "#15110c"),
                 "muted": str(palette_data.get("text", "#4e4435") or "#4e4435"),
                 "subtle": str(palette_data.get("text_muted", "#665942") or "#665942"),
+                "panel_bg": panel_value,
                 "field_bg": field_value,
                 "menu_bg": str(palette_data.get("menu_bg", palette_data.get("field_bg", "#f3e7d6")) or "#f3e7d6"),
                 "button_bg": str(palette_data.get("button_bg", "#eadcc8") or "#eadcc8"),
@@ -1078,6 +1081,7 @@ class AudioStoryModeController(QtCore.QObject):
                 "text": "#f5f8fc",
                 "muted": "#c2cedc",
                 "subtle": "#93a7bc",
+                "panel_bg": "#18202a",
                 "field_bg": base_color.name() if self._audio_story_color_luminance(base_color) < 0.5 else "#101923",
                 "menu_bg": "#162232",
                 "button_bg": "#22344c",
@@ -1094,6 +1098,7 @@ class AudioStoryModeController(QtCore.QObject):
             "text": "#15110c",
             "muted": "#4e4435",
             "subtle": "#665942",
+            "panel_bg": "#f5f6f8",
             "field_bg": "#fbf4ea",
             "menu_bg": "#f3e7d6",
             "button_bg": "#eadcc8",
@@ -1131,11 +1136,22 @@ class AudioStoryModeController(QtCore.QObject):
             if designer_style.strip():
                 return f"{theme_style}{designer_style}"
             return theme_style
+        def _set_style_if_changed(widget, stylesheet: str):
+            if widget is None or not hasattr(widget, "setStyleSheet"):
+                return
+            try:
+                if str(widget.styleSheet() or "") != str(stylesheet or ""):
+                    widget.setStyleSheet(str(stylesheet or ""))
+            except RuntimeError:
+                raise
+            except Exception:
+                return
 
         colors = self._audio_story_theme_colors(palette_data)
         text = colors["text"]
         muted = colors["muted"]
         subtle = colors["subtle"]
+        panel_bg = colors["panel_bg"]
         field_bg = colors["field_bg"]
         menu_bg = colors["menu_bg"]
         button_bg = colors["button_bg"]
@@ -1148,6 +1164,32 @@ class AudioStoryModeController(QtCore.QObject):
         accent_border = colors["accent_border"]
         accent_text = colors["accent_text"]
         button_text = self._audio_story_contrast_text(button_bg, light=text, dark="#ffffff")
+        root_style = (
+            "QWidget#audio_story_mode_tab {{ background: {field_bg}; }}"
+            "QScrollArea#audio_story_scroll_area {{ background: {field_bg}; border: 0px; }}"
+            "QScrollArea#audio_story_scroll_area > QWidget,"
+            "QScrollArea#audio_story_scroll_area > QWidget > QWidget,"
+            "QWidget#audio_story_scroll_content {{ background: {field_bg}; }}"
+            "QWidget#audio_story_mode_tab QLabel {{ background: transparent; }}"
+            "QWidget#audio_story_mode_tab QFrame#Panel {{"
+            " background: {panel_bg}; border: 1px solid {border}; border-radius: 10px;"
+            "}}"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_audio_group,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_timing_group,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_prompt_group,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_analysis_group,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_xai_group {{"
+            " background: {panel_bg}; border: 1px solid {border}; border-radius: 10px;"
+            " margin-top: 14px; padding: 18px 12px 12px 12px; font-weight: 600;"
+            "}}"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_audio_group::title,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_timing_group::title,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_prompt_group::title,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_analysis_group::title,"
+            "QWidget#audio_story_mode_tab QGroupBox#audio_story_xai_group::title {{"
+            " background: {panel_bg}; subcontrol-origin: margin; left: 10px; padding: 0 6px;"
+            "}}"
+        ).format(field_bg=field_bg, panel_bg=panel_bg, border=border)
         input_style = (
             "background: {field_bg}; color: {text}; border: 1px solid {border}; "
             "border-radius: 8px; padding: 4px 8px; selection-background-color: {accent}; "
@@ -1213,13 +1255,87 @@ class AudioStoryModeController(QtCore.QObject):
             "QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 4px; border: 1px solid {border}; background: {field_bg}; }}"
             "QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent_border}; }}"
         ).format(text=text, disabled_text=disabled_text, border=border, field_bg=field_bg, accent=accent, accent_border=accent_border)
+        slider_style = (
+            "QSlider {{ background: transparent; min-height: 18px; }}"
+            "QSlider::groove:horizontal {{"
+            " background: {field_bg}; border: 1px solid {border}; height: 6px; border-radius: 3px;"
+            "}}"
+            "QSlider::sub-page:horizontal {{"
+            " background: {accent}; border: 1px solid {accent_border}; height: 6px; border-radius: 3px;"
+            "}}"
+            "QSlider::add-page:horizontal {{"
+            " background: {field_bg}; border: 1px solid {border}; height: 6px; border-radius: 3px;"
+            "}}"
+            "QSlider::handle:horizontal {{"
+            " background: {button_bg}; border: 1px solid {accent_border}; width: 12px; height: 12px;"
+            " margin: -4px 0; border-radius: 6px;"
+            "}}"
+            "QSlider::handle:horizontal:hover {{ background: {button_hover}; }}"
+            "QSlider:disabled::groove:horizontal,"
+            "QSlider:disabled::add-page:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
+            "QSlider:disabled::sub-page:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
+            "QSlider:disabled::handle:horizontal {{ background: {disabled_bg}; border: 1px solid {border}; }}"
+        ).format(
+            field_bg=field_bg,
+            border=border,
+            accent=accent,
+            accent_border=accent_border,
+            button_bg=button_bg,
+            button_hover=button_hover,
+            disabled_bg=disabled_bg,
+        )
         try:
+            _set_style_if_changed(root, _style_with_designer_override(root, root_style))
+            scroll_area = getattr(self, "audio_story_scroll_area", None)
+            if scroll_area is not None:
+                _set_style_if_changed(
+                    scroll_area,
+                    "QScrollArea#audio_story_scroll_area {{ background: {field_bg}; border: 0px; }}"
+                    "QScrollArea#audio_story_scroll_area > QWidget,"
+                    "QScrollArea#audio_story_scroll_area > QWidget > QWidget {{ background: {field_bg}; }}"
+                    .format(field_bg=field_bg),
+                )
+                try:
+                    _set_style_if_changed(scroll_area.viewport(), f"background: {field_bg}; border: 0px;")
+                except Exception:
+                    pass
+            scroll_content = root.findChild(QtWidgets.QWidget, "audio_story_scroll_content")
+            if scroll_content is not None:
+                _set_style_if_changed(
+                    scroll_content,
+                    f"QWidget#audio_story_scroll_content {{ background: {field_bg}; }}",
+                )
+            panel_style = (
+                "QFrame#Panel {{ background: {panel_bg}; border: 1px solid {border}; border-radius: 10px; }}"
+            ).format(panel_bg=panel_bg, border=border)
+            for panel in root.findChildren(QtWidgets.QFrame, "Panel"):
+                _set_style_if_changed(panel, panel_style)
+            category_group_style = (
+                "QGroupBox {{"
+                " background: {panel_bg}; color: {text}; border: 1px solid {border}; border-radius: 10px;"
+                " margin-top: 14px; padding: 18px 12px 12px 12px; font-weight: 600;"
+                "}}"
+                "QGroupBox::title {{"
+                " subcontrol-origin: margin; subcontrol-position: top left;"
+                " background: {panel_bg}; left: 12px; padding: 0 6px; color: {text};"
+                "}}"
+            ).format(panel_bg=panel_bg, text=text, border=border)
+            for group_name in (
+                "audio_story_audio_group",
+                "audio_story_timing_group",
+                "audio_story_prompt_group",
+                "audio_story_analysis_group",
+                "audio_story_xai_group",
+            ):
+                group = root.findChild(QtWidgets.QGroupBox, group_name)
+                if group is not None:
+                    _set_style_if_changed(group, category_group_style)
             for label in root.findChildren(QtWidgets.QLabel):
                 existing = str(label.property("_audio_story_designer_style_sheet") or label.styleSheet() or "")
                 if "font-weight: 700" in existing:
-                    label.setStyleSheet(_style_with_designer_override(label, f"font-size: 13px; font-weight: 700; color: {text};"))
+                    _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; font-size: 13px; font-weight: 700; color: {text};"))
                 elif "font-size: 11px" in existing:
-                    label.setStyleSheet(_style_with_designer_override(label, f"color: {subtle}; font-size: 11px;"))
+                    _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; color: {subtle}; font-size: 11px;"))
                 elif label in {
                     getattr(self, "audio_story_transcribe_seconds_value_label", None),
                     getattr(self, "audio_story_image_frequency_value_label", None),
@@ -1229,39 +1345,41 @@ class AudioStoryModeController(QtCore.QObject):
                     getattr(self, "audio_story_status_label", None),
                     getattr(self, "audio_story_summary_label", None),
                 }:
-                    label.setStyleSheet(_style_with_designer_override(label, f"color: {muted};"))
+                    _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; color: {muted};"))
                 else:
-                    label.setStyleSheet(_style_with_designer_override(label, f"color: {text};"))
+                    _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; color: {text};"))
             for checkbox in root.findChildren(QtWidgets.QCheckBox):
-                checkbox.setStyleSheet(_style_with_designer_override(checkbox, checkbox_style))
+                _set_style_if_changed(checkbox, _style_with_designer_override(checkbox, checkbox_style))
+            for slider in root.findChildren(QtWidgets.QSlider):
+                _set_style_if_changed(slider, _style_with_designer_override(slider, slider_style))
             for button in root.findChildren(QtWidgets.QPushButton):
                 if button is getattr(self, "audio_story_play_button", None):
-                    button.setStyleSheet(_style_with_designer_override(button, self._audio_story_playback_button_style("play", disabled_bg=disabled_bg, disabled_text=disabled_text)))
+                    _set_style_if_changed(button, _style_with_designer_override(button, self._audio_story_playback_button_style("play", disabled_bg=disabled_bg, disabled_text=disabled_text)))
                 elif button is getattr(self, "audio_story_pause_button", None):
-                    button.setStyleSheet(_style_with_designer_override(button, self._audio_story_playback_button_style("pause", disabled_bg=disabled_bg, disabled_text=disabled_text)))
+                    _set_style_if_changed(button, _style_with_designer_override(button, self._audio_story_playback_button_style("pause", disabled_bg=disabled_bg, disabled_text=disabled_text)))
                 elif button is getattr(self, "audio_story_stop_button", None):
-                    button.setStyleSheet(_style_with_designer_override(button, self._audio_story_playback_button_style("stop", disabled_bg=disabled_bg, disabled_text=disabled_text)))
+                    _set_style_if_changed(button, _style_with_designer_override(button, self._audio_story_playback_button_style("stop", disabled_bg=disabled_bg, disabled_text=disabled_text)))
                 else:
-                    button.setStyleSheet(_style_with_designer_override(button, button_style))
+                    _set_style_if_changed(button, _style_with_designer_override(button, button_style))
             for edit in root.findChildren(QtWidgets.QLineEdit):
-                edit.setStyleSheet(_style_with_designer_override(edit, line_style))
+                _set_style_if_changed(edit, _style_with_designer_override(edit, line_style))
                 edit.setPalette(root.palette())
             for plain_edit in root.findChildren(QtWidgets.QPlainTextEdit):
-                plain_edit.setStyleSheet(_style_with_designer_override(plain_edit, plain_style))
+                _set_style_if_changed(plain_edit, _style_with_designer_override(plain_edit, plain_style))
                 plain_edit.setPalette(root.palette())
             for spin in root.findChildren(QtWidgets.QSpinBox):
-                spin.setStyleSheet(_style_with_designer_override(spin, spin_style))
+                _set_style_if_changed(spin, _style_with_designer_override(spin, spin_style))
                 spin.setPalette(root.palette())
             for combo in root.findChildren(QtWidgets.QComboBox):
-                combo.setStyleSheet(_style_with_designer_override(combo, combo_style))
+                _set_style_if_changed(combo, _style_with_designer_override(combo, combo_style))
                 combo.setPalette(root.palette())
                 line_edit = combo.lineEdit() if combo.isEditable() else None
                 if line_edit is not None:
-                    line_edit.setStyleSheet(line_style)
+                    _set_style_if_changed(line_edit, line_style)
                     line_edit.setPalette(root.palette())
                 view = combo.view()
                 if view is not None:
-                    view.setStyleSheet(
+                    _set_style_if_changed(view,
                         "QListView {{ background: {menu_bg}; color: {text}; border: 1px solid {border}; outline: 0; }}"
                         "QListView::item {{ background: {menu_bg}; color: {text}; min-height: 24px; padding: 4px 8px; }}"
                         "QListView::item:selected {{ background: {accent}; color: {accent_text}; }}"

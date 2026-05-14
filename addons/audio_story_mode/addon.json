@@ -24,9 +24,10 @@
     {
       "id": "audio_story_mode_runtime",
       "title": "Audio Story Mode",
-      "area": "operational_view",
+      "area": "top_level",
       "ui_path": "ui/audio_story_mode.ui",
       "placeholder": "audio_story_mode_tab",
+      "icon_path": "../../ui_icons/side_tabs/story_visuals.png",
       "order": 120,
       "tooltip": "Import story audio, transcribe it locally, and sync visual replies to playback.",
       "metadata": {

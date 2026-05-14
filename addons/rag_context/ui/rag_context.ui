@@ -77,6 +77,18 @@
           <string>Source Files</string>
          </property>
          <layout class="QVBoxLayout" name="rag_context_files_layout">
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>18</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
           <property name="spacing">
            <number>8</number>
           </property>
@@ -137,6 +149,18 @@
           <string>Retrieval</string>
          </property>
          <layout class="QFormLayout" name="rag_context_retrieval_form">
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>18</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
           <property name="fieldGrowthPolicy">
            <enum>QFormLayout::FieldsStayAtSizeHint</enum>
           </property>
@@ -243,6 +267,18 @@
           <string>Test Retrieval</string>
          </property>
          <layout class="QVBoxLayout" name="rag_context_test_layout">
+          <property name="leftMargin">
+           <number>14</number>
+          </property>
+          <property name="topMargin">
+           <number>18</number>
+          </property>
+          <property name="rightMargin">
+           <number>14</number>
+          </property>
+          <property name="bottomMargin">
+           <number>12</number>
+          </property>
           <property name="spacing">
            <number>8</number>
           </property>

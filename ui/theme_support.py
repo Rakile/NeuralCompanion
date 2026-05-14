@@ -379,8 +379,13 @@ QComboBox QAbstractItemView, QListWidget {
     selection-background-color: #29405b;
     selection-color: #ffffff;
     border: 1px solid #324b69;
+    border-radius: 8px;
     outline: 0;
     alternate-background-color: #1b2836;
+}
+QListWidget::viewport, QTextEdit::viewport, QPlainTextEdit::viewport {
+    background: transparent;
+    border-radius: 8px;
 }
 QComboBox QAbstractItemView::item, QListWidget::item {
     color: #f2f5f9;
@@ -452,7 +457,7 @@ QTabWidget#musetalk_tabs::tab-bar,
 QTabWidget#tts_runtime_addon_tabs::tab-bar,
 QTabWidget#vam_setup_tabs::tab-bar,
 QTabWidget#right_tabs::tab-bar {
-    left: 8px;
+    left: 0px;
 }
 QTabWidget#sensory_feedback_tabs::tab-bar {
     left: 0px;
@@ -532,16 +537,26 @@ QTabWidget#host_settings_tabs QTabBar::tab,
 QTabWidget#left_tabs QTabBar::tab {
     background: #18202a;
     border: 1px solid #273342;
-    min-width: 92px;
-    max-width: 180px;
-    min-height: 34px;
-    padding: 6px 12px 12px 12px;
+    width: 62px;
+    height: 54px;
+    min-width: 62px;
+    max-width: 62px;
+    min-height: 54px;
+    max-height: 54px;
+    padding: 0px;
+    text-align: center;
     margin-bottom: 4px;
     margin-right: 0px;
     border-top-left-radius: 10px;
     border-bottom-left-radius: 10px;
     border-top-right-radius: 0px;
     border-bottom-right-radius: 0px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab {
+    padding: 0px;
+}
+QTabWidget#left_tabs QTabBar::tab {
+    padding: 0px;
 }
 QTabWidget#host_settings_tabs::pane,
 QTabWidget#left_tabs::pane {
@@ -564,7 +579,10 @@ QTabWidget#left_tabs QTabBar::tab:selected {
     background: #0f141b;
     border-right: 0px;
     margin-right: -1px;
-    padding-right: 13px;
+    padding: 0px;
+}
+QTabWidget#host_settings_tabs QTabBar::tab:selected {
+    padding: 0px;
 }
 QTabWidget#host_settings_tabs QTabBar::tab:hover,
 QTabWidget#left_tabs QTabBar::tab:hover {
