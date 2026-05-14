@@ -8,10 +8,13 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+from addons.visual_reply.session_schema import group_visual_reply_session, with_flat_visual_reply_settings
 from core.chat_runtime_session_schema import group_chat_runtime_session, with_flat_chat_runtime_settings
 from core.musetalk_session_schema import group_musetalk_session, with_flat_musetalk_settings
+from core.persona_session_schema import group_persona_session, with_flat_persona_settings
 from core.sensory_session_schema import group_sensory_session, with_flat_sensory_settings
 from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
+from core.vam_session_schema import group_vam_session, with_flat_vam_settings
 from ui.runtime import engine_access as engine
 from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
@@ -177,10 +180,13 @@ class MainWindowSessionMixin:
             active_provider_settings["model_supports_reasoning_toggle"] = bool(RUNTIME_CONFIG.get("model_supports_reasoning_toggle", False))
             provider_settings[active_chat_provider] = active_provider_settings
             session["chat_provider_settings"] = provider_settings
+        session = group_persona_session(session)
         session = group_chat_runtime_session(session)
         session = group_sensory_session(session)
         session = group_musetalk_session(session)
         session = group_tts_runtime_session(session)
+        session = group_visual_reply_session(session)
+        session = group_vam_session(session)
         SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
 
     def _ensure_window_on_screen(self):
@@ -215,7 +221,11 @@ class MainWindowSessionMixin:
             return
         session = with_flat_chat_runtime_settings(
             with_flat_sensory_settings(
-                with_flat_musetalk_settings(with_flat_tts_runtime_settings(session))
+                with_flat_musetalk_settings(
+                    with_flat_tts_runtime_settings(
+                        with_flat_visual_reply_settings(with_flat_persona_settings(with_flat_vam_settings(session)))
+                    )
+                )
             )
         )
         previous_suspend = bool(getattr(self, "_suspend_session_save", False))
