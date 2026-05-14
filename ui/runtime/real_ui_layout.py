@@ -3,6 +3,8 @@ import json
 
 from PySide6 import QtCore, QtWidgets
 
+from core.ui_session_schema import group_ui_session, with_flat_ui_settings
+
 
 def configure_real_ui_layout_dependencies(namespace):
     """Inject qt_app-owned globals used by the extracted real-UI layout mixin."""
@@ -526,13 +528,15 @@ class MainUiRealLayoutMixin:
                 return {}
             try:
                 payload = json.loads(SESSION_PATH.read_text(encoding="utf-8"))
-                return payload if isinstance(payload, dict) else {}
+                if not isinstance(payload, dict):
+                    return {}
+                return with_flat_ui_settings(payload)
             except Exception:
                 return {}
 
     def _write_frontend_session_payload(self, payload):
             try:
-                SESSION_PATH.write_text(json.dumps(payload or {}, indent=4), encoding="utf-8")
+                SESSION_PATH.write_text(json.dumps(group_ui_session(payload or {}), indent=4), encoding="utf-8")
             except Exception as exc:
                 print(f"[UI Real] Failed to save frontend layout: {exc}")
 
@@ -580,7 +584,12 @@ class MainUiRealLayoutMixin:
                     "docks": self._frontend_dock_layout_snapshot(),
                 }
                 payload = self._load_frontend_session_payload()
-                payload[self.FRONTEND_LAYOUT_SESSION_KEY] = layout_state
+                ui_settings = dict(payload.get("ui") or {})
+                layout_settings = dict(ui_settings.get("layout") or {})
+                layout_settings["main_ui_real"] = layout_state
+                ui_settings["layout"] = layout_settings
+                payload["ui"] = ui_settings
+                payload.pop(self.FRONTEND_LAYOUT_SESSION_KEY, None)
                 self._write_frontend_session_payload(payload)
             except Exception as exc:
                 print(f"[UI Real] Failed to capture frontend layout: {exc}")

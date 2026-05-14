@@ -22,6 +22,7 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("audio_story_mode_continuity_strength", ("visuals", "continuity_strength")),
         ("audio_story_mode_cost_profile", ("visuals", "cost_profile")),
         ("audio_story_mode_style_prompts", ("visuals", "style_prompts")),
+        ("audio_story_mode_style_labels", ("visuals", "style_labels")),
         ("audio_story_mode_style_enabled", ("visuals", "style_enabled")),
         ("audio_story_mode_style_change_live", ("visuals", "style_change_live")),
         ("audio_story_mode_xai_image_settings", ("visuals", "xai_image_settings")),

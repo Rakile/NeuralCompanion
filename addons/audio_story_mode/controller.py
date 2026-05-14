@@ -694,6 +694,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._stored_continuity_strength = 0.8
         self._stored_style_change_live = False
         self._stored_style_prompts = {item["id"]: item["prompt"] for item in _audio_story_style_presets()}
+        self._stored_style_labels = {item["id"]: item["label"] for item in _audio_story_style_presets()}
         self._stored_style_enabled = []
         self._stored_playback_mode_label = "Play Imported Audio"
         self._stored_cost_profile_id = "balanced"
@@ -1414,23 +1415,29 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_style_edits = {}
         style_grid_widget = self._ui_child(root, "audio_story_style_grid_widget", QtWidgets.QWidget)
         style_layout = style_grid_widget.layout() if style_grid_widget is not None else None
+        if style_layout is None:
+            style_layout = self._ui_child(root, "audio_story_style_grid_layout", QtWidgets.QGridLayout)
         if style_layout is not None:
+            style_layout.setHorizontalSpacing(10)
+            style_layout.setVerticalSpacing(6)
             for style_index, style_def in enumerate(_audio_story_style_presets()):
                 style_id = str(style_def.get("id") or "").strip().lower()
                 row_group = style_index // 2
                 column = style_index % 2
                 button_row = row_group * 2
                 edit_row = button_row + 1
-                button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
+                style_label = self._audio_story_style_label(style_def)
+                button = QtWidgets.QPushButton(style_label)
                 button.setCheckable(True)
                 button.setStyleSheet(style_button_style)
                 button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-                style_label = str(style_def.get("label") or style_id.title())
                 self._set_audio_story_tooltip(
                     button,
-                    f"Toggle the {style_label} style layer for generated story image prompts.",
+                    f"Toggle the {style_label} style layer for generated story image prompts. Right-click to rename this button.",
                 )
                 button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
+                button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                button.customContextMenuRequested.connect(lambda _pos, style_id=style_id: self._on_audio_story_style_label_edit_requested(style_id))
                 edit = QtWidgets.QLineEdit()
                 edit.setClearButtonEnabled(True)
                 edit.setMinimumWidth(120)
@@ -1851,17 +1858,20 @@ class AudioStoryModeController(QtCore.QObject):
             column = style_index % 2
             button_row = row_group * 2
             edit_row = button_row + 1
-            button = QtWidgets.QPushButton(str(style_def.get("label") or style_id.title()))
+            style_label = self._audio_story_style_label(style_def)
+            button = QtWidgets.QPushButton(style_label)
             button.setCheckable(True)
             button.setStyleSheet(style_button_style)
             button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            button.setToolTip(f"Toggle the {str(style_def.get('label') or style_id.title())} style tag for story image prompts. Style changes reuse cached images when the resulting prompt matches a cached prompt.")
+            button.setToolTip(f"Toggle the {style_label} style tag for story image prompts. Right-click to rename this button. Style changes reuse cached images when the resulting prompt matches a cached prompt.")
             button.toggled.connect(lambda checked, style_id=style_id: self._on_audio_story_style_toggled(style_id, checked))
+            button.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            button.customContextMenuRequested.connect(lambda _pos, style_id=style_id: self._on_audio_story_style_label_edit_requested(style_id))
             edit = QtWidgets.QLineEdit()
             edit.setClearButtonEnabled(True)
             edit.setMinimumWidth(120)
             edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
-            edit.setToolTip(f"Prompt text injected when the {str(style_def.get('label') or style_id.title())} style is active. Editing this can invalidate matching image-prompt cache entries.")
+            edit.setToolTip(f"Prompt text injected when the {style_label} style is active. Editing this can invalidate matching image-prompt cache entries.")
             edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
             style_layout.addWidget(button, button_row, column)
             style_layout.addWidget(edit, edit_row, column)
@@ -2492,6 +2502,7 @@ class AudioStoryModeController(QtCore.QObject):
             "continuity_strength": float(self._normalize_continuity_strength(self._stored_continuity_strength)),
             "cost_profile": str(self._detect_audio_story_cost_profile_id() or self._stored_cost_profile_id or "balanced"),
             "style_prompts": dict(self._stored_style_prompts or {}),
+            "style_labels": dict(self._stored_style_labels or {}),
             "style_enabled": list(self._stored_style_enabled or []),
             "style_change_live": bool(self._stored_style_change_live),
             "story_master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
@@ -2524,6 +2535,12 @@ class AudioStoryModeController(QtCore.QObject):
                 style_id = str(style_def.get("id") or "").strip().lower()
                 if style_id:
                     self._stored_style_prompts[style_id] = str(data["style_prompts"].get(style_id, self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))) or "").strip()
+        if isinstance(data.get("style_labels"), dict):
+            for style_def in _audio_story_style_presets():
+                style_id = str(style_def.get("id") or "").strip().lower()
+                if style_id:
+                    default_label = str(style_def.get("label") or style_id.title())
+                    self._stored_style_labels[style_id] = str(data["style_labels"].get(style_id, self._stored_style_labels.get(style_id, default_label)) or default_label).strip()
         if isinstance(data.get("style_enabled"), (list, tuple, set)):
             valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
             self._stored_style_enabled = [str(item or "").strip().lower() for item in data.get("style_enabled", []) if str(item or "").strip().lower() in valid_ids]
@@ -2691,6 +2708,7 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_continuity_strength": float(self._stored_continuity_strength or 0.8),
             "audio_story_mode_cost_profile": str(self._detect_audio_story_cost_profile_id() or self._stored_cost_profile_id or "balanced"),
             "audio_story_mode_style_prompts": dict(self._stored_style_prompts or {}),
+            "audio_story_mode_style_labels": dict(self._stored_style_labels or {}),
             "audio_story_mode_style_enabled": list(self._stored_style_enabled or []),
             "audio_story_mode_style_change_live": bool(self._stored_style_change_live),
             "audio_story_mode_story_master_prompt_enabled": bool(self._stored_story_master_prompt_enabled),
@@ -2759,6 +2777,13 @@ class AudioStoryModeController(QtCore.QObject):
                 style_id = str(style_def.get("id") or "").strip().lower()
                 if style_id:
                     self._stored_style_prompts[style_id] = str(style_prompts.get(style_id, self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))) or self._stored_style_prompts.get(style_id, style_def.get("prompt", ""))).strip()
+        style_labels = payload.get("audio_story_mode_style_labels")
+        if isinstance(style_labels, dict):
+            for style_def in _audio_story_style_presets():
+                style_id = str(style_def.get("id") or "").strip().lower()
+                if style_id:
+                    default_label = str(style_def.get("label") or style_id.title())
+                    self._stored_style_labels[style_id] = str(style_labels.get(style_id, self._stored_style_labels.get(style_id, default_label)) or default_label).strip()
         style_enabled = payload.get("audio_story_mode_style_enabled")
         if isinstance(style_enabled, (list, tuple, set)):
             valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
@@ -4409,6 +4434,26 @@ class AudioStoryModeController(QtCore.QObject):
         if value_label is not None:
             value_label.setText(f"{frames} frame" if frames == 1 else f"{frames} frames")
 
+    def _audio_story_style_label(self, style_def_or_id):
+        if isinstance(style_def_or_id, dict):
+            style_id = str(style_def_or_id.get("id") or "").strip().lower()
+            default_label = str(style_def_or_id.get("label") or style_id.title()).strip()
+        else:
+            style_id = str(style_def_or_id or "").strip().lower()
+            style_def = next((item for item in _audio_story_style_presets() if str(item.get("id") or "").strip().lower() == style_id), {})
+            default_label = str(style_def.get("label") or style_id.title()).strip()
+        label = str((self._stored_style_labels or {}).get(style_id, default_label) or default_label).strip()
+        return label or default_label or style_id.title()
+
+    def _notify_audio_story_settings_changed(self):
+        shell = getattr(self, "shell", None)
+        notifier = getattr(shell, "notify_settings_changed", None)
+        if callable(notifier):
+            try:
+                notifier()
+            except Exception:
+                pass
+
     def _sync_audio_story_style_controls(self):
         valid_ids = {str(item.get("id") or "").strip().lower() for item in _audio_story_style_presets()}
         enabled_set = {style_id for style_id in self._stored_style_enabled if style_id in valid_ids}
@@ -4418,9 +4463,12 @@ class AudioStoryModeController(QtCore.QObject):
                 continue
             prompt_text = str(self._stored_style_prompts.get(style_id, style_def.get("prompt", "")) or style_def.get("prompt", "")).strip()
             self._stored_style_prompts[style_id] = prompt_text
+            style_label = self._audio_story_style_label(style_def)
             button = dict(getattr(self, "audio_story_style_buttons", {}) or {}).get(style_id)
             if button is not None:
                 button.blockSignals(True)
+                button.setText(style_label)
+                button.setToolTip(f"Toggle the {style_label} style layer for generated story image prompts. Right-click to rename this button.")
                 button.setChecked(style_id in enabled_set)
                 button.blockSignals(False)
             edit = dict(getattr(self, "audio_story_style_edits", {}) or {}).get(style_id)
@@ -6344,6 +6392,29 @@ class AudioStoryModeController(QtCore.QObject):
             else:
                 self._sync_story_generated_master_prompt(refresh_visuals=False)
 
+    def _on_audio_story_style_label_edit_requested(self, style_id: str):
+        normalized_id = str(style_id or "").strip().lower()
+        if not normalized_id:
+            return
+        current_label = self._audio_story_style_label(normalized_id)
+        text, accepted = QtWidgets.QInputDialog.getText(
+            self.audio_story_tab_widget,
+            "Rename Style Button",
+            "Button text:",
+            text=current_label,
+        )
+        if not accepted:
+            return
+        style_def = next((item for item in _audio_story_style_presets() if str(item.get("id") or "").strip().lower() == normalized_id), {})
+        default_label = str(style_def.get("label") or normalized_id.title()).strip()
+        new_label = str(text or "").strip() or default_label
+        self._stored_style_labels[normalized_id] = new_label
+        button = dict(getattr(self, "audio_story_style_buttons", {}) or {}).get(normalized_id)
+        if button is not None:
+            button.setText(new_label)
+            button.setToolTip(f"Toggle the {new_label} style layer for generated story image prompts. Right-click to rename this button.")
+        self._notify_audio_story_settings_changed()
+
     def _on_audio_story_style_live_changed(self, checked: bool):
         self._stored_style_change_live = bool(checked)
         if self._raw_transcript_segments and (self._stored_style_change_live or not self._is_audio_story_currently_playing()):
@@ -7287,11 +7358,11 @@ class AudioStoryModeController(QtCore.QObject):
         for spin in dict(getattr(self, "audio_story_prompt_limit_spins", {}) or {}).values():
             spin.setEnabled(bool(has_transcript))
         for button in dict(getattr(self, "audio_story_style_buttons", {}) or {}).values():
-            button.setEnabled(bool(has_transcript))
+            button.setEnabled(True)
         for edit in dict(getattr(self, "audio_story_style_edits", {}) or {}).values():
-            edit.setEnabled(bool(has_transcript))
+            edit.setEnabled(True)
         if hasattr(self, "audio_story_style_live_checkbox"):
-            self.audio_story_style_live_checkbox.setEnabled(bool(has_transcript))
+            self.audio_story_style_live_checkbox.setEnabled(True)
         if hasattr(self, "audio_story_transcribe_button"):
             self.audio_story_transcribe_button.setEnabled(has_audio_path and not is_playing and not is_paused)
 
