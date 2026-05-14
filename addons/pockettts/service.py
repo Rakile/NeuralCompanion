@@ -47,6 +47,24 @@ class PocketTTSService:
             "frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
         }
 
+    def _runtime_bool(self, key: str, default: bool) -> bool:
+        service = self._runtime_config_service()
+        if service is None:
+            return bool(default)
+        value = service.get(key, default)
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
+
+    def _voice_prompt_path(self):
+        service = self._runtime_config_service()
+        voice_path = str((service.get("voice_path", "") if service is not None else "") or "").strip()
+        if voice_path and os.path.exists(voice_path):
+            return voice_path
+        if voice_path:
+            print(f"⚠️ Voice file not found: {voice_path}. Continuing without the PocketTTS voice reference.")
+        return ""
+
     def _ensure_adapter(self):
         with self._lock:
             python_exe = self._resolve_python_exe()
@@ -76,6 +94,25 @@ class PocketTTSService:
     def generate(self, text, audio_prompt_path=None, **kwargs):
         adapter = self._ensure_adapter()
         return adapter.generate(text, audio_prompt_path=audio_prompt_path, **kwargs)
+
+    def warm_up(self):
+        if not self._runtime_bool("pocket_tts_prewarm_on_start", True):
+            return False
+        with self._lock:
+            try:
+                adapter = self._ensure_adapter()
+                adapter.generate(
+                    "Ready.",
+                    audio_prompt_path=self._voice_prompt_path() or None,
+                    pocket_tts_max_tokens=12,
+                    pocket_tts_frames_after_eos=0,
+                )
+                self.sr = int(getattr(adapter, "sr", self.sr) or self.sr or 24000)
+                print("✓ PocketTTS warmup complete")
+                return True
+            except Exception as exc:
+                print(f"⚠️ PocketTTS warmup failed: {exc}")
+                return False
 
     def close(self):
         with self._lock:

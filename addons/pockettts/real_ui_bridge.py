@@ -19,6 +19,7 @@ def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
         "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
         "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
         "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
+        "pocket_tts_prewarm_on_start": _live_checked(backend, "pockettts_prewarm_checkbox", runtime.get("pocket_tts_prewarm_on_start", True)),
     }
 
 
@@ -44,6 +45,14 @@ def _live_int(backend, object_name, default, *, minimum=None):
     return value
 
 
+def _live_checked(backend, object_name, default):
+    widget = backend._live_widget_attr(object_name)
+    try:
+        return bool(widget.isChecked()) if widget is not None and hasattr(widget, "isChecked") else bool(default)
+    except Exception:
+        return bool(default)
+
+
 def estimated_runtime_overhead_gib():
     return 2.0
 
@@ -61,6 +70,7 @@ def build_status_snapshot(backend, runtime_config=None):
         "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
         "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
         "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
+        "pocket_tts_prewarm_on_start": _live_checked(backend, "pockettts_prewarm_checkbox", runtime.get("pocket_tts_prewarm_on_start", True)),
     }
 
 
@@ -80,6 +90,9 @@ def refresh_resource_widgets(backend, runtime_config=None):
         spin = backend._live_widget_attr(object_name)
         if spin is not None and hasattr(spin, "setValue"):
             spin.setValue(runtime.get(key, default))
+    checkbox = backend._live_widget_attr("pockettts_prewarm_checkbox")
+    if checkbox is not None and hasattr(checkbox, "setChecked"):
+        checkbox.setChecked(bool(runtime.get("pocket_tts_prewarm_on_start", True)))
 
 
 def restart_sensitive_widgets(backend):

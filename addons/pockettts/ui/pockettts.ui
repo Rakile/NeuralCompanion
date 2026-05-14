@@ -119,6 +119,13 @@
          <item row="4" column="1">
           <widget class="QSpinBox" name="pockettts_frames_after_eos_spin"/>
          </item>
+         <item row="5" column="1">
+          <widget class="QCheckBox" name="pockettts_prewarm_checkbox">
+           <property name="text">
+            <string>Prewarm on chat start</string>
+           </property>
+          </widget>
+         </item>
         </layout>
        </widget>
       </item>

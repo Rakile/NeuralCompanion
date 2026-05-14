@@ -638,6 +638,7 @@ RUNTIME_CONFIG = {
     "pocket_tts_eos_threshold": -4.0,
     "pocket_tts_max_tokens": 50,
     "pocket_tts_frames_after_eos": 0,
+    "pocket_tts_prewarm_on_start": True,
     "avatar_mode": "vseeface",
     "vam_root": DEFAULT_VAM_ROOT,
     "vam_bridge_root": DEFAULT_VAM_BRIDGE_ROOT,
@@ -1404,7 +1405,7 @@ def init_tts():
     )
     tts_model = state.model
     tts_backend_name = state.backend_name
-    if state.ok and tts_model is not None and bool(RUNTIME_CONFIG.get("tts_prewarm_on_start", True)):
+    if state.ok and tts_model is not None:
         warmer = getattr(tts_model, "warm_up", None)
         if callable(warmer):
             try:

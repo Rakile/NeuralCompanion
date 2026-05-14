@@ -27,6 +27,7 @@ class PocketTTSController:
         self._eos_threshold_spin = None
         self._max_tokens_spin = None
         self._frames_after_eos_spin = None
+        self._prewarm_checkbox = None
 
     def _runtime_config_service(self):
         return self.context.get_service("qt.runtime_config") if self.context is not None else None
@@ -65,6 +66,7 @@ class PocketTTSController:
             "pocket_tts_eos_threshold": float(session.get("pocket_tts_eos_threshold", -4.0) or -4.0),
             "pocket_tts_max_tokens": max(1, int(session.get("pocket_tts_max_tokens", 50) or 50)),
             "pocket_tts_frames_after_eos": max(0, int(session.get("pocket_tts_frames_after_eos", 0) or 0)),
+            "pocket_tts_prewarm_on_start": bool(session.get("pocket_tts_prewarm_on_start", True)),
         }
 
     def _notify_settings_changed(self):
@@ -92,6 +94,7 @@ class PocketTTSController:
             "pocket_tts_eos_threshold": float(getter("pocket_tts_eos_threshold", -4.0) or -4.0),
             "pocket_tts_max_tokens": max(1, int(getter("pocket_tts_max_tokens", 50) or 50)),
             "pocket_tts_frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
+            "pocket_tts_prewarm_on_start": bool(getter("pocket_tts_prewarm_on_start", True)),
         }
 
     def _set_runtime(self, key: str, value):
@@ -150,6 +153,10 @@ class PocketTTSController:
             except Exception:
                 pass
             widget.blockSignals(False)
+        if self._widget_alive(self._prewarm_checkbox):
+            self._prewarm_checkbox.blockSignals(True)
+            self._prewarm_checkbox.setChecked(bool(state["pocket_tts_prewarm_on_start"]))
+            self._prewarm_checkbox.blockSignals(False)
         if self._widget_alive(self._advanced_toggle) and self._widget_alive(self._advanced_group):
             self._advanced_group.setVisible(bool(self._advanced_toggle.isChecked()))
 
@@ -231,6 +238,7 @@ class PocketTTSController:
         self._eos_threshold_spin = self._ui_child(widget, "pockettts_eos_threshold_spin", QtWidgets.QDoubleSpinBox)
         self._max_tokens_spin = self._ui_child(widget, "pockettts_max_tokens_spin", QtWidgets.QSpinBox)
         self._frames_after_eos_spin = self._ui_child(widget, "pockettts_frames_after_eos_spin", QtWidgets.QSpinBox)
+        self._prewarm_checkbox = self._ui_child(widget, "pockettts_prewarm_checkbox", QtWidgets.QCheckBox)
         browse = self._ui_child(widget, "btn_pockettts_browse", QtWidgets.QPushButton)
         bundled_button = self._ui_child(widget, "btn_pockettts_use_bundled", QtWidgets.QPushButton)
         note = self._ui_child(widget, "pockettts_note_label", QtWidgets.QLabel)
@@ -244,6 +252,7 @@ class PocketTTSController:
             self._eos_threshold_spin,
             self._max_tokens_spin,
             self._frames_after_eos_spin,
+            self._prewarm_checkbox,
             browse,
             bundled_button,
             note,
@@ -279,6 +288,9 @@ class PocketTTSController:
         self._frames_after_eos_spin.setRange(0, 10)
         self._frames_after_eos_spin.setSingleStep(1)
         self._frames_after_eos_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_frames_after_eos", max(0, int(value or 0))))
+
+        self._prewarm_checkbox.setToolTip("Start the CPU-only PocketTTS worker and run one tiny discarded synthesis during chat startup.")
+        self._prewarm_checkbox.toggled.connect(lambda checked: self._set_runtime("pocket_tts_prewarm_on_start", bool(checked)))
 
         browse.clicked.connect(self._browse_python)
         bundled_button.clicked.connect(self._reset_to_default)
@@ -325,6 +337,7 @@ class PocketTTSController:
             "pocket_tts_eos_threshold": lambda v: float(v if v is not None else -4.0),
             "pocket_tts_max_tokens": lambda v: max(1, int(v or 50)),
             "pocket_tts_frames_after_eos": lambda v: max(0, int(v or 0)),
+            "pocket_tts_prewarm_on_start": lambda v: bool(v),
         }
         for key, converter in mapping.items():
             if key not in payload:

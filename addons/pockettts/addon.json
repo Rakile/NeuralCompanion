@@ -9,6 +9,9 @@
     "services.register",
     "ui.tabs"
   ],
+  "runtime_defaults": {
+    "pocket_tts_prewarm_on_start": true
+  },
   "services": [
     {
       "id": "tts_backend_service",

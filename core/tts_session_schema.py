@@ -27,6 +27,7 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("pocket_tts_eos_threshold", ("pockettts", "eos_threshold")),
         ("pocket_tts_max_tokens", ("pockettts", "max_tokens")),
         ("pocket_tts_frames_after_eos", ("pockettts", "frames_after_eos")),
+        ("pocket_tts_prewarm_on_start", ("pockettts", "prewarm_on_start")),
         ("gemini_tts_preview_settings", ("gemini_tts_preview", "settings")),
     )
 )
