@@ -327,15 +327,13 @@ class BackendConsoleChatMixin:
         _flush(len(raw))
         return entries
 
-    def _assistant_replay_index_for_chat_position(self, position):
+    def _replay_index_for_chat_position(self, position):
         entries = self._parse_chat_display_entries_with_spans(self.chat_edit.toPlainText())
         replay_index = 0
         total_entries = len(entries)
         for idx, entry in enumerate(entries):
-            is_replayable = (
-                str(entry.get("role", "") or "") == "assistant"
-                and str(entry.get("origin", "") or "") == "assistant_reply"
-            )
+            content = str(entry.get("content", "") or "").strip()
+            is_replayable = bool(content)
             if is_replayable:
                 replay_index += 1
             start = int(entry.get("_start", 0) or 0)
@@ -346,6 +344,9 @@ class BackendConsoleChatMixin:
             if in_entry:
                 return replay_index if is_replayable else None
         return None
+
+    def _assistant_replay_index_for_chat_position(self, position):
+        return self._replay_index_for_chat_position(position)
 
     def _show_chat_context_menu(self, point):
         menu = self.chat_edit.createStandardContextMenu()
@@ -472,11 +473,11 @@ class BackendConsoleChatMixin:
             or engine.parse_replay_chat_session_start_index(raw) is not None
         )
 
-    def trigger_replay_from_assistant_index(self, replay_index):
+    def trigger_replay_from_chat_index(self, replay_index):
         engine = _engine()
-        replayable_entries = list(engine.collect_replayable_assistant_entries() or [])
+        replayable_entries = list(engine.collect_replayable_chat_entries() or [])
         if not replayable_entries:
-            print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
+            print("[QtGUI] Replay ignored: no replayable chat messages in current chat context.")
             return
         try:
             resolved_index = int(replay_index)
@@ -485,6 +486,9 @@ class BackendConsoleChatMixin:
         resolved_index = max(1, min(resolved_index, len(replayable_entries)))
         self.trigger_control_action(engine.build_replay_chat_session_from_action(resolved_index))
 
+    def trigger_replay_from_assistant_index(self, replay_index):
+        self.trigger_replay_from_chat_index(replay_index)
+
     def trigger_control_action(self, action):
         engine = _engine()
         if self._dry_run_is_active():
@@ -492,9 +496,9 @@ class BackendConsoleChatMixin:
             return
         if not self.thread or not self.thread.is_alive():
             if self._is_replay_control_action(action):
-                replayable = engine.collect_replayable_assistant_messages()
+                replayable = engine.collect_replayable_chat_messages()
                 if not replayable:
-                    print("[QtGUI] Replay ignored: no assistant replies in current chat context.")
+                    print("[QtGUI] Replay ignored: no replayable chat messages in current chat context.")
                     return
                 engine.trigger_manual_action(action)
                 print(f"[QtGUI] Control action: {action} (offline replay bootstrap)")

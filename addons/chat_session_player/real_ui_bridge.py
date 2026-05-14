@@ -6,7 +6,10 @@ def add_replay_context_menu_action_for_backend(backend, menu, chat_edit, point):
     try:
         cursor = chat_edit.cursorForPosition(point)
         position = cursor.position()
-        replay_index = backend._assistant_replay_index_for_chat_position(position)
+        resolver = getattr(backend, "_replay_index_for_chat_position", None)
+        if not callable(resolver):
+            resolver = getattr(backend, "_assistant_replay_index_for_chat_position", None)
+        replay_index = resolver(position) if callable(resolver) else None
     except Exception:
         replay_index = None
     if replay_index is None:
@@ -15,7 +18,7 @@ def add_replay_context_menu_action_for_backend(backend, menu, chat_edit, point):
         menu.addSeparator()
         replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
         replay_action.triggered.connect(
-            lambda _checked=False, idx=replay_index: backend.trigger_replay_from_assistant_index(idx)
+            lambda _checked=False, idx=replay_index: backend.trigger_replay_from_chat_index(idx)
         )
     except Exception:
         pass

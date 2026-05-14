@@ -1148,6 +1148,14 @@ class QtChatReplayService:
         exporter = self._runtime_config.engine_attr("export_chat_session_state", None)
         return dict(exporter() if callable(exporter) else {})
 
+    def replayable_chat_entries(self):
+        collector = self._runtime_config.engine_attr("collect_replayable_chat_entries", None)
+        return list(collector() if callable(collector) else [])
+
+    def replayable_chat_messages(self):
+        collector = self._runtime_config.engine_attr("collect_replayable_chat_messages", None)
+        return list(collector() if callable(collector) else [])
+
     def replayable_assistant_entries(self):
         collector = self._runtime_config.engine_attr("collect_replayable_assistant_entries", None)
         return list(collector() if callable(collector) else [])

@@ -629,6 +629,7 @@ RUNTIME_CONFIG = {
     "emotional_instructions": DEFAULT_EMOTIONAL_INSTRUCTIONS,
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
     "voice_path": "",
+    "chat_replay_role_voices": {},
     "tts_backend": "chatterbox",
     "tts_prewarm_on_start": True,
     "tts_apply_watermark": True,
@@ -762,6 +763,8 @@ def update_runtime_config(key, value):
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":
             value = dict(value or {})
+        elif key == "chat_replay_role_voices":
+            value = _normalize_chat_replay_role_voices(value)
         elif key == "musetalk_enabled_pack_emotions":
             value = _normalize_musetalk_enabled_pack_emotions(value)
         RUNTIME_CONFIG[key] = value
@@ -3276,6 +3279,136 @@ def export_chat_session_state():
     }
 
 
+def _chat_replay_role_label(turn):
+    role = str((turn or {}).get("role", "") or "").strip().lower()
+    origin = str((turn or {}).get("origin", "") or "").strip().lower()
+    if role == "assistant" and origin == "assistant_reply":
+        return "Assistant"
+    if role == "assistant":
+        return "User as assistant"
+    if role == "system":
+        return "System"
+    if role == "tool":
+        return "Tool"
+    return "User"
+
+
+def _chat_replay_spoken_text(turn, content):
+    label = _chat_replay_role_label(turn)
+    text = str(content or "").strip()
+    return f"{label}: {text}" if label else text
+
+
+def _normalize_chat_replay_role_voices(value):
+    raw = dict(value or {}) if isinstance(value, dict) else {}
+    normalized = {}
+    for role in ("assistant", "user", "system"):
+        voice_path = str(raw.get(role, "") or "").strip()
+        normalized[role] = voice_path
+    return normalized
+
+
+def _resolve_voice_reference_path(value):
+    raw = str(value or "").strip()
+    if not raw:
+        return ""
+    candidates = []
+    path = Path(raw)
+    candidates.append(path)
+    if not path.is_absolute():
+        candidates.append(Path.cwd() / path)
+        candidates.append(Path.cwd() / "voices" / path.name)
+    for candidate in candidates:
+        try:
+            if candidate.exists():
+                return str(candidate.resolve())
+        except Exception:
+            continue
+    return ""
+
+
+def _chat_replay_voice_path_for_turn(turn):
+    voices = _normalize_chat_replay_role_voices(RUNTIME_CONFIG.get("chat_replay_role_voices", {}) or {})
+    role = str((turn or {}).get("role", "") or "").strip().lower()
+    origin = str((turn or {}).get("origin", "") or "").strip().lower()
+    if role == "assistant" and origin == "assistant_reply":
+        key = "assistant"
+    elif role == "system":
+        key = "system"
+    else:
+        key = "user"
+    configured = voices.get(key, "") or (voices.get("assistant", "") if key == "system" else "")
+    return _resolve_voice_reference_path(configured)
+
+
+_replay_voice_warmup_cache = set()
+
+
+def _warm_up_replay_voice_paths(entries):
+    if tts_model is None:
+        return
+    paths = []
+    for entry in list(entries or []):
+        voice_path = str((entry or {}).get("voice_path", "") or "").strip()
+        if voice_path and voice_path not in paths:
+            paths.append(voice_path)
+    if not paths:
+        return
+    generator = getattr(tts_model, "generate", None)
+    if not callable(generator):
+        return
+    backend_key = str(RUNTIME_CONFIG.get("tts_backend", "") or "").strip().lower()
+    for voice_path in paths:
+        cache_key = (backend_key, voice_path)
+        if cache_key in _replay_voice_warmup_cache:
+            continue
+        try:
+            kwargs = tts_runtime.build_generation_kwargs(
+                RUNTIME_CONFIG,
+                set_seed=set_seed,
+                path_exists=os.path.exists,
+                logger=print,
+            )
+            kwargs["audio_prompt_path"] = voice_path
+            generator("Ready.", **kwargs)
+            _replay_voice_warmup_cache.add(cache_key)
+            print(f"✓ Replay voice warmup complete: {os.path.basename(voice_path)}")
+        except Exception as exc:
+            print(f"⚠️ Replay voice warmup failed for {os.path.basename(voice_path)}: {exc}")
+
+
+def collect_replayable_chat_entries(history=None):
+    replayable = []
+    replay_index = 0
+    for history_index, item in enumerate(list(history if history is not None else (conversation_history or []))):
+        turn = _sanitize_chat_turn(item)
+        if not turn:
+            continue
+        content = str(turn.get("content", "") or "").strip()
+        if not content:
+            continue
+        replay_index += 1
+        label = _chat_replay_role_label(turn)
+        preview_source = f"{label}: {content}" if label else content
+        preview = re.sub(r"\s+", " ", preview_source).strip()
+        replayable.append({
+            "replay_index": replay_index,
+            "history_index": history_index,
+            "role": str(turn.get("role", "") or ""),
+            "origin": str(turn.get("origin", "") or ""),
+            "label": label,
+            "content": content,
+            "spoken_text": _chat_replay_spoken_text(turn, content),
+            "voice_path": _chat_replay_voice_path_for_turn(turn),
+            "preview": preview[:140] + ("..." if len(preview) > 140 else ""),
+        })
+    return replayable
+
+
+def collect_replayable_chat_messages(history=None):
+    return [str(item.get("spoken_text", "") or "") for item in collect_replayable_chat_entries(history)]
+
+
 def collect_replayable_assistant_entries(history=None):
     replayable = []
     assistant_index = 0
@@ -3553,7 +3686,7 @@ def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
             yield str(item)
 
 
-def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSController:
+def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path_override=None) -> TTSController:
     global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
     ctrl = TTSController()
     stop_playback.clear()
@@ -3568,6 +3701,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
         print("⚠️ TTS Model not loaded, skipping audio.")
         ctrl.done.set()
         return ctrl
+
+    resolved_voice_path_override = ""
+    if voice_path_override:
+        resolved_voice_path_override = _resolve_voice_reference_path(voice_path_override)
+        if not resolved_voice_path_override:
+            print(f"⚠️ Replay voice file not found: {voice_path_override}. Continuing with the current TTS voice.")
 
     playback_queue = queue.Queue()
     ready_for_playback = queue.Queue()
@@ -3674,6 +3813,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None) -> TTSCont
                         path_exists=os.path.exists,
                         logger=print,
                     )
+                    if resolved_voice_path_override:
+                        kwargs["audio_prompt_path"] = resolved_voice_path_override
                     try:
                         wav = tts_model.generate(sub, **kwargs)
                     except Exception as e:
@@ -5163,6 +5304,7 @@ def run_conversation_flow(source):
     response_text_replay_kind = ""
     current_replay_position = 0
     current_replay_total = 0
+    current_replay_voice_path = ""
     pending_replay_text = None
     pending_replay_sequence = []
     stream_state = None
@@ -5187,37 +5329,44 @@ def run_conversation_flow(source):
         return parse_replay_chat_session_start_index(status)
 
     def _build_replay_sequence_from(start_index):
-        replay_messages = collect_replayable_assistant_messages()
-        total = len(replay_messages)
+        replay_entries = collect_replayable_chat_entries()
+        total = len(replay_entries)
         if total <= 0:
             return [], 0, 0
         try:
             resolved_start = max(1, min(int(start_index or 1), total))
         except Exception:
             resolved_start = 1
-        remaining = list(replay_messages[resolved_start - 1:])
+        remaining = list(replay_entries[resolved_start - 1:])
         return remaining, resolved_start, total
 
     def _start_replay_session_from(start_index):
         nonlocal response_text, response_text_is_replay, response_text_replay_kind
-        nonlocal current_replay_position, current_replay_total, pending_replay_text, pending_replay_sequence
+        nonlocal current_replay_position, current_replay_total, current_replay_voice_path, pending_replay_text, pending_replay_sequence
         nonlocal silence_elapsed_seconds
         remaining, resolved_start, total = _build_replay_sequence_from(start_index)
         if not remaining:
-            print("\n⚠️ No assistant replies are available in the current chat context.")
+            print("\n⚠️ No replayable chat messages are available in the current chat context.")
             return False
         if resolved_start <= 1:
-            print(f"\n🔁 Replaying chat session ({total} assistant message(s))...")
+            print(f"\n🔁 Replaying chat session ({total} message(s))...")
         else:
-            print(f"\n🔁 Replaying chat session from message {resolved_start}/{total} ({len(remaining)} assistant message(s))...")
-        response_text = remaining[0]
+            print(f"\n🔁 Replaying chat session from message {resolved_start}/{total} ({len(remaining)} message(s))...")
+        _warm_up_replay_voice_paths(remaining)
+        response_text = str(remaining[0].get("spoken_text", "") or "").strip()
+        current_replay_voice_path = str(remaining[0].get("voice_path", "") or "").strip()
         response_text_is_replay = True
         response_text_replay_kind = "session"
         current_replay_position = resolved_start
         current_replay_total = total
         pending_replay_text = None
         pending_replay_sequence = [
-            {"text": item, "index": resolved_start + offset, "total": total}
+            {
+                "text": str(item.get("spoken_text", "") or "").strip(),
+                "voice_path": str(item.get("voice_path", "") or "").strip(),
+                "index": resolved_start + offset,
+                "total": total,
+            }
             for offset, item in enumerate(remaining[1:], start=1)
         ]
         silence_elapsed_seconds = 0.0
@@ -5227,15 +5376,20 @@ def run_conversation_flow(source):
         nonlocal pending_replay_text, pending_replay_sequence
         remaining, resolved_start, total = _build_replay_sequence_from(start_index)
         if not remaining:
-            print("\n⚠️ No assistant replies are available in the current chat context.")
+            print("\n⚠️ No replayable chat messages are available in the current chat context.")
             return False
         if resolved_start <= 1:
-            print(f"\n🔁 Replaying chat session ({total} assistant message(s)) after current playback stops...")
+            print(f"\n🔁 Replaying chat session ({total} message(s)) after current playback stops...")
         else:
             print(f"\n🔁 Replaying chat session from message {resolved_start}/{total} after current playback stops...")
         pending_replay_text = None
         pending_replay_sequence = [
-            {"text": item, "index": resolved_start + offset, "total": total}
+            {
+                "text": str(item.get("spoken_text", "") or "").strip(),
+                "voice_path": str(item.get("voice_path", "") or "").strip(),
+                "index": resolved_start + offset,
+                "total": total,
+            }
             for offset, item in enumerate(remaining, start=0)
         ]
         return True
@@ -5318,6 +5472,7 @@ def run_conversation_flow(source):
             response_text_replay_kind = ""
             current_replay_position = 0
             current_replay_total = 0
+            current_replay_voice_path = ""
             pending_replay_text = None
             pending_replay_sequence = []
             stream_state = None
@@ -5349,12 +5504,15 @@ def run_conversation_flow(source):
             response_text = pending_replay_text
             response_text_is_replay = True
             response_text_replay_kind = "single"
+            current_replay_voice_path = ""
             current_replay_position = 1
             current_replay_total = 1
             pending_replay_text = None
         elif pending_replay_sequence and not response_text:
+            _warm_up_replay_voice_paths(pending_replay_sequence)
             current_entry = dict(pending_replay_sequence.pop(0) or {})
             response_text = str(current_entry.get("text", "") or "").strip()
+            current_replay_voice_path = str(current_entry.get("voice_path", "") or "").strip()
             response_text_is_replay = True
             response_text_replay_kind = "session"
             current_replay_position = int(current_entry.get("index", 1) or 1)
@@ -5440,6 +5598,7 @@ def run_conversation_flow(source):
                         response_text = replay_source
                         response_text_is_replay = True
                         response_text_replay_kind = "single"
+                        current_replay_voice_path = ""
                         current_replay_position = 1
                         current_replay_total = 1
                         pending_replay_sequence = []
@@ -5636,7 +5795,11 @@ def run_conversation_flow(source):
                     print("------------------------------------------------------------------------------------------------------")
                 stop_playback.clear()
                 set_seed(3918375115)
-                ctrl = speak_async(sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True), dry_run_reply_id=dry_run_reply_id)
+                ctrl = speak_async(
+                    sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True),
+                    dry_run_reply_id=dry_run_reply_id,
+                    voice_path_override=current_replay_voice_path if response_text_is_replay else None,
+                )
 
             was_barge_in = False
 
@@ -5673,8 +5836,9 @@ def run_conversation_flow(source):
                         stream_state.cancel_requested.set()
                     # We don't mark as interrupted for history purposes on skip
                     # (Usually you want the full text in history even if you skipped reading it)
-                    pending_replay_text = None
-                    pending_replay_sequence = []
+                    if not (response_text_is_replay and response_text_replay_kind == "session"):
+                        pending_replay_text = None
+                        pending_replay_sequence = []
                     break
 
                 # --- ACTION: REGENERATE ---
@@ -5824,6 +5988,7 @@ def run_conversation_flow(source):
                 response_text = None
                 response_text_is_replay = False
                 response_text_replay_kind = ""
+                current_replay_voice_path = ""
                 listening_active.clear()
                 active_ctrl = None
                 stream_state = None
@@ -5832,15 +5997,18 @@ def run_conversation_flow(source):
                 response_text = None
                 response_text_is_replay = False
                 response_text_replay_kind = ""
+                current_replay_voice_path = ""
             elif was_barge_in and user_text:
                 response_text = None
                 response_text_is_replay = False
                 response_text_replay_kind = ""
+                current_replay_voice_path = ""
             else:
                 user_text = None
                 response_text = None
                 response_text_is_replay = False
                 response_text_replay_kind = ""
+                current_replay_voice_path = ""
             listening_active.clear()
             active_ctrl = None
             stream_state = None

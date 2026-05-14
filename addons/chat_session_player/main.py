@@ -37,6 +37,19 @@ class Addon(BaseAddon):
             raise RuntimeError("Chat Session Player controller is unavailable.")
         return controller.bind_designer_tab(widget)
 
+
+    def export_session_state(self):
+        controller = self._peek_controller()
+        if controller is None or not hasattr(controller, "export_session_state"):
+            return {}
+        return controller.export_session_state() or {}
+
+    def import_session_state(self, session):
+        controller = self._peek_controller()
+        if controller is None or not hasattr(controller, "import_session_state"):
+            return None
+        return controller.import_session_state(session or {})
+
     def invoke_capability(self, capability, payload=None):
         capability = str(capability or "").strip().lower()
         payload = dict(payload or {})

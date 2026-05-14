@@ -17,6 +17,12 @@ class _UiShellChatReplayService:
             "message": "Chat replay is not connected in shell preview.",
         }
 
+    def replayable_chat_entries(self):
+        return []
+
+    def replayable_chat_messages(self):
+        return []
+
     def replayable_assistant_entries(self):
         return []
 
