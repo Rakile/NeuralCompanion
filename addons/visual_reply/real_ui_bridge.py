@@ -14,7 +14,6 @@ from addons.visual_reply.runtime import (
     sync_visual_reply_api_key_field,
     sync_visual_reply_model_field,
     sync_visual_reply_size_field,
-    visual_reply_known_default_models,
     visual_reply_model_for_provider,
     visual_reply_size_for_provider,
     visual_reply_mode_label_from_value,
@@ -123,9 +122,6 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_model_edit.setObjectName("visual_reply_model_edit")
     default_model = visual_reply_default_model_for_provider(current_provider)
     current_model = str(provider_setting_from_config(runtime, current_provider, "model", runtime.get("visual_reply_model", default_model)) or default_model).strip()
-    known_default_models = visual_reply_known_default_models()
-    if current_model in known_default_models and current_model != default_model:
-        current_model = default_model
     backend.visual_reply_model_edit.setText(current_model)
     backend.visual_reply_model_edit.editingFinished.connect(lambda: on_visual_reply_model_changed(backend))
 

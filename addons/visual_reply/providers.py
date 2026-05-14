@@ -165,8 +165,6 @@ def normalize_model_for_provider(provider: str | None, model: str | None) -> str
     model_name = str(model or spec.default_model).strip() or spec.default_model
     if model_name in spec.deprecated_models or model_name in spec.legacy_default_models:
         return spec.default_model
-    if model_name in known_default_models() and model_name != spec.default_model:
-        return spec.default_model
     return model_name
 
 
