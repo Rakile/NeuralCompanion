@@ -88,11 +88,6 @@ def restart_sensitive_widgets(backend):
         "pocket_tts_python_edit",
         "pocket_tts_browse_button",
         "btn_pockettts_browse",
-        "pockettts_temperature_spin",
-        "pockettts_lsd_steps_spin",
-        "pockettts_eos_threshold_spin",
-        "pockettts_max_tokens_spin",
-        "pockettts_frames_after_eos_spin",
     )
     return [
         widget

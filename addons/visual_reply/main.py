@@ -100,7 +100,7 @@ class Addon(BaseAddon):
                     "visual_reply_provider_combo",
                     "visual_reply_size_combo",
                 ],
-                "line_edit": ["visual_reply_model_edit"],
+                "line_edit": ["visual_reply_model_edit", "visual_reply_api_key_edit"],
                 "checkbox": ["visual_reply_auto_show_checkbox"],
             }
         if capability == "runtime.status_snapshot":
@@ -123,6 +123,7 @@ class Addon(BaseAddon):
                 "model": generation.model_name(runtime),
                 "size": generation.image_size(runtime),
                 "extra_body": generation.xai_extra_body(runtime),
+                "response_format": "base64Data" if generation.provider(runtime) == "runware" else "b64_json",
             }
         if capability == "runtime.current_state":
             from addons.visual_reply import state

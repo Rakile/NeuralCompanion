@@ -29,6 +29,7 @@ pynput
 PySide6
 python-osc
 requests
+runware
 scipy
 sounddevice
 soundfile==0.12.1

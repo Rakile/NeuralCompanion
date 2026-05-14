@@ -4,6 +4,9 @@ import json
 import re
 from pathlib import Path
 
+from core.musetalk_session_schema import with_flat_musetalk_settings
+from core.sensory_session_schema import with_flat_sensory_settings
+from core.tts_session_schema import with_flat_tts_runtime_settings
 from core.addons.contributions import (
     ui_fallback_targets_for_manifest,
     ui_mount_targets,
@@ -34,7 +37,9 @@ def _read_ui_shell_session_snapshot():
     try:
         with session_path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-            return payload if isinstance(payload, dict) else {}
+            if not isinstance(payload, dict):
+                return {}
+            return with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(payload)))
     except Exception:
         return {}
 

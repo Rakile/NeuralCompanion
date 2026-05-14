@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import shiboken6
 
+from core.tts_session_schema import with_flat_tts_runtime_settings
+
 
 CHATTERBOX_TOOLTIPS = {
     "chatterbox_seed": "Seed for reproducible Chatterbox speech. Use 0 to pick a random seed each time.",
@@ -44,7 +46,7 @@ class ChatterboxTTSController:
         session = {}
         if callable(session_getter):
             try:
-                session = dict(session_getter() or {})
+                session = with_flat_tts_runtime_settings(session_getter() or {})
             except Exception:
                 session = {}
         return {
@@ -221,6 +223,7 @@ class ChatterboxTTSController:
         return self._current_state()
 
     def import_session_state(self, session):
+        session = with_flat_tts_runtime_settings(session or {})
         if self._shell_preview:
             payload = dict(session or {})
             mapping = {

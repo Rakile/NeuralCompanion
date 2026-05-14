@@ -1,3 +1,16 @@
+from addons.visual_reply.providers import (
+    default_model_for_provider,
+    model_override_for_provider,
+    normalize_model_for_provider,
+    provider_label_from_value,
+    provider_labels,
+    provider_setting_from_config,
+    provider_settings_from_config,
+    provider_value_from_label,
+    updated_provider_settings,
+)
+
+
 class _UiShellVisualReplyService:
     """Shell-only visual reply service: render settings UI without image/runtime side effects."""
 
@@ -24,11 +37,14 @@ class _UiShellVisualReplyService:
 
     def _initial_state(self):
         session = self._session_snapshot()
+        provider = str(session.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        default_model = self.default_model_for_provider(provider)
         state = {
             "visual_reply_mode": str(session.get("visual_reply_mode", "auto") or "auto"),
-            "visual_reply_provider": str(session.get("visual_reply_provider", "openai") or "openai"),
-            "visual_reply_size": str(session.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "visual_reply_model": str(session.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_provider": provider,
+            "visual_reply_provider_settings": provider_settings_from_config(session),
+            "visual_reply_size": str(provider_setting_from_config(session, provider, "size", session.get("visual_reply_size", "1024x1024")) or "1024x1024"),
+            "visual_reply_model": str(provider_setting_from_config(session, provider, "model", session.get("visual_reply_model", default_model)) or default_model),
             "visual_reply_auto_show_dock": bool(session.get("visual_reply_auto_show_dock", True)),
             "visual_reply_story_mode": bool(session.get("visual_reply_story_mode", False)),
             "visual_reply_story_max_images": session.get("visual_reply_story_max_images", 3),
@@ -39,7 +55,7 @@ class _UiShellVisualReplyService:
             "visual_reply_master_prompt_safe": bool(session.get("visual_reply_master_prompt_safe", False)),
             "visual_reply_master_prompt_no_speech_bubbles": bool(session.get("visual_reply_master_prompt_no_speech_bubbles", False)),
         }
-        if str(state["visual_reply_provider"]).strip().lower() not in {"openai", "xai"}:
+        if str(state["visual_reply_provider"]).strip().lower() not in {"openai", "xai", "runware"}:
             state["visual_reply_provider"] = "openai"
         return state
 
@@ -94,16 +110,27 @@ class _UiShellVisualReplyService:
 
     def export_session_state(self):
         snapshot = self.settings_snapshot()
+        provider = str(snapshot.get("provider_value", "openai") or "openai")
         return {
             "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
-            "visual_reply_provider": str(snapshot.get("provider_value", "openai") or "openai"),
-            "visual_reply_size": str(snapshot.get("size_value", "1024x1024") or "1024x1024"),
-            "visual_reply_model": str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"),
+            "visual_reply_provider": provider,
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
+            "visual_reply_provider_settings": provider_settings_from_config(self._state),
         }
 
     def export_preset_state(self):
-        return self.export_session_state()
+        snapshot = self.settings_snapshot()
+        provider = str(snapshot.get("provider_value", "openai") or "openai")
+        provider_settings = provider_settings_from_config(self._state)
+        for settings in provider_settings.values():
+            if isinstance(settings, dict):
+                settings.pop("api_key", None)
+        return {
+            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_provider": provider,
+            "visual_reply_provider_settings": provider_settings,
+            "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
+        }
 
     def import_session_state(self, session):
         payload = dict(session or {})
@@ -112,10 +139,12 @@ class _UiShellVisualReplyService:
             "visual_reply_provider",
             "visual_reply_size",
             "visual_reply_model",
+            "visual_reply_provider_settings",
             "visual_reply_auto_show_dock",
         ):
             if key in payload:
                 self._state[key] = payload.get(key)
+        self._state["visual_reply_provider_settings"] = provider_settings_from_config(payload)
         self.refresh_hint()
 
     def import_preset_state(self, preset):
@@ -124,11 +153,16 @@ class _UiShellVisualReplyService:
     def settings_snapshot(self):
         prompts = self._theme_prompts()
         enabled = set(self._theme_enabled())
+        provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        default_model = self.default_model_for_provider(provider)
         return {
             "mode_value": str(self._state.get("visual_reply_mode", "auto") or "auto"),
-            "provider_value": str(self._state.get("visual_reply_provider", "openai") or "openai"),
-            "size_value": str(self._state.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "model_name": str(self._state.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "provider_value": provider,
+            "size_value": str(provider_setting_from_config(self._state, provider, "size", self._state.get("visual_reply_size", "1024x1024")) or "1024x1024"),
+            "model_name": normalize_model_for_provider(
+                provider,
+                provider_setting_from_config(self._state, provider, "model", self._state.get("visual_reply_model", default_model)),
+            ),
             "auto_show": bool(self._state.get("visual_reply_auto_show_dock", True)),
             "master_style_prompt": str(self._state.get("visual_reply_master_style_prompt", "") or ""),
             "master_prompt_safe": bool(self._state.get("visual_reply_master_prompt_safe", False)),
@@ -151,17 +185,19 @@ class _UiShellVisualReplyService:
         return ["Off", "Auto"]
 
     def provider_labels(self):
-        return ["OpenAI", "xAI / Grok"]
+        return provider_labels()
 
     def size_labels(self):
         return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def default_model_for_provider(self, provider):
+        return default_model_for_provider(provider)
 
     def mode_label_from_value(self, value):
         return "Off" if str(value or "").strip().lower() == "off" else "Auto"
 
     def provider_label_from_value(self, value):
-        provider = str(value or "").strip().lower()
-        return "xAI / Grok" if provider == "xai" else "OpenAI"
+        return provider_label_from_value(value)
 
     def size_label_from_value(self, value):
         size = self.normalize_size(value)
@@ -181,6 +217,7 @@ class _UiShellVisualReplyService:
         for widget in widgets.values():
             if widget is not None and hasattr(widget, "setToolTip"):
                 widget.setToolTip("Shell-local Visual Reply preview. Changes are not saved and no image generation is started.")
+        self.sync_api_key_field()
 
     def _set_state(self, key, value):
         self._state[str(key)] = value
@@ -190,16 +227,75 @@ class _UiShellVisualReplyService:
         self._set_state("visual_reply_mode", "off" if str(choice or "").strip().lower() == "off" else "auto")
 
     def apply_provider(self, choice):
-        label = str(choice or "").strip().lower()
-        self._set_state("visual_reply_provider", "xai" if "grok" in label or "xai" in label else "openai")
+        previous_provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        size_combo = self._settings_widgets.get("size_combo")
+        if size_combo is not None and hasattr(size_combo, "currentText"):
+            self._state["visual_reply_provider_settings"] = updated_provider_settings(
+                self._state,
+                previous_provider,
+                "size",
+                self.normalize_size(size_combo.currentText()),
+            )
+        edit = self._settings_widgets.get("model_edit")
+        if edit is not None and hasattr(edit, "text"):
+            current_model = str(edit.text() or "").strip()
+            self._state["visual_reply_provider_settings"] = updated_provider_settings(
+                self._state,
+                previous_provider,
+                "model",
+                model_override_for_provider(previous_provider, current_model),
+            )
+        provider = provider_value_from_label(choice)
+        self._set_state("visual_reply_provider", provider)
+        if size_combo is not None and hasattr(size_combo, "setCurrentText"):
+            size = self.normalize_size(provider_setting_from_config(self._state, provider, "size", "1024x1024"))
+            size_combo.setCurrentText(self.size_label_from_value(size))
+            self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "size", size)
+            self._state["visual_reply_size"] = size
+        if edit is not None and hasattr(edit, "text") and hasattr(edit, "setText"):
+            model = str(provider_setting_from_config(self._state, provider, "model", "") or "").strip() or self.default_model_for_provider(provider)
+            edit.setText(model)
+            self._state["visual_reply_model"] = model
+        self.sync_api_key_field(provider)
 
     def apply_size(self, choice):
-        self._set_state("visual_reply_size", self.normalize_size(choice))
+        provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        size = self.normalize_size(choice)
+        self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "size", size)
+        self._set_state("visual_reply_size", size)
 
     def apply_model(self):
         edit = self._settings_widgets.get("model_edit")
         text = str(edit.text() if edit is not None and hasattr(edit, "text") else "").strip()
-        self._set_state("visual_reply_model", text or "gpt-image-1")
+        provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        default_model = self.default_model_for_provider(provider)
+        if text:
+            model = normalize_model_for_provider(provider, text)
+            self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "model", model_override_for_provider(provider, model))
+            self._set_state("visual_reply_model", model)
+        else:
+            self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "model", "")
+            self._set_state("visual_reply_model", default_model)
+
+    def apply_api_key(self):
+        edit = self._settings_widgets.get("api_key_edit")
+        provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        self._set_state(
+            "visual_reply_provider_settings",
+            updated_provider_settings(self._state, provider, "api_key", str(edit.text() if edit is not None and hasattr(edit, "text") else "").strip()),
+        )
+
+    def sync_api_key_field(self, provider=None):
+        edit = self._settings_widgets.get("api_key_edit")
+        if edit is None or not hasattr(edit, "setText"):
+            return
+        provider = str(provider or self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        label = self.provider_label_from_value(provider)
+        edit.setText(str(provider_setting_from_config(self._state, provider, "api_key", "") or ""))
+        if hasattr(edit, "setPlaceholderText"):
+            edit.setPlaceholderText(f"{label} API key (optional)")
+        if hasattr(edit, "setToolTip"):
+            edit.setToolTip(f"Shell-local {label} API key preview. No network call is made.")
 
     def apply_auto_show(self, checked):
         self._set_state("visual_reply_auto_show_dock", bool(checked))
@@ -243,7 +339,7 @@ class _UiShellVisualReplyService:
         snapshot = self.settings_snapshot()
         mode = str(snapshot.get("mode_value") or "auto")
         provider = self.provider_label_from_value(snapshot.get("provider_value"))
-        model = str(snapshot.get("model_name") or "gpt-image-1")
+        model = str(snapshot.get("model_name") or self.default_model_for_provider(snapshot.get("provider_value")))
         label.setText(
             "Shell-local Visual Reply settings preview. "
             f"Mode: {mode}; Provider: {provider}; Model: {model}. "

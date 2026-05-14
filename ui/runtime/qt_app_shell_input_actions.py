@@ -1,5 +1,7 @@
 """Input action shell-local bindings for the Designer UI."""
 
+from addons.audio_story_mode.session_schema import audio_story_mode_session_value
+
 _DEPENDENCIES = {}
 
 
@@ -39,13 +41,13 @@ def _bind_ui_shell_input_action_controls(window):
         if hasattr(audio_file_path_edit, "setReadOnly"):
             audio_file_path_edit.setReadOnly(False)
         if hasattr(audio_file_path_edit, "setText"):
-            audio_file_path_edit.setText(str(session.get("audio_story_mode_audio_path", "") or ""))
+            audio_file_path_edit.setText(str(audio_story_mode_session_value(session, "audio_story_mode_audio_path", "") or ""))
         if hasattr(audio_file_path_edit, "setToolTip"):
             audio_file_path_edit.setToolTip("Shell-local Audio Story path preview. Paste a local path here; no file is opened or saved.")
 
     if audio_story_playback_combo is not None:
         _ui_shell_combo_set_items(audio_story_playback_combo, list(_UiShellInputActionService.AUDIO_STORY_PLAYBACK_MODES))
-        _ui_shell_combo_select_label(audio_story_playback_combo, str(session.get("audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio"))
+        _ui_shell_combo_select_label(audio_story_playback_combo, str(audio_story_mode_session_value(session, "audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio"))
         audio_story_playback_combo.setToolTip("Shell-local Audio Story playback mode preview. No player or TTS narration is started.")
 
     if transcribe_seconds_slider is not None:
@@ -53,7 +55,17 @@ def _bind_ui_shell_input_action_controls(window):
             transcribe_seconds_slider.setRange(1, 60)
         except Exception:
             pass
-        _ui_shell_set_slider_value(transcribe_seconds_slider, int(session.get("audio_story_mode_transcribe_seconds", _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS) or _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS))
+        _ui_shell_set_slider_value(
+            transcribe_seconds_slider,
+            int(
+                audio_story_mode_session_value(
+                    session,
+                    "audio_story_mode_transcribe_seconds",
+                    _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS,
+                )
+                or _UiShellInputActionService.AUDIO_STORY_DEFAULT_TRANSCRIBE_SECONDS
+            ),
+        )
         transcribe_seconds_slider.setToolTip("Shell-local transcription-window preview. No Whisper/STT runtime is started.")
 
     if audio_story_seek_slider is not None:

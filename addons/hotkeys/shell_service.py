@@ -16,14 +16,20 @@ class _UiShellHotkeyService:
             ui_defaults.update(actions.UI_ACTION_HOTKEYS)
             labels = dict(_hotkeys.HOTKEY_ACTION_LABELS)
             labels.update(actions.UI_ACTION_LABELS)
+            hotkeys = _hotkeys.normalize_hotkey_settings(
+                session.get("hotkeys", {}),
+                legacy_push_to_talk=session.get("push_to_talk_hotkey", _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY),
+                legacy_manual=session.get("manual_action_hotkeys", _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS),
+                legacy_ui=session.get("ui_action_hotkeys", ui_defaults),
+            )
             push_to_talk = _hotkeys.normalize_hotkey_text(
-                session.get("push_to_talk_hotkey", _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY)
+                hotkeys.get("push_to_talk", _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY)
             ) or _hotkeys.DEFAULT_PUSH_TO_TALK_HOTKEY
             manual_bindings = _hotkeys.normalize_manual_action_hotkeys(
-                session.get("manual_action_hotkeys", _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS)
+                hotkeys.get("manual_actions", _hotkeys.DEFAULT_MANUAL_ACTION_HOTKEYS)
             )
             ui_bindings = _hotkeys.normalize_ui_action_hotkeys(
-                session.get("ui_action_hotkeys", ui_defaults)
+                hotkeys.get("ui_actions", ui_defaults)
             )
             entries = [
                 {

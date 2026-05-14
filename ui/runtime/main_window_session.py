@@ -8,6 +8,9 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+from core.musetalk_session_schema import group_musetalk_session, with_flat_musetalk_settings
+from core.sensory_session_schema import group_sensory_session, with_flat_sensory_settings
+from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
 from ui.runtime import engine_access as engine
 from ui.runtime.engine_access import RUNTIME_CONFIG, update_runtime_config
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES, UI_SHELL_MUSE_VRAM_MODE_LABELS
@@ -100,9 +103,7 @@ class MainWindowSessionMixin:
             "voice_file": self._current_voice_file_value() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
             "input_message_role": self.input_role_combo.currentText(),
-            "push_to_talk_hotkey": engine.get_push_to_talk_hotkey(),
-            "manual_action_hotkeys": dict(engine.get_manual_action_hotkeys()),
-            "ui_action_hotkeys": dict(engine.get_ui_action_hotkeys()),
+            "hotkeys": dict(engine.get_hotkey_settings()),
             "stream_mode": self.stream_mode_combo.currentText(),
             "tts_backend": self._current_tts_backend_value(),
             "chat_provider": self._current_chat_provider_value(),
@@ -164,6 +165,9 @@ class MainWindowSessionMixin:
             session["main_ui_real_layout"] = preserved_main_ui_real_layout
         if self._addon_manager is not None:
             session.update(self._addon_manager.export_session_state())
+        session = group_sensory_session(session)
+        session = group_musetalk_session(session)
+        session = group_tts_runtime_session(session)
         SESSION_PATH.write_text(json.dumps(session, indent=4), encoding="utf-8")
 
     def _ensure_window_on_screen(self):
@@ -196,6 +200,7 @@ class MainWindowSessionMixin:
         except Exception as exc:
             print(f"[QtGUI] Session Restore Failed: {exc}")
             return
+        session = with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(session)))
         previous_suspend = bool(getattr(self, "_suspend_session_save", False))
         self._suspend_session_save = True
         self._restoring_session = True
@@ -265,15 +270,22 @@ class MainWindowSessionMixin:
                     update_runtime_config("voice_path", os.path.join("voices", voice_file))
                 else:
                     update_runtime_config("voice_path", "")
-            push_to_talk_hotkey = session.get("push_to_talk_hotkey")
-            if push_to_talk_hotkey is not None:
-                engine.set_push_to_talk_hotkey(push_to_talk_hotkey)
-            manual_action_hotkeys = session.get("manual_action_hotkeys")
-            if manual_action_hotkeys is not None:
-                update_runtime_config("manual_action_hotkeys", manual_action_hotkeys)
-            ui_action_hotkeys = session.get("ui_action_hotkeys")
-            if ui_action_hotkeys is not None:
-                update_runtime_config("ui_action_hotkeys", ui_action_hotkeys)
+            hotkeys = session.get("hotkeys")
+            if hotkeys is not None:
+                engine.set_hotkey_settings(hotkeys)
+            else:
+                legacy_hotkeys = {}
+                push_to_talk_hotkey = session.get("push_to_talk_hotkey")
+                if push_to_talk_hotkey is not None:
+                    legacy_hotkeys["push_to_talk"] = push_to_talk_hotkey
+                manual_action_hotkeys = session.get("manual_action_hotkeys")
+                if manual_action_hotkeys is not None:
+                    legacy_hotkeys["manual_actions"] = manual_action_hotkeys
+                ui_action_hotkeys = session.get("ui_action_hotkeys")
+                if ui_action_hotkeys is not None:
+                    legacy_hotkeys["ui_actions"] = ui_action_hotkeys
+                if legacy_hotkeys:
+                    engine.set_hotkey_settings(legacy_hotkeys)
             input_role = session.get("input_message_role")
             if input_role:
                 index = self.input_role_combo.findText(input_role)

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from core import runtime_paths
+from core.tts_session_schema import with_flat_tts_runtime_settings
 
 
 DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com"
@@ -124,14 +125,14 @@ class GeminiTTSPreviewService:
         return {"gemini_tts_preview_settings": state}
 
     def import_session_state(self, session):
-        payload = dict(session or {})
+        payload = with_flat_tts_runtime_settings(session or {})
         state = payload.get("gemini_tts_preview_settings")
         if isinstance(state, dict):
             self.update_settings(**state)
         return None
 
     def import_preset_state(self, preset):
-        payload = dict(preset or {})
+        payload = with_flat_tts_runtime_settings(preset or {})
         state = payload.get("gemini_tts_preview_settings")
         if isinstance(state, dict):
             state = dict(state)

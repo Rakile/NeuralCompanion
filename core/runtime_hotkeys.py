@@ -334,6 +334,19 @@ def normalize_ui_action_hotkeys(raw):
     return result
 
 
+def normalize_hotkey_settings(raw=None, *, legacy_push_to_talk=None, legacy_manual=None, legacy_ui=None):
+    payload = raw if isinstance(raw, dict) else {}
+    push_value = payload.get("push_to_talk", legacy_push_to_talk)
+    manual_value = payload.get("manual_actions", legacy_manual)
+    ui_value = payload.get("ui_actions", legacy_ui)
+    push_to_talk = normalize_hotkey_text(push_value) or DEFAULT_PUSH_TO_TALK_HOTKEY
+    return {
+        "push_to_talk": push_to_talk,
+        "manual_actions": normalize_manual_action_hotkeys(manual_value),
+        "ui_actions": normalize_ui_action_hotkeys(ui_value),
+    }
+
+
 def register_ui_action_hotkeys(actions=None, labels=None):
     for action, default_binding in dict(actions or {}).items():
         key = str(action or "").strip()

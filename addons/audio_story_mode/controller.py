@@ -25,6 +25,7 @@ from addons.audio_story_mode.visual_stream import (
     stop_chromecast,
 )
 from addons.audio_story_mode.prompt_builder import build_grok_story_bible_prompt
+from addons.audio_story_mode.session_schema import audio_story_mode_session_payload, flatten_audio_story_mode_settings
 from addons.audio_story_mode.story_analyzer import StoryAnalyzer
 from addons.audio_story_mode.story_memory import StoryMemoryStore, merge_story_memory
 from addons.audio_story_mode.story_modes import normalize_analysis_mode
@@ -146,8 +147,8 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_analysis_provider_combo": "Where transcript analysis and prompt planning runs. Current Chat Provider follows your active chat runtime.",
     "audio_story_analysis_model_label": "Optional model override used only for Audio Story analysis.",
     "audio_story_analysis_model_combo": "Model used only for Audio Story analysis and prompt planning. Auto uses the provider default; you can type a model id manually.",
-    "audio_story_xai_image_settings_label": "xAI image generation options used when Visual Reply is configured for xAI.",
-    "audio_story_xai_image_settings_hint": "These values are sent to the xAI image API for Audio Story visuals.",
+    "audio_story_xai_image_settings_label": "Provider-specific image generation options. These xAI options are only used when Visual Reply is set to xAI / Grok.",
+    "audio_story_xai_image_settings_hint": "Audio Story uses the active Visual Reply provider. xAI-specific overrides are ignored by other providers.",
     "audio_story_xai_aspect_ratio_label": "Aspect ratio for generated Audio Story images.",
     "audio_story_xai_aspect_ratio_combo": "Aspect ratio sent to xAI image generation for Audio Story visuals.",
     "audio_story_xai_resolution_label": "Resolution for generated Audio Story images.",
@@ -1934,11 +1935,11 @@ class AudioStoryModeController(QtCore.QObject):
             line_edit.editingFinished.connect(self._on_story_analysis_model_edit_finished)
         options_form.addRow("Analysis Model", self.audio_story_analysis_model_combo)
 
-        xai_header = QtWidgets.QLabel("xAI Image Model Settings")
+        xai_header = QtWidgets.QLabel("Provider Image Settings")
         xai_header.setObjectName("audio_story_xai_image_settings_label")
         xai_header.setStyleSheet("font-size: 12px; font-weight: 700; color: #f2f5f9;")
         xai_header.setWordWrap(True)
-        xai_hint = QtWidgets.QLabel("Settings sent to the xAI Grok Imagine image API when Visual Reply provider is xAI.")
+        xai_hint = QtWidgets.QLabel("Audio Story uses the active Visual Reply provider. These xAI overrides apply only when Visual Reply is set to xAI / Grok.")
         xai_hint.setObjectName("audio_story_xai_image_settings_hint")
         xai_hint.setWordWrap(True)
         xai_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -2053,8 +2054,7 @@ class AudioStoryModeController(QtCore.QObject):
         source_layout.addWidget(self.audio_story_transcription_progress_bar)
 
         source_hint = QtWidgets.QLabel(
-            "Use DeepSeek for transcript analysis/prompt planning, then set Visual Reply provider to xAI / Grok for final image generation. "
-            "The generated images still follow the global Visuals provider, model, size, and style-anchor settings."
+            "Use the Analysis Provider for transcript analysis and prompt planning. Final image generation follows the global Visual Reply provider, model, size, and style-anchor settings."
         )
         source_hint.setWordWrap(True)
         source_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -2682,7 +2682,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._set_status(f"Loaded Audio Story preset: {name}")
 
     def export_session_state(self):
-        return {
+        flat_payload = {
             "audio_story_mode_audio_path": str(self.imported_audio_path or "").strip(),
             "audio_story_mode_transcribe_seconds": int(self.audio_story_transcribe_seconds_slider.value()) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8),
             "audio_story_mode_image_frequency_seconds": self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else self._stored_image_frequency_seconds),
@@ -2708,16 +2708,11 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_chromecast_cast_active": bool(self._stored_chromecast_cast_active),
             "audio_story_mode_chromecast_show_prompt": bool(self._stored_chromecast_show_prompt),
             "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
-            "audio_story_mode_story_bible": dict(self.story_bible or {}),
-            "audio_story_mode_scene_plan": list(self.scene_plan or []),
-            "audio_story_mode_scene_overrides": dict(self.scene_overrides or {}),
-            "audio_story_mode_continuity_memory": dict(self.continuity_memory or {}),
-            "audio_story_mode_character_anchors": dict(self.character_anchors or {}),
-            "audio_story_mode_location_anchors": dict(self.location_anchors or {}),
         }
+        return audio_story_mode_session_payload(flat_payload)
 
     def import_session_state(self, session):
-        payload = dict(session or {})
+        payload = flatten_audio_story_mode_settings(session or {})
         audio_path = str(payload.get("audio_story_mode_audio_path") or "").strip()
         if audio_path:
             self.imported_audio_path = audio_path
@@ -4579,12 +4574,12 @@ class AudioStoryModeController(QtCore.QObject):
     def _bind_xai_image_settings_controls(self, root):
         label = self._ui_child(root, "audio_story_xai_image_settings_label", QtWidgets.QLabel)
         if label is not None:
-            label.setText("xAI Image Model Settings")
+            label.setText("Provider Image Settings")
             label.setStyleSheet("font-size: 12px; font-weight: 700; color: #f2f5f9;")
             label.setWordWrap(True)
         hint = self._ui_child(root, "audio_story_xai_image_settings_hint", QtWidgets.QLabel)
         if hint is not None:
-            hint.setText("Settings sent to the xAI Grok Imagine image API when Visual Reply provider is xAI.")
+            hint.setText("Audio Story uses the active Visual Reply provider. These xAI overrides apply only when Visual Reply is set to xAI / Grok.")
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             hint.setWordWrap(True)
         self.audio_story_xai_aspect_ratio_combo = self._ui_child(root, "audio_story_xai_aspect_ratio_combo", QtWidgets.QComboBox)

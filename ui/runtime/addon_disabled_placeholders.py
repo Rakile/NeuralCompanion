@@ -127,8 +127,8 @@ def ensure_visual_reply_legacy_placeholders(backend, runtime_config=None):
         provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
         backend.visual_reply_provider_combo = _combo(
             "visual_reply_provider_combo",
-            ["OpenAI", "xAI / Grok"],
-            "xAI / Grok" if provider == "xai" else "OpenAI",
+            ["OpenAI", "xAI / Grok", "Runware"],
+            "Runware" if provider == "runware" else ("xAI / Grok" if provider == "xai" else "OpenAI"),
         )
     if not hasattr(backend, "visual_reply_size_combo"):
         size = str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024").strip().lower()
@@ -138,10 +138,18 @@ def ensure_visual_reply_legacy_placeholders(backend, runtime_config=None):
             "Auto" if size == "auto" else size,
         )
     if not hasattr(backend, "visual_reply_model_edit"):
+        provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        default_model = {"xai": "grok-imagine-image-quality", "runware": "runware:z-image@turbo"}.get(provider, "gpt-image-1")
         backend.visual_reply_model_edit = _line_edit(
             "visual_reply_model_edit",
-            runtime.get("visual_reply_model", "gpt-image-1"),
+            runtime.get("visual_reply_model", default_model),
         )
+    if not hasattr(backend, "visual_reply_api_key_edit"):
+        backend.visual_reply_api_key_edit = _line_edit("visual_reply_api_key_edit", "")
+        try:
+            backend.visual_reply_api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+        except Exception:
+            pass
     if not hasattr(backend, "visual_reply_auto_show_checkbox"):
         backend.visual_reply_auto_show_checkbox = _checkbox(
             "visual_reply_auto_show_checkbox",

@@ -620,14 +620,14 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="4" column="0">
                 <widget class="QLabel" name="audio_story_xai_image_settings_label">
                  <property name="text">
-                  <string>xAI Image Model Settings</string>
+                  <string>Provider Image Settings</string>
                  </property>
                 </widget>
                </item>
                <item row="4" column="1">
                 <widget class="QLabel" name="audio_story_xai_image_settings_hint">
                  <property name="text">
-                  <string>Settings sent to the xAI Grok Imagine image API when Visual Reply provider is xAI.</string>
+                  <string>Audio Story uses the active Visual Reply provider. These xAI overrides apply only when Visual Reply is set to xAI / Grok.</string>
                  </property>
                  <property name="wordWrap">
                   <bool>true</bool>
@@ -737,7 +737,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_source_hint">
             <property name="text">
-             <string>Use DeepSeek for transcript analysis/prompt planning, then set Visual Reply provider to xAI / Grok for final image generation. The generated images still follow the global Visuals provider, model, size, and style-anchor settings.</string>
+             <string>Use the Analysis Provider for transcript analysis and prompt planning. Final image generation follows the global Visual Reply provider, model, size, and style-anchor settings.</string>
             </property>
             <property name="wordWrap">
              <bool>true</bool>

@@ -1,5 +1,9 @@
 """Read-only shell preview population for the Designer UI."""
 
+from core.musetalk_session_schema import with_flat_musetalk_settings
+from core.sensory_session_schema import with_flat_sensory_settings
+from core.tts_session_schema import with_flat_tts_runtime_settings
+
 _DEPENDENCIES = {}
 
 
@@ -9,7 +13,7 @@ def configure_qt_app_shell_read_only_dependencies(dependencies):
 
 
 def _apply_ui_shell_read_only_config(window):
-    session = _read_ui_shell_session_snapshot()
+    session = with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(_read_ui_shell_session_snapshot())))
     audio_devices = _ui_shell_audio_device_labels()
     avatar_pack_options = _ui_shell_musetalk_avatar_pack_options(session)
     provider_labels = {
@@ -68,7 +72,15 @@ def _apply_ui_shell_read_only_config(window):
             }.get(str(session.get("chat_context_overflow_policy", "rolling_window") or "rolling_window").strip(), session.get("chat_context_overflow_policy", "")),
         ),
         ("visual_reply_mode_combo", ["Off", "Manual", "Auto"], visual_mode_labels.get(str(session.get("visual_reply_mode", "")).strip().lower(), session.get("visual_reply_mode", ""))),
-        ("visual_reply_provider_combo", ["OpenAI", "xAI / Grok"], provider_labels.get(str(session.get("visual_reply_provider", "")).strip().lower(), session.get("visual_reply_provider", ""))),
+        (
+            "visual_reply_provider_combo",
+            ["OpenAI", "xAI / Grok", "Runware"],
+            {
+                "openai": "OpenAI",
+                "xai": "xAI / Grok",
+                "runware": "Runware",
+            }.get(str(session.get("visual_reply_provider", "")).strip().lower(), session.get("visual_reply_provider", "")),
+        ),
         ("visual_reply_size_combo", ["1024x1024", "1024x1792", "1792x1024"], session.get("visual_reply_size", "")),
     )
     for object_name, labels, selected in combo_specs:

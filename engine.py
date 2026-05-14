@@ -181,24 +181,51 @@ def _normalize_ui_action_hotkeys(raw):
     return runtime_hotkeys.normalize_ui_action_hotkeys(raw)
 
 
+def _normalize_hotkey_settings(raw=None, *, legacy_push_to_talk=None, legacy_manual=None, legacy_ui=None):
+    return runtime_hotkeys.normalize_hotkey_settings(
+        raw,
+        legacy_push_to_talk=legacy_push_to_talk,
+        legacy_manual=legacy_manual,
+        legacy_ui=legacy_ui,
+    )
+
+
+def _sync_legacy_hotkey_runtime_keys(settings):
+    payload = _normalize_hotkey_settings(settings)
+    RUNTIME_CONFIG["hotkeys"] = payload
+    RUNTIME_CONFIG["push_to_talk_hotkey"] = payload["push_to_talk"]
+    RUNTIME_CONFIG["manual_action_hotkeys"] = dict(payload["manual_actions"])
+    RUNTIME_CONFIG["ui_action_hotkeys"] = dict(payload["ui_actions"])
+    return payload
+
+
 def register_ui_hotkey_actions(actions=None, labels=None):
     defaults = runtime_hotkeys.register_ui_action_hotkeys(actions, labels)
-    current = _normalize_ui_action_hotkeys(RUNTIME_CONFIG.get("ui_action_hotkeys", defaults))
+    current = _normalize_ui_action_hotkeys(get_hotkey_settings().get("ui_actions", defaults))
     update_runtime_config("ui_action_hotkeys", current)
     return defaults
 
 
+def get_hotkey_settings():
+    return _normalize_hotkey_settings(
+        RUNTIME_CONFIG.get("hotkeys", {}),
+        legacy_push_to_talk=RUNTIME_CONFIG.get("push_to_talk_hotkey", DEFAULT_PUSH_TO_TALK_HOTKEY),
+        legacy_manual=RUNTIME_CONFIG.get("manual_action_hotkeys", DEFAULT_MANUAL_ACTION_HOTKEYS),
+        legacy_ui=RUNTIME_CONFIG.get("ui_action_hotkeys", DEFAULT_UI_ACTION_HOTKEYS),
+    )
+
+
 def get_push_to_talk_hotkey():
-    configured = normalize_hotkey_text(RUNTIME_CONFIG.get("push_to_talk_hotkey", DEFAULT_PUSH_TO_TALK_HOTKEY))
+    configured = normalize_hotkey_text(get_hotkey_settings().get("push_to_talk", DEFAULT_PUSH_TO_TALK_HOTKEY))
     return configured or DEFAULT_PUSH_TO_TALK_HOTKEY
 
 
 def get_manual_action_hotkeys():
-    return _normalize_manual_action_hotkeys(RUNTIME_CONFIG.get("manual_action_hotkeys", DEFAULT_MANUAL_ACTION_HOTKEYS))
+    return _normalize_manual_action_hotkeys(get_hotkey_settings().get("manual_actions", DEFAULT_MANUAL_ACTION_HOTKEYS))
 
 
 def get_ui_action_hotkeys():
-    return _normalize_ui_action_hotkeys(RUNTIME_CONFIG.get("ui_action_hotkeys", DEFAULT_UI_ACTION_HOTKEYS))
+    return _normalize_ui_action_hotkeys(get_hotkey_settings().get("ui_actions", DEFAULT_UI_ACTION_HOTKEYS))
 
 
 def get_hotkey_bindings():
@@ -211,6 +238,11 @@ def get_hotkey_bindings():
 def set_push_to_talk_hotkey(binding):
     update_runtime_config("push_to_talk_hotkey", binding)
     return get_push_to_talk_hotkey()
+
+
+def set_hotkey_settings(settings):
+    update_runtime_config("hotkeys", settings)
+    return get_hotkey_settings()
 
 
 def set_manual_action_hotkey(action, binding):
@@ -610,6 +642,7 @@ RUNTIME_CONFIG = {
     "vam_emotion_preset_map": _env_json_dict("NC_VAM_EMOTION_PRESET_MAP", DEFAULT_VAM_EMOTION_PRESET_MAP),
     "vam_timeline_clip_map": _env_json_dict("NC_VAM_TIMELINE_CLIP_MAP", DEFAULT_VAM_TIMELINE_CLIP_MAP),
     "input_mode": "voice_activation",
+    "hotkeys": runtime_hotkeys.normalize_hotkey_settings(),
     "push_to_talk_hotkey": DEFAULT_PUSH_TO_TALK_HOTKEY,
     "manual_action_hotkeys": dict(DEFAULT_MANUAL_ACTION_HOTKEYS),
     "ui_action_hotkeys": dict(DEFAULT_UI_ACTION_HOTKEYS),
@@ -701,12 +734,27 @@ def update_runtime_config(key, value):
     """Called by GUI to update settings in real-time"""
     global RUNTIME_CONFIG
     if key in RUNTIME_CONFIG:
+        if key == "hotkeys":
+            _sync_legacy_hotkey_runtime_keys(value)
+            return
         if key == "push_to_talk_hotkey":
             value = normalize_hotkey_text(value) or DEFAULT_PUSH_TO_TALK_HOTKEY
+            settings = get_hotkey_settings()
+            settings["push_to_talk"] = value
+            _sync_legacy_hotkey_runtime_keys(settings)
+            return
         elif key == "manual_action_hotkeys":
             value = _normalize_manual_action_hotkeys(value)
+            settings = get_hotkey_settings()
+            settings["manual_actions"] = value
+            _sync_legacy_hotkey_runtime_keys(settings)
+            return
         elif key == "ui_action_hotkeys":
             value = _normalize_ui_action_hotkeys(value)
+            settings = get_hotkey_settings()
+            settings["ui_actions"] = value
+            _sync_legacy_hotkey_runtime_keys(settings)
+            return
         elif key == "chat_provider":
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":

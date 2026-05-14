@@ -36,6 +36,11 @@ class _UiShellInputActionService:
 
     def _push_to_talk_hotkey(self) -> str:
         session = dict(_read_ui_shell_session_snapshot() or {})
+        hotkeys = session.get("hotkeys", {})
+        if isinstance(hotkeys, dict):
+            value = hotkeys.get("push_to_talk", "")
+            if value:
+                return str(value).strip() or "Right Ctrl"
         return str(session.get("push_to_talk_hotkey", "Right Ctrl") or "Right Ctrl").strip() or "Right Ctrl"
 
     def snapshot(self):

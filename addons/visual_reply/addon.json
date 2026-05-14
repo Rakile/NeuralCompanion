@@ -14,6 +14,7 @@
     "visual_reply_provider": "openai",
     "visual_reply_model": "gpt-image-1",
     "visual_reply_size": "1024x1024",
+    "visual_reply_provider_settings": {},
     "visual_reply_auto_show_dock": true,
     "visual_reply_story_mode": false,
     "visual_reply_story_max_images": 3,

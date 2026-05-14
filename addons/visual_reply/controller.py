@@ -752,9 +752,10 @@ class VisualReplyController:
         provider_combo = self._ui_child(tab, "visual_reply_provider_combo", QtWidgets.QComboBox)
         size_combo = self._ui_child(tab, "visual_reply_size_combo", QtWidgets.QComboBox)
         model_edit = self._ui_child(tab, "visual_reply_model_edit", QtWidgets.QLineEdit)
+        api_key_edit = self._ui_child(tab, "visual_reply_api_key_edit", QtWidgets.QLineEdit)
         auto_show_checkbox = self._ui_child(tab, "visual_reply_auto_show_checkbox", QtWidgets.QCheckBox)
         hint_label = self._ui_child(tab, "visual_reply_hint_label", QtWidgets.QLabel)
-        required = (mode_combo, provider_combo, size_combo, model_edit, auto_show_checkbox, hint_label)
+        required = (mode_combo, provider_combo, size_combo, model_edit, api_key_edit, auto_show_checkbox, hint_label)
         if any(item is None for item in required):
             raise RuntimeError("Visual Reply Designer UI is missing one or more required controls.")
 
@@ -762,9 +763,10 @@ class VisualReplyController:
         mode_combo.setCurrentText(self._visual_reply_service.mode_label_from_value(snapshot.get("mode_value", "auto")))
         provider_combo.addItems(list(self._visual_reply_service.provider_labels()))
         provider_combo.setCurrentText(self._visual_reply_service.provider_label_from_value(snapshot.get("provider_value", "openai")))
+        self._visual_reply_service._window._visual_reply_active_provider = str(snapshot.get("provider_value", "openai") or "openai").strip().lower()
         size_combo.addItems(list(self._visual_reply_service.size_labels()))
         size_combo.setCurrentText(self._visual_reply_service.size_label_from_value(snapshot.get("size_value", "1024x1024")))
-        model_edit.setText(str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"))
+        model_edit.setText(str(snapshot.get("model_name", self._visual_reply_service.default_model_for_provider(snapshot.get("provider_value"))) or self._visual_reply_service.default_model_for_provider(snapshot.get("provider_value"))))
         auto_show_checkbox.setChecked(bool(snapshot.get("auto_show", True)))
 
         self._visual_reply_service.attach_settings_widgets(
@@ -772,6 +774,7 @@ class VisualReplyController:
             provider_combo=provider_combo,
             size_combo=size_combo,
             model_edit=model_edit,
+            api_key_edit=api_key_edit,
             auto_show_checkbox=auto_show_checkbox,
             hint_label=hint_label,
         )
@@ -780,7 +783,11 @@ class VisualReplyController:
         provider_combo.currentTextChanged.connect(self._visual_reply_service.apply_provider)
         size_combo.currentTextChanged.connect(self._visual_reply_service.apply_size)
         model_edit.editingFinished.connect(self._visual_reply_service.apply_model)
+        api_key_edit.editingFinished.connect(self._visual_reply_service.apply_api_key)
         auto_show_checkbox.toggled.connect(self._visual_reply_service.apply_auto_show)
+        from addons.visual_reply.runtime import sync_visual_reply_api_key_field
+
+        sync_visual_reply_api_key_field(self._visual_reply_service._window, snapshot.get("provider_value", "openai"))
         self._visual_reply_service.refresh_hint()
         return tab
 

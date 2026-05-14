@@ -3,6 +3,8 @@ from __future__ import annotations
 import shiboken6
 from pathlib import Path
 
+from core.tts_session_schema import with_flat_tts_runtime_settings
+
 class PocketTTSController:
     STATE_KEY = "pocket_tts_settings"
 
@@ -41,7 +43,7 @@ class PocketTTSController:
         session_getter = self.context.get_service("qt.shell_session_snapshot") if self.context is not None else None
         if callable(session_getter):
             try:
-                session = dict(session_getter() or {})
+                session = with_flat_tts_runtime_settings(session_getter() or {})
                 return str(session.get("pocket_tts_python", "") or "").strip()
             except Exception:
                 return ""
@@ -54,7 +56,7 @@ class PocketTTSController:
         session = {}
         if callable(session_getter):
             try:
-                session = dict(session_getter() or {})
+                session = with_flat_tts_runtime_settings(session_getter() or {})
             except Exception:
                 session = {}
         return {
@@ -312,7 +314,7 @@ class PocketTTSController:
         }
 
     def import_session_state(self, session):
-        payload = dict(session or {})
+        payload = with_flat_tts_runtime_settings(session or {})
         if "pocket_tts_python" in payload:
             self._set_python(str(payload.get("pocket_tts_python") or "").strip())
         elif not self._shell_preview and not self._current_python():

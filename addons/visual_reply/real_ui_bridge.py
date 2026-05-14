@@ -2,7 +2,30 @@ from pathlib import Path
 
 from addons.visual_reply.controller import AddonVisualReplyPanel as QtVisualReplyPanel
 from addons.visual_reply import state as visual_reply_state
-from core.addons.qt_host_services import AddonCapabilityBridgeService
+from addons.visual_reply.runtime import (
+    on_visual_reply_api_key_changed,
+    on_visual_reply_auto_show_changed,
+    on_visual_reply_mode_changed,
+    on_visual_reply_model_changed,
+    on_visual_reply_provider_changed,
+    on_visual_reply_size_changed,
+    normalize_visual_reply_size,
+    refresh_visual_reply_hint,
+    sync_visual_reply_api_key_field,
+    sync_visual_reply_model_field,
+    sync_visual_reply_size_field,
+    visual_reply_known_default_models,
+    visual_reply_model_for_provider,
+    visual_reply_size_for_provider,
+    visual_reply_mode_label_from_value,
+    visual_reply_mode_value_from_label,
+    visual_reply_default_model_for_provider,
+    visual_reply_provider_label_from_value,
+    visual_reply_provider_value_from_label,
+    visual_reply_size_label_from_value,
+)
+from addons.visual_reply.providers import provider_setting_from_config, provider_settings_from_config
+from core.addons.qt_host_services import AddonCapabilityBridgeService, QtRuntimeConfigService
 
 try:
     from PySide6 import QtCore, QtWidgets
@@ -77,33 +100,45 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_mode_combo.setCurrentText(
         "Off" if str(runtime.get("visual_reply_mode", "auto") or "auto").strip().lower() == "off" else "Auto"
     )
-    backend.visual_reply_mode_combo.currentTextChanged.connect(backend.on_visual_reply_mode_changed)
+    backend.visual_reply_mode_combo.currentTextChanged.connect(lambda choice: on_visual_reply_mode_changed(backend, choice))
 
     backend.visual_reply_provider_combo = NoWheelComboBox()
     backend.visual_reply_provider_combo.setObjectName("visual_reply_provider_combo")
-    backend.visual_reply_provider_combo.addItems(["OpenAI", "xAI / Grok"])
+    backend.visual_reply_provider_combo.addItems(["OpenAI", "xAI / Grok", "Runware"])
     current_provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
-    backend.visual_reply_provider_combo.setCurrentText("xAI / Grok" if current_provider == "xai" else "OpenAI")
-    backend.visual_reply_provider_combo.currentTextChanged.connect(backend.on_visual_reply_provider_changed)
+    backend._visual_reply_active_provider = current_provider
+    backend.visual_reply_provider_combo.setCurrentText(visual_reply_provider_label_from_value(current_provider))
+    backend.visual_reply_provider_combo.currentTextChanged.connect(lambda choice: on_visual_reply_provider_changed(backend, choice))
 
     backend.visual_reply_size_combo = NoWheelComboBox()
     backend.visual_reply_size_combo.setObjectName("visual_reply_size_combo")
     backend.visual_reply_size_combo.addItems(["Auto", "1024x1024", "1024x1536", "1536x1024"])
-    current_size = str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024").strip().lower()
+    current_size = str(provider_setting_from_config(runtime, current_provider, "size", runtime.get("visual_reply_size", "1024x1024")) or "1024x1024").strip().lower()
     if current_size not in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
         current_size = "1024x1024"
     backend.visual_reply_size_combo.setCurrentText("Auto" if current_size == "auto" else current_size)
-    backend.visual_reply_size_combo.currentTextChanged.connect(backend.on_visual_reply_size_changed)
+    backend.visual_reply_size_combo.currentTextChanged.connect(lambda choice: on_visual_reply_size_changed(backend, choice))
 
     backend.visual_reply_model_edit = QtWidgets.QLineEdit()
     backend.visual_reply_model_edit.setObjectName("visual_reply_model_edit")
-    backend.visual_reply_model_edit.setText(str(runtime.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"))
-    backend.visual_reply_model_edit.editingFinished.connect(backend.on_visual_reply_model_changed)
+    default_model = visual_reply_default_model_for_provider(current_provider)
+    current_model = str(provider_setting_from_config(runtime, current_provider, "model", runtime.get("visual_reply_model", default_model)) or default_model).strip()
+    known_default_models = visual_reply_known_default_models()
+    if current_model in known_default_models and current_model != default_model:
+        current_model = default_model
+    backend.visual_reply_model_edit.setText(current_model)
+    backend.visual_reply_model_edit.editingFinished.connect(lambda: on_visual_reply_model_changed(backend))
+
+    backend.visual_reply_api_key_edit = QtWidgets.QLineEdit()
+    backend.visual_reply_api_key_edit.setObjectName("visual_reply_api_key_edit")
+    backend.visual_reply_api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
+    backend.visual_reply_api_key_edit.editingFinished.connect(lambda: on_visual_reply_api_key_changed(backend))
+    sync_visual_reply_api_key_field(backend, current_provider)
 
     backend.visual_reply_auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
     backend.visual_reply_auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
     backend.visual_reply_auto_show_checkbox.setChecked(bool(runtime.get("visual_reply_auto_show_dock", True)))
-    backend.visual_reply_auto_show_checkbox.toggled.connect(backend.on_visual_reply_auto_show_changed)
+    backend.visual_reply_auto_show_checkbox.toggled.connect(lambda checked: on_visual_reply_auto_show_changed(backend, checked))
 
 
 def build_legacy_settings_tab(backend):
@@ -128,6 +163,7 @@ def build_legacy_settings_tab(backend):
     visual_form.addRow("Provider", backend.visual_reply_provider_combo)
     visual_form.addRow("Image Size", backend.visual_reply_size_combo)
     visual_form.addRow("Image Model", backend.visual_reply_model_edit)
+    visual_form.addRow("API Key", backend.visual_reply_api_key_edit)
     visual_layout.addLayout(visual_form)
     visual_layout.addWidget(backend.visual_reply_auto_show_checkbox)
 
@@ -136,7 +172,7 @@ def build_legacy_settings_tab(backend):
     backend.visual_reply_hint.setWordWrap(True)
     backend.visual_reply_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
     visual_layout.addWidget(backend.visual_reply_hint)
-    backend._refresh_visual_reply_hint()
+    refresh_visual_reply_hint(backend)
 
     layout.addWidget(visual_box)
     layout.addStretch(1)
@@ -303,18 +339,17 @@ def redirect_runtime_surface(bridge):
 
 def build_status_snapshot(backend, runtime_config=None):
     config = dict(runtime_config or {})
-    mode = backend._visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))
-    provider = backend._visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    mode = visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))
+    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    default_model = visual_reply_default_model_for_provider(provider)
     return {
         "visual_reply_mode": mode,
         "visual_reply_provider": provider,
-        "visual_reply_size": backend._normalize_visual_reply_size(
-            backend._live_combo_text("visual_reply_size_combo", config.get("visual_reply_size", "1024x1024"))
+        "visual_reply_size": normalize_visual_reply_size(
+            backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider))
         ),
-        "visual_reply_model": backend._live_text(
-            "visual_reply_model_edit",
-            config.get("visual_reply_model", "gpt-image-1"),
-        ).strip() or "gpt-image-1",
+        "visual_reply_model": backend._live_text("visual_reply_model_edit", visual_reply_model_for_provider(backend, provider)).strip()
+        or default_model,
         "visual_reply_visible": bool(
             backend._visual_reply_addon_enabled()
             and hasattr(backend, "visual_reply_dock")
@@ -326,30 +361,40 @@ def build_status_snapshot(backend, runtime_config=None):
 def apply_runtime_settings(backend, settings):
     """Apply Visual Reply-owned settings from dry-run/profile payloads."""
     payload = dict(settings or {})
+    if "visual_reply_provider_settings" in payload:
+        QtRuntimeConfigService(backend).update("visual_reply_provider_settings", provider_settings_from_config(payload))
     widget = backend._live_widget_attr("visual_reply_mode_combo")
     if "visual_reply_mode" in payload and widget is not None:
-        mode_text = backend._visual_reply_mode_label_from_value(payload["visual_reply_mode"])
+        mode_text = visual_reply_mode_label_from_value(payload["visual_reply_mode"])
         widget.setCurrentText(mode_text)
-        backend.on_visual_reply_mode_changed(mode_text)
+        on_visual_reply_mode_changed(backend, mode_text)
     widget = backend._live_widget_attr("visual_reply_provider_combo")
     if "visual_reply_provider" in payload and widget is not None:
-        provider_text = backend._visual_reply_provider_label_from_value(payload["visual_reply_provider"])
+        provider_text = visual_reply_provider_label_from_value(payload["visual_reply_provider"])
         widget.setCurrentText(provider_text)
-        backend.on_visual_reply_provider_changed(provider_text)
+        on_visual_reply_provider_changed(backend, provider_text)
     widget = backend._live_widget_attr("visual_reply_size_combo")
     if "visual_reply_size" in payload and widget is not None:
-        size_text = backend._normalize_visual_reply_size(payload["visual_reply_size"])
-        widget.setCurrentText(backend._visual_reply_size_label_from_value(size_text))
-        backend.on_visual_reply_size_changed(size_text)
+        size_text = normalize_visual_reply_size(payload["visual_reply_size"])
+        widget.setCurrentText(visual_reply_size_label_from_value(size_text))
+        on_visual_reply_size_changed(backend, size_text)
     widget = backend._live_widget_attr("visual_reply_model_edit")
     if "visual_reply_model" in payload and widget is not None:
-        widget.setText(str(payload["visual_reply_model"] or "gpt-image-1"))
-        backend.on_visual_reply_model_changed()
+        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        default_model = visual_reply_default_model_for_provider(provider)
+        widget.setText(str(payload["visual_reply_model"] or default_model))
+        on_visual_reply_model_changed(backend)
+    if "visual_reply_provider_settings" in payload:
+        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        sync_visual_reply_size_field(backend, provider)
+        sync_visual_reply_model_field(backend, provider)
+        sync_visual_reply_api_key_field(backend, provider)
+        refresh_visual_reply_hint(backend)
     widget = backend._live_widget_attr("visual_reply_auto_show_checkbox")
     if "visual_reply_auto_show_dock" in payload and widget is not None:
         auto_show = bool(payload["visual_reply_auto_show_dock"])
         widget.setChecked(auto_show)
-        backend.on_visual_reply_auto_show_changed(auto_show)
+        on_visual_reply_auto_show_changed(backend, auto_show)
 
 
 def bind_show_button(bridge):
@@ -360,27 +405,35 @@ def bind_show_button(bridge):
 
 def sync_combo_action(bridge, object_name, callback_name):
     bridge._sync_single_combo_to_backend(object_name)
-    callback = getattr(bridge.backend, callback_name, None)
     widget = bridge._ui_object(object_name)
-    if callable(callback) and widget is not None and hasattr(widget, "currentText"):
-        callback(str(widget.currentText() or ""))
+    if widget is not None and hasattr(widget, "currentText"):
+        choice = str(widget.currentText() or "")
+        if callback_name == "on_visual_reply_mode_changed":
+            on_visual_reply_mode_changed(bridge.backend, choice)
+        elif callback_name == "on_visual_reply_provider_changed":
+            on_visual_reply_provider_changed(bridge.backend, choice)
+        elif callback_name == "on_visual_reply_size_changed":
+            on_visual_reply_size_changed(bridge.backend, choice)
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
 def sync_model_action(bridge):
     bridge._sync_single_line_edit_to_backend("visual_reply_model_edit")
-    callback = getattr(bridge.backend, "on_visual_reply_model_changed", None)
-    if callable(callback):
-        callback()
+    on_visual_reply_model_changed(bridge.backend)
+    bridge._refresh_profile_utility_runtime_frontend()
+
+
+def sync_api_key_action(bridge):
+    bridge._sync_single_line_edit_to_backend("visual_reply_api_key_edit")
+    on_visual_reply_api_key_changed(bridge.backend)
     bridge._refresh_profile_utility_runtime_frontend()
 
 
 def sync_auto_show_action(bridge):
     bridge._sync_single_checkbox_to_backend("visual_reply_auto_show_checkbox")
-    callback = getattr(bridge.backend, "on_visual_reply_auto_show_changed", None)
     widget = bridge._ui_object("visual_reply_auto_show_checkbox")
-    if callable(callback) and widget is not None and hasattr(widget, "isChecked"):
-        callback(bool(widget.isChecked()))
+    if widget is not None and hasattr(widget, "isChecked"):
+        on_visual_reply_auto_show_changed(bridge.backend, bool(widget.isChecked()))
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
@@ -402,6 +455,9 @@ def bind_runtime_controls(bridge):
     model_edit = bridge._ui_object("visual_reply_model_edit")
     if model_edit is not None and hasattr(model_edit, "editingFinished"):
         model_edit.editingFinished.connect(lambda: sync_model_action(bridge))
+    api_key_edit = bridge._ui_object("visual_reply_api_key_edit")
+    if api_key_edit is not None and hasattr(api_key_edit, "editingFinished"):
+        api_key_edit.editingFinished.connect(lambda: sync_api_key_action(bridge))
 
     auto_show = bridge._ui_object("visual_reply_auto_show_checkbox")
     if auto_show is not None and hasattr(auto_show, "toggled"):

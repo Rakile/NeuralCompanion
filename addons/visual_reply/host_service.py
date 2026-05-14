@@ -1,5 +1,18 @@
 from __future__ import annotations
 
+from addons.visual_reply.runtime import (
+    on_visual_reply_api_key_changed,
+    sync_visual_reply_api_key_field,
+    visual_reply_model_override_for_provider,
+)
+from addons.visual_reply.providers import (
+    default_model_for_provider,
+    normalize_model_for_provider,
+    provider_setting_from_config,
+    provider_settings_from_config,
+    provider_labels,
+    updated_provider_settings,
+)
 from core.addons.qt_host_services import QtRuntimeConfigService
 
 
@@ -9,8 +22,10 @@ class QtVisualReplyService:
         "visual_reply_provider",
         "visual_reply_size",
         "visual_reply_model",
+        "visual_reply_provider_settings",
         "visual_reply_auto_show_dock",
     )
+    _SESSION_KEYS = _STATE_KEYS
 
     def __init__(self, window):
         self._window = window
@@ -22,18 +37,68 @@ class QtVisualReplyService:
     def update_runtime_config(self, key, value):
         return self._runtime_config.update(str(key), value)
 
+    def _capture_live_provider_settings(self):
+        window = self._window
+        provider = str(
+            getattr(window, "_visual_reply_active_provider", "")
+            or self.get_runtime_config("visual_reply_provider", "openai")
+            or "openai"
+        ).strip().lower()
+        size_combo = getattr(window, "visual_reply_size_combo", None)
+        if size_combo is not None and hasattr(size_combo, "currentText"):
+            size = self.normalize_size(str(size_combo.currentText() or ""))
+            self.update_runtime_config(
+                "visual_reply_provider_settings",
+                updated_provider_settings(self._runtime_config.snapshot(), provider, "size", size),
+            )
+            self.update_runtime_config("visual_reply_size", size)
+        model_edit = getattr(window, "visual_reply_model_edit", None)
+        if model_edit is not None and hasattr(model_edit, "text"):
+            raw_model = str(model_edit.text() or "").strip()
+            model = self.normalize_model_for_provider(provider, raw_model)
+            self.update_runtime_config(
+                "visual_reply_provider_settings",
+                updated_provider_settings(
+                    self._runtime_config.snapshot(),
+                    provider,
+                    "model",
+                    visual_reply_model_override_for_provider(provider, raw_model),
+                ),
+            )
+            self.update_runtime_config("visual_reply_model", model)
+        api_key_edit = getattr(window, "visual_reply_api_key_edit", None)
+        if api_key_edit is not None and hasattr(api_key_edit, "text"):
+            self.update_runtime_config(
+                "visual_reply_provider_settings",
+                updated_provider_settings(self._runtime_config.snapshot(), provider, "api_key", str(api_key_edit.text() or "").strip()),
+            )
+
     def export_session_state(self):
+        self._capture_live_provider_settings()
         snapshot = self.settings_snapshot()
-        return {
+        payload = {
             "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
             "visual_reply_provider": str(snapshot.get("provider_value", "openai") or "openai"),
-            "visual_reply_size": str(snapshot.get("size_value", "1024x1024") or "1024x1024"),
-            "visual_reply_model": str(snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"),
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
         }
+        payload["visual_reply_provider_settings"] = provider_settings_from_config(self._runtime_config.snapshot())
+        return payload
 
     def export_preset_state(self):
-        return self.export_session_state()
+        self._capture_live_provider_settings()
+        snapshot = self.settings_snapshot()
+        provider = str(snapshot.get("provider_value", "openai") or "openai")
+        payload = {
+            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_provider": provider,
+            "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
+        }
+        provider_settings = provider_settings_from_config(self._runtime_config.snapshot())
+        for settings in provider_settings.values():
+            if isinstance(settings, dict):
+                settings.pop("api_key", None)
+        payload["visual_reply_provider_settings"] = provider_settings
+        return payload
 
     def _set_combo_text_quietly(self, widget, text):
         if widget is None:
@@ -76,22 +141,40 @@ class QtVisualReplyService:
 
     def _sync_core_widgets_from_runtime(self):
         window = self._window
+        active_provider = str(self.get_runtime_config("visual_reply_provider", "openai") or "openai").strip().lower()
+        window._visual_reply_active_provider = active_provider
         self._set_combo_text_quietly(
             getattr(window, "visual_reply_mode_combo", None),
             self.mode_label_from_value(self.get_runtime_config("visual_reply_mode", "auto")),
         )
         self._set_combo_text_quietly(
             getattr(window, "visual_reply_provider_combo", None),
-            self.provider_label_from_value(self.get_runtime_config("visual_reply_provider", "openai")),
+            self.provider_label_from_value(active_provider),
         )
         self._set_combo_text_quietly(
             getattr(window, "visual_reply_size_combo", None),
-            self.size_label_from_value(self.get_runtime_config("visual_reply_size", "1024x1024")),
+            self.size_label_from_value(
+                provider_setting_from_config(
+                    self._runtime_config.snapshot(),
+                    active_provider,
+                    "size",
+                    self.get_runtime_config("visual_reply_size", "1024x1024"),
+                )
+            ),
         )
         self._set_widget_text_quietly(
             getattr(window, "visual_reply_model_edit", None),
-            str(self.get_runtime_config("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            self.normalize_model_for_provider(
+                active_provider,
+                provider_setting_from_config(
+                    self._runtime_config.snapshot(),
+                    active_provider,
+                    "model",
+                    self.get_runtime_config("visual_reply_model", ""),
+                ),
+            ),
         )
+        sync_visual_reply_api_key_field(window, active_provider)
         self._set_checked_quietly(
             getattr(window, "visual_reply_auto_show_checkbox", None),
             bool(self.get_runtime_config("visual_reply_auto_show_dock", True)),
@@ -100,15 +183,23 @@ class QtVisualReplyService:
 
     def import_session_state(self, session):
         payload = dict(session or {})
-        for key in self._STATE_KEYS:
+        for key in self._SESSION_KEYS:
             if key in payload:
                 self.update_runtime_config(key, payload.get(key))
+        self.update_runtime_config("visual_reply_provider_settings", provider_settings_from_config(payload))
         if "visual_reply_mode" in payload:
             self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "auto").strip().lower() != "off")
         self._sync_core_widgets_from_runtime()
 
     def import_preset_state(self, preset):
-        return self.import_session_state(preset)
+        payload = dict(preset or {})
+        for key in self._STATE_KEYS:
+            if key in payload:
+                self.update_runtime_config(key, payload.get(key))
+        self.update_runtime_config("visual_reply_provider_settings", provider_settings_from_config(payload))
+        if "visual_reply_mode" in payload:
+            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "auto").strip().lower() != "off")
+        self._sync_core_widgets_from_runtime()
 
     def settings_snapshot(self):
         runtime = self._runtime_config.snapshot()
@@ -133,11 +224,16 @@ class QtVisualReplyService:
         if story_continuity_strength > 1.0:
             story_continuity_strength = story_continuity_strength / 100.0
         story_continuity_strength = max(0.0, min(1.0, story_continuity_strength))
+        provider_value = str(runtime.get("visual_reply_provider", "openai") or "openai")
+        default_model = self.default_model_for_provider(provider_value)
         return {
             "mode_value": str(runtime.get("visual_reply_mode", "auto") or "auto"),
-            "provider_value": str(runtime.get("visual_reply_provider", "openai") or "openai"),
-            "size_value": str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024"),
-            "model_name": str(runtime.get("visual_reply_model", "gpt-image-1") or "gpt-image-1"),
+            "provider_value": provider_value,
+            "size_value": str(provider_setting_from_config(runtime, provider_value, "size", runtime.get("visual_reply_size", "1024x1024")) or "1024x1024"),
+            "model_name": self.normalize_model_for_provider(
+                provider_value,
+                provider_setting_from_config(runtime, provider_value, "model", runtime.get("visual_reply_model", default_model)),
+            ),
             "auto_show": bool(runtime.get("visual_reply_auto_show_dock", True)),
             "master_prompt_safe": bool(runtime.get("visual_reply_master_prompt_safe", False)),
             "master_prompt_no_speech_bubbles": bool(runtime.get("visual_reply_master_prompt_no_speech_bubbles", False)),
@@ -160,10 +256,16 @@ class QtVisualReplyService:
         return ["Off", "Auto"]
 
     def provider_labels(self):
-        return ["OpenAI", "xAI / Grok"]
+        return provider_labels()
 
     def size_labels(self):
         return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def default_model_for_provider(self, provider):
+        return default_model_for_provider(provider)
+
+    def normalize_model_for_provider(self, provider, model):
+        return normalize_model_for_provider(provider, model)
 
     def mode_label_from_value(self, value: str):
         return self._window._visual_reply_mode_label_from_value(value)
@@ -186,6 +288,7 @@ class QtVisualReplyService:
         model_edit,
         auto_show_checkbox,
         hint_label,
+        api_key_edit=None,
         story_mode_button=None,
         story_max_images_spin=None,
         story_continuity_slider=None,
@@ -197,6 +300,8 @@ class QtVisualReplyService:
         self._window.visual_reply_provider_combo = provider_combo
         self._window.visual_reply_size_combo = size_combo
         self._window.visual_reply_model_edit = model_edit
+        if api_key_edit is not None:
+            self._window.visual_reply_api_key_edit = api_key_edit
         self._window.visual_reply_auto_show_checkbox = auto_show_checkbox
         self._window.visual_reply_hint = hint_label
         if story_mode_button is not None:
@@ -223,6 +328,9 @@ class QtVisualReplyService:
 
     def apply_model(self) -> None:
         self._window.on_visual_reply_model_changed()
+
+    def apply_api_key(self) -> None:
+        on_visual_reply_api_key_changed(self._window)
 
     def apply_auto_show(self, checked: bool) -> None:
         self._window.on_visual_reply_auto_show_changed(bool(checked))

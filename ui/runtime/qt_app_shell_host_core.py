@@ -44,6 +44,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
     visual_reply_provider_combo = _ui_shell_find_object(window, "visual_reply_provider_combo")
     visual_reply_size_combo = _ui_shell_find_object(window, "visual_reply_size_combo")
     visual_reply_model_edit = _ui_shell_find_object(window, "visual_reply_model_edit")
+    visual_reply_api_key_edit = _ui_shell_find_object(window, "visual_reply_api_key_edit")
     visual_reply_auto_show_checkbox = _ui_shell_find_object(window, "visual_reply_auto_show_checkbox")
     visual_reply_hint = _ui_shell_find_object(window, "visual_reply_hint")
 
@@ -141,7 +142,12 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         _ui_shell_combo_set_items(visual_reply_size_combo, list(visual_reply_service.size_labels()))
         _ui_shell_combo_select_label(visual_reply_size_combo, visual_reply_service.size_label_from_value(visual_reply_snapshot.get("size_value", "1024x1024")))
     if visual_reply_model_edit is not None and hasattr(visual_reply_model_edit, "setText"):
-        visual_reply_model_edit.setText(str(visual_reply_snapshot.get("model_name", "gpt-image-1") or "gpt-image-1"))
+        visual_reply_model_edit.setText(str(visual_reply_snapshot.get("model_name", visual_reply_service.default_model_for_provider(visual_reply_snapshot.get("provider_value"))) or visual_reply_service.default_model_for_provider(visual_reply_snapshot.get("provider_value"))))
+    if visual_reply_api_key_edit is not None:
+        try:
+            visual_reply_api_key_edit.setEchoMode(visual_reply_api_key_edit.Password)
+        except Exception:
+            pass
     if visual_reply_auto_show_checkbox is not None:
         _ui_shell_set_checked(visual_reply_auto_show_checkbox, visual_reply_snapshot.get("auto_show", True))
     visual_reply_service.attach_settings_widgets(
@@ -149,6 +155,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         provider_combo=visual_reply_provider_combo,
         size_combo=visual_reply_size_combo,
         model_edit=visual_reply_model_edit,
+        api_key_edit=visual_reply_api_key_edit,
         auto_show_checkbox=visual_reply_auto_show_checkbox,
         hint_label=visual_reply_hint,
     )
@@ -350,6 +357,15 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
                 _ui_shell_append_console(window, f"[UI Shell] Visual Reply model preview: {str(visual_reply_model_edit.text() or 'gpt-image-1').strip()} selected; no image generation was started.")
             visual_reply_model_edit.editingFinished.connect(on_visual_model_changed)
             setattr(visual_reply_model_edit, "_nc_ui_shell_host_core_bound", True)
+    if visual_reply_api_key_edit is not None and hasattr(visual_reply_api_key_edit, "editingFinished"):
+        bound.append(str(visual_reply_api_key_edit.objectName() if hasattr(visual_reply_api_key_edit, "objectName") else "visual_reply_api_key_edit"))
+        if not getattr(visual_reply_api_key_edit, "_nc_ui_shell_host_core_bound", False):
+            def on_visual_api_key_changed():
+                visual_reply_service.apply_api_key()
+                refresh_status()
+                _ui_shell_append_console(window, "[UI Shell] Visual Reply API key preview updated; no network call was made.")
+            visual_reply_api_key_edit.editingFinished.connect(on_visual_api_key_changed)
+            setattr(visual_reply_api_key_edit, "_nc_ui_shell_host_core_bound", True)
 
     refresh_status()
     return {

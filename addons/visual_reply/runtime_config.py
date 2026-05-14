@@ -10,12 +10,21 @@ import os
 import re
 from typing import Any, Callable
 
+from addons.visual_reply.providers import (
+    PROVIDERS_BY_ID,
+    default_model_for_provider,
+    env_value,
+    normalize_model_for_provider,
+    provider_setting_from_config,
+    provider_ids,
+    provider_spec,
+)
+
 
 VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGNORECASE)
 VISUAL_REPLY_TAG_START_RE = re.compile(r"\[(visualize|image):", re.IGNORECASE)
-VISUAL_REPLY_XAI_BASE_URL = "https://api.x.ai/v1"
-VISUAL_REPLY_XAI_DEFAULT_MODEL = "grok-imagine-image-quality"
-VISUAL_REPLY_XAI_DEPRECATED_MODELS = {"grok-imagine-image", "grok-imagine-image-pro"}
+VISUAL_REPLY_PROVIDER_VALUES = provider_ids()
+VISUAL_REPLY_XAI_BASE_URL = PROVIDERS_BY_ID["xai"].default_base_url
 
 VISUAL_REPLY_STORY_THEME_PRESETS = (
     {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
@@ -49,30 +58,21 @@ class VisualReplyRuntime:
 
     def api_key(self) -> str:
         provider = self.provider()
+        spec = provider_spec(provider)
         env = self._environ
-        if provider == "xai":
-            return str(
-                env.get("NC_VISUAL_REPLY_XAI_API_KEY")
-                or env.get("XAI_API_KEY")
-                or env.get("NC_VISUAL_REPLY_API_KEY")
-                or ""
-            ).strip()
-        return str(env.get("NC_VISUAL_REPLY_API_KEY") or env.get("OPENAI_API_KEY") or "").strip()
+        config = self._config()
+        configured_key = str(provider_setting_from_config(config, provider, "api_key", "") or "").strip()
+        if configured_key:
+            return configured_key
+        return env_value(spec.api_key_env_names, env)
 
     def base_url(self) -> str:
-        provider = self.provider()
-        env = self._environ
-        if provider == "xai":
-            return str(
-                env.get("NC_VISUAL_REPLY_BASE_URL")
-                or env.get("NC_VISUAL_REPLY_XAI_BASE_URL")
-                or VISUAL_REPLY_XAI_BASE_URL
-            ).strip()
-        return str(env.get("NC_VISUAL_REPLY_BASE_URL") or "").strip()
+        spec = provider_spec(self.provider())
+        return env_value(spec.base_url_env_names, self._environ) or spec.default_base_url
 
     def provider(self) -> str:
         provider = str(self._config().get("visual_reply_provider", "openai") or "openai").strip().lower()
-        return provider if provider in {"openai", "xai"} else "openai"
+        return provider if provider in VISUAL_REPLY_PROVIDER_VALUES else "openai"
 
     def mode(self) -> str:
         mode = str(self._config().get("visual_reply_mode", "auto") or "auto").strip().lower()
@@ -86,7 +86,7 @@ class VisualReplyRuntime:
     def generation_available(self) -> bool:
         if not self.enabled():
             return False
-        if self.provider() == "xai":
+        if provider_spec(self.provider()).requires_api_key:
             return bool(self.api_key())
         return bool(self.api_key() or self.base_url())
 
@@ -198,23 +198,24 @@ class VisualReplyRuntime:
 
     def model_name(self) -> str:
         provider = self.provider()
-        fallback = VISUAL_REPLY_XAI_DEFAULT_MODEL if provider == "xai" else "gpt-image-1"
+        spec = provider_spec(provider)
         env = self._environ
         model = str(
-            self._config().get("visual_reply_model")
-            or (env.get("NC_VISUAL_REPLY_XAI_MODEL") if provider == "xai" else "")
-            or env.get("NC_VISUAL_REPLY_MODEL")
-            or fallback
+            provider_setting_from_config(self._config(), provider, "model", "")
+            or self._config().get("visual_reply_model")
+            or env_value(spec.model_env_names, env)
+            or default_model_for_provider(provider)
         ).strip()
-        if provider == "xai" and model in VISUAL_REPLY_XAI_DEPRECATED_MODELS:
-            return VISUAL_REPLY_XAI_DEFAULT_MODEL
-        return model
+        return normalize_model_for_provider(provider, model)
 
     def image_size(self) -> str:
         allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}
+        provider = self.provider()
+        spec = provider_spec(provider)
         value = str(
-            self._config().get("visual_reply_size")
-            or self._environ.get("NC_VISUAL_REPLY_SIZE")
+            provider_setting_from_config(self._config(), provider, "size", "")
+            or self._config().get("visual_reply_size")
+            or env_value(spec.size_env_names, self._environ)
             or "1024x1024"
         ).strip().lower()
         return value if value in allowed else "1024x1024"

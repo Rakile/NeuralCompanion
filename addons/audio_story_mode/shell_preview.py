@@ -1,3 +1,4 @@
+from addons.audio_story_mode.session_schema import audio_story_mode_session_value
 from ui.designer_loader import ui_shell_find_object
 from ui.runtime.shell_addon_reports import _read_ui_shell_session_snapshot
 from ui.runtime.shell_session_config import (
@@ -22,11 +23,12 @@ class AudioStoryShellPreview:
 
     def _audio_path(self) -> str:
         session = dict(_read_ui_shell_session_snapshot() or {})
-        return _ui_shell_line_edit_value(self._window, "audio_file_path_edit", str(session.get("audio_story_mode_audio_path", "") or ""))
+        stored = audio_story_mode_session_value(session, "audio_story_mode_audio_path", "")
+        return _ui_shell_line_edit_value(self._window, "audio_file_path_edit", str(stored or ""))
 
     def _playback_mode(self) -> str:
         session = dict(_read_ui_shell_session_snapshot() or {})
-        stored = str(session.get("audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio")
+        stored = str(audio_story_mode_session_value(session, "audio_story_mode_playback_mode", "Play Imported Audio") or "Play Imported Audio")
         return _ui_shell_combo_text_value(self._window, "audio_story_playback_combo", stored) or "Play Imported Audio"
 
     def _transcribe_seconds(self) -> int:
@@ -37,7 +39,7 @@ class AudioStoryShellPreview:
                 return max(1, int(slider.value()))
             except Exception:
                 pass
-        fallback = session.get("audio_story_mode_transcribe_seconds", self.DEFAULT_TRANSCRIBE_SECONDS)
+        fallback = audio_story_mode_session_value(session, "audio_story_mode_transcribe_seconds", self.DEFAULT_TRANSCRIBE_SECONDS)
         return max(1, int(fallback or self.DEFAULT_TRANSCRIBE_SECONDS))
 
     def _position_text(self, seek_percent: int) -> str:
