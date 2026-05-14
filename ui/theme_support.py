@@ -454,6 +454,9 @@ QTabWidget#vam_setup_tabs::tab-bar,
 QTabWidget#right_tabs::tab-bar {
     left: 8px;
 }
+QTabWidget#sensory_feedback_tabs::tab-bar {
+    left: 0px;
+}
 QTabWidget#sensory_feedback_tabs QTabBar::tab,
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,
@@ -513,9 +516,9 @@ QTabWidget#vam_setup_tabs QTabBar::tab:selected,
 QTabWidget#right_tabs QTabBar::tab:selected {
     background: #0f141b;
     border-color: #273342;
-    border-bottom-color: #0f141b;
+    border-bottom: 0px;
     margin-bottom: -1px;
-    padding-bottom: 10px;
+    padding-bottom: 11px;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
 QTabWidget#vseeface_tabs QTabBar::tab:hover,
@@ -545,6 +548,7 @@ QTabWidget#left_tabs::pane {
     margin-left: -1px;
     background: #0f141b;
     border: 1px solid #273342;
+    border-top-left-radius: 0px;
     border-top-right-radius: 10px;
     border-bottom-left-radius: 10px;
     border-bottom-right-radius: 10px;
@@ -558,8 +562,9 @@ QTabWidget#left_tabs QStackedWidget {
 QTabWidget#host_settings_tabs QTabBar::tab:selected,
 QTabWidget#left_tabs QTabBar::tab:selected {
     background: #0f141b;
-    border-right-color: #0f141b;
+    border-right: 0px;
     margin-right: -1px;
+    padding-right: 13px;
 }
 QTabWidget#host_settings_tabs QTabBar::tab:hover,
 QTabWidget#left_tabs QTabBar::tab:hover {
@@ -567,7 +572,7 @@ QTabWidget#left_tabs QTabBar::tab:hover {
 }
 QTabWidget#host_settings_tabs QTabBar,
 QTabWidget#left_tabs QTabBar {
-    background: #18202a;
+    background: #0f141b;
     border: 0;
 }
 QTabWidget#host_settings_tabs QTabBar {
@@ -580,6 +585,13 @@ QTabWidget#left_tabs QTabBar {
 }
 QTabWidget#left_tabs::pane {
     margin-top: 0px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QTabWidget#host_settings_tabs::pane {
+    border-radius: 0px;
     border-top-left-radius: 0px;
     border-top-right-radius: 10px;
     border-bottom-left-radius: 10px;

@@ -39,6 +39,9 @@ class MainUiRealThemeMixin:
             if self.window is not None and hasattr(self.window, "setStyleSheet"):
                 try:
                     self.window.setStyleSheet(f"{stylesheet}\n{dock_stylesheet}\n{tab_stylesheet}")
+                    tabs = self._ui_object("host_settings_tabs")
+                    if tabs is not None and hasattr(self, "_apply_host_settings_tabs_corner_fix"):
+                        self._apply_host_settings_tabs_corner_fix(tabs)
                 except Exception:
                     pass
                 try:

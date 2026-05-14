@@ -160,6 +160,8 @@ class MainUiRealLayoutMixin:
 
             self._place_preset_buttons_under_selector()
             self._wrap_host_settings_tab_pages(tabs)
+            self._apply_host_settings_tabs_corner_fix(tabs)
+            self._apply_sensory_feedback_tabs_alignment()
 
             if bool(tabs.property("_nc_fixed_system_shaping_tabs")):
                 return True
@@ -222,6 +224,87 @@ class MainUiRealLayoutMixin:
             except Exception:
                 pass
             return True
+
+    def _apply_host_settings_tabs_corner_fix(self, tabs):
+            if tabs is None:
+                return
+            try:
+                current_preset = _normalize_app_theme_preset_id(
+                    getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+                )
+                palette = _app_theme_palette(current_preset)
+            except Exception:
+                palette = {}
+            field_bg = str((palette or {}).get("field_bg") or "#0f141b")
+            style = """
+/* nc-host-settings-tabs-runtime-style:start */
+QTabWidget QTabBar {
+    background: FIELD_BG;
+}
+QTabWidget QTabBar::tab:selected {
+    background: FIELD_BG;
+    border-right: 0px;
+    margin-right: -1px;
+    padding-right: 13px;
+}
+QTabWidget::pane {
+    background: FIELD_BG;
+    border-radius: 0px;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QTabWidget QStackedWidget,
+QTabWidget QScrollArea,
+QTabWidget QScrollArea > QWidget,
+QTabWidget QScrollArea > QWidget > QWidget {
+    border-radius: 0px;
+    border-top-left-radius: 0px;
+}
+/* nc-host-settings-tabs-runtime-style:end */
+""".strip()
+            try:
+                existing = str(tabs.styleSheet() or "").strip()
+                start = "/* nc-host-settings-tabs-runtime-style:start */"
+                end = "/* nc-host-settings-tabs-runtime-style:end */"
+                if start in existing and end in existing:
+                    before, rest = existing.split(start, 1)
+                    _old, after = rest.split(end, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                style = style.replace("FIELD_BG", field_bg)
+                tabs.setStyleSheet(f"{existing}\n{style}".strip() if existing else style)
+                tabs.setProperty("_nc_host_settings_corner_fix", True)
+            except Exception:
+                pass
+
+    def _apply_sensory_feedback_tabs_alignment(self):
+            tabs = self._ui("sensory_feedback_tabs", QtWidgets.QTabWidget)
+            if tabs is None:
+                return
+            style = """
+/* nc-sensory-feedback-tabs-runtime-style:start */
+QTabWidget::tab-bar {
+    left: 0px;
+}
+QTabWidget QTabBar::tab:selected {
+    border-bottom: 0px;
+    margin-bottom: -1px;
+    padding-bottom: 11px;
+}
+/* nc-sensory-feedback-tabs-runtime-style:end */
+""".strip()
+            try:
+                existing = str(tabs.styleSheet() or "").strip()
+                start = "/* nc-sensory-feedback-tabs-runtime-style:start */"
+                end = "/* nc-sensory-feedback-tabs-runtime-style:end */"
+                if start in existing and end in existing:
+                    before, rest = existing.split(start, 1)
+                    _old, after = rest.split(end, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                tabs.setStyleSheet(f"{existing}\n{style}".strip() if existing else style)
+            except Exception:
+                pass
 
     def _place_preset_buttons_under_selector(self):
             host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)

@@ -28,8 +28,12 @@ def _configure_real_ui_input_dependencies():
 
 def _configure_real_ui_layout_dependencies():
     configure_real_ui_layout_dependencies({
+        "DEFAULT_APP_THEME_PRESET": DEFAULT_APP_THEME_PRESET,
+        "RUNTIME_CONFIG": RUNTIME_CONFIG,
         "SESSION_PATH": SESSION_PATH,
+        "_app_theme_palette": _app_theme_palette,
         "_apply_workspace_view_constraints": _apply_workspace_view_constraints,
+        "_normalize_app_theme_preset_id": _normalize_app_theme_preset_id,
         "_split_collapsible_section_text": _split_collapsible_section_text,
     })
 
