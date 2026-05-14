@@ -126,6 +126,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._closing = False
         self._session_read_only = bool(session_read_only)
         self._restoring_frontend_layout = False
+        self._frontend_layout_persistence_ready = False
         self.backend = CompanionQtMainWindow(suppress_restored_aux_docks=True)
         self.backend._session_read_only = self._session_read_only
         self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
@@ -225,6 +226,9 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         print("[UI Real] Loaded runtime-backed main.ui front-end.")
         print("[UI Real] main.ui is the default app startup. Use --legacy-ui only for temporary fallback.")
         print("[UI Real] Phase 5 slice is live: engine lifecycle, runtime controls, chat-context actions, status, and console/chat mirroring.")
+
+    def _mark_frontend_layout_persistence_ready(self):
+        self._frontend_layout_persistence_ready = True
 
     def _ui(self, name, cls=None):
         if not hasattr(self, "window") or self.window is None:
@@ -333,6 +337,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
 
     def show(self):
         self.window.show()
+        QtCore.QTimer.singleShot(1200, self._mark_frontend_layout_persistence_ready)
         if self._frontend_should_prompt_first_run and not self._frontend_first_run_prompt_scheduled:
             self._frontend_first_run_prompt_scheduled = True
             QtCore.QTimer.singleShot(350, self._maybe_prompt_first_run_tutorial_from_ui_real)
@@ -422,7 +427,12 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
     def close(self):
         if self._closing:
             return
-        self._closing = True
+        try:
+            timer = getattr(self, "_frontend_layout_save_timer", None)
+            if timer is not None and timer.isActive():
+                timer.stop()
+        except Exception:
+            pass
         try:
             timer = getattr(self, "_frontend_system_prompt_commit_timer", None)
             if timer is not None and timer.isActive():
@@ -430,7 +440,9 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
             self._commit_frontend_system_prompt_to_runtime()
         except Exception:
             pass
+        self._frontend_layout_persistence_ready = True
         self._save_frontend_layout_state()
+        self._closing = True
         try:
             self._sync_frontend_to_backend()
             if self.backend is not None:

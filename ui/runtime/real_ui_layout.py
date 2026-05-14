@@ -648,6 +648,10 @@ QTabWidget QTabBar::tab:selected {
             return docks
 
     def _save_frontend_layout_state(self):
+            if not bool(getattr(self, "_frontend_layout_persistence_ready", False)):
+                return
+            if bool(getattr(self, "_closing", False)):
+                return
             if bool(getattr(self, "_session_read_only", False)):
                 return
             if bool(getattr(self, "_restoring_frontend_layout", False)):
@@ -853,6 +857,7 @@ QTabWidget QTabBar::tab:selected {
                 bool(getattr(self, "_session_read_only", False))
                 or bool(getattr(self, "_restoring_frontend_layout", False))
                 or bool(getattr(self, "_closing", False))
+                or not bool(getattr(self, "_frontend_layout_persistence_ready", False))
             ):
                 return
             timer = getattr(self, "_frontend_layout_save_timer", None)
