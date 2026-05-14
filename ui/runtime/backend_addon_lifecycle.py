@@ -55,6 +55,7 @@ class BackendAddonLifecycleMixin:
             runtime_config = getattr(engine, "RUNTIME_CONFIG", {})
             self.refresh_avatar_engine_options(selected_provider_id=str(runtime_config.get("avatar_mode", "") or ""))
             self._mount_tts_runtime_addon_tabs()
+            self._mount_visual_reply_runtime_card()
             self._populate_tts_backend_combo(selected_value=self._current_tts_backend_value())
             self.refresh_sensory_feedback_source_options(selected_value=str(runtime_config.get("sensory_feedback_source", "off") or "off"))
             self._mount_addon_tabs()

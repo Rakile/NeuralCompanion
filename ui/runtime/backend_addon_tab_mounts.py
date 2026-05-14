@@ -227,6 +227,77 @@ class BackendAddonTabMountMixin:
         )
         self._refresh_tts_runtime_card()
 
+    def _mount_visual_reply_runtime_card(self):
+        runtime_box = getattr(self, "visual_reply_runtime_box", None)
+        host = getattr(self, "visual_reply_runtime_host", None)
+        if self._addon_manager is None or runtime_box is None or host is None:
+            if runtime_box is not None:
+                try:
+                    runtime_box.setVisible(False)
+                except Exception:
+                    pass
+            return None
+
+        contribution = None
+        for candidate in list(self._addon_manager.get_tab_contributions(area="visual_reply_runtime") or []):
+            metadata = dict(getattr(candidate, "metadata", {}) or {})
+            if metadata.get("runtime_role") == "visual_reply" or str(getattr(candidate, "id", "") or "") == "visuals_host":
+                contribution = candidate
+                break
+
+        if contribution is None:
+            try:
+                runtime_box.setVisible(False)
+            except Exception:
+                pass
+            return None
+
+        if contribution.id in self._mounted_host_settings_addon_tab_ids:
+            try:
+                runtime_box.setVisible(True)
+            except Exception:
+                pass
+            return contribution.id
+
+        layout = host.layout()
+        if layout is None:
+            layout = QtWidgets.QVBoxLayout(host)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(8)
+
+        try:
+            placeholder = getattr(self, "visual_reply_runtime_placeholder", None)
+            if placeholder is not None:
+                placeholder.setParent(None)
+                placeholder.deleteLater()
+            widget = contribution.factory(None)
+            if widget is None:
+                raise RuntimeError("Visual Reply runtime contribution returned no widget.")
+            try:
+                widget.setProperty("addon_id", getattr(contribution, "addon_id", ""))
+                widget.setProperty("addon_tab_id", getattr(contribution, "id", ""))
+                widget.setProperty("addon_area", "visual_reply_runtime")
+            except Exception:
+                pass
+            layout.addWidget(widget)
+            self._mounted_host_settings_addon_tab_ids.add(contribution.id)
+            try:
+                runtime_box.setVisible(True)
+            except Exception:
+                pass
+            try:
+                self._refresh_visual_reply_hint()
+            except Exception:
+                pass
+            return contribution.id
+        except Exception as exc:
+            print(f"⚠️ [Addons] Failed to mount Visual Reply runtime card: {exc}")
+            try:
+                runtime_box.setVisible(False)
+            except Exception:
+                pass
+            return None
+
     def _build_tts_runtime_fallback_tab(self, contribution, exc):
         fallback = QtWidgets.QWidget()
         fallback_layout = QtWidgets.QVBoxLayout(fallback)

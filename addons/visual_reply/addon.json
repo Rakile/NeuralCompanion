@@ -41,7 +41,7 @@
     {
       "id": "visuals_host",
       "title": "Visuals",
-      "area": "host_settings",
+      "area": "visual_reply_runtime",
       "ui_path": "ui/visual_reply_core.ui",
       "placeholder": "host_settings_visuals_tab",
       "icon_path": "ui/icons/visuals.png",

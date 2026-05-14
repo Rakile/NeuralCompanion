@@ -112,16 +112,16 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border: 1px solid #273342;
     border-radius: 10px;
 }
-QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box {
+QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
     margin-top: 18px;
     padding-top: 12px;
 }
-QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title {
+QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 8px 0 8px;
 }
-QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator {
+QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
     width: 0px;
     height: 0px;
 }
@@ -1446,6 +1446,55 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                   <property name="documentMode">
                    <bool>true</bool>
                   </property>
+                 </widget>
+                </item>
+               </layout>
+             </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="visual_reply_runtime_box">
+               <property name="title">
+                <string>Visual Reply Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+               <layout class="QVBoxLayout" name="visualReplyRuntimeLayout">
+                <property name="spacing">
+                 <number>10</number>
+                </property>
+                <property name="sizeConstraint">
+                 <enum>QLayout::SizeConstraint::SetDefaultConstraint</enum>
+                </property>
+                <item>
+                 <widget class="QWidget" name="visual_reply_runtime_host" native="true">
+                  <layout class="QVBoxLayout" name="visual_reply_runtime_host_layout">
+                   <property name="leftMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="topMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="rightMargin">
+                    <number>0</number>
+                   </property>
+                   <property name="bottomMargin">
+                    <number>0</number>
+                   </property>
+                   <item>
+                    <widget class="QLabel" name="visual_reply_runtime_placeholder">
+                     <property name="text">
+                      <string>Visual Reply settings mount here when the addon is available.</string>
+                     </property>
+                     <property name="wordWrap">
+                      <bool>true</bool>
+                     </property>
+                    </widget>
+                   </item>
+                  </layout>
                  </widget>
                 </item>
                </layout>

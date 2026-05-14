@@ -434,3 +434,70 @@ class MainUiRealSurfacesMixin:
                 self._visual_reply_addon_id_for_surface(),
                 "real_ui.redirect_runtime_surface",
             )
+
+    def _redirect_backend_visual_reply_settings_surface(self):
+            runtime_box = self._ui_object("visual_reply_runtime_box")
+            host = self._ui_object("visual_reply_runtime_host")
+            if runtime_box is None or host is None:
+                return False
+            try:
+                self.backend.visual_reply_runtime_box = runtime_box
+                self.backend.visual_reply_runtime_host = host
+            except Exception:
+                pass
+
+            addon_id = self._visual_reply_addon_id_for_surface()
+            if not addon_id or not self._addon_surface_runtime_available(addon_id):
+                try:
+                    runtime_box.hide()
+                except Exception:
+                    pass
+                return False
+
+            manager = getattr(self.backend, "_addon_manager", None)
+            if manager is None:
+                return False
+            contribution = None
+            for candidate in list(manager.get_tab_contributions(area="visual_reply_runtime") or []):
+                metadata = dict(getattr(candidate, "metadata", {}) or {})
+                if metadata.get("runtime_role") == "visual_reply" or str(getattr(candidate, "id", "") or "") == "visuals_host":
+                    contribution = candidate
+                    break
+            if contribution is None:
+                try:
+                    runtime_box.hide()
+                except Exception:
+                    pass
+                return False
+
+            layout = host.layout()
+            if layout is None:
+                layout = QtWidgets.QVBoxLayout(host)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(8)
+            try:
+                placeholder = self._ui_object("visual_reply_runtime_placeholder")
+                if placeholder is not None:
+                    placeholder.setParent(None)
+                    placeholder.deleteLater()
+                widget = contribution.factory(None)
+                if widget is None:
+                    raise RuntimeError("Visual Reply settings contribution returned no widget.")
+                widget.setProperty("addon_id", getattr(contribution, "addon_id", ""))
+                widget.setProperty("addon_tab_id", getattr(contribution, "id", ""))
+                widget.setProperty("addon_area", "visual_reply_runtime")
+                layout.addWidget(widget)
+                self.backend._mounted_host_settings_addon_tab_ids.add(contribution.id)
+                runtime_box.show()
+                try:
+                    self.backend._refresh_visual_reply_hint()
+                except Exception:
+                    pass
+                return True
+            except Exception as exc:
+                print(f"[UI Real] Visual Reply settings surface redirect failed: {exc}")
+                try:
+                    runtime_box.hide()
+                except Exception:
+                    pass
+                return False
