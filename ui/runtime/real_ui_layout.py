@@ -789,19 +789,74 @@ QTabWidget QTabBar::tab:selected {
     def _resize_frontend_docks_from_saved_geometry(self, dock_entries):
             if not dock_entries:
                 return
-            horizontal = []
-            vertical = []
+            geometry_by_dock = {}
             for dock, dock_state in dock_entries:
                 geometry = dock_state.get("geometry")
                 if not isinstance(geometry, list) or len(geometry) != 4:
                     continue
                 try:
+                    x = int(geometry[0])
+                    y = int(geometry[1])
                     width = max(1, int(geometry[2]))
                     height = max(1, int(geometry[3]))
                 except Exception:
                     continue
-                horizontal.append((dock, width))
-                vertical.append((dock, height))
+                geometry_by_dock[dock] = (x, y, width, height)
+            if not geometry_by_dock:
+                return
+
+            def tab_group_for(dock):
+                group = [dock]
+                try:
+                    group.extend(self.window.tabifiedDockWidgets(dock))
+                except Exception:
+                    pass
+                return frozenset(item for item in group if item in geometry_by_dock)
+
+            def sane_geometry(item):
+                x, y, width, height = item
+                return width > 1 and height > 1 and x >= -64 and y >= -64
+
+            tab_groups = {}
+            for dock in geometry_by_dock:
+                group = tab_group_for(dock)
+                if not group:
+                    continue
+                tab_groups.setdefault(group, []).append(dock)
+
+            representatives = []
+            for group, docks in tab_groups.items():
+                candidates = [(dock, geometry_by_dock[dock]) for dock in docks]
+                sane_candidates = [(dock, geometry) for dock, geometry in candidates if sane_geometry(geometry)]
+                if sane_candidates:
+                    dock, geometry = sorted(sane_candidates, key=lambda item: (item[1][0], item[1][1]))[0]
+                else:
+                    dock, geometry = sorted(candidates, key=lambda item: (item[1][0], item[1][1]))[0]
+                representatives.append((dock, geometry))
+
+            column_tolerance = 48
+            columns = []
+            for dock, geometry in sorted(representatives, key=lambda item: (item[1][0], item[1][1])):
+                if not sane_geometry(geometry):
+                    continue
+                x, _y, width, _height = geometry
+                matched = None
+                for column in columns:
+                    if abs(x - column["x"]) <= column_tolerance:
+                        matched = column
+                        break
+                if matched is None:
+                    matched = {"x": x, "items": []}
+                    columns.append(matched)
+                matched["items"].append((dock, geometry))
+
+            horizontal = []
+            for column in columns:
+                items = sorted(column["items"], key=lambda item: item[1][1])
+                if not items:
+                    continue
+                dock, geometry = items[0]
+                horizontal.append((dock, geometry[2]))
             if len(horizontal) >= 2:
                 try:
                     self.window.resizeDocks(
@@ -811,15 +866,19 @@ QTabWidget QTabBar::tab:selected {
                     )
                 except Exception:
                     pass
-            if len(vertical) >= 2:
-                try:
-                    self.window.resizeDocks(
-                        [dock for dock, _height in vertical],
-                        [height for _dock, height in vertical],
-                        QtCore.Qt.Vertical,
-                    )
-                except Exception:
-                    pass
+            for column in columns:
+                vertical = []
+                for dock, geometry in sorted(column["items"], key=lambda item: item[1][1]):
+                    vertical.append((dock, geometry[3]))
+                if len(vertical) >= 2:
+                    try:
+                        self.window.resizeDocks(
+                            [dock for dock, _height in vertical],
+                            [height for _dock, height in vertical],
+                            QtCore.Qt.Vertical,
+                        )
+                    except Exception:
+                        pass
 
     def _ensure_frontend_window_on_screen(self):
             if self.window is None:
