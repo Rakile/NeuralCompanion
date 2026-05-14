@@ -1,5 +1,6 @@
 """Runtime app entry helpers for the Qt desktop application."""
 
+import atexit
 import faulthandler
 import os
 import sys
@@ -11,8 +12,11 @@ from pathlib import Path
 from PySide6 import QtCore, QtWidgets
 
 _CRASH_LOG_HANDLE = None
+_CRASH_LOG_PATH = None
+_CRASH_LOG_DIRTY = False
 _ORIGINAL_SYS_EXCEPTHOOK = sys.excepthook
 _ORIGINAL_THREADING_EXCEPTHOOK = getattr(threading, "excepthook", None)
+_STARTUP_ONLY_CRASH_LOG_MAX_BYTES = 1024
 
 
 def configure_app_entry_dependencies(namespace):
@@ -20,9 +24,59 @@ def configure_app_entry_dependencies(namespace):
     globals().update(dict(namespace or {}))
 
 
+def _cleanup_empty_crash_log():
+    """Remove startup-only crash logs after a clean app exit."""
+    global _CRASH_LOG_HANDLE
+    handle = _CRASH_LOG_HANDLE
+    path = _CRASH_LOG_PATH
+    if handle is not None:
+        try:
+            handle.flush()
+        except Exception:
+            pass
+        try:
+            handle.close()
+        except Exception:
+            pass
+        _CRASH_LOG_HANDLE = None
+    if _CRASH_LOG_DIRTY or path is None:
+        return
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return
+    meaningful_lines = [line for line in text.splitlines() if line.strip()]
+    if len(meaningful_lines) == 1 and meaningful_lines[0].startswith("[CrashDiag] Started "):
+        try:
+            Path(path).unlink()
+        except Exception:
+            pass
+
+
+def _prune_startup_only_crash_logs(log_dir):
+    """Delete tiny startup-only diagnostics left by older clean launches."""
+    try:
+        candidates = list(Path(log_dir).glob("nc_crash_*.log"))
+    except Exception:
+        return
+    for path in candidates:
+        try:
+            if path.stat().st_size > _STARTUP_ONLY_CRASH_LOG_MAX_BYTES:
+                continue
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+        meaningful_lines = [line for line in text.splitlines() if line.strip()]
+        if len(meaningful_lines) == 1 and meaningful_lines[0].startswith("[CrashDiag] Started "):
+            try:
+                path.unlink()
+            except Exception:
+                pass
+
+
 def _install_crash_diagnostics():
     """Keep a lightweight crash recorder active for random native/Qt/runtime exits."""
-    global _CRASH_LOG_HANDLE
+    global _CRASH_LOG_DIRTY, _CRASH_LOG_HANDLE, _CRASH_LOG_PATH
     if _CRASH_LOG_HANDLE is not None:
         return
     try:
@@ -32,8 +86,11 @@ def _install_crash_diagnostics():
     log_dir = root / "runtime" / "crash_dumps"
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
+        _prune_startup_only_crash_logs(log_dir)
         log_path = log_dir / f"nc_crash_{time.strftime('%Y%m%d_%H%M%S')}.log"
         _CRASH_LOG_HANDLE = open(log_path, "a", encoding="utf-8", buffering=1)
+        _CRASH_LOG_PATH = log_path
+        _CRASH_LOG_DIRTY = False
     except Exception as exc:
         print(f"[CrashDiag] WARNING: Could not open crash log: {exc}")
         return
@@ -44,9 +101,12 @@ def _install_crash_diagnostics():
     try:
         faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)
     except Exception as exc:
+        _CRASH_LOG_DIRTY = True
         _CRASH_LOG_HANDLE.write(f"[CrashDiag] faulthandler.enable failed: {exc}\n")
 
     def _sys_excepthook(exc_type, exc_value, exc_tb):
+        global _CRASH_LOG_DIRTY
+        _CRASH_LOG_DIRTY = True
         try:
             _CRASH_LOG_HANDLE.write("[CrashDiag] Unhandled main-thread exception:\n")
             traceback.print_exception(exc_type, exc_value, exc_tb, file=_CRASH_LOG_HANDLE)
@@ -56,6 +116,8 @@ def _install_crash_diagnostics():
         _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_tb)
 
     def _threading_excepthook(args):
+        global _CRASH_LOG_DIRTY
+        _CRASH_LOG_DIRTY = True
         try:
             _CRASH_LOG_HANDLE.write(
                 f"[CrashDiag] Unhandled thread exception in {getattr(args.thread, 'name', '<unknown>')}:\n"
@@ -70,6 +132,7 @@ def _install_crash_diagnostics():
     sys.excepthook = _sys_excepthook
     if hasattr(threading, "excepthook"):
         threading.excepthook = _threading_excepthook
+    atexit.register(_cleanup_empty_crash_log)
     print(f"[CrashDiag] Crash diagnostics enabled: {log_path}")
 
 
