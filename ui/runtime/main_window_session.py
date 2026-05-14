@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtWidgets
 
+from core.chat_runtime_session_schema import group_chat_runtime_session, with_flat_chat_runtime_settings
 from core.musetalk_session_schema import group_musetalk_session, with_flat_musetalk_settings
 from core.sensory_session_schema import group_sensory_session, with_flat_sensory_settings
 from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
@@ -165,6 +166,18 @@ class MainWindowSessionMixin:
             session["main_ui_real_layout"] = preserved_main_ui_real_layout
         if self._addon_manager is not None:
             session.update(self._addon_manager.export_session_state())
+        active_chat_provider = str(session.get("chat_provider") or "").strip().lower()
+        if active_chat_provider:
+            provider_settings = dict(session.get("chat_provider_settings", {}) or {})
+            active_provider_settings = dict(provider_settings.get(active_chat_provider, {}) or {})
+            active_provider_settings["model_name"] = session.get("model_name", "")
+            active_provider_settings["model_requires_vision"] = bool(session.get("model_requires_vision", False))
+            active_provider_settings["model_supports_images"] = bool(session.get("model_supports_images", False))
+            active_provider_settings["model_supports_reasoning"] = bool(RUNTIME_CONFIG.get("model_supports_reasoning", False))
+            active_provider_settings["model_supports_reasoning_toggle"] = bool(RUNTIME_CONFIG.get("model_supports_reasoning_toggle", False))
+            provider_settings[active_chat_provider] = active_provider_settings
+            session["chat_provider_settings"] = provider_settings
+        session = group_chat_runtime_session(session)
         session = group_sensory_session(session)
         session = group_musetalk_session(session)
         session = group_tts_runtime_session(session)
@@ -200,7 +213,11 @@ class MainWindowSessionMixin:
         except Exception as exc:
             print(f"[QtGUI] Session Restore Failed: {exc}")
             return
-        session = with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(session)))
+        session = with_flat_chat_runtime_settings(
+            with_flat_sensory_settings(
+                with_flat_musetalk_settings(with_flat_tts_runtime_settings(session))
+            )
+        )
         previous_suspend = bool(getattr(self, "_suspend_session_save", False))
         self._suspend_session_save = True
         self._restoring_session = True
@@ -343,13 +360,13 @@ class MainWindowSessionMixin:
             if saved_model_name:
                 self._pending_restored_model_name = saved_model_name
                 update_runtime_config("model_name", saved_model_name)
-            self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
             model_requires_vision = session.get("model_requires_vision")
             if model_requires_vision is not None and hasattr(self, "model_requires_vision_checkbox"):
                 self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
                 update_runtime_config("model_requires_vision", bool(model_requires_vision))
             if "model_supports_images" in session:
                 update_runtime_config("model_supports_images", session.get("model_supports_images"))
+            self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
             allow_proactive_replies = session.get("allow_proactive_replies")
             if allow_proactive_replies is not None and hasattr(self, "allow_proactive_checkbox"):
                 self.allow_proactive_checkbox.setChecked(bool(allow_proactive_replies))

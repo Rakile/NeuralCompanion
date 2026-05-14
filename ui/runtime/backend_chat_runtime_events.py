@@ -76,6 +76,15 @@ class BackendChatRuntimeEventsMixin:
     def on_chat_provider_changed(self, _choice):
         provider_value = self._current_chat_provider_value()
         _update_runtime_config("chat_provider", provider_value)
+        state = self._sync_active_provider_model_state_to_runtime(provider_value) if hasattr(self, "_sync_active_provider_model_state_to_runtime") else {}
+        wanted_model = str((state or {}).get("model_name") or "").strip()
+        self._pending_restored_model_name = wanted_model
+        if hasattr(self, "model_requires_vision_checkbox"):
+            self.model_requires_vision_checkbox.blockSignals(True)
+            try:
+                self.model_requires_vision_checkbox.setChecked(bool((state or {}).get("model_requires_vision", False)))
+            finally:
+                self.model_requires_vision_checkbox.blockSignals(False)
         self._refresh_chat_provider_card()
         self._refresh_chat_runtime_summary()
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
@@ -84,10 +93,23 @@ class BackendChatRuntimeEventsMixin:
 
     def on_model_selection_changed(self, choice):
         selected_model = str(choice or "").strip()
+        provider_value = self._current_chat_provider_value()
+        model_supports_images = self._current_model_supports_images_value(selected_model)
+        model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)
+        model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(selected_model)
+        if hasattr(self, "_set_current_chat_provider_model_state_for"):
+            self._set_current_chat_provider_model_state_for(
+                provider_value,
+                model_name=selected_model,
+                model_requires_vision=bool(self.model_requires_vision_checkbox.isChecked()) if hasattr(self, "model_requires_vision_checkbox") else False,
+                model_supports_images=model_supports_images,
+                model_supports_reasoning=model_supports_reasoning,
+                model_supports_reasoning_toggle=model_supports_reasoning_toggle,
+            )
         _update_runtime_config("model_name", selected_model)
-        _update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
-        _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(selected_model))
-        _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(selected_model))
+        _update_runtime_config("model_supports_images", model_supports_images)
+        _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+        _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
         self._advisor_context_manual_override = False
         self.update_model_budget_hint()
         self._refresh_chat_provider_generation_card()

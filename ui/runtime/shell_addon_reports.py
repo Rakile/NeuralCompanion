@@ -4,6 +4,7 @@ import json
 import re
 from pathlib import Path
 
+from core.chat_runtime_session_schema import with_flat_chat_runtime_settings
 from core.musetalk_session_schema import with_flat_musetalk_settings
 from core.sensory_session_schema import with_flat_sensory_settings
 from core.tts_session_schema import with_flat_tts_runtime_settings
@@ -39,7 +40,11 @@ def _read_ui_shell_session_snapshot():
             payload = json.load(handle)
             if not isinstance(payload, dict):
                 return {}
-            return with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(payload)))
+            return with_flat_chat_runtime_settings(
+                with_flat_sensory_settings(
+                    with_flat_musetalk_settings(with_flat_tts_runtime_settings(payload))
+                )
+            )
     except Exception:
         return {}
 

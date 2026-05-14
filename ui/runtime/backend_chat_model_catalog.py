@@ -169,7 +169,17 @@ class BackendChatModelCatalogMixin:
         self.refresh_model_list_quietly(quiet=True, preloaded_models=list(getattr(self, "_all_model_catalog", []) or []))
         selected_model = str(self.model_combo.currentText() if hasattr(self, "model_combo") else _runtime_config().get("model_name", "") or "").strip()
         if selected_model:
-            _update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
+            model_supports_images = self._current_model_supports_images_value(selected_model)
+            _update_runtime_config("model_supports_images", model_supports_images)
+            if hasattr(self, "_set_current_chat_provider_model_state_for"):
+                self._set_current_chat_provider_model_state_for(
+                    self._current_chat_provider_value(),
+                    model_name=selected_model,
+                    model_requires_vision=bool(_checked),
+                    model_supports_images=model_supports_images,
+                    model_supports_reasoning=self._current_model_supports_reasoning_value(selected_model),
+                    model_supports_reasoning_toggle=self._current_model_supports_reasoning_toggle_value(selected_model),
+                )
             self._refresh_chat_runtime_summary()
         self.save_session()
 
@@ -252,13 +262,27 @@ class BackendChatModelCatalogMixin:
             error_placeholder = self._chat_provider_error_placeholder(provider)
             new_items = filtered_models or (raw_models if any(str(item or "").strip() == error_placeholder for item in raw_models) else ["No Models"])
 
-        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
+        provider_state = self._current_chat_provider_model_state_for(provider) if hasattr(self, "_current_chat_provider_model_state_for") else {}
+        provider_wanted = str((provider_state or {}).get("model_name") or "").strip()
+        pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or provider_wanted
         if previous_items == new_items and (not pending_wanted or current == pending_wanted):
             if current:
                 _update_runtime_config("model_name", current)
-                _update_runtime_config("model_supports_images", self._current_model_supports_images_value(current))
-                _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(current))
-                _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(current))
+                model_supports_images = self._current_model_supports_images_value(current)
+                model_supports_reasoning = self._current_model_supports_reasoning_value(current)
+                model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(current)
+                _update_runtime_config("model_supports_images", model_supports_images)
+                _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+                _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
+                if hasattr(self, "_set_current_chat_provider_model_state_for"):
+                    self._set_current_chat_provider_model_state_for(
+                        provider,
+                        model_name=current,
+                        model_requires_vision=bool(self.model_requires_vision_checkbox.isChecked()) if hasattr(self, "model_requires_vision_checkbox") else False,
+                        model_supports_images=model_supports_images,
+                        model_supports_reasoning=model_supports_reasoning,
+                        model_supports_reasoning_toggle=model_supports_reasoning_toggle,
+                    )
                 self._refresh_chat_provider_generation_card()
             self.emit_tutorial_event(
                 "model_list_refreshed",
@@ -275,7 +299,7 @@ class BackendChatModelCatalogMixin:
         if filtered_models and current in filtered_models:
             target_index = filtered_models.index(current)
         elif filtered_models:
-            wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or str(_runtime_config().get("model_name", "") or "").strip()
+            wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or provider_wanted
             if wanted in filtered_models:
                 target_index = filtered_models.index(wanted)
         self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
@@ -283,9 +307,21 @@ class BackendChatModelCatalogMixin:
         selected_model = str(self.model_combo.currentText() or "").strip()
         if selected_model:
             _update_runtime_config("model_name", selected_model)
-            _update_runtime_config("model_supports_images", self._current_model_supports_images_value(selected_model))
-            _update_runtime_config("model_supports_reasoning", self._current_model_supports_reasoning_value(selected_model))
-            _update_runtime_config("model_supports_reasoning_toggle", self._current_model_supports_reasoning_toggle_value(selected_model))
+            model_supports_images = self._current_model_supports_images_value(selected_model)
+            model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)
+            model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(selected_model)
+            _update_runtime_config("model_supports_images", model_supports_images)
+            _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+            _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
+            if hasattr(self, "_set_current_chat_provider_model_state_for"):
+                self._set_current_chat_provider_model_state_for(
+                    provider,
+                    model_name=selected_model,
+                    model_requires_vision=bool(self.model_requires_vision_checkbox.isChecked()) if hasattr(self, "model_requires_vision_checkbox") else False,
+                    model_supports_images=model_supports_images,
+                    model_supports_reasoning=model_supports_reasoning,
+                    model_supports_reasoning_toggle=model_supports_reasoning_toggle,
+                )
             self._refresh_chat_provider_generation_card()
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip()
         if pending_wanted and selected_model == pending_wanted:

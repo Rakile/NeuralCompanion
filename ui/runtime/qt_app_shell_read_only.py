@@ -1,5 +1,6 @@
 """Read-only shell preview population for the Designer UI."""
 
+from core.chat_runtime_session_schema import with_flat_chat_runtime_settings
 from core.musetalk_session_schema import with_flat_musetalk_settings
 from core.sensory_session_schema import with_flat_sensory_settings
 from core.tts_session_schema import with_flat_tts_runtime_settings
@@ -13,7 +14,11 @@ def configure_qt_app_shell_read_only_dependencies(dependencies):
 
 
 def _apply_ui_shell_read_only_config(window):
-    session = with_flat_sensory_settings(with_flat_musetalk_settings(with_flat_tts_runtime_settings(_read_ui_shell_session_snapshot())))
+    session = with_flat_chat_runtime_settings(
+        with_flat_sensory_settings(
+            with_flat_musetalk_settings(with_flat_tts_runtime_settings(_read_ui_shell_session_snapshot()))
+        )
+    )
     audio_devices = _ui_shell_audio_device_labels()
     avatar_pack_options = _ui_shell_musetalk_avatar_pack_options(session)
     provider_labels = {

@@ -62,16 +62,63 @@ class BackendChatProviderFieldsMixin:
     def _set_current_chat_provider_settings_for(self, provider_id, updates):
         provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         settings_map = self._current_chat_provider_settings_map()
-        next_values = {
-            str(field_id or "").strip(): str(value or "").strip()
-            for field_id, value in dict(updates or {}).items()
-            if str(field_id or "").strip()
-        }
+        next_values = {}
+        for field_id, value in dict(updates or {}).items():
+            key = str(field_id or "").strip()
+            if not key:
+                continue
+            if value is None:
+                continue
+            if isinstance(value, str):
+                value = value.strip()
+                if not value:
+                    continue
+            next_values[key] = value
         if next_values:
             settings_map[provider_key] = next_values
         elif provider_key in settings_map:
             settings_map.pop(provider_key, None)
         _update_runtime_config("chat_provider_settings", settings_map)
+
+    def _current_chat_provider_model_state_for(self, provider_id=None):
+        settings = self._current_chat_provider_settings_for(provider_id)
+        return {
+            "model_name": str(settings.get("model_name") or "").strip(),
+            "model_requires_vision": bool(settings.get("model_requires_vision", False)),
+            "model_supports_images": bool(settings.get("model_supports_images", False)),
+            "model_supports_reasoning": bool(settings.get("model_supports_reasoning", False)),
+            "model_supports_reasoning_toggle": bool(settings.get("model_supports_reasoning_toggle", False)),
+        }
+
+    def _set_current_chat_provider_model_state_for(self, provider_id, **updates):
+        provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        settings = self._current_chat_provider_settings_for(provider_key)
+        for key, value in dict(updates or {}).items():
+            if key == "model_name":
+                value = str(value or "").strip()
+                if value:
+                    settings[key] = value
+                else:
+                    settings.pop(key, None)
+                continue
+            if key in {
+                "model_requires_vision",
+                "model_supports_images",
+                "model_supports_reasoning",
+                "model_supports_reasoning_toggle",
+            }:
+                settings[key] = bool(value)
+        self._set_current_chat_provider_settings_for(provider_key, settings)
+
+    def _sync_active_provider_model_state_to_runtime(self, provider_id=None):
+        provider_key = self._current_chat_provider_value() if provider_id is None else chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        state = self._current_chat_provider_model_state_for(provider_key)
+        _update_runtime_config("model_name", state.get("model_name", ""))
+        _update_runtime_config("model_requires_vision", bool(state.get("model_requires_vision", False)))
+        _update_runtime_config("model_supports_images", bool(state.get("model_supports_images", False)))
+        _update_runtime_config("model_supports_reasoning", bool(state.get("model_supports_reasoning", False)))
+        _update_runtime_config("model_supports_reasoning_toggle", bool(state.get("model_supports_reasoning_toggle", False)))
+        return state
 
     def _chat_provider_metadata(self, provider_id=None):
         target = provider_id if provider_id is not None else self._current_chat_provider_value()
