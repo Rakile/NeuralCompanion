@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import importlib
 import mimetypes
 import socket
+import subprocess
+import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -161,6 +164,22 @@ def chromecast_dependency_error() -> str:
         return ""
     except Exception:
         return "PyChromecast is not installed. Run: pip install PyChromecast zeroconf"
+
+
+def install_chromecast_dependencies() -> tuple[bool, str]:
+    try:
+        command = [sys.executable, "-m", "pip", "install", "PyChromecast", "zeroconf"]
+        result = subprocess.run(command, check=False, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception as exc:
+        return False, f"Could not start PyChromecast install: {exc}"
+    importlib.invalidate_caches()
+    dependency_error = chromecast_dependency_error()
+    if result.returncode == 0 and not dependency_error:
+        return True, "PyChromecast installed. You can now search for Cast devices."
+    details = str(result.stderr or result.stdout or dependency_error or "pip install failed").strip()
+    if len(details) > 700:
+        details = details[-700:].strip()
+    return False, f"PyChromecast install failed: {details}"
 
 
 def discover_chromecast_devices(timeout: float = 6.0) -> tuple[list[dict], str]:

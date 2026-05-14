@@ -20,6 +20,7 @@ from addons.audio_story_mode.visual_stream import (
     cast_image_to_chromecast,
     chromecast_dependency_error,
     discover_chromecast_devices,
+    install_chromecast_dependencies,
     set_current_audio_path,
     set_stream_playback_state,
     stop_chromecast,
@@ -181,6 +182,7 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_stream_url_label": "Local network URL for the Audio Story visual stream when enabled.",
     "audio_story_cast_device_combo": "Chromecast or Google Cast device to show Audio Story visuals on.",
     "audio_story_cast_refresh_button": "Search your local network for Chromecast devices.",
+    "audio_story_cast_install_button": "Install PyChromecast and Zeroconf for Chromecast discovery and casting.",
     "audio_story_cast_button": "Cast the current Audio Story visual to the selected Chromecast.",
     "audio_story_cast_stop_button": "Stop media playback on the selected Chromecast.",
     "audio_story_cast_prompt_checkbox": "Show or hide the current image prompt overlay on the Chromecast stream page.",
@@ -1616,6 +1618,18 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_story_cast_refresh_button is not None:
             self.audio_story_cast_refresh_button.setStyleSheet(compact_button_style)
             self.audio_story_cast_refresh_button.clicked.connect(self._refresh_chromecast_devices)
+        self.audio_story_cast_install_button = self._ui_child(root, "audio_story_cast_install_button", QtWidgets.QPushButton)
+        if self.audio_story_cast_install_button is None:
+            self.audio_story_cast_install_button = QtWidgets.QPushButton("Install PyChromecast")
+            self.audio_story_cast_install_button.setObjectName("audio_story_cast_install_button")
+            status_parent = root.findChild(QtWidgets.QWidget, "audio_story_cast_status_label")
+            parent_widget = status_parent.parentWidget() if status_parent is not None else None
+            parent_layout = parent_widget.layout() if parent_widget is not None else None
+            if parent_layout is not None:
+                parent_layout.addWidget(self.audio_story_cast_install_button)
+        if self.audio_story_cast_install_button is not None:
+            self.audio_story_cast_install_button.setStyleSheet(compact_button_style)
+            self.audio_story_cast_install_button.clicked.connect(self._install_chromecast_dependencies)
         self.audio_story_cast_button = self._ui_child(root, "audio_story_cast_button", QtWidgets.QPushButton)
         if self.audio_story_cast_button is not None:
             self.audio_story_cast_button.setStyleSheet(compact_button_style)
@@ -2265,6 +2279,11 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_cast_refresh_button.setToolTip("Search your local network for Chromecast devices.")
         self.audio_story_cast_refresh_button.clicked.connect(self._refresh_chromecast_devices)
         cast_row.addWidget(self.audio_story_cast_refresh_button, 0)
+        self.audio_story_cast_install_button = QtWidgets.QPushButton("Install PyChromecast")
+        self.audio_story_cast_install_button.setObjectName("audio_story_cast_install_button")
+        self.audio_story_cast_install_button.setToolTip("Install PyChromecast and Zeroconf for Chromecast discovery and casting.")
+        self.audio_story_cast_install_button.clicked.connect(self._install_chromecast_dependencies)
+        cast_row.addWidget(self.audio_story_cast_install_button, 0)
         self.audio_story_cast_button = QtWidgets.QPushButton("Cast To")
         self.audio_story_cast_button.setToolTip("Cast the current Audio Story visual to the selected Chromecast.")
         self.audio_story_cast_button.clicked.connect(self._cast_current_visual_to_chromecast)
@@ -6660,6 +6679,10 @@ class AudioStoryModeController(QtCore.QObject):
             button = getattr(self, button_name, None)
             if button is not None:
                 button.setEnabled(not busy and not bool(dependency_error))
+        install_button = getattr(self, "audio_story_cast_install_button", None)
+        if install_button is not None:
+            install_button.setVisible(bool(dependency_error))
+            install_button.setEnabled(not busy and bool(dependency_error))
         cast_button = getattr(self, "audio_story_cast_button", None)
         if cast_button is not None:
             cast_button.setEnabled(not busy and not bool(dependency_error) and has_device)
@@ -6680,6 +6703,25 @@ class AudioStoryModeController(QtCore.QObject):
                 status.setText(f"Found {len(self._chromecast_devices)} Cast device(s).")
             else:
                 status.setText("Chromecast discovery not run.")
+
+    def _install_chromecast_dependencies(self):
+        def worker():
+            return install_chromecast_dependencies()
+
+        def done(result):
+            self._chromecast_busy = False
+            ok = bool(result[0]) if isinstance(result, tuple) and result else bool(result)
+            message = str(result[1] if isinstance(result, tuple) and len(result) > 1 else "")
+            status = getattr(self, "audio_story_cast_status_label", None)
+            if status is not None and message:
+                status.setText(message)
+            if message:
+                self._set_status(message)
+            self._sync_chromecast_controls()
+            if ok:
+                self._refresh_chromecast_devices()
+
+        self._run_chromecast_job(worker, done)
 
     def _run_chromecast_job(self, worker, done):
         if bool(getattr(self, "_chromecast_busy", False)):
