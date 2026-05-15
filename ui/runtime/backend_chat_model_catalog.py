@@ -183,9 +183,11 @@ class BackendChatModelCatalogMixin:
             self._refresh_chat_runtime_summary()
         self.save_session()
 
-    def request_model_list_refresh(self, quiet=True, wait_for_reachable=False):
+    def request_model_list_refresh(self, quiet=True, wait_for_reachable=False, force=False):
         provider = self._current_chat_provider_value()
-        if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider:
+        if hasattr(self, "_sync_chat_provider_settings_to_registry"):
+            self._sync_chat_provider_settings_to_registry()
+        if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider and not force:
             return
         self._model_refresh_generation = int(getattr(self, "_model_refresh_generation", 0) or 0) + 1
         refresh_generation = self._model_refresh_generation
@@ -266,7 +268,7 @@ class BackendChatModelCatalogMixin:
         provider_wanted = str((provider_state or {}).get("model_name") or "").strip()
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or provider_wanted
         if previous_items == new_items and (not pending_wanted or current == pending_wanted):
-            if current:
+            if current and not self._is_model_catalog_placeholder(current):
                 _update_runtime_config("model_name", current)
                 model_supports_images = self._current_model_supports_images_value(current)
                 model_supports_reasoning = self._current_model_supports_reasoning_value(current)
@@ -305,7 +307,7 @@ class BackendChatModelCatalogMixin:
         self.model_combo.setCurrentIndex(max(0, min(target_index, self.model_combo.count() - 1)))
         self.model_combo.blockSignals(False)
         selected_model = str(self.model_combo.currentText() or "").strip()
-        if selected_model:
+        if selected_model and not self._is_model_catalog_placeholder(selected_model):
             _update_runtime_config("model_name", selected_model)
             model_supports_images = self._current_model_supports_images_value(selected_model)
             model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)

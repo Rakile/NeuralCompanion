@@ -395,7 +395,6 @@ class MainWindowSessionMixin:
                 update_runtime_config("model_requires_vision", bool(model_requires_vision))
             if "model_supports_images" in session:
                 update_runtime_config("model_supports_images", session.get("model_supports_images"))
-            self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
             allow_proactive_replies = session.get("allow_proactive_replies")
             if allow_proactive_replies is not None and hasattr(self, "allow_proactive_checkbox"):
                 self.allow_proactive_checkbox.setChecked(bool(allow_proactive_replies))
@@ -490,9 +489,6 @@ class MainWindowSessionMixin:
                 metadata_map = self._normalize_sensory_provider_metadata_override_map(sensory_provider_metadata_overrides) if hasattr(self, "_normalize_sensory_provider_metadata_override_map") else dict(sensory_provider_metadata_overrides or {})
                 update_runtime_config("sensory_provider_metadata_overrides", metadata_map)
                 self._refresh_sensory_feedback_source_tabs()
-            saved_model_name = session.get("model_name")
-            if saved_model_name:
-                QtCore.QTimer.singleShot(400, lambda wanted=str(saved_model_name or ""): self._apply_saved_model_name(wanted))
             emotional_instructions = session.get("emotional_instructions")
             if emotional_instructions is not None and hasattr(self, "emotional_text"):
                 self.emotional_text.setPlainText(str(emotional_instructions or ""))

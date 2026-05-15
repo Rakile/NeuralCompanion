@@ -264,8 +264,7 @@ class BackendPresetBodyRuntimeMixin:
             self._refresh_chat_provider_card()
         _update_runtime_config("chat_provider_generation_settings", data.get("chat_provider_generation_settings", {}))
         self._refresh_chat_provider_generation_card()
-        if preset_model_name:
-            self._apply_saved_model_name(preset_model_name)
+        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
         if "voice_file" in data:
             voice_file = str(data.get("voice_file") or "").strip()
             if voice_file and voice_file != "No .wav found" and self.voice_combo.findText(voice_file) >= 0:
@@ -388,7 +387,7 @@ class BackendPresetBodyRuntimeMixin:
                     self._apply_legacy_generation_mirror(str(field_id or ""), value)
             self._refresh_chat_provider_generation_card()
             self._restoring_preset = previous_restoring_preset
-            self._finalize_pending_preset_clean_if_ready(force=True)
+            self._finalize_pending_preset_clean_if_ready(force=not bool(preset_model_name))
             self.save_session()
             self._restore_system_shaping_scroll_state(scroll_state)
             QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))

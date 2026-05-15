@@ -59,7 +59,6 @@ class BackendResourceRefreshMixin:
     def refresh_resources(self):
         engine = _engine()
         runtime_config = _runtime_config()
-        self.refresh_model_list_quietly(quiet=False)
 
         self.refresh_voice_list(runtime_config.get("voice_file", ""))
 

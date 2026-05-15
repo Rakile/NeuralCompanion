@@ -160,6 +160,7 @@ class Addon(BaseAddon):
         base_url = str(self._base_url() or "").strip().rstrip("/")
         if not base_url:
             return []
+        language_models_error = None
         try:
             payload = chat_providers._fetch_json_with_bearer(f"{base_url}/language-models", self._api_key(), timeout=15.0)
             entries = []
@@ -191,6 +192,10 @@ class Addon(BaseAddon):
                 )
             if catalog:
                 return catalog
+        except Exception as exc:
+            language_models_error = exc
+
+        try:
             client = self._client()
             payload = client.models.list()
             ids = sorted(
@@ -204,6 +209,8 @@ class Addon(BaseAddon):
             return ids
         except Exception as exc:
             if not quiet:
+                if language_models_error is not None:
+                    print(f"Error fetching xAI language models: {language_models_error}")
                 print(f"Error fetching xAI models: {exc}")
             return []
 

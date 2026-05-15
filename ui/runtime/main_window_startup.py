@@ -154,6 +154,7 @@ class MainWindowStartupMixin:
 
         self.refresh_resources()
         self.restore_session()
+        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
         self.refresh_tutorial_list()
         QtCore.QTimer.singleShot(250, self.maybe_prompt_first_run_tutorial)
 

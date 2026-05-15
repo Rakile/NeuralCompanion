@@ -48,7 +48,7 @@ class BackendChatRuntimeEventsMixin:
         else:
             settings.pop(str(field_id or "").strip(), None)
         self._set_current_chat_provider_settings_for(provider_id, settings)
-        self.request_model_list_refresh(quiet=True, wait_for_reachable=False)
+        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
         self.save_session()
 
     def _on_chat_provider_generation_field_changed(self, provider_id, field_id, widget, field_meta=None):

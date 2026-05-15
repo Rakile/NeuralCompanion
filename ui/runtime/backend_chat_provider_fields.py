@@ -55,6 +55,12 @@ class BackendChatProviderFieldsMixin:
         raw = _runtime_config().get("chat_provider_settings", {}) or {}
         return {str(key or "").strip().lower(): dict(value or {}) for key, value in raw.items() if str(key or "").strip()}
 
+    def _sync_chat_provider_settings_to_registry(self):
+        try:
+            chat_providers.set_provider_settings(self._current_chat_provider_settings_map())
+        except Exception:
+            pass
+
     def _current_chat_provider_settings_for(self, provider_id=None):
         provider_key = self._current_chat_provider_value() if provider_id is None else chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         return dict(self._current_chat_provider_settings_map().get(provider_key, {}))
@@ -79,6 +85,7 @@ class BackendChatProviderFieldsMixin:
         elif provider_key in settings_map:
             settings_map.pop(provider_key, None)
         _update_runtime_config("chat_provider_settings", settings_map)
+        self._sync_chat_provider_settings_to_registry()
 
     def _current_chat_provider_model_state_for(self, provider_id=None):
         settings = self._current_chat_provider_settings_for(provider_id)
