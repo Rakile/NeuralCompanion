@@ -40,11 +40,22 @@ MUSETALK_TORCH_CU118_INDEX_URL = "https://download.pytorch.org/whl/cu118"
 MUSETALK_TORCH_CU128_PACKAGES = ("torch==2.10.0", "torchvision", "torchaudio")
 MUSETALK_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
+    "gast",
+    "jax",
+    "jaxlib",
+    "keras",
     "mmdet",
     "mmengine",
     "mmpose",
     "opendatalab",
     "openxlab",
+    "tensorboard",
+    "tensorboard-data-server",
+    "tensorboard-plugin-wit",
+    "tensorflow",
+    "tensorflow-estimator",
+    "tensorflow-intel",
+    "tensorflow-io-gcs-filesystem",
     "xtcocotools",
 }
 MAIN_BINARY_COMPAT_PACKAGES = (
@@ -424,6 +435,11 @@ class Installer:
     def pip_install(self, python_exe: Path, *args: str) -> None:
         run_command([str(python_exe), "-m", "pip", *args], cwd=REPO_ROOT)
 
+    def pip_uninstall(self, python_exe: Path, packages: Iterable[str]) -> None:
+        package_list = sorted(set(packages))
+        if package_list:
+            run_command([str(python_exe), "-m", "pip", "uninstall", "-y", *package_list], cwd=REPO_ROOT, check=False)
+
     def filtered_requirements_file(self, source_path: Path, skip_names: set[str], temp_dir: Path) -> Path:
         filtered_path = temp_dir / source_path.name
         filtered_lines = []
@@ -729,6 +745,8 @@ print(json.dumps(status))
         use_musetalk_cu128 = torch_index_url == MUSETALK_TORCH_CU128_INDEX_URL
         if use_musetalk_cu128:
             note("Skipping OpenMMLab/mmcv install for MuseTalk cu128; MediaPipe will be used for avatar preprocessing fallback.")
+            note("Removing stale OpenMMLab/TensorFlow packages from existing MuseTalk cu128 venvs...")
+            self.pip_uninstall(python_exe, MUSETALK_CU128_SKIP_REQUIREMENT_NAMES)
             self.pip_install(python_exe, "install", "mediapipe")
         else:
             note("Installing OpenMMLab bootstrap tools...")
