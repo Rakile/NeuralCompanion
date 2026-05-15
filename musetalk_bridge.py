@@ -9,6 +9,7 @@ from collections import deque
 
 MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
 MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA = str(os.environ.get("NC_MUSETALK_ALLOW_UNSUPPORTED_CUDA", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 _PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
 
 
@@ -37,6 +38,64 @@ class MuseTalkBridge:
         self._pending_lock = threading.Lock()
         self._stopping = False
         self._recent_output = deque(maxlen=12)
+        self._torch_compat_checked = False
+
+    def _validate_torch_cuda_compatibility(self):
+        if self._torch_compat_checked or MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA:
+            self._torch_compat_checked = True
+            return
+        script = r"""
+import json
+payload = {"ok": True, "cuda_available": False}
+try:
+    import torch
+    payload["torch"] = str(getattr(torch, "__version__", "") or "")
+    payload["torch_cuda"] = str(getattr(torch.version, "cuda", "") or "")
+    payload["cuda_available"] = bool(torch.cuda.is_available())
+    payload["arch_list"] = list(torch.cuda.get_arch_list()) if payload["cuda_available"] else []
+    if payload["cuda_available"]:
+        name = torch.cuda.get_device_name(0)
+        capability = torch.cuda.get_device_capability(0)
+        sm = f"sm_{int(capability[0])}{int(capability[1])}"
+        payload["device_name"] = str(name)
+        payload["capability"] = [int(capability[0]), int(capability[1])]
+        payload["sm"] = sm
+        if int(capability[0]) >= 12 and sm not in payload["arch_list"]:
+            payload["ok"] = False
+            payload["error"] = (
+                f"MuseTalk isolated runtime uses torch {payload['torch']} / CUDA {payload['torch_cuda']}, "
+                f"which does not include {sm} support for {name}. "
+                "RTX 50 / Blackwell cards need the MuseTalk CUDA 12.8 runtime path "
+                "(for example torch==2.10.0 from the cu128 PyTorch index)."
+            )
+except Exception as exc:
+    payload["ok"] = False
+    payload["error"] = str(exc)
+print(json.dumps(payload))
+"""
+        try:
+            result = subprocess.run(
+                [self.python_exe, "-c", script],
+                cwd=self.root_dir,
+                text=True,
+                capture_output=True,
+                timeout=30,
+            )
+        except Exception as exc:
+            raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
+        raw = (result.stdout or "").strip().splitlines()
+        detail = raw[-1] if raw else ""
+        try:
+            payload = json.loads(detail)
+        except Exception as exc:
+            combined = " ".join(part.strip() for part in [result.stdout, result.stderr] if part)
+            raise RuntimeError(f"Could not parse MuseTalk torch CUDA compatibility check: {combined}") from exc
+        if result.returncode != 0:
+            combined = " ".join(part.strip() for part in [result.stdout, result.stderr] if part)
+            raise RuntimeError(f"MuseTalk torch CUDA compatibility check failed: {combined}")
+        if not payload.get("ok", False):
+            raise RuntimeError(str(payload.get("error") or "MuseTalk torch CUDA compatibility check failed."))
+        self._torch_compat_checked = True
 
     def _fail_pending_requests(self, error):
         payload = {"ok": False, "error": str(error or "MuseTalk worker stopped.")}
@@ -60,6 +119,7 @@ class MuseTalkBridge:
             if not os.path.exists(self.worker_script):
                 raise FileNotFoundError(f"MuseTalk worker not found: {self.worker_script}")
             os.makedirs(self.runtime_dir, exist_ok=True)
+            self._validate_torch_cuda_compatibility()
 
             command = [self.python_exe, self.worker_script]
             vram_mode = str(self.worker_options.get("vram_mode", "") or "").strip()

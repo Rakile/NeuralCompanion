@@ -35,6 +35,18 @@ MAIN_TORCH_CU126_PACKAGES = ("torch==2.6.0", "torchaudio==2.6.0", "torchvision==
 MAIN_TORCH_CU126_INDEX_URL = "https://download.pytorch.org/whl/cu126"
 MAIN_TORCH_CU128_PACKAGES = ("torch", "torchaudio", "torchvision")
 MAIN_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+MUSETALK_TORCH_CU118_PACKAGES = ("torch==2.0.1+cu118", "torchaudio==2.0.2+cu118", "torchvision==0.15.2+cu118")
+MUSETALK_TORCH_CU118_INDEX_URL = "https://download.pytorch.org/whl/cu118"
+MUSETALK_TORCH_CU128_PACKAGES = ("torch==2.10.0", "torchvision", "torchaudio")
+MUSETALK_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
+    "mmdet",
+    "mmengine",
+    "mmpose",
+    "opendatalab",
+    "openxlab",
+    "xtcocotools",
+}
 MAIN_BINARY_COMPAT_PACKAGES = (
     "numpy==1.24.4",
     "pandas==1.5.3",
@@ -362,6 +374,20 @@ class Installer:
             f"Using Neural Companion default PyTorch cu126 stack ({detail}).",
         )
 
+    def musetalk_torch_install_plan(self) -> tuple[tuple[str, ...], str, str]:
+        is_blackwell, detail = self.detect_blackwell_gpu()
+        if is_blackwell:
+            return (
+                MUSETALK_TORCH_CU128_PACKAGES,
+                MUSETALK_TORCH_CU128_INDEX_URL,
+                f"RTX 50 / Blackwell-class GPU detected ({detail}); using MuseTalk PyTorch cu128 wheels.",
+            )
+        return (
+            MUSETALK_TORCH_CU118_PACKAGES,
+            MUSETALK_TORCH_CU118_INDEX_URL,
+            f"Using MuseTalk default PyTorch cu118 stack ({detail}).",
+        )
+
     def detect_lm_studio(self) -> DoctorFinding:
         common_paths = [
             Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LM Studio" / "LM Studio.exe",
@@ -397,6 +423,25 @@ class Installer:
 
     def pip_install(self, python_exe: Path, *args: str) -> None:
         run_command([str(python_exe), "-m", "pip", *args], cwd=REPO_ROOT)
+
+    def filtered_requirements_file(self, source_path: Path, skip_names: set[str], temp_dir: Path) -> Path:
+        filtered_path = temp_dir / source_path.name
+        filtered_lines = []
+        skipped = []
+        for line in source_path.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                filtered_lines.append(line)
+                continue
+            package_name = re.split(r"\s*(?:==|>=|<=|~=|!=|>|<|\[)", stripped, maxsplit=1)[0].strip().lower()
+            if package_name in skip_names:
+                skipped.append(stripped)
+                continue
+            filtered_lines.append(line)
+        filtered_path.write_text("\n".join(filtered_lines) + "\n", encoding="utf-8")
+        if skipped:
+            note(f"Skipping cu128-incompatible MuseTalk requirement(s): {', '.join(skipped)}")
+        return filtered_path
 
     def verify_imports(self, python_exe: Path, imports: list[str], label: str) -> None:
         script = "; ".join(f"import {name}" for name in imports)
@@ -669,34 +714,44 @@ print(json.dumps(status))
         note("Upgrading MuseTalk bootstrap tools...")
         self.pip_install(python_exe, "install", "--upgrade", "pip", "setuptools<81", "wheel")
 
+        torch_packages, torch_index_url, torch_plan_detail = self.musetalk_torch_install_plan()
+        note(torch_plan_detail)
         note("Installing CUDA-enabled torch for MuseTalk...")
         self.pip_install(
             python_exe,
             "install",
-            "torch==2.0.1+cu118",
-            "torchaudio==2.0.2+cu118",
-            "torchvision==0.15.2+cu118",
+            *torch_packages,
             "--force-reinstall",
             "--index-url",
-            "https://download.pytorch.org/whl/cu118",
+            torch_index_url,
         )
 
-        note("Installing OpenMMLab bootstrap tools...")
-        self.pip_install(python_exe, "install", "openmim==0.3.9")
+        use_musetalk_cu128 = torch_index_url == MUSETALK_TORCH_CU128_INDEX_URL
+        if use_musetalk_cu128:
+            note("Skipping OpenMMLab/mmcv install for MuseTalk cu128; MediaPipe will be used for avatar preprocessing fallback.")
+            self.pip_install(python_exe, "install", "mediapipe")
+        else:
+            note("Installing OpenMMLab bootstrap tools...")
+            self.pip_install(python_exe, "install", "openmim==0.3.9")
 
-        note("Installing mmcv through OpenMIM...")
-        run_command([str(python_exe), "-m", "mim", "install", "mmcv==2.0.1"], cwd=REPO_ROOT)
+            note("Installing mmcv through OpenMIM...")
+            run_command([str(python_exe), "-m", "mim", "install", "mmcv==2.0.1"], cwd=REPO_ROOT)
 
         note("Preinstalling chumpy without build isolation...")
         self.pip_install(python_exe, "install", "chumpy==0.70", "--no-build-isolation")
 
         note("Installing pinned MuseTalk runtime requirements...")
-        self.pip_install(
-            python_exe,
-            "install",
-            "-r",
-            str(REPO_ROOT / "requirements.musetalk.txt"),
-        )
+        requirements_path = REPO_ROOT / "requirements.musetalk.txt"
+        if use_musetalk_cu128:
+            with tempfile.TemporaryDirectory(prefix="nc_musetalk_cu128_requirements_") as temp_dir:
+                filtered_requirements = self.filtered_requirements_file(
+                    requirements_path,
+                    MUSETALK_CU128_SKIP_REQUIREMENT_NAMES,
+                    Path(temp_dir),
+                )
+                self.pip_install(python_exe, "install", "-r", str(filtered_requirements))
+        else:
+            self.pip_install(python_exe, "install", "-r", str(requirements_path))
 
         note("Applying known-good MuseTalk compatibility pins...")
         self.pip_install(
@@ -706,13 +761,22 @@ print(json.dumps(status))
             "pillow==11.2.1",
         )
 
+        if use_musetalk_cu128:
+            note("Re-applying MuseTalk PyTorch cu128 after requirements so runtime dependencies do not downgrade RTX 50 support...")
+            self.pip_install(
+                python_exe,
+                "install",
+                *torch_packages,
+                "--force-reinstall",
+                "--index-url",
+                torch_index_url,
+            )
+
         self.ensure_musetalk_weights(python_exe)
 
-        self.verify_imports(
-            python_exe,
-            ["torch", "cv2", "diffusers", "mmcv"],
-            "MuseTalk",
-        )
+        musetalk_imports = ["torch", "cv2", "diffusers"]
+        musetalk_imports.append("mediapipe" if use_musetalk_cu128 else "mmcv")
+        self.verify_imports(python_exe, musetalk_imports, "MuseTalk")
         self.verify_torch_cuda(python_exe, "MuseTalk")
 
     def ensure_musetalk_weights(self, python_exe: Path) -> None:
@@ -831,7 +895,15 @@ for job in jobs:
             [
                 str(python_exe),
                 "-c",
-                "import torch; print('available=' + str(torch.cuda.is_available())); print('cuda=' + str(torch.version.cuda))",
+                (
+                    "import torch; "
+                    "print('available=' + str(torch.cuda.is_available())); "
+                    "print('cuda=' + str(torch.version.cuda)); "
+                    "print('torch=' + str(torch.__version__)); "
+                    "print('arch_list=' + ','.join(torch.cuda.get_arch_list()) if torch.cuda.is_available() else 'arch_list='); "
+                    "print('device=' + torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'device='); "
+                    "print('capability=' + '.'.join(map(str, torch.cuda.get_device_capability(0))) if torch.cuda.is_available() else 'capability=')"
+                ),
             ],
             cwd=REPO_ROOT,
             capture=True,
