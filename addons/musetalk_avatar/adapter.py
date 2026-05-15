@@ -648,7 +648,17 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         threading.Thread(target=_orbit_predicted_entry, daemon=True).start()
         return predicted_entry_index
 
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None):
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename="chunk.json", dry_run_reply_id=None, cancel_check=None):
+        def _cancel_requested():
+            if self._shutdown_requested() or stop_playback.is_set():
+                return True
+            if callable(cancel_check):
+                try:
+                    return bool(cancel_check())
+                except Exception:
+                    return False
+            return False
+
         if self._shutdown_requested():
             return {"ok": False, "kind": "musetalk", "cancelled": True}
         requested_avatar_id = self._resolve_avatar_id_for_emotion(self.current_emotion)
@@ -739,22 +749,21 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                 return frame_index
 
             try:
-                if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
+                if job_generation != self.reply_generation or _cancel_requested():
                     result_holder["cancelled"] = True
                     return
                 self.render_slots.acquire()
-                if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
+                if job_generation != self.reply_generation or _cancel_requested():
                     result_holder["cancelled"] = True
                     return
                 with self.render_order_condition:
                     while (
                         render_order != self.active_render_order
                         and job_generation == self.reply_generation
-                        and not stop_playback.is_set()
-                        and not self._shutdown_requested()
+                        and not _cancel_requested()
                     ):
                         self.render_order_condition.wait(timeout=0.1)
-                    if job_generation != self.reply_generation or stop_playback.is_set() or self._shutdown_requested():
+                    if job_generation != self.reply_generation or _cancel_requested():
                         result_holder["cancelled"] = True
                         return
                     has_render_turn = True
@@ -851,8 +860,9 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                         temp_audio_paths.append(overlap_audio_path)
                         combined_audio.export(overlap_audio_path, format="wav")
                         request_audio_path = overlap_audio_path
-                        if self._shutdown_requested():
-                            raise RuntimeError("MuseTalk render cancelled during shutdown.")
+                        if _cancel_requested():
+                            result_holder["cancelled"] = True
+                            return
                         combined_count_result = self.bridge.request(
                             {
                                 "action": "estimate_frame_count",
@@ -863,8 +873,9 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                             },
                             timeout=120,
                         )
-                        if self._shutdown_requested():
-                            raise RuntimeError("MuseTalk render cancelled during shutdown.")
+                        if _cancel_requested():
+                            result_holder["cancelled"] = True
+                            return
                         current_count_result = self.bridge.request(
                             {
                                 "action": "estimate_frame_count",
@@ -875,6 +886,9 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                             },
                             timeout=120,
                         )
+                        if _cancel_requested():
+                            result_holder["cancelled"] = True
+                            return
                         trim_start_frames = max(
                             0,
                             int(combined_count_result.get("frame_count", 0) or 0)
@@ -885,6 +899,9 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                             f"({trim_start_frames} frame(s)) to {chunk_id}"
                         )
                         result_holder["trim_start_frames"] = trim_start_frames
+                    if _cancel_requested():
+                        result_holder["cancelled"] = True
+                        return
                     result = _request_render(
                         active_avatar_id,
                         chunk_id,
@@ -893,6 +910,9 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                         overlap_prefix_frames=trim_start_frames,
                         start_timeline_idx=requested_start_timeline_idx,
                     )
+                    if _cancel_requested():
+                        result_holder["cancelled"] = True
+                        return
                 result_holder.update(result)
                 result_holder["trim_start_frames"] = trim_start_frames
                 result_holder["avatar_id"] = active_avatar_id

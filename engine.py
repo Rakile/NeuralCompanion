@@ -1134,12 +1134,18 @@ def check_interaction_status(source):
         action = PENDING_GUI_ACTION
         PENDING_GUI_ACTION = None
         LAST_INPUT_TIME = now
+        if bool(RUNTIME_CONFIG.get("offline_replay_only", False)) and not _manual_action_allowed_during_replay(action):
+            print(f"[Replay] Ignored unavailable replay action: {action}")
+            return None
         return action
 
     # --- KEYBOARD SHORTCUTS ---
     for action, binding in get_manual_action_hotkeys().items():
         if is_hotkey_binding_pressed(binding):
             LAST_INPUT_TIME = now
+            if bool(RUNTIME_CONFIG.get("offline_replay_only", False)) and not _manual_action_allowed_during_replay(action):
+                print(f"[Replay] Ignored unavailable replay hotkey: {action}")
+                return None
             return action
 
     input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
@@ -1180,6 +1186,13 @@ def trigger_manual_action(action):
     global PENDING_GUI_ACTION, LAST_INPUT_TIME
     PENDING_GUI_ACTION = action
     LAST_INPUT_TIME = 0
+
+
+def _manual_action_allowed_during_replay(action):
+    raw = str(action or "").strip()
+    if raw in {"pause_speech", "skip_speech", "replay_last_assistant", "replay_chat_session"}:
+        return True
+    return parse_replay_chat_session_start_index(raw) is not None
 
 def check_interaction_status_old(source):
     """
@@ -1305,12 +1318,19 @@ def _open_configured_microphone(*, sample_rate=None):
     return sr.Microphone(**kwargs)
 
 
-def play_audio_file(path: str):
+def play_audio_file(path: str, stop_event=None):
+    class _PlaybackStopEvent:
+        def is_set(self):
+            try:
+                return bool(stop_playback.is_set() or (stop_event is not None and stop_event.is_set()))
+            except Exception:
+                return bool(stop_playback.is_set())
+
     return audio_playback.play_audio_file(
         path,
         soundfile_module=sf,
         sounddevice_module=sd,
-        stop_event=stop_playback,
+        stop_event=_PlaybackStopEvent(),
         audio_playing_event=audio_playing,
         output_device=_selected_sounddevice_output_index(),
         logger=print,
@@ -3686,7 +3706,7 @@ def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
             yield str(item)
 
 
-def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path_override=None) -> TTSController:
+def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path_override=None, replay_items=None) -> TTSController:
     global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
     ctrl = TTSController()
     stop_playback.clear()
@@ -3708,8 +3728,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
         if not resolved_voice_path_override:
             print(f"⚠️ Replay voice file not found: {voice_path_override}. Continuing with the current TTS voice.")
 
-    playback_queue = queue.Queue()
-    ready_for_playback = queue.Queue()
+    replay_mode = bool(replay_items)
+    playback_queue = queue.Queue(maxsize=6 if replay_mode else 0)
+    ready_for_playback = queue.Queue(maxsize=6 if replay_mode else 0)
     output_dir = runtime_paths.runtime_temp_dir("tts")
     sample_rate = getattr(tts_model, "sr", 24000)
     chunk_target_chars, chunk_max_chars = get_text_chunk_limits()
@@ -3762,17 +3783,61 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
             story_generation_available = False
         return False
 
+    def _pipeline_stopping() -> bool:
+        return bool(stop_playback.is_set() or stop_flag.is_set() or ctrl.cancel_requested.is_set())
+
+    def _put_unless_stopping(target_queue, item) -> bool:
+        while not _pipeline_stopping():
+            try:
+                target_queue.put(item, timeout=0.1)
+                return True
+            except queue.Full:
+                continue
+        return False
+
     def generator_worker():
         cnt = 0
         muse_chunk_index = 0
-        source_iterable = text_iterable if text_iterable is not None else [text]
+        if replay_mode:
+            source_iterable = list(replay_items or [])
+        else:
+            source_iterable = text_iterable if text_iterable is not None else [text]
         first_piece_logged = False
         first_subchunk_logged = False
         first_wav_logged = False
-        for piece_text in source_iterable:
-            if stop_playback.is_set(): break
+        for source_offset, source_item in enumerate(source_iterable):
+            if stop_playback.is_set() or ctrl.cancel_requested.is_set(): break
+            source_meta = {}
+            piece_voice_path = resolved_voice_path_override
+            if isinstance(source_item, dict):
+                piece_text = str(source_item.get("text", "") or "")
+                source_meta = {
+                    "replay_message_id": str(source_item.get("message_id", "") or ""),
+                    "replay_index": int(source_item.get("index", 0) or 0),
+                    "replay_total": int(source_item.get("total", 0) or 0),
+                    "replay_label": str(source_item.get("label", "") or ""),
+                }
+                piece_voice_path = _resolve_voice_reference_path(source_item.get("voice_path", "")) or resolved_voice_path_override
+            else:
+                piece_text = source_item
             if not piece_text or not str(piece_text).strip():
                 continue
+            replay_message_id = str(source_meta.get("replay_message_id", "") or "")
+            replay_index = int(source_meta.get("replay_index", 0) or 0)
+            while (
+                replay_mode
+                and source_offset > 0
+                and replay_index > 0
+                and hasattr(ctrl, "can_prepare_replay_index")
+                and not ctrl.can_prepare_replay_index(replay_index, lookahead=1)
+                and not stop_playback.is_set()
+                and not ctrl.cancel_requested.is_set()
+                and not stop_flag.is_set()
+            ):
+                time.sleep(0.05)
+            if stop_playback.is_set() or ctrl.cancel_requested.is_set() or stop_flag.is_set():
+                break
+            message_chunk_index = 0
             if text_iterable is not None and not first_piece_logged:
                 musetalk_state.append_musetalk_preview_log(
                     f"🌊 [Stream] Generator received first text piece: chars={len(str(piece_text).strip())}"
@@ -3782,7 +3847,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
             if avatar_mode == "musetalk":
                 segments = coalesce_musetalk_leading_segments(segments)
             for emotion, seg_text in segments:
-                if stop_playback.is_set():
+                if stop_playback.is_set() or ctrl.cancel_requested.is_set():
+                    break
+                if ctrl.should_skip_message(replay_message_id):
                     break
                 if avatar_mode == "musetalk":
                     sub_chunks = intelligent_chunk_text_progressive(seg_text, start_chunk_index=muse_chunk_index)
@@ -3790,7 +3857,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     sub_chunks = intelligent_chunk_text(seg_text, chunk_target_chars, chunk_max_chars)
                 print(f"🧩 [{RUNTIME_CONFIG.get('avatar_mode', 'vseeface').upper()}] {len(sub_chunks)} chunk(s) for emotion '{emotion}'")
                 for sub in sub_chunks:
-                    if stop_playback.is_set(): break
+                    if stop_playback.is_set() or ctrl.cancel_requested.is_set(): break
+                    if ctrl.should_skip_message(replay_message_id):
+                        break
                     chunk_sequence = muse_chunk_index if avatar_mode == "musetalk" else cnt
                     if pipeline_telemetry_enabled:
                         musetalk_state.update_musetalk_pipeline_chunk(
@@ -3813,16 +3882,33 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         path_exists=os.path.exists,
                         logger=print,
                     )
-                    if resolved_voice_path_override:
-                        kwargs["audio_prompt_path"] = resolved_voice_path_override
+                    if piece_voice_path:
+                        kwargs["audio_prompt_path"] = piece_voice_path
                     try:
+                        ctrl.set_generating_message_id(replay_message_id)
                         wav = tts_model.generate(sub, **kwargs)
                     except Exception as e:
-                        if stop_playback.is_set() or stop_flag.is_set():
+                        if _pipeline_stopping():
                             print(f"⏹️ [TTS] Generation cancelled during shutdown: {e}")
-                            playback_queue.put(None)
                             return
+                        if ctrl.should_skip_message(replay_message_id):
+                            print("⏭️ [Replay] TTS generation cancelled for skipped message.")
+                            break
                         raise
+                    finally:
+                        ctrl.clear_generating_message_id(replay_message_id)
+                    if ctrl.cancel_requested.is_set() or stop_playback.is_set():
+                        try:
+                            del wav
+                        except Exception:
+                            pass
+                        break
+                    if ctrl.should_skip_message(replay_message_id):
+                        try:
+                            del wav
+                        except Exception:
+                            pass
+                        break
                     path = str(output_dir / f"speech_{cnt}_{int(time.time())}.wav")
                     wav_to_save = wav.cpu()
                     ta.save(path, wav_to_save, sample_rate)
@@ -3862,11 +3948,20 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             "playback_duration_seconds": estimated_duration_seconds,
                             "expected_frame_count": max(2, estimated_frame_count or 0),
                         }
-                    playback_queue.put((path, emotion, sub, chunk_sequence))
+                    chunk_meta = dict(source_meta)
+                    chunk_meta["replay_message_first_chunk"] = bool(replay_mode and message_chunk_index == 0)
+                    if ctrl.cancel_requested.is_set() or stop_playback.is_set():
+                        safe_delete_with_retry(path)
+                        break
+                    if not _put_unless_stopping(playback_queue, (path, emotion, sub, chunk_sequence, chunk_meta)):
+                        safe_delete_with_retry(path)
+                        break
                     cnt += 1
+                    message_chunk_index += 1
                     if avatar_mode == "musetalk":
                         muse_chunk_index += 1
-        playback_queue.put(None)
+        if not _pipeline_stopping():
+            _put_unless_stopping(playback_queue, None)
         if pipeline_telemetry_enabled:
             musetalk_state.update_musetalk_pipeline_flags(
                 reply_id=pipeline_reply_id,
@@ -3899,13 +3994,28 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                 print(f"❌ [Filter] Fast-filter failed: {e}")
                 return input_wav
         try:
-            while not stop_playback.is_set():
-                item = playback_queue.get()
+            while not stop_playback.is_set() and not ctrl.cancel_requested.is_set():
+                try:
+                    item = playback_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
                 if item is None:
-                    ready_for_playback.put(None)
+                    if not _pipeline_stopping():
+                        _put_unless_stopping(ready_for_playback, None)
                     break
 
-                path, emotion, txt, chunk_sequence = item
+                if len(item) >= 5:
+                    path, emotion, txt, chunk_sequence, source_meta = item
+                else:
+                    path, emotion, txt, chunk_sequence = item
+                    source_meta = {}
+                replay_message_id = str((source_meta or {}).get("replay_message_id", "") or "")
+                if ctrl.cancel_requested.is_set() or stop_playback.is_set():
+                    safe_delete_with_retry(path)
+                    continue
+                if ctrl.should_skip_message(replay_message_id):
+                    safe_delete_with_retry(path)
+                    continue
                 vocal_only_path = path #isolate_vocals_simple(path)
 
                 unique_id = str(uuid.uuid4())[:8]
@@ -3937,11 +4047,15 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             chunk_id=predicted_chunk_id,
                             frame_dir=predicted_frame_dir,
                         )
+                    if ctrl.should_skip_message(replay_message_id):
+                        safe_delete_with_retry(path)
+                        continue
                     result = avatar_gui.process_audio_chunk(
                         vocal_only_path,
                         txt,
                         output_filename=temp_json_name,
                         dry_run_reply_id=dry_run_reply_id,
+                        cancel_check=(lambda message_id=replay_message_id: ctrl.cancel_requested.is_set() or ctrl.should_skip_message(message_id)) if replay_message_id else (lambda: ctrl.cancel_requested.is_set()),
                     )
                     chunk_result = normalize_chunk_result(result)
                 elif avatar_mode == "none":
@@ -3983,6 +4097,11 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     }
 
                 if chunk_result.get("ok"):
+                    if ctrl.cancel_requested.is_set() or stop_playback.is_set() or ctrl.should_skip_message(replay_message_id):
+                        safe_delete_with_retry(path)
+                        if vocal_only_path != path:
+                            safe_delete_with_retry(vocal_only_path)
+                        continue
                     if avatar_mode == "musetalk":
                         musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
@@ -4013,7 +4132,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             expected_frame_count=int(chunk_result.get("expected_frame_count", 0) or 0),
                             chunk_id=str(chunk_result.get("chunk_id", "") or ""),
                         )
-                    ready_for_playback.put((path, emotion, txt, chunk_sequence, chunk_result))
+                    if replay_message_id:
+                        ctrl.mark_message_ready(replay_message_id)
+                    if not _put_unless_stopping(ready_for_playback, (path, emotion, txt, chunk_sequence, chunk_result, source_meta)):
+                        safe_delete_with_retry(path)
+                        if vocal_only_path != path:
+                            safe_delete_with_retry(vocal_only_path)
+                        break
                     if vocal_only_path != path:
                         safe_delete_with_retry(vocal_only_path)
                 else:
@@ -4037,16 +4162,38 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
         last_chunk_end_time = None
 
         try:
-            while not stop_playback.is_set():
-                while playback_paused.is_set() and not stop_playback.is_set():
+            while not stop_playback.is_set() and not ctrl.cancel_requested.is_set():
+                while playback_paused.is_set() and not stop_playback.is_set() and not ctrl.cancel_requested.is_set():
                     time.sleep(0.05)
 
                 # Get the next chunk from the preprocessor
-                item = ready_for_playback.get()
+                try:
+                    item = ready_for_playback.get(timeout=0.1)
+                except queue.Empty:
+                    continue
                 if item is None:
                     break
 
-                path, emotion, txt, chunk_sequence, chunk_result = item
+                if len(item) >= 6:
+                    path, emotion, txt, chunk_sequence, chunk_result, source_meta = item
+                else:
+                    path, emotion, txt, chunk_sequence, chunk_result = item
+                    source_meta = {}
+                replay_message_id = str((source_meta or {}).get("replay_message_id", "") or "")
+                if ctrl.cancel_requested.is_set() or stop_playback.is_set():
+                    safe_delete_with_retry(path)
+                    continue
+                if replay_message_id:
+                    ctrl.clear_skip_current_message_if_new(replay_message_id)
+                    if ctrl.should_skip_message(replay_message_id):
+                        safe_delete_with_retry(path)
+                        continue
+                    ctrl.set_current_message_id(replay_message_id)
+                    if bool((source_meta or {}).get("replay_message_first_chunk", False)):
+                        replay_index = int((source_meta or {}).get("replay_index", 0) or 0)
+                        replay_total = int((source_meta or {}).get("replay_total", 0) or 0)
+                        if replay_index and replay_total:
+                            print(f"🔁 Replaying chat session message {replay_index}/{max(replay_total, 1)}...")
                 kind = chunk_result.get("kind", "audio")
 
                 if kind == "musetalk":
@@ -4120,6 +4267,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         and ready_event is not None
                         and not ready_event.is_set()
                         and not stop_playback.is_set()
+                        and not ctrl.cancel_requested.is_set()
+                        and not ctrl.should_skip_message(replay_message_id)
                         and time.time() - wait_start < 60
                     ):
                         time.sleep(0.1)
@@ -4137,6 +4286,10 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             status="cancelled",
                             playback_state="cancelled",
                         )
+                        safe_delete_with_retry(path)
+                        continue
+
+                    if ctrl.should_skip_message(replay_message_id):
                         safe_delete_with_retry(path)
                         continue
 
@@ -4171,12 +4324,21 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         if trimmed_paths:
                             frame_paths = trimmed_paths
 
-                    if not frame_paths and ready_event is not None and not ready_event.is_set() and not stop_playback.is_set():
+                    if (
+                        not frame_paths
+                        and ready_event is not None
+                        and not ready_event.is_set()
+                        and not stop_playback.is_set()
+                        and not ctrl.cancel_requested.is_set()
+                        and not ctrl.should_skip_message(replay_message_id)
+                    ):
                         while (
                             not frame_paths
                             and ready_event is not None
                             and not ready_event.is_set()
                             and not stop_playback.is_set()
+                            and not ctrl.cancel_requested.is_set()
+                            and not ctrl.should_skip_message(replay_message_id)
                         ):
                             time.sleep(0.1)
                             try:
@@ -4187,6 +4349,10 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             trimmed_paths = frame_paths[min(trim_start_frames, len(frame_paths) - 1):]
                             if trimmed_paths:
                                 frame_paths = trimmed_paths
+
+                    if ctrl.should_skip_message(replay_message_id):
+                        safe_delete_with_retry(path)
+                        continue
 
                     if not frame_paths:
                         musetalk_state.update_musetalk_pipeline_chunk(
@@ -4473,7 +4639,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         f"({delegated_duration_seconds:.2f}s, chunk={chunk_result.get('chunk_id')})"
                     )
 
-                if not stop_playback.is_set():
+                if not stop_playback.is_set() and not ctrl.cancel_requested.is_set():
                     preview_stream_stop = threading.Event()
                     preview_stream_thread = None
                     skip_local_playback = bool(chunk_result.get("skip_local_playback", False))
@@ -4571,12 +4737,19 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                                 wait_seconds = 0.0
                         if wait_seconds > 0:
                             deadline = time.time() + wait_seconds
-                            while time.time() < deadline and not stop_playback.is_set():
+                            while (
+                                time.time() < deadline
+                                and not stop_playback.is_set()
+                                and not ctrl.cancel_requested.is_set()
+                                and not ctrl.should_skip_message(replay_message_id)
+                            ):
                                 time.sleep(0.02)
                         else:
                             time.sleep(0.05)
                     else:
-                        play_audio_file(path)
+                        play_audio_file(path, stop_event=ctrl.skip_current_message if replay_message_id else None)
+                    if ctrl.should_skip_message(replay_message_id):
+                        print("⏭️ [Replay] Skipped current replay message.")
                     preview_stream_stop.set()
                     if preview_stream_thread is not None:
                         preview_stream_thread.join(timeout=0.2)
@@ -5519,6 +5692,10 @@ def run_conversation_flow(source):
             current_replay_total = int(current_entry.get("total", current_replay_position) or current_replay_position)
 
         if not user_text and not regenerating and not response_text:
+            if bool(RUNTIME_CONFIG.get("offline_replay_only", False)) and not PENDING_GUI_ACTION:
+                print("🔁 Offline replay complete.")
+                stop_flag.set()
+                break
             allow_proactive_replies = bool(RUNTIME_CONFIG.get("allow_proactive_replies", False))
             require_first_user_before_proactive = bool(RUNTIME_CONFIG.get("require_first_user_before_proactive", False))
             hidden_proactive_request = None
@@ -5786,7 +5963,10 @@ def run_conversation_flow(source):
             if response_text:
                 if response_text_is_replay:
                     if response_text_replay_kind == "session":
-                        print(f"🔁 Replaying chat session message {current_replay_position}/{max(current_replay_total, 1)}...")
+                        print(
+                            f"🔁 Replaying chat session from message "
+                            f"{current_replay_position}/{max(current_replay_total, 1)}..."
+                        )
                     else:
                         print("🔁 Replaying latest assistant reply...")
                 else:
@@ -5795,11 +5975,35 @@ def run_conversation_flow(source):
                     print("------------------------------------------------------------------------------------------------------")
                 stop_playback.clear()
                 set_seed(3918375115)
-                ctrl = speak_async(
-                    sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True),
-                    dry_run_reply_id=dry_run_reply_id,
-                    voice_path_override=current_replay_voice_path if response_text_is_replay else None,
-                )
+                if response_text_is_replay and response_text_replay_kind == "session":
+                    replay_items = [
+                        {
+                            "text": sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True),
+                            "voice_path": current_replay_voice_path,
+                            "index": current_replay_position,
+                            "total": current_replay_total,
+                            "message_id": f"replay:{current_replay_position}",
+                        }
+                    ]
+                    for item in list(pending_replay_sequence or []):
+                        replay_index = int((item or {}).get("index", 0) or 0)
+                        replay_items.append(
+                            {
+                                "text": sanitize_assistant_text_for_speech(str((item or {}).get("text", "") or ""), preserve_emotion_tags=True),
+                                "voice_path": str((item or {}).get("voice_path", "") or "").strip(),
+                                "index": replay_index,
+                                "total": int((item or {}).get("total", current_replay_total) or current_replay_total),
+                                "message_id": f"replay:{replay_index}",
+                            }
+                        )
+                    pending_replay_sequence = []
+                    ctrl = speak_async("", dry_run_reply_id=dry_run_reply_id, replay_items=replay_items)
+                else:
+                    ctrl = speak_async(
+                        sanitize_assistant_text_for_speech(response_text, preserve_emotion_tags=True),
+                        dry_run_reply_id=dry_run_reply_id,
+                        voice_path_override=current_replay_voice_path if response_text_is_replay else None,
+                    )
 
             was_barge_in = False
 
@@ -5827,19 +6031,54 @@ def run_conversation_flow(source):
                     if is_proactive:
                         user_text = None
                 status = check_interaction_status(source)
+                if response_text_is_replay and status in {
+                    "regenerate_response",
+                    "retry_user_input",
+                    "skip_user_reply",
+                    "barge_in",
+                    "push_to_talk",
+                }:
+                    print(f"\n[Replay] Ignored unavailable replay action: {status}")
+                    status = None
 
                 # --- ACTION: SKIP / STOP ---
                 if status == "skip_speech":
-                    print("\n⏭️ Skipping speech...")
-                    stop_playback.set()
-                    if stream_state is not None:
-                        stream_state.cancel_requested.set()
-                    # We don't mark as interrupted for history purposes on skip
-                    # (Usually you want the full text in history even if you skipped reading it)
-                    if not (response_text_is_replay and response_text_replay_kind == "session"):
+                    if response_text_is_replay and response_text_replay_kind == "session" and hasattr(ctrl, "request_skip_current_message"):
+                        print("\n⏭️ Skipping replay message...")
+                        active_replay_position = int(current_replay_position or 0)
+                        if hasattr(ctrl, "current_replay_index"):
+                            try:
+                                active_replay_position = int(ctrl.current_replay_index() or active_replay_position)
+                            except Exception:
+                                active_replay_position = int(current_replay_position or 0)
+                        has_ready_next = bool(
+                            hasattr(ctrl, "has_ready_replay_message_after")
+                            and ctrl.has_ready_replay_message_after(active_replay_position)
+                        )
+                        if has_ready_next:
+                            ctrl.request_skip_current_message()
+                        else:
+                            next_replay_position = active_replay_position + 1
+                            if next_replay_position <= int(current_replay_total or 0) and _queue_replay_session_from(next_replay_position):
+                                if hasattr(ctrl, "cancel"):
+                                    ctrl.cancel()
+                                else:
+                                    ctrl.request_skip_current_message()
+                                stop_playback.set()
+                                if stream_state is not None:
+                                    stream_state.cancel_requested.set()
+                                break
+                            ctrl.request_skip_current_message()
+                    else:
+                        print("\n⏭️ Skipping speech...")
+                        stop_playback.set()
+                        if stream_state is not None:
+                            stream_state.cancel_requested.set()
+                        # We don't mark as interrupted for history purposes on skip
+                        # (Usually you want the full text in history even if you skipped reading it)
                         pending_replay_text = None
                         pending_replay_sequence = []
-                    break
+                        break
 
                 # --- ACTION: REGENERATE ---
                 elif status == "regenerate_response":
@@ -6081,6 +6320,11 @@ def run_companion(config_override=None):
     offline_replay_only = bool(RUNTIME_CONFIG.get("offline_replay_only", False))
     if offline_replay_only:
         print("🔁 Offline replay mode: skipping chat-provider startup check.")
+        try:
+            print("🔁 Offline replay mode: unloading active LM Studio models to free resources.")
+            unload_lmstudio_models()
+        except Exception as exc:
+            print(f"⚠️ Offline replay could not unload active LM Studio models: {exc}")
     else:
         if not _chat_provider_connection_check():
             return

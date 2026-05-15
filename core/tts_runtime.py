@@ -29,7 +29,14 @@ class TTSController:
     def __init__(self):
         self.done = threading.Event()
         self.interrupted = threading.Event()
+        self.cancel_requested = threading.Event()
+        self.skip_current_message = threading.Event()
         self.spoken_chunks = []
+        self._current_message_id = ""
+        self._current_replay_index = 0
+        self._generating_message_id = ""
+        self._skip_message_id = ""
+        self._ready_message_ids = set()
         self._lock = threading.Lock()
 
     def add_spoken(self, chunk_text: str):
@@ -39,6 +46,108 @@ class TTSController:
     def get_spoken_text(self) -> str:
         with self._lock:
             return " ".join(self.spoken_chunks).strip()
+
+    def set_current_message_id(self, message_id: str):
+        with self._lock:
+            self._current_message_id = str(message_id or "")
+            raw = self._current_message_id
+            if raw.startswith("replay:"):
+                try:
+                    self._current_replay_index = int(raw.split(":", 1)[1])
+                except Exception:
+                    pass
+            if self.skip_current_message.is_set() and self._skip_message_id == "__pending__":
+                self._skip_message_id = self._current_message_id
+
+    def current_replay_index(self) -> int:
+        with self._lock:
+            return int(self._current_replay_index or 0)
+
+    def can_prepare_replay_index(self, index: int, lookahead: int = 1) -> bool:
+        try:
+            target = int(index)
+            ahead = max(0, int(lookahead))
+        except Exception:
+            return True
+        with self._lock:
+            current = int(self._current_replay_index or 0)
+        if current <= 0:
+            return target <= 1
+        return target <= current + ahead
+
+    def request_skip_current_message(self):
+        with self._lock:
+            skip_message_id = str(self._current_message_id or "__pending__")
+            already_requested = self.skip_current_message.is_set() and self._skip_message_id == skip_message_id
+            self._skip_message_id = skip_message_id
+            self.skip_current_message.set()
+            return not already_requested
+
+    def cancel(self):
+        self.cancel_requested.set()
+        self.skip_current_message.set()
+
+    def set_generating_message_id(self, message_id: str):
+        with self._lock:
+            self._generating_message_id = str(message_id or "")
+
+    def clear_generating_message_id(self, message_id: str):
+        with self._lock:
+            current = str(message_id or "")
+            if not current or self._generating_message_id == current:
+                self._generating_message_id = ""
+
+    def should_cancel_active_generation_for_skip(self) -> bool:
+        with self._lock:
+            if not self.skip_current_message.is_set() or not self._skip_message_id:
+                return False
+            if not self._generating_message_id:
+                return False
+            if self._skip_message_id == "__pending__":
+                self._skip_message_id = self._generating_message_id
+                self._current_message_id = self._generating_message_id
+                return True
+            return self._skip_message_id == self._generating_message_id
+
+    def clear_skip_current_message_if_new(self, message_id: str):
+        with self._lock:
+            current = str(message_id or "")
+            if self.skip_current_message.is_set() and self._skip_message_id and self._skip_message_id != current:
+                self._skip_message_id = ""
+                self.skip_current_message.clear()
+
+    def should_skip_message(self, message_id: str) -> bool:
+        with self._lock:
+            current = str(message_id or "")
+            if self.skip_current_message.is_set() and self._skip_message_id == "__pending__" and current:
+                self._skip_message_id = current
+                self._current_message_id = current
+                return True
+            return bool(self.skip_current_message.is_set() and self._skip_message_id and self._skip_message_id == current)
+
+    def mark_message_ready(self, message_id: str):
+        value = str(message_id or "")
+        if not value:
+            return
+        with self._lock:
+            self._ready_message_ids.add(value)
+
+    def has_ready_replay_message_after(self, index: int) -> bool:
+        try:
+            current_index = int(index)
+        except Exception:
+            return False
+        with self._lock:
+            for message_id in self._ready_message_ids:
+                raw = str(message_id or "")
+                if not raw.startswith("replay:"):
+                    continue
+                try:
+                    if int(raw.split(":", 1)[1]) > current_index:
+                        return True
+                except Exception:
+                    continue
+            return False
 
 
 def list_available_tts_backends(manager_getter, *, logger=print):
