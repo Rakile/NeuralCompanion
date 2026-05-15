@@ -37,7 +37,7 @@ MAIN_TORCH_CU128_PACKAGES = ("torch", "torchaudio", "torchvision")
 MAIN_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 MUSETALK_TORCH_CU118_PACKAGES = ("torch==2.0.1+cu118", "torchaudio==2.0.2+cu118", "torchvision==0.15.2+cu118")
 MUSETALK_TORCH_CU118_INDEX_URL = "https://download.pytorch.org/whl/cu118"
-MUSETALK_TORCH_CU128_PACKAGES = ("torch==2.10.0", "torchvision", "torchaudio")
+MUSETALK_TORCH_CU128_PACKAGES = ("torch==2.10.0", "torchaudio==2.10.0", "torchvision==0.25.0")
 MUSETALK_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
     "gast",
