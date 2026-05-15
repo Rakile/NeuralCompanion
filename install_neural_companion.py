@@ -61,6 +61,11 @@ MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
     "tensorflow-io-gcs-filesystem",
     "xtcocotools",
 }
+MUSETALK_RUNTIME_COMPAT_PACKAGES = (
+    "numpy==1.26.4",
+    "opencv-python==4.9.0.80",
+    "pillow==11.2.1",
+)
 MAIN_BINARY_COMPAT_PACKAGES = (
     "numpy==1.24.4",
     "pandas==1.5.3",
@@ -825,14 +830,6 @@ print(json.dumps(status))
         else:
             self.pip_install(python_exe, "install", "-r", str(requirements_path))
 
-        note("Applying known-good MuseTalk compatibility pins...")
-        self.pip_install(
-            python_exe,
-            "install",
-            "numpy==1.26.4",
-            "pillow==11.2.1",
-        )
-
         if use_musetalk_cu128:
             note("Re-applying MuseTalk PyTorch cu128 after requirements so runtime dependencies do not downgrade RTX 50 support...")
             self.pip_install(
@@ -843,6 +840,15 @@ print(json.dumps(status))
                 "--index-url",
                 torch_index_url,
             )
+
+        note("Applying known-good MuseTalk compatibility pins...")
+        self.pip_install(
+            python_exe,
+            "install",
+            "--force-reinstall",
+            "--no-cache-dir",
+            *MUSETALK_RUNTIME_COMPAT_PACKAGES,
+        )
 
         self.ensure_musetalk_weights(python_exe)
 
