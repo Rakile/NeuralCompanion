@@ -6070,7 +6070,6 @@ def run_conversation_flow(source):
                                     ctrl.cancel()
                                 else:
                                     ctrl.request_skip_current_message()
-                                stop_playback.set()
                                 if stream_state is not None:
                                     stream_state.cancel_requested.set()
                                 break

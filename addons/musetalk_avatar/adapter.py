@@ -490,6 +490,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
         with self.render_order_condition:
             self.next_render_order = 0
             self.active_render_order = 0
+            self.render_order_condition.notify_all()
 
     def _estimate_first_chunk_delay(self):
         if bool(RUNTIME_CONFIG.get("stream_mode", False)):
@@ -708,6 +709,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             trim_start_frames = 0
             job_generation = self.reply_generation
             has_render_turn = False
+            acquired_render_slot = False
 
             def _request_render(
                 avatar_id,
@@ -753,6 +755,7 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
                     result_holder["cancelled"] = True
                     return
                 self.render_slots.acquire()
+                acquired_render_slot = True
                 if job_generation != self.reply_generation or _cancel_requested():
                     result_holder["cancelled"] = True
                     return
@@ -982,11 +985,12 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             finally:
                 if has_render_turn:
                     with self.render_order_condition:
-                        if render_order == self.active_render_order:
+                        if job_generation == self.reply_generation and render_order == self.active_render_order:
                             self.active_render_order += 1
                         self.render_order_condition.notify_all()
                 try:
-                    self.render_slots.release()
+                    if acquired_render_slot:
+                        self.render_slots.release()
                 except Exception:
                     pass
                 safe_delete_with_retry(render_audio_path)

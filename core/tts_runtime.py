@@ -42,6 +42,7 @@ class TTSController:
         self._current_replay_index = 0
         self._generating_message_id = ""
         self._skip_message_id = ""
+        self._skipped_message_ids = set()
         self._ready_message_ids = set()
         self._lock = threading.Lock()
 
@@ -86,12 +87,19 @@ class TTSController:
             skip_message_id = str(self._current_message_id or "__pending__")
             already_requested = self.skip_current_message.is_set() and self._skip_message_id == skip_message_id
             self._skip_message_id = skip_message_id
+            if skip_message_id and skip_message_id != "__pending__":
+                self._skipped_message_ids.add(skip_message_id)
             self.skip_current_message.set()
             return not already_requested
 
     def cancel(self):
-        self.cancel_requested.set()
-        self.skip_current_message.set()
+        with self._lock:
+            skip_message_id = str(self._current_message_id or "__pending__")
+            self._skip_message_id = skip_message_id
+            if skip_message_id and skip_message_id != "__pending__":
+                self._skipped_message_ids.add(skip_message_id)
+            self.cancel_requested.set()
+            self.skip_current_message.set()
 
     def set_generating_message_id(self, message_id: str):
         with self._lock:
@@ -112,6 +120,8 @@ class TTSController:
             if self._skip_message_id == "__pending__":
                 self._skip_message_id = self._generating_message_id
                 self._current_message_id = self._generating_message_id
+                if self._generating_message_id:
+                    self._skipped_message_ids.add(self._generating_message_id)
                 return True
             return self._skip_message_id == self._generating_message_id
 
@@ -125,9 +135,12 @@ class TTSController:
     def should_skip_message(self, message_id: str) -> bool:
         with self._lock:
             current = str(message_id or "")
+            if current and current in self._skipped_message_ids:
+                return True
             if self.skip_current_message.is_set() and self._skip_message_id == "__pending__" and current:
                 self._skip_message_id = current
                 self._current_message_id = current
+                self._skipped_message_ids.add(current)
                 return True
             return bool(self.skip_current_message.is_set() and self._skip_message_id and self._skip_message_id == current)
 
