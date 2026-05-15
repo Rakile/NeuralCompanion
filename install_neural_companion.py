@@ -35,6 +35,16 @@ MAIN_TORCH_CU126_PACKAGES = ("torch==2.6.0", "torchaudio==2.6.0", "torchvision==
 MAIN_TORCH_CU126_INDEX_URL = "https://download.pytorch.org/whl/cu126"
 MAIN_TORCH_CU128_PACKAGES = ("torch", "torchaudio", "torchvision")
 MAIN_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+MAIN_BINARY_COMPAT_PACKAGES = (
+    "numpy==1.24.4",
+    "pandas==1.5.3",
+    "scipy==1.11.4",
+    "scikit-learn==1.3.2",
+)
+MAIN_RUNTIME_PIN_PACKAGES = (
+    "pillow==11.2.1",
+    "PyAudio==0.2.14",
+)
 
 
 DEFAULT_AVATAR_PACKS = {
@@ -541,15 +551,6 @@ class Installer:
             str(REPO_ROOT / "requirements.companion.txt"),
         )
 
-        note("Applying known-good compatibility pins...")
-        self.pip_install(
-            python_exe,
-            "install",
-            "numpy==1.24.4",
-            "pillow==11.2.1",
-            "PyAudio==0.2.14",
-        )
-
         if torch_index_url == MAIN_TORCH_CU128_INDEX_URL:
             note("Re-applying PyTorch cu128 after requirements so Chatterbox metadata pins do not downgrade RTX 50 support...")
             self.pip_install(
@@ -561,9 +562,25 @@ class Installer:
                 torch_index_url,
             )
 
+        note("Repairing compiled scientific package ABI pins...")
+        self.pip_install(
+            python_exe,
+            "install",
+            "--force-reinstall",
+            "--no-cache-dir",
+            *MAIN_BINARY_COMPAT_PACKAGES,
+        )
+
+        note("Applying known-good runtime pins...")
+        self.pip_install(
+            python_exe,
+            "install",
+            *MAIN_RUNTIME_PIN_PACKAGES,
+        )
+
         self.verify_imports(
             python_exe,
-            ["torch", "PySide6", "flask", "nltk", "openai"],
+            ["torch", "numpy", "pandas", "sklearn", "PySide6", "flask", "nltk", "openai"],
             "Main app",
         )
         self.verify_torch_cuda(python_exe, "Main app")
