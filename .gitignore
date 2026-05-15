@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .venvs/
 /runtime/
+tools/ffmpeg/
 qt_session.json
 session.json
 output.wav

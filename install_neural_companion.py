@@ -31,6 +31,9 @@ AVATAR_PACK_BASE_URL = (
 )
 AVATAR_PACK_REPO = "Rakile/NeuralCompanion-AvatarPacks"
 AVATAR_PACK_RELEASE_API_URL = f"https://api.github.com/repos/{AVATAR_PACK_REPO}/releases/tags/{AVATAR_PACK_RELEASE_TAG}"
+FFMPEG_TOOLS_DIR = REPO_ROOT / "tools" / "ffmpeg"
+FFMPEG_BIN_DIR = FFMPEG_TOOLS_DIR / "bin"
+FFMPEG_WINDOWS_URL = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
 MAIN_TORCH_CU126_PACKAGES = ("torch==2.6.0", "torchaudio==2.6.0", "torchvision==0.21.0")
 MAIN_TORCH_CU126_INDEX_URL = "https://download.pytorch.org/whl/cu126"
 MAIN_TORCH_CU128_PACKAGES = ("torch", "torchaudio", "torchvision")
@@ -274,12 +277,14 @@ class Installer:
             DoctorFinding("Python 3.11", "OK", f"Using {self.selected_python_label()} ({version})")
         )
 
-        ffmpeg_ok = shutil.which("ffmpeg") is not None
+        ffmpeg_path = self.resolve_ffmpeg_binary("ffmpeg")
+        ffprobe_path = self.resolve_ffmpeg_binary("ffprobe")
+        ffmpeg_ok = ffmpeg_path is not None and ffprobe_path is not None
         self.findings.append(
             DoctorFinding(
                 "FFmpeg",
                 "OK" if ffmpeg_ok else "WARN",
-                "Found on PATH" if ffmpeg_ok else "Missing from PATH",
+                f"Found ffmpeg={ffmpeg_path}, ffprobe={ffprobe_path}" if ffmpeg_ok else "Missing ffmpeg or ffprobe",
             )
         )
 
@@ -439,6 +444,54 @@ class Installer:
         package_list = sorted(set(packages))
         if package_list:
             run_command([str(python_exe), "-m", "pip", "uninstall", "-y", *package_list], cwd=REPO_ROOT, check=False)
+
+    def resolve_ffmpeg_binary(self, name: str) -> str | None:
+        executable = f"{name}.exe" if os.name == "nt" else name
+        bundled = FFMPEG_BIN_DIR / executable
+        if bundled.exists():
+            return str(bundled)
+        return shutil.which(name)
+
+    def ensure_ffmpeg(self) -> None:
+        ffmpeg_path = self.resolve_ffmpeg_binary("ffmpeg")
+        ffprobe_path = self.resolve_ffmpeg_binary("ffprobe")
+        if ffmpeg_path and ffprobe_path:
+            ok(f"FFmpeg ready: ffmpeg={ffmpeg_path}, ffprobe={ffprobe_path}")
+            return
+        if os.name != "nt":
+            warn("FFmpeg or ffprobe is missing. Install FFmpeg through your system package manager.")
+            return
+
+        headline("Installing FFmpeg")
+        FFMPEG_TOOLS_DIR.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(prefix="nc_ffmpeg_") as temp_dir:
+            temp_root = Path(temp_dir)
+            archive_path = temp_root / "ffmpeg.zip"
+            extract_root = temp_root / "extract"
+            note("Downloading bundled FFmpeg for Windows...")
+            self.download_file(FFMPEG_WINDOWS_URL, archive_path)
+            note("Extracting FFmpeg tools...")
+            with zipfile.ZipFile(archive_path) as archive:
+                for member in archive.infolist():
+                    member_path = Path(member.filename)
+                    if member_path.is_absolute() or ".." in member_path.parts:
+                        raise SystemExit(f"FFmpeg archive contains an unsafe path: {member.filename}")
+                archive.extractall(extract_root)
+            bin_candidates = [
+                path for path in extract_root.rglob("bin")
+                if (path / "ffmpeg.exe").exists() and (path / "ffprobe.exe").exists()
+            ]
+            if not bin_candidates:
+                raise SystemExit("Downloaded FFmpeg archive did not contain ffmpeg.exe and ffprobe.exe.")
+            source_bin = bin_candidates[0]
+            if FFMPEG_BIN_DIR.exists():
+                shutil.rmtree(FFMPEG_BIN_DIR, ignore_errors=True)
+            FFMPEG_BIN_DIR.mkdir(parents=True, exist_ok=True)
+            for executable in ("ffmpeg.exe", "ffprobe.exe", "ffplay.exe"):
+                source = source_bin / executable
+                if source.exists():
+                    shutil.copy2(source, FFMPEG_BIN_DIR / executable)
+        ok(f"Bundled FFmpeg installed at {FFMPEG_BIN_DIR}")
 
     def filtered_requirements_file(self, source_path: Path, skip_names: set[str], temp_dir: Path) -> Path:
         filtered_path = temp_dir / source_path.name
@@ -645,6 +698,7 @@ class Installer:
             "Main app",
         )
         self.verify_torch_cuda(python_exe, "Main app")
+        self.ensure_ffmpeg()
 
     def install_pockettts(self) -> None:
         headline("Installing PocketTTS")
@@ -955,7 +1009,7 @@ for job in jobs:
 
         print()
         warn("Still worth checking by hand:")
-        print("  - FFmpeg is on PATH")
+        print("  - FFmpeg/ffprobe are available on PATH or bundled under tools\\ffmpeg\\bin")
         print("  - LM Studio is installed and has a model loaded if you want local chat")
         print("  - Optional MuseTalk avatar packs live in avatar_packs/<pack_id>")
         print("  - PocketTTS voice cloning still requires Hugging Face terms acceptance on kyutai/pocket-tts")

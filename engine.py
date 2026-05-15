@@ -49,8 +49,32 @@ from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
 from core.conversation_flow_v2 import ConversationActionType, ConversationPolicy, SystemClockRuntime, build_experimental_controller
+
+
+def _configure_ffmpeg_tools():
+    ffmpeg_bin = str(os.environ.get("NC_FFMPEG_BIN", "") or "").strip()
+    if not ffmpeg_bin:
+        ffmpeg_bin = str(Path(__file__).resolve().parent / "tools" / "ffmpeg" / "bin")
+    bin_path = Path(ffmpeg_bin)
+    ffmpeg_exe = bin_path / ("ffmpeg.exe" if os.name == "nt" else "ffmpeg")
+    ffprobe_exe = bin_path / ("ffprobe.exe" if os.name == "nt" else "ffprobe")
+    if not ffmpeg_exe.exists() or not ffprobe_exe.exists():
+        return None
+    current_path = os.environ.get("PATH", "")
+    bin_text = str(bin_path)
+    path_parts = [part for part in current_path.split(os.pathsep) if part]
+    if bin_text not in path_parts:
+        os.environ["PATH"] = bin_text + (os.pathsep + current_path if current_path else "")
+    return ffmpeg_exe, ffprobe_exe
+
+
+_FFMPEG_TOOLS = _configure_ffmpeg_tools()
 from pydub import AudioSegment
 
+if _FFMPEG_TOOLS is not None:
+    AudioSegment.converter = str(_FFMPEG_TOOLS[0])
+    AudioSegment.ffmpeg = str(_FFMPEG_TOOLS[0])
+    AudioSegment.ffprobe = str(_FFMPEG_TOOLS[1])
 
 _ORIGINAL_SUBPROCESS_POPEN = subprocess.Popen
 
