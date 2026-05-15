@@ -12,10 +12,16 @@ import time
 import uuid
 
 import numpy as np
+import soundfile as sf
 import torch
-import torchaudio as ta
 
 from core import runtime_paths
+
+
+def load_audio_file(path):
+    audio, sample_rate = sf.read(str(path), dtype="float32", always_2d=True)
+    wav = torch.from_numpy(audio).transpose(0, 1).contiguous()
+    return wav, int(sample_rate or 0)
 
 
 @dataclass
@@ -415,7 +421,7 @@ class PocketTTSSubprocessAdapter:
             response = self._read_message(timeout=180.0)
         if response.get("status") != "ok":
             raise RuntimeError(response.get("error", "PocketTTS worker synthesis failed"))
-        wav, sample_rate = ta.load(output_path)
+        wav, sample_rate = load_audio_file(output_path)
         self.sr = int(sample_rate or self.sr or 24000)
         self.safe_delete_with_retry(output_path)
         return wav
@@ -462,13 +468,13 @@ class AddonTTSBackendAdapter:
         if result is None:
             raise RuntimeError(f"Addon TTS backend '{self.backend_id}' returned no audio")
         if isinstance(result, (str, Path)):
-            wav, sample_rate = ta.load(str(result))
+            wav, sample_rate = load_audio_file(result)
             self.sr = int(sample_rate or self.sr or 24000)
             return wav
         if isinstance(result, dict):
             audio_path = str(result.get("audio_path") or result.get("path") or "").strip()
             if audio_path:
-                wav, sample_rate = ta.load(audio_path)
+                wav, sample_rate = load_audio_file(audio_path)
                 self.sr = int(result.get("sample_rate") or result.get("sr") or sample_rate or self.sr or 24000)
                 return wav
             wav = result.get("wav")
@@ -481,7 +487,7 @@ class AddonTTSBackendAdapter:
         if isinstance(result, tuple) and len(result) == 2:
             wav, sample_rate = result
             if isinstance(wav, (str, Path)):
-                wav, loaded_sample_rate = ta.load(str(wav))
+                wav, loaded_sample_rate = load_audio_file(wav)
                 self.sr = int(sample_rate or loaded_sample_rate or self.sr or 24000)
                 return wav
             self.sr = int(sample_rate or self.sr or 24000)

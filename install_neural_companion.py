@@ -31,6 +31,10 @@ AVATAR_PACK_BASE_URL = (
 )
 AVATAR_PACK_REPO = "Rakile/NeuralCompanion-AvatarPacks"
 AVATAR_PACK_RELEASE_API_URL = f"https://api.github.com/repos/{AVATAR_PACK_REPO}/releases/tags/{AVATAR_PACK_RELEASE_TAG}"
+MAIN_TORCH_CU126_PACKAGES = ("torch==2.6.0", "torchaudio==2.6.0", "torchvision==0.21.0")
+MAIN_TORCH_CU126_INDEX_URL = "https://download.pytorch.org/whl/cu126"
+MAIN_TORCH_CU128_PACKAGES = ("torch", "torchaudio", "torchvision")
+MAIN_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
 
 
 DEFAULT_AVATAR_PACKS = {
@@ -283,6 +287,71 @@ class Installer:
         except Exception as exc:
             return DoctorFinding("NVIDIA / CUDA", "WARN", f"nvidia-smi failed: {exc}")
 
+    def detect_blackwell_gpu(self) -> tuple[bool, str]:
+        if not shutil.which("nvidia-smi"):
+            return False, "nvidia-smi not found"
+        try:
+            result = run_command(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=name,compute_cap",
+                    "--format=csv,noheader",
+                ],
+                capture=True,
+                check=False,
+            )
+        except Exception as exc:
+            return False, f"nvidia-smi query failed: {exc}"
+
+        details: list[str] = []
+        for line in result.stdout.splitlines():
+            raw = line.strip()
+            if not raw:
+                continue
+            parts = [part.strip() for part in raw.split(",")]
+            name = parts[0] if parts else raw
+            capability_text = parts[1] if len(parts) > 1 else ""
+            details.append(raw)
+            try:
+                capability = float(capability_text)
+            except Exception:
+                capability = 0.0
+            normalized_name = name.lower()
+            if capability >= 12.0 or "rtx 50" in normalized_name or "blackwell" in normalized_name:
+                return True, raw
+
+        if details:
+            return False, "; ".join(details)
+
+        try:
+            fallback = run_command(
+                ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                capture=True,
+                check=False,
+            )
+        except Exception as exc:
+            return False, f"nvidia-smi name query failed: {exc}"
+        names = [line.strip() for line in fallback.stdout.splitlines() if line.strip()]
+        for name in names:
+            normalized_name = name.lower()
+            if "rtx 50" in normalized_name or "blackwell" in normalized_name:
+                return True, name
+        return False, "; ".join(names) if names else "no NVIDIA GPU details returned"
+
+    def main_torch_install_plan(self) -> tuple[tuple[str, ...], str, str]:
+        is_blackwell, detail = self.detect_blackwell_gpu()
+        if is_blackwell:
+            return (
+                MAIN_TORCH_CU128_PACKAGES,
+                MAIN_TORCH_CU128_INDEX_URL,
+                f"RTX 50 / Blackwell-class GPU detected ({detail}); using PyTorch cu128 wheels.",
+            )
+        return (
+            MAIN_TORCH_CU126_PACKAGES,
+            MAIN_TORCH_CU126_INDEX_URL,
+            f"Using Neural Companion default PyTorch cu126 stack ({detail}).",
+        )
+
     def detect_lm_studio(self) -> DoctorFinding:
         common_paths = [
             Path(os.environ.get("LOCALAPPDATA", "")) / "Programs" / "LM Studio" / "LM Studio.exe",
@@ -442,17 +511,24 @@ class Installer:
         note("Upgrading pip/setuptools/wheel...")
         self.pip_install(python_exe, "install", "--upgrade", "pip", "setuptools<81", "wheel")
 
+        torch_packages: tuple[str, ...] = ()
+        torch_index_url = ""
         if not self.args.skip_main_torch:
+            torch_packages, torch_index_url, torch_plan_detail = self.main_torch_install_plan()
+            note(torch_plan_detail)
+            if torch_index_url == MAIN_TORCH_CU128_INDEX_URL:
+                warn(
+                    "The cu128 torch stack can print strict Chatterbox dependency warnings; "
+                    "NC avoids torchaudio file IO and uses this path for RTX 50-series GPU support."
+                )
             note("Installing CUDA-enabled torch for Neural Companion...")
             self.pip_install(
                 python_exe,
                 "install",
-                "torch==2.6.0",
-                "torchaudio==2.6.0",
-                "torchvision==0.21.0",
+                *torch_packages,
                 "--force-reinstall",
                 "--index-url",
-                "https://download.pytorch.org/whl/cu126",
+                torch_index_url,
             )
         else:
             warn("Skipping main torch install because --skip-main-torch was requested.")
@@ -473,6 +549,17 @@ class Installer:
             "pillow==11.2.1",
             "PyAudio==0.2.14",
         )
+
+        if torch_index_url == MAIN_TORCH_CU128_INDEX_URL:
+            note("Re-applying PyTorch cu128 after requirements so Chatterbox metadata pins do not downgrade RTX 50 support...")
+            self.pip_install(
+                python_exe,
+                "install",
+                *torch_packages,
+                "--force-reinstall",
+                "--index-url",
+                torch_index_url,
+            )
 
         self.verify_imports(
             python_exe,

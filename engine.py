@@ -19,7 +19,6 @@ import mimetypes
 from pathlib import Path
 from faster_whisper import WhisperModel
 import torch
-import torchaudio as ta
 import sounddevice as sd
 import numpy as np
 
@@ -1335,6 +1334,15 @@ def play_audio_file(path: str, stop_event=None):
         output_device=_selected_sounddevice_output_index(),
         logger=print,
     )
+
+
+def save_audio_file(path, wav, sample_rate):
+    tensor = wav.detach().cpu() if hasattr(wav, "detach") else torch.as_tensor(wav).cpu()
+    if tensor.ndim == 1:
+        audio = tensor.numpy()
+    else:
+        audio = tensor.transpose(0, 1).contiguous().numpy()
+    sf.write(str(path), audio, int(sample_rate))
 
 
 def stream_musetalk_preview_frames(playback_state, stop_event):
@@ -3910,9 +3918,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             pass
                         break
                     path = str(output_dir / f"speech_{cnt}_{int(time.time())}.wav")
-                    wav_to_save = wav.cpu()
-                    ta.save(path, wav_to_save, sample_rate)
-                    del wav_to_save
+                    save_audio_file(path, wav, sample_rate)
                     del wav
                     estimated_duration_seconds = 0.0
                     estimated_frame_count = 0
@@ -4900,7 +4906,7 @@ audio_story_runtime.configure_runtime(
     intelligent_chunk_text=intelligent_chunk_text,
     tts_model_getter=lambda: tts_model,
     set_seed=set_seed,
-    save_wav=lambda path, wav, sample_rate: ta.save(str(path), wav.cpu(), int(sample_rate)),
+    save_wav=save_audio_file,
     safe_delete=safe_delete_with_retry,
 )
 
