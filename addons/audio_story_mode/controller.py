@@ -70,6 +70,10 @@ class _AudioStoryNoWheelSpinBox(QtWidgets.QSpinBox):
         event.ignore()
 
 
+class _AudioStoryRefineBridge(QtCore.QObject):
+    finished = QtCore.Signal(object, str, str, str)
+
+
 _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
     "characters": 420,
     "location": 320,
@@ -167,10 +171,12 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_anchor_label": "Scene-specific positive anchor text.",
     "audio_story_scene_anchor_edit": "Override the selected scene's visual anchor text. This becomes the primary scene focus for future prompts.",
     "audio_story_scene_anchor_pin_button": "Keep this anchor as a persistent positive anchor for every future scene until unpinned.",
+    "audio_story_scene_anchor_refine_button": "Refine the current scene anchor into a stronger visual prompt anchor.",
     "audio_story_scene_anchor_apply_button": "Apply this anchor override and refresh matching prompts/images for the selected scene.",
     "audio_story_negative_prompt_label": "Scene-specific things to avoid in generated images.",
     "audio_story_scene_negative_prompt_edit": "Extra negative prompt text for the current scene. It is added to the scene's Avoid block before image generation.",
     "audio_story_negative_prompt_anchor_button": "Keep this negative prompt as a persistent anchor for every future scene until unpinned.",
+    "audio_story_scene_negative_prompt_refine_button": "Refine the current negative prompt into clearer image-generation exclusions.",
     "audio_story_scene_negative_prompt_apply_button": "Apply this negative prompt override and refresh matching prompts/images for the selected scene.",
     "audio_story_play_button": "Start or resume playback from the current timeline position and sync the active story image to the audio.",
     "audio_story_pause_button": "Pause playback without clearing the current timeline position or active image.",
@@ -725,6 +731,8 @@ class AudioStoryModeController(QtCore.QObject):
         self._pending_play_request = None
         self._tts_bundle = None
         self._tts_signature = ""
+        self._refine_bridge = _AudioStoryRefineBridge()
+        self._refine_bridge.finished.connect(self._on_audio_story_field_refined)
         self._image_cache = {}
         self._prompt_image_cache = {}
         self._llm_story_analysis_cache = {}
@@ -1544,6 +1552,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_style_buttons = {}
         self.audio_story_style_edits = {}
+        self.audio_story_style_refine_buttons = {}
         style_grid_widget = self._ui_child(root, "audio_story_style_grid_widget", QtWidgets.QWidget)
         style_layout = style_grid_widget.layout() if style_grid_widget is not None else None
         if style_layout is None:
@@ -1578,11 +1587,26 @@ class AudioStoryModeController(QtCore.QObject):
                     f"Prompt text injected when the {style_label} style layer is active.",
                 )
                 edit.editingFinished.connect(lambda style_id=style_id, edit=edit: self._on_audio_story_style_text_changed(style_id, edit.text()))
+                refine_button = QtWidgets.QPushButton("Refine")
+                refine_button.setStyleSheet(compact_button_style)
+                refine_button.setSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+                self._set_audio_story_tooltip(
+                    refine_button,
+                    "Expand a short cue into a detailed reusable image style prompt.",
+                )
+                refine_button.clicked.connect(lambda _checked=False, style_id=style_id, edit=edit: self._refine_audio_story_style_prompt(style_id, edit))
+                edit_row_widget = QtWidgets.QWidget()
+                edit_row_layout = QtWidgets.QHBoxLayout(edit_row_widget)
+                edit_row_layout.setContentsMargins(0, 0, 0, 0)
+                edit_row_layout.setSpacing(6)
+                edit_row_layout.addWidget(edit, 1)
+                edit_row_layout.addWidget(refine_button)
                 style_layout.addWidget(button, button_row, column)
-                style_layout.addWidget(edit, edit_row, column)
+                style_layout.addWidget(edit_row_widget, edit_row, column)
                 style_layout.setColumnStretch(column, 1)
                 self.audio_story_style_buttons[style_id] = button
                 self.audio_story_style_edits[style_id] = edit
+                self.audio_story_style_refine_buttons[style_id] = refine_button
 
         self.audio_story_style_live_checkbox = self._ui_child(root, "audio_story_style_live_checkbox", QtWidgets.QCheckBox)
         if self.audio_story_style_live_checkbox is not None:
@@ -1701,6 +1725,10 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_story_scene_anchor_apply_button is not None:
             self.audio_story_scene_anchor_apply_button.setStyleSheet(compact_button_style)
             self.audio_story_scene_anchor_apply_button.clicked.connect(self._apply_scene_anchor_override)
+        self.audio_story_scene_anchor_refine_button = self._ui_child(root, "audio_story_scene_anchor_refine_button", QtWidgets.QPushButton)
+        if self.audio_story_scene_anchor_refine_button is not None:
+            self.audio_story_scene_anchor_refine_button.setStyleSheet(compact_button_style)
+            self.audio_story_scene_anchor_refine_button.clicked.connect(self._refine_scene_anchor_override)
         self.audio_story_scene_negative_prompt_edit = self._ui_child(root, "audio_story_scene_negative_prompt_edit", QtWidgets.QPlainTextEdit)
         self.audio_story_negative_prompt_anchor_button = self._ui_child(root, "audio_story_negative_prompt_anchor_button", QtWidgets.QPushButton)
         if self.audio_story_negative_prompt_anchor_button is not None:
@@ -1712,6 +1740,10 @@ class AudioStoryModeController(QtCore.QObject):
         if self.audio_story_scene_negative_prompt_apply_button is not None:
             self.audio_story_scene_negative_prompt_apply_button.setStyleSheet(compact_button_style)
             self.audio_story_scene_negative_prompt_apply_button.clicked.connect(self._apply_scene_negative_prompt_override)
+        self.audio_story_scene_negative_prompt_refine_button = self._ui_child(root, "audio_story_scene_negative_prompt_refine_button", QtWidgets.QPushButton)
+        if self.audio_story_scene_negative_prompt_refine_button is not None:
+            self.audio_story_scene_negative_prompt_refine_button.setStyleSheet(compact_button_style)
+            self.audio_story_scene_negative_prompt_refine_button.clicked.connect(self._refine_scene_negative_prompt_override)
 
         self.audio_story_play_button = self._ui_child(root, "audio_story_play_button", QtWidgets.QPushButton)
         if self.audio_story_play_button is not None:
@@ -6057,8 +6089,6 @@ class AudioStoryModeController(QtCore.QObject):
         if label is not None:
             label.setText(self._format_slider_seconds(self._stored_image_frequency_seconds))
         self._sync_audio_story_cost_profile_controls()
-        if self._raw_transcript_segments:
-            self._schedule_story_payload_rebuild(status_text="Updating image timing windows...")
 
     def _on_image_timing_mode_changed(self, _index: int):
         combo = getattr(self, "audio_story_image_timing_combo", None)
@@ -6097,6 +6127,141 @@ class AudioStoryModeController(QtCore.QObject):
                 self._schedule_visual_refresh()
             else:
                 self._sync_story_generated_master_prompt(refresh_visuals=False)
+
+    def _text_from_refinable_widget(self, widget) -> str:
+        if widget is None:
+            return ""
+        if hasattr(widget, "toPlainText"):
+            return str(widget.toPlainText() or "").strip()
+        if hasattr(widget, "text"):
+            return str(widget.text() or "").strip()
+        return ""
+
+    def _set_refinable_widget_text(self, widget, text: str):
+        if widget is None:
+            return
+        value = str(text or "").strip()
+        if hasattr(widget, "setPlainText"):
+            widget.setPlainText(value)
+        elif hasattr(widget, "setText"):
+            widget.setText(value)
+
+    def _audio_story_refine_button_for(self, kind: str, style_id: str = ""):
+        kind = str(kind or "").strip().lower()
+        if kind == "style":
+            return dict(getattr(self, "audio_story_style_refine_buttons", {}) or {}).get(str(style_id or "").strip().lower())
+        if kind == "scene_anchor":
+            return getattr(self, "audio_story_scene_anchor_refine_button", None)
+        if kind == "negative_prompt":
+            return getattr(self, "audio_story_scene_negative_prompt_refine_button", None)
+        return None
+
+    def _refine_audio_story_field(self, widget, *, label: str, guidance: str, kind: str, style_id: str = ""):
+        if widget is None or bool(widget.property("_nc_refine_in_flight")):
+            return
+        original = self._text_from_refinable_widget(widget)
+        if not original:
+            return
+        kind = str(kind or "").strip().lower()
+        style_id = str(style_id or "").strip().lower()
+        widget.setProperty("_nc_refine_in_flight", True)
+        widget.setProperty("_nc_refine_kind", kind)
+        widget.setProperty("_nc_refine_style_id", style_id)
+        button = self._audio_story_refine_button_for(kind, style_id)
+        if button is not None:
+            button.setEnabled(False)
+        self._set_status(f"Refining {label}...")
+
+        def worker():
+            result = ""
+            error = ""
+            try:
+                from ui.runtime import engine_access as engine
+
+                result = str(engine.refine_instruction_text(original, label=label, guidance=guidance) or "").strip()
+            except Exception as exc:
+                error = str(exc)
+            try:
+                self._refine_bridge.finished.emit(widget, label, result, error)
+            except RuntimeError:
+                pass
+
+        threading.Thread(target=worker, name="nc-audio-story-refine", daemon=True).start()
+
+    def _refine_audio_story_style_prompt(self, style_id: str, edit):
+        style_label = self._audio_story_style_label(style_id)
+        guidance = (
+            "This is an Audio Story image style prompt. Expand short cues like 'Futurama style' into a detailed, reusable visual style prompt. "
+            "Describe visual traits such as medium, line quality, shapes, color palette, lighting, camera, texture, mood, and rendering approach. "
+            "If the user names a franchise, artist, or copyrighted work, translate it into descriptive visual traits without asking for logos, exact characters, or direct replication. "
+            "Return one polished prompt paragraph, not a list."
+        )
+        self._refine_audio_story_field(
+            edit,
+            label=f"{style_label} Style Prompt",
+            guidance=guidance,
+            kind="style",
+            style_id=style_id,
+        )
+
+    def _refine_scene_anchor_override(self):
+        guidance = (
+            "This is an Audio Story scene anchor used as the positive focus for image generation. "
+            "Refine it into a concise but vivid visual anchor: visible subject, action, setting, mood, camera/framing, and continuity details. "
+            "Do not add new story events or characters beyond the source text."
+        )
+        self._refine_audio_story_field(
+            getattr(self, "audio_story_scene_anchor_edit", None),
+            label="Scene Anchor",
+            guidance=guidance,
+            kind="scene_anchor",
+        )
+
+    def _refine_scene_negative_prompt_override(self):
+        guidance = (
+            "This is an Audio Story negative prompt for image generation. "
+            "Refine it into clear exclusions that prevent visual mistakes, off-style results, wrong subjects, bad anatomy, text artifacts, logos, and continuity errors. "
+            "Keep it as negative prompt wording only; do not include positive image instructions."
+        )
+        self._refine_audio_story_field(
+            getattr(self, "audio_story_scene_negative_prompt_edit", None),
+            label="Negative Prompt",
+            guidance=guidance,
+            kind="negative_prompt",
+        )
+
+    def _on_audio_story_field_refined(self, widget, field_label, refined_text, error):
+        try:
+            kind = str(widget.property("_nc_refine_kind") or "").strip().lower()
+            style_id = str(widget.property("_nc_refine_style_id") or "").strip().lower()
+            widget.setProperty("_nc_refine_in_flight", False)
+        except RuntimeError:
+            return
+        button = self._audio_story_refine_button_for(kind, style_id)
+        if button is not None:
+            button.setEnabled(True)
+        error_text = str(error or "").strip()
+        if error_text:
+            try:
+                QtWidgets.QMessageBox.warning(widget.window(), f"Refine {field_label}", f"Refinement failed:\n\n{error_text}")
+            except Exception:
+                pass
+            self._set_status(f"Refinement failed: {error_text}")
+            return
+        refined = str(refined_text or "").strip()
+        if not refined:
+            return
+        try:
+            self._set_refinable_widget_text(widget, refined)
+        except RuntimeError:
+            return
+        if kind == "style":
+            self._on_audio_story_style_text_changed(style_id, refined)
+        elif kind == "scene_anchor":
+            self._apply_scene_anchor_override()
+        elif kind == "negative_prompt":
+            self._apply_scene_negative_prompt_override()
+        self._set_status(f"Refined {field_label}.")
 
     def _on_audio_story_style_text_changed(self, style_id: str, text: str):
         normalized_id = str(style_id or "").strip().lower()
@@ -7127,6 +7292,18 @@ class AudioStoryModeController(QtCore.QObject):
             button.setEnabled(True)
         for edit in dict(getattr(self, "audio_story_style_edits", {}) or {}).values():
             edit.setEnabled(True)
+        for style_id, button in dict(getattr(self, "audio_story_style_refine_buttons", {}) or {}).items():
+            edit = dict(getattr(self, "audio_story_style_edits", {}) or {}).get(style_id)
+            in_flight = bool(edit.property("_nc_refine_in_flight")) if edit is not None else False
+            button.setEnabled(not in_flight)
+        for edit_name, button_name in (
+            ("audio_story_scene_anchor_edit", "audio_story_scene_anchor_refine_button"),
+            ("audio_story_scene_negative_prompt_edit", "audio_story_scene_negative_prompt_refine_button"),
+        ):
+            edit = getattr(self, edit_name, None)
+            button = getattr(self, button_name, None)
+            if button is not None:
+                button.setEnabled(not bool(edit.property("_nc_refine_in_flight")) if edit is not None else False)
         if hasattr(self, "audio_story_style_live_checkbox"):
             self.audio_story_style_live_checkbox.setEnabled(True)
         if hasattr(self, "audio_story_transcribe_button"):

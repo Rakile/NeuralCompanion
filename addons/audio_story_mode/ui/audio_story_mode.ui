@@ -933,6 +933,13 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                </widget>
               </item>
               <item>
+               <widget class="QPushButton" name="audio_story_scene_anchor_refine_button">
+                <property name="text">
+                 <string>Refine</string>
+                </property>
+               </widget>
+              </item>
+              <item>
                <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
                 <property name="text">
                  <string>Apply Anchor</string>
@@ -953,6 +960,13 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                 </property>
                 <property name="checkable">
                  <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="audio_story_scene_negative_prompt_refine_button">
+                <property name="text">
+                 <string>Refine</string>
                 </property>
                </widget>
               </item>
