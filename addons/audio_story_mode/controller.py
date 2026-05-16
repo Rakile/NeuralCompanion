@@ -5,6 +5,7 @@ import importlib
 import json
 import math
 import re
+import ast
 import threading
 import time
 import traceback
@@ -4894,14 +4895,35 @@ class AudioStoryModeController(QtCore.QObject):
             value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.IGNORECASE).strip()
             value = re.sub(r"\s*```$", "", value).strip()
         def parse_candidate(candidate: str):
-            try:
-                return json.loads(candidate)
-            except json.JSONDecodeError:
-                # Small local repair for common model output like "\_", "\.", or
-                # "\(" inside JSON strings. These are invalid JSON escapes, but
-                # preserving the literal character is safer than discarding LLM output.
-                repaired = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", candidate)
-                return json.loads(repaired)
+            def common_repair(raw: str):
+                repaired = str(raw or "").strip().lstrip("\ufeff")
+                repaired = repaired.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+                # Common model output like "\_", "\.", or "\(" is invalid JSON.
+                # Preserve the literal character by escaping the backslash itself.
+                repaired = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", repaired)
+                repaired = re.sub(r",\s*([}\]])", r"\1", repaired)
+                repaired = re.sub(r'([{\[,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:', r'\1"\2":', repaired)
+                return repaired
+            attempts = [str(candidate or "").strip()]
+            repaired = common_repair(attempts[0])
+            if repaired not in attempts:
+                attempts.append(repaired)
+            last_error = None
+            for attempt in attempts:
+                try:
+                    return json.loads(attempt)
+                except json.JSONDecodeError as exc:
+                    last_error = exc
+            for attempt in attempts:
+                try:
+                    parsed = ast.literal_eval(attempt)
+                    if isinstance(parsed, (dict, list, str)):
+                        return parsed
+                except Exception as exc:
+                    last_error = exc
+            if last_error is not None:
+                raise last_error
+            raise RuntimeError("LLM story analysis did not return parseable JSON.")
         try:
             parsed = parse_candidate(value)
         except Exception:
