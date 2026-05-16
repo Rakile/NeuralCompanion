@@ -18,7 +18,7 @@ from install_neural_companion import REPO_ROOT, find_python311_executables, get_
 
 
 POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
-DISCORD_INVITE_URL = "https://discord.gg/NywFEHwu"
+DISCORD_INVITE_URL = "https://discord.gg/UqnwX46rcK"
 HF_POCKETTTS_TERMS_URL = "https://huggingface.co/kyutai/pocket-tts"
 HF_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
 PYTHON_WINDOWS_DOWNLOADS_URL = "https://www.python.org/downloads/windows/"

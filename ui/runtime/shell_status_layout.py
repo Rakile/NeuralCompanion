@@ -376,6 +376,13 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
                 allow_shrink=not dock.isFloating(),
             )
 
+    operational_dock = _ui_shell_find_object(window, "OperationalViewDock")
+    operational_floating = bool(
+        operational_dock is not None
+        and isinstance(operational_dock, _QtWidgets.QDockWidget)
+        and operational_dock.isFloating()
+    )
+
     container_specs = (
         ("system_shaping_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
         ("system_shaping_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
@@ -387,10 +394,6 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
         ("musetalk_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
         ("tts_runtime_addon_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
         ("sensory_feedback_tabs", 760, 620, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_view_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_scroll", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("operational_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
-        ("right_tabs", WORKSPACE_INNER_MIN_WIDTH, 620, WORKSPACE_VIEW_MAX_HEIGHT),
         ("audio_story_mode_tab", WORKSPACE_INNER_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
         ("preview_dock_content", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
         ("visual_reply_panel", WORKSPACE_VIEW_MIN_WIDTH, WORKSPACE_VIEW_MIN_HEIGHT, WORKSPACE_VIEW_MAX_HEIGHT),
@@ -404,6 +407,17 @@ def _apply_workspace_view_constraints(window, *, extra_widgets=None):
             min_width=min_width,
             min_height=min_height,
             max_height=max_height,
+        )
+
+    operational_min_width = WORKSPACE_VIEW_MIN_WIDTH if operational_floating else 0
+    operational_min_height = WORKSPACE_VIEW_MIN_HEIGHT if operational_floating else 0
+    for object_name in ("operational_view_panel", "operational_scroll", "operational_content", "right_tabs"):
+        _apply_workspace_widget_bounds(
+            _ui_shell_find_object(window, object_name),
+            min_width=operational_min_width,
+            min_height=operational_min_height,
+            max_height=WORKSPACE_VIEW_MAX_HEIGHT,
+            allow_shrink=not operational_floating,
         )
 
     for widget in tuple(extra_widgets or ()):

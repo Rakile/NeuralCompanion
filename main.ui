@@ -2561,8 +2561,8 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
   <widget class="QDockWidget" name="OperationalViewDock">
    <property name="minimumSize">
     <size>
-     <width>890</width>
-     <height>804</height>
+     <width>0</width>
+     <height>0</height>
     </size>
    </property>
    <property name="maximumSize">
@@ -2700,8 +2700,8 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            </property>
            <property name="minimumSize">
             <size>
-             <width>840</width>
-             <height>620</height>
+             <width>0</width>
+             <height>0</height>
             </size>
            </property>
            <property name="maximumSize">
@@ -2896,8 +2896,23 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
          </item>
          <item>
           <layout class="QGridLayout" name="controlButtonsGrid">
+           <property name="columnStretch">
+            <string>1,1,1,1,1</string>
+           </property>
            <item row="0" column="0">
             <widget class="QPushButton" name="btn_regenerate">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
              <property name="text">
               <string>Regenerate</string>
              </property>
@@ -2905,6 +2920,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            </item>
            <item row="0" column="1">
             <widget class="QPushButton" name="btn_retry">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
              <property name="text">
               <string>Retry Input</string>
              </property>
@@ -2912,6 +2939,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            </item>
            <item row="0" column="2">
             <widget class="QPushButton" name="btn_pause">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
              <property name="text">
               <string>Pause / Resume</string>
              </property>
@@ -2919,6 +2958,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            </item>
            <item row="0" column="3">
             <widget class="QPushButton" name="btn_skip">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
              <property name="text">
               <string>Skip Speech</string>
              </property>
@@ -2926,6 +2977,18 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            </item>
            <item row="0" column="4">
             <widget class="QPushButton" name="btn_skip_user">
+             <property name="sizePolicy">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
+               <horstretch>1</horstretch>
+               <verstretch>0</verstretch>
+              </sizepolicy>
+             </property>
+             <property name="minimumSize">
+              <size>
+               <width>0</width>
+               <height>0</height>
+              </size>
+             </property>
              <property name="text">
               <string>Skip User Reply</string>
              </property>
@@ -2941,7 +3004,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            <item>
             <widget class="QPushButton" name="btn_start_engine">
              <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                <horstretch>1</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>
@@ -2960,7 +3023,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            <item>
             <widget class="QPushButton" name="btn_stop_engine">
              <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                <horstretch>1</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>
@@ -2979,7 +3042,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
            <item>
             <widget class="QPushButton" name="btn_reset_chat">
              <property name="sizePolicy">
-              <sizepolicy hsizetype="Expanding" vsizetype="Fixed">
+              <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
                <horstretch>1</horstretch>
                <verstretch>0</verstretch>
               </sizepolicy>

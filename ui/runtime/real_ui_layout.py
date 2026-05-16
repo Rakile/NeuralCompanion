@@ -893,6 +893,83 @@ QTabWidget QStackedWidget {
                 except Exception:
                     pass
             self._center_icon_sidebar_tabs(widget("left_tabs", QtWidgets.QTabWidget))
+            self._fix_operational_view_content_layouts()
+
+    def _fix_operational_view_content_layouts(self):
+            """Mirror shrink-friendly workspace pages for the Designer Operational View."""
+            def widget(name, cls=None):
+                return self._ui(name, cls or QtWidgets.QWidget)
+
+            def set_policy(target, *, vertical=QtWidgets.QSizePolicy.Ignored, horizontal=QtWidgets.QSizePolicy.Ignored):
+                if target is None or not hasattr(target, "sizePolicy"):
+                    return
+                try:
+                    policy = target.sizePolicy()
+                    policy.setHorizontalPolicy(horizontal)
+                    policy.setVerticalPolicy(vertical)
+                    target.setSizePolicy(policy)
+                    target.setMinimumSize(0, 0)
+                    target.updateGeometry()
+                except Exception:
+                    pass
+
+            scroll = widget("operational_scroll", QtWidgets.QScrollArea)
+            if scroll is not None:
+                try:
+                    scroll.setWidgetResizable(True)
+                    scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+                    scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+                except Exception:
+                    pass
+
+            for name in (
+                "operational_view_panel",
+                "operational_scroll",
+                "operational_content",
+                "right_tabs",
+                "system_console_tab",
+                "chat_runtime_tab",
+                "console_edit",
+                "chat_edit",
+            ):
+                set_policy(widget(name))
+
+            for name in (
+                "pipeline_telemetry_box",
+                "micStatusRow",
+                "render_ready_bar",
+                "preview_playback_bar",
+                "input_device_combo",
+                "output_device_combo",
+            ):
+                set_policy(widget(name), vertical=QtWidgets.QSizePolicy.Preferred)
+
+            for name in (
+                "btn_regenerate",
+                "btn_retry",
+                "btn_pause",
+                "btn_skip",
+                "btn_skip_user",
+                "btn_start_engine",
+                "btn_stop_engine",
+                "btn_reset_chat",
+            ):
+                set_policy(widget(name, QtWidgets.QPushButton), vertical=QtWidgets.QSizePolicy.Fixed)
+
+            for owner_name, layout_name in (
+                ("operational_content", "operationalLayout"),
+                ("system_console_tab", "systemConsoleLayout"),
+                ("chat_runtime_tab", "chatRuntimeLayout"),
+            ):
+                owner = widget(owner_name)
+                layout = owner.findChild(QtWidgets.QLayout, layout_name) if owner is not None else None
+                if layout is None:
+                    continue
+                try:
+                    layout.invalidate()
+                    layout.activate()
+                except Exception:
+                    pass
 
     def _load_frontend_session_payload(self):
             if not SESSION_PATH.exists():
