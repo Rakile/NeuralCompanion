@@ -1715,6 +1715,8 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_force_continuation_button.setStyleSheet(compact_button_style)
             self.audio_story_force_continuation_button.toggled.connect(lambda checked: self._on_force_scene_mode_changed("continuation", checked))
         self.audio_story_scene_anchor_edit = self._ui_child(root, "audio_story_scene_anchor_edit", QtWidgets.QPlainTextEdit)
+        if self.audio_story_scene_anchor_edit is not None:
+            self.audio_story_scene_anchor_edit.textChanged.connect(self._on_scene_anchor_text_changed)
         self.audio_story_scene_anchor_pin_button = self._ui_child(root, "audio_story_scene_anchor_pin_button", QtWidgets.QPushButton)
         if self.audio_story_scene_anchor_pin_button is not None:
             self.audio_story_scene_anchor_pin_button.setCheckable(True)
@@ -1730,6 +1732,8 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_scene_anchor_refine_button.setStyleSheet(compact_button_style)
             self.audio_story_scene_anchor_refine_button.clicked.connect(self._refine_scene_anchor_override)
         self.audio_story_scene_negative_prompt_edit = self._ui_child(root, "audio_story_scene_negative_prompt_edit", QtWidgets.QPlainTextEdit)
+        if self.audio_story_scene_negative_prompt_edit is not None:
+            self.audio_story_scene_negative_prompt_edit.textChanged.connect(self._on_scene_negative_prompt_text_changed)
         self.audio_story_negative_prompt_anchor_button = self._ui_child(root, "audio_story_negative_prompt_anchor_button", QtWidgets.QPushButton)
         if self.audio_story_negative_prompt_anchor_button is not None:
             self.audio_story_negative_prompt_anchor_button.setCheckable(True)
@@ -7012,6 +7016,14 @@ class AudioStoryModeController(QtCore.QObject):
         self.scene_overrides["scene_anchor_overrides"] = anchor_overrides
         self._scene_override_refresh_after_change(refresh_visuals=True)
 
+    def _on_scene_anchor_text_changed(self):
+        if not bool(self.scene_overrides.get("global_scene_anchor_enabled", False)):
+            return
+        anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
+        if anchor_edit is None:
+            return
+        self.scene_overrides["global_scene_anchor"] = str(anchor_edit.toPlainText() or "").strip()
+
     def _on_scene_anchor_pin_toggled(self, checked: bool):
         anchor_edit = getattr(self, "audio_story_scene_anchor_edit", None)
         anchor_text = str(anchor_edit.toPlainText() or "").strip() if anchor_edit is not None else ""
@@ -7038,6 +7050,14 @@ class AudioStoryModeController(QtCore.QObject):
             negative_prompt_overrides.pop(scene_id, None)
         self.scene_overrides["scene_negative_prompt_overrides"] = negative_prompt_overrides
         self._scene_override_refresh_after_change(refresh_visuals=True)
+
+    def _on_scene_negative_prompt_text_changed(self):
+        if not bool(self.scene_overrides.get("global_negative_prompt_enabled", False)):
+            return
+        negative_prompt_edit = getattr(self, "audio_story_scene_negative_prompt_edit", None)
+        if negative_prompt_edit is None:
+            return
+        self.scene_overrides["global_negative_prompt"] = str(negative_prompt_edit.toPlainText() or "").strip()
 
     def _on_negative_prompt_anchor_toggled(self, checked: bool):
         negative_prompt_edit = getattr(self, "audio_story_scene_negative_prompt_edit", None)
