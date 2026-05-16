@@ -28,7 +28,14 @@ When one configured behavior matches the screen, set should_speak=true only when
 When no configured behavior matches, set should_speak=false for this behavior.
 Always set should_generate_image=false and visual_candidate="" for this behavior addon; it comments on visible screen content, it does not request image generation.
 Treat the matching behavior's Repeat policy as a hard gate, not a style preference.
+Do not reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content.
 Keep interruptions concise and relevant."""
+
+PROMPT_POLICY_FOOTER = """Screen Supervisor policy clarifications:
+- If a behavior trigger is about YouTube and the visible YouTube video title, Shorts item, channel/video identity, or primary video subject changes, treat that as a meaningful change.
+- For "Meaningful change only" on YouTube, speak once for each newly detected video identity, then stay silent for repeated refreshes of that same video.
+- If the user is only viewing comments, controls, recommendations, or minor page movement for the same video, do not speak again unless the behavior explicitly asks for comments.
+- Never reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content."""
 
 PERSONA_STYLE_HINTS = {
     "Supervisor": "cool, witty, lightly possessive digital supervisor",
@@ -296,7 +303,9 @@ class Addon(BaseAddon):
             )
         if repeat_mode == "Meaningful change only":
             return (
-                "Repeat only when the same overall screen trigger still applies but the scene changed in a clearly meaningful way. Do not comment again for tiny or purely cosmetic changes."
+                "Repeat only when the same overall screen trigger still applies but the scene changed in a clearly meaningful way. "
+                "For YouTube, a different video title, Shorts item, channel/video identity, or primary video subject counts as a meaningful change and should get one new comment. "
+                "Do not comment again for repeated refreshes of the same video, comments panel changes, tiny movement, or purely cosmetic changes."
             )
         return (
             "One-off only. If a very similar interruption was already given for the same ongoing screen pattern, prefer should_speak=false."
@@ -413,6 +422,8 @@ class Addon(BaseAddon):
         rendered = rendered.replace("__PERSONA_NAME__", str(active.get("name") or "Supervisor"))
         rendered = rendered.replace("__PERSONA_STYLE__", str(active.get("style") or self._style_hint_for_name(active.get("name"))))
         rendered = rendered.replace("__BEHAVIOR_RULES__", self._render_behavior_rules(active))
+        if PROMPT_POLICY_FOOTER not in rendered:
+            rendered = f"{rendered.rstrip()}\n\n{PROMPT_POLICY_FOOTER}"
         return rendered
 
     def _set_prompt_template(self, template_text):

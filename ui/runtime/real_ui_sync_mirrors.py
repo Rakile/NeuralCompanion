@@ -256,9 +256,6 @@ class RealUiSyncMirrorMixin:
 
     def _mirror_console_chat_pause_frame(self):
             paused = bool(getattr(self.backend, "_chat_runtime_border_paused", False))
-            if getattr(self, "_frontend_console_chat_pause_frame", None) == paused:
-                return
-            self._frontend_console_chat_pause_frame = paused
             for object_name in ("system_console_tab", "chat_runtime_tab"):
                 widget = self._ui_object(object_name)
                 if widget is None or not hasattr(widget, "setStyleSheet"):
@@ -270,11 +267,14 @@ class RealUiSyncMirrorMixin:
                     except Exception:
                         setattr(widget, base_attr, "")
                 if paused:
-                    widget.setStyleSheet(
-                        f"QWidget#{object_name} {{ border: 2px solid #d84a4a; border-radius: 10px; }}"
-                    )
+                    border_style = f"QWidget#{object_name} {{ border: 2px solid #d84a4a; border-radius: 10px; }}"
+                    if str(widget.styleSheet() or "") != border_style:
+                        widget.setStyleSheet(border_style)
                 else:
-                    widget.setStyleSheet(str(getattr(widget, base_attr, "") or ""))
+                    base_style = str(getattr(widget, base_attr, "") or "")
+                    if str(widget.styleSheet() or "") != base_style:
+                        widget.setStyleSheet(base_style)
+            self._frontend_console_chat_pause_frame = paused
 
     def _mirror_runtime_button_state(self):
             for object_name in (

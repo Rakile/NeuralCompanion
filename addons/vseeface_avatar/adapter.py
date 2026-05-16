@@ -93,7 +93,7 @@ class VSeeFaceAdapter(avatar_runtime.AvatarAdapter):
     def set_speaking_state(self, is_speaking: bool):
         self.update_queue.put(("speaking", is_speaking))
 
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None, cancel_check=None):
         # VSeeFace handles lip-sync via system audio loopback.
         return {"ok": True, "kind": "audio"}
 

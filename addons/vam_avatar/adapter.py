@@ -189,7 +189,7 @@ class VaMAdapter(VSeeFaceAdapter):
         shutil.copy2(audio_path, staged_audio_path)
         return staged_audio_path
 
-    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None):
+    def process_audio_chunk(self, audio_path: str, text: str, output_filename: str, dry_run_reply_id=None, cancel_check=None):
         duration_seconds = 0.0
         try:
             duration_seconds = max(0.0, float(self._audio_segment_cls.from_file(audio_path).duration_seconds or 0.0))

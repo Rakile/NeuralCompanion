@@ -384,6 +384,8 @@ Action fields:
 - proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.
 - visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.
 - If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.
+- Never copy, paraphrase, or continue a prior proactive_candidate or recent Assistant reply. Each proactive_candidate must be newly grounded in the current PING's visible content and current summary.
+- If the current screen/content changed but you cannot form a new comment about the new content, set should_speak=false and proactive_candidate="".
 - tags is for addon-directed latent directives such as "[start calculator]" or "[heart_rate_high]". Only emit tags when active source guidance clearly asks for them.
 
 Action consistency rules:
@@ -871,6 +873,7 @@ sensory_hidden_action_state = {
     "last_proactive_candidate_at": 0.0,
     "last_visual_key": "",
     "last_visual_at": 0.0,
+    "last_youtube_video_comment_key": "",
 }
 _addon_event_publisher = None
 _addon_manager_getter = None
@@ -2078,6 +2081,56 @@ def _derive_hidden_proactive_candidate(summary="", attention="", emotion=""):
     return ""
 
 
+def _clean_hidden_youtube_identity(value):
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"^[\"'“”‘’]+|[\"'“”‘’.,;:]+$", "", text).strip()
+    text = re.sub(
+        r"\s+(?:on youtube|youtube|video|gameplay video|gameplay|full game walkthrough|early access menu|menu|paused|playing|with .*)$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    ).strip()
+    text = re.sub(r"^(?:a|an|the|different|current)\s+", "", text, flags=re.IGNORECASE).strip()
+    return text[:140]
+
+
+def _extract_hidden_youtube_video_identity(summary="", attention=""):
+    text = re.sub(r"\s+", " ", str(summary or "")).strip()
+    cue = f"{attention} {text}".lower()
+    if "youtube" not in cue and "shorts" not in cue and " video" not in cue:
+        return ""
+    patterns = [
+        r"\bswitched\s+from\b.+?\bto\s+(?:watching|viewing)?\s*(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+youtube|\s+gameplay\s+video|\s+video|\s+gameplay|\s+menu|[.;]|$)",
+        r"\bdifferent\s+youtube\s+video:\s*['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:watching|viewing)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:watching|viewing)\s+(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+youtube|\s+with\s+|\s*;|$)",
+        r"\bshows\s+(?:[A-Za-z0-9_ -]+(?:'s|’s)\s+)?(?P<title>.+?)\s+video\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        title = _clean_hidden_youtube_identity(match.group("title"))
+        key = _canonical_hidden_action_key(title)
+        if key:
+            return key
+    quoted = [
+        _clean_hidden_youtube_identity(item)
+        for item in re.findall(r"['\"“”‘’]([^'\"“”‘’]{4,})['\"“”‘’]", text)
+    ]
+    quoted = [item for item in quoted if _canonical_hidden_action_key(item)]
+    if quoted:
+        return _canonical_hidden_action_key(quoted[-1])
+    return ""
+
+
+def _derive_youtube_video_comment_candidate(summary):
+    text = _sanitize_hidden_action_text(summary, limit=180)
+    if not text:
+        return ""
+    return _sanitize_hidden_action_text(f"Comment on this YouTube video: {text}", limit=220)
+
+
 def _derive_hidden_visual_candidate(summary="", attention="", emotion=""):
     candidate = _sanitize_hidden_action_text(summary, limit=220)
     if candidate:
@@ -2340,12 +2393,6 @@ def _build_retained_sensory_context_text():
             parts.append(f"emotion={emotion}")
         if attention:
             parts.append(f"attention={attention}")
-        proactive_candidate = str(entry.get("proactive_candidate", "") or "").strip()
-        visual_candidate = str(entry.get("visual_candidate", "") or "").strip()
-        if proactive_candidate:
-            parts.append(f"proactive={proactive_candidate}")
-        if visual_candidate:
-            parts.append(f"visual={visual_candidate}")
         tags = list(entry.get("tags", []) or [])
         if tags:
             parts.append(f"tags={', '.join([str(tag) for tag in tags[:6]])}")
@@ -2354,8 +2401,31 @@ def _build_retained_sensory_context_text():
         return ""
     return (
         "Retained hidden sensory events below are ambient internal state, not user messages. "
-        "Use them as latent context only when relevant.\n" + "\n".join(f"- {line}" for line in lines)
+        "Use them as latent context only when relevant. Do not reuse or continue earlier proactive wording.\n"
+        + "\n".join(f"- {line}" for line in lines)
     )
+
+
+def _hidden_proactive_candidate_reuses_recent_stale_text(candidate, summary):
+    candidate_key = _canonical_hidden_action_key(candidate)
+    if not candidate_key:
+        return False
+    summary_key = _canonical_hidden_action_key(summary)
+    recent_events = []
+    with sensory_pingpong_lock:
+        recent_events = list(sensory_hidden_history or [])[-6:]
+    for entry in reversed(recent_events):
+        if not isinstance(entry, dict):
+            continue
+        previous_candidate = str(entry.get("proactive_candidate", "") or "").strip()
+        if not previous_candidate:
+            continue
+        if _canonical_hidden_action_key(previous_candidate) != candidate_key:
+            continue
+        previous_summary_key = _canonical_hidden_action_key(entry.get("summary", ""))
+        if summary_key and previous_summary_key and summary_key != previous_summary_key:
+            return True
+    return False
 
 
 def _extract_json_object_from_text(text):
@@ -2716,6 +2786,31 @@ def _apply_sensory_pong_result(result, snapshots):
     should_speak = _normalize_boolish(result.get("should_speak", False))
     if should_speak and not proactive_candidate:
         proactive_candidate = _derive_hidden_proactive_candidate(summary=summary, attention=attention, emotion=emotion)
+    snapshot_source_ids = [
+        str((item or {}).get("source", "") or "").strip().lower()
+        for item in snapshot_list
+        if isinstance(item, dict)
+    ]
+    youtube_video_identity = ""
+    if _screen_supervisor_prompt_active(snapshot_source_ids):
+        youtube_video_identity = _extract_hidden_youtube_video_identity(summary=summary, attention=attention)
+        if youtube_video_identity:
+            with sensory_pingpong_lock:
+                last_youtube_key = str(sensory_hidden_action_state.get("last_youtube_video_comment_key", "") or "")
+            if youtube_video_identity == last_youtube_key:
+                if should_speak or proactive_candidate:
+                    print("🤐 [Sensory] Suppressed repeated YouTube comment for the same video.")
+                proactive_candidate = ""
+                should_speak = False
+            elif not should_speak:
+                proactive_candidate = _derive_youtube_video_comment_candidate(summary)
+                should_speak = bool(proactive_candidate)
+                if should_speak:
+                    print("🗣️ [Sensory] Forcing one YouTube comment for newly detected video.")
+    if should_speak and proactive_candidate and _hidden_proactive_candidate_reuses_recent_stale_text(proactive_candidate, summary):
+        print("🤐 [Sensory] Suppressed stale proactive candidate reused from a different hidden PONG.")
+        proactive_candidate = ""
+        should_speak = False
     should_generate_image = _normalize_boolish(result.get("should_generate_image", False))
     if should_generate_image and not visual_candidate:
         visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
@@ -2829,6 +2924,9 @@ def _apply_sensory_pong_result(result, snapshots):
             source=snapshot_source,
         )
         if proactive_queued:
+            if youtube_video_identity:
+                with sensory_pingpong_lock:
+                    sensory_hidden_action_state["last_youtube_video_comment_key"] = youtube_video_identity
             _publish_addon_runtime_event(
                 "sensory.hidden_action.proactive_queued",
                 {
@@ -3393,6 +3491,7 @@ def reset_session_state():
         "last_proactive_candidate_at": 0.0,
         "last_visual_key": "",
         "last_visual_at": 0.0,
+        "last_youtube_video_comment_key": "",
     }
     chat_session_state_generation += 1
     print("🧼 [Session] Chat history and memory reset.")
