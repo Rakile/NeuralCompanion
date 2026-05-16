@@ -900,10 +900,22 @@ QTabWidget QStackedWidget {
             def widget(name, cls=None):
                 return self._ui(name, cls or QtWidgets.QWidget)
 
-            def set_policy(target, *, vertical=QtWidgets.QSizePolicy.Ignored, horizontal=QtWidgets.QSizePolicy.Ignored):
+            operational_dock = self._ui_object("OperationalViewDock")
+            is_floating = bool(
+                operational_dock is not None
+                and isinstance(operational_dock, QtWidgets.QDockWidget)
+                and operational_dock.isFloating()
+            )
+            shrink_horizontal = QtWidgets.QSizePolicy.Expanding if is_floating else QtWidgets.QSizePolicy.Ignored
+            fill_vertical = QtWidgets.QSizePolicy.Expanding if is_floating else QtWidgets.QSizePolicy.Ignored
+            button_horizontal = QtWidgets.QSizePolicy.Preferred if is_floating else QtWidgets.QSizePolicy.Ignored
+
+            def set_policy(target, *, vertical=QtWidgets.QSizePolicy.Ignored, horizontal=None):
                 if target is None or not hasattr(target, "sizePolicy"):
                     return
                 try:
+                    if horizontal is None:
+                        horizontal = shrink_horizontal
                     policy = target.sizePolicy()
                     policy.setHorizontalPolicy(horizontal)
                     policy.setVerticalPolicy(vertical)
@@ -932,7 +944,7 @@ QTabWidget QStackedWidget {
                 "console_edit",
                 "chat_edit",
             ):
-                set_policy(widget(name))
+                set_policy(widget(name), vertical=fill_vertical)
 
             for name in (
                 "pipeline_telemetry_box",
@@ -954,7 +966,11 @@ QTabWidget QStackedWidget {
                 "btn_stop_engine",
                 "btn_reset_chat",
             ):
-                set_policy(widget(name, QtWidgets.QPushButton), vertical=QtWidgets.QSizePolicy.Fixed)
+                set_policy(
+                    widget(name, QtWidgets.QPushButton),
+                    vertical=QtWidgets.QSizePolicy.Fixed,
+                    horizontal=button_horizontal,
+                )
 
             for owner_name, layout_name in (
                 ("operational_content", "operationalLayout"),
@@ -966,6 +982,11 @@ QTabWidget QStackedWidget {
                 if layout is None:
                     continue
                 try:
+                    if layout_name == "operationalLayout":
+                        right_tabs = widget("right_tabs", QtWidgets.QTabWidget)
+                        for index in range(layout.count()):
+                            item = layout.itemAt(index)
+                            layout.setStretch(index, 1 if item is not None and item.widget() is right_tabs else 0)
                     layout.invalidate()
                     layout.activate()
                 except Exception:
@@ -1467,6 +1488,7 @@ QTabWidget QStackedWidget {
                     getattr(self, "_frontend_visual_reply_panel", None),
                 ),
             )
+            self._fix_operational_view_content_layouts()
 
     def _normalize_frontend_chat_runtime_editor_widths(self):
             for object_name in ("chat_provider_combo", "model_combo", "preset_combo"):
