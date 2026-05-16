@@ -10,6 +10,7 @@ import sys
 import threading
 import tkinter as tk
 import ctypes
+import webbrowser
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
@@ -17,6 +18,9 @@ from install_neural_companion import REPO_ROOT, find_python311_executables, get_
 
 
 POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
+DISCORD_INVITE_URL = "https://discord.gg/NywFEHwu"
+HF_POCKETTTS_TERMS_URL = "https://huggingface.co/kyutai/pocket-tts"
+HF_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
@@ -363,6 +367,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         self._build_python_card(left_targets)
         self._build_install_card(left_targets)
+        self._build_community_card(left_targets)
         self._build_actions_card(left_actions)
 
         self._build_command_card(right)
@@ -590,6 +595,20 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.progress = ttk.Progressbar(card, mode="indeterminate", style="NC.Horizontal.TProgressbar")
         self.progress.pack(fill=tk.X, pady=(10, 0))
 
+    def _build_community_card(self, parent: ttk.Frame) -> None:
+        card = self._card(parent)
+        ttk.Label(card, text="Community & account help", style="CardTitle.TLabel").pack(anchor=tk.W)
+        ttk.Label(
+            card,
+            text="Join the Discord for setup help, or open Hugging Face pages needed by PocketTTS voice cloning.",
+            style="CardText.TLabel",
+            wraplength=275,
+        ).pack(anchor=tk.W, pady=(4, 10))
+
+        ttk.Button(card, text="Join Discord", style="NC.TButton", command=self._open_discord).pack(fill=tk.X)
+        ttk.Button(card, text="PocketTTS model terms", style="Ghost.TButton", command=self._open_hf_pockettts_terms).pack(fill=tk.X, pady=(8, 0))
+        ttk.Button(card, text="Create Hugging Face token", style="Ghost.TButton", command=self._open_hf_token_settings).pack(fill=tk.X, pady=(8, 0))
+
     def _build_help_card(self, parent: ttk.Frame) -> None:
         card = self._card(parent)
         ttk.Label(card, text="Tip", style="CardTitle.TLabel").pack(anchor=tk.W)
@@ -776,6 +795,34 @@ class NeuralCompanionInstallerGui(tk.Tk):
     def _stop_music_silent(self) -> None:
         self.audio_controller.stop()
         self.music_status_text.set("Music stopped")
+
+    def _open_url(self, url: str, label: str) -> None:
+        try:
+            webbrowser.open_new_tab(url)
+            self._append_output(f"\nOpened {label}: {url}\n", tag="command")
+        except Exception as exc:
+            self._append_output(f"\nCould not open {label}: {exc}\n", tag="error")
+            messagebox.showwarning(label, f"Could not open:\n{url}\n\n{exc}")
+
+    def _open_discord(self) -> None:
+        self._open_url(DISCORD_INVITE_URL, "Neural Companion Discord")
+
+    def _open_hf_pockettts_terms(self) -> None:
+        self._open_url(HF_POCKETTTS_TERMS_URL, "PocketTTS Hugging Face model terms")
+
+    def _open_hf_token_settings(self) -> None:
+        self._open_url(HF_TOKEN_SETTINGS_URL, "Hugging Face token settings")
+        messagebox.showinfo(
+            "Create Hugging Face Token",
+            "To create a token for PocketTTS:\n\n"
+            "1. Sign in to Hugging Face.\n"
+            "2. Open Settings -> Access Tokens.\n"
+            "3. Choose New token.\n"
+            "4. Use a Read token; no Write permission is needed.\n"
+            "5. Copy the token when Hugging Face shows it.\n"
+            "6. Paste it into the `hf auth login` terminal opened by the installer.\n\n"
+            "Also accept the PocketTTS model terms before testing voice cloning.",
+        )
 
     def _on_close(self) -> None:
         if self.process is not None:
@@ -1134,8 +1181,11 @@ class NeuralCompanionInstallerGui(tk.Tk):
             should_login = messagebox.askyesno(
                 "PocketTTS Hugging Face Login",
                 "PocketTTS installed successfully, but voice cloning needs a Hugging Face login.\n\n"
-                "Accept the terms at https://huggingface.co/kyutai/pocket-tts, then choose Yes "
-                "to open a login window now.\n\n"
+                "Before login:\n"
+                "1. Accept the model terms at https://huggingface.co/kyutai/pocket-tts\n"
+                "2. Create a Read token at https://huggingface.co/settings/tokens\n"
+                "3. Copy the token. The login terminal will ask you to paste it.\n\n"
+                "Choose Yes to open the Hugging Face login window now.\n\n"
                 "Choose No to skip this for now.",
             )
             if should_login:
@@ -1211,6 +1261,8 @@ class NeuralCompanionInstallerGui(tk.Tk):
             messagebox.showinfo(
                 "PocketTTS Login",
                 "Complete the Hugging Face login in the terminal window.\n\n"
+                "If you need a token, open Hugging Face Settings -> Access Tokens, create a Read token, "
+                "copy it, and paste it into the terminal.\n\n"
                 "After it reports success, close that terminal and press OK here.",
             )
         else:

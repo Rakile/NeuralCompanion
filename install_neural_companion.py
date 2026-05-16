@@ -778,7 +778,10 @@ print(json.dumps(status))
         warn(self.pockettts_auth_detail)
         print("To finish PocketTTS cloning setup:")
         print("  1. Accept the terms at https://huggingface.co/kyutai/pocket-tts")
-        print(f"  2. Run: {python_exe.parent / 'hf.exe'} auth login")
+        print("  2. Create a Hugging Face Read token at https://huggingface.co/settings/tokens")
+        print("     - Sign in, choose New token, select Read permission, then copy the token")
+        print(f"  3. Run: {python_exe.parent / 'hf.exe'} auth login")
+        print("  4. Paste the token when the Hugging Face CLI asks for it")
 
     def install_musetalk(self) -> None:
         headline("Installing MuseTalk")
@@ -1019,6 +1022,7 @@ for job in jobs:
         print("  - LM Studio is installed and has a model loaded if you want local chat")
         print("  - Optional MuseTalk avatar packs live in avatar_packs/<pack_id>")
         print("  - PocketTTS voice cloning still requires Hugging Face terms acceptance on kyutai/pocket-tts")
+        print("  - If PocketTTS asks for login, create a Read token at https://huggingface.co/settings/tokens")
         print()
         ok("Launch the app with run_neural_companion.bat")
 
