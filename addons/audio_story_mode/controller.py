@@ -6909,9 +6909,10 @@ class AudioStoryModeController(QtCore.QObject):
                 if not anchor_text:
                     chunk = self._current_scene_entry()
                     anchor_text = str(chunk.get("scene_summary", "") or chunk.get("key_action", "") or chunk.get("text", "") or "").strip()
-            anchor_edit.blockSignals(True)
-            anchor_edit.setPlainText(anchor_text)
-            anchor_edit.blockSignals(False)
+            if str(anchor_edit.toPlainText() or "") != anchor_text:
+                anchor_edit.blockSignals(True)
+                anchor_edit.setPlainText(anchor_text)
+                anchor_edit.blockSignals(False)
         anchor_pin_button = getattr(self, "audio_story_scene_anchor_pin_button", None)
         if anchor_pin_button is not None:
             anchor_pin_button.blockSignals(True)
@@ -6925,9 +6926,10 @@ class AudioStoryModeController(QtCore.QObject):
                 negative_prompt_text = str(self.scene_overrides.get("global_negative_prompt", "") or "").strip()
             elif scene_id:
                 negative_prompt_text = str(dict(self.scene_overrides.get("scene_negative_prompt_overrides", {}) or {}).get(scene_id, "") or "").strip()
-            negative_prompt_edit.blockSignals(True)
-            negative_prompt_edit.setPlainText(negative_prompt_text)
-            negative_prompt_edit.blockSignals(False)
+            if str(negative_prompt_edit.toPlainText() or "") != negative_prompt_text:
+                negative_prompt_edit.blockSignals(True)
+                negative_prompt_edit.setPlainText(negative_prompt_text)
+                negative_prompt_edit.blockSignals(False)
         negative_prompt_anchor_button = getattr(self, "audio_story_negative_prompt_anchor_button", None)
         if negative_prompt_anchor_button is not None:
             negative_prompt_anchor_button.blockSignals(True)
