@@ -23,6 +23,7 @@ _set_seed: Callable[[int], Any] | None = None
 _save_wav: Callable[[str, Any, int], Any] | None = None
 _safe_delete: Callable[[str], Any] | None = None
 _apply_chat_provider_generation_fields: Callable[..., Any] | None = None
+_ensure_chat_provider_model_ready: Callable[[str, str], Any] | None = None
 
 
 def configure_runtime(
@@ -40,6 +41,7 @@ def configure_runtime(
     save_wav: Callable[[str, Any, int], Any],
     safe_delete: Callable[[str], Any],
     apply_chat_provider_generation_fields: Callable[..., Any] | None = None,
+    ensure_chat_provider_model_ready: Callable[[str, str], Any] | None = None,
 ) -> None:
     global _runtime_config
     global _update_runtime_config
@@ -54,6 +56,7 @@ def configure_runtime(
     global _save_wav
     global _safe_delete
     global _apply_chat_provider_generation_fields
+    global _ensure_chat_provider_model_ready
     _runtime_config = runtime_config
     _update_runtime_config = update_runtime_config
     _audio_segment_cls = audio_segment_cls
@@ -67,6 +70,7 @@ def configure_runtime(
     _save_wav = save_wav
     _safe_delete = safe_delete
     _apply_chat_provider_generation_fields = apply_chat_provider_generation_fields
+    _ensure_chat_provider_model_ready = ensure_chat_provider_model_ready
 
 
 def engine_loaded() -> bool:
@@ -212,3 +216,9 @@ def apply_chat_provider_generation_fields(params: dict, additional_params: dict,
     if callable(_apply_chat_provider_generation_fields):
         return _apply_chat_provider_generation_fields(params, additional_params, provider=provider)
     return None
+
+
+def ensure_chat_provider_model_ready(provider: str, model: str):
+    if callable(_ensure_chat_provider_model_ready):
+        return _ensure_chat_provider_model_ready(str(provider or ""), str(model or ""))
+    return False

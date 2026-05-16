@@ -81,7 +81,7 @@ _AUDIO_STORY_PROMPT_BLOCK_LIMIT_DEFAULTS = {
 }
 
 _AUDIO_STORY_PROMPT_SAFETY_CAP_DEFAULT = 1800
-_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS = 45.0
+_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS = 120.0
 _AUDIO_STORY_LLM_ANALYSIS_MAX_CHUNKS = 24
 _AUDIO_STORY_XAI_IMAGE_ASPECT_RATIOS = (
     "1:1",
@@ -4578,6 +4578,30 @@ class AudioStoryModeController(QtCore.QObject):
                 model = ""
         return provider, model
 
+    def _prepare_story_analysis_chat_request(self, *, provider: str, model: str, params: dict, additional_params: dict, min_output_tokens: int, timeout_seconds: float):
+        if str(provider or "").strip().lower() == "lmstudio":
+            audio_story_runtime.ensure_chat_provider_model_ready(provider, model)
+        audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
+        min_tokens = max(1, int(min_output_tokens or 1))
+        token_keys = [key for key in ("max_tokens", "max_completion_tokens") if key in params]
+        if not token_keys:
+            params["max_tokens"] = min_tokens
+            token_keys = ["max_tokens"]
+        for key in token_keys:
+            try:
+                value = int(float(params.get(key)))
+            except Exception:
+                params[key] = min_tokens
+                continue
+            if value >= 0 and value < min_tokens:
+                params[key] = min_tokens
+        params["response_format"] = {"type": "json_object"}
+        try:
+            timeout_value = float(params.get("timeout", 0) or 0)
+        except Exception:
+            timeout_value = 0.0
+        params["timeout"] = max(timeout_value, float(timeout_seconds or 0.0))
+
     def _build_llm_story_analysis_with_timeout(self, **kwargs):
         result_queue: queue.Queue = queue.Queue(maxsize=1)
 
@@ -4757,7 +4781,14 @@ class AudioStoryModeController(QtCore.QObject):
         additional_params = {}
         if str(provider or "").strip().lower() == "deepseek":
             additional_params["thinking_type"] = "disabled"
-        audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
+        self._prepare_story_analysis_chat_request(
+            provider=provider,
+            model=model,
+            params=params,
+            additional_params=additional_params,
+            min_output_tokens=3200,
+            timeout_seconds=120,
+        )
         last_error = None
         for _attempt in range(3):
             try:
@@ -4819,7 +4850,14 @@ class AudioStoryModeController(QtCore.QObject):
         additional_params = {}
         if str(provider or "").strip().lower() == "deepseek":
             additional_params["thinking_type"] = "disabled"
-        audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
+        self._prepare_story_analysis_chat_request(
+            provider=provider,
+            model=model,
+            params=params,
+            additional_params=additional_params,
+            min_output_tokens=5000,
+            timeout_seconds=90,
+        )
         last_error = None
         for _attempt in range(3):
             try:

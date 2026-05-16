@@ -995,6 +995,14 @@ def _apply_chat_provider_generation_fields(params, additional_params, provider=N
     _chat_runtime.apply_generation_fields(params, additional_params, provider=provider)
 
 
+def _ensure_chat_provider_model_ready(provider, model):
+    provider_id = chat_providers.normalize_provider_id(provider, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+    model_name = str(model or "").strip()
+    if provider_id == "lmstudio" and model_name and not _is_model_catalog_placeholder(model_name):
+        return load_lmstudio_model(model_name)
+    return True
+
+
 def _chat_provider_model_error(provider=None):
     return _chat_runtime.provider_model_error(provider)
 
@@ -5169,6 +5177,7 @@ audio_story_runtime.configure_runtime(
     save_wav=save_audio_file,
     safe_delete=safe_delete_with_retry,
     apply_chat_provider_generation_fields=_apply_chat_provider_generation_fields,
+    ensure_chat_provider_model_ready=_ensure_chat_provider_model_ready,
 )
 
 
