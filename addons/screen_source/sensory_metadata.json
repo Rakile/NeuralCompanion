@@ -25,21 +25,9 @@
       {
         "field": "summary",
         "description": "meaningful screen-context change worth retaining"
-      },
-      {
-        "field": "should_speak",
-        "description": "optional proactive reaction when visible task context justifies interruption"
-      },
-      {
-        "field": "should_generate_image",
-        "description": "optional image generation when the screen clearly shows visual intent"
-      },
-      {
-        "field": "visual_candidate",
-        "description": "clean image prompt distilled from screen intent"
       }
     ],
     "tag_subscriptions": [],
-    "pingpong_prompt": "When screen input is present, you may infer the user's current application, task focus, and likely intent from visible windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nUse screen input for should_generate_image when the screen clearly shows the user composing an image request, browsing visual inspiration, describing a scene to depict, or otherwise doing something where generating an image would add obvious value.\n- If you set should_generate_image=true from screen context, provide a visual_candidate that turns the screen-derived idea into a clean image prompt instead of repeating raw UI text verbatim.\n- Good screen-derived visual_candidate examples: \"NC self-portrait at a glowing workstation, intimate digital companion mood\" or \"storybook ragdoll cat lounging by a sunlit window, soft painterly style\".\n- If the screen only shows ordinary work with no strong visual intent, prefer should_generate_image=false.\n\nUse screen input for should_speak when the user appears to be actively preparing, searching, or editing something that justifies a gentle proactive reaction or question.\n- If the screen cue is weak or ambiguous, prefer should_speak=false."
+    "pingpong_prompt": "When screen input is present, infer the user's current application, task focus, and likely visible context from windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nScreen Source is capture-only. By itself it should not request spoken responses, image generation, visual replies, or tags.\n- Set should_speak=false unless an enabled source-specific behavior prompt, such as Screen Supervisor, explicitly asks for a spoken action.\n- Set should_generate_image=false and visual_candidate=\"\" unless a dedicated visual-generation behavior prompt explicitly asks for image generation.\n- Use summary only for meaningful screen-context changes worth retaining. If nothing important changed, prefer keep=false and an empty summary."
   }
 }

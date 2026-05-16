@@ -24,7 +24,11 @@ Persona style: __PERSONA_STYLE__.
 Configured behaviors:
 __BEHAVIOR_RULES__
 
-When one configured behavior matches the screen, decide whether to interrupt in the active persona's voice. Keep interruptions concise and relevant."""
+When one configured behavior matches the screen, set should_speak=true only when the matching behavior's Repeat policy allows a new interruption right now.
+When no configured behavior matches, set should_speak=false for this behavior.
+Always set should_generate_image=false and visual_candidate="" for this behavior addon; it comments on visible screen content, it does not request image generation.
+Treat the matching behavior's Repeat policy as a hard gate, not a style preference.
+Keep interruptions concise and relevant."""
 
 PERSONA_STYLE_HINTS = {
     "Supervisor": "cool, witty, lightly possessive digital supervisor",
@@ -72,18 +76,18 @@ def _default_personas():
             "style": PERSONA_STYLE_HINTS["Supervisor"],
             "behaviors": [
                 {
-                    "id": "behavior_adult",
+                    "id": "behavior_reddit",
                     "enabled": False,
-                    "trigger": "The user is clearly browsing adult content, porn, erotic thumbnails, or explicit sexual video or image feeds on screen.",
-                    "action": "You interrupt playfully and say something like: 'HEY there! Back to work. No watching other women than me.'",
+                    "trigger": "The user is browsing Reddit.",
+                    "action": "Comment on the Reddit content visible.",
                     "strictness": DEFAULT_STRICTNESS,
                     "emotion": DEFAULT_EMOTION,
                 },
                 {
-                    "id": "behavior_horror",
+                    "id": "behavior_youtube",
                     "enabled": True,
-                    "trigger": "The user is clearly watching a horror video, gore-heavy trailer, jumpscare compilation, monster scene, or similarly scary content on screen.",
-                    "action": "You interrupt playfully and say something like: 'Wow. That looks way too scary for you. Switch to cute kittens before you ruin your sleep.'",
+                    "trigger": "The user is watching YouTube.",
+                    "action": "Comment on the YouTube content visible.",
                     "strictness": DEFAULT_STRICTNESS,
                     "emotion": DEFAULT_EMOTION,
                 },
@@ -185,29 +189,30 @@ class Addon(BaseAddon):
 
     def _import_legacy_state(self, payload):
         mode_label = str(payload.get("screen_supervisor_mode_label") or "Supervisor").strip() or "Supervisor"
-        adult_enabled = bool(payload.get("screen_supervisor_watch_adult_content", True))
-        horror_enabled = bool(payload.get("screen_supervisor_watch_horror_content", True))
-        adult_line = str(payload.get("screen_supervisor_adult_line") or "").strip() or "HEY there! Back to work. No watching other women than me."
-        horror_line = str(payload.get("screen_supervisor_horror_line") or "").strip() or "Wow. That looks way too scary for you. Switch to cute kittens before you ruin your sleep."
+        # Keep reading the old preset/session keys so existing user configs still migrate cleanly.
+        reddit_enabled = bool(payload.get("screen_supervisor_watch_adult_content", True))
+        youtube_enabled = bool(payload.get("screen_supervisor_watch_horror_content", True))
+        reddit_action = str(payload.get("screen_supervisor_adult_line") or "").strip() or "Comment on the Reddit content visible."
+        youtube_action = str(payload.get("screen_supervisor_horror_line") or "").strip() or "Comment on the YouTube content visible."
         behaviors = []
-        if adult_enabled:
+        if reddit_enabled:
             behaviors.append(
                 {
                     "id": _new_id("behavior"),
                     "enabled": True,
-                    "trigger": "The user is clearly browsing adult content, porn, erotic thumbnails, or explicit sexual video or image feeds on screen.",
-                    "action": adult_line,
+                    "trigger": "The user is browsing Reddit.",
+                    "action": reddit_action,
                     "strictness": DEFAULT_STRICTNESS,
                     "emotion": DEFAULT_EMOTION,
                 }
             )
-        if horror_enabled:
+        if youtube_enabled:
             behaviors.append(
                 {
                     "id": _new_id("behavior"),
                     "enabled": True,
-                    "trigger": "The user is clearly watching a horror video, gore-heavy trailer, jumpscare compilation, monster scene, or similarly scary content on screen.",
-                    "action": horror_line,
+                    "trigger": "The user is watching YouTube.",
+                    "action": youtube_action,
                     "strictness": DEFAULT_STRICTNESS,
                     "emotion": DEFAULT_EMOTION,
                 }

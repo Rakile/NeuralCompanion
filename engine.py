@@ -356,6 +356,8 @@ Schema: {"keep": boolean, "emotion": string, "attention": string, "summary": str
 
 General rules:
 - Return exactly one JSON object and nothing else.
+- Use the exact schema keys, in double quotes. Do not invent variants such as "visual Candidate", "visualCandidate", or "should generate image".
+- Quote all string keys and string values with standard double quotes. Do not use markdown, smart quotes, comments, or bare keys.
 - Use empty strings for fields that have no meaningful update.
 - Use an empty array for tags when no addon-specific directive tags are needed.
 - Use false for action flags unless there is a clear reason to act.
@@ -865,6 +867,8 @@ sensory_hidden_action_state = {
     "active_proactive": None,
     "last_proactive_key": "",
     "last_proactive_at": 0.0,
+    "last_proactive_candidate_key": "",
+    "last_proactive_candidate_at": 0.0,
     "last_visual_key": "",
     "last_visual_at": 0.0,
 }
@@ -2052,6 +2056,15 @@ def _sanitize_hidden_action_text(value, *, limit=220, lower=False):
     return text[:limit]
 
 
+def _canonical_hidden_action_key(value):
+    text = _sanitize_hidden_action_text(value, limit=220, lower=True)
+    if not text:
+        return ""
+    text = re.sub(r"\[(?:neutral|sad|angry|laugh|chuckle|sigh|groan|gasp|clear throat|sniff)\]", " ", text)
+    text = re.sub(r"[*_`~\"'“”‘’.,!?;:()\[\]{}<>/\\|-]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
 def _derive_hidden_proactive_candidate(summary="", attention="", emotion=""):
     candidate = _sanitize_hidden_action_text(summary, limit=220)
     if candidate:
@@ -2119,14 +2132,29 @@ def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", so
             request.get("attention", ""),
         ]
     )
+    candidate_key = "|".join(
+        [
+            request.get("source", "sensory"),
+            _canonical_hidden_action_key(request.get("candidate", "")),
+        ]
+    )
     with sensory_pingpong_lock:
+        now = time.time()
         last_key = str(sensory_hidden_action_state.get("last_proactive_key", "") or "")
         last_at = float(sensory_hidden_action_state.get("last_proactive_at", 0.0) or 0.0)
-        if request_key and request_key == last_key and (time.time() - last_at) < 45.0:
+        if request_key and request_key == last_key and (now - last_at) < 45.0:
+            print("🤐 [Sensory] Suppressed duplicate proactive candidate for unchanged hidden PONG.")
+            return False
+        last_candidate_key = str(sensory_hidden_action_state.get("last_proactive_candidate_key", "") or "")
+        last_candidate_at = float(sensory_hidden_action_state.get("last_proactive_candidate_at", 0.0) or 0.0)
+        if candidate_key and candidate_key == last_candidate_key and (now - last_candidate_at) < 300.0:
+            print("🤐 [Sensory] Suppressed repeated proactive candidate without a new spoken cue.")
             return False
         sensory_hidden_action_state["pending_proactive"] = request
         sensory_hidden_action_state["last_proactive_key"] = request_key
-        sensory_hidden_action_state["last_proactive_at"] = time.time()
+        sensory_hidden_action_state["last_proactive_at"] = now
+        sensory_hidden_action_state["last_proactive_candidate_key"] = candidate_key
+        sensory_hidden_action_state["last_proactive_candidate_at"] = now
     print(f"🗣️ [Sensory] Queued proactive candidate: {request.get('candidate')}")
     return True
 
@@ -2362,6 +2390,10 @@ def _repair_common_json_mistakes(text):
     repaired = str(text or "").strip()
     if not repaired:
         return repaired
+    repaired = repaired.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    repaired = re.sub(r'"visual\s+candidate"', '"visual_candidate"', repaired, flags=re.IGNORECASE)
+    repaired = re.sub(r'"visualCandidate"', '"visual_candidate"', repaired, flags=re.IGNORECASE)
+    repaired = re.sub(r'(?<!")\b(keep|emotion|attention|summary|proactive_candidate|visual_candidate|should_speak|should_generate_image|tags)\b\s*:', r'"\1":', repaired)
     # Quote bareword values for string-only sensory keys.
     for key in ("emotion", "attention", "summary", "proactive_candidate", "visual_candidate"):
         repaired = re.sub(
@@ -2380,6 +2412,78 @@ def _repair_common_json_mistakes(text):
     return repaired
 
 
+def _extract_sensory_string_field(text, *keys):
+    raw = str(text or "").replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    for key in keys:
+        key_pattern = re.escape(str(key or "")).replace(r"\ ", r"\s+")
+        match = re.search(
+            rf'["\']?{key_pattern}["\']?\s*:?\s*(["\'])(?P<value>(?:\\.|(?!\1).)*?)\1',
+            raw,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            value = match.group("value")
+            if "\\" in value:
+                value = value.replace(r"\"", '"').replace(r"\'", "'")
+            return re.sub(r"\s+", " ", value).strip()
+    return ""
+
+
+def _extract_sensory_bool_field(text, *keys):
+    raw = str(text or "").replace("“", '"').replace("”", '"')
+    for key in keys:
+        key_pattern = re.escape(str(key or "")).replace(r"\ ", r"\s+")
+        match = re.search(
+            rf'["\']?{key_pattern}["\']?\s*:?\s*(?P<value>true|false|yes|no|on|off|1|0)\b',
+            raw,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+        if match:
+            return _normalize_boolish(match.group("value"))
+    return False
+
+
+def _extract_sensory_tags_field(text):
+    raw = str(text or "").replace("“", '"').replace("”", '"')
+    match = re.search(r'["\']?tags["\']?\s*:?\s*\[(?P<items>[^\]]*)\]', raw, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return []
+    tags = []
+    for item in re.findall(r'(["\'])(?P<value>.*?)(?:\1)', match.group("items")):
+        value = _sanitize_hidden_action_text(item[1], limit=80)
+        if value and value not in tags:
+            tags.append(value)
+    return tags
+
+
+def _coerce_sensory_pong_from_text(text):
+    raw = str(text or "").strip()
+    if not raw:
+        return None
+    summary = _extract_sensory_string_field(raw, "summary")
+    proactive_candidate = _extract_sensory_string_field(raw, "proactive_candidate", "proactive candidate", "proactive")
+    visual_candidate = _extract_sensory_string_field(raw, "visual_candidate", "visual candidate", "visualCandidate")
+    emotion = _extract_sensory_string_field(raw, "emotion")
+    attention = _extract_sensory_string_field(raw, "attention")
+    should_speak = _extract_sensory_bool_field(raw, "should_speak", "should speak")
+    should_generate_image = _extract_sensory_bool_field(raw, "should_generate_image", "should generate image", "visual_generate_image")
+    keep = _extract_sensory_bool_field(raw, "keep")
+    tags = _extract_sensory_tags_field(raw)
+    if not any((summary, proactive_candidate, visual_candidate, emotion, attention, should_speak, should_generate_image, keep, tags)):
+        return None
+    return {
+        "keep": keep,
+        "emotion": emotion,
+        "attention": attention,
+        "summary": summary,
+        "proactive_candidate": proactive_candidate,
+        "visual_candidate": visual_candidate,
+        "should_speak": should_speak,
+        "should_generate_image": should_generate_image,
+        "tags": tags,
+    }
+
+
 def _parse_sensory_pong(payload_text):
     payload = _extract_json_object_from_text(payload_text)
     repaired_payload = None
@@ -2388,7 +2492,10 @@ def _parse_sensory_pong(payload_text):
         if repaired_payload and repaired_payload != str(payload_text or ""):
             payload = _extract_json_object_from_text(repaired_payload)
     if not isinstance(payload, dict):
-        return None
+        payload = _coerce_sensory_pong_from_text(payload_text)
+        if not isinstance(payload, dict):
+            return None
+        repaired_payload = str(payload_text or "")
     keep_value = _normalize_boolish(payload.get("keep", False))
     emotion = str(payload.get("emotion", "") or "").strip().lower()
     attention = str(payload.get("attention", "") or "").strip().lower()
@@ -2531,6 +2638,20 @@ def _sensory_pingpong_source_prompt_text(source_ids):
             fragments.append(f"Behavior prompt for {contributor_label}:\n{fragment}")
     return "\n\n".join(fragments)
 
+
+def _screen_supervisor_prompt_active(source_ids):
+    for source_id in list(source_ids or []):
+        if str(source_id or "").strip().lower() != "screen":
+            continue
+        for contributor in sensory.list_prompt_contributors("screen"):
+            contributor_id = str(getattr(contributor, "id", "") or "").strip()
+            if contributor_id == "nc.screen_supervisor.behavior":
+                prompt = str(getattr(contributor, "prompt", "") or "").strip()
+                if prompt:
+                    return True
+    return False
+
+
 def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
     prompt_template = _sensory_pingpong_prompt_template()
     prompt_text = prompt_template.replace("__EMOTION_LIST__", emotion_text)
@@ -2601,6 +2722,12 @@ def _apply_sensory_pong_result(result, snapshots):
     keep_value = bool(result.get("keep", False))
     snapshot_list = list(snapshots or [])
     snapshot_source = ",".join([str((item or {}).get("source", "sensory") or "sensory") for item in snapshot_list if isinstance(item, dict)]) or "sensory"
+    if should_generate_image and visual_candidate and _screen_supervisor_prompt_active(
+        [str((item or {}).get("source", "") or "").strip().lower() for item in snapshot_list if isinstance(item, dict)]
+    ):
+        print("🖼️ [Sensory] Suppressed screen-supervisor visual generation request; supervisor behavior is comment-only.")
+        visual_candidate = ""
+        should_generate_image = False
     meaningful = bool(emotion or attention or summary or proactive_candidate or visual_candidate or should_speak or should_generate_image or tags)
     debug_parts = []
     if emotion:
@@ -2695,22 +2822,23 @@ def _apply_sensory_pong_result(result, snapshots):
                     _publish_addon_runtime_event("sensory.hidden_pong.retained", {"event": dict(event), "source": snapshot_source})
                     _request_chat_view_rebuild()
     if should_speak and proactive_candidate and _hidden_sensory_proactive_speech_allowed():
-        _queue_hidden_proactive_candidate(
+        proactive_queued = _queue_hidden_proactive_candidate(
             proactive_candidate,
             summary=summary,
             attention=attention,
             source=snapshot_source,
         )
-        _publish_addon_runtime_event(
-            "sensory.hidden_action.proactive_queued",
-            {
-                "source": snapshot_source,
-                "candidate": proactive_candidate,
-                "summary": summary,
-                "attention": attention,
-                "emotion": emotion,
-            },
-        )
+        if proactive_queued:
+            _publish_addon_runtime_event(
+                "sensory.hidden_action.proactive_queued",
+                {
+                    "source": snapshot_source,
+                    "candidate": proactive_candidate,
+                    "summary": summary,
+                    "attention": attention,
+                    "emotion": emotion,
+                },
+            )
     if tags:
         _publish_addon_runtime_event(
             "sensory.hidden_action.tags_emitted",
@@ -2764,21 +2892,28 @@ def run_hidden_sensory_pingpong_cycle(force=False):
     source_text = ", ".join(sources) if sources else "sensory"
     print(f"📡 [Sensory] Hidden PING from {source_text}...")
     _llm_request_active.set()
+    params = {
+        "model": RUNTIME_CONFIG["model_name"],
+        "messages": messages,
+        "temperature": 0.2,
+        "top_p": min(0.8, float(RUNTIME_CONFIG.get("top_p", 0.8) or 0.8)),
+        "max_tokens": 220,
+        "response_format": {"type": "json_object"},
+    }
+    additional_params = {
+        "top_k": int(RUNTIME_CONFIG.get("top_k", 40) or 40),
+        "min_p": float(RUNTIME_CONFIG.get("min_p", 0.05) or 0.05),
+        "repeat_penalty": float(RUNTIME_CONFIG.get("repeat_penalty", 1.1) or 1.1),
+    }
     try:
-        payload_text = _chat_completion_create(
-            {
-                "model": RUNTIME_CONFIG["model_name"],
-                "messages": messages,
-                "temperature": 0.2,
-                "top_p": min(0.8, float(RUNTIME_CONFIG.get("top_p", 0.8) or 0.8)),
-                "max_tokens": 220,
-            },
-            {
-                "top_k": int(RUNTIME_CONFIG.get("top_k", 40) or 40),
-                "min_p": float(RUNTIME_CONFIG.get("min_p", 0.05) or 0.05),
-                "repeat_penalty": float(RUNTIME_CONFIG.get("repeat_penalty", 1.1) or 1.1),
-            },
-        )
+        try:
+            payload_text = _chat_completion_create(params, additional_params)
+        except Exception as exc:
+            message = str(exc)
+            if "response_format" not in message and "json_object" not in message:
+                raise
+            params.pop("response_format", None)
+            payload_text = _chat_completion_create(params, additional_params)
     except Exception as exc:
         print(f"⚠️ [Sensory] Hidden PONG failed: {exc}")
         return False
@@ -3254,6 +3389,8 @@ def reset_session_state():
         "active_proactive": None,
         "last_proactive_key": "",
         "last_proactive_at": 0.0,
+        "last_proactive_candidate_key": "",
+        "last_proactive_candidate_at": 0.0,
         "last_visual_key": "",
         "last_visual_at": 0.0,
     }
