@@ -53,10 +53,7 @@ class Addon(BaseAddon):
     def _build_runtime_widget(self, context):
         if getattr(self, "_shell_preview", False):
             return self._build_shell_preview_tab()
-        controller = self._ensure_controller()
-        if controller is None:
-            raise RuntimeError("Audio Story Mode controller is unavailable.")
-        return controller.build_runtime_widget()
+        raise RuntimeError("Audio Story Mode requires its Designer .ui file; runtime fallback UI is disabled.")
 
     def _bind_designer_tab(self, widget, context):
         from PySide6 import QtWidgets
@@ -82,17 +79,7 @@ class Addon(BaseAddon):
             bound = controller.build_runtime_widget(widget)
             if bound is not None:
                 return bound
-
-        mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount")
-        if mount is None:
-            raise RuntimeError("Audio Story Mode Designer UI could not be bound.")
-        layout = mount.layout()
-        if layout is None:
-            layout = QtWidgets.QVBoxLayout(mount)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(0)
-        layout.addWidget(self._build_runtime_widget(context))
-        return widget
+        raise RuntimeError("Audio Story Mode Designer UI could not be bound.")
 
     def _build_shell_preview_tab(self):
         from PySide6 import QtCore, QtWidgets

@@ -271,19 +271,8 @@ class AddonUIService(AddonServiceBase):
                 if binder is not None:
                     binder(widget, addon_context)
                 return widget
-            except Exception as exc:
-                if fallback_factory is None:
-                    raise
-                try:
-                    addon_context.logger.warning(
-                        "Designer UI tab '%s' failed to load from '%s'; using fallback factory. Error: %s",
-                        str(id or "").strip(),
-                        relative_ui_path,
-                        exc,
-                    )
-                except Exception:
-                    pass
-                return fallback_factory(addon_context)
+            except Exception:
+                raise
 
         contribution_metadata = {**dict(metadata or {}), "ui_path": relative_ui_path, "ui_kind": "designer"}
         if str(icon_path or "").strip():
