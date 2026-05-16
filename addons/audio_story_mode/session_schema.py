@@ -12,6 +12,8 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("audio_story_mode_audio_path", ("audio", "audio_path")),
         ("audio_story_mode_playback_mode", ("audio", "playback_mode")),
         ("audio_story_mode_transcribe_seconds", ("audio", "transcribe_seconds")),
+        ("audio_story_mode_transcription_start_seconds", ("audio", "transcription_start_seconds")),
+        ("audio_story_mode_transcription_end_seconds", ("audio", "transcription_end_seconds")),
         ("audio_story_mode_image_frequency_seconds", ("timing", "image_frequency_seconds")),
         ("audio_story_mode_image_timing_mode", ("timing", "image_timing_mode")),
         ("audio_story_mode_generate_ahead_frames", ("timing", "generate_ahead_frames")),

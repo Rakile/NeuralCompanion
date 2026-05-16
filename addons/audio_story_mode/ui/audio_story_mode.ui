@@ -225,7 +225,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="3" column="0">
                 <widget class="QLabel" name="audio_story_transcribe_seconds_label">
                  <property name="text">
-                  <string>Transcribe Seconds</string>
+                  <string>Transcription Granularity</string>
                  </property>
                 </widget>
                </item>
@@ -258,10 +258,64 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                    <property name="alignment">
                     <set>Qt::AlignmentFlag::AlignRight|Qt::AlignmentFlag::AlignTrailing|Qt::AlignmentFlag::AlignVCenter</set>
                    </property>
-                  </widget>
-                 </item>
-                </layout>
-               </item>
+                 </widget>
+                </item>
+               </layout>
+              </item>
+              <item row="4" column="0">
+               <widget class="QLabel" name="audio_story_transcription_range_label">
+                <property name="text">
+                 <string>Transcribe Seconds</string>
+                </property>
+               </widget>
+              </item>
+              <item row="4" column="1">
+               <layout class="QHBoxLayout" name="audio_story_transcription_range_row">
+                <property name="spacing">
+                 <number>8</number>
+                </property>
+                <property name="leftMargin">
+                 <number>0</number>
+                </property>
+                <property name="topMargin">
+                 <number>0</number>
+                </property>
+                <property name="rightMargin">
+                 <number>0</number>
+                </property>
+                <property name="bottomMargin">
+                 <number>0</number>
+                </property>
+                <item>
+                 <widget class="QLabel" name="audio_story_transcription_start_label">
+                  <property name="text">
+                   <string>Start</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="audio_story_transcription_start_spin">
+                  <property name="suffix">
+                   <string> s</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QLabel" name="audio_story_transcription_end_label">
+                  <property name="text">
+                   <string>End</string>
+                  </property>
+                 </widget>
+                </item>
+                <item>
+                 <widget class="QSpinBox" name="audio_story_transcription_end_spin">
+                  <property name="suffix">
+                   <string> s</string>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
+              </item>
               </layout>
              </widget>
             </item>

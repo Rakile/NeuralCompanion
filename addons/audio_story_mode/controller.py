@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
+import math
 import re
 import threading
 import time
@@ -121,6 +122,9 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_transcribe_seconds_label": "Transcript window size used when splitting the audio into story chunks.",
     "audio_story_transcribe_seconds_slider": "Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze.",
     "audio_story_transcribe_seconds_value_label": "Current transcript window size in seconds.",
+    "audio_story_transcription_range_label": "Source-audio range to transcribe.",
+    "audio_story_transcription_start_spin": "First source-audio second included when transcribing. Use 0 to start at the beginning.",
+    "audio_story_transcription_end_spin": "Last source-audio second included when transcribing. Use the audio duration to transcribe through the end.",
     "audio_story_image_frequency_label": "Target image cadence when Image Timing is Fixed Seconds.",
     "audio_story_image_frequency_slider": "Fixed-seconds image cadence, capped at 60 seconds. Lower values create more image prompts and can increase image API cost.",
     "audio_story_image_frequency_value_label": "Current fixed image cadence in seconds.",
@@ -690,6 +694,8 @@ class AudioStoryModeController(QtCore.QObject):
         self._player_source_key = ""
         self._current_chunk_index = -1
         self._stored_transcribe_seconds = 8
+        self._stored_transcription_start_seconds = 0
+        self._stored_transcription_end_seconds = 0
         self._stored_image_frequency_seconds = 12
         self._stored_image_timing_mode = "fixed"
         self._stored_generate_ahead_frames = 1
@@ -1533,7 +1539,16 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_transcribe_seconds_slider.setRange(1, max(8, int(self._stored_transcribe_seconds or 8)))
             self.audio_story_transcribe_seconds_slider.setValue(max(1, int(self._stored_transcribe_seconds or 8)))
             self.audio_story_transcribe_seconds_slider.valueChanged.connect(self._on_transcribe_seconds_changed)
+        self.audio_story_transcribe_seconds_label = self._ui_child(root, "audio_story_transcribe_seconds_label", QtWidgets.QLabel)
+        if self.audio_story_transcribe_seconds_label is not None:
+            self.audio_story_transcribe_seconds_label.setText("Transcription Granularity")
         self.audio_story_transcribe_seconds_value_label = self._ui_child(root, "audio_story_transcribe_seconds_value_label", QtWidgets.QLabel)
+        self.audio_story_transcription_start_spin = self._ui_child(root, "audio_story_transcription_start_spin", QtWidgets.QSpinBox)
+        self.audio_story_transcription_end_spin = self._ui_child(root, "audio_story_transcription_end_spin", QtWidgets.QSpinBox)
+        for spin in (self.audio_story_transcription_start_spin, self.audio_story_transcription_end_spin):
+            if spin is not None:
+                spin.setSuffix(" s")
+                spin.valueChanged.connect(self._on_transcription_range_changed)
 
         self.audio_story_image_frequency_slider = self._ui_child(root, "audio_story_image_frequency_slider", QtWidgets.QSlider)
         if self.audio_story_image_frequency_slider is not None:
@@ -1792,6 +1807,7 @@ class AudioStoryModeController(QtCore.QObject):
         if self.imported_audio_path:
             self.audio_story_path_edit.setText(str(self.imported_audio_path))
         self._sync_transcribe_seconds_slider()
+        self._sync_transcription_range_controls()
         self._sync_image_frequency_slider()
         self._sync_image_timing_mode_controls()
         self._sync_continuity_slider()
@@ -1954,7 +1970,23 @@ class AudioStoryModeController(QtCore.QObject):
         transcribe_seconds_row.addWidget(self.audio_story_transcribe_seconds_value_label)
         transcribe_seconds_widget = QtWidgets.QWidget()
         transcribe_seconds_widget.setLayout(transcribe_seconds_row)
-        options_form.addRow("Transcribe Seconds", transcribe_seconds_widget)
+        options_form.addRow("Transcription Granularity", transcribe_seconds_widget)
+
+        transcription_range_row = QtWidgets.QHBoxLayout()
+        transcription_range_row.setSpacing(8)
+        transcription_range_row.addWidget(QtWidgets.QLabel("Start"))
+        self.audio_story_transcription_start_spin = QtWidgets.QSpinBox()
+        self.audio_story_transcription_start_spin.setSuffix(" s")
+        self.audio_story_transcription_start_spin.valueChanged.connect(self._on_transcription_range_changed)
+        transcription_range_row.addWidget(self.audio_story_transcription_start_spin, 1)
+        transcription_range_row.addWidget(QtWidgets.QLabel("End"))
+        self.audio_story_transcription_end_spin = QtWidgets.QSpinBox()
+        self.audio_story_transcription_end_spin.setSuffix(" s")
+        self.audio_story_transcription_end_spin.valueChanged.connect(self._on_transcription_range_changed)
+        transcription_range_row.addWidget(self.audio_story_transcription_end_spin, 1)
+        transcription_range_widget = QtWidgets.QWidget()
+        transcription_range_widget.setLayout(transcription_range_row)
+        options_form.addRow("Transcribe Seconds", transcription_range_widget)
 
         image_frequency_row = QtWidgets.QHBoxLayout()
         self.audio_story_image_frequency_slider = _AudioStoryNoWheelSlider(QtCore.Qt.Horizontal)
@@ -2462,7 +2494,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.audio_story_transcript_edit.setReadOnly(True)
         self.audio_story_transcript_edit.setMinimumHeight(160)
         self.audio_story_transcript_edit.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-        self.audio_story_transcript_edit.setToolTip("Read-only transcript windows used for scene detection and prompt generation. Adjust Transcribe Seconds or Image Timing, then rebuild to change these windows.")
+        self.audio_story_transcript_edit.setToolTip("Read-only transcript windows used for scene detection and prompt generation. Adjust Transcription Granularity or Image Timing, then rebuild to change these windows.")
         transcript_layout.addWidget(self.audio_story_transcript_edit, 1)
         layout.addWidget(transcript_box, 1)
 
@@ -2473,6 +2505,7 @@ class AudioStoryModeController(QtCore.QObject):
 
         self.audio_story_tab_widget = scroll
         self._sync_transcribe_seconds_slider()
+        self._sync_transcription_range_controls()
         self._sync_image_frequency_slider()
         self._sync_image_timing_mode_controls()
         self._sync_continuity_slider()
@@ -2865,6 +2898,8 @@ class AudioStoryModeController(QtCore.QObject):
         flat_payload = {
             "audio_story_mode_audio_path": str(self.imported_audio_path or "").strip(),
             "audio_story_mode_transcribe_seconds": int(self.audio_story_transcribe_seconds_slider.value()) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8),
+            "audio_story_mode_transcription_start_seconds": int(self.audio_story_transcription_start_spin.value()) if hasattr(self, "audio_story_transcription_start_spin") else int(self._stored_transcription_start_seconds or 0),
+            "audio_story_mode_transcription_end_seconds": int(self.audio_story_transcription_end_spin.value()) if hasattr(self, "audio_story_transcription_end_spin") else int(self._stored_transcription_end_seconds or 0),
             "audio_story_mode_image_frequency_seconds": self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value()) if hasattr(self, "audio_story_image_frequency_slider") else self._stored_image_frequency_seconds),
             "audio_story_mode_image_timing_mode": self._image_timing_mode(),
             "audio_story_mode_generate_ahead_frames": int(self._stored_generate_ahead_frames or 0),
@@ -2897,8 +2932,12 @@ class AudioStoryModeController(QtCore.QObject):
         audio_path = str(payload.get("audio_story_mode_audio_path") or "").strip()
         if audio_path:
             self.imported_audio_path = audio_path
+            self._refresh_imported_audio_duration()
         if audio_path and hasattr(self, "audio_story_path_edit"):
             self.audio_story_path_edit.setText(audio_path)
+        if audio_path:
+            self._sync_transcribe_seconds_slider()
+            self._sync_image_frequency_slider()
         seconds_value = payload.get("audio_story_mode_transcribe_seconds")
         if seconds_value is not None:
             try:
@@ -2906,6 +2945,20 @@ class AudioStoryModeController(QtCore.QObject):
                 self._sync_transcribe_seconds_slider()
             except Exception:
                 pass
+        start_value = payload.get("audio_story_mode_transcription_start_seconds")
+        if start_value is not None:
+            try:
+                self._stored_transcription_start_seconds = max(0, int(start_value or 0))
+            except Exception:
+                pass
+        end_value = payload.get("audio_story_mode_transcription_end_seconds")
+        if end_value is not None:
+            try:
+                self._stored_transcription_end_seconds = max(0, int(end_value or 0))
+            except Exception:
+                pass
+        if start_value is not None or end_value is not None or audio_path:
+            self._sync_transcription_range_controls()
         image_frequency_value = payload.get("audio_story_mode_image_frequency_seconds")
         if image_frequency_value is not None:
             try:
@@ -3124,6 +3177,19 @@ class AudioStoryModeController(QtCore.QObject):
         if self.dialogs is not None:
             self.dialogs.warning(title, message)
 
+    def _refresh_imported_audio_duration(self):
+        path = str(self.imported_audio_path or "").strip()
+        if not path:
+            self.imported_audio_duration_seconds = 0.0
+            return
+        try:
+            if Path(path).exists():
+                self.imported_audio_duration_seconds = max(0.0, audio_story_runtime.audio_duration_seconds(path))
+            else:
+                self.imported_audio_duration_seconds = 0.0
+        except Exception:
+            self.imported_audio_duration_seconds = 0.0
+
     def _choose_audio_file(self):
         if self.dialogs is None:
             return
@@ -3136,10 +3202,9 @@ class AudioStoryModeController(QtCore.QObject):
         if not path:
             return
         self.imported_audio_path = path
-        try:
-            self.imported_audio_duration_seconds = max(0.0, audio_story_runtime.audio_duration_seconds(path))
-        except Exception:
-            self.imported_audio_duration_seconds = 0.0
+        self._refresh_imported_audio_duration()
+        self._stored_transcription_start_seconds = 0
+        self._stored_transcription_end_seconds = int(math.ceil(self.imported_audio_duration_seconds)) if self.imported_audio_duration_seconds > 0 else 0
         self.transcript_chunks = []
         self.full_transcript_text = ""
         self.story_style_guide = ""
@@ -3159,6 +3224,7 @@ class AudioStoryModeController(QtCore.QObject):
         if hasattr(self, "audio_story_summary_label"):
             self.audio_story_summary_label.setText("Audio imported. Press 'Transcribe Audio' to build transcript windows and prompts.")
         self._sync_transcribe_seconds_slider()
+        self._sync_transcription_range_controls()
         self._sync_image_frequency_slider()
         self._stop_story()
         self._refresh_controls()
@@ -3171,44 +3237,75 @@ class AudioStoryModeController(QtCore.QObject):
         if not Path(path).exists():
             self._show_warning("Audio Story Mode", f"Audio file not found:\n{path}")
             return
+        self._refresh_imported_audio_duration()
+        self._sync_transcription_range_controls()
+        chunk_seconds = max(1, int(self.audio_story_transcribe_seconds_slider.value())) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8)
+        transcription_start_seconds, transcription_end_seconds = self._effective_transcription_range_seconds()
+        if self.imported_audio_duration_seconds > 0 and transcription_end_seconds <= transcription_start_seconds:
+            self._show_warning("Audio Story Mode", "Choose a transcription end second that is after the start second.")
+            return
         self._transcription_job_id += 1
         job_id = self._transcription_job_id
-        chunk_seconds = max(1, int(self.audio_story_transcribe_seconds_slider.value())) if hasattr(self, "audio_story_transcribe_seconds_slider") else int(self._stored_transcribe_seconds or 8)
         image_frequency_seconds = self._normalize_image_frequency_seconds(int(self.audio_story_image_frequency_slider.value())) if hasattr(self, "audio_story_image_frequency_slider") else self._normalize_image_frequency_seconds()
         continuity_strength = float(self._stored_continuity_strength or 0.8)
         self._set_transcription_progress(1, "Preparing audio transcription...")
         self.audio_story_transcribe_button.setEnabled(False)
         threading.Thread(
             target=self._run_transcription_job,
-            args=(job_id, path, chunk_seconds, image_frequency_seconds, continuity_strength),
+            args=(job_id, path, chunk_seconds, image_frequency_seconds, continuity_strength, transcription_start_seconds, transcription_end_seconds),
             daemon=True,
         ).start()
 
-    def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
+    def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0):
+        temp_transcription_path = None
         try:
             if not audio_story_runtime.ensure_whisper_ready():
                 raise RuntimeError("Failed to initialize the local Whisper model.")
             audio_duration = audio_story_runtime.audio_duration_seconds(path)
-            segments, _info = audio_story_runtime.transcribe_audio(path)
+            range_start = max(0.0, float(transcription_start_seconds or 0))
+            range_end = max(0.0, float(transcription_end_seconds or 0))
+            if audio_duration > 0:
+                range_start = min(range_start, audio_duration)
+                range_end = audio_duration if range_end <= 0 else min(range_end, audio_duration)
+            transcribe_path = path
+            if audio_duration > 0 and (range_start > 0.0 or (range_end > 0.0 and range_end < audio_duration)):
+                if range_end <= range_start:
+                    raise RuntimeError("The selected transcription range is empty.")
+                self._emit_transcription_progress(job_id, 4, "Preparing selected audio range...", stage="audio_slice")
+                source_audio = audio_story_runtime.audio_from_file(path)
+                start_ms = max(0, int(round(range_start * 1000.0)))
+                end_ms = max(start_ms, int(round(range_end * 1000.0)))
+                temp_transcription_path = self._cache_file(f"transcription_range_{job_id}_{uuid.uuid4().hex[:10]}.wav")
+                source_audio[start_ms:end_ms].export(str(temp_transcription_path), format="wav")
+                transcribe_path = str(temp_transcription_path)
+            segments, _info = audio_story_runtime.transcribe_audio(transcribe_path)
             raw_segments = []
+            progress_duration = max(0.001, (range_end - range_start) if range_end > range_start else audio_duration)
             for segment in segments:
                 text = str(getattr(segment, "text", "") or "").strip()
                 if not text:
                     continue
-                end_seconds = max(0.0, float(getattr(segment, "end", 0.0) or 0.0))
+                start_seconds = max(0.0, float(getattr(segment, "start", 0.0) or 0.0) + range_start)
+                end_seconds = max(start_seconds, float(getattr(segment, "end", 0.0) or 0.0) + range_start)
+                if audio_duration > 0:
+                    clip_end_seconds = range_end if range_end > range_start else audio_duration
+                    if start_seconds >= clip_end_seconds:
+                        continue
+                    end_seconds = min(audio_duration, clip_end_seconds, end_seconds)
                 raw_segments.append(
                     {
-                        "start_seconds": max(0.0, float(getattr(segment, "start", 0.0) or 0.0)),
+                        "start_seconds": start_seconds,
                         "end_seconds": end_seconds,
                         "text": text,
                     }
                 )
                 if audio_duration > 0:
-                    percent = 14 + int(min(58.0, (end_seconds / audio_duration) * 58.0))
+                    range_progress = max(0.0, min(1.0, ((end_seconds - range_start) / progress_duration)))
+                    percent = 14 + int(min(58.0, range_progress * 58.0))
                     self._emit_transcription_progress(
                         job_id,
                         percent,
-                        f"Transcribing audio... {min(100, int((end_seconds / audio_duration) * 100.0))}%",
+                        f"Transcribing audio... {min(100, int(range_progress * 100.0))}%",
                         stage="whisper_transcribe",
                     )
             self._emit_transcription_progress(job_id, 74, "Building transcript windows and scene plan...", stage="story_build")
@@ -3220,6 +3317,8 @@ class AudioStoryModeController(QtCore.QObject):
                 chunk_seconds=chunk_seconds,
                 image_frequency_seconds=image_frequency_seconds,
                 continuity_strength=continuity_strength,
+                transcription_start_seconds=int(round(range_start)),
+                transcription_end_seconds=int(round(range_end)) if range_end > 0 else 0,
                 progress_callback=lambda percent, message: self._emit_transcription_progress(job_id, percent, message, stage="story_build"),
             )
             self._emit_transcription_progress(job_id, 100, "Audio story transcription complete.", stage="done")
@@ -3227,10 +3326,14 @@ class AudioStoryModeController(QtCore.QObject):
         except Exception as exc:
             detail = "".join(traceback.format_exception_only(type(exc), exc)).strip() or str(exc)
             self.transcriptionFailed.emit(detail)
+        finally:
+            if temp_transcription_path is not None:
+                audio_story_runtime.safe_delete(str(temp_transcription_path))
 
-    def _build_transcript_chunks(self, raw_segments, audio_duration_seconds: float, chunk_seconds: float):
+    def _build_transcript_chunks(self, raw_segments, audio_duration_seconds: float, chunk_seconds: float, *, base_start_seconds: float = 0.0):
         if chunk_seconds <= 0:
             chunk_seconds = 8.0
+        base_start_seconds = max(0.0, float(base_start_seconds or 0.0))
         buckets = {}
         for segment in list(raw_segments or []):
             text = str(segment.get("text", "") or "").strip()
@@ -3238,12 +3341,12 @@ class AudioStoryModeController(QtCore.QObject):
                 continue
             start_seconds = max(0.0, float(segment.get("start_seconds", 0.0) or 0.0))
             end_seconds = max(start_seconds, float(segment.get("end_seconds", start_seconds) or start_seconds))
-            bucket_index = int(start_seconds // chunk_seconds)
+            bucket_index = int(max(0.0, start_seconds - base_start_seconds) // chunk_seconds)
             bucket = buckets.setdefault(
                 bucket_index,
                 {
-                    "start_seconds": float(bucket_index) * chunk_seconds,
-                    "end_seconds": min(audio_duration_seconds, float(bucket_index + 1) * chunk_seconds) if audio_duration_seconds > 0 else float(bucket_index + 1) * chunk_seconds,
+                    "start_seconds": base_start_seconds + (float(bucket_index) * chunk_seconds),
+                    "end_seconds": min(audio_duration_seconds, base_start_seconds + (float(bucket_index + 1) * chunk_seconds)) if audio_duration_seconds > 0 else base_start_seconds + (float(bucket_index + 1) * chunk_seconds),
                     "texts": [],
                     "raw_end_seconds": end_seconds,
                 },
@@ -3268,9 +3371,10 @@ class AudioStoryModeController(QtCore.QObject):
             )
         return chunks
 
-    def _build_image_chunks(self, raw_segments, audio_duration_seconds: float, image_frequency_seconds: float):
+    def _build_image_chunks(self, raw_segments, audio_duration_seconds: float, image_frequency_seconds: float, *, base_start_seconds: float = 0.0):
         if image_frequency_seconds <= 0:
             image_frequency_seconds = 12.0
+        base_start_seconds = max(0.0, float(base_start_seconds or 0.0))
         buckets = {}
         for segment in list(raw_segments or []):
             text = str(segment.get("text", "") or "").strip()
@@ -3278,12 +3382,12 @@ class AudioStoryModeController(QtCore.QObject):
                 continue
             start_seconds = max(0.0, float(segment.get("start_seconds", 0.0) or 0.0))
             end_seconds = max(start_seconds, float(segment.get("end_seconds", start_seconds) or start_seconds))
-            bucket_index = int(start_seconds // image_frequency_seconds)
+            bucket_index = int(max(0.0, start_seconds - base_start_seconds) // image_frequency_seconds)
             bucket = buckets.setdefault(
                 bucket_index,
                 {
-                    "start_seconds": float(bucket_index) * image_frequency_seconds,
-                    "end_seconds": min(audio_duration_seconds, float(bucket_index + 1) * image_frequency_seconds) if audio_duration_seconds > 0 else float(bucket_index + 1) * image_frequency_seconds,
+                    "start_seconds": base_start_seconds + (float(bucket_index) * image_frequency_seconds),
+                    "end_seconds": min(audio_duration_seconds, base_start_seconds + (float(bucket_index + 1) * image_frequency_seconds)) if audio_duration_seconds > 0 else base_start_seconds + (float(bucket_index + 1) * image_frequency_seconds),
                     "texts": [],
                     "raw_end_seconds": end_seconds,
                 },
@@ -3308,7 +3412,7 @@ class AudioStoryModeController(QtCore.QObject):
             )
         return image_chunks
 
-    def _build_story_payload(self, *, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, progress_callback=None):
+    def _build_story_payload(self, *, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0, progress_callback=None):
         def progress(percent: int, message: str):
             if callable(progress_callback):
                 try:
@@ -3317,12 +3421,13 @@ class AudioStoryModeController(QtCore.QObject):
                     pass
 
         progress(76, "Building transcript and image timing windows...")
-        transcript_windows = self._build_transcript_chunks(raw_segments, audio_duration, float(chunk_seconds))
+        base_start_seconds = max(0.0, float(transcription_start_seconds or 0.0))
+        transcript_windows = self._build_transcript_chunks(raw_segments, audio_duration, float(chunk_seconds), base_start_seconds=base_start_seconds)
         image_timing_mode = self._image_timing_mode()
         image_chunk_seconds = float(chunk_seconds if image_timing_mode == "scene_changes" else image_frequency_seconds)
-        image_chunks = self._build_image_chunks(raw_segments, audio_duration, image_chunk_seconds)
-        if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > 0.0:
-            image_chunks[0]["start_seconds"] = 0.0
+        image_chunks = self._build_image_chunks(raw_segments, audio_duration, image_chunk_seconds, base_start_seconds=base_start_seconds)
+        if image_chunks and float(image_chunks[0].get("start_seconds", 0.0) or 0.0) > base_start_seconds:
+            image_chunks[0]["start_seconds"] = base_start_seconds
         full_text = " ".join(str(item.get("text", "") or "").strip() for item in image_chunks).strip()
         progress(80, "Building visual style guide...")
         story_style_guide = self._visual_reply_story_style_guide(
@@ -3515,6 +3620,8 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_path": path,
             "audio_duration_seconds": audio_duration,
             "chunk_seconds": int(chunk_seconds),
+            "transcription_start_seconds": int(round(max(0.0, float(transcription_start_seconds or 0.0)))),
+            "transcription_end_seconds": int(round(max(0.0, float(transcription_end_seconds or 0.0)))),
             "image_frequency_seconds": int(image_frequency_seconds),
             "image_timing_mode": image_timing_mode,
             "continuity_strength": float(self._normalize_continuity_strength(continuity_strength)),
@@ -3632,6 +3739,8 @@ class AudioStoryModeController(QtCore.QObject):
         self.full_transcript_text = str(payload.get("full_text", "") or "").strip()
         self.story_style_guide = str(payload.get("story_style_guide", "") or "").strip()
         self._stored_transcribe_seconds = max(1, int(payload.get("chunk_seconds", self._stored_transcribe_seconds) or self._stored_transcribe_seconds))
+        self._stored_transcription_start_seconds = max(0, int(payload.get("transcription_start_seconds", self._stored_transcription_start_seconds) or 0))
+        self._stored_transcription_end_seconds = max(0, int(payload.get("transcription_end_seconds", self._stored_transcription_end_seconds) or 0))
         self._stored_image_frequency_seconds = self._normalize_image_frequency_seconds(payload.get("image_frequency_seconds", self._stored_image_frequency_seconds))
         self._stored_image_timing_mode = self._normalize_image_timing_mode(payload.get("image_timing_mode", self._stored_image_timing_mode))
         self._stored_continuity_strength = self._normalize_continuity_strength(payload.get("continuity_strength", self._stored_continuity_strength))
@@ -3653,6 +3762,7 @@ class AudioStoryModeController(QtCore.QObject):
         self.character_anchors = dict(payload.get("character_anchors", {}) or {})
         self.location_anchors = dict(payload.get("location_anchors", {}) or {})
         self._sync_transcribe_seconds_slider()
+        self._sync_transcription_range_controls()
         self._sync_image_frequency_slider()
         self._sync_image_timing_mode_controls()
         self._sync_continuity_slider()
@@ -3666,6 +3776,7 @@ class AudioStoryModeController(QtCore.QObject):
             scene_count = len({str(item.get("scene_id", "") or "") for item in list(self.scene_plan or []) if isinstance(item, dict) and str(item.get("scene_id", "") or "").strip()})
             self.audio_story_summary_label.setText(
                 f"Audio duration: {self._format_seconds(self.imported_audio_duration_seconds)}\n"
+                f"Transcribed range: {self._format_seconds(self._stored_transcription_start_seconds)} - {self._format_seconds(self._stored_transcription_end_seconds)}\n"
                 f"Image windows: {len(self.transcript_chunks)}\n"
                 f"Scenes: {scene_count}\n"
                 f"Image timing: {'Scene changes' if self._image_timing_mode() == 'scene_changes' else self._format_slider_seconds(self._stored_image_frequency_seconds)}\n"
@@ -3713,6 +3824,8 @@ class AudioStoryModeController(QtCore.QObject):
             chunk_seconds=int(self._stored_transcribe_seconds or 8),
             image_frequency_seconds=int(self._stored_image_frequency_seconds or 12),
             continuity_strength=float(self._stored_continuity_strength or 0.8),
+            transcription_start_seconds=int(self._stored_transcription_start_seconds or 0),
+            transcription_end_seconds=int(self._stored_transcription_end_seconds or 0),
         )
         if not preserve_playback:
             self._stop_story()
@@ -3755,11 +3868,13 @@ class AudioStoryModeController(QtCore.QObject):
                 int(self._stored_transcribe_seconds or 8),
                 self._normalize_image_frequency_seconds(),
                 float(self._stored_continuity_strength or 0.8),
+                int(self._stored_transcription_start_seconds or 0),
+                int(self._stored_transcription_end_seconds or 0),
             ),
             daemon=True,
         ).start()
 
-    def _run_story_payload_rebuild_job(self, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float):
+    def _run_story_payload_rebuild_job(self, job_id: int, path: str, audio_duration: float, raw_segments, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0):
         try:
             payload = self._build_story_payload(
                 job_id=job_id,
@@ -3769,6 +3884,8 @@ class AudioStoryModeController(QtCore.QObject):
                 chunk_seconds=chunk_seconds,
                 image_frequency_seconds=image_frequency_seconds,
                 continuity_strength=continuity_strength,
+                transcription_start_seconds=transcription_start_seconds,
+                transcription_end_seconds=transcription_end_seconds,
             )
             self.transcriptionFinished.emit(payload)
         except Exception as exc:
@@ -4490,6 +4607,7 @@ class AudioStoryModeController(QtCore.QObject):
         if duration_ms and self._playback_mode_value() == "source":
             self.imported_audio_duration_seconds = max(0.0, float(duration_ms or 0) / 1000.0)
             self._sync_transcribe_seconds_slider()
+            self._sync_transcription_range_controls()
         self._update_slider_range()
 
     def _on_player_state_changed(self, _state):
@@ -4527,7 +4645,7 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _transcribe_seconds_slider_maximum(self):
         if self.imported_audio_duration_seconds > 0:
-            return max(1, int(round(self.imported_audio_duration_seconds)))
+            return max(1, int(math.ceil(self.imported_audio_duration_seconds)))
         return max(8, int(self._stored_transcribe_seconds or 8))
 
     def _image_frequency_slider_maximum(self):
@@ -4548,6 +4666,54 @@ class AudioStoryModeController(QtCore.QObject):
         self._stored_transcribe_seconds = current_value
         if value_label is not None:
             value_label.setText(self._format_seconds(current_value))
+
+    def _transcription_range_maximum(self):
+        if self.imported_audio_duration_seconds > 0:
+            return max(1, int(math.ceil(self.imported_audio_duration_seconds)))
+        return max(0, int(self._stored_transcription_start_seconds or 0), int(self._stored_transcription_end_seconds or 0))
+
+    def _effective_transcription_range_seconds(self):
+        maximum = self._transcription_range_maximum()
+        start_seconds = max(0, int(self._stored_transcription_start_seconds or 0))
+        end_seconds = max(0, int(self._stored_transcription_end_seconds or 0))
+        if maximum > 0:
+            start_seconds = min(start_seconds, maximum)
+            if end_seconds <= 0:
+                end_seconds = maximum
+            end_seconds = min(maximum, end_seconds)
+        return start_seconds, end_seconds
+
+    def _sync_transcription_range_controls(self):
+        start_spin = getattr(self, "audio_story_transcription_start_spin", None)
+        end_spin = getattr(self, "audio_story_transcription_end_spin", None)
+        maximum = self._transcription_range_maximum()
+        start_seconds, end_seconds = self._effective_transcription_range_seconds()
+        if maximum > 0 and end_seconds < start_seconds:
+            end_seconds = start_seconds
+        self._stored_transcription_start_seconds = start_seconds
+        self._stored_transcription_end_seconds = end_seconds
+        for spin, value in ((start_spin, start_seconds), (end_spin, end_seconds)):
+            if spin is None:
+                continue
+            spin.blockSignals(True)
+            spin.setRange(0, maximum)
+            spin.setValue(max(0, min(maximum, int(value or 0))))
+            spin.blockSignals(False)
+
+    def _on_transcription_range_changed(self, _value: int):
+        start_spin = getattr(self, "audio_story_transcription_start_spin", None)
+        end_spin = getattr(self, "audio_story_transcription_end_spin", None)
+        if start_spin is not None:
+            self._stored_transcription_start_seconds = max(0, int(start_spin.value() or 0))
+        if end_spin is not None:
+            self._stored_transcription_end_seconds = max(0, int(end_spin.value() or 0))
+        maximum = self._transcription_range_maximum()
+        if maximum > 0 and self._stored_transcription_end_seconds < self._stored_transcription_start_seconds:
+            self._stored_transcription_end_seconds = self._stored_transcription_start_seconds
+            if end_spin is not None:
+                end_spin.blockSignals(True)
+                end_spin.setValue(self._stored_transcription_end_seconds)
+                end_spin.blockSignals(False)
 
     def _sync_image_frequency_slider(self):
         slider = getattr(self, "audio_story_image_frequency_slider", None)
@@ -7523,6 +7689,10 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_playback_mode_combo.setEnabled(has_audio_path)
         if hasattr(self, "audio_story_transcribe_seconds_slider"):
             self.audio_story_transcribe_seconds_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_transcription_start_spin"):
+            self.audio_story_transcription_start_spin.setEnabled(has_audio_path and not is_playing and not is_paused)
+        if hasattr(self, "audio_story_transcription_end_spin"):
+            self.audio_story_transcription_end_spin.setEnabled(has_audio_path and not is_playing and not is_paused)
         if hasattr(self, "audio_story_image_frequency_slider"):
             self.audio_story_image_frequency_slider.setEnabled(has_audio_path and not is_playing and not is_paused)
         if hasattr(self, "audio_story_continuity_slider"):
