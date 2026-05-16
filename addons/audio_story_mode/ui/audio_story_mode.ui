@@ -918,11 +918,28 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
              </widget>
             </item>
             <item row="4" column="0">
-             <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
-              <property name="text">
-               <string>Apply Anchor</string>
+             <layout class="QHBoxLayout" name="audio_story_scene_anchor_button_row">
+              <property name="spacing">
+               <number>8</number>
               </property>
-             </widget>
+              <item>
+               <widget class="QPushButton" name="audio_story_scene_anchor_pin_button">
+                <property name="text">
+                 <string>Pin Anchor</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
+                <property name="text">
+                 <string>Apply Anchor</string>
+                </property>
+               </widget>
+              </item>
+             </layout>
             </item>
             <item row="4" column="1">
              <layout class="QHBoxLayout" name="audio_story_negative_prompt_button_row">
