@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from core.audio_story_runtime import (
+    apply_chat_provider_generation_fields,
     audio_duration_seconds,
     audio_from_file,
     audio_from_wav,
@@ -30,6 +31,7 @@ __all__ = [
     "audio_from_file",
     "audio_from_wav",
     "audio_silent",
+    "apply_chat_provider_generation_fields",
     "engine_loaded",
     "ensure_whisper_ready",
     "generate_tts",
