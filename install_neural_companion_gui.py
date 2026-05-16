@@ -21,7 +21,13 @@ POCKETTTS_LOGIN_MISSING_TEXT = "No Hugging Face login detected"
 DISCORD_INVITE_URL = "https://discord.gg/NywFEHwu"
 HF_POCKETTTS_TERMS_URL = "https://huggingface.co/kyutai/pocket-tts"
 HF_TOKEN_SETTINGS_URL = "https://huggingface.co/settings/tokens"
+PYTHON_WINDOWS_DOWNLOADS_URL = "https://www.python.org/downloads/windows/"
 ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+TORCH_STACK_LABELS = {
+    "Auto-detect GPU": "auto",
+    "Force default CUDA stack": "default",
+    "Force CUDA 12.8 / RTX 50": "cu128",
+}
 
 
 class InstallerAudioController:
@@ -155,9 +161,10 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.install_main = tk.BooleanVar(value=True)
         self.install_musetalk = tk.BooleanVar(value=True)
         self.install_pockettts = tk.BooleanVar(value=True)
-        self.install_avatar_echo = tk.BooleanVar(value=False)
-        self.install_avatar_eon = tk.BooleanVar(value=False)
+        self.install_avatar_echo = tk.BooleanVar(value=True)
+        self.install_avatar_eon = tk.BooleanVar(value=True)
         self.skip_main_torch = tk.BooleanVar(value=False)
+        self.torch_stack_label = tk.StringVar(value="Auto-detect GPU")
 
         self.status_text = tk.StringVar(value="Ready")
         self.python_status_text = tk.StringVar(value="Detecting Python 3.11...")
@@ -255,9 +262,12 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         style.configure("Root.TFrame", background=self.BG)
         style.configure("Card.TFrame", background=self.SURFACE, borderwidth=1, relief="solid")
-        style.configure("SoftCard.TFrame", background=self.SURFACE_2, borderwidth=1, relief="solid")
+        style.configure("CardInner.TFrame", background=self.SURFACE, borderwidth=0, relief="flat")
+        style.configure("SoftCard.TFrame", background=self.SURFACE_2, borderwidth=0, relief="flat")
+        style.configure("SoftInner.TFrame", background=self.SURFACE_2, borderwidth=0, relief="flat")
         style.configure("Header.TFrame", background=self.BG)
         style.configure("Output.TFrame", background=self.OUTPUT_BG, borderwidth=1, relief="solid")
+        style.configure("OutputInner.TFrame", background=self.OUTPUT_BG, borderwidth=0, relief="flat")
 
         style.configure("Title.TLabel", background=self.BG, foreground=self.TEXT, font=("Segoe UI", 21, "bold"))
         style.configure("Subtitle.TLabel", background=self.BG, foreground=self.MUTED, font=("Segoe UI", 10))
@@ -315,6 +325,30 @@ class NeuralCompanionInstallerGui(tk.Tk):
             insertcolor=self.TEXT,
             padding=(8, 7),
         )
+        style.configure(
+            "NC.TCombobox",
+            fieldbackground=self.SURFACE_3,
+            background=self.SURFACE_3,
+            foreground=self.TEXT,
+            bordercolor=self.BORDER,
+            arrowcolor=self.TEXT,
+            selectbackground=self.SURFACE_3,
+            selectforeground=self.TEXT,
+            padding=(8, 7),
+        )
+        style.map(
+            "NC.TCombobox",
+            fieldbackground=[("readonly", self.SURFACE_3), ("disabled", self.SURFACE_3)],
+            background=[("readonly", self.SURFACE_3), ("active", "#202A3D"), ("disabled", self.SURFACE_3)],
+            foreground=[("readonly", self.TEXT), ("disabled", self.MUTED)],
+            selectbackground=[("readonly", self.SURFACE_3)],
+            selectforeground=[("readonly", self.TEXT)],
+            arrowcolor=[("readonly", self.TEXT), ("disabled", self.MUTED)],
+        )
+        self.option_add("*TCombobox*Listbox.background", self.SURFACE_3)
+        self.option_add("*TCombobox*Listbox.foreground", self.TEXT)
+        self.option_add("*TCombobox*Listbox.selectBackground", "#26334A")
+        self.option_add("*TCombobox*Listbox.selectForeground", self.TEXT)
 
         style.configure(
             "NC.TCheckbutton",
@@ -358,7 +392,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         right = ttk.Frame(body, style="Root.TFrame")
         right.grid(row=0, column=1, sticky="nsew")
-        right.rowconfigure(1, weight=1)
+        right.rowconfigure(3, weight=1)
         right.columnconfigure(0, weight=1)
 
         left_targets = self._build_left_scroll_area(left)
@@ -367,9 +401,10 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         self._build_python_card(left_targets)
         self._build_install_card(left_targets)
-        self._build_community_card(left_targets)
         self._build_actions_card(left_actions)
 
+        self._build_community_card(right, grid_row=0, horizontal_buttons=True, wraplength=760)
+        self._build_compatibility_card(right, grid_row=1)
         self._build_command_card(right)
         self._build_output_card(right)
 
@@ -387,11 +422,25 @@ class NeuralCompanionInstallerGui(tk.Tk):
         content = ttk.Frame(canvas, style="Root.TFrame")
         content_window = canvas.create_window((0, 0), window=content, anchor="nw")
 
+        def update_scrollbar() -> None:
+            bbox = canvas.bbox("all")
+            content_height = int((bbox[3] - bbox[1]) if bbox else 0)
+            canvas_height = max(1, int(canvas.winfo_height() or 1))
+            if content_height > canvas_height + 2:
+                scrollbar.grid(row=0, column=1, sticky="ns")
+                canvas.configure(yscrollcommand=scrollbar.set)
+            else:
+                scrollbar.grid_remove()
+                canvas.configure(yscrollcommand=None)
+                canvas.yview_moveto(0)
+
         def sync_scroll_region(_event: tk.Event) -> None:
             canvas.configure(scrollregion=canvas.bbox("all"))
+            canvas.after_idle(update_scrollbar)
 
         def sync_content_width(event: tk.Event) -> None:
             canvas.itemconfigure(content_window, width=event.width)
+            canvas.after_idle(update_scrollbar)
 
         content.bind("<Configure>", sync_scroll_region)
         canvas.bind("<Configure>", sync_content_width)
@@ -399,6 +448,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         canvas.grid(row=0, column=0, sticky="nsew")
         scrollbar.grid(row=0, column=1, sticky="ns")
+        canvas.after_idle(update_scrollbar)
         return content
 
     def _build_header(self, parent: ttk.Frame) -> None:
@@ -475,7 +525,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
             wraplength=275,
         ).pack(anchor=tk.W, pady=(2, 10))
 
-        row = ttk.Frame(card, style="Card.TFrame")
+        row = ttk.Frame(card, style="CardInner.TFrame")
         row.pack(fill=tk.X)
         row.columnconfigure(0, weight=1)
 
@@ -483,8 +533,11 @@ class NeuralCompanionInstallerGui(tk.Tk):
         entry.grid(row=0, column=0, columnspan=2, sticky="ew")
         entry.bind("<KeyRelease>", lambda _event: self._refresh_command_preview())
 
+        row.columnconfigure(1, weight=1)
+        row.columnconfigure(2, weight=1)
         ttk.Button(row, text="Detect", style="Ghost.TButton", command=self._auto_detect_python).grid(row=1, column=0, sticky="ew", pady=(8, 0), padx=(0, 4))
-        ttk.Button(row, text="Browse", style="Ghost.TButton", command=self._browse_python).grid(row=1, column=1, sticky="ew", pady=(8, 0), padx=(4, 0))
+        ttk.Button(row, text="Browse", style="Ghost.TButton", command=self._browse_python).grid(row=1, column=1, sticky="ew", pady=(8, 0), padx=4)
+        ttk.Button(row, text="Get Python 3.11", style="Ghost.TButton", command=self._open_python_downloads).grid(row=1, column=2, sticky="ew", pady=(8, 0), padx=(4, 0))
 
         status = tk.Label(
             card,
@@ -534,20 +587,11 @@ class NeuralCompanionInstallerGui(tk.Tk):
             ),
         )
 
-        skip = ttk.Checkbutton(
-            card,
-            text="Skip main-app Torch install",
-            variable=self.skip_main_torch,
-            style="NC.TCheckbutton",
-            command=self._refresh_command_preview,
-        )
-        skip.pack(anchor=tk.W, pady=(10, 0))
-
     def _runtime_tile(self, parent: ttk.Frame, title: str, description: str, variable: tk.BooleanVar) -> None:
         tile = ttk.Frame(parent, style="SoftCard.TFrame", padding=8)
         tile.pack(fill=tk.X, pady=(0, 6))
 
-        top = ttk.Frame(tile, style="SoftCard.TFrame")
+        top = ttk.Frame(tile, style="SoftInner.TFrame")
         top.pack(fill=tk.X)
 
         cb = ttk.Checkbutton(
@@ -567,7 +611,7 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
         ttk.Label(tile, text="Default avatar packs", style="SoftTitle.TLabel").pack(anchor=tk.W)
         for title, description, variable in packs:
-            row = ttk.Frame(tile, style="SoftCard.TFrame")
+            row = ttk.Frame(tile, style="SoftInner.TFrame")
             row.pack(fill=tk.X, pady=(5, 0))
             ttk.Checkbutton(
                 row,
@@ -595,19 +639,33 @@ class NeuralCompanionInstallerGui(tk.Tk):
         self.progress = ttk.Progressbar(card, mode="indeterminate", style="NC.Horizontal.TProgressbar")
         self.progress.pack(fill=tk.X, pady=(10, 0))
 
-    def _build_community_card(self, parent: ttk.Frame) -> None:
-        card = self._card(parent)
+    def _build_community_card(self, parent: ttk.Frame, *, grid_row: int | None = None, horizontal_buttons: bool = False, wraplength: int = 275) -> None:
+        if grid_row is None:
+            card = self._card(parent)
+        else:
+            card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+            card.grid(row=grid_row, column=0, sticky="ew", pady=(0, 14))
+            card.columnconfigure(0, weight=1)
         ttk.Label(card, text="Community & account help", style="CardTitle.TLabel").pack(anchor=tk.W)
         ttk.Label(
             card,
             text="Join the Discord for setup help, or open Hugging Face pages needed by PocketTTS voice cloning.",
             style="CardText.TLabel",
-            wraplength=275,
+            wraplength=wraplength,
         ).pack(anchor=tk.W, pady=(4, 10))
 
-        ttk.Button(card, text="Join Discord", style="NC.TButton", command=self._open_discord).pack(fill=tk.X)
-        ttk.Button(card, text="PocketTTS model terms", style="Ghost.TButton", command=self._open_hf_pockettts_terms).pack(fill=tk.X, pady=(8, 0))
-        ttk.Button(card, text="Create Hugging Face token", style="Ghost.TButton", command=self._open_hf_token_settings).pack(fill=tk.X, pady=(8, 0))
+        if horizontal_buttons:
+            row = ttk.Frame(card, style="CardInner.TFrame")
+            row.pack(fill=tk.X)
+            for index in range(3):
+                row.columnconfigure(index, weight=1, uniform="community_buttons")
+            ttk.Button(row, text="Join Discord", style="NC.TButton", command=self._open_discord).grid(row=0, column=0, sticky="ew", padx=(0, 6))
+            ttk.Button(row, text="PocketTTS model terms", style="Ghost.TButton", command=self._open_hf_pockettts_terms).grid(row=0, column=1, sticky="ew", padx=6)
+            ttk.Button(row, text="Create Hugging Face token", style="Ghost.TButton", command=self._open_hf_token_settings).grid(row=0, column=2, sticky="ew", padx=(6, 0))
+        else:
+            ttk.Button(card, text="Join Discord", style="NC.TButton", command=self._open_discord).pack(fill=tk.X)
+            ttk.Button(card, text="PocketTTS model terms", style="Ghost.TButton", command=self._open_hf_pockettts_terms).pack(fill=tk.X, pady=(8, 0))
+            ttk.Button(card, text="Create Hugging Face token", style="Ghost.TButton", command=self._open_hf_token_settings).pack(fill=tk.X, pady=(8, 0))
 
     def _build_help_card(self, parent: ttk.Frame) -> None:
         card = self._card(parent)
@@ -619,9 +677,42 @@ class NeuralCompanionInstallerGui(tk.Tk):
             wraplength=275,
         ).pack(anchor=tk.W, pady=(4, 0))
 
+    def _build_compatibility_card(self, parent: ttk.Frame, *, grid_row: int) -> None:
+        card = ttk.Frame(parent, style="Card.TFrame", padding=12)
+        card.grid(row=grid_row, column=0, sticky="ew", pady=(0, 14))
+        card.columnconfigure(0, weight=1)
+        ttk.Label(card, text="Compatibility", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            card,
+            text="Override PyTorch only when GPU detection or an existing Torch setup needs manual control.",
+            style="CardText.TLabel",
+            wraplength=760,
+        ).grid(row=1, column=0, sticky="w", pady=(4, 10))
+
+        row = ttk.Frame(card, style="CardInner.TFrame")
+        row.grid(row=2, column=0, sticky="ew")
+        row.columnconfigure(0, weight=0)
+        row.columnconfigure(1, weight=1)
+        ttk.Checkbutton(
+            row,
+            text="Skip main-app Torch install",
+            variable=self.skip_main_torch,
+            style="NC.TCheckbutton",
+            command=self._refresh_command_preview,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 14))
+        torch_combo = ttk.Combobox(
+            row,
+            textvariable=self.torch_stack_label,
+            values=tuple(TORCH_STACK_LABELS.keys()),
+            state="readonly",
+            style="NC.TCombobox",
+        )
+        torch_combo.grid(row=0, column=1, sticky="ew")
+        torch_combo.bind("<<ComboboxSelected>>", lambda _event: self._refresh_command_preview())
+
     def _build_command_card(self, parent: ttk.Frame) -> None:
         card = ttk.Frame(parent, style="Card.TFrame", padding=12)
-        card.grid(row=0, column=0, sticky="ew", pady=(0, 14))
+        card.grid(row=2, column=0, sticky="ew", pady=(0, 14))
         card.columnconfigure(0, weight=1)
 
         ttk.Label(card, text="Command preview", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
@@ -647,11 +738,11 @@ class NeuralCompanionInstallerGui(tk.Tk):
 
     def _build_output_card(self, parent: ttk.Frame) -> None:
         card = ttk.Frame(parent, style="Output.TFrame", padding=10)
-        card.grid(row=1, column=0, sticky="nsew")
+        card.grid(row=3, column=0, sticky="nsew")
         card.rowconfigure(1, weight=1)
         card.columnconfigure(0, weight=1)
 
-        header = ttk.Frame(card, style="Output.TFrame")
+        header = ttk.Frame(card, style="OutputInner.TFrame")
         header.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         ttk.Label(
             header,
@@ -672,24 +763,33 @@ class NeuralCompanionInstallerGui(tk.Tk):
         )
         self.output_state.pack(side=tk.RIGHT)
 
-        output_wrap = ttk.Frame(card, style="Output.TFrame")
+        output_wrap = ttk.Frame(card, style="OutputInner.TFrame")
         output_wrap.grid(row=1, column=0, sticky="nsew")
         output_wrap.rowconfigure(0, weight=1)
         output_wrap.columnconfigure(0, weight=1)
 
-        self.output = tk.Canvas(
+        self.output = tk.Text(
             output_wrap,
             bg=self.OUTPUT_BG,
+            fg=self.OUTPUT_FG,
             bd=0,
             highlightthickness=0,
             relief=tk.FLAT,
-            yscrollincrement=18,
+            wrap=tk.WORD,
+            undo=False,
+            font=self._output_font,
+            insertbackground=self.TEXT,
+            selectbackground="#32496A",
+            selectforeground=self.TEXT,
+            padx=12,
+            pady=10,
         )
         self.output.grid(row=0, column=0, sticky="nsew")
-        self.output.bind("<Configure>", lambda _event: self._sync_output_canvas())
-        self.output.bind("<MouseWheel>", self._scroll_output_canvas)
-        self.output.bind("<Button-4>", self._scroll_output_canvas)
-        self.output.bind("<Button-5>", self._scroll_output_canvas)
+        self.output.configure(state=tk.DISABLED)
+        self.output.bind("<Control-a>", self._select_all_output)
+        self.output.bind("<Control-A>", self._select_all_output)
+        for tag_name in ("command", "error", "success", "warning", "muted"):
+            self.output.tag_configure(tag_name, foreground=self._output_color(tag_name))
 
         scrollbar = ttk.Scrollbar(output_wrap, orient=tk.VERTICAL, command=self.output.yview)
         scrollbar.grid(row=0, column=1, sticky="ns")
@@ -824,6 +924,14 @@ class NeuralCompanionInstallerGui(tk.Tk):
             "Also accept the PocketTTS model terms before testing voice cloning.",
         )
 
+    def _open_python_downloads(self) -> None:
+        self._open_url(PYTHON_WINDOWS_DOWNLOADS_URL, "Python Windows downloads")
+        messagebox.showinfo(
+            "Install Python 3.11",
+            "Download and install a Python 3.11 Windows installer.\n\n"
+            "After installation, press Detect again or browse to python.exe manually.",
+        )
+
     def _on_close(self) -> None:
         if self.process is not None:
             should_close = messagebox.askyesno(
@@ -857,53 +965,30 @@ class NeuralCompanionInstallerGui(tk.Tk):
     def _set_output_backdrop(self, key: str | None) -> None:
         if key == self._active_output_backdrop_key:
             return
-
         self._active_output_backdrop_key = key
-        if self._output_backdrop_item is not None:
-            self.output.delete(self._output_backdrop_item)
-            self._output_backdrop_item = None
-
         image = self.output_backdrops.get(key or "")
         if image is None:
             return
-
-        self._output_backdrop_item = self.output.create_image(
-            max(12, self.output.winfo_width() - 24),
-            max(12, self.output.winfo_height() - 20),
-            anchor="se",
-            image=image,
-            tags=("output_backdrop",),
-        )
-        self.output.tag_lower("output_backdrop")
-        self.output.tag_raise("log_text")
-        self._sync_output_scrollregion()
+        self.output.configure(state=tk.NORMAL)
+        self.output.insert(tk.END, "\n")
+        self.output.image_create(tk.END, image=image)
+        self.output.insert(tk.END, "\n\n")
+        self.output.configure(state=tk.DISABLED)
+        self.output.see(tk.END)
 
     def _sync_output_canvas(self) -> None:
-        if self._output_backdrop_item is not None:
-            self.output.coords(
-                self._output_backdrop_item,
-                max(12, self.output.winfo_width() - 24),
-                max(12, self.output.winfo_height() - 20),
-            )
-        self._sync_output_scrollregion()
+        return None
 
     def _sync_output_scrollregion(self) -> None:
-        bbox = self.output.bbox("all")
-        width = max(1, self.output.winfo_width())
-        height = max(1, self.output.winfo_height(), self._output_line_y + 12)
-        if bbox:
-            height = max(height, bbox[3] + 12)
-            width = max(width, bbox[2] + 12)
-        self.output.configure(scrollregion=(0, 0, width, height))
+        return None
 
     def _scroll_output_canvas(self, event: tk.Event) -> str:
-        if getattr(event, "num", None) == 4:
-            units = -3
-        elif getattr(event, "num", None) == 5:
-            units = 3
-        else:
-            units = -1 * int(getattr(event, "delta", 0) / 120)
-        self.output.yview_scroll(units, "units")
+        return ""
+
+    def _select_all_output(self, _event: tk.Event) -> str:
+        self.output.tag_add(tk.SEL, "1.0", tk.END)
+        self.output.mark_set(tk.INSERT, "1.0")
+        self.output.see(tk.INSERT)
         return "break"
 
     def _output_color(self, tag: str | None) -> str:
@@ -939,31 +1024,17 @@ class NeuralCompanionInstallerGui(tk.Tk):
         text = ANSI_ESCAPE_RE.sub("", text).replace("\r", "\n")
         self._update_output_backdrop_from_text(text)
         active_tag = tag or self._auto_output_tag(text)
-        for segment in text.splitlines(keepends=True) or [text]:
-            line = segment.rstrip("\n") or " "
-            item = self.output.create_text(
-                12,
-                self._output_line_y,
-                anchor="nw",
-                text=line,
-                fill=self._output_color(active_tag),
-                font=self._output_font,
-                width=max(260, self.output.winfo_width() - 36),
-                tags=("log_text",),
-            )
-            bbox = self.output.bbox(item)
-            line_height = (bbox[3] - bbox[1]) if bbox else 16
-            self._output_line_y += max(16, line_height) + 2
-
-        self.output.tag_raise("log_text")
-        self._sync_output_scrollregion()
-        self.output.yview_moveto(1.0)
+        self.output.configure(state=tk.NORMAL)
+        self.output.insert(tk.END, text, active_tag or ())
+        self.output.configure(state=tk.DISABLED)
+        self.output.see(tk.END)
 
     def _clear_output(self) -> None:
-        self.output.delete("log_text")
+        self.output.configure(state=tk.NORMAL)
+        self.output.delete("1.0", tk.END)
+        self.output.configure(state=tk.DISABLED)
         self._output_line_y = 12
         self._set_output_backdrop(None)
-        self._sync_output_scrollregion()
         self._append_output("Output cleared.\n\n", tag="muted")
 
     def _set_running_ui(self, running: bool) -> None:
@@ -1080,9 +1151,15 @@ class NeuralCompanionInstallerGui(tk.Tk):
         if python_path:
             command.extend(["--python-exe", python_path])
         command.append("--non-interactive")
+        torch_stack = self._torch_stack_value()
+        if torch_stack != "auto":
+            command.extend(["--torch-stack", torch_stack])
         if self.skip_main_torch.get():
             command.append("--skip-main-torch")
         return command
+
+    def _torch_stack_value(self) -> str:
+        return str(TORCH_STACK_LABELS.get(self.torch_stack_label.get(), "auto"))
 
     def _run_doctor(self) -> None:
         command = self._installer_base_command()

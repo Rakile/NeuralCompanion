@@ -381,13 +381,21 @@ class Installer:
                 return True, name
         return False, "; ".join(names) if names else "no NVIDIA GPU details returned"
 
+    def torch_stack_selection(self) -> tuple[bool, str]:
+        mode = str(getattr(self.args, "torch_stack", "auto") or "auto").strip().lower()
+        if mode == "cu128":
+            return True, "CUDA 12.8 / RTX 50 stack forced by installer option"
+        if mode == "default":
+            return False, "default CUDA stack forced by installer option"
+        return self.detect_blackwell_gpu()
+
     def main_torch_install_plan(self) -> tuple[tuple[str, ...], str, str]:
-        is_blackwell, detail = self.detect_blackwell_gpu()
-        if is_blackwell:
+        use_cu128, detail = self.torch_stack_selection()
+        if use_cu128:
             return (
                 MAIN_TORCH_CU128_PACKAGES,
                 MAIN_TORCH_CU128_INDEX_URL,
-                f"RTX 50 / Blackwell-class GPU detected ({detail}); using PyTorch cu128 wheels.",
+                f"RTX 50 / Blackwell-class PyTorch cu128 wheels selected ({detail}).",
             )
         return (
             MAIN_TORCH_CU126_PACKAGES,
@@ -396,12 +404,12 @@ class Installer:
         )
 
     def musetalk_torch_install_plan(self) -> tuple[tuple[str, ...], str, str]:
-        is_blackwell, detail = self.detect_blackwell_gpu()
-        if is_blackwell:
+        use_cu128, detail = self.torch_stack_selection()
+        if use_cu128:
             return (
                 MUSETALK_TORCH_CU128_PACKAGES,
                 MUSETALK_TORCH_CU128_INDEX_URL,
-                f"RTX 50 / Blackwell-class GPU detected ({detail}); using MuseTalk PyTorch cu128 wheels.",
+                f"RTX 50 / Blackwell-class MuseTalk PyTorch cu128 wheels selected ({detail}).",
             )
         return (
             MUSETALK_TORCH_CU118_PACKAGES,
@@ -1040,6 +1048,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--avatar-packs", action="store_true", help="Download and install all default avatar packs")
     parser.add_argument("--all", action="store_true", help="Install main app, MuseTalk, and PocketTTS")
     parser.add_argument("--skip-main-torch", action="store_true", help="Skip the main app torch install")
+    parser.add_argument(
+        "--torch-stack",
+        choices=("auto", "default", "cu128"),
+        default="auto",
+        help="PyTorch CUDA stack selection: auto detects RTX 50 / Blackwell, default uses the older default stacks, cu128 forces the RTX 50 / CUDA 12.8 path",
+    )
     parser.add_argument("--doctor-only", action="store_true", help="Run preflight checks only")
     parser.add_argument("--non-interactive", action="store_true", help="Do not prompt; use CLI flags/defaults")
     return parser
@@ -1071,8 +1085,8 @@ def resolve_requested_components(args: argparse.Namespace) -> tuple[bool, bool, 
     install_main = prompt_yes_no("Install the main Neural Companion runtime?", True)
     install_musetalk = prompt_yes_no("Install the isolated MuseTalk runtime too?", True)
     install_pockettts = prompt_yes_no("Install the isolated PocketTTS runtime too?", True)
-    install_echo = prompt_yes_no("Download and install the default Echo avatar pack?", False)
-    install_eon = prompt_yes_no("Download and install the default Eon avatar pack?", False)
+    install_echo = prompt_yes_no("Download and install the default Echo avatar pack?", True)
+    install_eon = prompt_yes_no("Download and install the default Eon avatar pack?", True)
     if install_echo:
         avatar_pack_keys.append("echo")
     if install_eon:

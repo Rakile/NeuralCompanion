@@ -93,7 +93,7 @@ py install_neural_companion.py --musetalk --non-interactive
 ## Notes
 
 - `VSeeFace-v1.13.38c4` is optional. If the folder is absent, the installer will warn but continue.
-- The main app installer uses the validated CUDA 12.6 torch stack for the main runtime: `torch==2.6.0`, `torchaudio==2.6.0`, `torchvision==0.21.0`. On RTX 50 / Blackwell cards it switches the main app torch stack to CUDA 12.8 wheels.
+- The main app installer uses the validated CUDA 12.6 torch stack for the main runtime: `torch==2.6.0`, `torchaudio==2.6.0`, `torchvision==0.21.0`. On RTX 50 / Blackwell cards it switches the main app torch stack to CUDA 12.8 wheels. If GPU detection is wrong, use the GUI's PyTorch CUDA stack selector or pass `--torch-stack default` / `--torch-stack cu128`.
 - After the main requirements and any torch override, the installer force-repairs the compiled scientific ABI group: `numpy==1.24.4`, `pandas==1.5.3`, `scipy==1.11.4`, and `scikit-learn==1.3.2`. This avoids NumPy/Pandas binary mismatch errors after CUDA 12.8 installs.
 - The installer also applies the known-good runtime pins: `pillow==11.2.1` and `PyAudio==0.2.14`.
 - `MuseTalk` runtime code is included, but MuseTalk model weights and prepared avatar packs are intentionally omitted from this Git package.
