@@ -2,6 +2,8 @@ import json
 
 from PySide6 import QtCore, QtWidgets
 
+from core.ui_session_schema import group_ui_session, with_flat_ui_settings
+
 
 def configure_real_ui_theme_dependencies(namespace):
     """Inject qt_app-owned theme globals used by the extracted real-UI theme mixin."""
@@ -171,13 +173,22 @@ QDockWidget::float-button:hover {{
     def _frontend_session_payload(self):
             try:
                 payload = json.loads(SESSION_PATH.read_text(encoding="utf-8")) if SESSION_PATH.exists() else {}
-                return payload if isinstance(payload, dict) else {}
+                return with_flat_ui_settings(payload) if isinstance(payload, dict) else {}
             except Exception:
                 return {}
 
     def _write_frontend_session_payload_for_dock_flags(self, payload):
             try:
-                SESSION_PATH.write_text(json.dumps(payload or {}, indent=4), encoding="utf-8")
+                payload = dict(payload or {})
+                ui_settings = dict(payload.get("ui") or {})
+                dock_settings = dict(ui_settings.get("docks") or {})
+                if "pinned_floating_docks" in payload:
+                    dock_settings["pinned_floating"] = list(payload.get("pinned_floating_docks") or [])
+                if "always_on_top_floating_docks" in payload:
+                    dock_settings["always_on_top"] = list(payload.get("always_on_top_floating_docks") or [])
+                ui_settings["docks"] = dock_settings
+                payload["ui"] = ui_settings
+                SESSION_PATH.write_text(json.dumps(group_ui_session(payload), indent=4), encoding="utf-8")
             except Exception:
                 pass
 
