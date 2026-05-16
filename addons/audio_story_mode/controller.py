@@ -4893,14 +4893,27 @@ class AudioStoryModeController(QtCore.QObject):
         if value.startswith("```"):
             value = re.sub(r"^```(?:json)?\s*", "", value, flags=re.IGNORECASE).strip()
             value = re.sub(r"\s*```$", "", value).strip()
+        def parse_candidate(candidate: str):
+            try:
+                return json.loads(candidate)
+            except json.JSONDecodeError:
+                # Small local repair for common model output like "\_", "\.", or
+                # "\(" inside JSON strings. These are invalid JSON escapes, but
+                # preserving the literal character is safer than discarding LLM output.
+                repaired = re.sub(r'\\(?!["\\/bfnrtu])', r"\\\\", candidate)
+                return json.loads(repaired)
         try:
-            parsed = json.loads(value)
+            parsed = parse_candidate(value)
         except Exception:
             start = value.find("{")
             end = value.rfind("}")
             if start < 0 or end <= start:
                 raise RuntimeError("LLM story analysis did not return a JSON object.")
-            parsed = json.loads(value[start : end + 1])
+            parsed = parse_candidate(value[start : end + 1])
+        if isinstance(parsed, str):
+            parsed_text = parsed.strip()
+            if parsed_text.startswith("{") and parsed_text.endswith("}"):
+                parsed = parse_candidate(parsed_text)
         if not isinstance(parsed, dict):
             raise RuntimeError("LLM story analysis JSON root must be an object.")
         return parsed
