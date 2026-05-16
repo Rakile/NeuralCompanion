@@ -32,9 +32,9 @@ Do not reuse or continue a previous proactive_candidate or Assistant reply; each
 Keep interruptions concise and relevant."""
 
 PROMPT_POLICY_FOOTER = """Screen Supervisor policy clarifications:
-- If a behavior trigger is about YouTube and the visible YouTube video title, Shorts item, channel/video identity, or primary video subject changes, treat that as a meaningful change.
-- For "Meaningful change only" on YouTube, speak once for each newly detected video identity, then stay silent for repeated refreshes of that same video.
-- If the user is only viewing comments, controls, recommendations, or minor page movement for the same video, do not speak again unless the behavior explicitly asks for comments.
+- If the visible page, post, video, article, app view, game scene, or primary subject changes, treat that as a meaningful change.
+- For "Meaningful change only", speak once for each newly detected visible subject, then stay silent for repeated refreshes or minor movement of that same subject.
+- If the user is only viewing comments, controls, recommendations, minor page movement, or cosmetic changes for the same subject, do not speak again unless the behavior explicitly asks for those details.
 - Never reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content."""
 
 PERSONA_STYLE_HINTS = {
@@ -304,8 +304,8 @@ class Addon(BaseAddon):
         if repeat_mode == "Meaningful change only":
             return (
                 "Repeat only when the same overall screen trigger still applies but the scene changed in a clearly meaningful way. "
-                "For YouTube, a different video title, Shorts item, channel/video identity, or primary video subject counts as a meaningful change and should get one new comment. "
-                "Do not comment again for repeated refreshes of the same video, comments panel changes, tiny movement, or purely cosmetic changes."
+                "A different page, post, video, article, app view, game scene, or primary visible subject counts as a meaningful change and should get one new comment. "
+                "Do not comment again for repeated refreshes of the same subject, comments panel changes, tiny movement, or purely cosmetic changes."
             )
         return (
             "One-off only. If a very similar interruption was already given for the same ongoing screen pattern, prefer should_speak=false."

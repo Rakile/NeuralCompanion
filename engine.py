@@ -873,7 +873,7 @@ sensory_hidden_action_state = {
     "last_proactive_candidate_at": 0.0,
     "last_visual_key": "",
     "last_visual_at": 0.0,
-    "last_youtube_video_comment_key": "",
+    "last_screen_subject_comment_key": "",
 }
 _addon_event_publisher = None
 _addon_manager_getter = None
@@ -991,8 +991,8 @@ def _legacy_generation_value(field, provider):
     return _chat_runtime._legacy_generation_value(field, provider)
 
 
-def _apply_chat_provider_generation_fields(params, additional_params):
-    _chat_runtime.apply_generation_fields(params, additional_params)
+def _apply_chat_provider_generation_fields(params, additional_params, provider=None):
+    _chat_runtime.apply_generation_fields(params, additional_params, provider=provider)
 
 
 def _chat_provider_model_error(provider=None):
@@ -2081,11 +2081,11 @@ def _derive_hidden_proactive_candidate(summary="", attention="", emotion=""):
     return ""
 
 
-def _clean_hidden_youtube_identity(value):
+def _clean_hidden_subject_identity(value):
     text = re.sub(r"\s+", " ", str(value or "")).strip()
     text = re.sub(r"^[\"'“”‘’]+|[\"'“”‘’.,;:]+$", "", text).strip()
     text = re.sub(
-        r"\s+(?:on youtube|youtube|video|gameplay video|gameplay|full game walkthrough|early access menu|menu|paused|playing|with .*)$",
+        r"\s+(?:on\s+[a-z0-9 _-]+|video|shorts item|post|thread|article|page|gameplay video|gameplay|full game walkthrough|early access menu|menu|paused|playing|with .*)$",
         "",
         text,
         flags=re.IGNORECASE,
@@ -2094,28 +2094,28 @@ def _clean_hidden_youtube_identity(value):
     return text[:140]
 
 
-def _extract_hidden_youtube_video_identity(summary="", attention=""):
+def _extract_hidden_screen_subject_identity(summary="", attention=""):
     text = re.sub(r"\s+", " ", str(summary or "")).strip()
-    cue = f"{attention} {text}".lower()
-    if "youtube" not in cue and "shorts" not in cue and " video" not in cue:
+    if not text:
         return ""
     patterns = [
-        r"\bswitched\s+from\b.+?\bto\s+(?:watching|viewing)?\s*(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+youtube|\s+gameplay\s+video|\s+video|\s+gameplay|\s+menu|[.;]|$)",
-        r"\bdifferent\s+youtube\s+video:\s*['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
-        r"\b(?:watching|viewing)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
-        r"\b(?:watching|viewing)\s+(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+youtube|\s+with\s+|\s*;|$)",
+        r"\bswitched\s+from\b.+?\bto\s+(?:watching|viewing|browsing|reading|playing|opening)?\s*(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+[a-z0-9 _-]+|\s+gameplay\s+video|\s+video|\s+post|\s+thread|\s+article|\s+page|\s+gameplay|\s+menu|[.;]|$)",
+        r"\bdifferent\s+(?:video|post|thread|article|page|item|screen|game|app):\s*['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:watching|viewing|browsing|reading|playing)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:post|thread|video|article|page|item)\s+(?:titled|called|named)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:watching|viewing|browsing|reading|playing)\s+(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+[a-z0-9 _-]+|\s+with\s+|\s*;|[.]|$)",
         r"\bshows\s+(?:[A-Za-z0-9_ -]+(?:'s|’s)\s+)?(?P<title>.+?)\s+video\b",
     ]
     for pattern in patterns:
         match = re.search(pattern, text, flags=re.IGNORECASE)
         if not match:
             continue
-        title = _clean_hidden_youtube_identity(match.group("title"))
+        title = _clean_hidden_subject_identity(match.group("title"))
         key = _canonical_hidden_action_key(title)
         if key:
             return key
     quoted = [
-        _clean_hidden_youtube_identity(item)
+        _clean_hidden_subject_identity(item)
         for item in re.findall(r"['\"“”‘’]([^'\"“”‘’]{4,})['\"“”‘’]", text)
     ]
     quoted = [item for item in quoted if _canonical_hidden_action_key(item)]
@@ -2124,11 +2124,11 @@ def _extract_hidden_youtube_video_identity(summary="", attention=""):
     return ""
 
 
-def _derive_youtube_video_comment_candidate(summary):
+def _derive_screen_subject_comment_candidate(summary):
     text = _sanitize_hidden_action_text(summary, limit=180)
     if not text:
         return ""
-    return _sanitize_hidden_action_text(f"Comment on this YouTube video: {text}", limit=220)
+    return _sanitize_hidden_action_text(f"Comment on this visible screen content: {text}", limit=220)
 
 
 def _derive_hidden_visual_candidate(summary="", attention="", emotion=""):
@@ -2778,6 +2778,12 @@ def _apply_sensory_pong_result(result, snapshots):
     summary = str(result.get("summary", "") or "").strip()
     proactive_candidate = _sanitize_hidden_action_text(result.get("proactive_candidate", ""), limit=220)
     visual_candidate = _sanitize_hidden_action_text(result.get("visual_candidate", ""), limit=220)
+    snapshot_list = list(snapshots or [])
+    snapshot_source_ids = [
+        str((item or {}).get("source", "") or "").strip().lower()
+        for item in snapshot_list
+        if isinstance(item, dict)
+    ]
     tags = []
     for item in list(result.get("tags", []) or []):
         tag_text = _sanitize_hidden_action_text(item, limit=80)
@@ -2786,27 +2792,22 @@ def _apply_sensory_pong_result(result, snapshots):
     should_speak = _normalize_boolish(result.get("should_speak", False))
     if should_speak and not proactive_candidate:
         proactive_candidate = _derive_hidden_proactive_candidate(summary=summary, attention=attention, emotion=emotion)
-    snapshot_source_ids = [
-        str((item or {}).get("source", "") or "").strip().lower()
-        for item in snapshot_list
-        if isinstance(item, dict)
-    ]
-    youtube_video_identity = ""
+    screen_subject_identity = ""
     if _screen_supervisor_prompt_active(snapshot_source_ids):
-        youtube_video_identity = _extract_hidden_youtube_video_identity(summary=summary, attention=attention)
-        if youtube_video_identity:
+        screen_subject_identity = _extract_hidden_screen_subject_identity(summary=summary, attention=attention)
+        if screen_subject_identity:
             with sensory_pingpong_lock:
-                last_youtube_key = str(sensory_hidden_action_state.get("last_youtube_video_comment_key", "") or "")
-            if youtube_video_identity == last_youtube_key:
+                last_subject_key = str(sensory_hidden_action_state.get("last_screen_subject_comment_key", "") or "")
+            if screen_subject_identity == last_subject_key:
                 if should_speak or proactive_candidate:
-                    print("🤐 [Sensory] Suppressed repeated YouTube comment for the same video.")
+                    print("🤐 [Sensory] Suppressed repeated screen comment for the same visible subject.")
                 proactive_candidate = ""
                 should_speak = False
             elif not should_speak:
-                proactive_candidate = _derive_youtube_video_comment_candidate(summary)
+                proactive_candidate = _derive_screen_subject_comment_candidate(summary)
                 should_speak = bool(proactive_candidate)
                 if should_speak:
-                    print("🗣️ [Sensory] Forcing one YouTube comment for newly detected video.")
+                    print("🗣️ [Sensory] Forcing one screen comment for newly detected visible subject.")
     if should_speak and proactive_candidate and _hidden_proactive_candidate_reuses_recent_stale_text(proactive_candidate, summary):
         print("🤐 [Sensory] Suppressed stale proactive candidate reused from a different hidden PONG.")
         proactive_candidate = ""
@@ -2815,7 +2816,6 @@ def _apply_sensory_pong_result(result, snapshots):
     if should_generate_image and not visual_candidate:
         visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
     keep_value = bool(result.get("keep", False))
-    snapshot_list = list(snapshots or [])
     snapshot_source = ",".join([str((item or {}).get("source", "sensory") or "sensory") for item in snapshot_list if isinstance(item, dict)]) or "sensory"
     if should_generate_image and visual_candidate and _screen_supervisor_prompt_active(
         [str((item or {}).get("source", "") or "").strip().lower() for item in snapshot_list if isinstance(item, dict)]
@@ -2924,9 +2924,9 @@ def _apply_sensory_pong_result(result, snapshots):
             source=snapshot_source,
         )
         if proactive_queued:
-            if youtube_video_identity:
+            if screen_subject_identity:
                 with sensory_pingpong_lock:
-                    sensory_hidden_action_state["last_youtube_video_comment_key"] = youtube_video_identity
+                    sensory_hidden_action_state["last_screen_subject_comment_key"] = screen_subject_identity
             _publish_addon_runtime_event(
                 "sensory.hidden_action.proactive_queued",
                 {
@@ -3491,7 +3491,7 @@ def reset_session_state():
         "last_proactive_candidate_at": 0.0,
         "last_visual_key": "",
         "last_visual_at": 0.0,
-        "last_youtube_video_comment_key": "",
+        "last_screen_subject_comment_key": "",
     }
     chat_session_state_generation += 1
     print("🧼 [Session] Chat history and memory reset.")
@@ -5168,6 +5168,7 @@ audio_story_runtime.configure_runtime(
     set_seed=set_seed,
     save_wav=save_audio_file,
     safe_delete=safe_delete_with_retry,
+    apply_chat_provider_generation_fields=_apply_chat_provider_generation_fields,
 )
 
 

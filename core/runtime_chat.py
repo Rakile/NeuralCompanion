@@ -131,17 +131,17 @@ class ChatProviderRuntime(ChatProviderAdapter):
                 return -1
         return (field or {}).get("default")
 
-    def apply_generation_fields(self, params: dict[str, Any], additional_params: dict[str, Any]) -> None:
+    def apply_generation_fields(self, params: dict[str, Any], additional_params: dict[str, Any], provider: str | None = None) -> None:
         config = self._config()
-        provider = self.current_provider()
-        metadata = chat_providers.provider_metadata(provider)
+        provider_key = self.current_provider(provider)
+        metadata = chat_providers.provider_metadata(provider_key)
         fields = [dict(item) for item in list(metadata.get("generation_fields") or []) if isinstance(item, dict)]
         if not fields:
             params["temperature"] = float(config["temperature"])
             params["top_p"] = float(config["top_p"])
             if bool(config.get("limit_response_length")):
                 params["max_tokens"] = max(1, int(config.get("max_response_tokens", 600) or 600))
-            elif provider == "lmstudio":
+            elif provider_key == "lmstudio":
                 # LM Studio applies its own generation cap when max_tokens is omitted.
                 # Sending -1 matches LM Studio's documented "no explicit response cap" behavior.
                 params["max_tokens"] = -1
@@ -152,7 +152,7 @@ class ChatProviderRuntime(ChatProviderAdapter):
             })
             return
 
-        settings = self.generation_settings(provider)
+        settings = self.generation_settings(provider_key)
         max_token_applied = False
         for field in fields:
             field_id = str(field.get("id") or "").strip()
@@ -163,7 +163,7 @@ class ChatProviderRuntime(ChatProviderAdapter):
                 support_key = f"model_supports_{required_support}"
                 if not bool(config.get(support_key, False)):
                     continue
-            raw_value = settings[field_id] if field_id in settings else self._legacy_generation_value(field, provider)
+            raw_value = settings[field_id] if field_id in settings else self._legacy_generation_value(field, provider_key)
             try:
                 value = self._coerce_generation_value(field, raw_value)
             except Exception:
@@ -189,7 +189,7 @@ class ChatProviderRuntime(ChatProviderAdapter):
         if not max_token_applied:
             if bool(config.get("limit_response_length")):
                 params["max_tokens"] = max(1, int(config.get("max_response_tokens", 600) or 600))
-            elif provider == "lmstudio":
+            elif provider_key == "lmstudio":
                 params["max_tokens"] = -1
 
     def list_models(self, *, quiet: bool = False, provider: str | None = None) -> list[Any]:

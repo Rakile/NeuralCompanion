@@ -4165,6 +4165,12 @@ class AudioStoryModeController(QtCore.QObject):
             return "DeepSeek"
         return "the current Chat Provider"
 
+    def _story_analysis_saved_model_for_provider(self, provider: str):
+        provider_key = chat_providers.normalize_provider_id(provider, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        settings_map = audio_story_runtime.runtime_config_value("chat_provider_settings", {}) or {}
+        provider_settings = dict(settings_map.get(provider_key, {}) or {}) if isinstance(settings_map, dict) else {}
+        return str(provider_settings.get("model_name") or "").strip()
+
     def _story_analysis_summary_text(self):
         if dict(self.story_bible or {}).get("analysis_source") != "llm":
             return "heuristic"
@@ -4197,20 +4203,26 @@ class AudioStoryModeController(QtCore.QObject):
         return str(self._stored_story_analysis_model or "").strip()
 
     def _story_analysis_model_candidates(self, provider: str):
+        saved_model = self._story_analysis_saved_model_for_provider(provider)
         if self._story_analysis_provider_mode() == "current":
             runtime_model = str(audio_story_runtime.runtime_config_value("model_name", "") or "").strip()
-            return [runtime_model] if runtime_model else []
+            models = []
+            for model in (runtime_model, saved_model):
+                if model and model not in models:
+                    models.append(model)
+            return models
         if chat_providers.get_provider(provider) is None:
             return []
+        models = [saved_model] if saved_model else []
         try:
             error_placeholder = chat_providers.provider_model_error(provider)
-            return [
-                str(item or "").strip()
-                for item in list(chat_providers.list_models(provider, quiet=True) or [])
-                if str(item or "").strip() and str(item or "").strip() != error_placeholder
-            ]
+            for item in list(chat_providers.list_models(provider, quiet=True) or []):
+                model = str(item or "").strip()
+                if model and model != error_placeholder and model not in models:
+                    models.append(model)
         except Exception:
-            return []
+            pass
+        return models
 
     def _sync_story_analysis_model_controls(self):
         combo = getattr(self, "audio_story_analysis_model_combo", None)
@@ -4552,6 +4564,8 @@ class AudioStoryModeController(QtCore.QObject):
             if self._story_analysis_provider_mode() == "current":
                 model = str(audio_story_runtime.runtime_config_value("model_name", "") or "").strip()
         if not model:
+            model = self._story_analysis_saved_model_for_provider(provider)
+        if not model:
             try:
                 error_placeholder = chat_providers.provider_model_error(provider)
                 models = [
@@ -4743,6 +4757,7 @@ class AudioStoryModeController(QtCore.QObject):
         additional_params = {}
         if str(provider or "").strip().lower() == "deepseek":
             additional_params["thinking_type"] = "disabled"
+        audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
         last_error = None
         for _attempt in range(3):
             try:
@@ -4804,6 +4819,7 @@ class AudioStoryModeController(QtCore.QObject):
         additional_params = {}
         if str(provider or "").strip().lower() == "deepseek":
             additional_params["thinking_type"] = "disabled"
+        audio_story_runtime.apply_chat_provider_generation_fields(params, additional_params, provider=provider)
         last_error = None
         for _attempt in range(3):
             try:
