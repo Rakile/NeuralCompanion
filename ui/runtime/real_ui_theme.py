@@ -201,6 +201,16 @@ QDockWidget::float-button:hover {{
                 if str(item or "").strip()
             }
 
+    def _sync_frontend_dock_flags_to_backend(self, key, names):
+            backend = getattr(self, "backend", None)
+            if backend is None:
+                return
+            attr = "_pinned_floating_dock_names" if key == "pinned_floating_docks" else "_always_on_top_floating_dock_names"
+            try:
+                setattr(backend, attr, set(names or []))
+            except Exception:
+                pass
+
     def _set_frontend_dock_flag(self, dock, key, enabled):
             if dock is None:
                 return
@@ -218,6 +228,7 @@ QDockWidget::float-button:hover {{
             else:
                 names.discard(object_name)
             payload[key] = sorted(names)
+            self._sync_frontend_dock_flags_to_backend(key, names)
             self._write_frontend_session_payload_for_dock_flags(payload)
             self._apply_frontend_dock_window_flags(dock)
             self._schedule_frontend_dock_owner_refresh(dock)

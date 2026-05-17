@@ -1115,6 +1115,10 @@ QTabWidget QStackedWidget {
                                 if isinstance(geometry, list) and len(geometry) == 4:
                                     dock.setGeometry(*[int(item) for item in geometry])
                             dock.setVisible(bool(dock_state.get("visible", True)))
+                            if hasattr(self, "_apply_frontend_dock_window_flags"):
+                                self._apply_frontend_dock_window_flags(dock)
+                            if hasattr(self, "_schedule_frontend_dock_owner_refresh"):
+                                self._schedule_frontend_dock_owner_refresh(dock)
                         except Exception:
                             continue
                 QtCore.QTimer.singleShot(0, self._ensure_frontend_window_on_screen)
@@ -1165,6 +1169,10 @@ QTabWidget QStackedWidget {
                                 dock.setGeometry(*[int(item) for item in geometry])
                         elif visible:
                             visible_docked.append((dock, dock_state))
+                        if hasattr(self, "_apply_frontend_dock_window_flags"):
+                            self._apply_frontend_dock_window_flags(dock)
+                        if hasattr(self, "_schedule_frontend_dock_owner_refresh"):
+                            self._schedule_frontend_dock_owner_refresh(dock)
                     except Exception:
                         continue
                 self._resize_frontend_docks_from_saved_geometry(visible_docked)
