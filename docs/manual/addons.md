@@ -30,10 +30,13 @@ committing local runtime/session files.
 
 Developer-facing addon documentation lives in the main `docs/` folder:
 
-- `docs/addon_lego_box_contract.md`
-- `docs/addon_capability_contracts.md`
-- `docs/addon_state_and_presets.md`
-- `docs/chat_provider_addons.md`
-- `docs/vision_source_addons.md`
-- `docs/vision_supervisor_addons.md`
-- `docs/visual_reply_addons.md`
+- [Addon Quickstart](../addon_quickstart.md)
+- [Addon Templates](../templates/README.md)
+- [Addon Lego Box Contract](../addon_lego_box_contract.md)
+- [Addon Capability Contracts](../addon_capability_contracts.md)
+- [Addon Designer UI Migration](../addon_designer_ui_migration.md)
+- [Addon State And Presets](../addon_state_and_presets.md)
+- [Chat Provider Addons](../chat_provider_addons.md)
+- [Vision Source Addons](../vision_source_addons.md)
+- [Vision Supervisor Addons](../vision_supervisor_addons.md)
+- [Visual Reply Addons](../visual_reply_addons.md)

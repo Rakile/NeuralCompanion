@@ -3,8 +3,9 @@
 Neural Companion is a local Windows desktop companion app for chat, speech,
 avatar output, visual replies, and addon-driven workflows.
 
-This manual is the user-facing starting point. For developer and addon docs,
-see the broader `docs/` folder.
+This manual is the user-facing starting point. For addon development, start with
+[Addon Quickstart](../addon_quickstart.md) and the
+[addon templates](../templates/README.md).
 
 ## Manual Sections
 

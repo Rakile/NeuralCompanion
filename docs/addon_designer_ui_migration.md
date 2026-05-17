@@ -51,6 +51,7 @@ Supported mount areas are owned by `core.addons.contributions.ADDON_UI_MOUNTS`:
 - `musetalk` -> `musetalk_tabs`
 - `tts_runtime` -> `tts_runtime_addon_tabs`
 - `vision_source` -> `sensory_feedback_tabs`
+- `visual_reply_runtime` -> `visual_reply_runtime_host`
 
 Provider-only addons that do not own a tab should still declare their runtime service contribution:
 

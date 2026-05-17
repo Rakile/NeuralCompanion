@@ -179,6 +179,8 @@ Most runtime capabilities are implemented as addons under `addons/`.
 
 Useful docs:
 
+- [docs/addon_quickstart.md](docs/addon_quickstart.md)
+- [docs/templates/README.md](docs/templates/README.md)
 - [docs/chat_provider_addons.md](docs/chat_provider_addons.md)
 - [docs/vision_source_addons.md](docs/vision_source_addons.md)
 - [docs/vision_supervisor_addons.md](docs/vision_supervisor_addons.md)
