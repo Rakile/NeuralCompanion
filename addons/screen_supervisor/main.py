@@ -28,6 +28,9 @@ When one configured behavior matches the screen, set should_speak=true only when
 When no configured behavior matches, set should_speak=false for this behavior.
 Always set should_generate_image=false and visual_candidate="" for this behavior addon; it comments on visible screen content, it does not request image generation.
 Treat the matching behavior's Repeat policy as a hard gate, not a style preference.
+When and only when a configured behavior matches and you set should_speak=true, include the tag "[screen_supervisor_match]" in tags.
+When you include "[screen_supervisor_match]", also include one "[screen_subject:<stable subject>]" tag. The stable subject must name the ongoing visible activity, object, document, scene, or content being commented on in a platform-neutral way; keep it stable across minor visual changes.
+When you decide a configured behavior matches, make the summary explicitly name the visible evidence that satisfied the trigger.
 Do not reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content.
 Keep interruptions concise and relevant."""
 
@@ -35,6 +38,9 @@ PROMPT_POLICY_FOOTER = """Screen Supervisor policy clarifications:
 - If the visible page, post, video, article, app view, game scene, or primary subject changes, treat that as a meaningful change.
 - For "Meaningful change only", speak once for each newly detected visible subject, then stay silent for repeated refreshes or minor movement of that same subject.
 - If the user is only viewing comments, controls, recommendations, minor page movement, or cosmetic changes for the same subject, do not speak again unless the behavior explicitly asks for those details.
+- When and only when a configured behavior matches and should_speak=true, include "[screen_supervisor_match]" in tags plus one "[screen_subject:<stable subject>]" tag. If no configured behavior matches, set should_speak=false, proactive_candidate="", and do not include those tags.
+- The screen_subject tag is for repeat gating. It should identify the ongoing visible activity, object, document, scene, app state, or content in a stable, platform-neutral way. Do not change it for minor cursor movement, animation frames, scroll jitter, UI focus changes, or wording changes in your summary.
+- If you decide a configured behavior matches, the summary must explicitly mention the current visible evidence that satisfies the Visual Trigger. Do not rely only on tags to claim a match.
 - Never reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content."""
 
 PERSONA_STYLE_HINTS = {
@@ -462,6 +468,17 @@ class Addon(BaseAddon):
                 "type": "behavior_rule",
                 "persona_name": str(active.get("name") or "Supervisor"),
                 "behavior_count": len(list(active.get("behaviors") or [])),
+                "active_behaviors": [
+                    {
+                        "trigger": str(behavior.get("trigger") or "").strip(),
+                        "action": str(behavior.get("action") or "").strip(),
+                        "repeat_mode": self._normalize_repeat_mode(behavior.get("repeat_mode")),
+                    }
+                    for behavior in list(active.get("behaviors") or [])
+                    if bool(behavior.get("enabled", True))
+                    and str(behavior.get("trigger") or "").strip()
+                    and str(behavior.get("action") or "").strip()
+                ],
             },
         )
 

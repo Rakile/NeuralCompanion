@@ -874,6 +874,9 @@ sensory_hidden_action_state = {
     "last_visual_key": "",
     "last_visual_at": 0.0,
     "last_screen_subject_comment_key": "",
+    "last_screen_supervisor_meaningful_key": "",
+    "last_screen_supervisor_meaningful_subject": "",
+    "last_screen_supervisor_meaningful_trigger": "",
 }
 _addon_event_publisher = None
 _addon_manager_getter = None
@@ -2076,6 +2079,64 @@ def _canonical_hidden_action_key(value):
     return re.sub(r"\s+", " ", text).strip()
 
 
+_HIDDEN_SUBJECT_SIMILARITY_STOPWORDS = {
+    "activity",
+    "article",
+    "browser",
+    "browsing",
+    "content",
+    "current",
+    "document",
+    "editing",
+    "image",
+    "item",
+    "page",
+    "playing",
+    "post",
+    "screen",
+    "scene",
+    "show",
+    "showing",
+    "site",
+    "the",
+    "thread",
+    "user",
+    "video",
+    "view",
+    "visible",
+    "watching",
+    "webpage",
+    "window",
+}
+
+
+def _hidden_subject_similarity_tokens(value):
+    key = _canonical_hidden_action_key(value)
+    return {
+        word
+        for word in re.findall(r"[a-z0-9][a-z0-9_+-]{2,}", key)
+        if word not in _HIDDEN_SUBJECT_SIMILARITY_STOPWORDS
+    }
+
+
+def _hidden_subject_keys_are_similar(left, right):
+    left_key = _canonical_hidden_action_key(left)
+    right_key = _canonical_hidden_action_key(right)
+    if not left_key or not right_key:
+        return False
+    if left_key == right_key:
+        return True
+    if left_key in right_key or right_key in left_key:
+        return True
+    left_tokens = _hidden_subject_similarity_tokens(left_key)
+    right_tokens = _hidden_subject_similarity_tokens(right_key)
+    if not left_tokens or not right_tokens:
+        return False
+    overlap = len(left_tokens & right_tokens)
+    smaller = min(len(left_tokens), len(right_tokens))
+    return overlap >= 2 and (overlap / max(1, smaller)) >= 0.5
+
+
 def _derive_hidden_proactive_candidate(summary="", attention="", emotion=""):
     candidate = _sanitize_hidden_action_text(summary, limit=220)
     if candidate:
@@ -2107,6 +2168,13 @@ def _extract_hidden_screen_subject_identity(summary="", attention=""):
     if not text:
         return ""
     patterns = [
+        r"\b(?:video|post|thread|article|page|item)\s*:\s*['\"“”‘’](?P<title>.+?)['\"“”‘’]\s+(?:by|from|featuring|showing|with|is|,|[.;]|$)",
+        r"\b(?:video|post|thread|article|page|item)\s+(?:changed|switched)?\s*(?:to\s+)?['\"“”‘’](?P<title>.+?)['\"“”‘’]\s+(?:by|from|featuring|showing|with|is|,|[.;]|$)",
+        r"\b(?:titled|called|named)\s+['\"“”‘’](?P<title>.+?)['\"“”‘’]\s+(?:by|from|featuring|showing|with|is|,|[.;]|$)",
+        r"\b(?:video|post|thread|article|page|item)\s+by\s+.+?\s+(?:titled|called|named|on)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:watching|viewing|browsing|reading|playing)\s+.+?\s+(?:video|post|thread|article|page|item)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:video|post|thread|article|page|item)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
+        r"\b(?:screen\s+(?:now\s+)?shows\s+)?(?:a|an|the)?\s*(?:[a-z0-9_.-]+\s+)?(?:video|post|thread|article|page|item)\s+from\s+(?P<title>.+?)(?:\s+(?:now\s+)?(?:playing|shows|showing|featuring|with)|[.;]|$)",
         r"\bswitched\s+from\b.+?\bto\s+(?:watching|viewing|browsing|reading|playing|opening)?\s*(?:a|an|the)?\s*(?P<title>.+?)(?:\s+on\s+[a-z0-9 _-]+|\s+gameplay\s+video|\s+video|\s+post|\s+thread|\s+article|\s+page|\s+gameplay|\s+menu|[.;]|$)",
         r"\bdifferent\s+(?:video|post|thread|article|page|item|screen|game|app):\s*['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
         r"\b(?:watching|viewing|browsing|reading|playing)\s+['\"“”‘’](?P<title>[^'\"“”‘’]+)['\"“”‘’]",
@@ -2130,13 +2198,6 @@ def _extract_hidden_screen_subject_identity(summary="", attention=""):
     if quoted:
         return _canonical_hidden_action_key(quoted[-1])
     return ""
-
-
-def _derive_screen_subject_comment_candidate(summary):
-    text = _sanitize_hidden_action_text(summary, limit=180)
-    if not text:
-        return ""
-    return _sanitize_hidden_action_text(f"Comment on this visible screen content: {text}", limit=220)
 
 
 def _derive_hidden_visual_candidate(summary="", attention="", emotion=""):
@@ -2173,7 +2234,7 @@ def _sanitize_hidden_proactive_request(entry):
     }
 
 
-def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", source="sensory"):
+def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", source="sensory", allow_repeated_candidate=False):
     request = _sanitize_hidden_proactive_request(
         {
             "candidate": candidate,
@@ -2208,7 +2269,12 @@ def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", so
             return False
         last_candidate_key = str(sensory_hidden_action_state.get("last_proactive_candidate_key", "") or "")
         last_candidate_at = float(sensory_hidden_action_state.get("last_proactive_candidate_at", 0.0) or 0.0)
-        if candidate_key and candidate_key == last_candidate_key and (now - last_candidate_at) < 300.0:
+        if (
+            not bool(allow_repeated_candidate)
+            and candidate_key
+            and candidate_key == last_candidate_key
+            and (now - last_candidate_at) < 300.0
+        ):
             print("🤐 [Sensory] Suppressed repeated proactive candidate without a new spoken cue.")
             return False
         sensory_hidden_action_state["pending_proactive"] = request
@@ -2717,17 +2783,196 @@ def _sensory_pingpong_source_prompt_text(source_ids):
     return "\n\n".join(fragments)
 
 
-def _screen_supervisor_prompt_active(source_ids):
-    for source_id in list(source_ids or []):
-        if str(source_id or "").strip().lower() != "screen":
+def _screen_supervisor_prompt_contributors(source_ids):
+    source_keys = {
+        str(source_id or "").strip().lower()
+        for source_id in list(source_ids or [])
+        if str(source_id or "").strip()
+    }
+    contributors = []
+    for contributor in sensory.list_prompt_contributors("screen"):
+        contributor_id = str(getattr(contributor, "id", "") or "").strip()
+        if contributor_id != "nc.screen_supervisor.behavior":
             continue
-        for contributor in sensory.list_prompt_contributors("screen"):
-            contributor_id = str(getattr(contributor, "id", "") or "").strip()
-            if contributor_id == "nc.screen_supervisor.behavior":
-                prompt = str(getattr(contributor, "prompt", "") or "").strip()
-                if prompt:
-                    return True
-    return False
+        prompt = str(getattr(contributor, "prompt", "") or "").strip()
+        if not prompt:
+            continue
+        contributor_source = str(getattr(contributor, "source_id", "") or "").strip().lower()
+        source_matches = (
+            not source_keys
+            or contributor_source in source_keys
+            or (contributor_source == "screen" and any("screen" in key for key in source_keys))
+        )
+        if source_matches:
+            contributors.append(contributor)
+    return contributors
+
+
+def _screen_supervisor_prompt_active(source_ids):
+    return bool(_screen_supervisor_prompt_contributors(source_ids))
+
+
+_SCREEN_SUPERVISOR_TRIGGER_STOPWORDS = {
+    "about",
+    "action",
+    "app",
+    "are",
+    "being",
+    "browse",
+    "browsing",
+    "clearly",
+    "comment",
+    "content",
+    "current",
+    "doing",
+    "feed",
+    "image",
+    "looking",
+    "page",
+    "playing",
+    "post",
+    "screen",
+    "seeing",
+    "shows",
+    "site",
+    "something",
+    "that",
+    "the",
+    "this",
+    "thread",
+    "user",
+    "video",
+    "view",
+    "visible",
+    "watch",
+    "watching",
+    "with",
+}
+
+
+def _screen_supervisor_trigger_tokens(trigger):
+    words = re.findall(r"[a-z0-9][a-z0-9_+-]{2,}", str(trigger or "").lower())
+    return [
+        word
+        for word in words
+        if word not in _SCREEN_SUPERVISOR_TRIGGER_STOPWORDS
+    ]
+
+
+def _screen_supervisor_configured_triggers(source_ids):
+    triggers = []
+    for contributor in _screen_supervisor_prompt_contributors(source_ids):
+        metadata = dict(getattr(contributor, "metadata", None) or {})
+        for behavior in list(metadata.get("active_behaviors") or []):
+            if not isinstance(behavior, dict):
+                continue
+            trigger = str(behavior.get("trigger") or "").strip()
+            if trigger and trigger not in triggers:
+                triggers.append(trigger)
+        if triggers:
+            continue
+        prompt = str(getattr(contributor, "prompt", "") or "")
+        for trigger in re.findall(r"Visual Trigger:\s*(.+)", prompt):
+            trigger = str(trigger or "").strip()
+            if trigger and trigger not in triggers:
+                triggers.append(trigger)
+    return triggers
+
+
+def _screen_supervisor_configured_behaviors(source_ids):
+    behaviors = []
+    for contributor in _screen_supervisor_prompt_contributors(source_ids):
+        metadata = dict(getattr(contributor, "metadata", None) or {})
+        for behavior in list(metadata.get("active_behaviors") or []):
+            if not isinstance(behavior, dict):
+                continue
+            trigger = str(behavior.get("trigger") or "").strip()
+            if not trigger:
+                continue
+            behaviors.append(
+                {
+                    "trigger": trigger,
+                    "repeat_mode": str(behavior.get("repeat_mode") or "").strip() or "Meaningful change only",
+                }
+            )
+    if behaviors:
+        return behaviors
+    return [{"trigger": trigger, "repeat_mode": "Meaningful change only"} for trigger in _screen_supervisor_configured_triggers(source_ids)]
+
+
+def _screen_supervisor_current_focus_text(*parts):
+    text = " ".join(str(item or "") for item in parts if str(item or "").strip())
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    focus_patterns = [
+        r"\bswitched\s+from\b.+?\bto\s+(?P<focus>.+)$",
+        r"\bchanged\s+from\b.+?\bto\s+(?P<focus>.+)$",
+        r"\bwent\s+from\b.+?\bto\s+(?P<focus>.+)$",
+        r"\breplaced\b.+?\bwith\s+(?P<focus>.+)$",
+    ]
+    for pattern in focus_patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if match:
+            focus = re.sub(r"\b(previously|before|earlier)\b.+$", "", match.group("focus"), flags=re.IGNORECASE).strip()
+            return focus or text
+    return text
+
+
+def _screen_supervisor_pong_trigger_decision(source_ids, *, summary="", attention="", proactive_candidate=""):
+    behaviors = _screen_supervisor_configured_behaviors(source_ids)
+    if not behaviors:
+        return True, "no configured trigger metadata available", None
+    full_haystack = " ".join(
+        str(item or "").lower()
+        for item in (summary, attention, proactive_candidate)
+        if str(item or "").strip()
+    )
+    current_haystack = _screen_supervisor_current_focus_text(summary, attention, proactive_candidate).lower()
+    if not full_haystack:
+        return False, "no PONG text available for trigger check", None
+    saw_tokenized_trigger = False
+    checked = []
+    for behavior in behaviors:
+        trigger = str(behavior.get("trigger") or "").strip()
+        tokens = _screen_supervisor_trigger_tokens(trigger)
+        if not tokens:
+            checked.append(f"{trigger!r}: no significant tokens")
+            continue
+        saw_tokenized_trigger = True
+        checked.append(f"{trigger!r}: tokens={tokens}")
+        for token in tokens:
+            token_pattern = rf"(?<![a-z0-9_+-]){re.escape(token)}(?![a-z0-9_+-])"
+            if re.search(token_pattern, current_haystack):
+                return True, f"trigger {trigger!r} matched token {token!r}", dict(behavior)
+            if re.search(token_pattern, full_haystack):
+                return (
+                    False,
+                    f"trigger {trigger!r} matched token {token!r} only in previous/transition context",
+                    dict(behavior),
+                )
+    if not saw_tokenized_trigger:
+        return True, "configured triggers had no significant tokens", None
+    fallback_behavior = dict(behaviors[0]) if behaviors else None
+    return False, "no configured trigger token matched PONG text; " + "; ".join(checked[:4]), fallback_behavior
+
+
+def _screen_supervisor_repeat_key(behavior, subject_identity):
+    trigger_key = _canonical_hidden_action_key((behavior or {}).get("trigger", "")) or "screen-supervisor"
+    subject_key = _canonical_hidden_action_key(subject_identity) or "unknown-subject"
+    return f"{trigger_key}::{subject_key}"
+
+
+def _screen_supervisor_subject_from_tags(tags):
+    for tag in list(tags or []):
+        tag_text = str(tag or "").strip()
+        match = re.match(r"^\[?screen_subject\s*:\s*(?P<subject>.+?)\]?$", tag_text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        subject = _canonical_hidden_action_key(match.group("subject"))
+        if subject:
+            return subject[:180]
+    return ""
 
 
 def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
@@ -2801,9 +3046,86 @@ def _apply_sensory_pong_result(result, snapshots):
     if should_speak and not proactive_candidate:
         proactive_candidate = _derive_hidden_proactive_candidate(summary=summary, attention=attention, emotion=emotion)
     screen_subject_identity = ""
+    screen_supervisor_repeat_key = ""
+    screen_supervisor_new_meaningful_subject = False
     if _screen_supervisor_prompt_active(snapshot_source_ids):
-        screen_subject_identity = _extract_hidden_screen_subject_identity(summary=summary, attention=attention)
-        if screen_subject_identity:
+        supervisor_match_tag = "[screen_supervisor_match]"
+        has_supervisor_match = any(str(tag or "").strip().lower() == supervisor_match_tag for tag in tags)
+        screen_subject_tag_identity = _screen_supervisor_subject_from_tags(tags)
+        tags = [
+            tag
+            for tag in tags
+            if str(tag or "").strip().lower() != supervisor_match_tag
+            and not re.match(r"^\[?screen_subject\s*:", str(tag or "").strip(), flags=re.IGNORECASE)
+        ]
+        print(
+            "[SupervisorDebug] model_match_tag="
+            f"{has_supervisor_match} sources={snapshot_source_ids or ['?']}"
+        )
+        if (should_speak or proactive_candidate) and not has_supervisor_match:
+            print("🤐 [Sensory] Suppressed screen comment without a matching Screen Supervisor behavior.")
+            proactive_candidate = ""
+            should_speak = False
+        if should_speak or proactive_candidate:
+            token_trigger_matched, trigger_reason, matched_behavior = _screen_supervisor_pong_trigger_decision(
+                snapshot_source_ids,
+                summary=summary,
+                attention=attention,
+                proactive_candidate=proactive_candidate,
+            )
+            trigger_matched = bool(has_supervisor_match)
+            print(
+                f"[SupervisorDebug] trigger_match={trigger_matched} "
+                f"reason=model affirmed configured behavior; lexical_check={token_trigger_matched} ({trigger_reason})"
+            )
+            if matched_behavior and not token_trigger_matched:
+                print("🤐 [Sensory] Suppressed screen comment without current visible evidence for the configured trigger.")
+                proactive_candidate = ""
+                should_speak = False
+                matched_behavior = None
+            if matched_behavior:
+                extracted_subject_identity = _extract_hidden_screen_subject_identity(
+                    summary=summary,
+                    attention=attention,
+                )
+                screen_subject_identity = extracted_subject_identity or screen_subject_tag_identity
+                if not screen_subject_identity:
+                    screen_subject_identity = _canonical_hidden_action_key(summary)
+                screen_supervisor_repeat_key = _screen_supervisor_repeat_key(matched_behavior, screen_subject_identity)
+                repeat_mode = str(matched_behavior.get("repeat_mode") or "").strip()
+                print(
+                    "[SupervisorDebug] repeat_mode="
+                    f"{repeat_mode or '?'} subject={screen_subject_identity or '?'}"
+                )
+                if repeat_mode == "Meaningful change only" and screen_supervisor_repeat_key:
+                    with sensory_pingpong_lock:
+                        last_repeat_key = str(
+                            sensory_hidden_action_state.get("last_screen_supervisor_meaningful_key", "") or ""
+                        )
+                        last_repeat_subject = str(
+                            sensory_hidden_action_state.get("last_screen_supervisor_meaningful_subject", "") or ""
+                        )
+                        last_repeat_trigger = str(
+                            sensory_hidden_action_state.get("last_screen_supervisor_meaningful_trigger", "") or ""
+                        )
+                    trigger_key = _canonical_hidden_action_key(matched_behavior.get("trigger", ""))
+                    same_repeat_key = screen_supervisor_repeat_key == last_repeat_key
+                    same_subject = (
+                        trigger_key == last_repeat_trigger
+                        and _hidden_subject_keys_are_similar(screen_subject_identity, last_repeat_subject)
+                    )
+                    if same_repeat_key or same_subject:
+                        print(
+                            "🤐 [Sensory] Suppressed repeated Screen Supervisor comment without meaningful subject change "
+                            f"(previous_subject={last_repeat_subject or '?'})"
+                        )
+                        proactive_candidate = ""
+                        should_speak = False
+                    else:
+                        screen_supervisor_new_meaningful_subject = True
+        if not screen_subject_identity:
+            screen_subject_identity = _extract_hidden_screen_subject_identity(summary=summary, attention=attention)
+        if should_speak and proactive_candidate and screen_subject_identity:
             with sensory_pingpong_lock:
                 last_subject_key = str(sensory_hidden_action_state.get("last_screen_subject_comment_key", "") or "")
             if screen_subject_identity == last_subject_key:
@@ -2811,12 +3133,12 @@ def _apply_sensory_pong_result(result, snapshots):
                     print("🤐 [Sensory] Suppressed repeated screen comment for the same visible subject.")
                 proactive_candidate = ""
                 should_speak = False
-            elif not should_speak:
-                proactive_candidate = _derive_screen_subject_comment_candidate(summary)
-                should_speak = bool(proactive_candidate)
-                if should_speak:
-                    print("🗣️ [Sensory] Forcing one screen comment for newly detected visible subject.")
-    if should_speak and proactive_candidate and _hidden_proactive_candidate_reuses_recent_stale_text(proactive_candidate, summary):
+    if (
+        should_speak
+        and proactive_candidate
+        and not screen_supervisor_new_meaningful_subject
+        and _hidden_proactive_candidate_reuses_recent_stale_text(proactive_candidate, summary)
+    ):
         print("🤐 [Sensory] Suppressed stale proactive candidate reused from a different hidden PONG.")
         proactive_candidate = ""
         should_speak = False
@@ -2930,11 +3252,19 @@ def _apply_sensory_pong_result(result, snapshots):
             summary=summary,
             attention=attention,
             source=snapshot_source,
+            allow_repeated_candidate=screen_supervisor_new_meaningful_subject,
         )
         if proactive_queued:
             if screen_subject_identity:
                 with sensory_pingpong_lock:
                     sensory_hidden_action_state["last_screen_subject_comment_key"] = screen_subject_identity
+            if screen_supervisor_repeat_key:
+                with sensory_pingpong_lock:
+                    sensory_hidden_action_state["last_screen_supervisor_meaningful_key"] = screen_supervisor_repeat_key
+                    sensory_hidden_action_state["last_screen_supervisor_meaningful_subject"] = screen_subject_identity
+                    sensory_hidden_action_state["last_screen_supervisor_meaningful_trigger"] = _canonical_hidden_action_key(
+                        screen_supervisor_repeat_key.split("::", 1)[0]
+                    )
             _publish_addon_runtime_event(
                 "sensory.hidden_action.proactive_queued",
                 {
@@ -3500,6 +3830,9 @@ def reset_session_state():
         "last_visual_key": "",
         "last_visual_at": 0.0,
         "last_screen_subject_comment_key": "",
+        "last_screen_supervisor_meaningful_key": "",
+        "last_screen_supervisor_meaningful_subject": "",
+        "last_screen_supervisor_meaningful_trigger": "",
     }
     chat_session_state_generation += 1
     print("🧼 [Session] Chat history and memory reset.")
