@@ -24,21 +24,28 @@ Useful methods include:
 
 ## Core Tab Pattern
 
-Visual Reply settings belong in the `host_settings` area:
+The core Visual Reply runtime settings belong in the dedicated
+`visual_reply_runtime` area. The host mounts that contribution into the Visual
+Reply Runtime card instead of a normal tab widget:
 
 ```python
 context.ui.register_tab(
     id="visuals_host",
     title="Visuals",
-    area="host_settings",
+    area="visual_reply_runtime",
     order=120,
     tooltip="Visual reply runtime settings.",
-    metadata={"nested_title": "Core"},
+    metadata={"nested_title": "Core", "runtime_role": "visual_reply"},
     factory=self._build_core_tab,
 )
 ```
 
-Use `metadata.nested_title` when the top-level host tab should show a nested child label such as `Core`.
+Use `metadata.runtime_role="visual_reply"` for the first-party core runtime
+card. Use `metadata.nested_title` when a normal host tab should show a nested
+child label such as `Core`.
+
+Additional story or visual settings that are not the core runtime card can
+still use the regular `host_settings` area.
 
 ## Replacing The Dock Panel
 

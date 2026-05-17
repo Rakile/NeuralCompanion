@@ -31,7 +31,7 @@ see the broader `docs/` folder.
 ## Important Notes
 
 - Windows and Python 3.11 are the expected baseline.
-- FFmpeg should be available on PATH.
+- FFmpeg should be available on PATH or installed through the bundled installer tools.
 - MuseTalk works best with an NVIDIA CUDA GPU.
 - Voice samples, avatar packs, model weights, logs, and runtime files are local
   user data and are not included in the main repository.

@@ -43,7 +43,7 @@ Recommended baseline:
 
 - Windows
 - Python 3.11
-- FFmpeg on PATH
+- FFmpeg on PATH, or the installer-bundled FFmpeg tools
 - a local or API chat provider
 - NVIDIA CUDA GPU for MuseTalk
 
@@ -223,5 +223,8 @@ provider, voice, avatar, or generated asset you use with the app.
 ## Community
 
 The project is intended to grow through community feedback, addon development,
-and shared workflows. Discord/community links can be added here for the public
-release.
+and shared workflows. Join the setup/help Discord here:
+
+```text
+https://discord.gg/UqnwX46rcK
+```

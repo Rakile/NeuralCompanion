@@ -57,8 +57,12 @@ module reference is undocumented here.
 | `engine.py` | `addons.musetalk_avatar.state` |
 | `shared_state.py` | `addons.musetalk_avatar.state` |
 | `shared_state.py` | `addons.visual_reply.state` |
+| `ui/runtime/main_window_session.py` | `addons.visual_reply.session_schema` |
+| `ui/runtime/qt_app_shell_input_actions.py` | `addons.audio_story_mode.session_schema` |
+| `ui/runtime/qt_app_shell_read_only.py` | `addons.visual_reply.session_schema` |
 | `ui/runtime/qt_app_runtime_namespace.py` | `addons.musetalk_avatar.state` |
 | `ui/runtime/qt_app_runtime_namespace.py` | `addons.visual_reply.state` |
+| `ui/runtime/shell_addon_reports.py` | `addons.visual_reply.session_schema` |
 
 ## Cleanup Candidates
 

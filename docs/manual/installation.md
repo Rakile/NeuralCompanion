@@ -29,9 +29,13 @@ The graphical installer:
 
 - detects Python 3.11 automatically when possible
 - lets you browse to another Python 3.11 executable
+- opens the official Windows Python downloads page if Python 3.11 is missing
 - installs the main Neural Companion runtime
 - optionally installs the isolated MuseTalk runtime
 - optionally installs the isolated PocketTTS runtime
+- installs bundled FFmpeg tools when `ffmpeg` or `ffprobe` are missing
+- lets RTX 50 / Blackwell users force the CUDA 12.8 PyTorch stack if detection is wrong
+- links to Discord setup help and Hugging Face token/model-term pages
 - can run preflight checks before install
 
 MuseTalk and PocketTTS are isolated so their dependencies do not collide with
@@ -63,7 +67,7 @@ Recommended baseline:
 
 - Windows
 - Python 3.11
-- FFmpeg on PATH
+- FFmpeg on PATH, or the installer-bundled FFmpeg tools
 - a local or API chat provider
 - NVIDIA CUDA GPU for MuseTalk
 

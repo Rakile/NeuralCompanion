@@ -43,10 +43,14 @@ ALLOWED_ADDON_MODULE_REFERENCES = {
         "addons.musetalk_avatar.state",
         "addons.visual_reply.state",
     },
+    "ui/runtime/main_window_session.py": {"addons.visual_reply.session_schema"},
+    "ui/runtime/qt_app_shell_input_actions.py": {"addons.audio_story_mode.session_schema"},
+    "ui/runtime/qt_app_shell_read_only.py": {"addons.visual_reply.session_schema"},
     "ui/runtime/qt_app_runtime_namespace.py": {
         "addons.musetalk_avatar.state",
         "addons.visual_reply.state",
     },
+    "ui/runtime/shell_addon_reports.py": {"addons.visual_reply.session_schema"},
 }
 
 FORBIDDEN_HOST_PATTERNS = {
@@ -204,6 +208,11 @@ def install_optional_dependency_stubs() -> None:
     torchaudio = types.ModuleType("torchaudio")
     sys.modules["torchaudio"] = torchaudio
 
+    soundfile = types.ModuleType("soundfile")
+    soundfile.read = lambda *_args, **_kwargs: ([], 0)
+    soundfile.write = lambda *_args, **_kwargs: None
+    sys.modules["soundfile"] = soundfile
+
     keyboard = types.ModuleType("keyboard")
     keyboard.is_pressed = lambda *_args, **_kwargs: False
     keyboard.add_hotkey = lambda *_args, **_kwargs: None
@@ -320,6 +329,7 @@ def _addon_module_reference_re(app_root: Path) -> re.Pattern[str]:
 
 def _iter_static_import_violations(path: Path, app_root: Path, text: str):
     relative = path.relative_to(app_root).as_posix()
+    allowed = set(ALLOWED_ADDON_MODULE_REFERENCES.get(relative, set()))
     try:
         tree = ast.parse(text, filename=str(path))
     except SyntaxError as exc:
@@ -330,13 +340,13 @@ def _iter_static_import_violations(path: Path, app_root: Path, text: str):
         if isinstance(node, ast.Import):
             for alias in node.names:
                 name = str(alias.name or "").strip()
-                if name == "addons" or name.startswith("addons."):
+                if (name == "addons" or name.startswith("addons.")) and name not in allowed:
                     yield f"{relative}:{node.lineno}: import {name}"
                 if name == "engine" or name == "shared_state":
                     yield f"{relative}:{node.lineno}: import {name}"
         elif isinstance(node, ast.ImportFrom):
             module = str(node.module or "").strip()
-            if module == "addons" or module.startswith("addons."):
+            if (module == "addons" or module.startswith("addons.")) and module not in allowed:
                 yield f"{relative}:{node.lineno}: from {module} import ..."
             if module == "engine" or module == "shared_state":
                 yield f"{relative}:{node.lineno}: from {module} import ..."

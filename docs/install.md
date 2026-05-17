@@ -16,6 +16,14 @@ If you prefer launching it from a terminal:
 py install_neural_companion_gui.py
 ```
 
+The graphical installer detects Python 3.11, offers a Windows Python download
+link when it is missing, can install bundled FFmpeg tools when `ffmpeg` or
+`ffprobe` are not available, and includes links for Discord setup help plus the
+Hugging Face token/model-term pages used by PocketTTS.
+
+For RTX 50 / Blackwell GPUs, the installer can auto-select or manually force
+the CUDA 12.8 PyTorch stack used by the main runtime and MuseTalk.
+
 Command-line installer:
 
 ```powershell

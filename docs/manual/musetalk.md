@@ -48,6 +48,9 @@ The current Echo demo pack uses the `neutral`, `angry`, and `sad` emotion tags.
 ## Performance
 
 - Use an NVIDIA CUDA GPU.
+- RTX 50 / Blackwell GPUs need the CUDA 12.8 PyTorch stack. The installer
+  auto-detects this when possible and also exposes a manual CUDA-stack override
+  for missed or unusual detections.
 - First startup can be slow while models and avatar frames warm up.
 - Use Dry Run and performance profiles to tune settings.
 - `.npy` startup frame caches can improve avatar-pack startup time, but use disk

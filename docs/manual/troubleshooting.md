@@ -26,9 +26,18 @@ py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe" --
 ## MuseTalk Is Slow Or Uses Too Much VRAM
 
 - Use an NVIDIA CUDA GPU.
+- RTX 50 / Blackwell GPUs should use the installer CUDA 12.8 PyTorch stack.
+  Use the graphical installer's PyTorch CUDA stack selector, or pass
+  `--torch-stack cu128`, if auto-detection misses the card.
 - Start with shorter or simpler avatar packs.
 - Run Dry Run and save a performance profile.
 - Enable startup caches only if you have disk space available.
+
+## FFmpeg Or ffprobe Is Missing
+
+Audio Story Mode and media utilities need both `ffmpeg` and `ffprobe`. Rerun
+the installer preflight or install target so it can place bundled FFmpeg tools
+under `tools/ffmpeg/bin` when they are not available on PATH.
 
 ## Avatar Packs Are Not Found
 

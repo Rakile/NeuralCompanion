@@ -21,7 +21,7 @@ Use this as the starting point for a public GitHub release.
 ### Required External Setup
 
 - Install Python 3.11.
-- Install FFmpeg and ensure it is on PATH.
+- Install FFmpeg on PATH or use the bundled installer FFmpeg tools.
 - Install or configure at least one chat provider, such as LM Studio or an API provider.
 - Install MuseTalk model weights separately if using MuseTalk.
 - Install external avatar applications/plugins separately if using VSeeFace or VaM.

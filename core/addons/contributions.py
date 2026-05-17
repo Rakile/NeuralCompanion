@@ -29,6 +29,7 @@ ADDON_UI_MOUNTS: tuple[AddonUIMount, ...] = (
     AddonUIMount("avatar_tools", "musetalk_tabs", "Avatar Tools", deferred=True),
     AddonUIMount("tts_runtime", "tts_runtime_addon_tabs", "TTS Runtime"),
     AddonUIMount("vision_source", "sensory_feedback_tabs", "Vision Sources"),
+    AddonUIMount("visual_reply_runtime", "visual_reply_runtime_host", "Visual Reply Runtime", deferred=True),
 )
 
 
@@ -109,7 +110,7 @@ def ui_mount_adoption_specs() -> tuple[dict[str, str], ...]:
             "mode": "titles",
         }
         for mount in ADDON_UI_MOUNTS
-        if mount.area != "vision_source"
+        if mount.area not in {"vision_source", "visual_reply_runtime"}
     )
 
 
