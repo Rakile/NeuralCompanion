@@ -14,10 +14,11 @@ Large pack archives should be attached to that repository as GitHub Release
 assets, not committed directly to git. GitHub regular repository files have a
 100 MB hard limit, while MuseTalk packs are usually much larger.
 
-Current Echo demo download:
+Current default demo downloads:
 
 ```text
 https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/download/v0.1.0/neural-companion-avatar-pack-Echo.zip
+https://github.com/Rakile/NeuralCompanion-AvatarPacks/releases/download/v0.1.0/neural-companion-avatar-pack-Eon.zip
 ```
 
 ## Install Location
@@ -28,16 +29,21 @@ Download and extract a pack so the folder lands here:
 avatar_packs/<pack_id>/
 ```
 
-For example, the Echo demo pack should become:
+For example, the default demo packs should become:
 
 ```text
 avatar_packs/Echo/manifest.json
 avatar_packs/Echo/echo_neutral/
 avatar_packs/Echo/echo_angry/
 avatar_packs/Echo/echo_sad/
+avatar_packs/Eon/manifest.json
+avatar_packs/Eon/Eon_neutral/
+avatar_packs/Eon/Eon_angry/
+avatar_packs/Eon/Eon_sad/
 ```
 
-The default Echo pack provides the `neutral`, `angry`, and `sad` emotion tags.
+The default Echo and Eon packs provide the `neutral`, `angry`, and `sad`
+emotion tags.
 
 Then start Neural Companion and select the pack from the MuseTalk avatar pack
 dropdown.

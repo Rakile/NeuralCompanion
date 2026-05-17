@@ -104,7 +104,7 @@ runtime provider and the existing provider pattern does the same.
 ## Add UI
 
 For quick local experiments, a Python-built tab with `context.ui.register_tab`
-is the fastest route.
+is the fastest route. This is useful while exploring an idea.
 
 For release-quality bundled addons, prefer an addon-local Qt Designer file and
 register it through `context.ui.register_manifest_designer_tab(...)`.
@@ -240,13 +240,22 @@ Run these from the repo root:
 
 ```bash
 python tools/addon_smoke.py
-python qt_app.py --validate-ui main.ui
 python tools/release_preflight.py
 ```
 
-If the addon has UI, also start the app once with the addon enabled, then disable
-the addon in the Addons UI and restart. The app should still launch and related
-UI should disappear or become inactive.
+If the addon has release-quality Designer UI, also run:
+
+```bash
+python qt_app.py --validate-ui main.ui
+```
+
+That UI validation is intentionally stricter than quick experimentation: bundled
+release addons should use manifest-backed Designer tabs rather than Python-built
+fallback tabs.
+
+Also start the app once with the addon enabled, then disable the addon in the
+Addons UI and restart. The app should still launch and related UI should
+disappear or become inactive.
 
 ## Deeper Docs
 

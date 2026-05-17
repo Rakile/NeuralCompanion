@@ -48,7 +48,7 @@ Supported mount areas are owned by `core.addons.contributions.ADDON_UI_MOUNTS`:
 - `top_level` -> `left_tabs`
 - `host_settings` -> `host_settings_tabs`
 - `operational_view` -> `right_tabs`
-- `musetalk` -> `musetalk_tabs`
+- `avatar_tools` -> `musetalk_tabs`
 - `tts_runtime` -> `tts_runtime_addon_tabs`
 - `vision_source` -> `sensory_feedback_tabs`
 - `visual_reply_runtime` -> `visual_reply_runtime_host`

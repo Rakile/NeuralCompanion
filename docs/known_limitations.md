@@ -1,8 +1,8 @@
 # Known Limitations
 
 Neural Companion is powerful, but it is still a local experimental companion
-application. These are the main limitations to expect during the first public
-release.
+application. These are the main limitations to expect during early public
+releases.
 
 ## Platform
 

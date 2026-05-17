@@ -16,4 +16,9 @@ After copying a template:
 3. Rename provider/source ids and state keys in `main.py`.
 4. Run `python tools/addon_smoke.py`.
 
+Some templates use Python-built UI because they are meant to be easy to modify
+while experimenting. Before contributing a UI addon as a bundled release addon,
+move that UI into an addon-local `.ui` file and register it through manifest UI
+metadata as described in [Addon Quickstart](../addon_quickstart.md).
+
 See [Addon Quickstart](../addon_quickstart.md) for the full workflow.

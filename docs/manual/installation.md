@@ -55,6 +55,16 @@ Install the main runtime, MuseTalk, and PocketTTS:
 py install_neural_companion.py --all
 ```
 
+Install the default Echo and Eon MuseTalk avatar packs:
+
+```powershell
+py install_neural_companion.py --avatar-packs --non-interactive
+```
+
+The graphical installer selects both default avatar packs by default. The
+command-line `--all` target installs the main, MuseTalk, and PocketTTS runtimes;
+combine it with `--avatar-packs` when you also want the avatar packs.
+
 If Python 3.11 is not your default Python:
 
 ```powershell
@@ -91,7 +101,7 @@ Or directly:
 py qt_app.py
 ```
 
-The legacy fallback UI can be launched with:
+The legacy fallback UI is kept for diagnostics and can be launched with:
 
 ```powershell
 py qt_app.py --legacy-ui

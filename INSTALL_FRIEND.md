@@ -87,7 +87,7 @@ py install_neural_companion.py --musetalk --non-interactive
 ## External Tools Still Needed
 
 - `LM Studio` running locally with at least one model loaded
-- `FFmpeg` available on PATH
+- `FFmpeg` available on PATH, or installed through the bundled installer tools
 - NVIDIA / CUDA if you want good MuseTalk performance
 
 ## Notes
@@ -99,7 +99,7 @@ py install_neural_companion.py --musetalk --non-interactive
 - `MuseTalk` runtime code is included, but MuseTalk model weights and prepared avatar packs are intentionally omitted from this Git package.
 - `MuseTalk/data` demo media is intentionally omitted from this repo to keep it lighter.
 - The unified installer downloads MuseTalk model weights during the MuseTalk install step.
-- To use MuseTalk after install, preprocess/import an avatar pack into `avatar_packs` or add one manually.
+- To use MuseTalk after install, install the default Echo/Eon avatar packs with the graphical installer, pass `--avatar-packs`, or add compatible packs manually under `avatar_packs`.
 - This package omits TensorFlow / TensorBoard training dependencies because they are not needed for normal runtime use and they conflict with Chatterbox on Python 3.11.
 The package also pins `chatterbox-tts==0.1.6`, `transformers==4.46.3`, and `numpy==1.24.4` together, because newer Chatterbox releases pull incompatible dependency combinations for this app.
 `diffusers` is pinned to `0.29.0` to stay compatible with the pinned Chatterbox runtime stack.
@@ -119,4 +119,4 @@ The MuseTalk installer also preinstalls `chumpy==0.70` with `--no-build-isolatio
 .\install_neural_companion.ps1 -SkipTorch
 ```
 
-and install the correct `torch`/`torchaudio` pair manually first.
+and install the correct `torch` / `torchaudio` / `torchvision` stack manually first.

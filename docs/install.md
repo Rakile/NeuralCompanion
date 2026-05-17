@@ -36,6 +36,17 @@ For a fuller local setup:
 py install_neural_companion.py --all
 ```
 
+To install the default Echo and Eon MuseTalk avatar packs from the separate
+avatar-pack release:
+
+```powershell
+py install_neural_companion.py --avatar-packs --non-interactive
+```
+
+The graphical installer selects both default avatar packs by default. The
+command-line `--all` target installs the main, MuseTalk, and PocketTTS runtimes;
+combine it with `--avatar-packs` when you also want the avatar packs.
+
 If Python 3.11 is not your default Python, pass the interpreter explicitly:
 
 ```powershell

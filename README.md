@@ -21,9 +21,9 @@ guidance.
 
 ## Status
 
-This repository is approaching its first public release. It is usable, but still
-an experimental local AI/avatar application. Expect sharp edges around GPU
-setup, third-party model installs, external avatar engines, and local device
+This repository is an early public release candidate. It is usable, but still an
+experimental local AI/avatar application. Expect sharp edges around GPU setup,
+third-party model installs, external avatar engines, and local device
 configuration.
 
 ## Highlights
@@ -95,7 +95,13 @@ Optional installs:
 ```powershell
 py install_neural_companion.py --musetalk --non-interactive
 py install_neural_companion.py --pockettts --non-interactive
+py install_neural_companion.py --avatar-packs --non-interactive
 ```
+
+The graphical installer selects the default Echo and Eon MuseTalk avatar packs
+by default. The command-line `--all` target installs the main, MuseTalk, and
+PocketTTS runtimes; add `--avatar-packs` if you also want the default avatar
+packs from the separate avatar-pack release.
 
 ## Run
 
@@ -109,7 +115,7 @@ Or directly:
 py qt_app.py
 ```
 
-The legacy fallback UI can be launched with:
+The legacy fallback UI is kept for diagnostics and can be launched with:
 
 ```powershell
 py qt_app.py --legacy-ui

@@ -58,6 +58,7 @@ Use this checklist before tagging or publishing a public release.
 ## Documentation Pass
 
 - Check `README.md`, `docs/install.md`, `docs/troubleshooting.md`, and `docs/known_limitations.md`.
+- Check addon-facing docs, especially `docs/addon_quickstart.md`, `docs/templates/README.md`, and the provider/source/supervisor guides.
 - Draft release notes from `docs/release_notes_template.md`.
 - Ensure Discord/community links are updated before public announcement.
 - Ensure addon docs explain that session state may contain secrets, while presets should not.

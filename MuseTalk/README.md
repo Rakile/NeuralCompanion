@@ -1,5 +1,11 @@
 # MuseTalk
 
+> Neural Companion note: this folder contains the bundled MuseTalk runtime
+> source. Normal NC users should use `install_neural_companion.py --musetalk` or
+> the graphical installer instead of following the upstream setup commands
+> below. RTX 50 / Blackwell GPUs need NC's CUDA 12.8 installer path; see
+> [`../docs/manual/musetalk.md`](../docs/manual/musetalk.md).
+
 <strong>MuseTalk: Real-Time High-Fidelity Video Dubbing via Spatio-Temporal Sampling</strong>
 
 Yue Zhang<sup>\*</sup>,

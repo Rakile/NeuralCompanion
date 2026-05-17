@@ -35,6 +35,10 @@ avatar_packs/Echo/manifest.json
 avatar_packs/Echo/echo_neutral/
 avatar_packs/Echo/echo_angry/
 avatar_packs/Echo/echo_sad/
+avatar_packs/Eon/manifest.json
+avatar_packs/Eon/Eon_neutral/
+avatar_packs/Eon/Eon_angry/
+avatar_packs/Eon/Eon_sad/
 ```
 
 Demo packs are distributed separately:
@@ -43,7 +47,15 @@ Demo packs are distributed separately:
 https://github.com/Rakile/NeuralCompanion-AvatarPacks
 ```
 
-The current Echo demo pack uses the `neutral`, `angry`, and `sad` emotion tags.
+The graphical installer selects the default Echo and Eon packs by default. From
+the command line, use:
+
+```powershell
+py install_neural_companion.py --avatar-packs --non-interactive
+```
+
+The current Echo and Eon demo packs use the `neutral`, `angry`, and `sad`
+emotion tags.
 
 ## Performance
 
