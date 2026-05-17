@@ -1,8 +1,17 @@
 import json
+import math
 import os
+import platform
+import re
+import shutil
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+try:
+    from PySide6.QtTextToSpeech import QTextToSpeech
+except Exception:
+    QTextToSpeech = None
 
 
 TUTORIALS_DIR = Path(__file__).resolve().parent / "tutorials"
@@ -106,6 +115,13 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.auto_advance_pending = False
         self.current_hint_only = False
         self.current_manual_next_enabled = True
+        self.current_locator_text = ""
+        self.highlight_pulse = 0
+        self.speech_engine = None
+        self.speech_engine_name = ""
+        self.speech_process = None
+        self.speech_command = self._detect_speech_command()
+        self.speech_unavailable = QTextToSpeech is None and self.speech_command is None
         self.seen_events = []
         self.last_event_name = ""
         self.last_event_payload = {}
@@ -143,6 +159,11 @@ class TutorialOverlay(QtWidgets.QWidget):
                 font-weight: 600;
             }
             QPushButton:hover { background: #29405b; }
+            QCheckBox {
+                color: #d9e3ef;
+                font-weight: 600;
+            }
+            QCheckBox:disabled { color: #697789; }
             """
         )
         panel_layout = QtWidgets.QVBoxLayout(self.panel)
@@ -165,6 +186,29 @@ class TutorialOverlay(QtWidgets.QWidget):
         panel_layout.addWidget(self.body_label)
         panel_layout.addWidget(self.target_label)
 
+        speech_row = QtWidgets.QHBoxLayout()
+        self.speech_toggle = QtWidgets.QCheckBox("Read steps aloud")
+        self.speech_toggle.setToolTip(
+            "Uses the lightest available system speech engine for tutorial instructions only."
+        )
+        self.speech_toggle.toggled.connect(self._on_speech_toggled)
+        self.repeat_speech_button = QtWidgets.QPushButton("Read Step")
+        self.repeat_speech_button.setToolTip("Read the current tutorial step again.")
+        self.repeat_speech_button.clicked.connect(lambda: self._speak_current_step(force=True))
+        self.stop_speech_button = QtWidgets.QPushButton("Stop")
+        self.stop_speech_button.setToolTip("Stop tutorial speech.")
+        self.stop_speech_button.clicked.connect(self._stop_speech)
+        if self.speech_unavailable:
+            self.speech_toggle.setText("Read aloud unavailable")
+            self.speech_toggle.setEnabled(False)
+            self.repeat_speech_button.setEnabled(False)
+            self.stop_speech_button.setEnabled(False)
+        speech_row.addWidget(self.speech_toggle)
+        speech_row.addStretch(1)
+        speech_row.addWidget(self.repeat_speech_button)
+        speech_row.addWidget(self.stop_speech_button)
+        panel_layout.addLayout(speech_row)
+
         buttons = QtWidgets.QHBoxLayout()
         self.back_button = QtWidgets.QPushButton("Back")
         self.back_button.clicked.connect(self.previous_step)
@@ -182,6 +226,9 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.check_timer = QtCore.QTimer(self)
         self.check_timer.setInterval(150)
         self.check_timer.timeout.connect(self._poll_step_completion)
+        self.pulse_timer = QtCore.QTimer(self)
+        self.pulse_timer.setInterval(90)
+        self.pulse_timer.timeout.connect(self._advance_highlight_pulse)
         self.hide()
 
     def _debug(self, message):
@@ -207,12 +254,155 @@ class TutorialOverlay(QtWidgets.QWidget):
             title = ""
         return f"{class_name}(objectName={object_name!r}, title={title!r})"
 
+    def _clean_display_text(self, text):
+        cleaned = re.sub(r"<[^>]*>", " ", str(text or ""))
+        cleaned = cleaned.replace("&", "")
+        return " ".join(cleaned.split())
+
+    def _on_speech_toggled(self, enabled):
+        if enabled and not self._ensure_speech_engine():
+            self.speech_toggle.blockSignals(True)
+            self.speech_toggle.setChecked(False)
+            self.speech_toggle.blockSignals(False)
+            self.speech_toggle.setText("Read aloud unavailable")
+            self.speech_toggle.setEnabled(False)
+            self.repeat_speech_button.setEnabled(False)
+            self.stop_speech_button.setEnabled(False)
+            return
+        if enabled:
+            self._speak_current_step(force=True)
+        else:
+            self._stop_speech()
+
+    def _detect_speech_command(self):
+        system = platform.system().lower()
+        if system == "windows":
+            for executable in ("powershell.exe", "powershell", "pwsh.exe", "pwsh"):
+                program = shutil.which(executable)
+                if not program:
+                    continue
+                script = (
+                    "$text = [Console]::In.ReadToEnd(); "
+                    "Add-Type -AssemblyName System.Speech; "
+                    "$speaker = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                    "$speaker.Speak($text)"
+                )
+                return {
+                    "name": "Windows system speech",
+                    "program": program,
+                    "arguments": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                    "stdin": True,
+                }
+        if system == "darwin":
+            program = shutil.which("say")
+            if program:
+                return {"name": "macOS system speech", "program": program, "arguments": [], "stdin": False}
+        for executable, label, arguments in (
+            ("spd-say", "Speech Dispatcher", ["--wait"]),
+            ("espeak", "eSpeak", []),
+        ):
+            program = shutil.which(executable)
+            if program:
+                return {"name": label, "program": program, "arguments": arguments, "stdin": False}
+        return None
+
+    def _ensure_speech_engine(self):
+        if self.speech_engine is not None:
+            return True
+        if QTextToSpeech is None:
+            return self.speech_command is not None
+        preferred_engines = ("flite", "speechd", "sapi", "nsss", "darwin")
+        available = []
+        try:
+            available = [str(item) for item in QTextToSpeech.availableEngines()]
+        except Exception:
+            available = []
+        for preferred in preferred_engines:
+            for engine_name in available:
+                if preferred in engine_name.lower():
+                    try:
+                        self.speech_engine = QTextToSpeech(engine_name, self)
+                        self.speech_engine_name = engine_name
+                        return True
+                    except Exception:
+                        continue
+        try:
+            self.speech_engine = QTextToSpeech(self)
+            self.speech_engine_name = "system"
+            return True
+        except Exception:
+            self.speech_engine = None
+            self.speech_engine_name = ""
+            return self.speech_command is not None
+
+    def _speak_current_step(self, force=False):
+        if not force and not self.speech_toggle.isChecked():
+            return
+        if not self._ensure_speech_engine():
+            return
+        text = self._tutorial_speech_text()
+        if not text:
+            return
+        self._stop_speech()
+        if self.speech_engine is not None:
+            try:
+                self.speech_engine.say(text)
+            except Exception:
+                pass
+            return
+        self._speak_with_command(text)
+
+    def _speak_with_command(self, text):
+        if not self.speech_command:
+            return
+        process = QtCore.QProcess(self)
+        self.speech_process = process
+        arguments = list(self.speech_command.get("arguments") or [])
+        if not self.speech_command.get("stdin"):
+            arguments.append(text)
+        try:
+            process.start(str(self.speech_command.get("program") or ""), arguments)
+            if self.speech_command.get("stdin"):
+                process.write(text.encode("utf-8"))
+                process.closeWriteChannel()
+        except Exception:
+            self.speech_process = None
+
+    def _stop_speech(self):
+        if self.speech_engine is None:
+            if self.speech_process is not None:
+                try:
+                    self.speech_process.kill()
+                    self.speech_process.deleteLater()
+                except Exception:
+                    pass
+                self.speech_process = None
+            return
+        try:
+            self.speech_engine.stop()
+        except Exception:
+            pass
+        if self.speech_process is not None:
+            try:
+                self.speech_process.kill()
+                self.speech_process.deleteLater()
+            except Exception:
+                pass
+            self.speech_process = None
+
+    def _tutorial_speech_text(self):
+        title = self._clean_display_text(self.title_label.text())
+        body = self._clean_display_text(self.body_label.text())
+        locator = self._clean_display_text(self.current_locator_text)
+        return " ".join(part for part in (title, body, locator) if part)
+
     def start(self):
         self._debug("overlay start() called")
         self.step_index = 0
         self.setGeometry(self.main_window.rect())
         self.panel.show()
         self.check_timer.start()
+        self.pulse_timer.start()
         self.show_step(0)
 
     def _keep_overlay_visible(self):
@@ -254,11 +444,68 @@ class TutorialOverlay(QtWidgets.QWidget):
         painter = QtGui.QPainter(self)
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
         if not self.highlight_rect.isNull():
-            glow_rect = self.highlight_rect.adjusted(-6, -6, 6, 6)
-            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255, 220), 3))
+            pulse = (math.sin(self.highlight_pulse / 4.0) + 1.0) / 2.0
+            spread = int(6 + pulse * 8)
+            glow_rect = self.highlight_rect.adjusted(-spread, -spread, spread, spread)
+            painter.setPen(QtCore.Qt.NoPen)
+            painter.setBrush(QtGui.QColor(88, 166, 255, int(18 + pulse * 24)))
+            painter.drawRoundedRect(self.highlight_rect.adjusted(-3, -3, 3, 3), 10, 10)
+            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255, int(140 + pulse * 90)), 3))
             painter.setBrush(QtCore.Qt.NoBrush)
             painter.drawRoundedRect(glow_rect, 12, 12)
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 232, 120, 230), 2))
+            painter.drawRoundedRect(self.highlight_rect.adjusted(-2, -2, 2, 2), 10, 10)
+            self._draw_target_pointer(painter, pulse)
         super().paintEvent(event)
+
+    def _advance_highlight_pulse(self):
+        self.highlight_pulse = (self.highlight_pulse + 1) % 10000
+        if isinstance(self.current_target_widget, QtWidgets.QWidget):
+            self.highlight_rect = self._target_rect_for_widget(self.current_target_widget).adjusted(-4, -4, 4, 4)
+        if not self.highlight_rect.isNull():
+            self.update()
+
+    def _draw_target_pointer(self, painter, pulse):
+        if self.highlight_rect.isNull() or self.panel.isHidden():
+            return
+        panel_rect = self._panel_rect_in_overlay()
+        if panel_rect.isNull():
+            return
+        target_center = QtCore.QPointF(self.highlight_rect.center())
+        panel_center = QtCore.QPointF(panel_rect.center())
+        start = self._nearest_point_on_rect(panel_rect, target_center)
+        end = self._nearest_point_on_rect(self.highlight_rect, panel_center)
+        dx = end.x() - start.x()
+        dy = end.y() - start.y()
+        distance = math.hypot(dx, dy)
+        if distance < 28:
+            return
+        color = QtGui.QColor(255, 232, 120, int(170 + pulse * 55))
+        painter.setPen(QtGui.QPen(color, 3, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap))
+        painter.drawLine(start, end)
+        unit_x = dx / distance
+        unit_y = dy / distance
+        normal_x = -unit_y
+        normal_y = unit_x
+        tip = end
+        base = QtCore.QPointF(end.x() - unit_x * 16, end.y() - unit_y * 16)
+        left = QtCore.QPointF(base.x() + normal_x * 7, base.y() + normal_y * 7)
+        right = QtCore.QPointF(base.x() - normal_x * 7, base.y() - normal_y * 7)
+        painter.setBrush(color)
+        painter.setPen(QtCore.Qt.NoPen)
+        painter.drawPolygon(QtGui.QPolygonF([tip, left, right]))
+
+    def _panel_rect_in_overlay(self):
+        try:
+            top_left = self.main_window.mapFromGlobal(self.panel.geometry().topLeft())
+            return QtCore.QRect(top_left, self.panel.size())
+        except Exception:
+            return QtCore.QRect()
+
+    def _nearest_point_on_rect(self, rect, point):
+        x = min(max(point.x(), rect.left()), rect.right())
+        y = min(max(point.y(), rect.top()), rect.bottom())
+        return QtCore.QPointF(x, y)
 
     def _select_tab_by_text(self, tab_widget, tab_title):
         if not tab_widget or not tab_title:
@@ -289,6 +536,156 @@ class TutorialOverlay(QtWidgets.QWidget):
         widget = self.main_window.findChild(QtCore.QObject, str(target_name))
         self._debug(f"resolve_target {target_name!r} -> {self._widget_debug_name(widget)}")
         return widget
+
+    def _humanize_name(self, name):
+        text = str(name or "").strip()
+        if not text:
+            return ""
+        text = re.sub(r"^(btn|button|combo|checkbox|check|edit|spin|label|txt)_", "", text)
+        text = re.sub(r"_(tab|combo|checkbox|button|edit|spin|label)$", "", text)
+        words = []
+        for raw in text.replace("-", "_").split("_"):
+            word = raw.strip()
+            if not word:
+                continue
+            lower = word.lower()
+            if lower == "tts":
+                words.append("TTS")
+            elif lower == "lm":
+                words.append("LM")
+            elif lower == "vram":
+                words.append("VRAM")
+            elif lower == "musetalk":
+                words.append("MuseTalk")
+            elif lower == "vam":
+                words.append("VaM")
+            elif lower == "nc":
+                words.append("NC")
+            else:
+                words.append(word[:1].upper() + word[1:])
+        return " ".join(words)
+
+    def _widget_object_name(self, widget):
+        try:
+            return str(widget.objectName() or "")
+        except Exception:
+            return ""
+
+    def _associated_label_text(self, widget):
+        current = widget if isinstance(widget, QtWidgets.QWidget) else None
+        checked = 0
+        while current is not None and current is not self.main_window and checked < 10:
+            parent = current.parentWidget()
+            layout = parent.layout() if isinstance(parent, QtWidgets.QWidget) else None
+            if isinstance(layout, QtWidgets.QFormLayout):
+                try:
+                    label = layout.labelForField(current)
+                except Exception:
+                    label = None
+                if isinstance(label, QtWidgets.QLabel):
+                    text = self._clean_display_text(label.text())
+                    if text:
+                        return text
+            if isinstance(parent, QtWidgets.QWidget):
+                for child in parent.children():
+                    if not isinstance(child, QtWidgets.QLabel):
+                        continue
+                    try:
+                        if child.buddy() is widget or child.buddy() is current:
+                            text = self._clean_display_text(child.text())
+                            if text:
+                                return text
+                    except Exception:
+                        pass
+            current = parent
+            checked += 1
+        return ""
+
+    def _tab_text_for_widget(self, widget):
+        current = widget if isinstance(widget, QtWidgets.QWidget) else None
+        checked = 0
+        while current is not None and current is not self.main_window and checked < 12:
+            parent = current.parentWidget()
+            if isinstance(parent, QtWidgets.QTabWidget):
+                index = parent.indexOf(current)
+                if index >= 0:
+                    return self._clean_display_text(parent.tabText(index))
+            if isinstance(parent, QtWidgets.QStackedWidget):
+                tab_widget = parent.parentWidget()
+                if isinstance(tab_widget, QtWidgets.QTabWidget):
+                    index = parent.indexOf(current)
+                    if index >= 0:
+                        return self._clean_display_text(tab_widget.tabText(index))
+            current = parent
+            checked += 1
+        return ""
+
+    def _dock_title_for_widget(self, widget):
+        current = widget if isinstance(widget, QtWidgets.QWidget) else None
+        checked = 0
+        while current is not None and current is not self.main_window and checked < 12:
+            if isinstance(current, QtWidgets.QDockWidget):
+                title = self._clean_display_text(current.windowTitle())
+                return title or self._humanize_name(self._widget_object_name(current))
+            current = current.parentWidget()
+            checked += 1
+        return ""
+
+    def _widget_display_name(self, widget):
+        if not isinstance(widget, QtWidgets.QWidget) or widget is self.main_window:
+            return ""
+        if isinstance(widget, QtWidgets.QAbstractButton):
+            text = self._clean_display_text(widget.text())
+            if text:
+                return text
+        if isinstance(widget, QtWidgets.QGroupBox):
+            text = self._clean_display_text(widget.title())
+            if text:
+                return text
+        label = self._associated_label_text(widget)
+        if label:
+            return label
+        if isinstance(widget, QtWidgets.QLabel):
+            text = self._clean_display_text(widget.text())
+            if text:
+                return text
+        if isinstance(widget, (QtWidgets.QLineEdit, QtWidgets.QPlainTextEdit, QtWidgets.QTextEdit)):
+            try:
+                placeholder = self._clean_display_text(widget.placeholderText())
+                if placeholder:
+                    return placeholder
+            except Exception:
+                pass
+        object_name = self._humanize_name(self._widget_object_name(widget))
+        if object_name:
+            return object_name
+        tab_text = self._tab_text_for_widget(widget)
+        if tab_text:
+            return tab_text
+        return ""
+
+    def _locator_text_for_step(self, step, target_widget):
+        if not isinstance(target_widget, QtWidgets.QWidget) or target_widget is self.main_window:
+            return ""
+        parts = []
+        dock_title = self._dock_title_for_widget(target_widget)
+        if dock_title:
+            parts.append(dock_title)
+        step_tab = self._clean_display_text((step or {}).get("tab"))
+        if step_tab and step_tab.lower() not in {part.lower() for part in parts}:
+            parts.append(f"{step_tab} tab")
+        right_tab = self._clean_display_text((step or {}).get("right_tab"))
+        if right_tab and right_tab.lower() not in {part.lower() for part in parts}:
+            parts.append(f"{right_tab} panel")
+        widget_tab = self._tab_text_for_widget(target_widget)
+        if widget_tab and widget_tab.lower() not in {part.lower().replace(" tab", "") for part in parts}:
+            parts.append(f"{widget_tab} tab")
+        display_name = self._widget_display_name(target_widget)
+        if display_name and display_name.lower() not in {part.lower().replace(" tab", "").replace(" panel", "") for part in parts}:
+            parts.append(display_name)
+        if not parts:
+            return ""
+        return f"Find it: {' -> '.join(parts)}."
 
     def _current_state(self):
         provider = getattr(self.main_window, "get_tutorial_runtime_state", None)
@@ -753,6 +1150,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         if isinstance(target_widget, QtWidgets.QWidget):
             self._make_widget_visible(target_widget)
         self.highlight_rect = self._target_rect_for_widget(target_widget).adjusted(-4, -4, 4, 4)
+        self.highlight_pulse = 0
         self._debug(
             f"show_step target: name={self.target_name!r} widget={self._widget_debug_name(target_widget)} "
             f"visible={target_widget.isVisible() if isinstance(target_widget, QtWidgets.QWidget) else 'n/a'} "
@@ -769,8 +1167,9 @@ class TutorialOverlay(QtWidgets.QWidget):
         self.title_label.setText(str(step.get("title") or "Tutorial Step"))
         self.body_label.setText(str(step.get("body") or ""))
         target_lines = []
-        if self.target_name and self.target_name != "main_window":
-            target_lines.append(f"Target: {self.target_name}")
+        self.current_locator_text = self._locator_text_for_step(step, target_widget)
+        if self.current_locator_text:
+            target_lines.append(self.current_locator_text)
         if self.current_hint_only:
             target_lines.append("Hint only: you can continue even if this step is not completed.")
         if step.get("listen"):
@@ -783,6 +1182,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         self._keep_overlay_visible()
         self._poll_step_completion(force=True)
         self.update()
+        self._speak_current_step()
 
     def next_step(self):
         if self.step_index >= len(self.steps) - 1:
@@ -802,6 +1202,8 @@ class TutorialOverlay(QtWidgets.QWidget):
     def finish(self, reason):
         self._debug(f"finish called: reason={reason!r}")
         self.check_timer.stop()
+        self.pulse_timer.stop()
+        self._stop_speech()
         self._disconnect_current_target_signals()
         self.panel.hide()
         self.panel.close()

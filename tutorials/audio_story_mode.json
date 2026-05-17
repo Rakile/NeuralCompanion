@@ -1,0 +1,255 @@
+{
+  "id": "audio_story_mode",
+  "order": 13,
+  "title": "13. Audio Story Mode",
+  "description": "A guided tour of the highly experimental Audio Story Mode addon: import story audio, transcribe it, plan visuals, and sync generated images to playback.",
+  "steps": [
+    {
+      "title": "Experimental Projector Booth",
+      "body": "Audio Story Mode is a highly experimental addon. It tries to turn story audio into transcript windows, image prompts, generated visuals, playback sync, optional streaming, and a small amount of controlled chaos. Treat it like a lab feature: start with short clips, expect rough edges, and keep a copy of any audio you care about.",
+      "target": "main_window"
+    },
+    {
+      "title": "Where the Addon Lives",
+      "body": "Audio Story Mode appears as its own tab in the left Workspace Tabs area. If you do not see it, open Addons, find Audio Story Mode under the visuals category, make sure it is enabled, then restart Neural Companion so the addon can mount itself properly.",
+      "tab": "Addons",
+      "target": "addons_tab",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Addons" }
+      ]
+    },
+    {
+      "title": "Open Audio Story Mode",
+      "body": "Open the Audio Story Mode tab from the same left Workspace Tabs strip. This is the addon cockpit: source audio at the top, planning controls in the middle, playback and transcript sections below.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_mode_tab",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Set the Chat Runtime First",
+      "body": "Audio Story uses the chat runtime chosen in System Shaping -> Host for story analysis, especially when Analysis Provider is set to Current Chat Provider. Pick the chat provider and model you want doing the reading, planning, and occasional overconfident literary criticism before you ask the addon to analyze a story.",
+      "target": "chat_provider_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
+    },
+    {
+      "title": "Set the Visual Reply Runtime",
+      "body": "Audio Story does not make the final pictures by itself. It feeds prompts into the chosen Visual Reply runtime in System Shaping -> Host. The Visual Reply provider, model, size, and API key are the image factory for the magic part, so check them before you generate a pile of expensive surprises.",
+      "target": "visual_reply_provider_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
+    },
+    {
+      "title": "Import the Story Audio",
+      "body": "Use Import Audio to choose an audiobook, narration, drama clip, or other story-shaped audio file. Shorter is friendlier while you learn; the addon is ambitious, not psychic, and long files make every later mistake more expensive.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_import_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Choose Playback Source",
+      "body": "Playback decides what you hear when the visual story runs. Play Imported Audio is the safer first pass because it keeps the original track. Use TTS Narration only when you specifically want the transcript re-spoken as a generated narration track.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_playback_mode_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Pick a Cost Profile",
+      "body": "Precision is the global appetite knob. Economy makes fewer demands and is good for a first sniff test. Balanced is the normal starting point. Detailed and Cinematic can make richer visuals, but they also ask more from analysis, image generation, patience, and occasionally your sense of humor.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_cost_profile_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Save Reusable Settings",
+      "body": "Settings Preset lets you save and reload an Audio Story setup. Use it after you find a combination that behaves. Do not turn your first experimental run into a sacred artifact; let it earn the Save button.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_settings_preset_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Set Transcription Granularity",
+      "body": "Transcription Granularity controls how audio is chunked for local Whisper transcription. Smaller chunks can be easier to align and inspect; larger chunks can be calmer for long passages. The Start and End second boxes let you test only part of a file before committing the whole opera.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_transcribe_seconds_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Plan Image Timing",
+      "body": "Generate Image Every and Image Timing decide when new visuals should appear. Fixed Seconds is predictable. Scene Changes tries to group transcript chunks by story beats. If the scene detector gets dramatic in the wrong places, that is why this addon is wearing the experimental badge.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_timing_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Control Continuity",
+      "body": "Continuity tells the visual planner how hard to preserve characters, locations, props, and style between images. Higher continuity helps recurring faces and places stay familiar; lower continuity gives the generator more room to wander off with a confident clipboard.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_continuity_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Generate Ahead Carefully",
+      "body": "Generate Ahead can prepare upcoming visuals before playback reaches them. That helps smooth playback, but it also means wrong settings can produce several wrong images in a neat little parade. Keep it low until the transcript and style are sane.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_generate_ahead_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Set the Visual Style",
+      "body": "Prompt Strategy is where the story stops being only a story and starts becoming whatever your taste, mood, and questionable imagination can invent. Style layers can turn the same transcript into a comic book, pulp horror, retro anime, watercolor diary, grimy zombie survival scene, glossy romance cover, noir detective fever dream, or anything else you can describe without the model calling security.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_prompt_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Change Style Live",
+      "body": "Change Style Live lets style edits affect the current story while you are working. Leave it off when you want stable, repeatable visuals. Turn it on when you are actively experimenting: make chapter one a sunny cartoon, chapter two a cursed bathroom nightmare, chapter three a brick-wall zombie fiasco, then pretend that was the plan all along.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_style_live_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Show the Pictures",
+      "body": "After images exist, open Visual Reply to inspect the current picture, captions, and prompt text. This is where you judge whether the style prompt actually made the scene better, funnier, scarier, weirder, or just confidently wrong. Play with different models until you are happy, or at least somewhat satisfied with the beautiful mess.",
+      "target": "visual_reply_image_label",
+      "actions": [
+        { "type": "show_dock", "target": "VisualReplyDock" }
+      ]
+    },
+    {
+      "title": "Use a Master Prompt",
+      "body": "Visuals Master Prompt From Story builds a broad visual anchor from the transcript. It can improve consistency across the whole story, especially recurring characters and places. Stronger modes anchor harder, but they also make prompts longer and less nimble.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_master_prompt_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Choose Story Analysis Depth",
+      "body": "Story Analysis decides how much planning happens before images are generated. Scene Only is the lighter route. Story Bible tries to preserve character, location, prop, and style memory across scenes. It can be better, slower, and occasionally very sure about something it misunderstood.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_analysis_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Pick Analysis Provider and Model",
+      "body": "Analysis Provider controls where transcript analysis and prompt planning run. Current Chat Provider uses the chat runtime selected in System Shaping -> Host. DeepSeek and Local LM Studio are explicit routes. Analysis Model can be left on Auto unless you know the exact model id you want to volunteer for story duty.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_analysis_provider_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Check Image Provider Settings",
+      "body": "Final image generation follows the chosen Visual Reply runtime. Runware is a good dirt-cheap playground for lots of test images, depending on model and size. xAI/Grok can be fun, but stay away from Elon Musk's xAI for big experiments unless your daddy has deep pockets. Try different providers and models until the story looks right, or at least stops offending your eyeballs.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_xai_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Transcribe Audio",
+      "body": "Click Transcribe Audio after importing a file and choosing the range you want. This uses the local Whisper path already in the repo. Watch the progress bar and give it time; yelling encouragement at the progress bar remains optional and scientifically unproven.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_transcribe_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Read the Transcript Windows",
+      "body": "Transcript Windows show what the addon thinks it heard and how it split the story. Inspect this before blaming visual generation. If a name, place, or scene is wrong here, the images will faithfully sprint in the wrong direction.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_transcript_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Use Scene Overrides",
+      "body": "Scene Overrides let you pin character cues, pin locations, force a fresh scene, force continuation, edit the current scene anchor, and add a negative prompt. This is the steering wheel for when automatic planning gets stylishly wrong.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_scene_anchor_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Play the Story",
+      "body": "Playback and Visual Stream is where the story actually runs. Play starts the selected audio path and advances visuals against the timeline. Pause and Stop do exactly what they say, which is a relief in a tab this experimental.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_play_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Scrub the Timeline",
+      "body": "The position slider lets you move through the story after media is ready. Use it for spot checks: does this moment show roughly the right scene, mood, and cast? If not, adjust timing, continuity, or scene overrides before generating a whole gallery of confident nonsense.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_position_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Stream Visuals",
+      "body": "Stream Visuals starts a local visual stream on the chosen port. Use the URL for another screen or browser when you want the visuals away from the control panel. Keep the port ordinary, local, and boring unless you enjoy debugging network mysteries.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_stream_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "Cast Only After It Works Locally",
+      "body": "The Cast controls can discover Chromecast-style devices and send the current visual stream there. Get local playback and streaming stable first. Casting a broken pipeline just makes the broken part larger and more theatrical.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_cast_refresh_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    },
+    {
+      "title": "A Practical First Run",
+      "body": "For the first real test: import a short clip, use Play Imported Audio, choose Economy or Balanced, keep Generate Ahead low, use Scene Only, transcribe a small range, inspect the transcript, then play. Once that works, raise quality one knob at a time. The addon may be experimental, but your debugging does not have to be.",
+      "tab": "Audio Story Mode",
+      "target": "audio_story_status_label",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
+    }
+  ]
+}

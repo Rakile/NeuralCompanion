@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Welcome to Neural Companion",
-      "body": "This walkthrough gets the core app into a safe first-run state. It focuses on chat, model connection, speech, and the controls you need before experimenting with avatars or advanced automation.",
+      "body": "This walkthrough gets the core app into a safe first-run state. Use Read steps aloud in this tutorial panel if you want the written instructions spoken while you work. It focuses on chat, model connection, speech, and the controls you need before experimenting with avatars or advanced automation.",
       "target": "main_window"
     },
     {
