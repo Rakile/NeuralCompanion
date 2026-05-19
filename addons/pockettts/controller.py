@@ -3,7 +3,12 @@ from __future__ import annotations
 import shiboken6
 from pathlib import Path
 
+from core.pocket_tts_voices import (
+    POCKET_TTS_BUILTIN_VOICE_CHOICES,
+    normalize_pocket_tts_builtin_voice,
+)
 from core.tts_session_schema import with_flat_tts_runtime_settings
+
 
 class PocketTTSController:
     STATE_KEY = "pocket_tts_settings"
@@ -25,8 +30,9 @@ class PocketTTSController:
         self._temperature_spin = None
         self._lsd_steps_spin = None
         self._eos_threshold_spin = None
-        self._max_tokens_spin = None
         self._frames_after_eos_spin = None
+        self._builtin_voice_combo = None
+        self._use_cloned_voice_checkbox = None
         self._prewarm_checkbox = None
 
     def _runtime_config_service(self):
@@ -64,8 +70,9 @@ class PocketTTSController:
             "pocket_tts_temperature": max(0.05, float(session.get("pocket_tts_temperature", 0.7) or 0.7)),
             "pocket_tts_lsd_decode_steps": max(1, int(session.get("pocket_tts_lsd_decode_steps", 1) or 1)),
             "pocket_tts_eos_threshold": float(session.get("pocket_tts_eos_threshold", -4.0) or -4.0),
-            "pocket_tts_max_tokens": max(1, int(session.get("pocket_tts_max_tokens", 50) or 50)),
             "pocket_tts_frames_after_eos": max(0, int(session.get("pocket_tts_frames_after_eos", 0) or 0)),
+            "pocket_tts_builtin_voice": normalize_pocket_tts_builtin_voice(session.get("pocket_tts_builtin_voice")),
+            "pocket_tts_use_cloned_voice": bool(session.get("pocket_tts_use_cloned_voice", True)),
             "pocket_tts_prewarm_on_start": bool(session.get("pocket_tts_prewarm_on_start", True)),
         }
 
@@ -92,8 +99,9 @@ class PocketTTSController:
             "pocket_tts_temperature": max(0.05, float(getter("pocket_tts_temperature", 0.7) or 0.7)),
             "pocket_tts_lsd_decode_steps": max(1, int(getter("pocket_tts_lsd_decode_steps", 1) or 1)),
             "pocket_tts_eos_threshold": float(getter("pocket_tts_eos_threshold", -4.0) or -4.0),
-            "pocket_tts_max_tokens": max(1, int(getter("pocket_tts_max_tokens", 50) or 50)),
             "pocket_tts_frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
+            "pocket_tts_builtin_voice": normalize_pocket_tts_builtin_voice(getter("pocket_tts_builtin_voice", "auto")),
+            "pocket_tts_use_cloned_voice": bool(getter("pocket_tts_use_cloned_voice", True)),
             "pocket_tts_prewarm_on_start": bool(getter("pocket_tts_prewarm_on_start", True)),
         }
 
@@ -137,11 +145,18 @@ class PocketTTSController:
             self._python_edit.setText(self._current_python())
             self._python_edit.blockSignals(False)
         state = self._current_generation_state()
+        if self._widget_alive(self._builtin_voice_combo):
+            self._builtin_voice_combo.blockSignals(True)
+            index = self._builtin_voice_combo.findData(state["pocket_tts_builtin_voice"])
+            if index < 0:
+                index = self._builtin_voice_combo.findData("auto")
+            if index >= 0:
+                self._builtin_voice_combo.setCurrentIndex(index)
+            self._builtin_voice_combo.blockSignals(False)
         for attr, key in (
             ("_temperature_spin", "pocket_tts_temperature"),
             ("_lsd_steps_spin", "pocket_tts_lsd_decode_steps"),
             ("_eos_threshold_spin", "pocket_tts_eos_threshold"),
-            ("_max_tokens_spin", "pocket_tts_max_tokens"),
             ("_frames_after_eos_spin", "pocket_tts_frames_after_eos"),
         ):
             widget = getattr(self, attr, None)
@@ -153,10 +168,14 @@ class PocketTTSController:
             except Exception:
                 pass
             widget.blockSignals(False)
-        if self._widget_alive(self._prewarm_checkbox):
-            self._prewarm_checkbox.blockSignals(True)
-            self._prewarm_checkbox.setChecked(bool(state["pocket_tts_prewarm_on_start"]))
-            self._prewarm_checkbox.blockSignals(False)
+        for widget, key in (
+            (self._use_cloned_voice_checkbox, "pocket_tts_use_cloned_voice"),
+            (self._prewarm_checkbox, "pocket_tts_prewarm_on_start"),
+        ):
+            if self._widget_alive(widget):
+                widget.blockSignals(True)
+                widget.setChecked(bool(state[key]))
+                widget.blockSignals(False)
         if self._widget_alive(self._advanced_toggle) and self._widget_alive(self._advanced_group):
             self._advanced_group.setVisible(bool(self._advanced_toggle.isChecked()))
 
@@ -236,8 +255,9 @@ class PocketTTSController:
         self._temperature_spin = self._ui_child(widget, "pockettts_temperature_spin", QtWidgets.QDoubleSpinBox)
         self._lsd_steps_spin = self._ui_child(widget, "pockettts_lsd_steps_spin", QtWidgets.QSpinBox)
         self._eos_threshold_spin = self._ui_child(widget, "pockettts_eos_threshold_spin", QtWidgets.QDoubleSpinBox)
-        self._max_tokens_spin = self._ui_child(widget, "pockettts_max_tokens_spin", QtWidgets.QSpinBox)
         self._frames_after_eos_spin = self._ui_child(widget, "pockettts_frames_after_eos_spin", QtWidgets.QSpinBox)
+        self._builtin_voice_combo = self._ui_child(widget, "pockettts_builtin_voice_combo", QtWidgets.QComboBox)
+        self._use_cloned_voice_checkbox = self._ui_child(widget, "pockettts_use_cloned_voice_checkbox", QtWidgets.QCheckBox)
         self._prewarm_checkbox = self._ui_child(widget, "pockettts_prewarm_checkbox", QtWidgets.QCheckBox)
         browse = self._ui_child(widget, "btn_pockettts_browse", QtWidgets.QPushButton)
         bundled_button = self._ui_child(widget, "btn_pockettts_use_bundled", QtWidgets.QPushButton)
@@ -250,8 +270,9 @@ class PocketTTSController:
             self._temperature_spin,
             self._lsd_steps_spin,
             self._eos_threshold_spin,
-            self._max_tokens_spin,
             self._frames_after_eos_spin,
+            self._builtin_voice_combo,
+            self._use_cloned_voice_checkbox,
             self._prewarm_checkbox,
             browse,
             bundled_button,
@@ -281,13 +302,27 @@ class PocketTTSController:
         self._eos_threshold_spin.setDecimals(2)
         self._eos_threshold_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_eos_threshold", float(value if value is not None else -4.0)))
 
-        self._max_tokens_spin.setRange(10, 200)
-        self._max_tokens_spin.setSingleStep(5)
-        self._max_tokens_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_max_tokens", max(1, int(value or 50))))
-
         self._frames_after_eos_spin.setRange(0, 10)
         self._frames_after_eos_spin.setSingleStep(1)
         self._frames_after_eos_spin.valueChanged.connect(lambda value: self._set_runtime("pocket_tts_frames_after_eos", max(0, int(value or 0))))
+
+        self._builtin_voice_combo.blockSignals(True)
+        self._builtin_voice_combo.clear()
+        for label, value in POCKET_TTS_BUILTIN_VOICE_CHOICES:
+            self._builtin_voice_combo.addItem(label, value)
+        self._builtin_voice_combo.blockSignals(False)
+        self._builtin_voice_combo.setToolTip("Built-in PocketTTS voice to use when cloned voice reference is disabled.")
+        self._builtin_voice_combo.currentIndexChanged.connect(
+            lambda _index: self._set_runtime(
+                "pocket_tts_builtin_voice",
+                normalize_pocket_tts_builtin_voice(self._builtin_voice_combo.currentData()),
+            )
+        )
+
+        self._use_cloned_voice_checkbox.setToolTip(
+            "Use the configured avatar voice file as a PocketTTS voice prompt. Disable to use PocketTTS' built-in/default voice."
+        )
+        self._use_cloned_voice_checkbox.toggled.connect(lambda checked: self._set_runtime("pocket_tts_use_cloned_voice", bool(checked)))
 
         self._prewarm_checkbox.setToolTip("Start the CPU-only PocketTTS worker and run one tiny discarded synthesis during chat startup.")
         self._prewarm_checkbox.toggled.connect(lambda checked: self._set_runtime("pocket_tts_prewarm_on_start", bool(checked)))
@@ -304,7 +339,7 @@ class PocketTTSController:
 
         note_text = "Shell preview: PocketTTS settings are local only. No subprocess, backend, or audio path is started."
         if not self._shell_preview:
-            note_text = "PocketTTS uses the bundled interpreter or the override path configured here."
+            note_text = "PocketTTS uses the bundled English runtime. Select PocketTTS Multilingual for language-specific models."
         note.setText(note_text)
 
         self._widget = widget
@@ -335,8 +370,9 @@ class PocketTTSController:
             "pocket_tts_temperature": lambda v: max(0.05, float(v or 0.7)),
             "pocket_tts_lsd_decode_steps": lambda v: max(1, int(v or 1)),
             "pocket_tts_eos_threshold": lambda v: float(v if v is not None else -4.0),
-            "pocket_tts_max_tokens": lambda v: max(1, int(v or 50)),
             "pocket_tts_frames_after_eos": lambda v: max(0, int(v or 0)),
+            "pocket_tts_builtin_voice": normalize_pocket_tts_builtin_voice,
+            "pocket_tts_use_cloned_voice": lambda v: bool(v),
             "pocket_tts_prewarm_on_start": lambda v: bool(v),
         }
         for key, converter in mapping.items():

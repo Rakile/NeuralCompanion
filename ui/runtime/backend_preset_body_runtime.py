@@ -64,7 +64,7 @@ class BackendPresetBodyRuntimeMixin:
             "chat_provider_settings": dict(runtime_config.get("chat_provider_settings", {}) or {}),
             "model_name": self.model_combo.currentText(),
             "voice_file": self._current_voice_file_value(),
-            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
+            "input_mode": self._input_mode_value_from_label(self.input_mode_combo.currentText()),
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
             "tts_backend": self._current_tts_backend_value(),
@@ -273,7 +273,7 @@ class BackendPresetBodyRuntimeMixin:
             else:
                 _update_runtime_config("voice_path", "")
         if "input_mode" in data:
-            mode_text = "Push-to-Talk" if str(data["input_mode"]).lower() == "push_to_talk" else "Voice Activation"
+            mode_text = self._input_mode_label_from_value(data["input_mode"])
             self.input_mode_combo.setCurrentText(mode_text)
         if "input_message_role" in data:
             role_text = self._input_role_label_from_value(data["input_message_role"])

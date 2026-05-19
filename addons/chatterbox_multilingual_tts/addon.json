@@ -1,0 +1,49 @@
+{
+  "id": "nc.chatterbox_multilingual_tts",
+  "name": "Chatterbox Multilingual TTS",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Local Chatterbox Multilingual TTS backend exposed as a separate addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "chatterbox_multilingual_language": "en",
+    "chatterbox_multilingual_seed": 0,
+    "chatterbox_multilingual_temperature": 0.8,
+    "chatterbox_multilingual_top_p": 1.0,
+    "chatterbox_multilingual_top_k": 40,
+    "chatterbox_multilingual_repeat_penalty": 2.0,
+    "chatterbox_multilingual_normalize_loudness": false,
+    "chatterbox_multilingual_use_cloned_voice": true,
+    "chatterbox_multilingual_apply_watermark": true,
+    "chatterbox_multilingual_prewarm_on_start": true
+  },
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "chatterbox_multilingual",
+      "metadata": {
+        "real_ui_bridge_module": "addons.chatterbox_multilingual_tts.real_ui_bridge"
+      }
+    }
+  ],
+  "ui": [
+    {
+      "id": "chatterbox_multilingual_tts_tab",
+      "title": "Chatterbox Multilingual",
+      "area": "tts_runtime",
+      "ui_path": "ui/chatterbox_tts.ui",
+      "placeholder": "tts_chatterbox_multilingual_tab",
+      "order": 110,
+      "tooltip": "Local Chatterbox Multilingual TTS settings.",
+      "metadata": {
+        "backend_id": "chatterbox_multilingual",
+        "real_ui_bridge_module": "addons.chatterbox_multilingual_tts.real_ui_bridge"
+      }
+    }
+  ],
+  "enabled": true
+}

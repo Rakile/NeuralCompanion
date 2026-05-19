@@ -114,12 +114,16 @@ class MainWindowSessionMixin:
             "input_message_role": self.input_role_combo.currentText(),
             "hotkeys": dict(engine.get_hotkey_settings()),
             "stream_mode": self.stream_mode_combo.currentText(),
+            "stt_backend": self._current_stt_backend_value() if hasattr(self, "stt_backend_combo") else str(RUNTIME_CONFIG.get("stt_backend", "none") or "none"),
+            "stt_model_size": self._current_stt_model_value() if hasattr(self, "stt_model_combo") else str(RUNTIME_CONFIG.get("stt_model_size", "tiny.en") or "tiny.en"),
+            "stt_language": self._current_stt_language_value() if hasattr(self, "stt_language_combo") else str(RUNTIME_CONFIG.get("stt_language", "en") or "en"),
             "tts_backend": self._current_tts_backend_value(),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(RUNTIME_CONFIG.get("chat_provider_generation_settings", {}) or {}),
             "chat_font_size": int(self.chat_font_size_combo.currentData() or 12) if hasattr(self, "chat_font_size_combo") else 12,
             "chat_runtime_expanded": self.chat_runtime_section.isExpanded() if hasattr(self, "chat_runtime_section") else True,
+            "stt_runtime_expanded": self.stt_runtime_section.isExpanded() if hasattr(self, "stt_runtime_section") else True,
             "tts_runtime_expanded": self.tts_runtime_section.isExpanded() if hasattr(self, "tts_runtime_section") else True,
             "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
@@ -301,7 +305,8 @@ class MainWindowSessionMixin:
                     self.audio_output_device_combo.blockSignals(False)
             input_mode = session.get("input_mode")
             if input_mode:
-                index = self.input_mode_combo.findText(input_mode)
+                mode_text = self._input_mode_label_from_value(input_mode)
+                index = self.input_mode_combo.findText(mode_text)
                 if index >= 0:
                     self.input_mode_combo.setCurrentIndex(index)
             voice_file = str(session.get("voice_file", "") or "").strip()
@@ -345,6 +350,24 @@ class MainWindowSessionMixin:
                         self.stream_mode_combo.setCurrentIndex(index)
                 else:
                     self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
+            stt_backend = session.get("stt_backend")
+            if stt_backend is not None and hasattr(self, "stt_backend_combo"):
+                self._populate_stt_backend_combo(selected_value=stt_backend)
+                index = self.stt_backend_combo.findData(str(stt_backend or "").strip().lower())
+                if index >= 0:
+                    self.stt_backend_combo.setCurrentIndex(index)
+                self.on_stt_backend_change(self.stt_backend_combo.currentText())
+            stt_model_size = session.get("stt_model_size")
+            if stt_model_size is not None and hasattr(self, "stt_model_combo"):
+                self._populate_stt_model_combo(selected_value=stt_model_size)
+                index = self.stt_model_combo.findData(str(stt_model_size or "").strip())
+                if index >= 0:
+                    self.stt_model_combo.setCurrentIndex(index)
+                self.on_stt_model_change(self.stt_model_combo.currentText())
+            stt_language = session.get("stt_language")
+            if stt_language is not None and hasattr(self, "stt_language_combo"):
+                self._populate_stt_language_combo(selected_value=stt_language)
+                self.on_stt_language_change(self.stt_language_combo.currentText())
             tts_backend = session.get("tts_backend")
             if tts_backend:
                 desired_backend = str(tts_backend or "").strip().lower()
@@ -383,6 +406,8 @@ class MainWindowSessionMixin:
                 self._apply_chat_font_size(size, update_combo=False)
             if "chat_runtime_expanded" in session and hasattr(self, "chat_runtime_section"):
                 self.chat_runtime_section.setExpanded(bool(session.get("chat_runtime_expanded", True)))
+            if "stt_runtime_expanded" in session and hasattr(self, "stt_runtime_section"):
+                self.stt_runtime_section.setExpanded(bool(session.get("stt_runtime_expanded", True)))
             if "tts_runtime_expanded" in session and hasattr(self, "tts_runtime_section"):
                 self.tts_runtime_section.setExpanded(bool(session.get("tts_runtime_expanded", True)))
             saved_model_name = str(session.get("model_name") or "").strip()

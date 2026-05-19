@@ -13,8 +13,7 @@ from typing import Any, Callable
 _runtime_config: dict[str, Any] = {}
 _update_runtime_config: Callable[[str, Any], Any] | None = None
 _audio_segment_cls: Any = None
-_whisper_model_getter: Callable[[], Any] | None = None
-_init_whisper: Callable[[], Any] | None = None
+_transcribe_file: Callable[[str], Any] | None = None
 _init_tts: Callable[[], bool] | None = None
 _get_text_chunk_limits: Callable[[], Any] | None = None
 _intelligent_chunk_text: Callable[[str, int, int], Any] | None = None
@@ -31,8 +30,7 @@ def configure_runtime(
     runtime_config: dict[str, Any],
     update_runtime_config: Callable[[str, Any], Any],
     audio_segment_cls: Any,
-    whisper_model_getter: Callable[[], Any],
-    init_whisper: Callable[[], Any],
+    transcribe_file: Callable[[str], Any],
     init_tts: Callable[[], bool],
     get_text_chunk_limits: Callable[[], Any],
     intelligent_chunk_text: Callable[[str, int, int], Any],
@@ -46,8 +44,7 @@ def configure_runtime(
     global _runtime_config
     global _update_runtime_config
     global _audio_segment_cls
-    global _whisper_model_getter
-    global _init_whisper
+    global _transcribe_file
     global _init_tts
     global _get_text_chunk_limits
     global _intelligent_chunk_text
@@ -60,8 +57,7 @@ def configure_runtime(
     _runtime_config = runtime_config
     _update_runtime_config = update_runtime_config
     _audio_segment_cls = audio_segment_cls
-    _whisper_model_getter = whisper_model_getter
-    _init_whisper = init_whisper
+    _transcribe_file = transcribe_file
     _init_tts = init_tts
     _get_text_chunk_limits = get_text_chunk_limits
     _intelligent_chunk_text = intelligent_chunk_text
@@ -113,18 +109,14 @@ def audio_duration_seconds(path: str) -> float:
     return float(audio_from_file(str(path)).duration_seconds or 0.0)
 
 
-def ensure_whisper_ready() -> bool:
-    if not callable(_whisper_model_getter) or not callable(_init_whisper):
-        return False
-    if _whisper_model_getter() is None:
-        _init_whisper()
-    return _whisper_model_getter() is not None
+def ensure_stt_ready() -> bool:
+    return callable(_transcribe_file)
 
 
 def transcribe_audio(path: str):
-    if not ensure_whisper_ready():
-        raise RuntimeError("Failed to initialize the local Whisper model.")
-    return _whisper_model_getter().transcribe(str(path))
+    if not ensure_stt_ready():
+        raise RuntimeError("Audio Story STT runtime is not configured.")
+    return _transcribe_file(str(path))
 
 
 def init_tts() -> bool:

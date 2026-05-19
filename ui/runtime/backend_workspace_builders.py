@@ -35,8 +35,39 @@ class BackendWorkspaceBuilderMixin:
         self.btn_voice_refresh.setObjectName("btn_voice_refresh")
         self.btn_voice_refresh.setToolTip("Refresh voice reference files from the voices folder.")
         self.btn_voice_refresh.clicked.connect(lambda _checked=False: self.refresh_voice_list())
+        self.use_wav_file_checkbox = QtWidgets.QCheckBox("Use wav file")
+        self.use_wav_file_checkbox.setObjectName("use_wav_file_checkbox")
+        self.use_wav_file_checkbox.setFixedSize(136, 32)
+        self.use_wav_file_checkbox.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
+        self.use_wav_file_checkbox.setChecked(True)
+        self.use_wav_file_checkbox.setToolTip("Use the selected .wav file as the TTS voice reference. Disable to use the backend's built-in/default voice.")
+        self.use_wav_file_checkbox.toggled.connect(self.on_use_wav_file_changed)
+        self.use_wav_file_checkbox.setStyleSheet(
+            "QCheckBox#use_wav_file_checkbox {"
+            " color: #eadff2;"
+            " font-weight: 700;"
+            " background: #171223;"
+            " border: 1px solid #8f4db8;"
+            " border-radius: 8px;"
+            " padding: 5px 10px;"
+            " spacing: 7px;"
+            "}"
+            "QCheckBox#use_wav_file_checkbox:hover { background: #241a35; }"
+            "QCheckBox#use_wav_file_checkbox::indicator {"
+            " width: 14px;"
+            " height: 14px;"
+            " border: 1px solid #3a91ad;"
+            " border-radius: 3px;"
+            " background: #0d1220;"
+            "}"
+            "QCheckBox#use_wav_file_checkbox::indicator:checked {"
+            " background: #8a4cc4;"
+            " border-color: #c07038;"
+            "}"
+        )
         voice_row = QtWidgets.QHBoxLayout()
         voice_row.addWidget(self.voice_combo, 1)
+        voice_row.addWidget(self.use_wav_file_checkbox, 0)
         voice_row.addWidget(self.btn_voice_refresh, 0)
         layout.addWidget(QtWidgets.QLabel("Voice Clone"))
         layout.addLayout(voice_row)

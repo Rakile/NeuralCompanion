@@ -216,7 +216,7 @@ For example, in the case of `Xinying Sun`, after running the default configurati
 ```
 python -m scripts.inference --inference_config configs/inference/test.yaml --bbox_shift -7 
 ```
-:pushpin: More technical details can be found in [bbox_shift](../assets/BBOX_SHIFT.md).
+:pushpin: More technical details can be found in [bbox_shift](assets/BBOX_SHIFT.md).
 
 #### Combining MuseV and MuseTalk
 

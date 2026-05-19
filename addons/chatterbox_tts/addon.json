@@ -18,6 +18,7 @@
     "tts_min_p": 0.0,
     "tts_normalize_loudness": false,
     "tts_prewarm_on_start": true,
+    "tts_use_cloned_voice": true,
     "tts_apply_watermark": true
   },
   "services": [

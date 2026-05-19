@@ -48,14 +48,11 @@
        <number>8</number>
       </property>
       <item>
-       <layout class="QFormLayout" name="chatterbox_form">
-        <property name="fieldGrowthPolicy">
-         <enum>QFormLayout::ExpandingFieldsGrow</enum>
+       <layout class="QGridLayout" name="chatterbox_form">
+        <property name="horizontalSpacing">
+         <number>14</number>
         </property>
-        <property name="labelAlignment">
-         <set>Qt::AlignLeading|Qt::AlignLeft|Qt::AlignVCenter</set>
-        </property>
-        <property name="spacing">
+        <property name="verticalSpacing">
          <number>8</number>
         </property>
         <item row="0" column="0">
@@ -68,6 +65,16 @@
         <item row="0" column="1">
          <widget class="QSpinBox" name="chatterbox_seed_spin"/>
         </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="chatterbox_top_k_label">
+          <property name="text">
+           <string>Top K</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="3">
+         <widget class="QSpinBox" name="chatterbox_top_k_spin"/>
+        </item>
         <item row="1" column="0">
          <widget class="QLabel" name="chatterbox_temperature_label">
           <property name="text">
@@ -77,6 +84,16 @@
         </item>
         <item row="1" column="1">
          <widget class="QDoubleSpinBox" name="chatterbox_temperature_spin"/>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="chatterbox_repeat_penalty_label">
+          <property name="text">
+           <string>Repetition Penalty</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QDoubleSpinBox" name="chatterbox_repeat_penalty_spin"/>
         </item>
         <item row="2" column="0">
          <widget class="QLabel" name="chatterbox_top_p_label">
@@ -88,51 +105,41 @@
         <item row="2" column="1">
          <widget class="QDoubleSpinBox" name="chatterbox_top_p_spin"/>
         </item>
-        <item row="3" column="0">
-         <widget class="QLabel" name="chatterbox_top_k_label">
-          <property name="text">
-           <string>Top K</string>
-          </property>
-         </widget>
-        </item>
-        <item row="3" column="1">
-         <widget class="QSpinBox" name="chatterbox_top_k_spin"/>
-        </item>
-        <item row="4" column="0">
-         <widget class="QLabel" name="chatterbox_repeat_penalty_label">
-          <property name="text">
-           <string>Repetition Penalty</string>
-          </property>
-         </widget>
-        </item>
-        <item row="4" column="1">
-         <widget class="QDoubleSpinBox" name="chatterbox_repeat_penalty_spin"/>
-        </item>
-        <item row="5" column="0">
+        <item row="2" column="2">
          <widget class="QLabel" name="chatterbox_min_p_label">
           <property name="text">
            <string>Min P</string>
           </property>
          </widget>
         </item>
-        <item row="5" column="1">
+        <item row="2" column="3">
          <widget class="QDoubleSpinBox" name="chatterbox_min_p_spin"/>
         </item>
-        <item row="6" column="1">
+        <item row="3" column="1">
          <widget class="QCheckBox" name="chatterbox_normalize_loudness_checkbox">
           <property name="text">
            <string>Normalize Loudness (-27 LUFS)</string>
           </property>
          </widget>
         </item>
-        <item row="7" column="1">
+        <item row="3" column="3">
+         <widget class="QCheckBox" name="chatterbox_use_cloned_voice_checkbox">
+          <property name="text">
+           <string>Use cloned voice reference</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
          <widget class="QCheckBox" name="chatterbox_prewarm_checkbox">
           <property name="text">
            <string>Prewarm on chat start</string>
           </property>
          </widget>
         </item>
-        <item row="8" column="1">
+        <item row="4" column="3">
          <widget class="QCheckBox" name="chatterbox_apply_watermark_checkbox">
           <property name="text">
            <string>Apply Perth watermark</string>

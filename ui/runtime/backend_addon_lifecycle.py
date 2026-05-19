@@ -57,6 +57,10 @@ class BackendAddonLifecycleMixin:
             self._mount_tts_runtime_addon_tabs()
             self._mount_visual_reply_runtime_card()
             self._populate_tts_backend_combo(selected_value=self._current_tts_backend_value())
+            if hasattr(self, "_populate_stt_backend_combo"):
+                self._populate_stt_backend_combo(selected_value=str(runtime_config.get("stt_backend", "") or ""))
+            if hasattr(self, "_refresh_stt_runtime_summary"):
+                self._refresh_stt_runtime_summary()
             self.refresh_sensory_feedback_source_options(selected_value=str(runtime_config.get("sensory_feedback_source", "off") or "off"))
             self._mount_addon_tabs()
             self._mount_host_settings_addon_tabs()

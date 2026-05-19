@@ -64,11 +64,54 @@ class BackendSystemShapingRuntimeMixin:
         print("[QtGUI] Chunking settings reset to defaults.")
 
     def on_input_mode_change(self, choice):
-        mode = "push_to_talk" if choice == "Push-to-Talk" else "voice_activation"
+        mode = self._input_mode_value_from_label(choice)
         _update_runtime_config("input_mode", mode)
+        if mode == "text_only":
+            self._set_stt_backend_none_for_text_only()
+        else:
+            restore_stt = getattr(self, "_restore_stt_backend_for_voice_input", None)
+            if callable(restore_stt):
+                restore_stt()
         self._refresh_hotkey_labels()
         self._update_push_to_talk_button()
         self.save_session()
+
+    def _input_mode_value_from_label(self, label):
+        text = str(label or "").strip().lower().replace("_", " ")
+        if text in {"text only", "text-only"}:
+            return "text_only"
+        if text in {"push to talk", "push-to-talk"}:
+            return "push_to_talk"
+        return "voice_activation"
+
+    def _input_mode_label_from_value(self, value):
+        mode = str(value or "voice_activation").strip().lower().replace("-", "_")
+        if mode in {"text_only", "text only"}:
+            return "Text Only"
+        if mode in {"push_to_talk", "push to talk"}:
+            return "Push-to-Talk"
+        return "Voice Activation"
+
+    def _set_stt_backend_none_for_text_only(self):
+        _update_runtime_config("stt_backend", "none")
+        combo = getattr(self, "stt_backend_combo", None)
+        if combo is not None and hasattr(combo, "findData"):
+            try:
+                index = combo.findData("none")
+            except Exception:
+                index = -1
+            if index >= 0 and hasattr(combo, "setCurrentIndex"):
+                blocked = combo.blockSignals(True)
+                try:
+                    combo.setCurrentIndex(index)
+                finally:
+                    combo.blockSignals(blocked)
+        refresh = getattr(self, "_refresh_stt_runtime_summary", None)
+        if callable(refresh):
+            refresh()
+        reload_stt = getattr(self, "_reload_stt_runtime_if_available", None)
+        if callable(reload_stt):
+            reload_stt()
 
     def on_input_role_change(self, choice):
         role = self._input_role_value_from_label(choice)

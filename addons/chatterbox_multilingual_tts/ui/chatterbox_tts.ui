@@ -1,0 +1,182 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>ChatterboxMultilingualTTSTab</class>
+ <widget class="QWidget" name="ChatterboxMultilingualTTSTab">
+  <layout class="QVBoxLayout" name="chatterboxMultilingualLayout">
+   <property name="leftMargin">
+    <number>10</number>
+   </property>
+   <property name="topMargin">
+    <number>10</number>
+   </property>
+   <property name="rightMargin">
+    <number>10</number>
+   </property>
+   <property name="bottomMargin">
+    <number>10</number>
+   </property>
+   <item>
+    <widget class="QGroupBox" name="chatterbox_multilingual_group">
+     <property name="title">
+      <string>Chatterbox Multilingual Runtime</string>
+     </property>
+     <layout class="QVBoxLayout" name="chatterboxMultilingualRoot">
+      <property name="spacing">
+       <number>8</number>
+      </property>
+      <item>
+       <layout class="QGridLayout" name="chatterboxMultilingualForm">
+        <property name="horizontalSpacing">
+         <number>14</number>
+        </property>
+        <property name="verticalSpacing">
+         <number>8</number>
+        </property>
+        <item row="0" column="0">
+         <widget class="QLabel" name="chatterbox_multilingual_language_label">
+          <property name="text">
+           <string>Language</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="1">
+         <widget class="QComboBox" name="chatterbox_multilingual_language_combo"/>
+        </item>
+        <item row="0" column="2">
+         <widget class="QLabel" name="chatterbox_multilingual_seed_label">
+          <property name="text">
+           <string>Random seed (0 = random)</string>
+          </property>
+         </widget>
+        </item>
+        <item row="0" column="3">
+         <widget class="QSpinBox" name="chatterbox_multilingual_seed_spin"/>
+        </item>
+        <item row="1" column="0">
+         <widget class="QLabel" name="chatterbox_multilingual_temperature_label">
+          <property name="text">
+           <string>Temperature</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="1">
+         <widget class="QDoubleSpinBox" name="chatterbox_multilingual_temperature_spin"/>
+        </item>
+        <item row="1" column="2">
+         <widget class="QLabel" name="chatterbox_multilingual_top_p_label">
+          <property name="text">
+           <string>Top P</string>
+          </property>
+         </widget>
+        </item>
+        <item row="1" column="3">
+         <widget class="QDoubleSpinBox" name="chatterbox_multilingual_top_p_spin"/>
+        </item>
+        <item row="2" column="0">
+         <widget class="QLabel" name="chatterbox_multilingual_top_k_label">
+          <property name="text">
+           <string>Top K</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="1">
+         <widget class="QSpinBox" name="chatterbox_multilingual_top_k_spin"/>
+        </item>
+        <item row="2" column="2">
+         <widget class="QLabel" name="chatterbox_multilingual_repeat_penalty_label">
+          <property name="text">
+           <string>Repetition Penalty</string>
+          </property>
+         </widget>
+        </item>
+        <item row="2" column="3">
+         <widget class="QDoubleSpinBox" name="chatterbox_multilingual_repeat_penalty_spin"/>
+        </item>
+        <item row="3" column="1">
+         <widget class="QCheckBox" name="chatterbox_multilingual_normalize_loudness_checkbox">
+          <property name="text">
+           <string>Normalize Loudness (-27 LUFS)</string>
+          </property>
+         </widget>
+        </item>
+        <item row="3" column="3">
+         <widget class="QCheckBox" name="chatterbox_multilingual_use_cloned_voice_checkbox">
+          <property name="text">
+           <string>Use cloned voice reference</string>
+          </property>
+          <property name="checked">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="1">
+         <widget class="QCheckBox" name="chatterbox_multilingual_prewarm_checkbox">
+          <property name="text">
+           <string>Prewarm on chat start</string>
+          </property>
+         </widget>
+        </item>
+        <item row="4" column="3">
+         <widget class="QCheckBox" name="chatterbox_multilingual_apply_watermark_checkbox">
+          <property name="text">
+           <string>Apply Perth watermark</string>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <layout class="QHBoxLayout" name="chatterboxMultilingualInstallRow">
+        <item>
+         <widget class="QPushButton" name="btn_chatterbox_multilingual_install">
+          <property name="text">
+           <string>Install / Update Runtime</string>
+          </property>
+         </widget>
+        </item>
+        <item>
+         <widget class="QLabel" name="chatterbox_multilingual_install_status_label">
+          <property name="text">
+           <string/>
+          </property>
+          <property name="wordWrap">
+           <bool>true</bool>
+          </property>
+         </widget>
+        </item>
+       </layout>
+      </item>
+      <item>
+       <widget class="QLabel" name="chatterbox_multilingual_note_label">
+        <property name="styleSheet">
+         <string notr="true">color: #8ea3b8; font-size: 11px;</string>
+        </property>
+        <property name="text">
+         <string>Chatterbox Multilingual settings.</string>
+        </property>
+        <property name="wordWrap">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <spacer name="verticalSpacer">
+     <property name="orientation">
+      <enum>Qt::Orientation::Vertical</enum>
+     </property>
+     <property name="sizeHint" stdset="0">
+      <size>
+       <width>20</width>
+       <height>40</height>
+      </size>
+     </property>
+    </spacer>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

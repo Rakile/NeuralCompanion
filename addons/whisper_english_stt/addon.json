@@ -1,0 +1,12 @@
+{
+  "id": "nc.whisper_english_stt",
+  "name": "Whisper English STT",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Current local faster-whisper STT backend optimized for English speech.",
+  "category": "global",
+  "permissions": [
+    "services.register"
+  ],
+  "enabled": true
+}

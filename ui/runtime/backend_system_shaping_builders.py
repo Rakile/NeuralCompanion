@@ -29,7 +29,7 @@ def _default_chat_provider_id():
 
 SYSTEM_SHAPING_TOOLTIPS = {
     "engine_combo": "Avatar output provider. Use None for voice/chat only, or choose MuseTalk/VSeeFace/VaM when that addon/runtime is configured.",
-    "input_mode_combo": "How user turns enter the session. Voice Activation listens after startup; Push-to-Talk only listens while the hotkey/button is held.",
+    "input_mode_combo": "How user turns enter the session. Voice Activation listens after startup; Push-to-Talk only listens while the hotkey/button is held; Text Only disables microphone STT.",
     "input_role_combo": "Chat role used for live input. User Message is normal; System/Assistant are advanced prompt-routing modes.",
     "stream_mode_combo": "When On, NC streams the model reply and starts chunked TTS sooner. When Off, NC waits for the full reply first.",
     "musetalk_loop_fade_spin": "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; higher values smooth changes but can delay visible updates.",
@@ -120,6 +120,7 @@ class BackendSystemShapingBuilderMixin:
         layout.addLayout(form)
         self._refresh_musetalk_vram_visibility()
         layout.addWidget(self._build_chat_runtime_card())
+        layout.addWidget(self._build_stt_runtime_card())
         layout.addWidget(self._build_tts_runtime_card())
         visual_reply_card = self._build_visual_reply_runtime_card()
         if visual_reply_card is not None:
@@ -145,7 +146,7 @@ class BackendSystemShapingBuilderMixin:
             preset_buttons.addWidget(button)
         layout.addLayout(preset_buttons)
 
-        self.input_mode_hint = QtWidgets.QLabel("Push-to-Talk hotkey: Right Ctrl (fallback button below)")
+        self.input_mode_hint = QtWidgets.QLabel("Push-to-Talk hotkey: Right Ctrl. Text Only disables microphone STT.")
         self.input_mode_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         layout.addWidget(self.input_mode_hint)
 
@@ -298,13 +299,17 @@ class BackendSystemShapingBuilderMixin:
         inner_layout.setContentsMargins(12, 12, 12, 12)
         inner_layout.setSpacing(10)
 
-        form = QtWidgets.QFormLayout()
-        form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-        form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        form.addRow("Chat Provider", self.chat_provider_combo)
-        form.addRow("LLM Model", self.model_row_widget)
-        inner_layout.addLayout(form)
+        selector_grid = QtWidgets.QGridLayout()
+        selector_grid.setContentsMargins(0, 0, 0, 0)
+        selector_grid.setHorizontalSpacing(12)
+        selector_grid.setVerticalSpacing(8)
+        selector_grid.addWidget(QtWidgets.QLabel("Chat Provider"), 0, 0, QtCore.Qt.AlignVCenter)
+        selector_grid.addWidget(self.chat_provider_combo, 0, 1)
+        selector_grid.addWidget(QtWidgets.QLabel("LLM Model"), 0, 2, QtCore.Qt.AlignVCenter)
+        selector_grid.addWidget(self.model_row_widget, 0, 3)
+        selector_grid.setColumnStretch(1, 1)
+        selector_grid.setColumnStretch(3, 2)
+        inner_layout.addLayout(selector_grid)
 
         self.chat_provider_fields_widget = QtWidgets.QWidget()
         self.chat_provider_fields_layout = QtWidgets.QFormLayout(self.chat_provider_fields_widget)
@@ -353,6 +358,52 @@ class BackendSystemShapingBuilderMixin:
         self._refresh_chat_runtime_summary()
         return self.chat_runtime_section
 
+    def _build_stt_runtime_card(self):
+        self.stt_runtime_box = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(self.stt_runtime_box)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        self.stt_runtime_inner_card = QtWidgets.QFrame()
+        self.stt_runtime_inner_card.setObjectName("stt_runtime_inner_card")
+        self.stt_runtime_inner_card.setStyleSheet(
+            "QFrame#stt_runtime_inner_card {"
+            "  background: rgba(12, 18, 26, 0.35);"
+            "  border: 1px solid #273342;"
+            "  border-radius: 10px;"
+            "}"
+        )
+        inner_layout = QtWidgets.QVBoxLayout(self.stt_runtime_inner_card)
+        inner_layout.setContentsMargins(10, 10, 10, 10)
+        inner_layout.setSpacing(10)
+
+        selector_grid = QtWidgets.QGridLayout()
+        selector_grid.setContentsMargins(0, 0, 0, 0)
+        selector_grid.setHorizontalSpacing(12)
+        selector_grid.setVerticalSpacing(8)
+        selector_grid.addWidget(QtWidgets.QLabel("STT Backend"), 0, 0, QtCore.Qt.AlignVCenter)
+        selector_grid.addWidget(self.stt_backend_combo, 0, 1)
+        selector_grid.addWidget(QtWidgets.QLabel("Whisper Model"), 0, 2, QtCore.Qt.AlignVCenter)
+        selector_grid.addWidget(self.stt_model_combo, 0, 3)
+        selector_grid.addWidget(QtWidgets.QLabel("Input Language"), 1, 0, QtCore.Qt.AlignVCenter)
+        selector_grid.addWidget(self.stt_language_combo, 1, 1)
+        selector_grid.setColumnStretch(1, 1)
+        selector_grid.setColumnStretch(3, 1)
+        inner_layout.addLayout(selector_grid)
+
+        self.stt_runtime_hint_label = QtWidgets.QLabel(
+            "Use a multilingual Whisper model, such as tiny/base/small, for non-English speech. Auto Detect lets Whisper infer the spoken language."
+        )
+        self.stt_runtime_hint_label.setWordWrap(True)
+        self.stt_runtime_hint_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        inner_layout.addWidget(self.stt_runtime_hint_label)
+        layout.addWidget(self.stt_runtime_inner_card)
+
+        self.stt_runtime_section = CollapsibleSection("STT Runtime", self.stt_runtime_box, expanded=True)
+        self.stt_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
+        self._refresh_stt_runtime_summary()
+        return self.stt_runtime_section
+
     def _build_tts_runtime_card(self):
         self.tts_runtime_box = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.tts_runtime_box)
@@ -383,7 +434,7 @@ class BackendSystemShapingBuilderMixin:
         inner_layout.addSpacing(2)
 
         self.tts_runtime_addon_tabs = QtWidgets.QTabWidget()
-        self.tts_runtime_addon_tabs.setDocumentMode(True)
+        self.tts_runtime_addon_tabs.setDocumentMode(False)
         self.tts_runtime_addon_tabs.setMinimumHeight(420)
         self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
         self.tts_runtime_addon_tabs.currentChanged.connect(self._on_tts_runtime_addon_tab_changed)
@@ -588,7 +639,7 @@ class BackendSystemShapingBuilderMixin:
 
         self.input_mode_combo = NoWheelComboBox()
         self.input_mode_combo.setObjectName("input_mode_combo")
-        self.input_mode_combo.addItems(["Voice Activation", "Push-to-Talk"])
+        self.input_mode_combo.addItems(["Voice Activation", "Push-to-Talk", "Text Only"])
         _set_tooltip(self.input_mode_combo, SYSTEM_SHAPING_TOOLTIPS["input_mode_combo"])
         self.input_mode_combo.currentTextChanged.connect(self.on_input_mode_change)
 
@@ -603,6 +654,21 @@ class BackendSystemShapingBuilderMixin:
         self.stream_mode_combo.addItems(["Off", "On"])
         _set_tooltip(self.stream_mode_combo, SYSTEM_SHAPING_TOOLTIPS["stream_mode_combo"])
         self.stream_mode_combo.currentTextChanged.connect(self.on_stream_mode_change)
+
+        self.stt_backend_combo = NoWheelComboBox()
+        self.stt_backend_combo.setObjectName("stt_backend_combo")
+        self.stt_backend_combo.currentTextChanged.connect(self.on_stt_backend_change)
+        self._populate_stt_backend_combo()
+
+        self.stt_model_combo = NoWheelComboBox()
+        self.stt_model_combo.setObjectName("stt_model_combo")
+        self.stt_model_combo.currentTextChanged.connect(self.on_stt_model_change)
+        self._populate_stt_model_combo()
+
+        self.stt_language_combo = NoWheelComboBox()
+        self.stt_language_combo.setObjectName("stt_language_combo")
+        self.stt_language_combo.currentTextChanged.connect(self.on_stt_language_change)
+        self._populate_stt_language_combo()
 
         self.tts_backend_combo = NoWheelComboBox()
         self.tts_backend_combo.setObjectName("tts_backend_combo")

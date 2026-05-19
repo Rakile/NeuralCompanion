@@ -21,6 +21,30 @@ class RealUiActionsAvatarMixin:
             self._sync_single_combo_to_backend("voice_combo")
             self._refresh_avatar_body_vam_runtime_frontend()
 
+    def _on_frontend_use_wav_file_changed(self, checked):
+            front = self._ui_object("use_wav_file_checkbox")
+            back = self._backend_widget("use_wav_file_checkbox")
+            value = bool(checked)
+            if front is not None and hasattr(front, "isChecked"):
+                try:
+                    value = bool(front.isChecked())
+                except Exception:
+                    pass
+            if back is not None and hasattr(back, "setChecked"):
+                was_blocked = bool(back.blockSignals(True)) if hasattr(back, "blockSignals") else False
+                try:
+                    back.setChecked(value)
+                except Exception:
+                    pass
+                finally:
+                    if hasattr(back, "blockSignals"):
+                        back.blockSignals(was_blocked)
+            callback = getattr(self.backend, "on_use_wav_file_changed", None)
+            if callable(callback):
+                callback(value)
+            self._mirror_persona_runtime_widgets(force=True)
+            self._refresh_avatar_body_vam_runtime_frontend()
+
     def _on_frontend_body_selection_changed(self, _index=None):
             self._sync_single_combo_to_backend("body_combo")
             callback = getattr(self.backend, "load_body_config_from_combo", None)

@@ -397,12 +397,18 @@ QToolButton#ncDockCloseButton {{
 QTabWidget#sensory_feedback_tabs QTabBar::tab,
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,
-QTabWidget#tts_runtime_addon_tabs QTabBar::tab,
 QTabWidget#vam_setup_tabs QTabBar::tab {
     min-width: 96px;
     max-width: 220px;
     padding-left: 14px;
     padding-right: 14px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    padding-left: 10px;
+    padding-right: 10px;
 }
 QTabWidget#right_tabs QTabBar::tab {
     min-width: 118px;

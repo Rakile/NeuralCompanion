@@ -242,6 +242,9 @@ class MainUiRealBindingMixin:
                 ("input_mode_combo", self._on_frontend_input_mode_changed),
                 ("input_role_combo", self._on_frontend_input_role_changed),
                 ("stream_mode_combo", self._on_frontend_stream_mode_changed),
+                ("stt_backend_combo", self._on_frontend_stt_backend_changed),
+                ("stt_model_combo", self._on_frontend_stt_model_changed),
+                ("stt_language_combo", self._on_frontend_stt_language_changed),
                 ("tts_backend_combo", self._on_frontend_tts_backend_changed),
             )
             for object_name, handler in combo_bindings:
@@ -279,6 +282,7 @@ class MainUiRealBindingMixin:
     def _bind_avatar_body_vam_runtime_controls(self):
             tooltips = {
                 "voice_combo": "Voice reference used by the selected TTS backend when voice cloning is available.",
+                "use_wav_file_checkbox": "Use the selected .wav file as the TTS voice reference. Disable to use the backend's built-in/default voice.",
                 "btn_voice_refresh": "Refresh voice reference files from the voices folder.",
                 "body_combo": "Saved VSeeFace body pose preset. Use Load to apply it to the visible sliders.",
                 "emotion_combo": "Preview/edit the body-pose values associated with this emotion.",
@@ -307,6 +311,7 @@ class MainUiRealBindingMixin:
             if button is not None and hasattr(button, "clicked"):
                 button.clicked.connect(lambda _checked=False: self._refresh_frontend_voice_list())
             checkbox_bindings = (
+                ("use_wav_file_checkbox", self._on_frontend_use_wav_file_changed),
                 ("live_sync_checkbox", self._on_frontend_live_sync_changed),
             )
             for object_name, handler in checkbox_bindings:

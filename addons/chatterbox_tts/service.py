@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
 import os
 import inspect
 import importlib
 import logging
 import threading
+import warnings
 from typing import Any
 
 
@@ -43,18 +45,42 @@ def _silent_tqdm(iterable=None, *args, **kwargs):
 class _SuppressReferenceMelFilter(logging.Filter):
     def filter(self, record):
         try:
-            return "Reference mel length is not equal to 2 * reference token length." not in record.getMessage()
+            message = record.getMessage()
+            muted_fragments = (
+                "Reference mel length is not equal to 2 * reference token length.",
+                "LlamaModel is using LlamaSdpaAttention",
+                "We detected that you are passing `past_key_values` as a tuple of tuples.",
+            )
+            return not any(fragment in message for fragment in muted_fragments)
         except Exception:
             return True
 
 
 def _suppress_chatterbox_console_noise():
+    for category, pattern in (
+        (FutureWarning, r".*torch\.backends\.cuda\.sdp_kernel\(\).*deprecated.*"),
+        (UserWarning, r".*`return_dict_in_generate` is NOT set to `True`, but `output_attentions` is.*"),
+        (UserWarning, r".*past_key_values.*tuple of tuples.*deprecated.*"),
+    ):
+        try:
+            warnings.filterwarnings("ignore", message=pattern, category=category)
+        except Exception:
+            pass
     try:
         root_logger = logging.getLogger()
         if not any(isinstance(item, _SuppressReferenceMelFilter) for item in root_logger.filters):
             root_logger.addFilter(_SuppressReferenceMelFilter())
     except Exception:
         pass
+    for logger_name in (
+        "chatterbox.models.t3.inference.alignment_stream_analyzer",
+        "transformers.generation.configuration_utils",
+        "transformers.models.llama.modeling_llama",
+    ):
+        try:
+            logging.getLogger(logger_name).setLevel(logging.ERROR)
+        except Exception:
+            pass
     for module_name in (
         "chatterbox.models.t3.t3",
         "chatterbox.models.s3gen.flow_matching",
@@ -64,6 +90,18 @@ def _suppress_chatterbox_console_noise():
             setattr(module, "tqdm", _silent_tqdm)
         except Exception:
             continue
+
+
+def _disable_transformers_torchvision_probe():
+    """Avoid optional torchvision import failures while loading Chatterbox text models."""
+    try:
+        import transformers.utils as transformers_utils
+        import transformers.utils.import_utils as import_utils
+
+        import_utils.is_torchvision_available = lambda: False
+        transformers_utils.is_torchvision_available = lambda: False
+    except Exception:
+        pass
 
 
 class _NoOpWatermarker:
@@ -148,6 +186,7 @@ class ChatterboxTTSService:
             if self._model is not None:
                 self._set_watermark_enabled(self._model, self._runtime_bool("tts_apply_watermark", True))
                 return self._model
+            _disable_transformers_torchvision_probe()
             from chatterbox import tts_turbo
 
             self._abort_event.clear()
@@ -167,12 +206,30 @@ class ChatterboxTTSService:
                         tts_turbo.perth.PerthImplicitWatermarker = original_watermarker_cls
                     except Exception:
                         pass
+            try:
+                setattr(self._model, "_nc_builtin_conds", copy.deepcopy(getattr(self._model, "conds", None)))
+            except Exception:
+                setattr(self._model, "_nc_builtin_conds", getattr(self._model, "conds", None))
             self._install_abort_hook(self._model)
             self._set_watermark_enabled(self._model, apply_watermark)
             self.sr = int(getattr(self._model, "sr", self.sr) or self.sr or 24000)
             return self._model
 
+    def _use_cloned_voice(self):
+        return self._runtime_bool("tts_use_cloned_voice", True)
+
+    def _restore_builtin_conditionals(self, model):
+        builtin = getattr(model, "_nc_builtin_conds", None)
+        if builtin is None:
+            return
+        try:
+            model.conds = copy.deepcopy(builtin)
+        except Exception:
+            model.conds = builtin
+
     def _voice_prompt_path(self):
+        if not self._use_cloned_voice():
+            return ""
         service = self._runtime_config_service()
         voice_path = str((service.get("voice_path", "") if service is not None else "") or "").strip()
         if voice_path and os.path.exists(voice_path):
@@ -209,6 +266,8 @@ class ChatterboxTTSService:
                         "norm_loudness": False,
                     }
                 )
+                if not self._use_cloned_voice():
+                    self._restore_builtin_conditionals(model)
                 if not request.get("audio_prompt_path"):
                     request.pop("audio_prompt_path", None)
                 model.generate("Ready.", **request)
@@ -223,7 +282,10 @@ class ChatterboxTTSService:
         model, request = self._generation_request(kwargs)
         for key in ("min_p",):
             request.pop(key, None)
-        if audio_prompt_path is not None:
+        if not self._use_cloned_voice():
+            request.pop("audio_prompt_path", None)
+            self._restore_builtin_conditionals(model)
+        elif audio_prompt_path is not None:
             request.setdefault("audio_prompt_path", audio_prompt_path)
         elif "audio_prompt_path" not in request:
             voice_path = self._voice_prompt_path()

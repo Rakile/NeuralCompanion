@@ -136,6 +136,13 @@ class RealUiSyncMirrorMixin:
                     continue
                 if not self._combo_popup_is_open(front):
                     self._copy_combo_state(back, front)
+            sync_use_wav = getattr(self.backend, "_sync_use_wav_file_checkbox", None)
+            if callable(sync_use_wav):
+                sync_use_wav()
+            front = self._ui_object("use_wav_file_checkbox")
+            back = self._backend_widget("use_wav_file_checkbox")
+            if front is not None and back is not None:
+                self._copy_checkbox_state(back, front)
             self._copy_runtime_plain_text_state("emotional_text", "emotional_instructions")
             self._copy_runtime_plain_text_state("system_prompt_text", "system_prompt")
 
@@ -399,10 +406,14 @@ class RealUiSyncMirrorMixin:
                 "input_mode_combo",
                 "input_role_combo",
                 "stream_mode_combo",
+                "stt_backend_combo",
+                "stt_model_combo",
+                "stt_language_combo",
                 "tts_backend_combo",
                 "sensory_feedback_source_combo",
                 "chat_font_size_combo",
                 "voice_combo",
+                "use_wav_file_checkbox",
                 "body_combo",
                 "emotion_combo",
                 "live_sync_checkbox",
@@ -435,11 +446,15 @@ class RealUiSyncMirrorMixin:
             fields_placeholder = self._ui_object("chat_provider_fields_placeholder")
             generation_placeholder = self._ui_object("chat_provider_generation_fields_placeholder")
             runtime_box = self._ui_object("chat_runtime_box")
+            stt_runtime_box = self._ui_object("stt_runtime_box")
             tts_runtime_box = self._ui_object("tts_runtime_box")
+            visual_reply_runtime_box = self._ui_object("visual_reply_runtime_box")
             backend_settings_section = getattr(self.backend, "chat_provider_settings_section", None)
             backend_generation_section = getattr(self.backend, "chat_provider_generation_section", None)
             backend_runtime_section = getattr(self.backend, "chat_runtime_section", None)
+            backend_stt_runtime_section = getattr(self.backend, "stt_runtime_section", None)
             backend_tts_runtime_section = getattr(self.backend, "tts_runtime_section", None)
+            backend_visual_reply_runtime_section = getattr(self.backend, "visual_reply_runtime_section", None)
             backend_hint_label = getattr(self.backend, "chat_provider_hint_label", None)
             if settings_label is not None and backend_settings_section is not None and hasattr(backend_settings_section, "toggle_button"):
                 try:
@@ -476,6 +491,24 @@ class RealUiSyncMirrorMixin:
                         tts_runtime_box,
                         str(backend_tts_runtime_section.toggle_button.text() or "TTS Runtime"),
                         "TTS Runtime",
+                    )
+                except Exception:
+                    pass
+            if stt_runtime_box is not None and hasattr(stt_runtime_box, "setTitle") and backend_stt_runtime_section is not None and hasattr(backend_stt_runtime_section, "toggle_button"):
+                try:
+                    self._set_frontend_collapsible_group_summary(
+                        stt_runtime_box,
+                        str(backend_stt_runtime_section.toggle_button.text() or "STT Runtime"),
+                        "STT Runtime",
+                    )
+                except Exception:
+                    pass
+            if visual_reply_runtime_box is not None and hasattr(visual_reply_runtime_box, "setTitle") and backend_visual_reply_runtime_section is not None and hasattr(backend_visual_reply_runtime_section, "toggle_button"):
+                try:
+                    self._set_frontend_collapsible_group_summary(
+                        visual_reply_runtime_box,
+                        str(backend_visual_reply_runtime_section.toggle_button.text() or "Visual Reply Runtime"),
+                        "Visual Reply Runtime",
                     )
                 except Exception:
                     pass

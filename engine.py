@@ -17,7 +17,6 @@ import warnings
 import urllib.request
 import mimetypes
 from pathlib import Path
-from faster_whisper import WhisperModel
 import torch
 import sounddevice as sd
 import numpy as np
@@ -128,10 +127,8 @@ except ImportError:
 # ============================================================================
 # CONFIGURATION
 # ============================================================================
-WHISPER_MODEL_SIZE = "tiny.en"  # "tiny.en" is fastest for English
-WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
-whisper_model = None
+stt_model = None
+stt_backend_name = None
 
 # TTS settings
 TTS_TEMPERATURE = 0.9
@@ -657,15 +654,24 @@ RUNTIME_CONFIG = {
     "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
     "voice_path": "",
     "chat_replay_role_voices": {},
+    "stt_backend": "whisper_english",
+    "stt_model_size": "tiny.en",
+    "stt_language": "en",
     "tts_backend": "chatterbox",
+    "chatterbox_multilingual_language": "en",
+    "chatterbox_multilingual_apply_watermark": True,
     "tts_prewarm_on_start": True,
+    "tts_use_cloned_voice": True,
     "tts_apply_watermark": True,
     "pocket_tts_python": DEFAULT_POCKET_TTS_PYTHON if os.path.exists(DEFAULT_POCKET_TTS_PYTHON) else "",
+    "pocket_tts_language": "en",
     "pocket_tts_temperature": 0.7,
     "pocket_tts_lsd_decode_steps": 1,
     "pocket_tts_eos_threshold": -4.0,
     "pocket_tts_max_tokens": 50,
     "pocket_tts_frames_after_eos": 0,
+    "pocket_tts_builtin_voice": "auto",
+    "pocket_tts_use_cloned_voice": True,
     "pocket_tts_prewarm_on_start": True,
     "avatar_mode": "vseeface",
     "vam_root": DEFAULT_VAM_ROOT,
@@ -826,9 +832,6 @@ def get_musetalk_enabled_pack_emotions(pack_id):
 LMSTUDIO_BASE_URL = "http://127.0.0.1:1234/v1"
 LMSTUDIO_API_KEY = "lm-studio"
 chat_providers.set_provider_settings(RUNTIME_CONFIG.get("chat_provider_settings", {}))
-WHISPER_MODEL_SIZE = "tiny.en"
-WHISPER_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-WHISPER_COMPUTE_TYPE = "float16" if torch.cuda.is_available() else "int8"
 TTS_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
 stop_flag = threading.Event()
@@ -846,7 +849,6 @@ last_resumed_at = 0.0
 avatar_gui = None
 tts_model = None
 tts_backend_name = None
-whisper_model = None
 _shutdown_avatar_engine_lock = threading.RLock()
 recognizer = sr.Recognizer()
 conversation_history = []
@@ -955,8 +957,16 @@ def list_available_tts_backends():
     return tts_runtime.list_available_tts_backends(_get_addon_manager, logger=print)
 
 
+def list_available_stt_backends():
+    return stt_runtime.list_available_stt_backends(_get_addon_manager, logger=print)
+
+
 def _resolve_addon_tts_backend(backend_id: str):
     return tts_runtime.resolve_addon_tts_backend(backend_id, _get_addon_manager)
+
+
+def _resolve_addon_stt_backend(backend_id: str):
+    return stt_runtime.resolve_addon_stt_backend(backend_id, _get_addon_manager)
 
 
 # ============================================================================
@@ -1069,22 +1079,6 @@ def _chat_provider_connection_check():
     return False
 
 
-def get_main_whisper_runtime_config():
-    return stt_runtime.whisper_runtime_config(
-        RUNTIME_CONFIG,
-        cuda_available=torch.cuda.is_available(),
-        vram_mode=_active_avatar_vram_mode(),
-    )
-
-
-def get_main_whisper_runtime_reason():
-    return stt_runtime.whisper_runtime_reason(
-        RUNTIME_CONFIG,
-        cuda_available=torch.cuda.is_available(),
-        vram_mode=_active_avatar_vram_mode(),
-    )
-
-
 def _get_lmstudio_sdk():
     return lmstudio_runtime.get_sdk()
 
@@ -1190,12 +1184,14 @@ def check_interaction_status(source):
             return action
 
     input_mode = str(RUNTIME_CONFIG.get("input_mode", "voice_activation") or "voice_activation").lower()
-    if input_mode == "push_to_talk" and is_push_to_talk_held():
+    if source is not None and input_mode == "push_to_talk" and is_push_to_talk_held():
         LAST_INPUT_TIME = now
         return "push_to_talk"
+    if input_mode == "text_only":
+        return None
 
     # --- VOICE BARGE-IN ---
-    if input_mode != "push_to_talk" and check_for_barge_in(source, energy_threshold=BARGE_IN_THRESHOLD):
+    if source is not None and input_mode != "push_to_talk" and check_for_barge_in(source, energy_threshold=BARGE_IN_THRESHOLD):
         return "barge_in"
 
     return None
@@ -1272,19 +1268,22 @@ def check_interaction_status_old(source):
 # AUDIO PLAYBACK
 # ============================================================================
 TTSController = tts_runtime.TTSController
+AddonSTTBackendAdapter = stt_runtime.AddonSTTBackendAdapter
 
 
-def init_whisper():
-    global whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE
-    whisper_model, WHISPER_DEVICE, WHISPER_COMPUTE_TYPE = stt_runtime.initialize_whisper_model(
-        whisper_model,
-        model_size=WHISPER_MODEL_SIZE,
+def init_stt():
+    global stt_model, stt_backend_name
+    state = stt_runtime.initialize_stt_backend(
         runtime_config=RUNTIME_CONFIG,
-        cuda_available=torch.cuda.is_available(),
-        model_factory=WhisperModel,
-        vram_mode=_active_avatar_vram_mode(),
+        current_model=stt_model,
+        current_backend_name=stt_backend_name,
+        addon_resolver=_resolve_addon_stt_backend,
+        addon_adapter_cls=AddonSTTBackendAdapter,
         logger=print,
     )
+    stt_model = state.model
+    stt_backend_name = state.backend_name
+    return bool(state.ok)
 
 
 import soundfile as sf
@@ -3776,21 +3775,21 @@ def transition_musetalk_to_idle_after_interrupt(delay=0.35):
 
 
 def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
-    global avatar_gui, tts_model, tts_backend_name, whisper_model
+    global avatar_gui, tts_model, tts_backend_name, stt_model, stt_backend_name
     with _shutdown_avatar_engine_lock:
         had_tts_model = tts_model is not None
         has_tts_to_unload = bool(unload_tts and tts_model is not None)
-        has_stt_to_unload = bool(unload_stt and whisper_model is not None)
+        has_stt_to_unload = bool(unload_stt and stt_model is not None)
         if avatar_gui is None and not has_tts_to_unload and not has_stt_to_unload:
             stop_playback.set()
             pause_after_chunk.clear()
             playback_paused.clear()
             clear_avatar_stream_state()
             return
-        avatar_gui, tts_model, whisper_model = runtime_shutdown.shutdown_runtime_components(
+        avatar_gui, tts_model, stt_model = runtime_shutdown.shutdown_runtime_components(
             avatar_gui=avatar_gui,
             tts_model=tts_model,
-            whisper_model=whisper_model,
+            stt_model=stt_model,
             unload_tts=unload_tts,
             unload_stt=unload_stt,
             stop_playback=stop_playback,
@@ -3804,6 +3803,8 @@ def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
         )
         if unload_tts and had_tts_model and tts_model is None:
             tts_backend_name = None
+        if unload_stt and stt_model is None:
+            stt_backend_name = None
 
 
 def reset_session_state():
@@ -5486,22 +5487,45 @@ def safe_delete_with_retry(file_path, retries=5, delay=0.1):
 # SPEECH RECOGNITION
 # ============================================================================
 
-def transcribe_audio_with_main_whisper(audio, language="en"):
-    return stt_runtime.transcribe_audio_with_whisper(
+def _ensure_selected_stt_backend():
+    desired_backend = str(RUNTIME_CONFIG.get("stt_backend", "none") or "none").strip().lower()
+    if stt_model is None or stt_backend_name != desired_backend:
+        init_stt()
+    return stt_model
+
+
+def transcribe_audio_with_stt(audio, language=None):
+    model = _ensure_selected_stt_backend()
+    if model is None:
+        return None
+    return model.transcribe(
         audio,
-        model_getter=lambda: whisper_model,
-        init_model=init_whisper,
-        safe_delete_with_retry=safe_delete_with_retry,
-        language=language,
+        language=language if language is not None else RUNTIME_CONFIG.get("stt_language", None),
     )
+
+
+def transcribe_file_with_stt(path, language=None):
+    model = _ensure_selected_stt_backend()
+    if model is None:
+        return (), None
+    raw_transcriber = getattr(model, "transcribe_file_raw", None)
+    if callable(raw_transcriber):
+        return raw_transcriber(
+            str(path),
+            language=language if language is not None else RUNTIME_CONFIG.get("stt_language", None),
+        )
+    text = model.transcribe_file(
+        str(path),
+        language=language if language is not None else RUNTIME_CONFIG.get("stt_language", None),
+    )
+    return (), {"text": text or ""}
 
 
 audio_story_runtime.configure_runtime(
     runtime_config=RUNTIME_CONFIG,
     update_runtime_config=update_runtime_config,
     audio_segment_cls=AudioSegment,
-    whisper_model_getter=lambda: whisper_model,
-    init_whisper=init_whisper,
+    transcribe_file=transcribe_file_with_stt,
     init_tts=init_tts,
     get_text_chunk_limits=get_text_chunk_limits,
     intelligent_chunk_text=intelligent_chunk_text,
@@ -5519,7 +5543,7 @@ def listen_for_speech(source, timeout=None):
         source,
         recognizer=recognizer,
         microphone_active=microphone_active,
-        transcribe_func=transcribe_audio_with_main_whisper,
+        transcribe_func=transcribe_audio_with_stt,
         sr_module=sr,
         settings={
             "energy_threshold": ENERGY_THRESHOLD,
@@ -5539,7 +5563,7 @@ def listen_for_speech_push_to_talk(source, chunk_size=1024, max_seconds=PUSH_TO_
         source,
         recognizer=recognizer,
         microphone_active=microphone_active,
-        transcribe_func=transcribe_audio_with_main_whisper,
+        transcribe_func=transcribe_audio_with_stt,
         sr_module=sr,
         is_push_to_talk_held=is_push_to_talk_held,
         audio_data_factory=sr.AudioData,
@@ -6061,8 +6085,12 @@ def main_loop():
     print("\n" + "=" * 60)
     print("🎙️  VOICE ASSISTANT READY")
     print("=" * 60)
-    if whisper_model is None:
-        init_whisper()
+    if stt_model is None:
+        init_stt()
+    if str(RUNTIME_CONFIG.get("stt_backend", "none") or "none").strip().lower() == "none":
+        print("🔇 STT disabled; microphone input is off. Typed chat and GUI actions remain available.")
+        run_conversation_flow(None)
+        return
     with _open_configured_microphone(sample_rate=16000) as source:
         try:
             print(f"🎚️ Calibrating microphone noise floor ({AMBIENT_CALIBRATION_SECONDS:.1f}s)...")
@@ -6981,6 +7009,8 @@ def run_companion(config_override=None):
         if offline_replay_only:
             print("🔁 Replay runtime ready (no microphone or Whisper initialization needed).")
             run_conversation_flow(None)
+        elif str(RUNTIME_CONFIG.get("stt_backend", "none") or "none").strip().lower() == "none":
+            main_loop()
         else:
             print("Testing microphone...")
             try:

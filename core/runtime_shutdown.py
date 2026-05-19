@@ -54,7 +54,7 @@ def shutdown_runtime_components(
     *,
     avatar_gui,
     tts_model,
-    whisper_model,
+    stt_model,
     unload_tts=True,
     unload_stt=True,
     stop_playback,
@@ -95,9 +95,9 @@ def shutdown_runtime_components(
         else:
             _defer_native_ref("TTS", model, logger=logger)
 
-    if unload_stt and whisper_model is not None:
-        model = whisper_model
-        whisper_model = None
+    if unload_stt and stt_model is not None:
+        model = stt_model
+        stt_model = None
         if aggressive_native_unload:
             try:
                 closer = getattr(model, "close", None)
@@ -136,4 +136,4 @@ def shutdown_runtime_components(
         except Exception:
             pass
     schedule_musetalk_runtime_cleanup(max_keep=0, force=True)
-    return avatar_gui, tts_model, whisper_model
+    return avatar_gui, tts_model, stt_model
