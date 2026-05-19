@@ -112,16 +112,16 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border: 1px solid #273342;
     border-radius: 10px;
 }
-QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
+QGroupBox#chat_runtime_box, QGroupBox#stt_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
     margin-top: 18px;
     padding-top: 12px;
 }
-QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
+QGroupBox#chat_runtime_box::title, QGroupBox#stt_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 8px 0 8px;
 }
-QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
+QGroupBox#chat_runtime_box::indicator, QGroupBox#stt_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
     width: 0px;
     height: 0px;
 }
@@ -892,6 +892,11 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                    <string>Push-to-Talk</string>
                   </property>
                  </item>
+                 <item>
+                  <property name="text">
+                   <string>Text Only</string>
+                  </property>
+                 </item>
                 </widget>
                </item>
                <item row="2" column="0">
@@ -1386,6 +1391,71 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </widget>
                 </item>
                </layout>
+             </widget>
+             </item>
+             <item>
+              <widget class="QGroupBox" name="stt_runtime_box">
+               <property name="title">
+                <string>STT Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
+               <layout class="QVBoxLayout" name="sttRuntimeLayout">
+                <property name="spacing">
+                 <number>10</number>
+                </property>
+                <item>
+                 <layout class="QFormLayout" name="sttRuntimeForm">
+                  <property name="fieldGrowthPolicy">
+                   <enum>QFormLayout::FieldGrowthPolicy::ExpandingFieldsGrow</enum>
+                  </property>
+                  <item row="0" column="0">
+                   <widget class="QLabel" name="stt_backend_label">
+                    <property name="text">
+                     <string>STT Backend</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="0" column="1">
+                   <widget class="QComboBox" name="stt_backend_combo"/>
+                  </item>
+                  <item row="1" column="0">
+                   <widget class="QLabel" name="stt_model_label">
+                    <property name="text">
+                     <string>Whisper Model</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="1" column="1">
+                   <widget class="QComboBox" name="stt_model_combo"/>
+                  </item>
+                  <item row="2" column="0">
+                   <widget class="QLabel" name="stt_language_label">
+                    <property name="text">
+                     <string>Input Language</string>
+                    </property>
+                   </widget>
+                  </item>
+                  <item row="2" column="1">
+                   <widget class="QComboBox" name="stt_language_combo"/>
+                  </item>
+                 </layout>
+                </item>
+                <item>
+                 <widget class="QLabel" name="stt_runtime_hint_label">
+                  <property name="text">
+                   <string>Use a multilingual Whisper model for non-English speech. Auto Detect lets Whisper infer the spoken language.</string>
+                  </property>
+                  <property name="wordWrap">
+                   <bool>true</bool>
+                  </property>
+                 </widget>
+                </item>
+               </layout>
               </widget>
              </item>
              <item>
@@ -1657,7 +1727,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              <item>
               <widget class="QLabel" name="input_mode_hint">
                <property name="text">
-                <string>Push-to-Talk hotkey: Right Ctrl (fallback button below)</string>
+                <string>Push-to-Talk hotkey: Right Ctrl. Text Only disables microphone STT.</string>
                </property>
               </widget>
              </item>

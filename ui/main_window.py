@@ -25,6 +25,7 @@ from ui.runtime.backend_runtime_controls import BackendRuntimeControlsMixin
 from ui.runtime.backend_runtime_status import BackendRuntimeStatusMixin
 from ui.runtime.backend_sensory_sources import BackendSensorySourcesMixin
 from ui.runtime.backend_system_shaping_panel import BackendSystemShapingPanelMixin
+from ui.runtime.backend_stt_runtime import BackendSttRuntimeMixin
 from ui.runtime.backend_tutorial_runtime import BackendTutorialRuntimeMixin
 from ui.runtime.backend_tts_runtime import BackendTtsRuntimeMixin
 from ui.runtime.backend_vam_runtime import BackendVamRuntimeMixin
@@ -94,7 +95,7 @@ configure_legacy_workspace_dock_dependencies({
     "ctypes": ctypes,
 })
 
-class CompanionQtMainWindow(MainWindowStartupMixin, MainWindowThemeMixin, MainWindowLayoutMixin, MainWindowAuxDocksMixin, MainWindowSessionMixin, BackendAddonMountMixin, BackendAvatarRuntimeMixin, BackendChatRuntimeMixin, BackendChatSessionRuntimeMixin, BackendConsoleChatMixin, BackendDryRunRuntimeMixin, BackendEngineLifecycleMixin, BackendHotkeyMixin, BackendModelAdvisorRuntimeMixin, BackendMuseTalkPreviewRuntimeMixin, BackendOperationalPanelMixin, BackendPresetBodyRuntimeMixin, BackendResourceRefreshMixin, BackendRuntimeControlsMixin, BackendRuntimeStatusMixin, BackendSensorySourcesMixin, BackendSystemShapingPanelMixin, BackendTutorialRuntimeMixin, BackendTtsRuntimeMixin, BackendVamRuntimeMixin, BackendVisualReplyRuntimeMixin, BackendWorkspaceTabsMixin, LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWidgets.QMainWindow):
+class CompanionQtMainWindow(MainWindowStartupMixin, MainWindowThemeMixin, MainWindowLayoutMixin, MainWindowAuxDocksMixin, MainWindowSessionMixin, BackendAddonMountMixin, BackendAvatarRuntimeMixin, BackendChatRuntimeMixin, BackendChatSessionRuntimeMixin, BackendConsoleChatMixin, BackendDryRunRuntimeMixin, BackendEngineLifecycleMixin, BackendHotkeyMixin, BackendModelAdvisorRuntimeMixin, BackendMuseTalkPreviewRuntimeMixin, BackendOperationalPanelMixin, BackendPresetBodyRuntimeMixin, BackendResourceRefreshMixin, BackendRuntimeControlsMixin, BackendRuntimeStatusMixin, BackendSensorySourcesMixin, BackendSystemShapingPanelMixin, BackendSttRuntimeMixin, BackendTutorialRuntimeMixin, BackendTtsRuntimeMixin, BackendVamRuntimeMixin, BackendVisualReplyRuntimeMixin, BackendWorkspaceTabsMixin, LegacyWorkspaceDockMixin, LegacyDockTitleMixin, QtWidgets.QMainWindow):
     def __init__(self, *, suppress_restored_aux_docks=False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)

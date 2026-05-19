@@ -37,7 +37,9 @@ MODEL_ADVISOR_BUILTIN_FINGERPRINTS_GIB = {
 }
 MODEL_ADVISOR_TTS_OVERHEAD_GIB = {
     "pockettts": 2.0,
+    "pockettts_multilingual": 2.0,
     "chatterbox": 5.2,
+    "chatterbox_multilingual": 5.8,
 }
 MODEL_ADVISOR_STREAM_OVERHEAD_GIB = 0.5
 MODEL_ADVISOR_SAFETY_MARGIN_GIB = 1.5

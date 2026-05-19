@@ -10,6 +10,8 @@
     "ui.tabs"
   ],
   "runtime_defaults": {
+    "pocket_tts_builtin_voice": "auto",
+    "pocket_tts_use_cloned_voice": true,
     "pocket_tts_prewarm_on_start": true
   },
   "services": [

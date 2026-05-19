@@ -87,6 +87,7 @@ class MainUiRealLayoutMixin:
             host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
 
             chat_box = self._ui("chat_runtime_box", QtWidgets.QGroupBox)
+            stt_box = self._ui("stt_runtime_box", QtWidgets.QGroupBox)
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
             visual_reply_box = self._ui("visual_reply_runtime_box", QtWidgets.QGroupBox)
             perf_box = self._ui("performance_guidance_box", QtWidgets.QGroupBox)
@@ -96,7 +97,7 @@ class MainUiRealLayoutMixin:
                 scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
 
-            for w in (content, tabs, host_tab, chat_box, tts_box, visual_reply_box, perf_box):
+            for w in (content, tabs, host_tab, chat_box, stt_box, tts_box, visual_reply_box, perf_box):
                 if w is None:
                     continue
 
@@ -1621,6 +1622,7 @@ QTabWidget QStackedWidget {
     def _configure_frontend_runtime_group_boxes(self):
             group_specs = (
                 ("chat_runtime_box", "Chat Runtime"),
+                ("stt_runtime_box", "STT Runtime"),
                 ("tts_runtime_box", "TTS Runtime"),
                 ("visual_reply_runtime_box", "Visual Reply Runtime"),
             )

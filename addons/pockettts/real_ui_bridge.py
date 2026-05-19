@@ -1,6 +1,7 @@
 import os
 
 from core.addons.qt_host_services import QtDialogService, QtRuntimeConfigService
+from core.pocket_tts_voices import normalize_pocket_tts_builtin_voice
 
 
 def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
@@ -17,8 +18,11 @@ def collect_runtime_config(backend, runtime_config=None, *, tts_backend=""):
         "pocket_tts_temperature": _live_float(backend, "pockettts_temperature_spin", runtime.get("pocket_tts_temperature", 0.7), minimum=0.05),
         "pocket_tts_lsd_decode_steps": _live_int(backend, "pockettts_lsd_steps_spin", runtime.get("pocket_tts_lsd_decode_steps", 1), minimum=1),
         "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
-        "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
         "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
+        "pocket_tts_builtin_voice": normalize_pocket_tts_builtin_voice(
+            _live_combo_value(backend, "pockettts_builtin_voice_combo", runtime.get("pocket_tts_builtin_voice", "auto"))
+        ),
+        "pocket_tts_use_cloned_voice": _live_checked(backend, "pockettts_use_cloned_voice_checkbox", runtime.get("pocket_tts_use_cloned_voice", True)),
         "pocket_tts_prewarm_on_start": _live_checked(backend, "pockettts_prewarm_checkbox", runtime.get("pocket_tts_prewarm_on_start", True)),
     }
 
@@ -53,6 +57,22 @@ def _live_checked(backend, object_name, default):
         return bool(default)
 
 
+def _live_combo_value(backend, object_name, default):
+    widget = backend._live_widget_attr(object_name)
+    try:
+        if widget is not None and hasattr(widget, "currentData"):
+            data = widget.currentData()
+            if data is not None and str(data).strip():
+                return str(data).strip()
+        if widget is not None and hasattr(widget, "currentText"):
+            text = str(widget.currentText() or "").strip()
+            if text:
+                return text
+    except Exception:
+        pass
+    return str(default or "").strip()
+
+
 def estimated_runtime_overhead_gib():
     return 2.0
 
@@ -68,8 +88,11 @@ def build_status_snapshot(backend, runtime_config=None):
         "pocket_tts_temperature": _live_float(backend, "pockettts_temperature_spin", runtime.get("pocket_tts_temperature", 0.7), minimum=0.05),
         "pocket_tts_lsd_decode_steps": _live_int(backend, "pockettts_lsd_steps_spin", runtime.get("pocket_tts_lsd_decode_steps", 1), minimum=1),
         "pocket_tts_eos_threshold": _live_float(backend, "pockettts_eos_threshold_spin", runtime.get("pocket_tts_eos_threshold", -4.0)),
-        "pocket_tts_max_tokens": _live_int(backend, "pockettts_max_tokens_spin", runtime.get("pocket_tts_max_tokens", 50), minimum=1),
         "pocket_tts_frames_after_eos": _live_int(backend, "pockettts_frames_after_eos_spin", runtime.get("pocket_tts_frames_after_eos", 0), minimum=0),
+        "pocket_tts_builtin_voice": normalize_pocket_tts_builtin_voice(
+            _live_combo_value(backend, "pockettts_builtin_voice_combo", runtime.get("pocket_tts_builtin_voice", "auto"))
+        ),
+        "pocket_tts_use_cloned_voice": _live_checked(backend, "pockettts_use_cloned_voice_checkbox", runtime.get("pocket_tts_use_cloned_voice", True)),
         "pocket_tts_prewarm_on_start": _live_checked(backend, "pockettts_prewarm_checkbox", runtime.get("pocket_tts_prewarm_on_start", True)),
     }
 
@@ -84,15 +107,24 @@ def refresh_resource_widgets(backend, runtime_config=None):
         ("pockettts_temperature_spin", "pocket_tts_temperature", 0.7),
         ("pockettts_lsd_steps_spin", "pocket_tts_lsd_decode_steps", 1),
         ("pockettts_eos_threshold_spin", "pocket_tts_eos_threshold", -4.0),
-        ("pockettts_max_tokens_spin", "pocket_tts_max_tokens", 50),
         ("pockettts_frames_after_eos_spin", "pocket_tts_frames_after_eos", 0),
     ):
         spin = backend._live_widget_attr(object_name)
         if spin is not None and hasattr(spin, "setValue"):
             spin.setValue(runtime.get(key, default))
-    checkbox = backend._live_widget_attr("pockettts_prewarm_checkbox")
-    if checkbox is not None and hasattr(checkbox, "setChecked"):
-        checkbox.setChecked(bool(runtime.get("pocket_tts_prewarm_on_start", True)))
+    combo = backend._live_widget_attr("pockettts_builtin_voice_combo")
+    if combo is not None:
+        value = normalize_pocket_tts_builtin_voice(runtime.get("pocket_tts_builtin_voice", "auto"))
+        index = combo.findData(value) if hasattr(combo, "findData") else -1
+        if index >= 0 and hasattr(combo, "setCurrentIndex"):
+            combo.setCurrentIndex(index)
+    for object_name, key, default in (
+        ("pockettts_use_cloned_voice_checkbox", "pocket_tts_use_cloned_voice", True),
+        ("pockettts_prewarm_checkbox", "pocket_tts_prewarm_on_start", True),
+    ):
+        checkbox = backend._live_widget_attr(object_name)
+        if checkbox is not None and hasattr(checkbox, "setChecked"):
+            checkbox.setChecked(bool(runtime.get(key, default)))
 
 
 def restart_sensitive_widgets(backend):

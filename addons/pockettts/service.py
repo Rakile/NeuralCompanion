@@ -4,6 +4,7 @@ import os
 import threading
 from pathlib import Path
 
+from core.pocket_tts_voices import resolve_pocket_tts_builtin_voice
 from core.tts_runtime import PocketTTSSubprocessAdapter
 
 
@@ -40,10 +41,10 @@ class PocketTTSService:
         service = self._runtime_config_service()
         getter = service.get if service is not None else (lambda _key, default=None: default)
         return {
+            "language": "en",
             "temperature": max(0.05, float(getter("pocket_tts_temperature", 0.7) or 0.7)),
             "lsd_decode_steps": max(1, int(getter("pocket_tts_lsd_decode_steps", 1) or 1)),
             "eos_threshold": float(getter("pocket_tts_eos_threshold", -4.0) or -4.0),
-            "max_tokens": max(1, int(getter("pocket_tts_max_tokens", 50) or 50)),
             "frames_after_eos": max(0, int(getter("pocket_tts_frames_after_eos", 0) or 0)),
         }
 
@@ -56,7 +57,17 @@ class PocketTTSService:
             return value.strip().lower() not in {"0", "false", "no", "off"}
         return bool(value)
 
+    def _use_cloned_voice(self):
+        return self._runtime_bool("pocket_tts_use_cloned_voice", True)
+
+    def _builtin_voice(self, language="en"):
+        service = self._runtime_config_service()
+        value = service.get("pocket_tts_builtin_voice", "auto") if service is not None else "auto"
+        return resolve_pocket_tts_builtin_voice(value, language)
+
     def _voice_prompt_path(self):
+        if not self._use_cloned_voice():
+            return ""
         service = self._runtime_config_service()
         voice_path = str((service.get("voice_path", "") if service is not None else "") or "").strip()
         if voice_path and os.path.exists(voice_path):
@@ -93,6 +104,11 @@ class PocketTTSService:
 
     def generate(self, text, audio_prompt_path=None, **kwargs):
         adapter = self._ensure_adapter()
+        language = self._runtime_settings()["language"]
+        if not self._use_cloned_voice():
+            audio_prompt_path = self._builtin_voice(language)
+        elif audio_prompt_path is None:
+            audio_prompt_path = self._voice_prompt_path() or None
         return adapter.generate(text, audio_prompt_path=audio_prompt_path, **kwargs)
 
     def warm_up(self):
@@ -101,9 +117,13 @@ class PocketTTSService:
         with self._lock:
             try:
                 adapter = self._ensure_adapter()
+                language = self._runtime_settings()["language"]
+                audio_prompt_path = self._voice_prompt_path() or None
+                if not self._use_cloned_voice():
+                    audio_prompt_path = self._builtin_voice(language)
                 adapter.generate(
                     "Ready.",
-                    audio_prompt_path=self._voice_prompt_path() or None,
+                    audio_prompt_path=audio_prompt_path,
                     pocket_tts_max_tokens=12,
                     pocket_tts_frames_after_eos=0,
                 )

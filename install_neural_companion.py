@@ -678,8 +678,9 @@ class Installer:
             str(REPO_ROOT / "requirements.companion.txt"),
         )
 
-        if torch_index_url == MAIN_TORCH_CU128_INDEX_URL:
-            note("Re-applying PyTorch cu128 after requirements so Chatterbox metadata pins do not downgrade RTX 50 support...")
+        if torch_index_url:
+            stack_label = "cu128" if torch_index_url == MAIN_TORCH_CU128_INDEX_URL else "CUDA-enabled"
+            note(f"Re-applying main PyTorch {stack_label} stack after requirements so package metadata cannot downgrade GPU support...")
             self.pip_install(
                 python_exe,
                 "install",
@@ -719,7 +720,11 @@ class Installer:
         note("Upgrading PocketTTS bootstrap tools...")
         self.pip_install(python_exe, "install", "--upgrade", "pip", "setuptools<81", "wheel")
         note("Installing pocket-tts into isolated environment...")
-        self.pip_install(python_exe, "install", "pocket-tts==1.1.1")
+        self.pip_install(
+            python_exe,
+            "install",
+            "https://github.com/kyutai-labs/pocket-tts/archive/refs/heads/main.zip",
+        )
         run_command([str(python_exe), "-m", "pip", "show", "pocket-tts"], cwd=REPO_ROOT)
         ok("PocketTTS validation passed: package is installed in the isolated runtime")
         self.check_pockettts_huggingface_access(python_exe)

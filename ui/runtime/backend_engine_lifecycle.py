@@ -78,11 +78,25 @@ class BackendEngineLifecycleMixin:
     def apply_text_config(self):
         runtime_config = _runtime_config()
         avatar_mode = self._current_avatar_mode_value() if hasattr(self, "engine_combo") else str(runtime_config.get("avatar_mode", "vseeface") or "vseeface").strip().lower()
-        mode = "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation"
+        mode = self._input_mode_value_from_label(self.input_mode_combo.currentText())
         role = self._input_role_value_from_label(self.input_role_combo.currentText())
         stream_mode = self.stream_mode_combo.currentText() == "On"
         tts_backend = self._current_tts_backend_value()
         _update_runtime_config("input_mode", mode)
+        if mode == "text_only":
+            set_stt_none = getattr(self, "_set_stt_backend_none_for_text_only", None)
+            if callable(set_stt_none):
+                set_stt_none()
+            else:
+                _update_runtime_config("stt_backend", "none")
+        else:
+            restore_stt = getattr(self, "_restore_stt_backend_for_voice_input", None)
+            stt_backend = restore_stt() if callable(restore_stt) else self._current_stt_backend_value()
+            _update_runtime_config("stt_backend", stt_backend)
+        if hasattr(self, "_current_stt_model_value"):
+            _update_runtime_config("stt_model_size", self._current_stt_model_value())
+        if hasattr(self, "_current_stt_language_value"):
+            _update_runtime_config("stt_language", self._current_stt_language_value())
         _update_runtime_config("input_message_role", role)
         _update_runtime_config("stream_mode", stream_mode)
         _update_runtime_config("tts_backend", tts_backend)
@@ -109,6 +123,7 @@ class BackendEngineLifecycleMixin:
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
         self.apply_text_config()
+        input_mode = self._input_mode_value_from_label(self.input_mode_combo.currentText())
         config = {
             "active_preset_name": str(runtime_config.get("active_preset_name", "") or ""),
             "chat_provider": self._current_chat_provider_value(),
@@ -124,9 +139,20 @@ class BackendEngineLifecycleMixin:
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
             "avatar_mode": mode,
-            "input_mode": "push_to_talk" if self.input_mode_combo.currentText() == "Push-to-Talk" else "voice_activation",
+            "input_mode": input_mode,
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
             "stream_mode": self.stream_mode_combo.currentText() == "On",
+            "stt_backend": (
+                "none"
+                if input_mode == "text_only"
+                else (
+                    self._current_stt_backend_value()
+                    if hasattr(self, "_current_stt_backend_value")
+                    else str(runtime_config.get("stt_backend", "none") or "none")
+                )
+            ),
+            "stt_model_size": self._current_stt_model_value() if hasattr(self, "_current_stt_model_value") else str(runtime_config.get("stt_model_size", "tiny.en") or "tiny.en"),
+            "stt_language": self._current_stt_language_value() if hasattr(self, "_current_stt_language_value") else str(runtime_config.get("stt_language", "en") or "en"),
             "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(runtime_config.get("audio_input_device", "Default Input") or "Default Input"),
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(runtime_config.get("audio_output_device", "Default Output") or "Default Output"),
             "offline_replay_only": bool(offline_replay_only),

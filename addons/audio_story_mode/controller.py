@@ -2594,8 +2594,8 @@ class AudioStoryModeController(QtCore.QObject):
     def _run_transcription_job(self, job_id: int, path: str, chunk_seconds: int, image_frequency_seconds: int, continuity_strength: float, transcription_start_seconds: int = 0, transcription_end_seconds: int = 0):
         temp_transcription_path = None
         try:
-            if not audio_story_runtime.ensure_whisper_ready():
-                raise RuntimeError("Failed to initialize the local Whisper model.")
+            if not audio_story_runtime.ensure_stt_ready():
+                raise RuntimeError("Audio Story STT runtime is not configured.")
             audio_duration = audio_story_runtime.audio_duration_seconds(path)
             range_start = max(0.0, float(transcription_start_seconds or 0))
             range_end = max(0.0, float(transcription_end_seconds or 0))

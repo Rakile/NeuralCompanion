@@ -16,6 +16,22 @@ import soundfile as sf
 import torch
 
 from core import runtime_paths
+from core.pocket_tts_voices import default_pocket_tts_voice_for_language
+
+
+def _auto_pocket_tts_max_tokens(text: str, configured_max_tokens: int, language: str) -> int:
+    """Choose a synthesis token budget from the actual text chunk length."""
+    clean = " ".join(str(text or "").split())
+    configured = max(1, int(configured_max_tokens or 1))
+    if not clean:
+        return configured
+    lang = str(language or "").strip().lower()
+    multilingual = lang not in {"", "en", "english"}
+    base = 56 if multilingual else 40
+    ratio = 2.1 if multilingual else 1.6
+    ceiling = 520 if multilingual else 420
+    estimated = base + int(round(len(clean) * ratio))
+    return min(ceiling, max(configured, estimated))
 
 
 def load_audio_file(path):
@@ -335,6 +351,7 @@ class PocketTTSSubprocessAdapter:
         safe_delete_with_retry=None,
         logger=print,
         temperature=0.7,
+        language="en",
         lsd_decode_steps=1,
         eos_threshold=-4.0,
         max_tokens=50,
@@ -345,6 +362,7 @@ class PocketTTSSubprocessAdapter:
         self.safe_delete_with_retry = safe_delete_with_retry or (lambda path: None)
         self.logger = logger
         self.temperature = float(temperature or 0.7)
+        self.language = str(language or "en").strip().lower() or "en"
         self.lsd_decode_steps = max(1, int(lsd_decode_steps or 1))
         self.eos_threshold = float(eos_threshold if eos_threshold is not None else -4.0)
         self.max_tokens = max(1, int(max_tokens or 50))
@@ -366,6 +384,8 @@ class PocketTTSSubprocessAdapter:
             worker_script,
             "--temperature",
             str(self.temperature),
+            "--language",
+            str(self.language),
             "--lsd-decode-steps",
             str(self.lsd_decode_steps),
             "--eos-threshold",
@@ -385,11 +405,18 @@ class PocketTTSSubprocessAdapter:
         self._stderr_thread.start()
         ready = self._read_message(timeout=120.0)
         if not ready or ready.get("status") != "ready":
-            raise RuntimeError(f"PocketTTS worker failed to start: {ready}")
+            error = str((ready or {}).get("error") or ready or "unknown startup error")
+            raise RuntimeError(f"PocketTTS worker failed to start: {error}")
         self.sr = int(ready.get("sample_rate", 24000) or 24000)
         worker_pid = ready.get("pid")
         if worker_pid:
-            self.logger(f"[PocketTTS] Worker ready: pid={worker_pid}, sample_rate={self.sr}")
+            language = str(ready.get("language", self.language) or self.language)
+            model_language = str(ready.get("model_language", language) or language)
+            applied = "yes" if bool(ready.get("language_applied", False)) else "no"
+            self.logger(
+                f"[PocketTTS] Worker ready: pid={worker_pid}, sample_rate={self.sr}, "
+                f"language={language}, model_language={model_language}, load_model_language={applied}"
+            )
 
     def _drain_stderr(self):
         if self.process is None or self.process.stderr is None:
@@ -404,11 +431,14 @@ class PocketTTSSubprocessAdapter:
             raise RuntimeError("PocketTTS worker is not running")
         deadline = time.time() + timeout
         while time.time() < deadline:
+            if self.process.poll() is not None:
+                line = self.process.stdout.readline()
+                if line:
+                    return json.loads(line)
+                raise RuntimeError(f"PocketTTS worker stopped before responding (exit_code={self.process.returncode})")
             line = self.process.stdout.readline()
             if line:
                 return json.loads(line)
-            if self.process.poll() is not None:
-                break
             time.sleep(0.01)
         raise TimeoutError("Timed out waiting for PocketTTS worker response")
 
@@ -417,16 +447,20 @@ class PocketTTSSubprocessAdapter:
             raise RuntimeError("PocketTTS worker is not available")
         request_id = uuid.uuid4().hex[:8]
         output_path = str(runtime_paths.runtime_temp_file(f"pocket_tts_{request_id}.wav", "tts", "pocket_tts"))
-        max_tokens = max(1, int(kwargs.get("pocket_tts_max_tokens", self.max_tokens) or self.max_tokens))
+        request_language = str(kwargs.get("pocket_tts_language", self.language) or self.language)
+        configured_max_tokens = max(1, int(kwargs.get("pocket_tts_max_tokens", self.max_tokens) or self.max_tokens))
+        max_tokens = _auto_pocket_tts_max_tokens(text, configured_max_tokens, request_language)
         frames_after_eos = max(0, int(kwargs.get("pocket_tts_frames_after_eos", self.frames_after_eos) or 0))
+        default_voice = default_pocket_tts_voice_for_language(self.language)
         payload = {
             "cmd": "synthesize",
             "request_id": request_id,
             "text": text,
-            "voice_prompt": audio_prompt_path or "alba",
+            "voice_prompt": audio_prompt_path or default_voice,
             "output_path": output_path,
             "max_tokens": max_tokens,
             "frames_after_eos": frames_after_eos,
+            "language": request_language,
         }
         with self.lock:
             self.process.stdin.write(json.dumps(payload) + "\n")

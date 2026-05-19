@@ -80,7 +80,7 @@ class BackendResourceRefreshMixin:
             backend_id=str(runtime_config.get("tts_backend", "chatterbox") or "chatterbox").lower(),
         )
         input_mode = str(runtime_config.get("input_mode", "voice_activation") or "voice_activation").lower()
-        self.input_mode_combo.setCurrentText("Push-to-Talk" if input_mode == "push_to_talk" else "Voice Activation")
+        self.input_mode_combo.setCurrentText(self._input_mode_label_from_value(input_mode))
         input_role = str(runtime_config.get("input_message_role", "user") or "user").lower()
         self.input_role_combo.setCurrentText(self._input_role_label_from_value(input_role))
         if hasattr(self, "chat_context_window_spin"):

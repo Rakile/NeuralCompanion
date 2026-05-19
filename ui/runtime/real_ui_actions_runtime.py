@@ -136,6 +136,18 @@ class RealUiActionsRuntimeMixin:
             self._sync_single_combo_to_backend("stream_mode_combo")
             self._refresh_host_input_runtime_frontend()
 
+    def _on_frontend_stt_backend_changed(self, _index=None):
+            self._sync_single_combo_to_backend("stt_backend_combo")
+            self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_stt_model_changed(self, _index=None):
+            self._sync_single_combo_to_backend("stt_model_combo")
+            self._refresh_host_input_runtime_frontend()
+
+    def _on_frontend_stt_language_changed(self, _index=None):
+            self._sync_single_combo_to_backend("stt_language_combo")
+            self._refresh_host_input_runtime_frontend()
+
     def _on_frontend_tts_backend_changed(self, _index=None):
             self._sync_single_combo_to_backend("tts_backend_combo")
             self._refresh_host_input_runtime_frontend()

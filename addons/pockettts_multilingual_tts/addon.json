@@ -1,0 +1,47 @@
+{
+  "id": "nc.pockettts_multilingual_tts",
+  "name": "PocketTTS Multilingual",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "PocketTTS multilingual backend exposed as a separate TTS addon.",
+  "category": "global",
+  "permissions": [
+    "services.register",
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "pocket_tts_multilingual_language": "en",
+    "pocket_tts_multilingual_temperature": 0.7,
+    "pocket_tts_multilingual_lsd_decode_steps": 1,
+    "pocket_tts_multilingual_eos_threshold": -4.0,
+    "pocket_tts_multilingual_frames_after_eos": 0,
+    "pocket_tts_multilingual_builtin_voice": "auto",
+    "pocket_tts_multilingual_use_cloned_voice": true,
+    "pocket_tts_multilingual_prewarm_on_start": true
+  },
+  "services": [
+    {
+      "id": "tts_backend_service",
+      "backend_id": "pockettts_multilingual",
+      "metadata": {
+        "real_ui_bridge_module": "addons.pockettts_multilingual_tts.real_ui_bridge"
+      }
+    }
+  ],
+  "ui": [
+    {
+      "id": "pockettts_multilingual_tts_tab",
+      "title": "PocketTTS Multilingual",
+      "area": "tts_runtime",
+      "ui_path": "ui/pockettts_multilingual_tts.ui",
+      "placeholder": "tts_pockettts_multilingual_tab",
+      "order": 210,
+      "tooltip": "PocketTTS multilingual model settings.",
+      "metadata": {
+        "backend_id": "pockettts_multilingual",
+        "real_ui_bridge_module": "addons.pockettts_multilingual_tts.real_ui_bridge"
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -273,16 +273,16 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border: 1px solid #273342;
     border-radius: 10px;
 }
-QGroupBox#chat_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
+QGroupBox#chat_runtime_box, QGroupBox#stt_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
     margin-top: 18px;
     padding-top: 12px;
 }
-QGroupBox#chat_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
+QGroupBox#chat_runtime_box::title, QGroupBox#stt_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
     subcontrol-origin: margin;
     left: 10px;
     padding: 0 8px 0 8px;
 }
-QGroupBox#chat_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
+QGroupBox#chat_runtime_box::indicator, QGroupBox#stt_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
     width: 0px;
     height: 0px;
 }

@@ -56,6 +56,7 @@ def _apply_ui_shell_read_only_config(window):
     tts_labels = {
         "chatterbox": "Chatterbox",
         "pockettts": "PocketTTS",
+        "pockettts_multilingual": "PocketTTS Multilingual",
         "gemini_tts_preview": "Gemini TTS Preview",
     }
     avatar_labels = {
@@ -64,13 +65,22 @@ def _apply_ui_shell_read_only_config(window):
         "vam": "VaM",
         "none": "None",
     }
+    input_mode_labels = {
+        "voice_activation": "Voice Activation",
+        "push_to_talk": "Push-to-Talk",
+        "text_only": "Text Only",
+    }
     applied = []
 
     combo_specs = (
         ("audio_input_device_combo", list(audio_devices.get("inputs") or ["Default Input"]), session.get("audio_input_device", "Default Input")),
         ("audio_output_device_combo", list(audio_devices.get("outputs") or ["Default Output"]), session.get("audio_output_device", "Default Output")),
         ("engine_combo", list(avatar_labels.values()), avatar_labels.get(str(session.get("avatar_mode", "")).strip().lower(), session.get("avatar_mode", ""))),
-        ("input_mode_combo", ["Voice Activation", "Push-to-Talk"], session.get("input_mode", "")),
+        (
+            "input_mode_combo",
+            ["Voice Activation", "Push-to-Talk", "Text Only"],
+            input_mode_labels.get(str(session.get("input_mode", "")).strip().lower(), session.get("input_mode", "")),
+        ),
         ("input_role_combo", ["User Message", "System Message", "Assistant Message"], session.get("input_message_role", "")),
         ("stream_mode_combo", ["Off", "On"], session.get("stream_mode", "")),
         ("tts_backend_combo", list(tts_labels.values()), tts_labels.get(str(session.get("tts_backend", "")).strip().lower(), session.get("tts_backend", ""))),

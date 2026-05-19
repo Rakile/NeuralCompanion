@@ -1,0 +1,165 @@
+from __future__ import annotations
+
+import os
+import threading
+from pathlib import Path
+
+from core.pocket_tts_voices import resolve_pocket_tts_builtin_voice
+from core.tts_runtime import PocketTTSSubprocessAdapter
+
+
+SUPPORTED_LANGUAGES = {"en", "fr", "de", "es", "pt", "it"}
+
+
+def _normalize_language(value):
+    text = str(value or "").strip().lower()
+    return text if text in SUPPORTED_LANGUAGES else "en"
+
+
+class PocketTTSMultilingualService:
+    def __init__(self, context):
+        self._context = context
+        self._lock = threading.RLock()
+        self._adapter = None
+        self._python_exe = ""
+        self._settings_signature = ()
+        self.sr = 24000
+
+    def _runtime_config_service(self):
+        return self._context.get_service("qt.runtime_config") if self._context is not None else None
+
+    def _engine_attr(self, name: str, default=None):
+        service = self._runtime_config_service()
+        if service is not None and hasattr(service, "engine_attr"):
+            return service.engine_attr(name, default)
+        return default
+
+    def _resolve_python_exe(self) -> str:
+        service = self._runtime_config_service()
+        python_exe = str((service.get("pocket_tts_python", "") if service is not None else "") or "").strip()
+        if not python_exe:
+            fallback = str(self._engine_attr("DEFAULT_POCKET_TTS_PYTHON", "") or "").strip()
+            if fallback and Path(fallback).exists():
+                python_exe = fallback
+                if service is not None:
+                    service.update("pocket_tts_python", fallback)
+        return python_exe
+
+    def _runtime_settings(self):
+        service = self._runtime_config_service()
+        getter = service.get if service is not None else (lambda _key, default=None: default)
+        return {
+            "language": _normalize_language(getter("pocket_tts_multilingual_language", "en")),
+            "temperature": max(0.05, float(getter("pocket_tts_multilingual_temperature", 0.7) or 0.7)),
+            "lsd_decode_steps": max(1, int(getter("pocket_tts_multilingual_lsd_decode_steps", 1) or 1)),
+            "eos_threshold": float(getter("pocket_tts_multilingual_eos_threshold", -4.0) or -4.0),
+            "max_tokens": 160,
+            "frames_after_eos": max(0, int(getter("pocket_tts_multilingual_frames_after_eos", 0) or 0)),
+        }
+
+    def _runtime_bool(self, key: str, default: bool) -> bool:
+        service = self._runtime_config_service()
+        if service is None:
+            return bool(default)
+        value = service.get(key, default)
+        if isinstance(value, str):
+            return value.strip().lower() not in {"0", "false", "no", "off"}
+        return bool(value)
+
+    def _use_cloned_voice(self):
+        return self._runtime_bool("pocket_tts_multilingual_use_cloned_voice", True)
+
+    def _builtin_voice(self, language):
+        service = self._runtime_config_service()
+        value = service.get("pocket_tts_multilingual_builtin_voice", "auto") if service is not None else "auto"
+        return resolve_pocket_tts_builtin_voice(value, language)
+
+    def _voice_prompt_path(self):
+        if not self._use_cloned_voice():
+            return ""
+        service = self._runtime_config_service()
+        voice_path = str((service.get("voice_path", "") if service is not None else "") or "").strip()
+        if voice_path and os.path.exists(voice_path):
+            return voice_path
+        if voice_path:
+            print(f"⚠️ Voice file not found: {voice_path}. Continuing without the PocketTTS voice reference.")
+        return ""
+
+    def _ensure_adapter(self):
+        with self._lock:
+            python_exe = self._resolve_python_exe()
+            settings = self._runtime_settings()
+            signature = tuple((key, settings[key]) for key in sorted(settings))
+            if self._adapter is not None and python_exe == self._python_exe and signature == self._settings_signature:
+                return self._adapter
+            if self._adapter is not None:
+                try:
+                    self._adapter.close()
+                except Exception:
+                    pass
+            if not python_exe:
+                raise RuntimeError("Set PocketTTS Python in the PocketTTS addon tab first.")
+            try:
+                self._adapter = PocketTTSSubprocessAdapter(
+                    python_exe,
+                    app_root=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    safe_delete_with_retry=self._engine_attr("safe_delete_with_retry", None),
+                    logger=print,
+                    **settings,
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    "PocketTTS Multilingual could not start. Reinstall the isolated PocketTTS runtime "
+                    "from kyutai-labs/pocket-tts main, or use regular PocketTTS for English."
+                ) from exc
+            self._python_exe = python_exe
+            self._settings_signature = signature
+            self.sr = int(getattr(self._adapter, "sr", self.sr) or self.sr or 24000)
+            return self._adapter
+
+    def generate(self, text, audio_prompt_path=None, **kwargs):
+        adapter = self._ensure_adapter()
+        language = self._runtime_settings()["language"]
+        request = dict(kwargs or {})
+        request["pocket_tts_language"] = language
+        if not self._use_cloned_voice():
+            audio_prompt_path = self._builtin_voice(language)
+        elif audio_prompt_path is None:
+            audio_prompt_path = self._voice_prompt_path() or None
+        return adapter.generate(text, audio_prompt_path=audio_prompt_path, **request)
+
+    def warm_up(self):
+        if not self._runtime_bool("pocket_tts_multilingual_prewarm_on_start", True):
+            return False
+        with self._lock:
+            try:
+                adapter = self._ensure_adapter()
+                language = self._runtime_settings()["language"]
+                audio_prompt_path = self._voice_prompt_path() or None
+                if not self._use_cloned_voice():
+                    audio_prompt_path = self._builtin_voice(language)
+                adapter.generate(
+                    "Ready.",
+                    audio_prompt_path=audio_prompt_path,
+                    pocket_tts_language=language,
+                    pocket_tts_max_tokens=12,
+                    pocket_tts_frames_after_eos=0,
+                )
+                self.sr = int(getattr(adapter, "sr", self.sr) or self.sr or 24000)
+                print("✓ PocketTTS Multilingual warmup complete")
+                return True
+            except Exception as exc:
+                print(f"⚠️ PocketTTS Multilingual warmup failed: {exc}")
+                return False
+
+    def close(self):
+        with self._lock:
+            adapter = self._adapter
+            self._adapter = None
+            self._python_exe = ""
+            self._settings_signature = ()
+        if adapter is not None:
+            try:
+                adapter.close()
+            except Exception:
+                pass

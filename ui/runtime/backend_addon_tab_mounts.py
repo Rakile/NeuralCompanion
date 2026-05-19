@@ -216,6 +216,55 @@ class BackendAddonTabMountMixin:
             if backend_id:
                 self._tts_runtime_tab_index_by_backend[backend_id] = tab_index
 
+        def configure_tabs():
+            tabs = getattr(self, "tts_runtime_addon_tabs", None)
+            if tabs is None:
+                return
+            try:
+                tabs.setUsesScrollButtons(True)
+                tabs.setElideMode(QtCore.Qt.ElideNone)
+            except Exception:
+                pass
+            try:
+                tab_bar = tabs.tabBar()
+                if tab_bar is not None:
+                    tab_bar.setExpanding(False)
+                    tab_bar.setUsesScrollButtons(True)
+                    tab_bar.setElideMode(QtCore.Qt.ElideNone)
+                    for index in range(tabs.count()):
+                        label = str(tabs.tabText(index) or "").strip()
+                        if label and not str(tabs.tabToolTip(index) or "").strip():
+                            tabs.setTabToolTip(index, label)
+            except Exception:
+                pass
+            try:
+                existing = str(tabs.styleSheet() or "").strip()
+                start = "/* nc-tts-runtime-tabs-label-fit:start */"
+                end = "/* nc-tts-runtime-tabs-label-fit:end */"
+                if start in existing and end in existing:
+                    before, rest = existing.split(start, 1)
+                    _old, after = rest.split(end, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                style = """
+/* nc-tts-runtime-tabs-label-fit:start */
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    min-width: 74px;
+    max-width: 172px;
+    padding-left: 10px;
+    padding-right: 10px;
+    margin-right: 1px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    margin-right: 1px;
+}
+/* nc-tts-runtime-tabs-label-fit:end */
+""".strip()
+                next_style = f"{existing}\n{style}".strip() if existing else style
+                if str(tabs.styleSheet() or "") != next_style:
+                    tabs.setStyleSheet(next_style)
+            except Exception:
+                pass
+
         self._mount_simple_addon_tabs(
             area="tts_runtime",
             tabs_attr="tts_runtime_addon_tabs",
@@ -225,6 +274,7 @@ class BackendAddonTabMountMixin:
             on_mounted=on_mounted,
             fallback_factory=self._build_tts_runtime_fallback_tab,
         )
+        configure_tabs()
         self._refresh_tts_runtime_card()
 
     def _mount_visual_reply_runtime_card(self):

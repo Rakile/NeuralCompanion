@@ -242,6 +242,9 @@ class MainUiRealBindingMixin:
                 ("input_mode_combo", self._on_frontend_input_mode_changed),
                 ("input_role_combo", self._on_frontend_input_role_changed),
                 ("stream_mode_combo", self._on_frontend_stream_mode_changed),
+                ("stt_backend_combo", self._on_frontend_stt_backend_changed),
+                ("stt_model_combo", self._on_frontend_stt_model_changed),
+                ("stt_language_combo", self._on_frontend_stt_language_changed),
                 ("tts_backend_combo", self._on_frontend_tts_backend_changed),
             )
             for object_name, handler in combo_bindings:

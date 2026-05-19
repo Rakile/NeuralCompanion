@@ -15,6 +15,7 @@ CHATTERBOX_TOOLTIPS = {
     "chatterbox_normalize_loudness": "Normalize generated speech loudness toward -27 LUFS for steadier playback volume.",
     "chatterbox_prewarm_on_start": "Run one tiny discarded Chatterbox generation during chat startup so the first real reply starts faster.",
     "chatterbox_apply_watermark": "Apply Chatterbox/Perth implicit watermarking to generated speech. Disable only if you want to avoid that extra processing.",
+    "chatterbox_use_cloned_voice": "Use the configured avatar voice file as a reference. Disable to use Chatterbox Turbo's built-in/default voice.",
 }
 
 
@@ -37,6 +38,7 @@ class ChatterboxTTSController:
         self._repeat_penalty_spin = None
         self._min_p_spin = None
         self._normalize_loudness_checkbox = None
+        self._use_cloned_voice_checkbox = None
         self._prewarm_checkbox = None
         self._apply_watermark_checkbox = None
 
@@ -63,6 +65,7 @@ class ChatterboxTTSController:
             "tts_normalize_loudness": bool(session.get("tts_normalize_loudness", False)),
             "tts_prewarm_on_start": bool(session.get("tts_prewarm_on_start", True)),
             "tts_apply_watermark": bool(session.get("tts_apply_watermark", True)),
+            "tts_use_cloned_voice": bool(session.get("tts_use_cloned_voice", True)),
         }
 
     def _notify_settings_changed(self):
@@ -85,6 +88,7 @@ class ChatterboxTTSController:
             "tts_normalize_loudness": bool(getter("tts_normalize_loudness", False)),
             "tts_prewarm_on_start": bool(getter("tts_prewarm_on_start", True)),
             "tts_apply_watermark": bool(getter("tts_apply_watermark", True)),
+            "tts_use_cloned_voice": bool(getter("tts_use_cloned_voice", True)),
         }
 
     def _set_runtime(self, key: str, value):
@@ -119,6 +123,7 @@ class ChatterboxTTSController:
             widget.blockSignals(False)
         checkboxes = (
             ("_normalize_loudness_checkbox", state["tts_normalize_loudness"]),
+            ("_use_cloned_voice_checkbox", state["tts_use_cloned_voice"]),
             ("_prewarm_checkbox", state["tts_prewarm_on_start"]),
             ("_apply_watermark_checkbox", state["tts_apply_watermark"]),
         )
@@ -169,6 +174,7 @@ class ChatterboxTTSController:
         self._repeat_penalty_spin = self._ui_child(widget, "chatterbox_repeat_penalty_spin", QtWidgets.QDoubleSpinBox)
         self._min_p_spin = self._ui_child(widget, "chatterbox_min_p_spin", QtWidgets.QDoubleSpinBox)
         self._normalize_loudness_checkbox = self._ui_child(widget, "chatterbox_normalize_loudness_checkbox", QtWidgets.QCheckBox)
+        self._use_cloned_voice_checkbox = self._ui_child(widget, "chatterbox_use_cloned_voice_checkbox", QtWidgets.QCheckBox)
         self._prewarm_checkbox = self._ui_child(widget, "chatterbox_prewarm_checkbox", QtWidgets.QCheckBox)
         self._apply_watermark_checkbox = self._ui_child(widget, "chatterbox_apply_watermark_checkbox", QtWidgets.QCheckBox)
         info = self._ui_child(widget, "chatterbox_info_label", QtWidgets.QLabel)
@@ -181,6 +187,7 @@ class ChatterboxTTSController:
             self._repeat_penalty_spin,
             self._min_p_spin,
             self._normalize_loudness_checkbox,
+            self._use_cloned_voice_checkbox,
             self._prewarm_checkbox,
             self._apply_watermark_checkbox,
             info,
@@ -226,6 +233,9 @@ class ChatterboxTTSController:
         self._normalize_loudness_checkbox.setToolTip(CHATTERBOX_TOOLTIPS["chatterbox_normalize_loudness"])
         self._normalize_loudness_checkbox.toggled.connect(lambda checked: self._set_runtime("tts_normalize_loudness", bool(checked)))
 
+        self._use_cloned_voice_checkbox.setToolTip(CHATTERBOX_TOOLTIPS["chatterbox_use_cloned_voice"])
+        self._use_cloned_voice_checkbox.toggled.connect(lambda checked: self._set_runtime("tts_use_cloned_voice", bool(checked)))
+
         self._prewarm_checkbox.setToolTip(CHATTERBOX_TOOLTIPS["chatterbox_prewarm_on_start"])
         self._prewarm_checkbox.toggled.connect(lambda checked: self._set_runtime("tts_prewarm_on_start", bool(checked)))
 
@@ -260,6 +270,7 @@ class ChatterboxTTSController:
                 "tts_normalize_loudness": lambda v: bool(v),
                 "tts_prewarm_on_start": lambda v: bool(v),
                 "tts_apply_watermark": lambda v: bool(v),
+                "tts_use_cloned_voice": lambda v: bool(v),
             }
             changed = False
             for key, converter in mapping.items():
@@ -286,6 +297,7 @@ class ChatterboxTTSController:
             "tts_normalize_loudness": lambda v: bool(v),
             "tts_prewarm_on_start": lambda v: bool(v),
             "tts_apply_watermark": lambda v: bool(v),
+            "tts_use_cloned_voice": lambda v: bool(v),
         }
         for key, converter in mapping.items():
             if key not in payload:
