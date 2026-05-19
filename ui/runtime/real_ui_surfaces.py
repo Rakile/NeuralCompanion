@@ -450,6 +450,7 @@ class MainUiRealSurfacesMixin:
             if not addon_id or not self._addon_surface_runtime_available(addon_id):
                 try:
                     runtime_box.hide()
+                    self._set_runtime_group_header_visible(runtime_box, False)
                 except Exception:
                     pass
                 return False
@@ -466,6 +467,7 @@ class MainUiRealSurfacesMixin:
             if contribution is None:
                 try:
                     runtime_box.hide()
+                    self._set_runtime_group_header_visible(runtime_box, False)
                 except Exception:
                     pass
                 return False
@@ -489,6 +491,7 @@ class MainUiRealSurfacesMixin:
                 layout.addWidget(widget)
                 self.backend._mounted_host_settings_addon_tab_ids.add(contribution.id)
                 runtime_box.show()
+                self._set_runtime_group_header_visible(runtime_box, True)
                 try:
                     self.backend._refresh_visual_reply_hint()
                 except Exception:
@@ -498,6 +501,7 @@ class MainUiRealSurfacesMixin:
                 print(f"[UI Real] Visual Reply settings surface redirect failed: {exc}")
                 try:
                     runtime_box.hide()
+                    self._set_runtime_group_header_visible(runtime_box, False)
                 except Exception:
                     pass
                 return False

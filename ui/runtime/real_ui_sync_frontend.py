@@ -105,6 +105,7 @@ class RealUiSyncFrontendMixin:
                     "sensory_pingpong_checkbox",
                     "sensory_allow_hidden_proactive_checkbox",
                     "sensory_allow_hidden_visual_checkbox",
+                    "use_wav_file_checkbox",
                     "live_sync_checkbox",
                     "dry_run_auto_replies_checkbox",
                 } | addon_checkbox_names:
@@ -206,6 +207,7 @@ class RealUiSyncFrontendMixin:
                 "sensory_pingpong_checkbox",
                 "sensory_allow_hidden_proactive_checkbox",
                 "sensory_allow_hidden_visual_checkbox",
+                "use_wav_file_checkbox",
                 "live_sync_checkbox",
                 "dry_run_auto_replies_checkbox",
                 ))

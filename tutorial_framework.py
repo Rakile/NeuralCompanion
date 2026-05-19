@@ -1,8 +1,16 @@
 import json
 import os
+import platform
+import re
+import shutil
 from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
+
+try:
+    from PySide6.QtTextToSpeech import QTextToSpeech
+except Exception:
+    QTextToSpeech = None
 
 
 TUTORIALS_DIR = Path(__file__).resolve().parent / "tutorials"
@@ -143,6 +151,11 @@ class TutorialOverlay(QtWidgets.QWidget):
                 font-weight: 600;
             }
             QPushButton:hover { background: #29405b; }
+            QCheckBox {
+                color: #d9e3ef;
+                font-weight: 600;
+            }
+            QCheckBox:disabled { color: #697789; }
             """
         )
         panel_layout = QtWidgets.QVBoxLayout(self.panel)
@@ -164,6 +177,32 @@ class TutorialOverlay(QtWidgets.QWidget):
         panel_layout.addWidget(self.title_label)
         panel_layout.addWidget(self.body_label)
         panel_layout.addWidget(self.target_label)
+
+        self.speech_engine = None
+        self.speech_process = None
+        self.speech_command = self._detect_speech_command()
+        self.speech_unavailable = QTextToSpeech is None and self.speech_command is None
+
+        speech_row = QtWidgets.QHBoxLayout()
+        self.speech_toggle = QtWidgets.QCheckBox("Read steps aloud")
+        self.speech_toggle.setToolTip("Uses the lightest available system speech engine for tutorial instructions only.")
+        self.speech_toggle.toggled.connect(self._on_speech_toggled)
+        self.repeat_speech_button = QtWidgets.QPushButton("Read Step")
+        self.repeat_speech_button.setToolTip("Read the current tutorial step again.")
+        self.repeat_speech_button.clicked.connect(lambda: self._speak_current_step(force=True))
+        self.stop_speech_button = QtWidgets.QPushButton("Stop")
+        self.stop_speech_button.setToolTip("Stop tutorial speech.")
+        self.stop_speech_button.clicked.connect(self._stop_speech)
+        if self.speech_unavailable:
+            self.speech_toggle.setText("Read aloud unavailable")
+            self.speech_toggle.setEnabled(False)
+            self.repeat_speech_button.setEnabled(False)
+            self.stop_speech_button.setEnabled(False)
+        speech_row.addWidget(self.speech_toggle)
+        speech_row.addStretch(1)
+        speech_row.addWidget(self.repeat_speech_button)
+        speech_row.addWidget(self.stop_speech_button)
+        panel_layout.addLayout(speech_row)
 
         buttons = QtWidgets.QHBoxLayout()
         self.back_button = QtWidgets.QPushButton("Back")
@@ -206,6 +245,136 @@ class TutorialOverlay(QtWidgets.QWidget):
         except Exception:
             title = ""
         return f"{class_name}(objectName={object_name!r}, title={title!r})"
+
+    def _clean_display_text(self, text):
+        cleaned = re.sub(r"<[^>]*>", " ", str(text or ""))
+        cleaned = cleaned.replace("&", "")
+        return " ".join(cleaned.split())
+
+    def _on_speech_toggled(self, enabled):
+        if enabled and not self._ensure_speech_engine():
+            self.speech_toggle.blockSignals(True)
+            self.speech_toggle.setChecked(False)
+            self.speech_toggle.blockSignals(False)
+            self.speech_toggle.setText("Read aloud unavailable")
+            self.speech_toggle.setEnabled(False)
+            self.repeat_speech_button.setEnabled(False)
+            self.stop_speech_button.setEnabled(False)
+            return
+        if enabled:
+            self._speak_current_step(force=True)
+        else:
+            self._stop_speech()
+
+    def _detect_speech_command(self):
+        system = platform.system().lower()
+        if system == "windows":
+            for executable in ("powershell.exe", "powershell", "pwsh.exe", "pwsh"):
+                program = shutil.which(executable)
+                if not program:
+                    continue
+                script = (
+                    "$text = [Console]::In.ReadToEnd(); "
+                    "Add-Type -AssemblyName System.Speech; "
+                    "$speaker = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+                    "$speaker.Speak($text)"
+                )
+                return {
+                    "program": program,
+                    "arguments": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", script],
+                    "stdin": True,
+                }
+        if system == "darwin":
+            program = shutil.which("say")
+            if program:
+                return {"program": program, "arguments": [], "stdin": False}
+        for executable, arguments in (
+            ("spd-say", ["--wait"]),
+            ("espeak", []),
+        ):
+            program = shutil.which(executable)
+            if program:
+                return {"program": program, "arguments": arguments, "stdin": False}
+        return None
+
+    def _ensure_speech_engine(self):
+        if self.speech_engine is not None:
+            return True
+        if QTextToSpeech is None:
+            return self.speech_command is not None
+        preferred_engines = ("flite", "speechd", "sapi", "nsss", "darwin")
+        try:
+            available = [str(item) for item in QTextToSpeech.availableEngines()]
+        except Exception:
+            available = []
+        for preferred in preferred_engines:
+            for engine_name in available:
+                if preferred not in engine_name.lower():
+                    continue
+                try:
+                    self.speech_engine = QTextToSpeech(engine_name, self)
+                    return True
+                except Exception:
+                    continue
+        try:
+            self.speech_engine = QTextToSpeech(self)
+            return True
+        except Exception:
+            self.speech_engine = None
+            return self.speech_command is not None
+
+    def _speak_current_step(self, force=False):
+        if not force and not self.speech_toggle.isChecked():
+            return
+        if not self._ensure_speech_engine():
+            return
+        text = self._tutorial_speech_text()
+        if not text:
+            return
+        self._stop_speech()
+        if self.speech_engine is not None:
+            try:
+                self.speech_engine.say(text)
+            except Exception:
+                pass
+            return
+        self._speak_with_command(text)
+
+    def _speak_with_command(self, text):
+        if not self.speech_command:
+            return
+        process = QtCore.QProcess(self)
+        self.speech_process = process
+        arguments = list(self.speech_command.get("arguments") or [])
+        if not self.speech_command.get("stdin"):
+            arguments.append(text)
+        try:
+            process.start(str(self.speech_command.get("program") or ""), arguments)
+            if self.speech_command.get("stdin"):
+                process.write(text.encode("utf-8"))
+                process.closeWriteChannel()
+        except Exception:
+            self.speech_process = None
+
+    def _stop_speech(self):
+        if self.speech_engine is not None:
+            try:
+                self.speech_engine.stop()
+            except Exception:
+                pass
+        if self.speech_process is not None:
+            try:
+                self.speech_process.kill()
+                self.speech_process.deleteLater()
+            except Exception:
+                pass
+            self.speech_process = None
+
+    def _tutorial_speech_text(self):
+        title = self._clean_display_text(self.title_label.text())
+        body = self._clean_display_text(self.body_label.text())
+        target = self._clean_display_text(self.target_label.text())
+        return " ".join(part for part in (title, body, target) if part)
 
     def start(self):
         self._debug("overlay start() called")
@@ -783,6 +952,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         self._keep_overlay_visible()
         self._poll_step_completion(force=True)
         self.update()
+        self._speak_current_step()
 
     def next_step(self):
         if self.step_index >= len(self.steps) - 1:
@@ -802,6 +972,7 @@ class TutorialOverlay(QtWidgets.QWidget):
     def finish(self, reason):
         self._debug(f"finish called: reason={reason!r}")
         self.check_timer.stop()
+        self._stop_speech()
         self._disconnect_current_target_signals()
         self.panel.hide()
         self.panel.close()

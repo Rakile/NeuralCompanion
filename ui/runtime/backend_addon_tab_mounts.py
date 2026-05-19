@@ -221,8 +221,9 @@ class BackendAddonTabMountMixin:
             if tabs is None:
                 return
             try:
+                tabs.setDocumentMode(False)
                 tabs.setUsesScrollButtons(True)
-                tabs.setElideMode(QtCore.Qt.ElideNone)
+                tabs.setElideMode(QtCore.Qt.ElideRight)
             except Exception:
                 pass
             try:
@@ -230,7 +231,7 @@ class BackendAddonTabMountMixin:
                 if tab_bar is not None:
                     tab_bar.setExpanding(False)
                     tab_bar.setUsesScrollButtons(True)
-                    tab_bar.setElideMode(QtCore.Qt.ElideNone)
+                    tab_bar.setElideMode(QtCore.Qt.ElideRight)
                     for index in range(tabs.count()):
                         label = str(tabs.tabText(index) or "").strip()
                         if label and not str(tabs.tabToolTip(index) or "").strip():
@@ -248,14 +249,18 @@ class BackendAddonTabMountMixin:
                 style = """
 /* nc-tts-runtime-tabs-label-fit:start */
 QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
-    min-width: 74px;
-    max-width: 172px;
-    padding-left: 10px;
-    padding-right: 10px;
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    min-height: 24px;
+    padding: 5px 10px 6px 10px;
     margin-right: 1px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
 }
 QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
     margin-right: 1px;
+    padding-bottom: 6px;
 }
 /* nc-tts-runtime-tabs-label-fit:end */
 """.strip()

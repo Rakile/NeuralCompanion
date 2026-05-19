@@ -3453,6 +3453,59 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              </widget>
             </item>
             <item>
+             <widget class="QCheckBox" name="use_wav_file_checkbox">
+              <property name="sizePolicy">
+               <sizepolicy hsizetype="Fixed" vsizetype="Fixed">
+                <horstretch>0</horstretch>
+                <verstretch>0</verstretch>
+               </sizepolicy>
+              </property>
+              <property name="minimumSize">
+               <size>
+                <width>136</width>
+                <height>32</height>
+               </size>
+              </property>
+              <property name="maximumSize">
+               <size>
+                <width>136</width>
+                <height>32</height>
+               </size>
+              </property>
+              <property name="styleSheet">
+               <string notr="true">QCheckBox#use_wav_file_checkbox {
+    color: #eadff2;
+    font-weight: 700;
+    background: #171223;
+    border: 1px solid #8f4db8;
+    border-radius: 8px;
+    padding: 5px 10px;
+    spacing: 7px;
+}
+QCheckBox#use_wav_file_checkbox:hover {
+    background: #241a35;
+}
+QCheckBox#use_wav_file_checkbox::indicator {
+    width: 14px;
+    height: 14px;
+    border: 1px solid #3a91ad;
+    border-radius: 3px;
+    background: #0d1220;
+}
+QCheckBox#use_wav_file_checkbox::indicator:checked {
+    background: #8a4cc4;
+    border-color: #c07038;
+}</string>
+              </property>
+              <property name="text">
+               <string>Use wav file</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
              <widget class="QPushButton" name="btn_voice_refresh">
               <property name="text">
                <string>Refresh</string>

@@ -303,6 +303,10 @@ class RealUiSyncCopyMixin:
                 # can steal UI-thread time from the 16 ms preview frame timer.
                 self._mirror_runtime_status_widgets()
                 self._mirror_pipeline_telemetry_widgets()
+                try:
+                    self._enforce_frontend_runtime_collapsed_visibility()
+                except Exception:
+                    pass
                 return
             for object_name in self._combo_sync_names():
                 front = self._ui_object(object_name)
@@ -345,3 +349,7 @@ class RealUiSyncCopyMixin:
             self._mirror_provider_runtime_labels()
             self._sync_musetalk_runtime_visibility()
             self._refresh_frontend_theme_controls()
+            try:
+                self._enforce_frontend_runtime_collapsed_visibility()
+            except Exception:
+                pass

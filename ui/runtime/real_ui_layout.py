@@ -15,6 +15,108 @@ def configure_real_ui_layout_dependencies(namespace):
 class MainUiRealLayoutMixin:
     """Layout, docking, and collapsible-card helpers for the runtime-backed main.ui bridge."""
 
+    def _apply_tts_runtime_tab_shape(self, tabs=None, palette=None):
+            tabs = tabs or self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
+            if tabs is None:
+                return
+            if palette is None:
+                try:
+                    current_preset = _normalize_app_theme_preset_id(
+                        getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+                    )
+                    palette = _app_theme_palette(current_preset)
+                except Exception:
+                    palette = {}
+            field_bg = str((palette or {}).get("field_bg") or "#0f141b")
+            tab_bg = str((palette or {}).get("tab_bg") or "#17212c")
+            tab_hover = str((palette or {}).get("tab_hover_bg") or "#223247")
+            border = str((palette or {}).get("surface_border") or "#273342")
+            try:
+                tabs.setDocumentMode(False)
+                tabs.setUsesScrollButtons(True)
+                tabs.setElideMode(QtCore.Qt.ElideRight)
+                tab_bar = tabs.tabBar()
+                if tab_bar is not None:
+                    tab_bar.setExpanding(False)
+                    tab_bar.setUsesScrollButtons(True)
+                    tab_bar.setElideMode(QtCore.Qt.ElideRight)
+            except Exception:
+                pass
+            style = """
+/* nc-tts-runtime-tab-shape:start */
+QTabWidget#tts_runtime_addon_tabs::tab-bar {
+    left: 0px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar {
+    background: FIELD_BG;
+    qproperty-expanding: false;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    background: TAB_BG;
+    border: 1px solid BORDER;
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    min-height: 24px;
+    padding: 5px 10px 6px 10px;
+    margin-left: 0px;
+    margin-right: 1px;
+    margin-bottom: -1px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
+    margin-top: 1px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    background: FIELD_BG;
+    border-color: BORDER;
+    border-bottom-color: FIELD_BG;
+    margin-right: 1px;
+    margin-bottom: -1px;
+    padding-bottom: 6px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
+    background: TAB_HOVER;
+}
+QTabWidget#tts_runtime_addon_tabs::pane {
+    top: -1px;
+    background: FIELD_BG;
+    border: 1px solid BORDER;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    padding: 8px;
+}
+QTabWidget#tts_runtime_addon_tabs QStackedWidget {
+    padding: 4px;
+    background: transparent;
+}
+/* nc-tts-runtime-tab-shape:end */
+""".strip()
+            style = (
+                style.replace("FIELD_BG", field_bg)
+                .replace("TAB_BG", tab_bg)
+                .replace("TAB_HOVER", tab_hover)
+                .replace("BORDER", border)
+            )
+            try:
+                existing = str(tabs.styleSheet() or "").strip()
+                start = "/* nc-tts-runtime-tab-shape:start */"
+                end = "/* nc-tts-runtime-tab-shape:end */"
+                if start in existing and end in existing:
+                    before, rest = existing.split(start, 1)
+                    _old, after = rest.split(end, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                next_style = f"{existing}\n{style}".strip() if existing else style
+                if str(tabs.styleSheet() or "") != next_style:
+                    tabs.setStyleSheet(next_style)
+            except Exception:
+                pass
+
     def _normalize_frontend_tts_runtime_layout(self):
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
             tabs = self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
@@ -49,6 +151,7 @@ class MainUiRealLayoutMixin:
 
             if tabs is None:
                 return
+            self._apply_tts_runtime_tab_shape(tabs)
             try:
                 policy = tabs.sizePolicy()
                 policy.setVerticalPolicy(QtWidgets.QSizePolicy.Maximum)
@@ -78,6 +181,7 @@ class MainUiRealLayoutMixin:
                         tabs.updateGeometry()
                     except Exception:
                         pass
+                self._normalize_frontend_runtime_section_layouts()
                 self._normalize_frontend_tts_runtime_layout()
                 return
 
@@ -109,6 +213,7 @@ class MainUiRealLayoutMixin:
                 policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
                 w.setSizePolicy(policy)
 
+            self._normalize_frontend_runtime_section_layouts()
             self._normalize_frontend_tts_runtime_layout()
 
             for w in (content, host_tab):
@@ -570,6 +675,8 @@ QTabWidget QStackedWidget {
                     applied_count += 1
                 except Exception:
                     pass
+                if object_name == "tts_runtime_addon_tabs":
+                    self._apply_tts_runtime_tab_shape(tabs, palette)
             if applied_count:
                 self._nested_horizontal_tab_facing_style_key = style_key
 
@@ -1498,6 +1605,8 @@ QTabWidget QStackedWidget {
                 ),
             )
             self._fix_operational_view_content_layouts()
+            self._refresh_frontend_runtime_group_headers()
+            self._enforce_frontend_runtime_collapsed_visibility()
 
     def _normalize_frontend_chat_runtime_editor_widths(self):
             for object_name in ("chat_provider_combo", "model_combo", "preset_combo"):
@@ -1521,6 +1630,425 @@ QTabWidget QStackedWidget {
                     layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
                 except Exception:
                     pass
+
+    def _clear_form_rows_preserving_widgets(self, form):
+            if form is None or not hasattr(form, "rowCount"):
+                return
+            try:
+                while form.rowCount() > 0:
+                    form.takeRow(0)
+                return
+            except Exception:
+                pass
+            try:
+                while form.count() > 0:
+                    form.takeAt(0)
+            except Exception:
+                pass
+
+    def _normalize_frontend_chat_runtime_layout(self):
+            form = self._ui_object("chatRuntimeForm")
+            if form is None or bool(getattr(form, "_nc_horizontal_runtime_layout", False)):
+                return
+            widgets = {
+                "provider_label": self._ui_object("chat_provider_label"),
+                "provider_combo": self._ui_object("chat_provider_combo"),
+                "model_label": self._ui_object("model_label"),
+                "model_row": self._ui_object("chat_model_row_widget"),
+                "vision_label": self._ui_object("model_requires_vision_label"),
+                "vision_check": self._ui_object("model_requires_vision_checkbox"),
+                "settings_label": self._ui_object("provider_settings_label"),
+                "settings_widget": self._ui_object("chat_provider_fields_widget"),
+                "generation_label": self._ui_object("provider_generation_label"),
+                "generation_widget": self._ui_object("chat_provider_generation_fields_widget"),
+            }
+            if any(widgets[key] is None for key in ("provider_label", "provider_combo", "model_label", "model_row")):
+                return
+
+            self._clear_form_rows_preserving_widgets(form)
+
+            selector = QtWidgets.QWidget()
+            selector.setObjectName("chat_runtime_selector_row")
+            selector_layout = QtWidgets.QGridLayout(selector)
+            selector_layout.setContentsMargins(0, 0, 0, 0)
+            selector_layout.setHorizontalSpacing(12)
+            selector_layout.setVerticalSpacing(8)
+            selector_layout.addWidget(widgets["provider_label"], 0, 0, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["provider_combo"], 0, 1)
+            selector_layout.addWidget(widgets["model_label"], 0, 2, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["model_row"], 0, 3)
+            selector_layout.setColumnStretch(1, 1)
+            selector_layout.setColumnStretch(3, 2)
+
+            try:
+                form.setContentsMargins(8, 10, 8, 8)
+                form.setHorizontalSpacing(12)
+                form.setVerticalSpacing(10)
+                form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                form.addRow(selector)
+                if widgets["settings_label"] is not None and widgets["settings_widget"] is not None:
+                    form.addRow(widgets["settings_label"], widgets["settings_widget"])
+                if widgets["vision_label"] is not None and widgets["vision_check"] is not None:
+                    form.addRow(widgets["vision_label"], widgets["vision_check"])
+                if widgets["generation_label"] is not None and widgets["generation_widget"] is not None:
+                    form.addRow(widgets["generation_label"], widgets["generation_widget"])
+                setattr(form, "_nc_horizontal_runtime_layout", True)
+            except Exception:
+                pass
+
+    def _normalize_frontend_stt_runtime_layout(self):
+            form = self._ui_object("sttRuntimeForm")
+            if form is None or bool(getattr(form, "_nc_horizontal_runtime_layout", False)):
+                return
+            widgets = {
+                "backend_label": self._ui_object("stt_backend_label"),
+                "backend_combo": self._ui_object("stt_backend_combo"),
+                "model_label": self._ui_object("stt_model_label"),
+                "model_combo": self._ui_object("stt_model_combo"),
+                "language_label": self._ui_object("stt_language_label"),
+                "language_combo": self._ui_object("stt_language_combo"),
+            }
+            if any(widgets[key] is None for key in ("backend_label", "backend_combo", "model_label", "model_combo")):
+                return
+
+            self._clear_form_rows_preserving_widgets(form)
+
+            selector = QtWidgets.QWidget()
+            selector.setObjectName("stt_runtime_selector_grid")
+            selector_layout = QtWidgets.QGridLayout(selector)
+            selector_layout.setContentsMargins(0, 0, 0, 0)
+            selector_layout.setHorizontalSpacing(12)
+            selector_layout.setVerticalSpacing(8)
+            selector_layout.addWidget(widgets["backend_label"], 0, 0, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["backend_combo"], 0, 1)
+            selector_layout.addWidget(widgets["model_label"], 0, 2, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["model_combo"], 0, 3)
+            if widgets["language_label"] is not None and widgets["language_combo"] is not None:
+                selector_layout.addWidget(widgets["language_label"], 1, 0, QtCore.Qt.AlignVCenter)
+                selector_layout.addWidget(widgets["language_combo"], 1, 1)
+            selector_layout.setColumnStretch(1, 1)
+            selector_layout.setColumnStretch(3, 1)
+
+            try:
+                form.setContentsMargins(8, 10, 8, 0)
+                form.setHorizontalSpacing(12)
+                form.setVerticalSpacing(8)
+                form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                form.addRow(selector)
+                setattr(form, "_nc_horizontal_runtime_layout", True)
+            except Exception:
+                pass
+
+    def _normalize_frontend_runtime_section_layouts(self):
+            self._normalize_frontend_chat_runtime_layout()
+            self._normalize_frontend_stt_runtime_layout()
+            self._normalize_frontend_chat_runtime_editor_widths()
+
+    def _restore_frontend_expanded_runtime_group(self, group_box):
+            if group_box is None:
+                return
+            object_name = str(group_box.objectName() or "").strip()
+            if object_name != "stt_runtime_box":
+                return
+            for child_name in (
+                "stt_runtime_selector_grid",
+                "stt_backend_label",
+                "stt_backend_combo",
+                "stt_model_label",
+                "stt_model_combo",
+                "stt_language_label",
+                "stt_language_combo",
+                "stt_runtime_hint_label",
+            ):
+                widget = self._ui_object(child_name)
+                if widget is None:
+                    continue
+                try:
+                    widget.setVisible(True)
+                    widget.updateGeometry()
+                except Exception:
+                    pass
+            for layout_name in ("sttRuntimeLayout", "sttRuntimeForm"):
+                layout = self._ui_object(layout_name)
+                if layout is None:
+                    continue
+                try:
+                    layout.invalidate()
+                    layout.activate()
+                except Exception:
+                    pass
+
+    def _set_runtime_group_header_visible(self, group_box, visible):
+            header = getattr(group_box, "_nc_runtime_header_button", None)
+            if header is not None and hasattr(header, "setVisible"):
+                try:
+                    header.setVisible(bool(visible))
+                except Exception:
+                    pass
+
+    def _set_frontend_runtime_group_geometry_collapsed(self, group_box, collapsed):
+            if group_box is None:
+                return
+            try:
+                group_box.setProperty("nc_runtime_collapsed", bool(collapsed))
+                group_box.setMinimumHeight(0)
+                policy = group_box.sizePolicy()
+                if bool(collapsed):
+                    group_box.setMaximumHeight(0)
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Fixed)
+                else:
+                    group_box.setMaximumHeight(16777215)
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
+                group_box.setSizePolicy(policy)
+                group_box.updateGeometry()
+            except Exception:
+                pass
+
+    def _refresh_frontend_runtime_group_region(self, group_box):
+            candidates = []
+            if group_box is not None:
+                candidates.append(group_box)
+                parent = group_box.parentWidget()
+                if parent is not None:
+                    candidates.append(parent)
+            for object_name in ("system_shaping_scroll", "system_shaping_content", "SystemShapingDock"):
+                widget = self._ui_object(object_name)
+                if widget is not None:
+                    candidates.append(widget)
+                    try:
+                        viewport = widget.viewport()
+                    except Exception:
+                        viewport = None
+                    if viewport is not None:
+                        candidates.append(viewport)
+            seen = set()
+            for widget in candidates:
+                if widget is None or id(widget) in seen:
+                    continue
+                seen.add(id(widget))
+                try:
+                    widget.updateGeometry()
+                except Exception:
+                    pass
+                try:
+                    widget.update()
+                except Exception:
+                    pass
+                try:
+                    widget.repaint()
+                except Exception:
+                    pass
+
+    def _refresh_frontend_runtime_group_headers(self):
+            for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
+                group_box = self._ui_object(object_name)
+                header = getattr(group_box, "_nc_runtime_header_button", None) if group_box is not None else None
+                if header is None:
+                    continue
+                try:
+                    header.setMinimumSize(260, 34)
+                    header.setMaximumWidth(560)
+                    header.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
+                    self._style_frontend_runtime_group_header(header, group_box)
+                    header.updateGeometry()
+                except Exception:
+                    pass
+
+    def _frontend_runtime_group_header_palette(self, group_box):
+            object_name = str(group_box.objectName() or "").strip() if group_box is not None else ""
+            palettes = {
+                "chat_runtime_box": {
+                    "background": "#21122f",
+                    "checked": "#291641",
+                    "hover": "#351a55",
+                    "border": "#ff3fbf",
+                    "text": "#fff7ff",
+                    "shadow": QtGui.QColor(255, 63, 191, 75),
+                },
+                "stt_runtime_box": {
+                    "background": "#09283a",
+                    "checked": "#0b3148",
+                    "hover": "#0d3d59",
+                    "border": "#00e5ff",
+                    "text": "#f0fdff",
+                    "shadow": QtGui.QColor(0, 229, 255, 70),
+                },
+                "tts_runtime_box": {
+                    "background": "#1a1644",
+                    "checked": "#211b5d",
+                    "hover": "#2a2375",
+                    "border": "#8b5cf6",
+                    "text": "#fbf8ff",
+                    "shadow": QtGui.QColor(139, 92, 246, 75),
+                },
+                "visual_reply_runtime_box": {
+                    "background": "#2d1730",
+                    "checked": "#3a1d3d",
+                    "hover": "#4a254f",
+                    "border": "#ff9f1c",
+                    "text": "#fff8ed",
+                    "shadow": QtGui.QColor(255, 159, 28, 70),
+                },
+            }
+            return palettes.get(object_name) or {
+                "background": "#21122f",
+                "checked": "#291641",
+                "hover": "#351a55",
+                "border": "#ff3fbf",
+                "text": "#fff7ff",
+                "shadow": QtGui.QColor(255, 63, 191, 75),
+            }
+
+    def _style_frontend_runtime_group_header(self, header, group_box):
+            if header is None:
+                return
+            palette = self._frontend_runtime_group_header_palette(group_box)
+            try:
+                header.setStyleSheet(
+                    "QToolButton {"
+                    f" color: {palette['text']};"
+                    " font-weight: 700;"
+                    f" border: 1px solid {palette['border']};"
+                    f" background: {palette['background']};"
+                    " border-radius: 8px;"
+                    " padding: 6px 12px;"
+                    " text-align: left;"
+                    "}"
+                    f"QToolButton:hover {{ background: {palette['hover']}; }}"
+                    f"QToolButton:checked {{ background: {palette['checked']}; }}"
+                )
+            except Exception:
+                pass
+            try:
+                shadow = header.graphicsEffect()
+                if not isinstance(shadow, QtWidgets.QGraphicsDropShadowEffect):
+                    shadow = QtWidgets.QGraphicsDropShadowEffect(header)
+                    header.setGraphicsEffect(shadow)
+                shadow.setBlurRadius(14)
+                shadow.setOffset(0, 2)
+                shadow.setColor(palette["shadow"])
+            except Exception:
+                pass
+
+    def _enforce_frontend_runtime_collapsed_visibility(self):
+            for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
+                group_box = self._ui_object(object_name)
+                header = getattr(group_box, "_nc_runtime_header_button", None) if group_box is not None else None
+                if group_box is None or header is None:
+                    continue
+                try:
+                    header_visible = bool(header.isVisible())
+                except Exception:
+                    header_visible = True
+                try:
+                    expanded = bool(group_box.property("nc_collapsible_expanded"))
+                except Exception:
+                    expanded = True
+                try:
+                    if not header_visible:
+                        self._set_layout_item_tree_visible(group_box.layout(), False)
+                        self._set_frontend_runtime_group_geometry_collapsed(group_box, True)
+                        group_box.setVisible(False)
+                    elif expanded:
+                        self._set_frontend_runtime_group_geometry_collapsed(group_box, False)
+                        group_box.setVisible(True)
+                        self._restore_frontend_expanded_runtime_group(group_box)
+                    else:
+                        self._set_layout_item_tree_visible(group_box.layout(), False)
+                        self._set_frontend_runtime_group_geometry_collapsed(group_box, True)
+                        group_box.setVisible(False)
+                        blocker = QtCore.QSignalBlocker(header)
+                        header.setChecked(False)
+                        del blocker
+                        header.setArrowType(QtCore.Qt.RightArrow)
+                    self._refresh_frontend_runtime_group_region(group_box)
+                except Exception:
+                    pass
+
+    def _collapse_frontend_runtime_groups(self):
+            for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
+                group_box = self._ui_object(object_name)
+                if group_box is None:
+                    continue
+                self._apply_frontend_collapsible_group_state(group_box, False)
+
+    def _ensure_frontend_runtime_group_header(self, group_box, fallback_title):
+            if group_box is None:
+                return None
+            header = getattr(group_box, "_nc_runtime_header_button", None)
+            if header is not None:
+                return header
+            parent = group_box.parentWidget()
+            parent_layout = parent.layout() if parent is not None else None
+            if parent_layout is None or not hasattr(parent_layout, "insertWidget"):
+                return None
+            insert_index = -1
+            try:
+                for index in range(parent_layout.count()):
+                    item = parent_layout.itemAt(index)
+                    if item is not None and item.widget() is group_box:
+                        insert_index = index
+                        break
+            except Exception:
+                insert_index = -1
+            if insert_index < 0:
+                return None
+
+            header = QtWidgets.QToolButton(parent)
+            header.setObjectName("runtime_section_header_button")
+            header.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+            header.setCheckable(True)
+            header.setChecked(True)
+            header.setAutoRaise(False)
+            header.setMinimumSize(260, 34)
+            header.setMaximumWidth(560)
+            header.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
+            header.setCursor(QtCore.Qt.PointingHandCursor)
+            self._style_frontend_runtime_group_header(header, group_box)
+            header.toggled.connect(lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked))
+            try:
+                parent_layout.insertWidget(insert_index, header, 0, QtCore.Qt.AlignLeft)
+            except TypeError:
+                parent_layout.insertWidget(insert_index, header)
+
+            setattr(group_box, "_nc_runtime_header_button", header)
+            try:
+                group_box.setProperty("nc_runtime_content_group", True)
+                group_box.setCheckable(False)
+                group_box.setTitle("")
+                group_box.setFlat(False)
+                object_name = str(group_box.objectName() or "").strip()
+                if object_name:
+                    existing = str(group_box.styleSheet() or "").strip()
+                    marker = "/* nc-runtime-content-group */"
+                    if marker not in existing:
+                        content_style = f"""
+{marker}
+QGroupBox#{object_name} {{
+    margin-top: 6px;
+    padding: 8px;
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-radius: 10px;
+}}
+QGroupBox#{object_name}::title {{
+    height: 0px;
+    margin: 0px;
+    padding: 0px;
+}}
+QGroupBox#{object_name}::indicator {{
+    width: 0px;
+    height: 0px;
+}}
+""".strip()
+                        group_box.setStyleSheet(f"{existing}\n{content_style}".strip() if existing else content_style)
+                if not str(group_box.property("nc_collapsible_base_title") or "").strip():
+                    group_box.setProperty("nc_collapsible_base_title", fallback_title)
+                group_box.style().unpolish(group_box)
+                group_box.style().polish(group_box)
+            except Exception:
+                pass
+            return header
 
     def _set_layout_item_tree_visible(self, layout, visible):
             if layout is None:
@@ -1552,15 +2080,34 @@ QTabWidget QStackedWidget {
             except Exception:
                 summary = ""
             expanded = True
-            if hasattr(group_box, "isChecked"):
-                try:
+            try:
+                expanded_property = group_box.property("nc_collapsible_expanded")
+                if expanded_property is not None:
+                    expanded = bool(expanded_property)
+                elif hasattr(group_box, "isChecked"):
                     expanded = bool(group_box.isChecked())
-                except Exception:
-                    expanded = True
+            except Exception:
+                expanded = True
             arrow = "▼" if expanded else "▶"
             title = f"{arrow} {base_title}".strip()
             if summary:
                 title = f"{title}  -  {summary}"
+            header = getattr(group_box, "_nc_runtime_header_button", None)
+            if header is not None:
+                header_title = base_title
+                if summary:
+                    header_title = f"{header_title}  -  {summary}"
+                try:
+                    header.setText(header_title)
+                    header.setToolTip(header_title)
+                    header.setArrowType(QtCore.Qt.DownArrow if expanded else QtCore.Qt.RightArrow)
+                    blocker = QtCore.QSignalBlocker(header)
+                    header.setChecked(bool(expanded))
+                    del blocker
+                    group_box.setTitle("")
+                except Exception:
+                    pass
+                return
             try:
                 group_box.setTitle(title)
             except Exception:
@@ -1578,7 +2125,22 @@ QTabWidget QStackedWidget {
             try:
                 self._set_layout_item_tree_visible(layout, bool(expanded))
                 try:
-                    group_box.setFlat(not bool(expanded))
+                    group_box.setProperty("nc_collapsible_expanded", bool(expanded))
+                    header = getattr(group_box, "_nc_runtime_header_button", None)
+                    if header is not None:
+                        blocker = QtCore.QSignalBlocker(header)
+                        header.setChecked(bool(expanded))
+                        del blocker
+                        header.setArrowType(QtCore.Qt.DownArrow if bool(expanded) else QtCore.Qt.RightArrow)
+                        if bool(expanded):
+                            self._set_frontend_runtime_group_geometry_collapsed(group_box, False)
+                            group_box.setVisible(True)
+                            self._restore_frontend_expanded_runtime_group(group_box)
+                        else:
+                            self._set_frontend_runtime_group_geometry_collapsed(group_box, True)
+                            group_box.setVisible(False)
+                    else:
+                        group_box.setFlat(not bool(expanded))
                 except Exception:
                     pass
                 self._update_frontend_collapsible_group_title(group_box)
@@ -1592,8 +2154,11 @@ QTabWidget QStackedWidget {
             try:
                 QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_view_constraints)
                 self._schedule_frontend_system_shaping_resync(80 if bool(expanded) else 40)
+                QtCore.QTimer.singleShot(0, lambda box=group_box: self._enforce_frontend_runtime_collapsed_visibility())
+                QtCore.QTimer.singleShot(60, lambda box=group_box: self._enforce_frontend_runtime_collapsed_visibility())
             except Exception:
                 pass
+            self._refresh_frontend_runtime_group_region(group_box)
 
     def _apply_frontend_collapsible_group_state_old(self, group_box, expanded):
             if group_box is None:
@@ -1632,13 +2197,15 @@ QTabWidget QStackedWidget {
                     continue
                 try:
                     group_box.setCheckable(True)
-                    group_box.setChecked(True)
+                    group_box.setChecked(False)
                     group_box.setProperty("nc_collapsible_base_title", fallback_title)
                     group_box.setProperty("nc_collapsible_summary", "")
                     group_box.setToolTip("")
-                    group_box.toggled.connect(
-                        lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked)
-                    )
+                    header = self._ensure_frontend_runtime_group_header(group_box, fallback_title)
+                    if header is None:
+                        group_box.toggled.connect(
+                            lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked)
+                        )
                 except Exception:
                     continue
-                self._apply_frontend_collapsible_group_state(group_box, True)
+                self._apply_frontend_collapsible_group_state(group_box, False)

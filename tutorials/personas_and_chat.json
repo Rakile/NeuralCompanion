@@ -19,6 +19,16 @@
       "target": "system_prompt_text"
     },
     {
+      "title": "Refine System Prompt",
+      "body": "Right-click the System Prompt field and choose Refine to ask the current chat provider to rewrite the prompt. Refine is only enabled when the prompt has text, and the rewritten prompt replaces the field when it finishes, so review the result before continuing.",
+      "tab": "Persona",
+      "target": "system_prompt_text",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Persona" },
+        { "type": "focus", "target": "system_prompt_text" }
+      ]
+    },
+    {
       "title": "Voice and Emotion",
       "body": "Voice settings and emotion tags decide how text becomes speech and how avatar emotions are requested. Keep your available avatar emotions in mind when designing personas.",
       "target": "voice_combo"

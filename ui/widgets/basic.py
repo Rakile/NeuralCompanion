@@ -111,12 +111,20 @@ class CollapsibleSection(QtWidgets.QWidget):
         self.toggle_button.setCheckable(True)
         self.toggle_button.setChecked(bool(expanded))
         self.toggle_button.setAutoRaise(True)
+        self.toggle_button.setMinimumSize(260, 34)
+        self.toggle_button.setMaximumWidth(520)
+        self.toggle_button.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
         self.toggle_button.clicked.connect(self._on_toggled)
         self.toggle_button.setStyleSheet(
-            "QToolButton { color: #d8dee9; font-weight: 600; border: 1px solid #273342; "
-            "background: #111923; border-radius: 8px; padding: 6px 8px; text-align: left; }"
-            "QToolButton:hover { background: #182331; }"
+            "QToolButton { color: #fff7ff; font-weight: 700; border: 1px solid #ff3fbf; "
+            "background: #21122f; border-radius: 8px; padding: 6px 12px; text-align: left; }"
+            "QToolButton:hover { background: #351a55; }"
         )
+        shadow = QtWidgets.QGraphicsDropShadowEffect(self.toggle_button)
+        shadow.setBlurRadius(14)
+        shadow.setOffset(0, 2)
+        shadow.setColor(QtGui.QColor(255, 63, 191, 70))
+        self.toggle_button.setGraphicsEffect(shadow)
         layout.addWidget(self.toggle_button)
 
         self.content_widget = content_widget or QtWidgets.QWidget()

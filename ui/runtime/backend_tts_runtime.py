@@ -19,6 +19,20 @@ def _update_runtime_config(key, value):
 class BackendTtsRuntimeMixin:
     """TTS backend selection and TTS runtime settings UI wiring."""
 
+    _TTS_VOICE_REFERENCE_CONFIG_BY_BACKEND = {
+        "chatterbox": "tts_use_cloned_voice",
+        "chatterbox_multilingual": "chatterbox_multilingual_use_cloned_voice",
+        "pockettts": "pocket_tts_use_cloned_voice",
+        "pockettts_multilingual": "pocket_tts_multilingual_use_cloned_voice",
+    }
+    _TTS_VOICE_REFERENCE_CONFIG_KEYS = tuple(_TTS_VOICE_REFERENCE_CONFIG_BY_BACKEND.values())
+    _TTS_VOICE_REFERENCE_CHECKBOX_NAMES = (
+        "chatterbox_use_cloned_voice_checkbox",
+        "chatterbox_multilingual_use_cloned_voice_checkbox",
+        "pockettts_use_cloned_voice_checkbox",
+        "pockettts_multilingual_use_cloned_voice_checkbox",
+    )
+
     def _toggle_pocket_tts_advanced(self, checked):
         if hasattr(self, "pocket_tts_advanced_group"):
             self.pocket_tts_advanced_group.setVisible(bool(checked))
@@ -138,6 +152,7 @@ class BackendTtsRuntimeMixin:
                     f"Backend '{backend_label}' does not have a mounted addon tab right now; core fallback settings may be in use."
                 )
         self._refresh_tts_runtime_summary()
+        self._sync_use_wav_file_checkbox()
         QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
 
     def _find_tts_runtime_tab_index(self, backend):
@@ -305,6 +320,47 @@ class BackendTtsRuntimeMixin:
         _update_runtime_config("tts_normalize_loudness", bool(checked))
         self.save_session()
 
+    def _current_tts_voice_reference_config_key(self):
+        backend = self._current_tts_backend_value()
+        return self._TTS_VOICE_REFERENCE_CONFIG_BY_BACKEND.get(str(backend or "").strip().lower(), "tts_use_cloned_voice")
+
+    def _sync_use_wav_file_checkbox(self, checked=None):
+        checkbox = getattr(self, "use_wav_file_checkbox", None)
+        if checkbox is None or not hasattr(checkbox, "setChecked"):
+            return
+        if checked is None:
+            config = _runtime_config()
+            checked = bool(config.get(self._current_tts_voice_reference_config_key(), True))
+        was_blocked = bool(checkbox.blockSignals(True)) if hasattr(checkbox, "blockSignals") else False
+        try:
+            checkbox.setChecked(bool(checked))
+        finally:
+            if hasattr(checkbox, "blockSignals"):
+                checkbox.blockSignals(was_blocked)
+
+    def _sync_tts_use_cloned_voice_checkboxes(self, checked):
+        for object_name in self._TTS_VOICE_REFERENCE_CHECKBOX_NAMES:
+            widget = getattr(self, object_name, None)
+            if widget is None and hasattr(self, "findChild"):
+                widget = self.findChild(QtWidgets.QCheckBox, object_name)
+            if widget is None or not hasattr(widget, "setChecked"):
+                continue
+            was_blocked = bool(widget.blockSignals(True)) if hasattr(widget, "blockSignals") else False
+            try:
+                widget.setChecked(bool(checked))
+            finally:
+                if hasattr(widget, "blockSignals"):
+                    widget.blockSignals(was_blocked)
+
+    def on_use_wav_file_changed(self, checked):
+        value = bool(checked)
+        for key in self._TTS_VOICE_REFERENCE_CONFIG_KEYS:
+            _update_runtime_config(key, value)
+        self._sync_use_wav_file_checkbox(value)
+        self._sync_tts_use_cloned_voice_checkboxes(value)
+        self._refresh_tts_runtime_summary()
+        self.save_session()
+
     def on_voice_changed(self, voice_name):
         if voice_name and voice_name != "No .wav found":
             _update_runtime_config("voice_path", os.path.join("voices", voice_name))
@@ -365,6 +421,7 @@ class BackendTtsRuntimeMixin:
                     _engine().init_tts()
             except Exception as exc:
                 print(f"⚠️ [TTS] Failed to reload backend '{backend}': {exc}")
+        self._sync_use_wav_file_checkbox()
         self._refresh_tts_runtime_card(activate_tab=not bool(getattr(self, "_restoring_preset", False)))
         self._refresh_tts_runtime_summary()
         self._advisor_context_manual_override = False

@@ -286,6 +286,18 @@ QGroupBox#chat_runtime_box::indicator, QGroupBox#stt_runtime_box::indicator, QGr
     width: 0px;
     height: 0px;
 }
+QToolButton#runtime_section_header_button {
+    color: #fff7ff;
+    font-weight: 700;
+    background: #21122f;
+    border: 1px solid #ff3fbf;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton#runtime_section_header_button:hover {
+    background: #351a55;
+}
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
@@ -533,6 +545,41 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover,
 QTabWidget#vam_setup_tabs QTabBar::tab:hover,
 QTabWidget#right_tabs QTabBar::tab:hover {
     background: #223247;
+}
+QTabWidget#tts_runtime_addon_tabs::tab-bar {
+    left: 0px;
+}
+QTabWidget#tts_runtime_addon_tabs::pane {
+    top: -1px;
+    border: 1px solid #324055;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    padding: 8px;
+}
+QTabWidget#tts_runtime_addon_tabs QStackedWidget {
+    padding: 4px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar {
+    qproperty-expanding: false;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
+    width: 150px;
+    min-width: 150px;
+    max-width: 150px;
+    min-height: 24px;
+    padding: 5px 10px 6px 10px;
+    margin-right: 1px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
+    margin-top: 2px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
+    border-bottom-color: #0f141b;
+    padding-bottom: 6px;
 }
 QTabWidget#host_settings_tabs QTabBar::tab,
 QTabWidget#left_tabs QTabBar::tab {
