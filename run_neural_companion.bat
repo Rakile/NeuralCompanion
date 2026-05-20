@@ -30,14 +30,6 @@ for /f "delims=" %%i in ('git rev-parse "origin/%NC_BRANCH%" 2^>nul') do set "NC
 if not defined NC_REMOTE goto :eof
 if /I "%NC_HEAD%"=="%NC_REMOTE%" goto :eof
 
-git diff --quiet --ignore-submodules HEAD -- >nul 2>&1
-if errorlevel 1 (
-  echo.
-  echo Update available, but local changes were detected.
-  echo Skipping auto-update prompt to avoid touching your worktree.
-  goto :eof
-)
-
 echo.
 echo A newer version of Neural Companion is available.
 choice /C YN /N /M "Do you want to update to the latest version? [Y/N] "
@@ -45,6 +37,7 @@ if errorlevel 2 goto :eof
 git pull --ff-only origin "%NC_BRANCH%"
 if errorlevel 1 (
   echo.
-  echo Update failed. Launching the current local version instead.
+  echo Update failed or local changes blocked the update.
+  echo Launching the current local version instead.
 )
 goto :eof
