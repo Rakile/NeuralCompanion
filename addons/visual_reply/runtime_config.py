@@ -75,8 +75,8 @@ class VisualReplyRuntime:
         return provider if provider in VISUAL_REPLY_PROVIDER_VALUES else "openai"
 
     def mode(self) -> str:
-        mode = str(self._config().get("visual_reply_mode", "auto") or "auto").strip().lower()
-        return mode if mode in {"off", "auto"} else "auto"
+        mode = str(self._config().get("visual_reply_mode", "off") or "off").strip().lower()
+        return mode if mode in {"off", "auto"} else "off"
 
     def enabled(self) -> bool:
         if not bool(self._config().get("visual_replies_enabled", True)):

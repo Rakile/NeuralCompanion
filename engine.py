@@ -1068,7 +1068,9 @@ def _chat_provider_connection_check():
     provider = _chat_provider()
     label = _chat_provider_label(provider)
     if provider == "lmstudio":
-        print(f"Checking {label} at {LMSTUDIO_BASE_URL}...")
+        base_url = str(chat_providers.get_provider_setting(provider, "base_url") or LMSTUDIO_BASE_URL)
+        print(f"Checking {label} at {base_url}...")
+        print("LM Studio note: open Developer -> Local Server and make sure Status is Running.")
     else:
         print(f"Checking {label} connectivity...")
     status = _chat_runtime.check_connection(provider)
@@ -1433,14 +1435,17 @@ def setup_nltk():
         try:
             nltk.data.find(resource_path)
             print(f"✓ NLTK {resource_name} tokenizer found")
-        except LookupError:
+        except Exception as find_exc:
             try:
                 print(f"Downloading NLTK {resource_name} tokenizer...")
-                nltk.download(resource_name, quiet=True)
+                try:
+                    nltk.download(resource_name, quiet=True, force=True)
+                except TypeError:
+                    nltk.download(resource_name, quiet=True)
                 nltk.data.find(resource_path)
                 print(f"✓ NLTK {resource_name} tokenizer downloaded")
             except Exception as e:
-                print(f"⚠️ Failed to prepare NLTK {resource_name}: {e}")
+                print(f"⚠️ Failed to prepare NLTK {resource_name}, using fallback splitter: {find_exc}; {e}")
 
     def _fallback_sentence_split(text):
         text = str(text or "").strip()

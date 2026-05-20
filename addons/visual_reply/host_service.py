@@ -77,7 +77,7 @@ class QtVisualReplyService:
         self._capture_live_provider_settings()
         snapshot = self.settings_snapshot()
         payload = {
-            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_mode": str(snapshot.get("mode_value", "off") or "off"),
             "visual_reply_provider": str(snapshot.get("provider_value", "openai") or "openai"),
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
         }
@@ -89,7 +89,7 @@ class QtVisualReplyService:
         snapshot = self.settings_snapshot()
         provider = str(snapshot.get("provider_value", "openai") or "openai")
         payload = {
-            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_mode": str(snapshot.get("mode_value", "off") or "off"),
             "visual_reply_provider": provider,
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
         }
@@ -145,7 +145,7 @@ class QtVisualReplyService:
         window._visual_reply_active_provider = active_provider
         self._set_combo_text_quietly(
             getattr(window, "visual_reply_mode_combo", None),
-            self.mode_label_from_value(self.get_runtime_config("visual_reply_mode", "auto")),
+            self.mode_label_from_value(self.get_runtime_config("visual_reply_mode", "off")),
         )
         self._set_combo_text_quietly(
             getattr(window, "visual_reply_provider_combo", None),
@@ -188,7 +188,7 @@ class QtVisualReplyService:
                 self.update_runtime_config(key, payload.get(key))
         self.update_runtime_config("visual_reply_provider_settings", provider_settings_from_config(payload))
         if "visual_reply_mode" in payload:
-            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "auto").strip().lower() != "off")
+            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "off").strip().lower() != "off")
         self._sync_core_widgets_from_runtime()
 
     def import_preset_state(self, preset):
@@ -198,7 +198,7 @@ class QtVisualReplyService:
                 self.update_runtime_config(key, payload.get(key))
         self.update_runtime_config("visual_reply_provider_settings", provider_settings_from_config(payload))
         if "visual_reply_mode" in payload:
-            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "auto").strip().lower() != "off")
+            self.update_runtime_config("visual_replies_enabled", str(payload.get("visual_reply_mode") or "off").strip().lower() != "off")
         self._sync_core_widgets_from_runtime()
 
     def settings_snapshot(self):
@@ -227,7 +227,7 @@ class QtVisualReplyService:
         provider_value = str(runtime.get("visual_reply_provider", "openai") or "openai")
         default_model = self.default_model_for_provider(provider_value)
         return {
-            "mode_value": str(runtime.get("visual_reply_mode", "auto") or "auto"),
+            "mode_value": str(runtime.get("visual_reply_mode", "off") or "off"),
             "provider_value": provider_value,
             "size_value": str(provider_setting_from_config(runtime, provider_value, "size", runtime.get("visual_reply_size", "1024x1024")) or "1024x1024"),
             "model_name": self.normalize_model_for_provider(

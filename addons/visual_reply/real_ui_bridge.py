@@ -97,7 +97,7 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_mode_combo.setObjectName("visual_reply_mode_combo")
     backend.visual_reply_mode_combo.addItems(["Off", "Auto"])
     backend.visual_reply_mode_combo.setCurrentText(
-        "Off" if str(runtime.get("visual_reply_mode", "auto") or "auto").strip().lower() == "off" else "Auto"
+        "Off" if str(runtime.get("visual_reply_mode", "off") or "off").strip().lower() == "off" else "Auto"
     )
     backend.visual_reply_mode_combo.currentTextChanged.connect(lambda choice: on_visual_reply_mode_changed(backend, choice))
 

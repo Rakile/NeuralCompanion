@@ -21,7 +21,7 @@ omegaconf
 opencv-python==4.9.0.80
 openai
 pandas==1.5.3
-pillow
+pillow==11.2.1
 pypdf
 pydub
 nvidia-ml-py==13.595.45

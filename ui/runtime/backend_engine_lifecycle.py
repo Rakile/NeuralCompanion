@@ -1,4 +1,5 @@
 import threading
+import traceback
 
 from PySide6 import QtCore
 
@@ -185,6 +186,7 @@ class BackendEngineLifecycleMixin:
             _engine().run_companion(config)
         except Exception as exc:
             print(f"CRITICAL ERROR: {exc}")
+            traceback.print_exc()
         finally:
             if not self._closing:
                 try:

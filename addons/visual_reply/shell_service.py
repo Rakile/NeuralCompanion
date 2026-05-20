@@ -40,7 +40,7 @@ class _UiShellVisualReplyService:
         provider = str(session.get("visual_reply_provider", "openai") or "openai").strip().lower()
         default_model = self.default_model_for_provider(provider)
         state = {
-            "visual_reply_mode": str(session.get("visual_reply_mode", "auto") or "auto"),
+            "visual_reply_mode": str(session.get("visual_reply_mode", "off") or "off"),
             "visual_reply_provider": provider,
             "visual_reply_provider_settings": provider_settings_from_config(session),
             "visual_reply_size": str(provider_setting_from_config(session, provider, "size", session.get("visual_reply_size", "1024x1024")) or "1024x1024"),
@@ -112,7 +112,7 @@ class _UiShellVisualReplyService:
         snapshot = self.settings_snapshot()
         provider = str(snapshot.get("provider_value", "openai") or "openai")
         return {
-            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_mode": str(snapshot.get("mode_value", "off") or "off"),
             "visual_reply_provider": provider,
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
             "visual_reply_provider_settings": provider_settings_from_config(self._state),
@@ -126,7 +126,7 @@ class _UiShellVisualReplyService:
             if isinstance(settings, dict):
                 settings.pop("api_key", None)
         return {
-            "visual_reply_mode": str(snapshot.get("mode_value", "auto") or "auto"),
+            "visual_reply_mode": str(snapshot.get("mode_value", "off") or "off"),
             "visual_reply_provider": provider,
             "visual_reply_provider_settings": provider_settings,
             "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
@@ -156,7 +156,7 @@ class _UiShellVisualReplyService:
         provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
         default_model = self.default_model_for_provider(provider)
         return {
-            "mode_value": str(self._state.get("visual_reply_mode", "auto") or "auto"),
+            "mode_value": str(self._state.get("visual_reply_mode", "off") or "off"),
             "provider_value": provider,
             "size_value": str(provider_setting_from_config(self._state, provider, "size", self._state.get("visual_reply_size", "1024x1024")) or "1024x1024"),
             "model_name": normalize_model_for_provider(
@@ -337,7 +337,7 @@ class _UiShellVisualReplyService:
         if label is None or not hasattr(label, "setText"):
             return
         snapshot = self.settings_snapshot()
-        mode = str(snapshot.get("mode_value") or "auto")
+        mode = str(snapshot.get("mode_value") or "off")
         provider = self.provider_label_from_value(snapshot.get("provider_value"))
         model = str(snapshot.get("model_name") or self.default_model_for_provider(snapshot.get("provider_value")))
         label.setText(
