@@ -903,12 +903,15 @@ print(json.dumps(status))
             (MUSETALK_MODELS / subdir).mkdir(parents=True, exist_ok=True)
 
         env = os.environ.copy()
+        env.setdefault("HF_HUB_ETAG_TIMEOUT", "60")
+        env.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "120")
 
         download_jobs = [
             {
                 "repo_id": "TMElyralab/MuseTalk",
                 "local_dir": str(MUSETALK_MODELS),
                 "mode": "snapshot",
+                "expected": ["musetalk/pytorch_model.bin", "musetalkV15/unet.pth"],
             },
             {
                 "repo_id": "stabilityai/sd-vae-ft-mse",
@@ -946,26 +949,101 @@ print(json.dumps(status))
 import json
 import os
 import sys
+import time
 from huggingface_hub import hf_hub_download, snapshot_download
 
 jobs = json.loads(sys.argv[1])
 endpoint = os.environ.get("HF_ENDPOINT")
 extra_kwargs = {"endpoint": endpoint} if endpoint else {}
+max_attempts = int(os.environ.get("NC_HF_DOWNLOAD_RETRIES", "5"))
+
+
+def _present(path):
+    return os.path.exists(path) and os.path.getsize(path) > 0
+
+
+def _is_missing_or_auth_error(exc):
+    response = getattr(exc, "response", None)
+    status_code = getattr(response, "status_code", None)
+    if status_code in {401, 403, 404}:
+        return True
+    name = exc.__class__.__name__
+    return name in {
+        "EntryNotFoundError",
+        "GatedRepoError",
+        "RepositoryNotFoundError",
+        "RevisionNotFoundError",
+    }
+
+
+def _retryable(exc):
+    if _is_missing_or_auth_error(exc):
+        return False
+    details = f"{exc.__class__.__name__}: {exc}"
+    transient_markers = (
+        "ConnectionError",
+        "ConnectTimeout",
+        "LocalEntryNotFoundError",
+        "ReadTimeout",
+        "ReadTimeoutError",
+        "SSLError",
+        "TimeoutError",
+        "temporarily unavailable",
+        "timed out",
+    )
+    return any(marker in details for marker in transient_markers)
+
+
+def _download_with_retries(label, action):
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return action()
+        except KeyboardInterrupt:
+            raise
+        except Exception as exc:
+            if attempt >= max_attempts or not _retryable(exc):
+                raise
+            delay = min(30, 3 * attempt)
+            print(
+                f"  {label} hit a transient Hugging Face error "
+                f"({exc.__class__.__name__}). Retrying {attempt + 1}/{max_attempts} "
+                f"in {delay}s...",
+                flush=True,
+            )
+            time.sleep(delay)
 
 for job in jobs:
     local_dir = job["local_dir"]
     os.makedirs(local_dir, exist_ok=True)
     print(f"Downloading {job['repo_id']} -> {local_dir}", flush=True)
     if job["mode"] == "snapshot":
-        snapshot_download(repo_id=job["repo_id"], local_dir=local_dir, **extra_kwargs)
-    else:
-        for filename in job["filenames"]:
-            print(f"  {filename}", flush=True)
-            hf_hub_download(
+        expected = job.get("expected") or []
+        if expected and all(_present(os.path.join(local_dir, path)) for path in expected):
+            print("  required snapshot files already present; skipping", flush=True)
+            continue
+        _download_with_retries(
+            job["repo_id"],
+            lambda job=job, local_dir=local_dir: snapshot_download(
                 repo_id=job["repo_id"],
-                filename=filename,
                 local_dir=local_dir,
                 **extra_kwargs,
+            ),
+        )
+    else:
+        for filename in job["filenames"]:
+            target_path = os.path.join(local_dir, filename)
+            if _present(target_path):
+                print(f"  {filename} already present; skipping", flush=True)
+                continue
+            print(f"  {filename}", flush=True)
+            _download_with_retries(
+                f"{job['repo_id']}/{filename}",
+                lambda job=job, filename=filename, local_dir=local_dir: hf_hub_download(
+                    repo_id=job["repo_id"],
+                    filename=filename,
+                    local_dir=local_dir,
+                    **extra_kwargs,
+                ),
             )
 """
         run_command(
