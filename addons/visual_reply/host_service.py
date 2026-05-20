@@ -2,7 +2,11 @@ from __future__ import annotations
 
 from addons.visual_reply.runtime import (
     on_visual_reply_api_key_changed,
+    on_visual_reply_comfyui_cleanup_changed,
     sync_visual_reply_api_key_field,
+    sync_visual_reply_comfyui_cleanup_field,
+    visual_reply_comfyui_cleanup_label_from_value,
+    visual_reply_comfyui_cleanup_value_from_label,
     visual_reply_model_override_for_provider,
 )
 from addons.visual_reply.providers import (
@@ -71,6 +75,17 @@ class QtVisualReplyService:
             self.update_runtime_config(
                 "visual_reply_provider_settings",
                 updated_provider_settings(self._runtime_config.snapshot(), provider, "api_key", str(api_key_edit.text() or "").strip()),
+            )
+        cleanup_combo = getattr(window, "visual_reply_comfyui_cleanup_combo", None)
+        if cleanup_combo is not None and hasattr(cleanup_combo, "currentText"):
+            self.update_runtime_config(
+                "visual_reply_provider_settings",
+                updated_provider_settings(
+                    self._runtime_config.snapshot(),
+                    "comfyui",
+                    "cleanup_mode",
+                    visual_reply_comfyui_cleanup_value_from_label(str(cleanup_combo.currentText() or "Keep cache")),
+                ),
             )
 
     def export_session_state(self):
@@ -175,6 +190,7 @@ class QtVisualReplyService:
             ),
         )
         sync_visual_reply_api_key_field(window, active_provider)
+        sync_visual_reply_comfyui_cleanup_field(window, active_provider)
         self._set_checked_quietly(
             getattr(window, "visual_reply_auto_show_checkbox", None),
             bool(self.get_runtime_config("visual_reply_auto_show_dock", True)),
@@ -235,6 +251,9 @@ class QtVisualReplyService:
                 provider_setting_from_config(runtime, provider_value, "model", runtime.get("visual_reply_model", default_model)),
             ),
             "auto_show": bool(runtime.get("visual_reply_auto_show_dock", True)),
+            "comfyui_cleanup_label": visual_reply_comfyui_cleanup_label_from_value(
+                provider_setting_from_config(runtime, "comfyui", "cleanup_mode", "keep_cache")
+            ),
             "master_prompt_safe": bool(runtime.get("visual_reply_master_prompt_safe", False)),
             "master_prompt_no_speech_bubbles": bool(runtime.get("visual_reply_master_prompt_no_speech_bubbles", False)),
             "story_mode": bool(runtime.get("visual_reply_story_mode", False)),
@@ -260,6 +279,9 @@ class QtVisualReplyService:
 
     def size_labels(self):
         return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def comfyui_cleanup_labels(self):
+        return ["Keep cache", "Free memory", "Unload models + free memory"]
 
     def default_model_for_provider(self, provider):
         return default_model_for_provider(provider)
@@ -291,6 +313,8 @@ class QtVisualReplyService:
         api_key_edit=None,
         model_label=None,
         api_key_label=None,
+        comfyui_cleanup_label=None,
+        comfyui_cleanup_combo=None,
         story_mode_button=None,
         story_max_images_spin=None,
         story_continuity_slider=None,
@@ -308,6 +332,10 @@ class QtVisualReplyService:
             self._window.visual_reply_model_label = model_label
         if api_key_label is not None:
             self._window.visual_reply_api_key_label = api_key_label
+        if comfyui_cleanup_label is not None:
+            self._window.visual_reply_comfyui_cleanup_label = comfyui_cleanup_label
+        if comfyui_cleanup_combo is not None:
+            self._window.visual_reply_comfyui_cleanup_combo = comfyui_cleanup_combo
         self._window.visual_reply_auto_show_checkbox = auto_show_checkbox
         self._window.visual_reply_hint = hint_label
         if story_mode_button is not None:
@@ -337,6 +365,9 @@ class QtVisualReplyService:
 
     def apply_api_key(self) -> None:
         on_visual_reply_api_key_changed(self._window)
+
+    def apply_comfyui_cleanup(self, choice: str) -> None:
+        on_visual_reply_comfyui_cleanup_changed(self._window, choice)
 
     def apply_auto_show(self, checked: bool) -> None:
         self._window.on_visual_reply_auto_show_changed(bool(checked))

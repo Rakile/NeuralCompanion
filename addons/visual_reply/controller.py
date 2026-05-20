@@ -755,6 +755,8 @@ class VisualReplyController:
         model_edit = self._ui_child(tab, "visual_reply_model_edit", QtWidgets.QLineEdit)
         api_key_label = self._ui_child(tab, "visual_reply_api_key_label", QtWidgets.QLabel)
         api_key_edit = self._ui_child(tab, "visual_reply_api_key_edit", QtWidgets.QLineEdit)
+        comfyui_cleanup_label = self._ui_child(tab, "visual_reply_comfyui_cleanup_label", QtWidgets.QLabel)
+        comfyui_cleanup_combo = self._ui_child(tab, "visual_reply_comfyui_cleanup_combo", QtWidgets.QComboBox)
         auto_show_checkbox = self._ui_child(tab, "visual_reply_auto_show_checkbox", QtWidgets.QCheckBox)
         hint_label = self._ui_child(tab, "visual_reply_hint_label", QtWidgets.QLabel)
         required = (mode_combo, provider_combo, size_combo, model_edit, api_key_edit, auto_show_checkbox, hint_label)
@@ -769,6 +771,9 @@ class VisualReplyController:
         size_combo.addItems(list(self._visual_reply_service.size_labels()))
         size_combo.setCurrentText(self._visual_reply_service.size_label_from_value(snapshot.get("size_value", "1024x1024")))
         model_edit.setText(str(snapshot.get("model_name", self._visual_reply_service.default_model_for_provider(snapshot.get("provider_value"))) or self._visual_reply_service.default_model_for_provider(snapshot.get("provider_value"))))
+        if comfyui_cleanup_combo is not None:
+            comfyui_cleanup_combo.addItems(list(self._visual_reply_service.comfyui_cleanup_labels()))
+            comfyui_cleanup_combo.setCurrentText(str(snapshot.get("comfyui_cleanup_label", "Keep cache") or "Keep cache"))
         auto_show_checkbox.setChecked(bool(snapshot.get("auto_show", True)))
 
         self._visual_reply_service.attach_settings_widgets(
@@ -779,6 +784,8 @@ class VisualReplyController:
             model_edit=model_edit,
             api_key_label=api_key_label,
             api_key_edit=api_key_edit,
+            comfyui_cleanup_label=comfyui_cleanup_label,
+            comfyui_cleanup_combo=comfyui_cleanup_combo,
             auto_show_checkbox=auto_show_checkbox,
             hint_label=hint_label,
         )
@@ -788,6 +795,8 @@ class VisualReplyController:
         size_combo.currentTextChanged.connect(self._visual_reply_service.apply_size)
         model_edit.editingFinished.connect(self._visual_reply_service.apply_model)
         api_key_edit.editingFinished.connect(self._visual_reply_service.apply_api_key)
+        if comfyui_cleanup_combo is not None:
+            comfyui_cleanup_combo.currentTextChanged.connect(self._visual_reply_service.apply_comfyui_cleanup)
         auto_show_checkbox.toggled.connect(self._visual_reply_service.apply_auto_show)
         from addons.visual_reply.runtime import sync_visual_reply_api_key_field
 

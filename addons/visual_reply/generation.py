@@ -864,6 +864,24 @@ class ComfyUIVisualReplyClient:
             time.sleep(0.8)
         raise RuntimeError(f"Timed out waiting for ComfyUI image output.{(' Last error: ' + last_error) if last_error else ''}")
 
+    def _request_cleanup(self):
+        mode = str(getattr(self.runtime, "comfyui_cleanup_mode", lambda: "keep_cache")() or "keep_cache").strip().lower()
+        if mode == "keep_cache":
+            return
+        payload = {}
+        if mode == "free_memory":
+            payload = {"free_memory": True}
+        elif mode == "unload_models":
+            payload = {"unload_models": True, "free_memory": True}
+        if not payload:
+            return
+        base_url = _normalize_comfyui_base_url(self.runtime.base_url())
+        try:
+            _json_request(f"{base_url}/free", method="POST", payload=payload, timeout=10.0)
+            print(f"🧹 [VisualReply] Requested ComfyUI cleanup: {mode}")
+        except Exception as exc:
+            print(f"⚠️ [VisualReply] ComfyUI cleanup request failed: {exc}")
+
     def generate(self, **kwargs):
         prompt = str(kwargs.get("prompt") or "").strip()
         if not prompt:
@@ -879,4 +897,5 @@ class ComfyUIVisualReplyClient:
         )
         prompt_id = self._queue_prompt(workflow, timeout=timeout)
         raw_bytes = self._wait_for_image(prompt_id, timeout=timeout)
+        self._request_cleanup()
         return {"data": [{"b64_json": base64.b64encode(raw_bytes).decode("ascii")}]}

@@ -27,7 +27,8 @@ runtime configuration. Check each addon panel for its current settings.
 
 Visual Reply supports hosted providers and local ComfyUI workflows. For ComfyUI,
 run the ComfyUI server, select `ComfyUI` as the Visual Reply provider, enter the
-server URL, and point `Workflow JSON` at a saved workflow. See
+server URL, point `Workflow JSON` at a saved workflow, and choose whether ComfyUI
+should keep its model cache or free/unload models after each image. See
 [`docs/visual_reply_comfyui.md`](../visual_reply_comfyui.md) for setup details.
 
 ## Good Testing Order

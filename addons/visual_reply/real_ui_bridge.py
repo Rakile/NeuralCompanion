@@ -5,6 +5,7 @@ from addons.visual_reply import state as visual_reply_state
 from addons.visual_reply.runtime import (
     on_visual_reply_api_key_changed,
     on_visual_reply_auto_show_changed,
+    on_visual_reply_comfyui_cleanup_changed,
     on_visual_reply_mode_changed,
     on_visual_reply_model_changed,
     on_visual_reply_provider_changed,
@@ -12,6 +13,7 @@ from addons.visual_reply.runtime import (
     normalize_visual_reply_size,
     refresh_visual_reply_hint,
     sync_visual_reply_api_key_field,
+    sync_visual_reply_comfyui_cleanup_field,
     sync_visual_reply_model_field,
     sync_visual_reply_size_field,
     visual_reply_model_for_provider,
@@ -19,6 +21,7 @@ from addons.visual_reply.runtime import (
     visual_reply_mode_label_from_value,
     visual_reply_mode_value_from_label,
     visual_reply_default_model_for_provider,
+    visual_reply_comfyui_cleanup_label_from_value,
     visual_reply_provider_label_from_value,
     visual_reply_provider_value_from_label,
     visual_reply_size_label_from_value,
@@ -131,6 +134,13 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_api_key_edit.editingFinished.connect(lambda: on_visual_reply_api_key_changed(backend))
     sync_visual_reply_api_key_field(backend, current_provider)
 
+    backend.visual_reply_comfyui_cleanup_combo = NoWheelComboBox()
+    backend.visual_reply_comfyui_cleanup_combo.setObjectName("visual_reply_comfyui_cleanup_combo")
+    backend.visual_reply_comfyui_cleanup_combo.addItems(["Keep cache", "Free memory", "Unload models + free memory"])
+    current_cleanup = str(provider_setting_from_config(runtime, "comfyui", "cleanup_mode", "keep_cache") or "keep_cache")
+    backend.visual_reply_comfyui_cleanup_combo.setCurrentText(visual_reply_comfyui_cleanup_label_from_value(current_cleanup))
+    backend.visual_reply_comfyui_cleanup_combo.currentTextChanged.connect(lambda choice: on_visual_reply_comfyui_cleanup_changed(backend, choice))
+
     backend.visual_reply_auto_show_checkbox = QtWidgets.QCheckBox("Auto-show Visual Reply dock")
     backend.visual_reply_auto_show_checkbox.setObjectName("visual_reply_auto_show_checkbox")
     backend.visual_reply_auto_show_checkbox.setChecked(bool(runtime.get("visual_reply_auto_show_dock", True)))
@@ -169,6 +179,10 @@ def build_legacy_settings_tab(backend):
     backend.visual_reply_api_key_label.setObjectName("visual_reply_api_key_label")
     visual_form.addWidget(backend.visual_reply_api_key_label, 2, 0, QtCore.Qt.AlignVCenter)
     visual_form.addWidget(backend.visual_reply_api_key_edit, 2, 1, 1, 3)
+    backend.visual_reply_comfyui_cleanup_label = QtWidgets.QLabel("ComfyUI Cleanup")
+    backend.visual_reply_comfyui_cleanup_label.setObjectName("visual_reply_comfyui_cleanup_label")
+    visual_form.addWidget(backend.visual_reply_comfyui_cleanup_label, 3, 0, QtCore.Qt.AlignVCenter)
+    visual_form.addWidget(backend.visual_reply_comfyui_cleanup_combo, 3, 1, 1, 3)
     visual_form.setColumnStretch(1, 1)
     visual_form.setColumnStretch(3, 1)
     visual_layout.addLayout(visual_form)
@@ -179,6 +193,7 @@ def build_legacy_settings_tab(backend):
     backend.visual_reply_hint.setWordWrap(True)
     backend.visual_reply_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
     visual_layout.addWidget(backend.visual_reply_hint)
+    sync_visual_reply_comfyui_cleanup_field(backend, current_provider)
     refresh_visual_reply_hint(backend)
 
     layout.addWidget(visual_box)
@@ -396,6 +411,7 @@ def apply_runtime_settings(backend, settings):
         sync_visual_reply_size_field(backend, provider)
         sync_visual_reply_model_field(backend, provider)
         sync_visual_reply_api_key_field(backend, provider)
+        sync_visual_reply_comfyui_cleanup_field(backend, provider)
         refresh_visual_reply_hint(backend)
     widget = backend._live_widget_attr("visual_reply_auto_show_checkbox")
     if "visual_reply_auto_show_dock" in payload and widget is not None:
@@ -421,6 +437,8 @@ def sync_combo_action(bridge, object_name, callback_name):
             on_visual_reply_provider_changed(bridge.backend, choice)
         elif callback_name == "on_visual_reply_size_changed":
             on_visual_reply_size_changed(bridge.backend, choice)
+        elif callback_name == "on_visual_reply_comfyui_cleanup_changed":
+            on_visual_reply_comfyui_cleanup_changed(bridge.backend, choice)
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
@@ -450,6 +468,7 @@ def bind_runtime_controls(bridge):
         "visual_reply_mode_combo": "on_visual_reply_mode_changed",
         "visual_reply_provider_combo": "on_visual_reply_provider_changed",
         "visual_reply_size_combo": "on_visual_reply_size_changed",
+        "visual_reply_comfyui_cleanup_combo": "on_visual_reply_comfyui_cleanup_changed",
     }
     for object_name, callback_name in combo_bindings.items():
         widget = bridge._ui_object(object_name)

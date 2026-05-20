@@ -26,7 +26,8 @@ http://192.168.1.50:8188
 3. Set `Provider` to `ComfyUI`.
 4. Set `Server URL` to the ComfyUI server.
 5. Set `Workflow JSON` to a saved ComfyUI workflow.
-6. Set `Mode` to `Auto`.
+6. Choose a `ComfyUI Cleanup` mode.
+7. Set `Mode` to `Auto`.
 
 The default ComfyUI welcome workflow is supported. Both ComfyUI UI workflow JSON and API-format workflow JSON are accepted.
 
@@ -41,6 +42,18 @@ NC loads the workflow, converts it to ComfyUI API format when needed, then tries
 - output: the `SaveImage` node
 
 The generated image is fetched from ComfyUI history and displayed in the Visual Reply dock.
+
+## Memory Cleanup
+
+ComfyUI keeps models loaded after generation so the next image is much faster. That can make VRAM/RAM look like it keeps climbing even when the second generation is working from cache.
+
+The `ComfyUI Cleanup` setting controls what NC asks ComfyUI to do after each finished image:
+
+- `Keep cache`: fastest repeat generations; ComfyUI keeps models warm.
+- `Free memory`: asks ComfyUI to clear unused memory after each image.
+- `Unload models + free memory`: releases more memory, but the next image will reload models and be slower.
+
+You can also set `NC_VISUAL_REPLY_COMFYUI_CLEANUP` to `keep_cache`, `free_memory`, or `unload_models`.
 
 ## Notes
 

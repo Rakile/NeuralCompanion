@@ -246,6 +246,21 @@ class VisualReplyRuntime:
         except Exception:
             return 180.0
 
+    def comfyui_cleanup_mode(self) -> str:
+        raw = (
+            provider_setting_from_config(self._config(), "comfyui", "cleanup_mode", "")
+            or self._environ.get("NC_VISUAL_REPLY_COMFYUI_CLEANUP", "")
+            or "keep_cache"
+        )
+        mode = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+        if mode in {"off", "none", "keep", "keep_loaded", "keep_models", "keep_cache"}:
+            return "keep_cache"
+        if mode in {"free", "free_memory", "empty_cache", "soft_empty_cache"}:
+            return "free_memory"
+        if mode in {"unload", "unload_models", "full", "full_cleanup", "unload_models_free_memory"}:
+            return "unload_models"
+        return "keep_cache"
+
     def image_size(self) -> str:
         allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}
         provider = self.provider()

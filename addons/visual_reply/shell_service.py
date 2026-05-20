@@ -55,7 +55,7 @@ class _UiShellVisualReplyService:
             "visual_reply_master_prompt_safe": bool(session.get("visual_reply_master_prompt_safe", False)),
             "visual_reply_master_prompt_no_speech_bubbles": bool(session.get("visual_reply_master_prompt_no_speech_bubbles", False)),
         }
-        if str(state["visual_reply_provider"]).strip().lower() not in {"openai", "xai", "runware"}:
+        if str(state["visual_reply_provider"]).strip().lower() not in {"openai", "xai", "runware", "comfyui"}:
             state["visual_reply_provider"] = "openai"
         return state
 
@@ -164,6 +164,7 @@ class _UiShellVisualReplyService:
                 provider_setting_from_config(self._state, provider, "model", self._state.get("visual_reply_model", default_model)),
             ),
             "auto_show": bool(self._state.get("visual_reply_auto_show_dock", True)),
+            "comfyui_cleanup_label": self._comfyui_cleanup_label(),
             "master_style_prompt": str(self._state.get("visual_reply_master_style_prompt", "") or ""),
             "master_prompt_safe": bool(self._state.get("visual_reply_master_prompt_safe", False)),
             "master_prompt_no_speech_bubbles": bool(self._state.get("visual_reply_master_prompt_no_speech_bubbles", False)),
@@ -189,6 +190,17 @@ class _UiShellVisualReplyService:
 
     def size_labels(self):
         return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+
+    def comfyui_cleanup_labels(self):
+        return ["Keep cache", "Free memory", "Unload models + free memory"]
+
+    def _comfyui_cleanup_label(self):
+        value = str(provider_setting_from_config(self._state, "comfyui", "cleanup_mode", "keep_cache") or "keep_cache").strip().lower()
+        if value == "unload_models":
+            return "Unload models + free memory"
+        if value == "free_memory":
+            return "Free memory"
+        return "Keep cache"
 
     def default_model_for_provider(self, provider):
         return default_model_for_provider(provider)
@@ -283,6 +295,19 @@ class _UiShellVisualReplyService:
         self._set_state(
             "visual_reply_provider_settings",
             updated_provider_settings(self._state, provider, "api_key", str(edit.text() if edit is not None and hasattr(edit, "text") else "").strip()),
+        )
+
+    def apply_comfyui_cleanup(self, choice):
+        text = str(choice or "").strip().lower()
+        if "unload" in text:
+            mode = "unload_models"
+        elif "free" in text:
+            mode = "free_memory"
+        else:
+            mode = "keep_cache"
+        self._set_state(
+            "visual_reply_provider_settings",
+            updated_provider_settings(self._state, "comfyui", "cleanup_mode", mode),
         )
 
     def sync_api_key_field(self, provider=None):

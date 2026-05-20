@@ -99,6 +99,7 @@ class Addon(BaseAddon):
                     "visual_reply_mode_combo",
                     "visual_reply_provider_combo",
                     "visual_reply_size_combo",
+                    "visual_reply_comfyui_cleanup_combo",
                 ],
                 "line_edit": ["visual_reply_model_edit", "visual_reply_api_key_edit"],
                 "checkbox": ["visual_reply_auto_show_checkbox"],

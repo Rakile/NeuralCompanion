@@ -137,6 +137,41 @@ def visual_reply_api_key_for_provider(backend, provider):
     return str(provider_setting_from_config(_runtime_config(backend), provider, "api_key", "") or "").strip()
 
 
+COMFYUI_CLEANUP_LABELS = {
+    "keep_cache": "Keep cache",
+    "free_memory": "Free memory",
+    "unload_models": "Unload models + free memory",
+}
+
+
+def visual_reply_comfyui_cleanup_label_from_value(value):
+    mode = str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if mode in {"off", "none", "keep", "keep_loaded", "keep_models", "keep_cache"}:
+        return COMFYUI_CLEANUP_LABELS["keep_cache"]
+    if mode in {"free", "free_memory", "empty_cache", "soft_empty_cache"}:
+        return COMFYUI_CLEANUP_LABELS["free_memory"]
+    if mode in {"unload", "unload_models", "full", "full_cleanup", "unload_models_free_memory"}:
+        return COMFYUI_CLEANUP_LABELS["unload_models"]
+    return COMFYUI_CLEANUP_LABELS["keep_cache"]
+
+
+def visual_reply_comfyui_cleanup_value_from_label(label):
+    text = str(label or "").strip().lower()
+    for value, known_label in COMFYUI_CLEANUP_LABELS.items():
+        if text == known_label.lower():
+            return value
+    if "unload" in text:
+        return "unload_models"
+    if "free" in text:
+        return "free_memory"
+    return "keep_cache"
+
+
+def visual_reply_comfyui_cleanup_for_backend(backend):
+    raw = provider_setting_from_config(_runtime_config(backend), "comfyui", "cleanup_mode", "keep_cache")
+    return visual_reply_comfyui_cleanup_value_from_label(visual_reply_comfyui_cleanup_label_from_value(raw))
+
+
 def _update_visual_reply_provider_setting(backend, provider, role, value):
     settings = updated_provider_settings(_runtime_config(backend), provider, role, value)
     return _update_runtime_config(backend, "visual_reply_provider_settings", settings)
@@ -213,6 +248,33 @@ def sync_visual_reply_size_field(backend, provider=None):
             pass
 
 
+def sync_visual_reply_comfyui_cleanup_field(backend, provider=None):
+    combo = getattr(backend, "visual_reply_comfyui_cleanup_combo", None)
+    label = getattr(backend, "visual_reply_comfyui_cleanup_label", None)
+    if provider is None:
+        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    is_comfyui = str(provider or "").strip().lower() == "comfyui"
+    for widget in (label, combo):
+        if widget is not None and hasattr(widget, "setVisible"):
+            widget.setVisible(is_comfyui)
+    if combo is None or not hasattr(combo, "setCurrentText"):
+        return
+    previous = False
+    try:
+        previous = bool(combo.blockSignals(True))
+        combo.setCurrentText(visual_reply_comfyui_cleanup_label_from_value(visual_reply_comfyui_cleanup_for_backend(backend)))
+        if hasattr(combo, "setToolTip"):
+            combo.setToolTip(
+                "Keep cache is fastest. Free memory asks ComfyUI to clear unused VRAM/RAM after each image. "
+                "Unload models frees more memory but the next image will reload models."
+            )
+    finally:
+        try:
+            combo.blockSignals(previous)
+        except Exception:
+            pass
+
+
 def on_visual_reply_api_key_changed(backend):
     provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
     api_key = str(backend.visual_reply_api_key_edit.text() if hasattr(backend, "visual_reply_api_key_edit") else "").strip()
@@ -243,6 +305,7 @@ def refresh_visual_reply_hint(backend):
         api_label.setText(visual_reply_api_label_for_provider(provider))
     sync_visual_reply_model_field(backend, provider)
     sync_visual_reply_api_key_field(backend, provider)
+    sync_visual_reply_comfyui_cleanup_field(backend, provider)
     if mode == "off":
         title = "Visual Reply Runtime - Off"
         summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."
@@ -251,10 +314,11 @@ def refresh_visual_reply_hint(backend):
         provider_text = visual_reply_provider_label_from_value(provider)
         if provider == "comfyui":
             server_url = visual_reply_api_key_for_provider(backend, provider) or "http://127.0.0.1:8188"
+            cleanup_label = visual_reply_comfyui_cleanup_label_from_value(visual_reply_comfyui_cleanup_for_backend(backend))
             title = f"Visual Reply Runtime - ComfyUI"
             summary = (
                 "Visual replies are enabled through a local/LAN ComfyUI server. NC injects the prompt into the configured workflow, queues it through ComfyUI, "
-                f"then displays the generated output image. Current request: ComfyUI at {server_url}, {size}, workflow '{model}'. {dock_text}"
+                f"then displays the generated output image. Current request: ComfyUI at {server_url}, {size}, workflow '{model}', cleanup: {cleanup_label}. {dock_text}"
             )
         else:
             title = f"Visual Reply Runtime - {provider_text} / {model}"
@@ -309,6 +373,7 @@ def on_visual_reply_provider_changed(backend, choice):
     sync_visual_reply_size_field(backend, provider)
     sync_visual_reply_model_field(backend, provider)
     sync_visual_reply_api_key_field(backend, provider)
+    sync_visual_reply_comfyui_cleanup_field(backend, provider)
     refresh_visual_reply_hint(backend)
     backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_provider", "value": provider})
     backend.save_session()
@@ -353,6 +418,16 @@ def on_visual_reply_auto_show_changed(backend, checked):
     backend.save_session()
 
 
+def on_visual_reply_comfyui_cleanup_changed(backend, choice):
+    mode = visual_reply_comfyui_cleanup_value_from_label(choice)
+    _update_visual_reply_provider_setting(backend, "comfyui", "cleanup_mode", mode)
+    refresh_visual_reply_hint(backend)
+    backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_comfyui_cleanup_mode", "value": mode})
+    save_session = getattr(backend, "save_session", None)
+    if callable(save_session):
+        save_session()
+
+
 class BackendVisualReplyRuntimeMixin:
     """Host-facing Visual Reply runtime settings and image/caption controls."""
 
@@ -389,6 +464,9 @@ class BackendVisualReplyRuntimeMixin:
     def _sync_visual_reply_size_field(self, provider=None):
         sync_visual_reply_size_field(self, provider)
 
+    def _sync_visual_reply_comfyui_cleanup_field(self, provider=None):
+        sync_visual_reply_comfyui_cleanup_field(self, provider)
+
     def _refresh_visual_reply_hint(self):
         refresh_visual_reply_hint(self)
 
@@ -409,6 +487,9 @@ class BackendVisualReplyRuntimeMixin:
 
     def on_visual_reply_auto_show_changed(self, checked):
         on_visual_reply_auto_show_changed(self, checked)
+
+    def on_visual_reply_comfyui_cleanup_changed(self, choice):
+        on_visual_reply_comfyui_cleanup_changed(self, choice)
 
     def show_visual_reply_dock(self):
         if not self._visual_reply_addon_enabled():
