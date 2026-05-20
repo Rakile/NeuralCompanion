@@ -289,6 +289,8 @@ class QtVisualReplyService:
         auto_show_checkbox,
         hint_label,
         api_key_edit=None,
+        model_label=None,
+        api_key_label=None,
         story_mode_button=None,
         story_max_images_spin=None,
         story_continuity_slider=None,
@@ -302,6 +304,10 @@ class QtVisualReplyService:
         self._window.visual_reply_model_edit = model_edit
         if api_key_edit is not None:
             self._window.visual_reply_api_key_edit = api_key_edit
+        if model_label is not None:
+            self._window.visual_reply_model_label = model_label
+        if api_key_label is not None:
+            self._window.visual_reply_api_key_label = api_key_label
         self._window.visual_reply_auto_show_checkbox = auto_show_checkbox
         self._window.visual_reply_hint = hint_label
         if story_mode_button is not None:

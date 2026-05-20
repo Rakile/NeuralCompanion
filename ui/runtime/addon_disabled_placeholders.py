@@ -127,8 +127,8 @@ def ensure_visual_reply_legacy_placeholders(backend, runtime_config=None):
         provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
         backend.visual_reply_provider_combo = _combo(
             "visual_reply_provider_combo",
-            ["OpenAI", "xAI / Grok", "Runware"],
-            "Runware" if provider == "runware" else ("xAI / Grok" if provider == "xai" else "OpenAI"),
+            ["OpenAI", "xAI / Grok", "Runware", "ComfyUI"],
+            "ComfyUI" if provider == "comfyui" else ("Runware" if provider == "runware" else ("xAI / Grok" if provider == "xai" else "OpenAI")),
         )
     if not hasattr(backend, "visual_reply_size_combo"):
         size = str(runtime.get("visual_reply_size", "1024x1024") or "1024x1024").strip().lower()

@@ -23,7 +23,7 @@ from addons.visual_reply.runtime import (
     visual_reply_provider_value_from_label,
     visual_reply_size_label_from_value,
 )
-from addons.visual_reply.providers import provider_setting_from_config, provider_settings_from_config
+from addons.visual_reply.providers import provider_labels, provider_setting_from_config, provider_settings_from_config
 from core.addons.qt_host_services import AddonCapabilityBridgeService, QtRuntimeConfigService
 
 try:
@@ -103,7 +103,7 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
 
     backend.visual_reply_provider_combo = NoWheelComboBox()
     backend.visual_reply_provider_combo.setObjectName("visual_reply_provider_combo")
-    backend.visual_reply_provider_combo.addItems(["OpenAI", "xAI / Grok", "Runware"])
+    backend.visual_reply_provider_combo.addItems(provider_labels())
     current_provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
     backend._visual_reply_active_provider = current_provider
     backend.visual_reply_provider_combo.setCurrentText(visual_reply_provider_label_from_value(current_provider))
@@ -161,9 +161,13 @@ def build_legacy_settings_tab(backend):
     visual_form.addWidget(backend.visual_reply_provider_combo, 0, 3)
     visual_form.addWidget(QtWidgets.QLabel("Image Size"), 1, 0, QtCore.Qt.AlignVCenter)
     visual_form.addWidget(backend.visual_reply_size_combo, 1, 1)
-    visual_form.addWidget(QtWidgets.QLabel("Image Model"), 1, 2, QtCore.Qt.AlignVCenter)
+    backend.visual_reply_model_label = QtWidgets.QLabel("Image Model")
+    backend.visual_reply_model_label.setObjectName("visual_reply_model_label")
+    visual_form.addWidget(backend.visual_reply_model_label, 1, 2, QtCore.Qt.AlignVCenter)
     visual_form.addWidget(backend.visual_reply_model_edit, 1, 3)
-    visual_form.addWidget(QtWidgets.QLabel("API Key"), 2, 0, QtCore.Qt.AlignVCenter)
+    backend.visual_reply_api_key_label = QtWidgets.QLabel("API Key")
+    backend.visual_reply_api_key_label.setObjectName("visual_reply_api_key_label")
+    visual_form.addWidget(backend.visual_reply_api_key_label, 2, 0, QtCore.Qt.AlignVCenter)
     visual_form.addWidget(backend.visual_reply_api_key_edit, 2, 1, 1, 3)
     visual_form.setColumnStretch(1, 1)
     visual_form.setColumnStretch(3, 1)

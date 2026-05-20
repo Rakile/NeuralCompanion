@@ -67,8 +67,12 @@ class VisualReplyRuntime:
         return env_value(spec.api_key_env_names, env)
 
     def base_url(self) -> str:
-        spec = provider_spec(self.provider())
-        return env_value(spec.base_url_env_names, self._environ) or spec.default_base_url
+        provider = self.provider()
+        spec = provider_spec(provider)
+        configured = str(provider_setting_from_config(self._config(), provider, "base_url", "") or "").strip()
+        if not configured and provider == "comfyui":
+            configured = str(provider_setting_from_config(self._config(), provider, "api_key", "") or "").strip()
+        return configured or env_value(spec.base_url_env_names, self._environ) or spec.default_base_url
 
     def provider(self) -> str:
         provider = str(self._config().get("visual_reply_provider", "openai") or "openai").strip().lower()
@@ -86,6 +90,8 @@ class VisualReplyRuntime:
     def generation_available(self) -> bool:
         if not self.enabled():
             return False
+        if self.provider() == "comfyui":
+            return bool(self.base_url() and self.workflow_path())
         if provider_spec(self.provider()).requires_api_key:
             return bool(self.api_key())
         return bool(self.api_key() or self.base_url())
@@ -207,6 +213,38 @@ class VisualReplyRuntime:
             or default_model_for_provider(provider)
         ).strip()
         return normalize_model_for_provider(provider, model)
+
+    def workflow_path(self) -> str:
+        if self.provider() != "comfyui":
+            return ""
+        provider = self.provider()
+        spec = provider_spec(provider)
+        path = str(
+            provider_setting_from_config(self._config(), provider, "workflow_path", "")
+            or provider_setting_from_config(self._config(), provider, "model", "")
+            or self._config().get("visual_reply_model")
+            or env_value(spec.model_env_names, self._environ)
+            or default_model_for_provider(provider)
+        ).strip()
+        return path
+
+    def comfyui_negative_prompt(self) -> str:
+        return str(
+            provider_setting_from_config(self._config(), "comfyui", "negative_prompt", "")
+            or self._environ.get("NC_VISUAL_REPLY_COMFYUI_NEGATIVE_PROMPT", "")
+            or ""
+        ).strip()
+
+    def comfyui_timeout_seconds(self) -> float:
+        raw = (
+            provider_setting_from_config(self._config(), "comfyui", "timeout_seconds", "")
+            or self._environ.get("NC_VISUAL_REPLY_COMFYUI_TIMEOUT", "")
+            or 180
+        )
+        try:
+            return max(5.0, float(raw or 180))
+        except Exception:
+            return 180.0
 
     def image_size(self) -> str:
         allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}

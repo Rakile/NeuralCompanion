@@ -16,6 +16,10 @@ from addons.visual_reply.providers import (
 )
 from core.addons.qt_host_services import QtRuntimeConfigService
 from ui.panels.input_dialog import QtInputDialog
+try:
+    from PySide6 import QtWidgets
+except Exception:  # pragma: no cover
+    QtWidgets = None
 
 
 def _runtime_config_service(backend):
@@ -109,6 +113,26 @@ def visual_reply_model_for_provider(backend, provider):
     return default_model
 
 
+def visual_reply_model_label_for_provider(provider):
+    return "Workflow JSON" if str(provider or "").strip().lower() == "comfyui" else "Image Model"
+
+
+def visual_reply_api_label_for_provider(provider):
+    return "Server URL" if str(provider or "").strip().lower() == "comfyui" else "API Key"
+
+
+def visual_reply_model_placeholder_for_provider(provider):
+    if str(provider or "").strip().lower() == "comfyui":
+        return "Path to ComfyUI workflow JSON"
+    return ""
+
+
+def visual_reply_api_placeholder_for_provider(provider):
+    if str(provider or "").strip().lower() == "comfyui":
+        return "http://127.0.0.1:8188"
+    return f"{visual_reply_provider_label_from_value(provider)} API key (optional; env vars still work)"
+
+
 def visual_reply_api_key_for_provider(backend, provider):
     return str(provider_setting_from_config(_runtime_config(backend), provider, "api_key", "") or "").strip()
 
@@ -129,10 +153,16 @@ def sync_visual_reply_api_key_field(backend, provider=None):
     try:
         previous = bool(widget.blockSignals(True))
         widget.setText(visual_reply_api_key_for_provider(backend, provider))
+        if QtWidgets is not None and hasattr(widget, "setEchoMode"):
+            echo_mode = QtWidgets.QLineEdit.Normal if str(provider or "").strip().lower() == "comfyui" else QtWidgets.QLineEdit.Password
+            widget.setEchoMode(echo_mode)
         if hasattr(widget, "setPlaceholderText"):
-            widget.setPlaceholderText(f"{label} API key (optional; env vars still work)")
+            widget.setPlaceholderText(visual_reply_api_placeholder_for_provider(provider))
         if hasattr(widget, "setToolTip"):
-            widget.setToolTip(f"Optional {label} API key saved in the local session for Visual Reply image generation.")
+            if str(provider or "").strip().lower() == "comfyui":
+                widget.setToolTip("ComfyUI server URL. Local default: http://127.0.0.1:8188")
+            else:
+                widget.setToolTip(f"Optional {label} API key saved in the local session for Visual Reply image generation.")
     finally:
         try:
             widget.blockSignals(previous)
@@ -151,6 +181,13 @@ def sync_visual_reply_model_field(backend, provider=None):
     try:
         previous = bool(widget.blockSignals(True))
         widget.setText(model_name)
+        if hasattr(widget, "setPlaceholderText"):
+            widget.setPlaceholderText(visual_reply_model_placeholder_for_provider(provider))
+        if hasattr(widget, "setToolTip"):
+            if str(provider or "").strip().lower() == "comfyui":
+                widget.setToolTip("ComfyUI workflow JSON path. UI workflows and API-format workflows are both supported.")
+            else:
+                widget.setToolTip("Image model name used by the selected Visual Reply provider.")
     finally:
         try:
             widget.blockSignals(previous)
@@ -198,18 +235,34 @@ def refresh_visual_reply_hint(backend):
     default_model = visual_reply_default_model_for_provider(provider)
     model = backend._live_text("visual_reply_model_edit", visual_reply_model_for_provider(backend, provider)).strip() or default_model
     auto_show = backend._live_checked("visual_reply_auto_show_checkbox", True)
+    model_label = backend._live_widget_attr("visual_reply_model_label")
+    if model_label is not None and hasattr(model_label, "setText"):
+        model_label.setText(visual_reply_model_label_for_provider(provider))
+    api_label = backend._live_widget_attr("visual_reply_api_key_label")
+    if api_label is not None and hasattr(api_label, "setText"):
+        api_label.setText(visual_reply_api_label_for_provider(provider))
+    sync_visual_reply_model_field(backend, provider)
+    sync_visual_reply_api_key_field(backend, provider)
     if mode == "off":
         title = "Visual Reply Runtime - Off"
         summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."
     else:
         dock_text = "The dock will auto-show when a request starts or finishes." if auto_show else "The dock stays where it is; use Show Visual Reply if you want to watch generation live."
         provider_text = visual_reply_provider_label_from_value(provider)
-        title = f"Visual Reply Runtime - {provider_text} / {model}"
-        key_text = "A local API key is set for this provider." if visual_reply_api_key_for_provider(backend, provider) else "API key can come from this field or the provider environment variable."
-        summary = (
-            f"Visual replies are enabled. Automatic image generation still follows the NC auto-visual toggle; when allowed, NC may append one [visualize: ...] tag when an image would help. "
-            f"Current backend request: {provider_text}, {size}, model '{model}'. {key_text} {dock_text}"
-        )
+        if provider == "comfyui":
+            server_url = visual_reply_api_key_for_provider(backend, provider) or "http://127.0.0.1:8188"
+            title = f"Visual Reply Runtime - ComfyUI"
+            summary = (
+                "Visual replies are enabled through a local/LAN ComfyUI server. NC injects the prompt into the configured workflow, queues it through ComfyUI, "
+                f"then displays the generated output image. Current request: ComfyUI at {server_url}, {size}, workflow '{model}'. {dock_text}"
+            )
+        else:
+            title = f"Visual Reply Runtime - {provider_text} / {model}"
+            key_text = "A local API key is set for this provider." if visual_reply_api_key_for_provider(backend, provider) else "API key can come from this field or the provider environment variable."
+            summary = (
+                f"Visual replies are enabled. Automatic image generation still follows the NC auto-visual toggle; when allowed, NC may append one [visualize: ...] tag when an image would help. "
+                f"Current backend request: {provider_text}, {size}, model '{model}'. {key_text} {dock_text}"
+            )
     hint.setText(summary)
     runtime_box = backend._live_widget_attr("visual_reply_runtime_box")
     if runtime_box is not None and hasattr(runtime_box, "setTitle"):

@@ -2,7 +2,7 @@
 
 Visual Reply addons connect NC's visual response settings and dock UI to image-generation behavior. The current first-party addon owns the Visuals/Core tab and installs the Visual Reply dock panel.
 
-Use this guide for addons that extend Visual Reply UI or replace the panel. Future image provider addons may also use the same pattern once provider registration is split out.
+Use this guide for addons that extend Visual Reply UI or replace the panel. The first-party Visual Reply provider list currently includes OpenAI, xAI/Grok, Runware, and ComfyUI.
 
 ## Host Service
 

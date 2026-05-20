@@ -22,6 +22,7 @@ class VisualReplyProviderSpec:
     api_key_setting_key: str = "api_key"
     model_setting_key: str = "model"
     size_setting_key: str = "size"
+    base_url_setting_key: str = "base_url"
 
 
 PROVIDER_SPECS: tuple[VisualReplyProviderSpec, ...] = (
@@ -64,6 +65,22 @@ PROVIDER_SPECS: tuple[VisualReplyProviderSpec, ...] = (
         size_env_names=("NC_VISUAL_REPLY_RUNWARE_SIZE", "NC_VISUAL_REPLY_SIZE"),
         legacy_default_models=frozenset({"runware:101@1"}),
     ),
+    VisualReplyProviderSpec(
+        provider_id="comfyui",
+        label="ComfyUI",
+        default_model="user/default/workflows/NeuralCompanionFlow.json",
+        legacy_api_key_config_key="visual_reply_comfyui_base_url",
+        legacy_model_config_key="visual_reply_comfyui_workflow_path",
+        legacy_size_config_key="visual_reply_comfyui_size",
+        api_key_env_names=(),
+        model_env_names=("NC_VISUAL_REPLY_COMFYUI_WORKFLOW", "COMFYUI_WORKFLOW_PATH"),
+        size_env_names=("NC_VISUAL_REPLY_COMFYUI_SIZE", "NC_VISUAL_REPLY_SIZE"),
+        base_url_env_names=("NC_VISUAL_REPLY_COMFYUI_BASE_URL", "COMFYUI_BASE_URL", "NC_VISUAL_REPLY_BASE_URL"),
+        default_base_url="http://127.0.0.1:8188",
+        requires_api_key=False,
+        api_key_setting_key="base_url",
+        model_setting_key="workflow_path",
+    ),
 )
 
 PROVIDERS_BY_ID = {spec.provider_id: spec for spec in PROVIDER_SPECS}
@@ -105,6 +122,10 @@ def provider_setting_key(provider: str | None, role: str) -> str:
         return spec.model_setting_key
     if role == "size":
         return spec.size_setting_key
+    if role == "base_url":
+        return spec.base_url_setting_key
+    if role == "workflow_path":
+        return spec.model_setting_key
     return role
 
 

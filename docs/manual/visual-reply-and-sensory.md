@@ -25,6 +25,11 @@ only the sources you intend to use.
 Some visual or sensory workflows may require external models, API keys, or local
 runtime configuration. Check each addon panel for its current settings.
 
+Visual Reply supports hosted providers and local ComfyUI workflows. For ComfyUI,
+run the ComfyUI server, select `ComfyUI` as the Visual Reply provider, enter the
+server URL, and point `Workflow JSON` at a saved workflow. See
+[`docs/visual_reply_comfyui.md`](../visual_reply_comfyui.md) for setup details.
+
 ## Good Testing Order
 
 1. Start with text chat and speech.

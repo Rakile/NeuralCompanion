@@ -751,7 +751,9 @@ class VisualReplyController:
         mode_combo = self._ui_child(tab, "visual_reply_mode_combo", QtWidgets.QComboBox)
         provider_combo = self._ui_child(tab, "visual_reply_provider_combo", QtWidgets.QComboBox)
         size_combo = self._ui_child(tab, "visual_reply_size_combo", QtWidgets.QComboBox)
+        model_label = self._ui_child(tab, "visual_reply_model_label", QtWidgets.QLabel)
         model_edit = self._ui_child(tab, "visual_reply_model_edit", QtWidgets.QLineEdit)
+        api_key_label = self._ui_child(tab, "visual_reply_api_key_label", QtWidgets.QLabel)
         api_key_edit = self._ui_child(tab, "visual_reply_api_key_edit", QtWidgets.QLineEdit)
         auto_show_checkbox = self._ui_child(tab, "visual_reply_auto_show_checkbox", QtWidgets.QCheckBox)
         hint_label = self._ui_child(tab, "visual_reply_hint_label", QtWidgets.QLabel)
@@ -773,7 +775,9 @@ class VisualReplyController:
             mode_combo=mode_combo,
             provider_combo=provider_combo,
             size_combo=size_combo,
+            model_label=model_label,
             model_edit=model_edit,
+            api_key_label=api_key_label,
             api_key_edit=api_key_edit,
             auto_show_checkbox=auto_show_checkbox,
             hint_label=hint_label,

@@ -110,11 +110,12 @@ def _apply_ui_shell_read_only_config(window):
         ("visual_reply_mode_combo", ["Off", "Manual", "Auto"], visual_mode_labels.get(str(session.get("visual_reply_mode", "")).strip().lower(), session.get("visual_reply_mode", ""))),
         (
             "visual_reply_provider_combo",
-            ["OpenAI", "xAI / Grok", "Runware"],
+            ["OpenAI", "xAI / Grok", "Runware", "ComfyUI"],
             {
                 "openai": "OpenAI",
                 "xai": "xAI / Grok",
                 "runware": "Runware",
+                "comfyui": "ComfyUI",
             }.get(str(session.get("visual_reply_provider", "")).strip().lower(), session.get("visual_reply_provider", "")),
         ),
         ("visual_reply_size_combo", ["1024x1024", "1024x1792", "1792x1024"], session.get("visual_reply_size", "")),
