@@ -9,8 +9,8 @@
     "ui.tabs"
   ],
   "runtime_defaults": {
-    "visual_replies_enabled": true,
-    "visual_reply_mode": "auto",
+    "visual_replies_enabled": false,
+    "visual_reply_mode": "off",
     "visual_reply_provider": "openai",
     "visual_reply_model": "gpt-image-1",
     "visual_reply_size": "1024x1024",

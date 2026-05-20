@@ -108,7 +108,7 @@ class Addon(BaseAddon):
                         "description": "Shown when LM Studio reports public reasoning options with both off and on support.",
                     },
                 ],
-                "hint": "Uses LM Studio's local OpenAI-compatible endpoint.",
+                "hint": "Uses LM Studio's local OpenAI-compatible endpoint. In LM Studio, open Developer -> Local Server and make sure Status is Running.",
                 "supports_local_runtime": True,
             },
         )
@@ -230,7 +230,12 @@ class Addon(BaseAddon):
                 "model_count": count,
             }
         except Exception as exc:
-            return {"ok": False, "detail": str(exc)}
+            return {
+                "ok": False,
+                "detail": (
+                    f"{exc}. In LM Studio, open Developer -> Local Server and make sure Status is Running."
+                ),
+            }
 
     def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
         client = self._client()

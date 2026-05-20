@@ -1635,26 +1635,78 @@ QTabWidget QStackedWidget {
             if form is None or not hasattr(form, "rowCount"):
                 return
             try:
-                while form.rowCount() > 0:
-                    form.takeRow(0)
+                preserved_widgets = []
+                while form.count() > 0:
+                    item = form.takeAt(0)
+                    if item is None:
+                        continue
+                    widget = item.widget()
+                    if widget is not None:
+                        preserved_widgets.append(widget)
+                        widget.setParent(None)
+                    child_layout = item.layout()
+                    if child_layout is not None:
+                        while child_layout.count() > 0:
+                            child_item = child_layout.takeAt(0)
+                            child_widget = child_item.widget() if child_item is not None else None
+                            if child_widget is not None:
+                                preserved_widgets.append(child_widget)
+                                child_widget.setParent(None)
+                setattr(form, "_nc_preserved_widgets", preserved_widgets)
                 return
             except Exception:
                 pass
             try:
                 while form.count() > 0:
-                    form.takeAt(0)
+                    item = form.takeAt(0)
+                    widget = item.widget() if item is not None else None
+                    if widget is not None:
+                        widget.setParent(None)
             except Exception:
                 pass
 
     def _normalize_frontend_chat_runtime_layout(self):
             form = self._ui_object("chatRuntimeForm")
-            if form is None or bool(getattr(form, "_nc_horizontal_runtime_layout", False)):
+            if form is None:
                 return
+            existing_selector = self._ui_object("chat_runtime_selector_row")
+            if bool(getattr(form, "_nc_horizontal_runtime_layout", False)) and existing_selector is not None:
+                return
+
+            def _backend_attr(name):
+                try:
+                    return getattr(getattr(self, "backend", None), name, None)
+                except Exception:
+                    return None
+
+            def _fallback_label(key, text):
+                label = QtWidgets.QLabel(text)
+                label.setObjectName(f"chat_runtime_{key}_fallback_label")
+                setattr(form, f"_nc_chat_runtime_{key}_fallback_label", label)
+                return label
+
+            provider_label = self._ui_object("chat_provider_label") or _fallback_label("provider", "Chat Provider")
+            provider_combo = self._ui_object("chat_provider_combo") or _backend_attr("chat_provider_combo")
+            model_label = self._ui_object("model_label") or _fallback_label("model", "LLM Model")
+            model_row = self._ui_object("chat_model_row_widget") or _backend_attr("model_row_widget")
+            if model_row is None:
+                model_combo = self._ui_object("model_combo") or _backend_attr("model_combo")
+                refresh_button = self._ui_object("btn_model_refresh") or _backend_attr("btn_model_refresh")
+                if model_combo is not None:
+                    model_row = QtWidgets.QWidget()
+                    model_row.setObjectName("chat_model_row_widget")
+                    model_layout = QtWidgets.QHBoxLayout(model_row)
+                    model_layout.setContentsMargins(0, 0, 0, 0)
+                    model_layout.setSpacing(8)
+                    model_layout.addWidget(model_combo, 1)
+                    if refresh_button is not None:
+                        model_layout.addWidget(refresh_button, 0)
+                    setattr(form, "_nc_chat_runtime_model_row_fallback", model_row)
             widgets = {
-                "provider_label": self._ui_object("chat_provider_label"),
-                "provider_combo": self._ui_object("chat_provider_combo"),
-                "model_label": self._ui_object("model_label"),
-                "model_row": self._ui_object("chat_model_row_widget"),
+                "provider_label": provider_label,
+                "provider_combo": provider_combo,
+                "model_label": model_label,
+                "model_row": model_row,
                 "vision_label": self._ui_object("model_requires_vision_label"),
                 "vision_check": self._ui_object("model_requires_vision_checkbox"),
                 "settings_label": self._ui_object("provider_settings_label"),
@@ -1662,7 +1714,7 @@ QTabWidget QStackedWidget {
                 "generation_label": self._ui_object("provider_generation_label"),
                 "generation_widget": self._ui_object("chat_provider_generation_fields_widget"),
             }
-            if any(widgets[key] is None for key in ("provider_label", "provider_combo", "model_label", "model_row")):
+            if widgets["provider_combo"] is None or widgets["model_row"] is None:
                 return
 
             self._clear_form_rows_preserving_widgets(form)
@@ -1679,6 +1731,18 @@ QTabWidget QStackedWidget {
             selector_layout.addWidget(widgets["model_row"], 0, 3)
             selector_layout.setColumnStretch(1, 1)
             selector_layout.setColumnStretch(3, 2)
+            for widget in (
+                selector,
+                widgets["provider_label"],
+                widgets["provider_combo"],
+                widgets["model_label"],
+                widgets["model_row"],
+            ):
+                try:
+                    widget.setVisible(True)
+                    widget.setEnabled(True)
+                except Exception:
+                    pass
 
             try:
                 form.setContentsMargins(8, 10, 8, 8)

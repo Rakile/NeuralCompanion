@@ -121,7 +121,7 @@ def ensure_musetalk_legacy_placeholders(backend, runtime_config=None):
 def ensure_visual_reply_legacy_placeholders(backend, runtime_config=None):
     runtime = dict(runtime_config or {})
     if not hasattr(backend, "visual_reply_mode_combo"):
-        mode = "Off" if str(runtime.get("visual_reply_mode", "auto") or "auto").strip().lower() == "off" else "Auto"
+        mode = "Off" if str(runtime.get("visual_reply_mode", "off") or "off").strip().lower() == "off" else "Auto"
         backend.visual_reply_mode_combo = _combo("visual_reply_mode_combo", ["Off", "Auto"], mode)
     if not hasattr(backend, "visual_reply_provider_combo"):
         provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()

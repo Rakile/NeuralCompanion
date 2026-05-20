@@ -760,7 +760,7 @@ class VisualReplyController:
             raise RuntimeError("Visual Reply Designer UI is missing one or more required controls.")
 
         mode_combo.addItems(list(self._visual_reply_service.mode_labels()))
-        mode_combo.setCurrentText(self._visual_reply_service.mode_label_from_value(snapshot.get("mode_value", "auto")))
+        mode_combo.setCurrentText(self._visual_reply_service.mode_label_from_value(snapshot.get("mode_value", "off")))
         provider_combo.addItems(list(self._visual_reply_service.provider_labels()))
         provider_combo.setCurrentText(self._visual_reply_service.provider_label_from_value(snapshot.get("provider_value", "openai")))
         self._visual_reply_service._window._visual_reply_active_provider = str(snapshot.get("provider_value", "openai") or "openai").strip().lower()

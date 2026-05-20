@@ -41,7 +41,7 @@ def _update_runtime_config(backend, key, value):
 
 
 def visual_reply_mode_label_from_value(value):
-    return "Off" if str(value or "auto").strip().lower() == "off" else "Auto"
+    return "Auto" if str(value or "off").strip().lower() == "auto" else "Off"
 
 
 def visual_reply_mode_value_from_label(label):

@@ -134,7 +134,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         sensory_pingpong_history_spin.setToolTip("Shell-local PING/PONG history preview. Changes are not saved or applied to runtime.")
     if visual_reply_mode_combo is not None:
         _ui_shell_combo_set_items(visual_reply_mode_combo, list(visual_reply_service.mode_labels()))
-        _ui_shell_combo_select_label(visual_reply_mode_combo, visual_reply_service.mode_label_from_value(visual_reply_snapshot.get("mode_value", "auto")))
+        _ui_shell_combo_select_label(visual_reply_mode_combo, visual_reply_service.mode_label_from_value(visual_reply_snapshot.get("mode_value", "off")))
     if visual_reply_provider_combo is not None:
         _ui_shell_combo_set_items(visual_reply_provider_combo, list(visual_reply_service.provider_labels()))
         _ui_shell_combo_select_label(visual_reply_provider_combo, visual_reply_service.provider_label_from_value(visual_reply_snapshot.get("provider_value", "openai")))
