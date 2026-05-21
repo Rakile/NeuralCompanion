@@ -9,6 +9,11 @@ from addons.visual_reply.providers import (
     provider_value_from_label,
     updated_provider_settings,
 )
+from addons.visual_reply.runtime_config import (
+    is_valid_visual_reply_size,
+    normalize_visual_reply_size,
+    size_labels_for_provider,
+)
 
 
 class _UiShellVisualReplyService:
@@ -177,8 +182,9 @@ class _UiShellVisualReplyService:
     def provider_labels(self):
         return provider_labels()
 
-    def size_labels(self):
-        return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+    def size_labels(self, provider=None):
+        provider = provider or self._state.get("visual_reply_provider", "openai")
+        return size_labels_for_provider(provider)
 
     def comfyui_cleanup_labels(self):
         return ["Keep cache", "Free memory", "Unload models + free memory"]
@@ -200,17 +206,37 @@ class _UiShellVisualReplyService:
     def provider_label_from_value(self, value):
         return provider_label_from_value(value)
 
-    def size_label_from_value(self, value):
-        size = self.normalize_size(value)
+    def size_label_from_value(self, value, provider=None):
+        size = self.normalize_size(value, provider)
         return "Auto" if size == "auto" else size
 
-    def normalize_size(self, value):
-        size = str(value or "1024x1024").strip().lower().replace(" ", "")
-        if size in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
-            return size
-        if size in {"1024 1024", "1024*1024"}:
-            return "1024x1024"
-        return "1024x1024"
+    def normalize_size(self, value, provider=None):
+        provider = provider or self._state.get("visual_reply_provider", "openai")
+        return normalize_visual_reply_size(value, provider)
+
+    def _sync_size_combo_for_provider(self, provider=None):
+        provider = str(provider or self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        size_combo = self._settings_widgets.get("size_combo")
+        if size_combo is None:
+            return
+        current_text = str(size_combo.currentText() if hasattr(size_combo, "currentText") else "").strip()
+        previous = False
+        try:
+            if hasattr(size_combo, "blockSignals"):
+                previous = bool(size_combo.blockSignals(True))
+            if hasattr(size_combo, "setEditable"):
+                size_combo.setEditable(provider == "comfyui")
+            if hasattr(size_combo, "clear") and hasattr(size_combo, "addItems"):
+                size_combo.clear()
+                size_combo.addItems(self.size_labels(provider))
+            size = self.normalize_size(current_text or provider_setting_from_config(self._state, provider, "size", "1024x1024"), provider)
+            if hasattr(size_combo, "setCurrentText"):
+                size_combo.setCurrentText(self.size_label_from_value(size, provider))
+        finally:
+            try:
+                size_combo.blockSignals(previous)
+            except Exception:
+                pass
 
     def attach_settings_widgets(self, **widgets):
         self._settings_widgets = dict(widgets or {})
@@ -218,6 +244,7 @@ class _UiShellVisualReplyService:
         for widget in widgets.values():
             if widget is not None and hasattr(widget, "setToolTip"):
                 widget.setToolTip("Shell-local Visual Reply preview. Changes are not saved and no image generation is started.")
+        self._sync_size_combo_for_provider()
         self.sync_api_key_field()
 
     def _set_state(self, key, value):
@@ -235,7 +262,7 @@ class _UiShellVisualReplyService:
                 self._state,
                 previous_provider,
                 "size",
-                self.normalize_size(size_combo.currentText()),
+                self.normalize_size(size_combo.currentText(), previous_provider),
             )
         edit = self._settings_widgets.get("model_edit")
         if edit is not None and hasattr(edit, "text"):
@@ -249,8 +276,9 @@ class _UiShellVisualReplyService:
         provider = provider_value_from_label(choice)
         self._set_state("visual_reply_provider", provider)
         if size_combo is not None and hasattr(size_combo, "setCurrentText"):
-            size = self.normalize_size(provider_setting_from_config(self._state, provider, "size", "1024x1024"))
-            size_combo.setCurrentText(self.size_label_from_value(size))
+            size = self.normalize_size(provider_setting_from_config(self._state, provider, "size", "1024x1024"), provider)
+            self._sync_size_combo_for_provider(provider)
+            size_combo.setCurrentText(self.size_label_from_value(size, provider))
             self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "size", size)
             self._state["visual_reply_size"] = size
         if edit is not None and hasattr(edit, "text") and hasattr(edit, "setText"):
@@ -261,7 +289,10 @@ class _UiShellVisualReplyService:
 
     def apply_size(self, choice):
         provider = str(self._state.get("visual_reply_provider", "openai") or "openai").strip().lower()
-        size = self.normalize_size(choice)
+        raw_choice = str(choice or "").strip()
+        if provider == "comfyui" and raw_choice and not is_valid_visual_reply_size(raw_choice, provider):
+            return
+        size = self.normalize_size(choice, provider)
         self._state["visual_reply_provider_settings"] = updated_provider_settings(self._state, provider, "size", size)
         self._set_state("visual_reply_size", size)
 

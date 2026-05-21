@@ -33,20 +33,27 @@ class BackendVisualReplyRuntimeMixin:
         return "off" if str(label or "").strip().lower() == "off" else "auto"
 
     def _visual_reply_provider_label_from_value(self, value):
-        return "xAI / Grok" if str(value or "openai").strip().lower() == "xai" else "OpenAI"
+        from addons.visual_reply.providers import provider_label_from_value
+
+        return provider_label_from_value(value)
 
     def _visual_reply_provider_value_from_label(self, label):
-        text = str(label or "").strip().lower()
-        return "xai" if "grok" in text or "xai" in text else "openai"
+        from addons.visual_reply.providers import provider_value_from_label
+
+        return provider_value_from_label(label)
 
     def _normalize_visual_reply_size(self, value):
-        size = str(value or "1024x1024").strip().lower()
-        if size in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
-            return size
-        return "1024x1024"
+        from addons.visual_reply.runtime_config import normalize_visual_reply_size
 
-    def _visual_reply_size_label_from_value(self, value):
-        size = self._normalize_visual_reply_size(value)
+        provider = self._visual_reply_provider_value_from_label(
+            self._live_combo_text("visual_reply_provider_combo", "OpenAI")
+        )
+        return normalize_visual_reply_size(value, provider)
+
+    def _visual_reply_size_label_from_value(self, value, provider=None):
+        from addons.visual_reply.runtime_config import normalize_visual_reply_size
+
+        size = normalize_visual_reply_size(value, provider) if provider else self._normalize_visual_reply_size(value)
         return "Auto" if size == "auto" else size
 
     def _refresh_visual_reply_hint(self):

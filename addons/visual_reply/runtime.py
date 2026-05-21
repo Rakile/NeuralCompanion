@@ -3,6 +3,11 @@ from pathlib import Path
 
 from PySide6 import QtWidgets
 
+from addons.visual_reply.runtime_config import (
+    is_valid_visual_reply_size,
+    normalize_visual_reply_size,
+    size_labels_for_provider,
+)
 from addons.visual_reply import state as visual_reply_state
 from addons.visual_reply.providers import (
     default_model_for_provider,
@@ -88,15 +93,8 @@ def visual_reply_provider_value_from_label(label):
     return provider_value_from_label(label)
 
 
-def normalize_visual_reply_size(value):
-    size = str(value or "1024x1024").strip().lower()
-    if size in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
-        return size
-    return "1024x1024"
-
-
-def visual_reply_size_label_from_value(value):
-    size = normalize_visual_reply_size(value)
+def visual_reply_size_label_from_value(value, provider=None):
+    size = normalize_visual_reply_size(value, provider)
     return "Auto" if size == "auto" else size
 
 
@@ -105,10 +103,10 @@ def visual_reply_size_for_provider(backend, provider):
     config = _runtime_config(backend)
     provider_size = str(provider_setting_from_config(config, provider, "size", "") or "").strip()
     if provider_size:
-        return normalize_visual_reply_size(provider_size)
+        return normalize_visual_reply_size(provider_size, provider)
     active_provider = str(config.get("visual_reply_provider", "openai") or "openai").strip().lower()
     if active_provider == provider:
-        return normalize_visual_reply_size(config.get("visual_reply_size", "1024x1024"))
+        return normalize_visual_reply_size(config.get("visual_reply_size", "1024x1024"), provider)
     return "1024x1024"
 
 
@@ -258,6 +256,51 @@ def sync_visual_reply_model_field(backend, provider=None):
             pass
 
 
+def configure_visual_reply_size_field(widget, provider):
+    if widget is None:
+        return
+    provider = str(provider or "openai").strip().lower()
+    is_comfyui = provider == "comfyui"
+    labels = size_labels_for_provider(provider)
+    current_text = str(widget.currentText() if hasattr(widget, "currentText") else "").strip()
+    previous = False
+    try:
+        if hasattr(widget, "blockSignals"):
+            previous = bool(widget.blockSignals(True))
+        if hasattr(widget, "setMinimumWidth"):
+            widget.setMinimumWidth(146 if is_comfyui else 118)
+        if hasattr(widget, "setMinimumContentsLength"):
+            widget.setMinimumContentsLength(10 if is_comfyui else 8)
+        if hasattr(widget, "setSizeAdjustPolicy") and QtWidgets is not None:
+            widget.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        if hasattr(widget, "setEditable"):
+            widget.setEditable(is_comfyui)
+        if hasattr(widget, "clear") and hasattr(widget, "addItems"):
+            widget.clear()
+            widget.addItems(labels)
+        if current_text and hasattr(widget, "setCurrentText"):
+            normalized = normalize_visual_reply_size(current_text, provider)
+            widget.setCurrentText(visual_reply_size_label_from_value(normalized, provider))
+        if hasattr(widget, "lineEdit") and widget.lineEdit() is not None:
+            line_edit = widget.lineEdit()
+            line_edit.setPlaceholderText("WIDTHxHEIGHT" if is_comfyui else "")
+            if hasattr(line_edit, "setMinimumWidth"):
+                line_edit.setMinimumWidth(104 if is_comfyui else 80)
+        if hasattr(widget, "setToolTip"):
+            if is_comfyui:
+                widget.setToolTip(
+                    "ComfyUI image size. Pick a preset or type WIDTHxHEIGHT manually. "
+                    "Custom dimensions must be multiples of 8 between 64 and 8192."
+                )
+            else:
+                widget.setToolTip("Image size supported by the selected hosted image provider.")
+    finally:
+        try:
+            widget.blockSignals(previous)
+        except Exception:
+            pass
+
+
 def sync_visual_reply_size_field(backend, provider=None):
     widget = _backend_widget(backend, "visual_reply_size_combo")
     if widget is None or not hasattr(widget, "setCurrentText"):
@@ -268,7 +311,8 @@ def sync_visual_reply_size_field(backend, provider=None):
     previous = False
     try:
         previous = bool(widget.blockSignals(True))
-        widget.setCurrentText(visual_reply_size_label_from_value(size))
+        configure_visual_reply_size_field(widget, provider)
+        widget.setCurrentText(visual_reply_size_label_from_value(size, provider))
     finally:
         try:
             widget.blockSignals(previous)
@@ -322,7 +366,10 @@ def refresh_visual_reply_hint(backend):
         return
     mode = visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))
     provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
-    size = normalize_visual_reply_size(backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider)))
+    size = normalize_visual_reply_size(
+        backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider)),
+        provider,
+    )
     default_model = visual_reply_default_model_for_provider(provider)
     model = backend._live_text("visual_reply_model_edit", visual_reply_model_for_provider(backend, provider)).strip() or default_model
     auto_show = backend._live_checked("visual_reply_auto_show_checkbox", True)
@@ -384,7 +431,10 @@ def on_visual_reply_provider_changed(backend, choice):
     ).strip().lower()
     if old_provider != provider:
         size_combo = _backend_widget(backend, "visual_reply_size_combo")
-        current_size = normalize_visual_reply_size(size_combo.currentText() if size_combo is not None and hasattr(size_combo, "currentText") else "")
+        current_size = normalize_visual_reply_size(
+            size_combo.currentText() if size_combo is not None and hasattr(size_combo, "currentText") else "",
+            old_provider,
+        )
         _update_visual_reply_provider_setting(backend, old_provider, "size", current_size)
         model_edit = _backend_widget(backend, "visual_reply_model_edit")
         current_model = str(model_edit.text() if model_edit is not None and hasattr(model_edit, "text") else "").strip()
@@ -411,10 +461,13 @@ def on_visual_reply_provider_changed(backend, choice):
 
 def on_visual_reply_size_changed(backend, choice):
     provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
-    size = normalize_visual_reply_size(choice)
+    raw_choice = str(choice or "").strip()
+    if provider == "comfyui" and raw_choice and not is_valid_visual_reply_size(raw_choice, provider):
+        return
+    size = normalize_visual_reply_size(choice, provider)
     size_combo = _backend_widget(backend, "visual_reply_size_combo")
     if size_combo is not None:
-        label = visual_reply_size_label_from_value(size)
+        label = visual_reply_size_label_from_value(size, provider)
         if size_combo.currentText() != label:
             size_combo.setCurrentText(label)
     _update_visual_reply_provider_setting(backend, provider, "size", size)
@@ -475,11 +528,11 @@ class BackendVisualReplyRuntimeMixin:
     def _visual_reply_provider_value_from_label(self, label):
         return visual_reply_provider_value_from_label(label)
 
-    def _normalize_visual_reply_size(self, value):
-        return normalize_visual_reply_size(value)
+    def _normalize_visual_reply_size(self, value, provider=None):
+        return normalize_visual_reply_size(value, provider)
 
-    def _visual_reply_size_label_from_value(self, value):
-        return visual_reply_size_label_from_value(value)
+    def _visual_reply_size_label_from_value(self, value, provider=None):
+        return visual_reply_size_label_from_value(value, provider)
 
     def _visual_reply_default_model_for_provider(self, provider):
         return visual_reply_default_model_for_provider(provider)

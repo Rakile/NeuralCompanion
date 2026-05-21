@@ -30,6 +30,10 @@ run the ComfyUI server, select `ComfyUI` as the Visual Reply provider, enter the
 server URL, point `Workflow JSON` at a saved workflow, and choose whether ComfyUI
 should keep its model cache or free/unload models after each image. See
 [`docs/visual_reply_comfyui.md`](../visual_reply_comfyui.md) for setup details.
+ComfyUI workflows should expose a clear positive prompt path, preferably a
+`CLIPTextEncode` node connected to the sampler `positive` input, and a
+`SaveImage` output. Add `EmptyLatentImage -> sampler latent_image` when NC's
+`Image Size` setting should control the generated dimensions.
 
 Visual Reply provider/runtime choices are saved in the local session, not in
 presets. Changing provider, workflow/model, image size, or auto-show should

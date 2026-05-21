@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from addons.visual_reply.runtime import (
+    configure_visual_reply_size_field,
+    normalize_visual_reply_size,
     on_visual_reply_api_key_changed,
     on_visual_reply_comfyui_cleanup_changed,
     sync_visual_reply_api_key_field,
@@ -141,7 +143,7 @@ class QtVisualReplyService:
             return
         size_combo = self._window_widget("visual_reply_size_combo")
         if size_combo is not None and hasattr(size_combo, "currentText"):
-            size = self.normalize_size(str(size_combo.currentText() or ""))
+            size = self.normalize_size(str(size_combo.currentText() or ""), provider)
             self.update_runtime_config(
                 "visual_reply_provider_settings",
                 updated_provider_settings(self._runtime_config.snapshot(), provider, "size", size),
@@ -239,6 +241,7 @@ class QtVisualReplyService:
         previous_syncing = bool(getattr(window, "_visual_reply_syncing_widgets", False))
         window._visual_reply_syncing_widgets = True
         try:
+            configure_visual_reply_size_field(self._window_widget("visual_reply_size_combo"), active_provider)
             self._set_combo_text_quietly(
                 self._window_widget("visual_reply_mode_combo"),
                 self.mode_label_from_value(self.get_runtime_config("visual_reply_mode", "off")),
@@ -255,7 +258,8 @@ class QtVisualReplyService:
                         active_provider,
                         "size",
                         self.get_runtime_config("visual_reply_size", "1024x1024"),
-                    )
+                    ),
+                    active_provider,
                 ),
             )
             self._set_widget_text_quietly(
@@ -353,8 +357,10 @@ class QtVisualReplyService:
     def provider_labels(self):
         return provider_labels()
 
-    def size_labels(self):
-        return ["Auto", "1024x1024", "1024x1536", "1536x1024"]
+    def size_labels(self, provider=None):
+        from addons.visual_reply.runtime_config import size_labels_for_provider
+
+        return size_labels_for_provider(provider or self._provider_from_runtime())
 
     def comfyui_cleanup_labels(self):
         return ["Keep cache", "Free memory", "Unload models + free memory"]
@@ -371,11 +377,11 @@ class QtVisualReplyService:
     def provider_label_from_value(self, value: str):
         return provider_label_from_value(value)
 
-    def size_label_from_value(self, value: str):
-        return self._window._visual_reply_size_label_from_value(value)
+    def size_label_from_value(self, value: str, provider=None):
+        return self._window._visual_reply_size_label_from_value(value, provider)
 
-    def normalize_size(self, value: str):
-        return self._window._normalize_visual_reply_size(value)
+    def normalize_size(self, value: str, provider=None):
+        return normalize_visual_reply_size(value, provider or self._provider_from_runtime())
 
     def attach_settings_widgets(
         self,

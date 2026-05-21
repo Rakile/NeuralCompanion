@@ -25,6 +25,22 @@ VISUAL_REPLY_TAG_RE = re.compile(r"\[(?:visualize|image):\s*([^\]]+?)\]", re.IGN
 VISUAL_REPLY_TAG_START_RE = re.compile(r"\[(visualize|image):", re.IGNORECASE)
 VISUAL_REPLY_PROVIDER_VALUES = provider_ids()
 VISUAL_REPLY_XAI_BASE_URL = PROVIDERS_BY_ID["xai"].default_base_url
+HOSTED_VISUAL_REPLY_SIZE_VALUES = ("auto", "1024x1024", "1024x1536", "1536x1024")
+COMFYUI_VISUAL_REPLY_SIZE_VALUES = (
+    "auto",
+    "512x512",
+    "768x768",
+    "1024x1024",
+    "1024x1536",
+    "1536x1024",
+    "1216x832",
+    "832x1216",
+    "1344x768",
+    "768x1344",
+    "1280x720",
+    "720x1280",
+    "1536x1536",
+)
 
 VISUAL_REPLY_STORY_THEME_PRESETS = (
     {"id": "realistic", "label": "Realistic", "prompt": "realistic cinematic lighting, natural textures, grounded detail"},
@@ -262,7 +278,6 @@ class VisualReplyRuntime:
         return "keep_cache"
 
     def image_size(self) -> str:
-        allowed = {"auto", "1024x1024", "1024x1536", "1536x1024"}
         provider = self.provider()
         spec = provider_spec(provider)
         value = str(
@@ -271,7 +286,7 @@ class VisualReplyRuntime:
             or env_value(spec.size_env_names, self._environ)
             or "1024x1024"
         ).strip().lower()
-        return value if value in allowed else "1024x1024"
+        return normalize_visual_reply_size(value, provider)
 
     def xai_extra_body(self) -> dict[str, str]:
         size = self.image_size()
@@ -293,6 +308,51 @@ def normalize_prompt_text(prompt_text: str) -> str:
     prompt = re.sub(r"\s+", " ", prompt).strip()
     prompt = prompt.strip(" \t\r\n'\"`.,;:()[]{}")
     return prompt
+
+
+def size_labels_for_provider(provider: str | None) -> list[str]:
+    provider_id = str(provider or "openai").strip().lower()
+    values = COMFYUI_VISUAL_REPLY_SIZE_VALUES if provider_id == "comfyui" else HOSTED_VISUAL_REPLY_SIZE_VALUES
+    return ["Auto" if value == "auto" else value for value in values]
+
+
+def _normalize_size_text(value: str | None) -> str:
+    size = str(value or "1024x1024").strip().lower()
+    size = size.replace(" ", "").replace("*", "x").replace("×", "x")
+    return size
+
+
+def _valid_comfyui_dimension(value: int) -> bool:
+    return 64 <= int(value) <= 8192 and int(value) % 8 == 0
+
+
+def normalize_visual_reply_size(value: str | None, provider: str | None = None) -> str:
+    size = _normalize_size_text(value)
+    provider_id = str(provider or "openai").strip().lower()
+    if size == "auto":
+        return "auto"
+    if provider_id == "comfyui":
+        match = re.fullmatch(r"(\d{2,5})x(\d{2,5})", size)
+        if match:
+            width = int(match.group(1))
+            height = int(match.group(2))
+            if _valid_comfyui_dimension(width) and _valid_comfyui_dimension(height):
+                return f"{width}x{height}"
+        return "1024x1024"
+    return size if size in HOSTED_VISUAL_REPLY_SIZE_VALUES else "1024x1024"
+
+
+def is_valid_visual_reply_size(value: str | None, provider: str | None = None) -> bool:
+    size = _normalize_size_text(value)
+    provider_id = str(provider or "openai").strip().lower()
+    if size == "auto":
+        return True
+    if provider_id == "comfyui":
+        match = re.fullmatch(r"(\d{2,5})x(\d{2,5})", size)
+        if not match:
+            return False
+        return _valid_comfyui_dimension(int(match.group(1))) and _valid_comfyui_dimension(int(match.group(2)))
+    return size in HOSTED_VISUAL_REPLY_SIZE_VALUES
 
 
 def strip_visual_reply_tail(text: str):

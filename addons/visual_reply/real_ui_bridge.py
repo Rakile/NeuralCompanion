@@ -25,6 +25,7 @@ from addons.visual_reply.runtime import (
     visual_reply_provider_label_from_value,
     visual_reply_provider_value_from_label,
     visual_reply_size_label_from_value,
+    configure_visual_reply_size_field,
 )
 from addons.visual_reply.providers import provider_labels, provider_setting_from_config, provider_settings_from_config
 from core.addons.qt_host_services import AddonCapabilityBridgeService, QtRuntimeConfigService
@@ -160,11 +161,10 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
 
     backend.visual_reply_size_combo = NoWheelComboBox()
     backend.visual_reply_size_combo.setObjectName("visual_reply_size_combo")
-    backend.visual_reply_size_combo.addItems(["Auto", "1024x1024", "1024x1536", "1536x1024"])
+    configure_visual_reply_size_field(backend.visual_reply_size_combo, current_provider)
     current_size = str(provider_setting_from_config(runtime, current_provider, "size", runtime.get("visual_reply_size", "1024x1024")) or "1024x1024").strip().lower()
-    if current_size not in {"auto", "1024x1024", "1024x1536", "1536x1024"}:
-        current_size = "1024x1024"
-    backend.visual_reply_size_combo.setCurrentText("Auto" if current_size == "auto" else current_size)
+    current_size = normalize_visual_reply_size(current_size, current_provider)
+    backend.visual_reply_size_combo.setCurrentText(visual_reply_size_label_from_value(current_size, current_provider))
     backend.visual_reply_size_combo.currentTextChanged.connect(lambda choice: on_visual_reply_size_changed(backend, choice))
 
     backend.visual_reply_model_edit = QtWidgets.QLineEdit()
@@ -417,7 +417,8 @@ def build_status_snapshot(backend, runtime_config=None):
         "visual_reply_mode": mode,
         "visual_reply_provider": provider,
         "visual_reply_size": normalize_visual_reply_size(
-            backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider))
+            backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider)),
+            provider,
         ),
         "visual_reply_model": backend._live_text("visual_reply_model_edit", visual_reply_model_for_provider(backend, provider)).strip()
         or default_model,
@@ -446,8 +447,9 @@ def apply_runtime_settings(backend, settings):
         on_visual_reply_provider_changed(backend, provider_text)
     widget = backend._live_widget_attr("visual_reply_size_combo")
     if "visual_reply_size" in payload and widget is not None:
-        size_text = normalize_visual_reply_size(payload["visual_reply_size"])
-        widget.setCurrentText(visual_reply_size_label_from_value(size_text))
+        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        size_text = normalize_visual_reply_size(payload["visual_reply_size"], provider)
+        widget.setCurrentText(visual_reply_size_label_from_value(size_text, provider))
         on_visual_reply_size_changed(backend, size_text)
     widget = backend._live_widget_attr("visual_reply_model_edit")
     if "visual_reply_model" in payload and widget is not None:

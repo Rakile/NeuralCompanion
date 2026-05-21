@@ -36,15 +36,19 @@ The default ComfyUI welcome workflow is supported. Both ComfyUI UI workflow JSON
 
 ## How Prompt Injection Works
 
-NC loads the workflow, converts it to ComfyUI API format when needed, then tries to infer common nodes:
+NC loads the workflow, converts it to ComfyUI API format when needed, then patches the workflow before queueing it. For best results, keep the main text-to-image path explicit:
 
-- positive prompt: the `CLIPTextEncode` node connected to the sampler `positive` input
-- negative prompt: the `CLIPTextEncode` node connected to the sampler `negative` input
-- size: the `EmptyLatentImage` node connected to the sampler latent input
-- seed: the sampler `seed` input, randomized per request
-- output: the `SaveImage` node
+- positive prompt: a `CLIPTextEncode` node connected to the sampler `positive` input
+- negative prompt: a `CLIPTextEncode` node connected to the sampler `negative` input, if the workflow uses one
+- NC-controlled size: an `EmptyLatentImage` node connected to the sampler `latent_image` input
+- seed: a sampler `seed` input, randomized per request when present
+- output: a `SaveImage` node that writes an image ComfyUI exposes through its history API
 
 The generated image is fetched from ComfyUI history and displayed in the Visual Reply dock.
+
+`EmptyLatentImage -> sampler latent_image` is required only when NC should control `Image Size`. If the workflow gets its latent from an uploaded image, ControlNet/img2img path, upscaler, or custom latent node, the workflow may still run, but its own nodes decide the final size.
+
+For ComfyUI, `Image Size` offers presets and accepts manual `WIDTHxHEIGHT` values. Custom values must be multiples of 8 between 64 and 8192, for example `832x1216` or `1280x720`.
 
 ## Memory Cleanup
 
