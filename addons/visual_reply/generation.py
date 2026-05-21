@@ -648,6 +648,11 @@ def _widget_values_for_names(node: dict, names: list[str]) -> list:
     return values
 
 
+def _ui_primitive_value(node: dict):
+    values = list(node.get("widgets_values") or [])
+    return values[0] if values else None
+
+
 def _convert_comfyui_ui_workflow(payload: dict) -> dict:
     nodes = payload.get("nodes")
     links = payload.get("links")
@@ -655,6 +660,12 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
         return payload
 
     link_map = {}
+    node_map = {
+        str(node.get("id") or "").strip(): node
+        for node in nodes
+        if isinstance(node, dict) and str(node.get("id") or "").strip()
+    }
+    primitive_link_values = {}
     for link in links:
         if not isinstance(link, list) or len(link) < 5:
             continue
@@ -663,6 +674,10 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
             source_node = str(link[1])
             source_slot = int(link[2])
         except Exception:
+            continue
+        source = node_map.get(source_node, {})
+        if str(source.get("type") or "").strip() == "PrimitiveNode":
+            primitive_link_values[link_id] = _ui_primitive_value(source)
             continue
         link_map[link_id] = [source_node, source_slot]
 
@@ -673,6 +688,8 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
         node_id = str(node.get("id") or "").strip()
         class_type = str(node.get("type") or "").strip()
         if not node_id or not class_type:
+            continue
+        if class_type in {"Note", "PrimitiveNode"}:
             continue
         inputs = {}
         for item in list(node.get("inputs") or []):
@@ -687,7 +704,9 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
                     link_key = int(link_id)
                 except Exception:
                     link_key = None
-                if link_key in link_map:
+                if link_key in primitive_link_values:
+                    inputs[name] = primitive_link_values[link_key]
+                elif link_key in link_map:
                     inputs[name] = list(link_map[link_key])
         widget_names = _widget_input_names(node)
         widget_values = _widget_values_for_names(node, widget_names)
