@@ -624,16 +624,81 @@ def _parse_workflow_json(path: Path) -> dict:
     return payload
 
 
-def _widget_input_names(node: dict) -> list[str]:
+_COMFYUI_OBJECT_INFO_CACHE = {}
+
+
+def _comfyui_object_info(base_url: str) -> dict:
+    url = _normalize_comfyui_base_url(base_url)
+    if url in _COMFYUI_OBJECT_INFO_CACHE:
+        return _COMFYUI_OBJECT_INFO_CACHE[url]
+    try:
+        payload = _json_request(f"{url}/object_info", timeout=10.0)
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+    _COMFYUI_OBJECT_INFO_CACHE[url] = payload
+    return payload
+
+
+def _object_info_input_is_widget(spec) -> bool:
+    if not isinstance(spec, (list, tuple)) or not spec:
+        return False
+    if isinstance(spec[0], (list, tuple)):
+        return True
+    if len(spec) >= 2 and isinstance(spec[1], dict):
+        return True
+    return str(spec[0] or "").upper() in {"STRING", "INT", "FLOAT", "BOOLEAN"}
+
+
+def _object_info_widget_input_names(class_type: str, object_info: dict | None) -> list[str]:
+    info = dict((object_info or {}).get(str(class_type or ""), {}) or {})
+    raw_inputs = info.get("input", {})
+    if not isinstance(raw_inputs, dict):
+        return []
     names = []
+    for section in ("required", "optional"):
+        section_inputs = raw_inputs.get(section, {})
+        if not isinstance(section_inputs, dict):
+            continue
+        for name, spec in section_inputs.items():
+            name = str(name or "").strip()
+            if name and _object_info_input_is_widget(spec):
+                names.append(name)
+    return names
+
+
+def _widget_input_names(node: dict, object_info: dict | None = None) -> list[str]:
+    names = []
+    linked_names = set()
     for item in list(node.get("inputs") or []):
         if not isinstance(item, dict):
             continue
-        if item.get("link") is not None:
+        name = str(item.get("name") or "").strip()
+        if item.get("link") is not None and name:
+            linked_names.add(name)
+            continue
+        if not name:
             continue
         widget = item.get("widget")
         if isinstance(widget, dict) and str(widget.get("name") or "").strip():
             names.append(str(widget.get("name")).strip())
+    if names:
+        return names
+    object_info_names = _object_info_widget_input_names(str(node.get("type") or ""), object_info)
+    return [name for name in object_info_names if name not in linked_names]
+
+
+def _ui_linked_input_names(node: dict) -> set[str]:
+    names = set()
+    for item in list(node.get("inputs") or []):
+        if not isinstance(item, dict):
+            continue
+        if item.get("link") is not None:
+            name = str(item.get("name") or "").strip()
+            if name:
+                names.add(name)
+            continue
     return names
 
 
@@ -642,9 +707,11 @@ def _widget_values_for_names(node: dict, names: list[str]) -> list:
     if not values:
         return []
     if "seed" in names and len(values) == len(names) + 1:
-        maybe_control = str(values[1] or "").strip().lower() if len(values) > 1 else ""
+        seed_index = names.index("seed")
+        control_index = seed_index + 1
+        maybe_control = str(values[control_index] or "").strip().lower() if control_index < len(values) else ""
         if maybe_control in {"fixed", "randomize", "increment", "decrement"}:
-            values = [values[0], *values[2:]]
+            values = [*values[:control_index], *values[control_index + 1:]]
     return values
 
 
@@ -653,7 +720,7 @@ def _ui_primitive_value(node: dict):
     return values[0] if values else None
 
 
-def _convert_comfyui_ui_workflow(payload: dict) -> dict:
+def _convert_comfyui_ui_workflow(payload: dict, object_info: dict | None = None) -> dict:
     nodes = payload.get("nodes")
     links = payload.get("links")
     if not isinstance(nodes, list) or not isinstance(links, list):
@@ -692,6 +759,7 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
         if class_type in {"Note", "PrimitiveNode"}:
             continue
         inputs = {}
+        linked_names = _ui_linked_input_names(node)
         for item in list(node.get("inputs") or []):
             if not isinstance(item, dict):
                 continue
@@ -708,7 +776,7 @@ def _convert_comfyui_ui_workflow(payload: dict) -> dict:
                     inputs[name] = primitive_link_values[link_key]
                 elif link_key in link_map:
                     inputs[name] = list(link_map[link_key])
-        widget_names = _widget_input_names(node)
+        widget_names = [name for name in _widget_input_names(node, object_info) if name not in linked_names]
         widget_values = _widget_values_for_names(node, widget_names)
         for index, name in enumerate(widget_names):
             if index < len(widget_values):
@@ -731,10 +799,10 @@ def _is_api_workflow(payload: dict) -> bool:
     return True
 
 
-def _as_comfyui_api_workflow(payload: dict) -> dict:
+def _as_comfyui_api_workflow(payload: dict, object_info: dict | None = None) -> dict:
     if _is_api_workflow(payload):
         return copy.deepcopy(payload)
-    return _convert_comfyui_ui_workflow(payload)
+    return _convert_comfyui_ui_workflow(payload, object_info=object_info)
 
 
 def _parse_size_for_comfyui(size_text: str) -> tuple[int, int]:
@@ -842,7 +910,8 @@ class ComfyUIVisualReplyClient:
     def _workflow(self) -> dict:
         path = _resolve_comfyui_workflow_path(self.runtime.workflow_path())
         payload = _parse_workflow_json(path)
-        return _as_comfyui_api_workflow(payload)
+        object_info = None if _is_api_workflow(payload) else _comfyui_object_info(self.runtime.base_url())
+        return _as_comfyui_api_workflow(payload, object_info=object_info)
 
     def _queue_prompt(self, workflow: dict, *, timeout: float) -> str:
         base_url = _normalize_comfyui_base_url(self.runtime.base_url())
