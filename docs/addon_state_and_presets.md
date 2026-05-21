@@ -66,6 +66,8 @@ Good examples of session-only state:
 - Addon enabled/disabled registry state.
 - Hotkey bindings.
 - Chat session player state.
+- Runtime wiring choices such as input mode, input role, stream mode,
+  chat provider/model, TTS backend/voice, and Visual Reply provider/model.
 - Tool paths such as a local Python interpreter.
 - Preprocess/authoring utility settings.
 - Temporary browsing or generated-history UI state.

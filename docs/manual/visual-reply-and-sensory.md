@@ -31,6 +31,10 @@ server URL, point `Workflow JSON` at a saved workflow, and choose whether ComfyU
 should keep its model cache or free/unload models after each image. See
 [`docs/visual_reply_comfyui.md`](../visual_reply_comfyui.md) for setup details.
 
+Visual Reply provider/runtime choices are saved in the local session, not in
+presets. Changing provider, workflow/model, image size, or auto-show should
+survive restart without making the selected preset dirty.
+
 ## Good Testing Order
 
 1. Start with text chat and speech.

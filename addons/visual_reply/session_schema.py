@@ -4,7 +4,7 @@ import copy
 from collections import OrderedDict
 from collections.abc import Mapping
 
-from addons.visual_reply.providers import PROVIDER_SPECS, provider_settings_from_config
+from addons.visual_reply.providers import PROVIDER_SPECS, provider_setting_key, provider_settings_from_config
 
 
 SESSION_KEY = "visual_reply"
@@ -113,8 +113,9 @@ def normalize_visual_reply_settings(session_or_settings) -> dict:
     if provider:
         provider_values = _mapping(provider_settings.get(provider))
         for legacy_key, role in ACTIVE_PROVIDER_LEGACY_FIELDS.items():
-            if legacy_key in source and role not in provider_values:
-                provider_values[role] = copy.deepcopy(source.get(legacy_key))
+            setting_key = provider_setting_key(provider, role)
+            if legacy_key in source and setting_key not in provider_values:
+                provider_values[setting_key] = copy.deepcopy(source.get(legacy_key))
         if provider_values:
             provider_settings[provider] = provider_values
 
@@ -143,10 +144,12 @@ def flatten_visual_reply_settings(session_or_settings) -> dict:
     provider = str(flattened.get("visual_reply_provider", "") or "").strip().lower()
     if provider:
         provider_values = _mapping(provider_settings.get(provider))
-        if "size" in provider_values:
-            flattened["visual_reply_size"] = copy.deepcopy(provider_values.get("size"))
-        if "model" in provider_values:
-            flattened["visual_reply_model"] = copy.deepcopy(provider_values.get("model"))
+        size_key = provider_setting_key(provider, "size")
+        model_key = provider_setting_key(provider, "model")
+        if size_key in provider_values:
+            flattened["visual_reply_size"] = copy.deepcopy(provider_values.get(size_key))
+        if model_key in provider_values:
+            flattened["visual_reply_model"] = copy.deepcopy(provider_values.get(model_key))
 
     return flattened
 

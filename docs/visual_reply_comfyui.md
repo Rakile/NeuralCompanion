@@ -29,6 +29,9 @@ http://192.168.1.50:8188
 6. Choose a `ComfyUI Cleanup` mode.
 7. Set `Mode` to `Auto`.
 
+These Visual Reply runtime choices are session state. They restore on restart,
+but saving/loading a preset does not change them.
+
 The default ComfyUI welcome workflow is supported. Both ComfyUI UI workflow JSON and API-format workflow JSON are accepted.
 
 ## How Prompt Injection Works

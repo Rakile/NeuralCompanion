@@ -22,10 +22,10 @@ without an explicit migration.
 
 | Shim | Location | Reason |
 | --- | --- | --- |
-| `musetalk_*` runtime config keys | addon manifests, `engine.py`, presets/sessions | Existing presets, sessions, env overrides, and UI object bindings expect these keys. |
+| `musetalk_*` runtime config keys | addon manifests, `engine.py`, presets/sessions | Existing user data, sessions, env overrides, and UI object bindings expect these keys. |
 | `vam_*` runtime config keys | addon manifests, `engine.py`, `core.runtime_paths` callers | Existing VaM configs and env overrides expect these keys. |
-| `visual_reply_*` runtime config keys | `addons/visual_reply/addon.json`, engine/UI runtime | Existing sessions and presets store Visual Reply settings under these keys. |
-| TTS backend IDs `chatterbox`, `pockettts`, `gemini_tts_preview` | TTS addon manifests, `core.tts_runtime`, UI runtime | Presets and runtime settings store backend IDs directly. |
+| `visual_reply_*` runtime config keys | `addons/visual_reply/addon.json`, engine/UI runtime | Existing sessions, env overrides, and UI object bindings expect these keys. Core Visual Reply runtime settings are session-owned rather than preset-owned. |
+| TTS backend IDs `chatterbox`, `pockettts`, `gemini_tts_preview` | TTS addon manifests, `core.tts_runtime`, UI runtime | Sessions and runtime settings store backend IDs directly. |
 | `/get-musetalk-preview` | `core/expression_api.py`, legacy `app.py` | External browser/overlay clients may still poll the old MuseTalk endpoint. It aliases the generic avatar preview route. |
 | Designer object names such as `musetalk_tab`, `musetalk_tabs`, `vam_tab`, `tts_chatterbox_tab`, `tts_pockettts_tab`, and Visual Reply widget names | `main.ui`, addon `.ui` files, `ui/validation.py`, UI runtime | Qt Designer files, stylesheets, session restore, validation, and mirror bindings rely on these object names. |
 

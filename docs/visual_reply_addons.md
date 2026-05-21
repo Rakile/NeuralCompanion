@@ -64,9 +64,14 @@ visual_service.replace_panel(panel)
 
 ## State
 
-Visual reply runtime settings currently behave like core Host settings. If an addon owns additional UI preferences, decide whether they are:
+The first-party Visual Reply runtime card is session-owned. Provider, image
+model/workflow, provider settings, mode, size, and auto-show restore when NC
+restarts, but they are intentionally not saved to presets and should not mark a
+preset dirty.
 
-- Preset-owned, such as "auto visual replies on/off for this persona".
+If an addon owns additional UI preferences, decide whether they are:
+
+- Preset-owned, such as a persona-specific visual style prompt or story theme.
 - Session-only, such as dock browser history or currently selected generated image.
 
 Avoid saving generated images or history pointers into presets.

@@ -30,6 +30,11 @@ from addons.visual_reply.providers import provider_labels, provider_setting_from
 from core.addons.qt_host_services import AddonCapabilityBridgeService, QtRuntimeConfigService
 
 try:
+    import shiboken6
+except Exception:  # pragma: no cover
+    shiboken6 = None
+
+try:
     from PySide6 import QtCore, QtWidgets
 except Exception:  # pragma: no cover - shell smoke may inspect without Qt available.
     QtCore = None
@@ -37,6 +42,47 @@ except Exception:  # pragma: no cover - shell smoke may inspect without Qt avail
 
 
 APP_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _qt_widget_alive(widget):
+    if widget is None:
+        return False
+    if shiboken6 is None:
+        return True
+    try:
+        return bool(shiboken6.isValid(widget))
+    except Exception:
+        return False
+
+
+def _legacy_runtime_widgets_alive(backend) -> bool:
+    for name in (
+        "visual_reply_mode_combo",
+        "visual_reply_provider_combo",
+        "visual_reply_size_combo",
+        "visual_reply_model_edit",
+        "visual_reply_api_key_edit",
+        "visual_reply_comfyui_cleanup_combo",
+        "visual_reply_auto_show_checkbox",
+    ):
+        if not _qt_widget_alive(getattr(backend, name, None)):
+            return False
+    return True
+
+
+def _provider_from_runtime_config(runtime) -> str:
+    runtime = dict(runtime or {})
+    provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
+    if provider == "openai":
+        openai_model = str(
+            provider_setting_from_config(runtime, "openai", "model", "")
+            or runtime.get("visual_reply_model", "")
+            or ""
+        ).strip().lower()
+        comfy_workflow = str(provider_setting_from_config(runtime, "comfyui", "model", "") or "").strip()
+        if comfy_workflow and openai_model.endswith(".json"):
+            return "comfyui"
+    return provider
 
 
 def show_dock(bridge):
@@ -107,7 +153,7 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_provider_combo = NoWheelComboBox()
     backend.visual_reply_provider_combo.setObjectName("visual_reply_provider_combo")
     backend.visual_reply_provider_combo.addItems(provider_labels())
-    current_provider = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
+    current_provider = _provider_from_runtime_config(runtime)
     backend._visual_reply_active_provider = current_provider
     backend.visual_reply_provider_combo.setCurrentText(visual_reply_provider_label_from_value(current_provider))
     backend.visual_reply_provider_combo.currentTextChanged.connect(lambda choice: on_visual_reply_provider_changed(backend, choice))
@@ -151,6 +197,8 @@ def build_legacy_settings_tab(backend):
     """Build the Visual Reply settings tab owned by the Visual Reply addon."""
     if QtCore is None or QtWidgets is None:
         return None
+    if not _legacy_runtime_widgets_alive(backend):
+        build_legacy_runtime_widgets(backend, QtRuntimeConfigService(backend).snapshot())
     tab = QtWidgets.QWidget()
     layout = QtWidgets.QVBoxLayout(tab)
     layout.setContentsMargins(8, 8, 8, 8)
@@ -193,6 +241,7 @@ def build_legacy_settings_tab(backend):
     backend.visual_reply_hint.setWordWrap(True)
     backend.visual_reply_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
     visual_layout.addWidget(backend.visual_reply_hint)
+    current_provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
     sync_visual_reply_comfyui_cleanup_field(backend, current_provider)
     refresh_visual_reply_hint(backend)
 

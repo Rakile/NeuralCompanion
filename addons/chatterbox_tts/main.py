@@ -78,10 +78,7 @@ class Addon(BaseAddon):
         return controller.export_session_state() or {}
 
     def export_preset_state(self):
-        controller = self._peek_controller()
-        if controller is None:
-            return {}
-        return controller.export_preset_state() or {}
+        return {}
 
     def import_session_state(self, session):
         controller = self._peek_controller()
@@ -90,10 +87,7 @@ class Addon(BaseAddon):
         return controller.import_session_state(session)
 
     def import_preset_state(self, preset):
-        controller = self._peek_controller()
-        if controller is None:
-            return None
-        return controller.import_preset_state(preset)
+        return None
 
     def invoke_capability(self, capability, payload=None):
         capability = str(capability or "").strip()

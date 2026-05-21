@@ -9,6 +9,11 @@ from ui.panels.input_dialog import QtInputDialog
 
 
 DEFAULT_MAX_RESPONSE_TOKENS = 600
+PRESET_IGNORED_RUNTIME_KEYS = {
+    "input_mode",
+    "input_message_role",
+    "stream_mode",
+}
 
 
 from ui.runtime.engine_access import engine_module as _engine
@@ -58,16 +63,7 @@ class BackendPresetBodyRuntimeMixin:
     def _build_preset_payload(self, ensure_pocket_tts_path=False):
         runtime_config = _runtime_config()
         engine = _engine()
-        chat_provider_generation_settings = dict(runtime_config.get("chat_provider_generation_settings", {}) or {})
         payload = {
-            "chat_provider": self._current_chat_provider_value(),
-            "chat_provider_settings": dict(runtime_config.get("chat_provider_settings", {}) or {}),
-            "model_name": self.model_combo.currentText(),
-            "voice_file": self._current_voice_file_value(),
-            "input_mode": self._input_mode_value_from_label(self.input_mode_combo.currentText()),
-            "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),
-            "stream_mode": self.stream_mode_combo.currentText() == "On",
-            "tts_backend": self._current_tts_backend_value(),
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(runtime_config.get("sensory_feedback_source", "off") or "off"),
             "sensory_feedback_interval_seconds": float(self.sensory_feedback_interval_spin.value()) if hasattr(self, "sensory_feedback_interval_spin") else float(runtime_config.get("sensory_feedback_interval_seconds", 7.0) or 7.0),
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(runtime_config.get("sensory_pingpong_enabled", False)),
@@ -94,8 +90,6 @@ class BackendPresetBodyRuntimeMixin:
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
         }
-        if chat_provider_generation_settings:
-            payload["chat_provider_generation_settings"] = chat_provider_generation_settings
         if self._addon_manager is not None:
             try:
                 payload.update(self._addon_manager.export_preset_state())
@@ -103,8 +97,14 @@ class BackendPresetBodyRuntimeMixin:
                 pass
         return payload
 
+    def _preset_comparison_payload(self, payload):
+        sanitized = dict(payload or {})
+        for key in PRESET_IGNORED_RUNTIME_KEYS:
+            sanitized.pop(key, None)
+        return sanitized
+
     def _preset_payload_signature(self, payload):
-        return json.dumps(payload or {}, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+        return json.dumps(self._preset_comparison_payload(payload), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
     def _apply_preset_dirty_button_style(self):
         if not hasattr(self, "btn_preset_save") or not hasattr(self, "btn_preset_save_as"):
@@ -247,39 +247,7 @@ class BackendPresetBodyRuntimeMixin:
         data = json.loads(path.read_text(encoding="utf-8"))
         previous_restoring_preset = bool(getattr(self, "_restoring_preset", False))
         self._restoring_preset = True
-        preset_model_name = str(data.get("model_name") or "").strip()
-        preset_provider_name = chat_providers.normalize_provider_id(
-            data.get("chat_provider", self._current_chat_provider_value()),
-            fallback=chat_providers.DEFAULT_PROVIDER_ID,
-        )
-        self._queue_preset_clean_after_model_refresh(name, preset_provider_name, preset_model_name)
-        if preset_model_name:
-            self._pending_restored_model_name = preset_model_name
-            _update_runtime_config("model_name", preset_model_name)
-        if "chat_provider" in data and hasattr(self, "chat_provider_combo"):
-            self._set_chat_provider_selection(data["chat_provider"])
-            self.on_chat_provider_changed(self.chat_provider_combo.currentText())
-        if "chat_provider_settings" in data:
-            _update_runtime_config("chat_provider_settings", data.get("chat_provider_settings", {}))
-            self._refresh_chat_provider_card()
-        _update_runtime_config("chat_provider_generation_settings", data.get("chat_provider_generation_settings", {}))
-        self._refresh_chat_provider_generation_card()
-        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
-        if "voice_file" in data:
-            voice_file = str(data.get("voice_file") or "").strip()
-            if voice_file and voice_file != "No .wav found" and self.voice_combo.findText(voice_file) >= 0:
-                index = self.voice_combo.findText(voice_file)
-                self.voice_combo.setCurrentIndex(index)
-            else:
-                _update_runtime_config("voice_path", "")
-        if "input_mode" in data:
-            mode_text = self._input_mode_label_from_value(data["input_mode"])
-            self.input_mode_combo.setCurrentText(mode_text)
-        if "input_message_role" in data:
-            role_text = self._input_role_label_from_value(data["input_message_role"])
-            self.input_role_combo.setCurrentText(role_text)
-        if "stream_mode" in data:
-            self.stream_mode_combo.setCurrentText("On" if bool(data["stream_mode"]) else "Off")
+        self._queue_preset_clean_after_model_refresh(name, "", "")
         if "sensory_pingpong_enabled" in data and hasattr(self, "sensory_pingpong_checkbox"):
             pingpong_enabled = bool(data["sensory_pingpong_enabled"])
             self.sensory_pingpong_checkbox.setChecked(pingpong_enabled)
@@ -316,17 +284,6 @@ class BackendPresetBodyRuntimeMixin:
             interval_seconds = max(2.0, float(data["sensory_feedback_interval_seconds"] or 7.0))
             self.sensory_feedback_interval_spin.setValue(interval_seconds)
             self.on_sensory_feedback_interval_changed(interval_seconds)
-        if "tts_backend" in data and hasattr(self, "tts_backend_combo"):
-            backend_value = str(data["tts_backend"]).strip().lower()
-            combo = self.tts_backend_combo
-            combo.blockSignals(True)
-            try:
-                self._populate_tts_backend_combo(selected_value=backend_value)
-                index = combo.findData(backend_value)
-                if index >= 0:
-                    combo.setCurrentIndex(index)
-            finally:
-                combo.blockSignals(False)
         if "allow_proactive_replies" in data and hasattr(self, "allow_proactive_checkbox"):
             self.allow_proactive_checkbox.setChecked(bool(data["allow_proactive_replies"]))
             self.on_allow_proactive_replies_changed(bool(data["allow_proactive_replies"]))
@@ -379,15 +336,9 @@ class BackendPresetBodyRuntimeMixin:
         self.emit_tutorial_event("preset_loaded", {"name": name})
 
         def finalize_preset_load():
-            generation_settings = json.loads(json.dumps(data.get("chat_provider_generation_settings", {}) or {}))
-            _update_runtime_config("chat_provider_generation_settings", generation_settings)
-            provider_generation_settings = generation_settings.get(preset_provider_name, {})
-            if isinstance(provider_generation_settings, dict):
-                for field_id, value in provider_generation_settings.items():
-                    self._apply_legacy_generation_mirror(str(field_id or ""), value)
             self._refresh_chat_provider_generation_card()
             self._restoring_preset = previous_restoring_preset
-            self._finalize_pending_preset_clean_if_ready(force=not bool(preset_model_name))
+            self._finalize_pending_preset_clean_if_ready(force=True)
             self.save_session()
             self._restore_system_shaping_scroll_state(scroll_state)
             QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_system_shaping_scroll_state(state))

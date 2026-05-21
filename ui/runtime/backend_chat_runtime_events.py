@@ -93,6 +93,9 @@ class BackendChatRuntimeEventsMixin:
 
     def on_model_selection_changed(self, choice):
         selected_model = str(choice or "").strip()
+        if self._is_model_catalog_placeholder(selected_model):
+            self._refresh_chat_runtime_summary()
+            return
         provider_value = self._current_chat_provider_value()
         model_supports_images = self._current_model_supports_images_value(selected_model)
         model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)

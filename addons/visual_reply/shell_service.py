@@ -119,18 +119,7 @@ class _UiShellVisualReplyService:
         }
 
     def export_preset_state(self):
-        snapshot = self.settings_snapshot()
-        provider = str(snapshot.get("provider_value", "openai") or "openai")
-        provider_settings = provider_settings_from_config(self._state)
-        for settings in provider_settings.values():
-            if isinstance(settings, dict):
-                settings.pop("api_key", None)
-        return {
-            "visual_reply_mode": str(snapshot.get("mode_value", "off") or "off"),
-            "visual_reply_provider": provider,
-            "visual_reply_provider_settings": provider_settings,
-            "visual_reply_auto_show_dock": bool(snapshot.get("auto_show", True)),
-        }
+        return {}
 
     def import_session_state(self, session):
         payload = dict(session or {})
@@ -148,7 +137,7 @@ class _UiShellVisualReplyService:
         self.refresh_hint()
 
     def import_preset_state(self, preset):
-        return self.import_session_state(preset)
+        return None
 
     def settings_snapshot(self):
         prompts = self._theme_prompts()

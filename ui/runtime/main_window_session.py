@@ -89,6 +89,24 @@ class MainWindowSessionMixin:
             except Exception:
                 pass
 
+    def _session_model_name(self):
+        if hasattr(self, "model_combo"):
+            model_combo_text = str(self.model_combo.currentText() or "").strip()
+        else:
+            model_combo_text = ""
+        is_placeholder = getattr(self, "_is_model_catalog_placeholder", None)
+        if model_combo_text and not (callable(is_placeholder) and is_placeholder(model_combo_text)):
+            return model_combo_text
+        runtime_model = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+        return runtime_model
+
+    def _session_model_supports_images(self, model_name):
+        model_name = str(model_name or "").strip()
+        is_placeholder = getattr(self, "_is_model_catalog_placeholder", None)
+        if model_name and not (callable(is_placeholder) and is_placeholder(model_name)) and hasattr(self, "_current_model_supports_images_value"):
+            return self._current_model_supports_images_value(model_name)
+        return RUNTIME_CONFIG.get("model_supports_images", None)
+
     def save_session(self):
         if bool(getattr(self, "_session_read_only", False)):
             return
@@ -103,6 +121,7 @@ class MainWindowSessionMixin:
                     preserved_main_ui_real_layout = previous_session.get("main_ui_real_layout")
         except Exception:
             preserved_main_ui_real_layout = None
+        session_model_name = self._session_model_name()
         session = {
             "first_run": bool(self.first_run),
             "ui_theme_preset": self.current_app_theme_preset(),
@@ -125,9 +144,9 @@ class MainWindowSessionMixin:
             "chat_runtime_expanded": self.chat_runtime_section.isExpanded() if hasattr(self, "chat_runtime_section") else True,
             "stt_runtime_expanded": self.stt_runtime_section.isExpanded() if hasattr(self, "stt_runtime_section") else True,
             "tts_runtime_expanded": self.tts_runtime_section.isExpanded() if hasattr(self, "tts_runtime_section") else True,
-            "model_name": self.model_combo.currentText() if hasattr(self, "model_combo") else str(RUNTIME_CONFIG.get("model_name", "") or ""),
+            "model_name": session_model_name,
             "model_requires_vision": self.model_requires_vision_checkbox.isChecked() if hasattr(self, "model_requires_vision_checkbox") else False,
-            "model_supports_images": self._current_model_supports_images_value(self.model_combo.currentText()) if hasattr(self, "model_combo") else RUNTIME_CONFIG.get("model_supports_images", None),
+            "model_supports_images": self._session_model_supports_images(session_model_name),
             "allow_proactive_replies": self.allow_proactive_checkbox.isChecked() if hasattr(self, "allow_proactive_checkbox") else False,
             "require_first_user_before_proactive": self.require_first_user_checkbox.isChecked() if hasattr(self, "require_first_user_checkbox") else False,
             "listen_idle_window_seconds": float(self.listen_idle_window_spin.value()) if hasattr(self, "listen_idle_window_spin") else 5.0,

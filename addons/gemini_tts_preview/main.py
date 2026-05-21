@@ -77,9 +77,7 @@ class Addon(BaseAddon):
         return self.service.export_session_state() or {}
 
     def export_preset_state(self):
-        if getattr(self, "service", None) is None:
-            return {}
-        return self.service.export_preset_state() or {}
+        return {}
 
     def import_session_state(self, session):
         service = getattr(self, "service", None)
@@ -92,13 +90,6 @@ class Addon(BaseAddon):
         return None
 
     def import_preset_state(self, preset):
-        service = getattr(self, "service", None)
-        if service is None:
-            return None
-        service.import_preset_state(preset)
-        controller = self._peek_controller()
-        if controller is not None:
-            return controller.import_preset_state(preset)
         return None
 
     def invoke_capability(self, capability, payload=None):
