@@ -235,6 +235,9 @@ class MainUiRealBindingMixin:
                 max_response_tokens_spin.valueChanged.connect(self._on_frontend_max_response_tokens_changed)
 
     def _bind_host_input_runtime_controls(self):
+            show_all_audio_inputs = self._ui_object("show_all_audio_inputs_checkbox")
+            if show_all_audio_inputs is not None and hasattr(show_all_audio_inputs, "toggled"):
+                show_all_audio_inputs.toggled.connect(self._on_frontend_show_all_audio_inputs_changed)
             combo_bindings = (
                 ("audio_input_device_combo", self._on_frontend_audio_input_device_changed),
                 ("audio_output_device_combo", self._on_frontend_audio_output_device_changed),

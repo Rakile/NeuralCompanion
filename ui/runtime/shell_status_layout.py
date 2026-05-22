@@ -24,7 +24,52 @@ def _ui_shell_stream_mode_enabled(value) -> bool:
     text = str(value or "").strip().lower()
     return text in {"1", "true", "yes", "on", "stream", "enabled"}
 
-def _ui_shell_audio_device_labels():
+_INPUT_MICROPHONE_HINTS = (
+    "microphone",
+    "headset",
+    "mic array",
+    "array mic",
+    "built-in mic",
+    "internal mic",
+    "usb mic",
+    "webcam",
+    "camera",
+)
+
+_INPUT_MICROPHONE_TOKEN_HINTS = (" mic", "mic ")
+
+_INPUT_NON_MICROPHONE_HINTS = (
+    "cable output",
+    "line ",
+    "voicemeeter",
+    "stereo mix",
+    "what u hear",
+    "loopback",
+    "monitor",
+    "wave out",
+    "output",
+)
+
+SHOW_ALL_AUDIO_INPUT_DEVICES_LABEL = "Show all input devices..."
+SHOW_MICROPHONE_AUDIO_INPUT_DEVICES_LABEL = "Show microphones only..."
+
+
+def _ui_shell_input_label_looks_like_microphone(label):
+    text = str(label or "").strip().casefold()
+    if not text or text == "default input":
+        return True
+    if any(hint in text for hint in _INPUT_NON_MICROPHONE_HINTS):
+        return False
+    return any(hint in text for hint in _INPUT_MICROPHONE_HINTS) or any(hint in text for hint in _INPUT_MICROPHONE_TOKEN_HINTS)
+
+
+def _ui_shell_filter_microphone_input_labels(input_labels):
+    labels = list(input_labels or [])
+    filtered = [label for label in labels if _ui_shell_input_label_looks_like_microphone(label)]
+    return filtered if len(filtered) > 1 else labels
+
+
+def _ui_shell_audio_device_labels(*, show_all_inputs=False, include_input_mode_actions=False):
     labels = {
         "inputs": ["Default Input"],
         "outputs": ["Default Output"],
@@ -63,6 +108,12 @@ def _ui_shell_audio_device_labels():
                 add_unique(labels["outputs"], name)
     except Exception:
         pass
+    if not show_all_inputs:
+        labels["inputs"] = _ui_shell_filter_microphone_input_labels(labels.get("inputs"))
+        if include_input_mode_actions:
+            add_unique(labels["inputs"], SHOW_ALL_AUDIO_INPUT_DEVICES_LABEL)
+    elif include_input_mode_actions:
+        add_unique(labels["inputs"], SHOW_MICROPHONE_AUDIO_INPUT_DEVICES_LABEL)
     return labels
 
 def _ui_shell_parse_sensory_source_values(value, available_provider_ids=None):

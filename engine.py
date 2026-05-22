@@ -679,6 +679,7 @@ RUNTIME_CONFIG = {
     "vam_emotion_preset_map": _env_json_dict("NC_VAM_EMOTION_PRESET_MAP", DEFAULT_VAM_EMOTION_PRESET_MAP),
     "vam_timeline_clip_map": _env_json_dict("NC_VAM_TIMELINE_CLIP_MAP", DEFAULT_VAM_TIMELINE_CLIP_MAP),
     "input_mode": "voice_activation",
+    "show_all_audio_input_devices": False,
     "hotkeys": runtime_hotkeys.normalize_hotkey_settings(),
     "push_to_talk_hotkey": DEFAULT_PUSH_TO_TALK_HOTKEY,
     "manual_action_hotkeys": dict(DEFAULT_MANUAL_ACTION_HOTKEYS),

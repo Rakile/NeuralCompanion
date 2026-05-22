@@ -611,7 +611,16 @@ class BackendSystemShapingBuilderMixin:
         mic_row.addWidget(self.mic_diode)
         mic_row.addWidget(self.mic_status_label)
 
-        audio_devices = _ui_shell_audio_device_labels()
+        self.show_all_audio_inputs_checkbox = QtWidgets.QCheckBox("All inputs")
+        self.show_all_audio_inputs_checkbox.setObjectName("show_all_audio_inputs_checkbox")
+        self.show_all_audio_inputs_checkbox.setToolTip("Show virtual, line, loopback, and mixer input devices.")
+        self.show_all_audio_inputs_checkbox.setChecked(bool(runtime_config.get("show_all_audio_input_devices", False)))
+        self.show_all_audio_inputs_checkbox.toggled.connect(self.on_show_all_audio_inputs_change)
+
+        audio_devices = _ui_shell_audio_device_labels(
+            show_all_inputs=self.show_all_audio_inputs_checkbox.isChecked(),
+            include_input_mode_actions=True,
+        )
         self.audio_input_device_combo = NoWheelComboBox()
         self.audio_input_device_combo.setObjectName("audio_input_device_combo")
         _ui_shell_combo_set_items(self.audio_input_device_combo, list(audio_devices.get("inputs") or ["Default Input"]))
@@ -626,6 +635,7 @@ class BackendSystemShapingBuilderMixin:
 
         mic_row.addWidget(QtWidgets.QLabel("Input"))
         mic_row.addWidget(self.audio_input_device_combo, 1)
+        mic_row.addWidget(self.show_all_audio_inputs_checkbox)
         mic_row.addWidget(QtWidgets.QLabel("Output"))
         mic_row.addWidget(self.audio_output_device_combo, 1)
         mic_row.addStretch(1)

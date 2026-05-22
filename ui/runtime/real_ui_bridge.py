@@ -300,6 +300,12 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
 
 
     def eventFilter(self, watched, event):
+        if event is not None:
+            try:
+                if self._handle_frontend_dock_tab_drag(watched, event):
+                    return True
+            except Exception:
+                pass
         if event is not None and event.type() == QtCore.QEvent.Wheel:
             try:
                 if isinstance(watched, QtWidgets.QTabBar):

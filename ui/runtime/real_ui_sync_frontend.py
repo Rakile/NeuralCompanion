@@ -99,6 +99,7 @@ class RealUiSyncFrontendMixin:
             for object_name in self._checkbox_sync_names():
                 if object_name in {
                     "limit_response_checkbox",
+                    "show_all_audio_inputs_checkbox",
                     "model_requires_vision_checkbox",
                     "allow_proactive_checkbox",
                     "require_first_user_checkbox",
@@ -202,6 +203,7 @@ class RealUiSyncFrontendMixin:
             return tuple(
                 list((
                 "limit_response_checkbox",
+                "show_all_audio_inputs_checkbox",
                 "allow_proactive_checkbox",
                 "require_first_user_checkbox",
                 "sensory_pingpong_checkbox",

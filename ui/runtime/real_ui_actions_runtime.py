@@ -39,7 +39,15 @@ class RealUiActionsRuntimeMixin:
 
     def _prime_frontend_audio_device_controls(self):
             session = dict(_read_ui_shell_session_snapshot() or {})
-            audio_devices = _ui_shell_audio_device_labels()
+            show_all = bool(RUNTIME_CONFIG.get("show_all_audio_input_devices", session.get("show_all_audio_input_devices", False)))
+            show_all_widget = self._ui_object("show_all_audio_inputs_checkbox")
+            if show_all_widget is not None and hasattr(show_all_widget, "setChecked"):
+                show_all_widget.blockSignals(True)
+                try:
+                    show_all_widget.setChecked(show_all)
+                finally:
+                    show_all_widget.blockSignals(False)
+            audio_devices = _ui_shell_audio_device_labels(show_all_inputs=show_all, include_input_mode_actions=True)
             combo_specs = (
                 ("audio_input_device_combo", list(audio_devices.get("inputs") or ["Default Input"]), str(RUNTIME_CONFIG.get("audio_input_device", session.get("audio_input_device", "Default Input")) or "Default Input")),
                 ("audio_output_device_combo", list(audio_devices.get("outputs") or ["Default Output"]), str(RUNTIME_CONFIG.get("audio_output_device", session.get("audio_output_device", "Default Output")) or "Default Output")),
@@ -56,7 +64,7 @@ class RealUiActionsRuntimeMixin:
             # backend can otherwise keep stale default-only combo boxes. Make
             # the visible real-UI choices the canonical widgets read by
             # qt_app.start_engine() and save_session().
-            for object_name in ("audio_input_device_combo", "audio_output_device_combo"):
+            for object_name in ("audio_input_device_combo", "audio_output_device_combo", "show_all_audio_inputs_checkbox"):
                 widget = self._ui_object(object_name)
                 if widget is not None:
                     setattr(self.backend, object_name, widget)
@@ -115,7 +123,37 @@ class RealUiActionsRuntimeMixin:
             self._refresh_response_length_runtime_frontend()
 
     def _on_frontend_audio_input_device_changed(self, _index=None):
+            widget = self._ui_object("audio_input_device_combo")
+            choice = str(widget.currentText() if widget is not None and hasattr(widget, "currentText") else "").strip()
+            action = self.backend._audio_input_mode_action(choice)
+            if action:
+                show_all = action == "show_all"
+                update_runtime_config("show_all_audio_input_devices", show_all)
+                checkbox = self._ui_object("show_all_audio_inputs_checkbox")
+                if checkbox is not None and hasattr(checkbox, "setChecked"):
+                    checkbox.blockSignals(True)
+                    try:
+                        checkbox.setChecked(show_all)
+                    finally:
+                        checkbox.blockSignals(False)
+                self._prime_frontend_audio_device_controls()
+                self.backend.save_session()
+                self._refresh_host_input_runtime_frontend()
+                return
             self._commit_frontend_audio_device_selection("audio_input_device_combo", "audio_input_device", "Default Input")
+
+    def _on_frontend_show_all_audio_inputs_changed(self, checked=False):
+            update_runtime_config("show_all_audio_input_devices", bool(checked))
+            backend_widget = self._backend_widget("show_all_audio_inputs_checkbox")
+            if backend_widget is not None and hasattr(backend_widget, "setChecked"):
+                backend_widget.blockSignals(True)
+                try:
+                    backend_widget.setChecked(bool(checked))
+                finally:
+                    backend_widget.blockSignals(False)
+            self._prime_frontend_audio_device_controls()
+            self.backend.save_session()
+            self._refresh_host_input_runtime_frontend()
 
     def _on_frontend_audio_output_device_changed(self, _index=None):
             self._commit_frontend_audio_device_selection("audio_output_device_combo", "audio_output_device", "Default Output")

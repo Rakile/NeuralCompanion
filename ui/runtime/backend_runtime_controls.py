@@ -10,10 +10,13 @@ def _update_runtime_config(key, value):
     return update_runtime_config(key, value)
 
 
-def _audio_device_labels():
+def _audio_device_labels(*, show_all_inputs=False, include_input_mode_actions=False):
     from qt_app import _ui_shell_audio_device_labels
 
-    return _ui_shell_audio_device_labels()
+    return _ui_shell_audio_device_labels(
+        show_all_inputs=show_all_inputs,
+        include_input_mode_actions=include_input_mode_actions,
+    )
 
 
 class BackendRuntimeControlsMixin:
@@ -23,15 +26,67 @@ class BackendRuntimeControlsMixin:
         default_label = "Default Output" if direction == "output" else "Default Input"
         selected = str(label or "").strip() or default_label
         options_key = "outputs" if direction == "output" else "inputs"
-        options = list((_audio_device_labels().get(options_key) or [default_label]))
+        options = list((_audio_device_labels(show_all_inputs=(direction == "input")).get(options_key) or [default_label]))
         for option in options:
             if str(option or "").strip().lower() == selected.lower():
                 return str(option or "").strip() or default_label
         return default_label
 
+    def _audio_input_mode_action(self, label):
+        from qt_app import SHOW_ALL_AUDIO_INPUT_DEVICES_LABEL, SHOW_MICROPHONE_AUDIO_INPUT_DEVICES_LABEL
+
+        text = str(label or "").strip().casefold()
+        if text == str(SHOW_ALL_AUDIO_INPUT_DEVICES_LABEL).strip().casefold():
+            return "show_all"
+        if text == str(SHOW_MICROPHONE_AUDIO_INPUT_DEVICES_LABEL).strip().casefold():
+            return "microphones_only"
+        return ""
+
+    def _audio_input_show_all_enabled(self):
+        widget = getattr(self, "show_all_audio_inputs_checkbox", None)
+        if widget is not None and hasattr(widget, "isChecked"):
+            return bool(widget.isChecked())
+        return bool(_runtime_config().get("show_all_audio_input_devices", False))
+
+    def _refresh_audio_input_device_options(self, selected=None):
+        combo = getattr(self, "audio_input_device_combo", None)
+        if combo is None:
+            return
+        choice = str(selected or (combo.currentText() if hasattr(combo, "currentText") else "") or "Default Input").strip()
+        options = list(
+            (
+                _audio_device_labels(
+                    show_all_inputs=self._audio_input_show_all_enabled(),
+                    include_input_mode_actions=True,
+                ).get("inputs")
+                or ["Default Input"]
+            )
+        )
+        from qt_app import _ui_shell_combo_select_label, _ui_shell_combo_set_items
+
+        _ui_shell_combo_set_items(combo, options)
+        _ui_shell_combo_select_label(combo, choice if choice in options else "Default Input")
+
     def on_audio_input_device_change(self, choice):
+        action = self._audio_input_mode_action(choice)
+        if action:
+            show_all = action == "show_all"
+            checkbox = getattr(self, "show_all_audio_inputs_checkbox", None)
+            if checkbox is not None and hasattr(checkbox, "setChecked"):
+                checkbox.blockSignals(True)
+                checkbox.setChecked(show_all)
+                checkbox.blockSignals(False)
+            _update_runtime_config("show_all_audio_input_devices", show_all)
+            self._refresh_audio_input_device_options(_runtime_config().get("audio_input_device", "Default Input"))
+            self.save_session()
+            return
         resolved = self._resolve_audio_device_label(choice, direction="input")
         _update_runtime_config("audio_input_device", resolved)
+        self.save_session()
+
+    def on_show_all_audio_inputs_change(self, checked):
+        _update_runtime_config("show_all_audio_input_devices", bool(checked))
+        self._refresh_audio_input_device_options(_runtime_config().get("audio_input_device", "Default Input"))
         self.save_session()
 
     def on_audio_output_device_change(self, choice):

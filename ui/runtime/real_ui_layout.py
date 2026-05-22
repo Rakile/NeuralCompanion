@@ -1412,6 +1412,167 @@ QTabWidget QStackedWidget {
             except Exception:
                 return False
 
+    def _frontend_dock_for_tab_text(self, tab_text):
+            wanted = str(tab_text or "").strip().casefold()
+            if not wanted:
+                return None
+            for dock in self._frontend_workspace_docks():
+                try:
+                    if dock.isFloating():
+                        continue
+                    title = str(dock.windowTitle() or dock.objectName() or "").strip().casefold()
+                except Exception:
+                    continue
+                if title == wanted:
+                    return dock
+            return None
+
+    def _frontend_dock_tabbar_match_count(self, tab_bar):
+            if tab_bar is None or not hasattr(tab_bar, "count"):
+                return 0
+            matched = 0
+            try:
+                count = int(tab_bar.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    if self._frontend_dock_for_tab_text(tab_bar.tabText(index)) is not None:
+                        matched += 1
+                except Exception:
+                    continue
+            return matched
+
+    def _event_position(self, event):
+            try:
+                return event.position().toPoint()
+            except Exception:
+                try:
+                    return event.pos()
+                except Exception:
+                    return QtCore.QPoint()
+
+    def _event_global_position(self, event):
+            try:
+                return event.globalPosition().toPoint()
+            except Exception:
+                try:
+                    return event.globalPos()
+                except Exception:
+                    return QtGui.QCursor.pos()
+
+    def _float_frontend_dock_from_tab_drag(self, dock, global_pos):
+            if dock is None:
+                return False
+            try:
+                if dock.isFloating():
+                    return False
+            except Exception:
+                return False
+            try:
+                size = dock.size()
+            except Exception:
+                size = QtCore.QSize(420, 320)
+            try:
+                dock.setFloating(True)
+                if callable(getattr(self, "_apply_frontend_dock_window_flags", None)):
+                    self._apply_frontend_dock_window_flags(dock)
+                if callable(getattr(self, "_schedule_frontend_dock_owner_refresh", None)):
+                    self._schedule_frontend_dock_owner_refresh(dock)
+                width = max(360, int(size.width() or 420))
+                height = max(240, int(size.height() or 320))
+                dock.resize(width, height)
+                dock.move(max(0, int(global_pos.x()) - min(180, width // 2)), max(0, int(global_pos.y()) - 14))
+                dock.show()
+                dock.raise_()
+                self._schedule_frontend_layout_save(delay_ms=1200)
+                QtCore.QTimer.singleShot(900, self._apply_frontend_workspace_view_constraints)
+                return True
+            except Exception:
+                return False
+
+    def _move_frontend_floating_dock_with_tab_drag(self, dock, global_pos):
+            if dock is None:
+                return False
+            try:
+                if not dock.isFloating():
+                    return False
+                size = dock.size()
+                width = max(360, int(size.width() or 420))
+                dock.move(max(0, int(global_pos.x()) - min(180, width // 2)), max(0, int(global_pos.y()) - 14))
+                return True
+            except Exception:
+                return False
+
+    def _handle_frontend_dock_tab_drag(self, watched, event):
+            if event is None or not isinstance(watched, QtWidgets.QTabBar):
+                return False
+            event_type = event.type()
+            if event_type not in {QtCore.QEvent.MouseButtonPress, QtCore.QEvent.MouseMove, QtCore.QEvent.MouseButtonRelease}:
+                return False
+            if event_type == QtCore.QEvent.MouseButtonPress:
+                try:
+                    if event.button() != QtCore.Qt.LeftButton:
+                        return False
+                except Exception:
+                    return False
+                if self._frontend_dock_tabbar_match_count(watched) < 2:
+                    self._frontend_dock_tab_drag = None
+                    return False
+                pos = self._event_position(event)
+                try:
+                    index = watched.tabAt(pos)
+                except Exception:
+                    index = -1
+                if index < 0:
+                    self._frontend_dock_tab_drag = None
+                    return False
+                dock = self._frontend_dock_for_tab_text(watched.tabText(index))
+                if dock is None:
+                    self._frontend_dock_tab_drag = None
+                    return False
+                self._frontend_dock_tab_drag = {
+                    "tab_bar": watched,
+                    "start_pos": pos,
+                    "dock": dock,
+                    "triggered": False,
+                }
+                return False
+            state = getattr(self, "_frontend_dock_tab_drag", None)
+            if not isinstance(state, dict) or state.get("tab_bar") is not watched:
+                return False
+            if event_type == QtCore.QEvent.MouseButtonRelease:
+                self._frontend_dock_tab_drag = None
+                return False
+            try:
+                if not bool(event.buttons() & QtCore.Qt.LeftButton):
+                    self._frontend_dock_tab_drag = None
+                    return False
+            except Exception:
+                return False
+            if bool(state.get("triggered")):
+                self._move_frontend_floating_dock_with_tab_drag(state.get("dock"), self._event_global_position(event))
+                return True
+            pos = self._event_position(event)
+            start = state.get("start_pos") or pos
+            delta = pos - start
+            distance_squared = int(delta.x() * delta.x() + delta.y() * delta.y())
+            try:
+                outside_tab_strip = not watched.rect().adjusted(-24, -24, 24, 24).contains(pos)
+            except Exception:
+                outside_tab_strip = True
+            if distance_squared < 80 * 80 or not outside_tab_strip:
+                return False
+            dock = state.get("dock")
+            if self._float_frontend_dock_from_tab_drag(dock, self._event_global_position(event)):
+                state["triggered"] = True
+                try:
+                    event.accept()
+                except Exception:
+                    pass
+                return True
+            return False
+
     def _schedule_frontend_layout_save(self, delay_ms=None):
             if (
                 bool(getattr(self, "_session_read_only", False))

@@ -196,6 +196,8 @@ from ui.runtime.shell_session_config import (
     configure_shell_session_config_dependencies,
 )
 from ui.runtime.shell_status_layout import (
+    SHOW_ALL_AUDIO_INPUT_DEVICES_LABEL,
+    SHOW_MICROPHONE_AUDIO_INPUT_DEVICES_LABEL,
     _apply_ui_shell_preview_status,
     _apply_workspace_view_constraints,
     _apply_workspace_widget_bounds,

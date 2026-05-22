@@ -127,6 +127,7 @@ class MainWindowSessionMixin:
             "ui_theme_preset": self.current_app_theme_preset(),
             "avatar_mode": self._current_avatar_mode_value(),
             "audio_input_device": self.audio_input_device_combo.currentText() if hasattr(self, "audio_input_device_combo") else str(RUNTIME_CONFIG.get("audio_input_device", "Default Input") or "Default Input"),
+            "show_all_audio_input_devices": bool(self.show_all_audio_inputs_checkbox.isChecked()) if hasattr(self, "show_all_audio_inputs_checkbox") else bool(RUNTIME_CONFIG.get("show_all_audio_input_devices", False)),
             "audio_output_device": self.audio_output_device_combo.currentText() if hasattr(self, "audio_output_device_combo") else str(RUNTIME_CONFIG.get("audio_output_device", "Default Output") or "Default Output"),
             "voice_file": self._current_voice_file_value() if hasattr(self, "voice_combo") else "",
             "input_mode": self.input_mode_combo.currentText(),
@@ -302,6 +303,13 @@ class MainWindowSessionMixin:
             if str(engine_choice or "").strip().lower() == "vam" and vam_play_audio is not None:
                 vam_play_audio.setChecked(True)
                 self.on_vam_play_audio_in_vam_changed(True)
+            show_all_audio_inputs = bool(session.get("show_all_audio_input_devices", False))
+            update_runtime_config("show_all_audio_input_devices", show_all_audio_inputs)
+            if hasattr(self, "show_all_audio_inputs_checkbox"):
+                self.show_all_audio_inputs_checkbox.blockSignals(True)
+                self.show_all_audio_inputs_checkbox.setChecked(show_all_audio_inputs)
+                self.show_all_audio_inputs_checkbox.blockSignals(False)
+                self._refresh_audio_input_device_options(session.get("audio_input_device", "Default Input"))
             audio_input_device = session.get("audio_input_device")
             if audio_input_device is not None:
                 audio_input_device = self._resolve_audio_device_label(audio_input_device, direction="input")

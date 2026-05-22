@@ -10,6 +10,7 @@ SESSION_KEY = "runtime"
 LEGACY_FIELD_PATHS = OrderedDict(
     (
         ("audio_input_device", ("audio", "input_device")),
+        ("show_all_audio_input_devices", ("audio", "show_all_input_devices")),
         ("audio_output_device", ("audio", "output_device")),
         ("avatar_mode", ("avatar", "mode")),
         ("input_mode", ("input", "mode")),
