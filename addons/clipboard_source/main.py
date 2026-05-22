@@ -164,9 +164,7 @@ class Addon(BaseAddon):
             self.last_delivery_status = "Shell preview: clipboard source settings are display-only."
             self._notify_tab_refreshers()
             return None
-        if self.auto_attach_next_user_turn and self._source_is_enabled() and self._has_latest_image():
-            self._arm_latest_for_next_user_turn(silent_missing=True, require_new_image=True, mark_auto_attach=True)
-        elif not self._source_is_enabled():
+        if not self._source_is_enabled():
             self._clear_pending_next_user_turn()
         self._notify_tab_refreshers()
         return None
@@ -421,7 +419,8 @@ class Addon(BaseAddon):
         self.auto_attach_next_user_turn = bool(checked)
         if self.auto_attach_next_user_turn:
             if self._source_is_enabled():
-                self._arm_latest_for_next_user_turn(silent_missing=True, mark_auto_attach=True)
+                self.last_delivery_status = "New clipboard images will be armed once for the next user turn."
+                self._notify_tab_refreshers()
             else:
                 self._clear_pending_next_user_turn()
                 self.last_delivery_status = "Next-turn clipboard attach is configured, but Clipboard source is currently disabled."
@@ -471,7 +470,7 @@ class Addon(BaseAddon):
             [
                 latest_line,
                 f"Clipboard source include: {'on' if self._source_is_enabled() else 'off'}",
-                f"Next user turn attach: {'armed when possible' if self.auto_attach_next_user_turn else 'off'}",
+                f"New image auto-arm: {'on' if self.auto_attach_next_user_turn else 'off'}",
                 f"Immediate auto-send: {'on' if self.auto_send_immediately else 'off'}",
                 f"Hidden Vision loop feed: {'on' if self.hidden_loop_enabled else 'off'}",
                 self.last_delivery_status,

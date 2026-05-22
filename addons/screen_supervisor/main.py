@@ -473,6 +473,7 @@ class Addon(BaseAddon):
                         "trigger": str(behavior.get("trigger") or "").strip(),
                         "action": str(behavior.get("action") or "").strip(),
                         "repeat_mode": self._normalize_repeat_mode(behavior.get("repeat_mode")),
+                        "repeat_interval": self._normalize_repeat_interval(behavior.get("repeat_interval")),
                     }
                     for behavior in list(active.get("behaviors") or [])
                     if bool(behavior.get("enabled", True))

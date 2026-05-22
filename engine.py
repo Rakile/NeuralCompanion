@@ -1781,14 +1781,19 @@ def extract_visual_reply_prompt(text: str):
 
 
 def _visual_reply_generation_instruction():
-    if not _automatic_visual_reply_generation_allowed():
+    if not _visual_reply_generation_available():
         return ""
-    return (
-        "Optional visual reply capability: when a generated image would meaningfully help, "
+    instruction = (
+        "Visual reply capability is available. If the user explicitly asks you to generate, "
+        "draw, create, show, or make an image or picture, "
         "append exactly one tag at the end of your reply in this form: "
         "[visualize: concise image prompt]. Keep the prompt concrete and under 180 characters. "
-        "Use this sparingly, and still provide the normal text reply."
+        "For image-only requests, keep the visible text reply to a brief acknowledgement. "
+        "If the user also asks for text, answer that text request normally."
     )
+    if _automatic_visual_reply_generation_allowed():
+        instruction += " You may also use this sparingly when a generated image would meaningfully help."
+    return instruction
 
 
 def _sensory_feedback_sources():
@@ -2268,7 +2273,12 @@ def _queue_hidden_proactive_candidate(candidate, *, summary="", attention="", so
         now = time.time()
         last_key = str(sensory_hidden_action_state.get("last_proactive_key", "") or "")
         last_at = float(sensory_hidden_action_state.get("last_proactive_at", 0.0) or 0.0)
-        if request_key and request_key == last_key and (now - last_at) < 45.0:
+        if (
+            not bool(allow_repeated_candidate)
+            and request_key
+            and request_key == last_key
+            and (now - last_at) < 45.0
+        ):
             print("🤐 [Sensory] Suppressed duplicate proactive candidate for unchanged hidden PONG.")
             return False
         last_candidate_key = str(sensory_hidden_action_state.get("last_proactive_candidate_key", "") or "")
@@ -2897,6 +2907,7 @@ def _screen_supervisor_configured_behaviors(source_ids):
                 {
                     "trigger": trigger,
                     "repeat_mode": str(behavior.get("repeat_mode") or "").strip() or "Meaningful change only",
+                    "repeat_interval": behavior.get("repeat_interval"),
                 }
             )
     if behaviors:
@@ -2956,7 +2967,8 @@ def _screen_supervisor_pong_trigger_decision(source_ids, *, summary="", attentio
                     dict(behavior),
                 )
     if not saw_tokenized_trigger:
-        return True, "configured triggers had no significant tokens", None
+        fallback_behavior = dict(behaviors[0]) if behaviors else None
+        return True, "configured triggers had no significant tokens", fallback_behavior
     fallback_behavior = dict(behaviors[0]) if behaviors else None
     return False, "no configured trigger token matched PONG text; " + "; ".join(checked[:4]), fallback_behavior
 
@@ -3052,6 +3064,8 @@ def _apply_sensory_pong_result(result, snapshots):
     screen_subject_identity = ""
     screen_supervisor_repeat_key = ""
     screen_supervisor_new_meaningful_subject = False
+    screen_supervisor_allow_same_subject_repeat = False
+    screen_supervisor_repeat_mode = ""
     if _screen_supervisor_prompt_active(snapshot_source_ids):
         supervisor_match_tag = "[screen_supervisor_match]"
         has_supervisor_match = any(str(tag or "").strip().lower() == supervisor_match_tag for tag in tags)
@@ -3097,10 +3111,13 @@ def _apply_sensory_pong_result(result, snapshots):
                     screen_subject_identity = _canonical_hidden_action_key(summary)
                 screen_supervisor_repeat_key = _screen_supervisor_repeat_key(matched_behavior, screen_subject_identity)
                 repeat_mode = str(matched_behavior.get("repeat_mode") or "").strip()
+                screen_supervisor_repeat_mode = repeat_mode
                 print(
                     "[SupervisorDebug] repeat_mode="
                     f"{repeat_mode or '?'} subject={screen_subject_identity or '?'}"
                 )
+                if repeat_mode == "Every Nth match":
+                    screen_supervisor_allow_same_subject_repeat = True
                 if repeat_mode == "Meaningful change only" and screen_supervisor_repeat_key:
                     with sensory_pingpong_lock:
                         last_repeat_key = str(
@@ -3129,7 +3146,12 @@ def _apply_sensory_pong_result(result, snapshots):
                         screen_supervisor_new_meaningful_subject = True
         if not screen_subject_identity:
             screen_subject_identity = _extract_hidden_screen_subject_identity(summary=summary, attention=attention)
-        if should_speak and proactive_candidate and screen_subject_identity:
+        if (
+            should_speak
+            and proactive_candidate
+            and screen_subject_identity
+            and not screen_supervisor_allow_same_subject_repeat
+        ):
             with sensory_pingpong_lock:
                 last_subject_key = str(sensory_hidden_action_state.get("last_screen_subject_comment_key", "") or "")
             if screen_subject_identity == last_subject_key:
@@ -3894,6 +3916,25 @@ def set_pending_user_image_attachment(image_path, *, source="clipboard"):
 
 def clear_pending_user_image_attachment():
     user_image_turns.clear_pending_attachment()
+
+
+def _attach_pending_user_image_to_turn(input_turn, *, is_placeholder: bool = False) -> dict:
+    turn = dict(input_turn or {})
+    role = str(turn.get("role", "") or "").strip().lower()
+    pending_attachment = user_image_turns.pending_attachment()
+    if role != "user" or is_placeholder or not pending_attachment:
+        return turn
+    attachment_image_path = str(pending_attachment.get("attachment_image_path", "") or "").strip()
+    attachment_source = str(pending_attachment.get("attachment_source", "image") or "image")
+    clipboard_source_enabled = "clipboard" in _sensory_feedback_sources()
+    if attachment_source == "clipboard" and not clipboard_source_enabled:
+        print("📋 [Clipboard] Skipped pending clipboard image because Clipboard source is disabled.")
+    elif attachment_image_path:
+        turn["attachment_image_path"] = attachment_image_path
+        turn["attachment_source"] = attachment_source
+        print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
+    clear_pending_user_image_attachment()
+    return turn
 
 
 def queue_user_image_turn(image_path, *, content=None, source="clipboard"):
@@ -5630,6 +5671,7 @@ def queue_typed_chat_message(text, role=None):
         "content": content,
         "origin": "input",
     }
+    turn = _attach_pending_user_image_to_turn(turn)
     _append_chat_turn(turn)
     _set_pending_loaded_input_turn(turn)
     _request_chat_view_rebuild()
@@ -5920,21 +5962,26 @@ def start_streamed_llm_reply(text_queue, dry_run_reply_id=None):
             text = str(raw_text or "")
             if not text:
                 return ""
+            cleaned_parts = []
             if visual_tail_open:
-                close_index = text.rfind("]")
+                close_index = text.find("]")
                 if close_index < 0:
                     return ""
                 visual_tail_open = False
-                return ""
-            match = VISUAL_REPLY_TAG_START_RE.search(text)
-            if not match:
-                return text
-            cleaned = text[:match.start()]
-            tail = text[match.end():]
-            close_index = tail.rfind("]")
-            if close_index < 0:
-                visual_tail_open = True
-            return cleaned
+                text = text[close_index + 1:]
+            while text:
+                match = VISUAL_REPLY_TAG_START_RE.search(text)
+                if not match:
+                    cleaned_parts.append(text)
+                    break
+                cleaned_parts.append(text[:match.start()])
+                tail = text[match.end():]
+                close_index = tail.find("]")
+                if close_index < 0:
+                    visual_tail_open = True
+                    break
+                text = tail[close_index + 1:]
+            return "".join(cleaned_parts)
 
         musetalk_state.append_musetalk_preview_log(
             f"🌊 [Stream] Reply stream started: target_chars={stream_target_chars} max_chars={stream_max_chars}"
@@ -6550,19 +6597,10 @@ def run_conversation_flow(source):
                         print(f"💬 You (assistant): {content}")
                     else:
                         print(f"💬 You: {content}")
-                    input_turn = {"role": role, "content": content, "origin": "input"}
-                    pending_attachment = user_image_turns.pending_attachment()
-                    if role == "user" and not is_placeholder and pending_attachment:
-                        attachment_image_path = str(pending_attachment.get("attachment_image_path", "") or "").strip()
-                        attachment_source = str(pending_attachment.get("attachment_source", "image") or "image")
-                        clipboard_source_enabled = "clipboard" in _sensory_feedback_sources()
-                        if attachment_source == "clipboard" and not clipboard_source_enabled:
-                            print("📋 [Clipboard] Skipped pending clipboard image because Clipboard source is disabled.")
-                        elif attachment_image_path:
-                            input_turn["attachment_image_path"] = attachment_image_path
-                            input_turn["attachment_source"] = attachment_source
-                            print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
-                        clear_pending_user_image_attachment()
+                    input_turn = _attach_pending_user_image_to_turn(
+                        {"role": role, "content": content, "origin": "input"},
+                        is_placeholder=is_placeholder,
+                    )
                     conversation_history.append(input_turn)
 
                 elif action.type == ConversationActionType.START_LLM_STREAM:

@@ -10,11 +10,15 @@ from core.addons.base import BaseAddon
 DEFAULT_MAX_SIDE = 5120
 DEFAULT_MAX_WIDTH = 5120
 DEFAULT_MAX_HEIGHT = 2880
-MIN_MAX_SIDE = 640
+MIN_MAX_SIDE = 256
 MAX_MAX_SIDE = 5120
 DEFAULT_JPEG_QUALITY = 85
 MIN_JPEG_QUALITY = 40
 MAX_JPEG_QUALITY = 95
+CAPTURE_MODE_FULL = "full"
+CAPTURE_MODE_REGION = "region"
+CAPTURE_MODE_SQUARE = "square"
+CAPTURE_MODES = {CAPTURE_MODE_FULL, CAPTURE_MODE_REGION, CAPTURE_MODE_SQUARE}
 
 
 def _load_metadata(root_dir: Path) -> dict:
@@ -34,6 +38,42 @@ def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
     return max(int(minimum), min(int(maximum), number))
 
 
+def _normalize_capture_mode(value) -> str:
+    mode = str(value or "").strip().lower()
+    return mode if mode in CAPTURE_MODES else CAPTURE_MODE_FULL
+
+
+def _normalize_region(value) -> dict:
+    if not isinstance(value, dict):
+        return {}
+    try:
+        x = int(value.get("x"))
+        y = int(value.get("y"))
+        width = int(value.get("width"))
+        height = int(value.get("height"))
+    except Exception:
+        return {}
+    if width <= 0 or height <= 0:
+        return {}
+    x = max(-100000, min(100000, x))
+    y = max(-100000, min(100000, y))
+    width = max(1, min(100000, width))
+    height = max(1, min(100000, height))
+    return {
+        "x": int(x),
+        "y": int(y),
+        "width": int(width),
+        "height": int(height),
+    }
+
+
+def _region_label(region) -> str:
+    payload = _normalize_region(region)
+    if not payload:
+        return "none selected"
+    return f"{payload['width']} x {payload['height']} px at {payload['x']}, {payload['y']}"
+
+
 class Addon(BaseAddon):
     PROVIDER_ID = "screen"
     CAPTURE_TAB_ID = "screen_source_capture_tab"
@@ -51,6 +91,10 @@ class Addon(BaseAddon):
             MIN_JPEG_QUALITY,
             MAX_JPEG_QUALITY,
         )
+        self.capture_mode = _normalize_capture_mode(os.environ.get("NC_SCREEN_SOURCE_CAPTURE_MODE"))
+        self.capture_region = _normalize_region({})
+        self.full_max_width = int(self.max_width)
+        self.full_max_height = int(self.max_height)
         self._tab_refreshers = []
         sensory_service = context.get_service("qt.sensory")
         if sensory_service is not None:
@@ -88,6 +132,10 @@ class Addon(BaseAddon):
                 int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)),
             ),
             "screen_source_jpeg_quality": int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY)),
+            "screen_source_capture_mode": _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)),
+            "screen_source_capture_region": _normalize_region(getattr(self, "capture_region", {})),
+            "screen_source_full_max_width": int(getattr(self, "full_max_width", DEFAULT_MAX_WIDTH)),
+            "screen_source_full_max_height": int(getattr(self, "full_max_height", DEFAULT_MAX_HEIGHT)),
         }
 
     def export_preset_state(self):
@@ -122,11 +170,221 @@ class Addon(BaseAddon):
             MIN_JPEG_QUALITY,
             MAX_JPEG_QUALITY,
         )
+        self.full_max_width = _clamp_int(
+            payload.get("screen_source_full_max_width", getattr(self, "full_max_width", self.max_width)),
+            DEFAULT_MAX_WIDTH,
+            MIN_MAX_SIDE,
+            MAX_MAX_SIDE,
+        )
+        self.full_max_height = _clamp_int(
+            payload.get("screen_source_full_max_height", getattr(self, "full_max_height", self.max_height)),
+            DEFAULT_MAX_HEIGHT,
+            MIN_MAX_SIDE,
+            MAX_MAX_SIDE,
+        )
+        self.capture_region = _normalize_region(payload.get("screen_source_capture_region", getattr(self, "capture_region", {})))
+        self.capture_mode = _normalize_capture_mode(payload.get("screen_source_capture_mode", getattr(self, "capture_mode", CAPTURE_MODE_FULL)))
+        if self.capture_mode != CAPTURE_MODE_FULL and not self.capture_region:
+            self.capture_mode = CAPTURE_MODE_FULL
         self._notify_tab_refreshers()
         return None
 
     def import_preset_state(self, preset):
         return self.import_session_state(preset)
+
+    def _virtual_desktop_rect(self):
+        try:
+            from PySide6 import QtCore, QtWidgets
+
+            screens = list(QtWidgets.QApplication.screens() or [])
+            if not screens:
+                return None
+            rect = QtCore.QRect(screens[0].geometry())
+            for screen in screens[1:]:
+                rect = rect.united(screen.geometry())
+            return rect
+        except Exception:
+            return None
+
+    def _effective_region(self):
+        mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
+        if mode == CAPTURE_MODE_FULL:
+            return {}
+        return _normalize_region(getattr(self, "capture_region", {}))
+
+    def _restore_full_capture_cap(self):
+        self.max_width = _clamp_int(
+            getattr(self, "full_max_width", DEFAULT_MAX_WIDTH),
+            DEFAULT_MAX_WIDTH,
+            MIN_MAX_SIDE,
+            MAX_MAX_SIDE,
+        )
+        self.max_height = _clamp_int(
+            getattr(self, "full_max_height", DEFAULT_MAX_HEIGHT),
+            DEFAULT_MAX_HEIGHT,
+            MIN_MAX_SIDE,
+            MAX_MAX_SIDE,
+        )
+        self.max_side = max(int(self.max_width), int(self.max_height))
+
+    def _remember_full_capture_cap(self):
+        if _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL:
+            self.full_max_width = _clamp_int(
+                getattr(self, "max_width", DEFAULT_MAX_WIDTH),
+                DEFAULT_MAX_WIDTH,
+                MIN_MAX_SIDE,
+                MAX_MAX_SIDE,
+            )
+            self.full_max_height = _clamp_int(
+                getattr(self, "max_height", DEFAULT_MAX_HEIGHT),
+                DEFAULT_MAX_HEIGHT,
+                MIN_MAX_SIDE,
+                MAX_MAX_SIDE,
+            )
+
+    def _apply_region_capture_cap(self, region):
+        payload = _normalize_region(region)
+        if not payload:
+            return
+        self.max_width = _clamp_int(payload.get("width"), DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE)
+        self.max_height = _clamp_int(payload.get("height"), DEFAULT_MAX_HEIGHT, MIN_MAX_SIDE, MAX_MAX_SIDE)
+        self.max_side = max(int(self.max_width), int(self.max_height))
+
+    def _set_capture_mode(self, mode):
+        next_mode = _normalize_capture_mode(mode)
+        current_mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
+        if current_mode == CAPTURE_MODE_FULL and next_mode != CAPTURE_MODE_FULL:
+            self._remember_full_capture_cap()
+        self.capture_mode = next_mode
+        if self.capture_mode == CAPTURE_MODE_FULL:
+            self._restore_full_capture_cap()
+        elif self.capture_region:
+            self._apply_region_capture_cap(self.capture_region)
+        else:
+            self.capture_mode = CAPTURE_MODE_FULL
+            self._restore_full_capture_cap()
+        self._notify_tab_refreshers()
+        self._notify_settings_changed()
+
+    def _select_capture_region(self, *, square: bool = False) -> bool:
+        try:
+            from PySide6 import QtCore, QtGui, QtWidgets
+        except Exception as exc:
+            print(f"[ScreenSource] Region selection is unavailable: {exc}")
+            return False
+        virtual_rect = self._virtual_desktop_rect()
+        if virtual_rect is None or virtual_rect.isEmpty():
+            print("[ScreenSource] Region selection failed: no screen geometry is available.")
+            return False
+
+        class RegionSelectionOverlay(QtWidgets.QDialog):
+            def __init__(self, geometry, *, square_mode=False):
+                super().__init__(None)
+                self.square_mode = bool(square_mode)
+                self.origin = None
+                self.current = None
+                self.selected_rect = QtCore.QRect()
+                self.setWindowTitle("Select screen capture region")
+                self.setWindowFlags(
+                    QtCore.Qt.FramelessWindowHint
+                    | QtCore.Qt.WindowStaysOnTopHint
+                    | QtCore.Qt.Tool
+                )
+                self.setWindowModality(QtCore.Qt.ApplicationModal)
+                self.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+                self.setMouseTracking(True)
+                self.setCursor(QtCore.Qt.CrossCursor)
+                self.setGeometry(geometry)
+
+            def _selection_rect(self):
+                if self.origin is None or self.current is None:
+                    return QtCore.QRect()
+                end = QtCore.QPoint(self.current)
+                if self.square_mode:
+                    dx = end.x() - self.origin.x()
+                    dy = end.y() - self.origin.y()
+                    side = max(1, min(abs(dx), abs(dy)))
+                    end = QtCore.QPoint(
+                        self.origin.x() + (side if dx >= 0 else -side),
+                        self.origin.y() + (side if dy >= 0 else -side),
+                    )
+                return QtCore.QRect(self.origin, end).normalized()
+
+            def paintEvent(self, _event):
+                painter = QtGui.QPainter(self)
+                painter.fillRect(self.rect(), QtGui.QColor(0, 0, 0, 96))
+                selection = self._selection_rect()
+                if not selection.isNull():
+                    painter.fillRect(selection, QtGui.QColor(80, 170, 255, 55))
+                    pen = QtGui.QPen(QtGui.QColor(120, 210, 255), 2)
+                    painter.setPen(pen)
+                    painter.drawRect(selection.adjusted(0, 0, -1, -1))
+                    painter.setPen(QtGui.QColor(230, 245, 255))
+                    painter.drawText(
+                        selection.adjusted(8, 8, -8, -8),
+                        QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop,
+                        f"{selection.width()} x {selection.height()}",
+                    )
+                else:
+                    painter.setPen(QtGui.QColor(230, 245, 255))
+                    painter.drawText(
+                        self.rect(),
+                        QtCore.Qt.AlignCenter,
+                        "Drag to select the screen area. Esc cancels.",
+                    )
+
+            def mousePressEvent(self, event):
+                if event.button() != QtCore.Qt.LeftButton:
+                    return
+                self.origin = event.position().toPoint()
+                self.current = QtCore.QPoint(self.origin)
+                self.update()
+
+            def mouseMoveEvent(self, event):
+                if self.origin is None:
+                    return
+                self.current = event.position().toPoint()
+                self.update()
+
+            def mouseReleaseEvent(self, event):
+                if event.button() != QtCore.Qt.LeftButton or self.origin is None:
+                    return
+                self.current = event.position().toPoint()
+                selected = self._selection_rect()
+                if selected.width() < 8 or selected.height() < 8:
+                    self.reject()
+                    return
+                self.selected_rect = selected.translated(self.geometry().topLeft())
+                self.accept()
+
+            def keyPressEvent(self, event):
+                if event.key() == QtCore.Qt.Key_Escape:
+                    self.reject()
+                    return
+                super().keyPressEvent(event)
+
+        overlay = RegionSelectionOverlay(virtual_rect, square_mode=square)
+        if overlay.exec() != QtWidgets.QDialog.Accepted:
+            return False
+        rect = overlay.selected_rect
+        region = _normalize_region(
+            {
+                "x": rect.x(),
+                "y": rect.y(),
+                "width": rect.width(),
+                "height": rect.height(),
+            }
+        )
+        if not region:
+            return False
+        if _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL:
+            self._remember_full_capture_cap()
+        self.capture_region = region
+        self.capture_mode = CAPTURE_MODE_SQUARE if square else CAPTURE_MODE_REGION
+        self._apply_region_capture_cap(region)
+        self._notify_tab_refreshers()
+        self._notify_settings_changed()
+        return True
 
     def _capture_screen(self, output_path: Path):
         try:
@@ -135,6 +393,21 @@ class Addon(BaseAddon):
         except Exception as exc:
             raise RuntimeError(f"Screen capture failed: {exc}") from exc
         image = image.convert("RGB")
+        region = self._effective_region()
+        if region:
+            virtual_rect = self._virtual_desktop_rect()
+            if virtual_rect is not None and virtual_rect.width() > 0 and virtual_rect.height() > 0:
+                x_scale = image.width / max(1, int(virtual_rect.width()))
+                y_scale = image.height / max(1, int(virtual_rect.height()))
+                left = int(round((int(region["x"]) - int(virtual_rect.x())) * x_scale))
+                top = int(round((int(region["y"]) - int(virtual_rect.y())) * y_scale))
+                right = int(round((int(region["x"]) + int(region["width"]) - int(virtual_rect.x())) * x_scale))
+                bottom = int(round((int(region["y"]) + int(region["height"]) - int(virtual_rect.y())) * y_scale))
+                left = max(0, min(image.width - 1, left))
+                top = max(0, min(image.height - 1, top))
+                right = max(left + 1, min(image.width, right))
+                bottom = max(top + 1, min(image.height, bottom))
+                image = image.crop((left, top, right, bottom))
         max_width = _clamp_int(getattr(self, "max_width", DEFAULT_MAX_WIDTH), DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE)
         max_height = _clamp_int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT), DEFAULT_MAX_HEIGHT, MIN_MAX_SIDE, MAX_MAX_SIDE)
         jpeg_quality = _clamp_int(
@@ -161,6 +434,8 @@ class Addon(BaseAddon):
             "metadata": {
                 "width": int(dimensions[0]),
                 "height": int(dimensions[1]),
+                "capture_mode": _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)),
+                "capture_region": _normalize_region(getattr(self, "capture_region", {})),
                 "max_width": int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)),
                 "max_height": int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)),
                 "max_side": max(
@@ -196,6 +471,13 @@ class Addon(BaseAddon):
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(8)
 
+        mode_combo = QtWidgets.QComboBox()
+        mode_combo.addItem("Whole screen", CAPTURE_MODE_FULL)
+        mode_combo.addItem("Selected region", CAPTURE_MODE_REGION)
+        mode_combo.addItem("Selected square", CAPTURE_MODE_SQUARE)
+        mode_combo.setToolTip("Choose whether screen snapshots capture the whole desktop or a selected area.")
+        form.addRow("Capture area", mode_combo)
+
         max_width_spin = QtWidgets.QSpinBox()
         max_width_spin.setRange(MIN_MAX_SIDE, MAX_MAX_SIDE)
         max_width_spin.setSingleStep(128)
@@ -224,9 +506,27 @@ class Addon(BaseAddon):
 
         layout.addLayout(form)
 
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(8)
+
+        select_region_button = QtWidgets.QPushButton("Select region")
+        select_region_button.setToolTip("Drag a rectangle on the screen. Future screen snapshots will use only that region.")
+        button_row.addWidget(select_region_button)
+
+        select_square_button = QtWidgets.QPushButton("Select square")
+        select_square_button.setToolTip("Drag a square on the screen. Future screen snapshots will use only that square.")
+        button_row.addWidget(select_square_button)
+
+        use_full_button = QtWidgets.QPushButton("Use whole screen")
+        use_full_button.setToolTip("Return to full-screen capture and restore the previous full-screen width and height cap.")
+        button_row.addWidget(use_full_button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
         hint = QtWidgets.QLabel(
             "Bigger snapshots preserve small UI text and details, but they increase vision-token use, latency, and API cost. "
-            "The image keeps its original aspect ratio inside the width and height limits."
+            "The image keeps its original aspect ratio inside the width and height limits. Selected areas are cropped before resizing."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -238,10 +538,24 @@ class Addon(BaseAddon):
         layout.addWidget(current_label)
 
         def refresh():
+            current_mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
+            mode_index = mode_combo.findData(current_mode)
+            if mode_index < 0:
+                mode_index = 0
+            if mode_combo.currentIndex() != mode_index:
+                mode_combo.blockSignals(True)
+                mode_combo.setCurrentIndex(mode_index)
+                mode_combo.blockSignals(False)
+            mode_label = {
+                CAPTURE_MODE_FULL: "whole screen",
+                CAPTURE_MODE_REGION: "selected region",
+                CAPTURE_MODE_SQUARE: "selected square",
+            }.get(current_mode, "whole screen")
             current_label.setText(
                 f"Current cap: {int(getattr(self, 'max_width', DEFAULT_MAX_WIDTH))} x "
                 f"{int(getattr(self, 'max_height', DEFAULT_MAX_HEIGHT))} px, "
-                f"JPEG {int(getattr(self, 'jpeg_quality', DEFAULT_JPEG_QUALITY))}%."
+                f"JPEG {int(getattr(self, 'jpeg_quality', DEFAULT_JPEG_QUALITY))}%. "
+                f"Capture area: {mode_label}; region: {_region_label(getattr(self, 'capture_region', {}))}."
             )
             if max_width_spin.value() != int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)):
                 max_width_spin.blockSignals(True)
@@ -256,15 +570,22 @@ class Addon(BaseAddon):
                 quality_spin.setValue(int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY)))
                 quality_spin.blockSignals(False)
 
+        def set_capture_mode_from_combo(_index):
+            self._set_capture_mode(mode_combo.currentData())
+
         def set_max_width(value):
             self.max_width = _clamp_int(value, DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE)
             self.max_side = max(int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)), int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)))
+            if _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL:
+                self.full_max_width = int(self.max_width)
             refresh()
             self._notify_settings_changed()
 
         def set_max_height(value):
             self.max_height = _clamp_int(value, DEFAULT_MAX_HEIGHT, MIN_MAX_SIDE, MAX_MAX_SIDE)
             self.max_side = max(int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)), int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)))
+            if _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL:
+                self.full_max_height = int(self.max_height)
             refresh()
             self._notify_settings_changed()
 
@@ -273,9 +594,13 @@ class Addon(BaseAddon):
             refresh()
             self._notify_settings_changed()
 
+        mode_combo.currentIndexChanged.connect(set_capture_mode_from_combo)
         max_width_spin.valueChanged.connect(set_max_width)
         max_height_spin.valueChanged.connect(set_max_height)
         quality_spin.valueChanged.connect(set_quality)
+        select_region_button.clicked.connect(lambda: self._select_capture_region(square=False))
+        select_square_button.clicked.connect(lambda: self._select_capture_region(square=True))
+        use_full_button.clicked.connect(lambda: self._set_capture_mode(CAPTURE_MODE_FULL))
         self._register_tab_refresher(refresh)
         root.destroyed.connect(lambda *_args, callback=refresh: self._unregister_tab_refresher(callback))
         refresh()

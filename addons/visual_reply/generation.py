@@ -818,6 +818,10 @@ def _first_node_id_by_class(workflow: dict, class_names: set[str]) -> str:
     return ""
 
 
+def _class_type(workflow: dict, node_id: str) -> str:
+    return str((workflow.get(str(node_id)) or {}).get("class_type") or "")
+
+
 def _first_node_id_containing(workflow: dict, needle: str) -> str:
     needle = str(needle or "").lower()
     for node_id, node in workflow.items():
@@ -835,6 +839,10 @@ def _linked_node_id(workflow: dict, node_id: str, input_name: str) -> str:
     return ""
 
 
+def _node_has_input(workflow: dict, node_id: str, input_name: str) -> bool:
+    return str(input_name) in dict((workflow.get(str(node_id)) or {}).get("inputs") or {})
+
+
 def _set_node_input(workflow: dict, node_id: str, input_name: str, value) -> bool:
     node = workflow.get(str(node_id))
     if not isinstance(node, dict):
@@ -847,12 +855,58 @@ def _set_node_input(workflow: dict, node_id: str, input_name: str, value) -> boo
     return True
 
 
+def _sampler_node_ids(workflow: dict) -> list[str]:
+    samplers = []
+    for node_id, node in workflow.items():
+        class_type = str((node or {}).get("class_type") or "")
+        if class_type in {"KSampler", "KSamplerAdvanced"} or "ksampler" in class_type.lower():
+            samplers.append(str(node_id))
+    return samplers
+
+
+def _find_primary_comfyui_sampler(workflow: dict) -> str:
+    samplers = _sampler_node_ids(workflow)
+    if not samplers:
+        return ""
+    for sampler_id in samplers:
+        latent_id = _linked_node_id(workflow, sampler_id, "latent_image")
+        latent_class = _class_type(workflow, latent_id).lower()
+        if "emptylatent" in latent_class or "latentsizepicker" in latent_class:
+            return sampler_id
+    return samplers[0]
+
+
+def _collect_linked_clip_text_nodes(workflow: dict, node_id: str, *, _seen=None) -> list[str]:
+    node_id = str(node_id or "")
+    if not node_id:
+        return []
+    if _seen is None:
+        _seen = set()
+    if node_id in _seen:
+        return []
+    _seen.add(node_id)
+    if _class_type(workflow, node_id) == "CLIPTextEncode":
+        return [node_id]
+    result = []
+    node = workflow.get(node_id, {})
+    for value in dict((node or {}).get("inputs") or {}).values():
+        if not isinstance(value, (list, tuple)) or not value:
+            continue
+        for clip_id in _collect_linked_clip_text_nodes(workflow, str(value[0]), _seen=_seen):
+            if clip_id not in result:
+                result.append(clip_id)
+    return result
+
+
 def _find_comfyui_prompt_nodes(workflow: dict) -> tuple[str, str, str, str]:
-    ksampler_id = _first_node_id_by_class(workflow, {"KSampler", "KSamplerAdvanced"}) or _first_node_id_containing(workflow, "ksampler")
+    ksampler_id = _find_primary_comfyui_sampler(workflow) or _first_node_id_containing(workflow, "ksampler")
     positive_id = _linked_node_id(workflow, ksampler_id, "positive") if ksampler_id else ""
     negative_id = _linked_node_id(workflow, ksampler_id, "negative") if ksampler_id else ""
     latent_id = _linked_node_id(workflow, ksampler_id, "latent_image") if ksampler_id else ""
-    if not positive_id:
+    positive_clip_ids = _collect_linked_clip_text_nodes(workflow, positive_id)
+    if positive_clip_ids:
+        positive_id = positive_clip_ids[0]
+    else:
         clip_nodes = [
             str(node_id)
             for node_id, node in workflow.items()
@@ -860,23 +914,50 @@ def _find_comfyui_prompt_nodes(workflow: dict) -> tuple[str, str, str, str]:
         ]
         positive_id = clip_nodes[0] if clip_nodes else ""
         negative_id = negative_id or (clip_nodes[1] if len(clip_nodes) > 1 else "")
+    negative_clip_ids = _collect_linked_clip_text_nodes(workflow, negative_id)
+    if negative_clip_ids:
+        negative_id = negative_clip_ids[0]
     if not latent_id:
         latent_id = _first_node_id_by_class(workflow, {"EmptyLatentImage"})
     return ksampler_id, positive_id, negative_id, latent_id
+
+
+def _set_comfyui_latent_size(workflow: dict, latent_id: str, width: int, height: int):
+    latent_id = str(latent_id or "")
+    if not latent_id:
+        return
+    if _node_has_input(workflow, latent_id, "width") and _node_has_input(workflow, latent_id, "height"):
+        _set_node_input(workflow, latent_id, "width", width)
+        _set_node_input(workflow, latent_id, "height", height)
+        _set_node_input(workflow, latent_id, "batch_size", 1)
+        return
+
+    if _node_has_input(workflow, latent_id, "resolution"):
+        return
+
+    if _node_has_input(workflow, latent_id, "width_override") and _node_has_input(workflow, latent_id, "height_override"):
+        _set_node_input(workflow, latent_id, "width_override", width)
+        _set_node_input(workflow, latent_id, "height_override", height)
+        _set_node_input(workflow, latent_id, "batch_size", 1)
 
 
 def _inject_comfyui_inputs(workflow: dict, *, prompt: str, negative_prompt: str, size: str, filename_prefix: str):
     ksampler_id, positive_id, negative_id, latent_id = _find_comfyui_prompt_nodes(workflow)
     if not positive_id:
         raise RuntimeError("Could not find a positive prompt node in the ComfyUI workflow.")
+    original_positive_text = str(dict(workflow.get(positive_id, {}).get("inputs") or {}).get("text") or "").strip()
     _set_node_input(workflow, positive_id, "text", prompt)
+    if original_positive_text:
+        for node_id, node in workflow.items():
+            if str((node or {}).get("class_type") or "") != "CLIPTextEncode":
+                continue
+            inputs = dict((node or {}).get("inputs") or {})
+            if str(inputs.get("text") or "").strip() == original_positive_text:
+                _set_node_input(workflow, str(node_id), "text", prompt)
     if negative_prompt and negative_id:
         _set_node_input(workflow, negative_id, "text", negative_prompt)
     width, height = _parse_size_for_comfyui(size)
-    if latent_id:
-        _set_node_input(workflow, latent_id, "width", width)
-        _set_node_input(workflow, latent_id, "height", height)
-        _set_node_input(workflow, latent_id, "batch_size", 1)
+    _set_comfyui_latent_size(workflow, latent_id, width, height)
     if ksampler_id and "seed" in dict(workflow.get(ksampler_id, {}).get("inputs") or {}):
         _set_node_input(workflow, ksampler_id, "seed", random.randint(0, 2**63 - 1))
     save_id = _first_node_id_by_class(workflow, {"SaveImage"})

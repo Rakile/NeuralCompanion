@@ -73,7 +73,7 @@
       <item>
        <widget class="QCheckBox" name="clipboard_auto_attach_checkbox">
         <property name="text">
-         <string>Attach newest clipboard image to the next user turn</string>
+         <string>Auto-arm new clipboard images for the next user turn</string>
         </property>
        </widget>
       </item>

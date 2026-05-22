@@ -359,16 +359,17 @@ def strip_visual_reply_tail(text: str):
     value = str(text or "")
     if not value:
         return "", None
-    matches = list(VISUAL_REPLY_TAG_START_RE.finditer(value))
-    if not matches:
+    start_matches = list(VISUAL_REPLY_TAG_START_RE.finditer(value))
+    if not start_matches:
         return value, None
-    last_match = matches[-1]
-    start_index = int(last_match.start())
-    cleaned = value[:start_index]
-    raw_tail = value[start_index:]
-    colon_index = raw_tail.find(":")
-    prompt_text = raw_tail[colon_index + 1:] if colon_index >= 0 else ""
-    prompt_text = normalize_prompt_text(prompt_text)
+    matches = list(VISUAL_REPLY_TAG_RE.finditer(value))
+    last_start = start_matches[-1]
+    if not any(match.start() == last_start.start() for match in matches):
+        prompt_text = normalize_prompt_text(value[last_start.end():])
+        cleaned = VISUAL_REPLY_TAG_RE.sub("", value[: last_start.start()])
+        return cleaned, (prompt_text or None)
+    prompt_text = normalize_prompt_text(matches[-1].group(1))
+    cleaned = VISUAL_REPLY_TAG_RE.sub("", value)
     return cleaned, (prompt_text or None)
 
 

@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "What Visual Reply Does",
-      "body": "Visual Reply lets NC generate images when the assistant asks for one or when background sensory behavior is allowed to request one.",
+      "body": "Visual Reply lets NC generate images when you ask the assistant for one, or when background sensory behavior is allowed to request one.",
       "target": "main_window"
     },
     {
@@ -19,7 +19,7 @@
     },
     {
       "title": "Mode and Provider",
-      "body": "Mode is the master Visual Reply setting. Provider and model decide where the image request is sent when generation is allowed.",
+      "body": "Set Mode to Auto and choose a working provider/model. When generation is available, NC tells the assistant how to request an image for explicit image requests.",
       "target": "host_settings_tabs"
     },
     {
