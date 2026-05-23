@@ -37,7 +37,8 @@ class BackendRuntimeStatusMixin:
         running = bool(getattr(self, "thread", None) and self.thread.is_alive())
         listening = bool(getattr(engine, "listening_active", None) and engine.listening_active.is_set())
         recording = bool(getattr(engine, "microphone_active", None) and engine.microphone_active.is_set())
-        paused = bool(getattr(engine, "playback_paused", None) and engine.playback_paused.is_set())
+        paused = bool(getattr(engine, "manual_pause_active", None) and engine.manual_pause_active.is_set())
+        paused = paused or bool(getattr(engine, "playback_paused", None) and engine.playback_paused.is_set())
         paused = paused or bool(getattr(engine, "pause_after_chunk", None) and engine.pause_after_chunk.is_set())
         return build_runtime_status_snapshot(
             config,

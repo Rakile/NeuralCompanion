@@ -2074,7 +2074,10 @@ QTabWidget QStackedWidget {
                     header.setMinimumSize(260, 34)
                     header.setMaximumWidth(560)
                     header.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
-                    self._style_frontend_runtime_group_header(header, group_box)
+                    uses_default_style = bool(header.property("nc_runtime_header_uses_default_style"))
+                    has_designer_style = bool(str(header.styleSheet() if hasattr(header, "styleSheet") else "").strip())
+                    if uses_default_style or not has_designer_style:
+                        self._style_frontend_runtime_group_header(header, group_box)
                     header.updateGeometry()
                 except Exception:
                     pass
@@ -2197,44 +2200,77 @@ QTabWidget QStackedWidget {
                     continue
                 self._apply_frontend_collapsible_group_state(group_box, False)
 
+    def _frontend_runtime_group_header_object_name(self, object_name):
+            return {
+                "chat_runtime_box": "chat_runtime_header_button",
+                "stt_runtime_box": "stt_runtime_header_button",
+                "tts_runtime_box": "tts_runtime_header_button",
+                "visual_reply_runtime_box": "visual_reply_runtime_header_button",
+            }.get(str(object_name or "").strip(), "")
+
+    def _frontend_runtime_group_designer_title(self, object_name, fallback_title):
+            header_name = self._frontend_runtime_group_header_object_name(object_name)
+            header = self._ui_object(header_name) if header_name else None
+            if header is not None and hasattr(header, "text"):
+                text = str(header.text() or "").strip()
+                if text:
+                    return text
+            return fallback_title
+
     def _ensure_frontend_runtime_group_header(self, group_box, fallback_title):
             if group_box is None:
                 return None
             header = getattr(group_box, "_nc_runtime_header_button", None)
             if header is not None:
                 return header
+            object_name = str(group_box.objectName() or "").strip()
+            header_name = self._frontend_runtime_group_header_object_name(object_name)
+            header = self._ui_object(header_name) if header_name else None
+            created_header = False
             parent = group_box.parentWidget()
             parent_layout = parent.layout() if parent is not None else None
-            if parent_layout is None or not hasattr(parent_layout, "insertWidget"):
-                return None
-            insert_index = -1
-            try:
-                for index in range(parent_layout.count()):
-                    item = parent_layout.itemAt(index)
-                    if item is not None and item.widget() is group_box:
-                        insert_index = index
-                        break
-            except Exception:
+            if header is None:
+                if parent_layout is None or not hasattr(parent_layout, "insertWidget"):
+                    return None
                 insert_index = -1
-            if insert_index < 0:
-                return None
+                try:
+                    for index in range(parent_layout.count()):
+                        item = parent_layout.itemAt(index)
+                        if item is not None and item.widget() is group_box:
+                            insert_index = index
+                            break
+                except Exception:
+                    insert_index = -1
+                if insert_index < 0:
+                    return None
 
-            header = QtWidgets.QToolButton(parent)
-            header.setObjectName("runtime_section_header_button")
-            header.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-            header.setCheckable(True)
-            header.setChecked(True)
-            header.setAutoRaise(False)
-            header.setMinimumSize(260, 34)
-            header.setMaximumWidth(560)
-            header.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
-            header.setCursor(QtCore.Qt.PointingHandCursor)
-            self._style_frontend_runtime_group_header(header, group_box)
-            header.toggled.connect(lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked))
+                header = QtWidgets.QToolButton(parent)
+                header.setObjectName(header_name or "runtime_section_header_button")
+                created_header = True
+                try:
+                    parent_layout.insertWidget(insert_index, header, 0, QtCore.Qt.AlignLeft)
+                except TypeError:
+                    parent_layout.insertWidget(insert_index, header)
+
             try:
-                parent_layout.insertWidget(insert_index, header, 0, QtCore.Qt.AlignLeft)
-            except TypeError:
-                parent_layout.insertWidget(insert_index, header)
+                if hasattr(header, "setText") and not str(header.text() if hasattr(header, "text") else "").strip():
+                    header.setText(str(fallback_title or "Runtime"))
+                header.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+                header.setCheckable(True)
+                header.setAutoRaise(False)
+                header.setMinimumSize(260, 34)
+                header.setMaximumWidth(560)
+                header.setSizePolicy(QtWidgets.QSizePolicy.Maximum, QtWidgets.QSizePolicy.Fixed)
+                header.setCursor(QtCore.Qt.PointingHandCursor)
+                uses_default_style = created_header or not str(header.styleSheet() if hasattr(header, "styleSheet") else "").strip()
+                header.setProperty("nc_runtime_header_uses_default_style", uses_default_style)
+                if uses_default_style:
+                    self._style_frontend_runtime_group_header(header, group_box)
+                if not getattr(header, "_nc_runtime_group_header_bound", False):
+                    header.toggled.connect(lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked))
+                    setattr(header, "_nc_runtime_group_header_bound", True)
+            except Exception:
+                pass
 
             setattr(group_box, "_nc_runtime_header_button", header)
             try:
@@ -2242,7 +2278,6 @@ QTabWidget QStackedWidget {
                 group_box.setCheckable(False)
                 group_box.setTitle("")
                 group_box.setFlat(False)
-                object_name = str(group_box.objectName() or "").strip()
                 if object_name:
                     existing = str(group_box.styleSheet() or "").strip()
                     marker = "/* nc-runtime-content-group */"
@@ -2420,13 +2455,14 @@ QGroupBox#{object_name}::indicator {{
                 group_box = self._ui_object(object_name)
                 if group_box is None:
                     continue
+                base_title = self._frontend_runtime_group_designer_title(object_name, fallback_title)
                 try:
                     group_box.setCheckable(True)
                     group_box.setChecked(False)
-                    group_box.setProperty("nc_collapsible_base_title", fallback_title)
+                    group_box.setProperty("nc_collapsible_base_title", base_title)
                     group_box.setProperty("nc_collapsible_summary", "")
                     group_box.setToolTip("")
-                    header = self._ensure_frontend_runtime_group_header(group_box, fallback_title)
+                    header = self._ensure_frontend_runtime_group_header(group_box, base_title)
                     if header is None:
                         group_box.toggled.connect(
                             lambda checked, box=group_box: self._apply_frontend_collapsible_group_state(box, checked)

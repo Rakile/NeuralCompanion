@@ -440,6 +440,57 @@ class RealUiSyncMirrorMixin:
                     except Exception:
                         pass
 
+    def _visual_reply_runtime_summary_text(self, backend_text):
+            fallback = "Visual Reply Runtime"
+            try:
+                _title, summary = _split_collapsible_section_text(str(backend_text or fallback), fallback)
+                if summary:
+                    return str(backend_text or fallback)
+            except Exception:
+                pass
+
+            def widget_for(name):
+                widget = self._ui_object(name)
+                if widget is not None:
+                    return widget
+                try:
+                    return self._backend_widget(name)
+                except Exception:
+                    return None
+
+            def combo_text(name, default=""):
+                widget = widget_for(name)
+                if widget is not None and hasattr(widget, "currentText"):
+                    try:
+                        text = str(widget.currentText() or "").strip()
+                        if text:
+                            return text
+                    except Exception:
+                        pass
+                return str(default or "").strip()
+
+            def line_text(name, default=""):
+                widget = widget_for(name)
+                if widget is not None and hasattr(widget, "text"):
+                    try:
+                        text = str(widget.text() or "").strip()
+                        if text:
+                            return text
+                    except Exception:
+                        pass
+                return str(default or "").strip()
+
+            mode = combo_text("visual_reply_mode_combo", "Auto")
+            if mode.lower() == "off":
+                return f"{fallback} - Off"
+            provider = combo_text("visual_reply_provider_combo", "OpenAI")
+            model = line_text("visual_reply_model_edit", "")
+            if provider and model:
+                return f"{fallback} - {provider} / {model}"
+            if provider:
+                return f"{fallback} - {provider}"
+            return str(backend_text or fallback)
+
     def _mirror_provider_runtime_labels(self):
             settings_label = self._ui_object("provider_settings_label")
             generation_label = self._ui_object("provider_generation_label")
@@ -507,7 +558,9 @@ class RealUiSyncMirrorMixin:
                 try:
                     self._set_frontend_collapsible_group_summary(
                         visual_reply_runtime_box,
-                        str(backend_visual_reply_runtime_section.toggle_button.text() or "Visual Reply Runtime"),
+                        self._visual_reply_runtime_summary_text(
+                            str(backend_visual_reply_runtime_section.toggle_button.text() or "Visual Reply Runtime")
+                        ),
                         "Visual Reply Runtime",
                     )
                 except Exception:

@@ -845,6 +845,7 @@ _barge_in_streak = 0
 _barge_in_last_sample_at = 0.0
 pause_after_chunk = threading.Event()
 playback_paused = threading.Event()
+manual_pause_active = threading.Event()
 last_resume_requested_at = 0.0
 last_resumed_at = 0.0
 avatar_gui = None
@@ -2045,6 +2046,7 @@ def _hidden_sensory_pingpong_blocked():
         microphone_active.is_set()
         or audio_playing.is_set()
         or _llm_request_active.is_set()
+        or manual_pause_active.is_set()
         or pause_after_chunk.is_set()
         or playback_paused.is_set()
         or bool(RUNTIME_CONFIG.get("offline_replay_only", False))
@@ -3810,6 +3812,7 @@ def shutdown_avatar_engine(unload_tts=True, unload_stt=True):
         has_stt_to_unload = bool(unload_stt and stt_model is not None)
         if avatar_gui is None and not has_tts_to_unload and not has_stt_to_unload:
             stop_playback.set()
+            manual_pause_active.clear()
             pause_after_chunk.clear()
             playback_paused.clear()
             clear_avatar_stream_state()
@@ -3874,6 +3877,7 @@ def reset_chat_runtime_state():
     _clear_pending_hidden_proactive_candidate()
     _clear_active_hidden_proactive_candidate()
     stop_playback.set()
+    manual_pause_active.clear()
     pause_after_chunk.clear()
     playback_paused.clear()
     clear_avatar_stream_state()
@@ -4366,6 +4370,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
     global tts_model, stop_playback, audio_playing, avatar_gui, last_resumed_at, last_resume_requested_at
     ctrl = TTSController()
     stop_playback.clear()
+    manual_pause_active.clear()
     pause_after_chunk.clear()
     playback_paused.clear()
     if avatar_gui and hasattr(avatar_gui, "begin_reply"):
@@ -5456,6 +5461,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
 
                 if pause_after_chunk.is_set() and not stop_playback.is_set():
                     pause_after_chunk.clear()
+                    manual_pause_active.set()
                     playback_paused.set()
                     if avatar_gui:
                         avatar_gui.set_speaking_state(False)
@@ -5466,6 +5472,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     print("- - - PAUSED (after chunk) - - -")
                     while playback_paused.is_set() and not stop_playback.is_set():
                         time.sleep(0.05)
+                    manual_pause_active.clear()
                     if avatar_gui and not stop_playback.is_set():
                         last_resumed_at = time.time()
                         avatar_gui.set_speaking_state(True)
@@ -5507,6 +5514,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
             else:
                 clear_avatar_stream_state()
             audio_playing.clear()
+            manual_pause_active.clear()
             pause_after_chunk.clear()
             playback_paused.clear()
             schedule_musetalk_runtime_cleanup(max_keep=4)
@@ -6478,11 +6486,13 @@ def run_conversation_flow(source):
                     continue
                 elif status == "pause_speech":
                     listening_active.clear()
+                    manual_pause_active.set()
                     print("- - - PAUSED - - -")
                     while True:
                         time.sleep(1.0)
                         status = check_interaction_status(source)
                         if status == "pause_speech":
+                            manual_pause_active.clear()
                             listening_active.set()
                             start_wait = time.time() + 3
                             print("- - - UNPAUSED - - -")
@@ -6862,13 +6872,16 @@ def run_conversation_flow(source):
                 elif status == "pause_speech":
                     conversation_controller.on_pause_toggled()
                     if playback_paused.is_set():
+                        manual_pause_active.clear()
                         playback_paused.clear()
                         last_resume_requested_at = time.time()
                         print("- - - RESUME REQUESTED - - -")
                     elif pause_after_chunk.is_set():
+                        manual_pause_active.clear()
                         pause_after_chunk.clear()
                         print("- - - PAUSE AFTER CHUNK CANCELED - - -")
                     else:
+                        manual_pause_active.set()
                         pause_after_chunk.set()
                         print("- - - WILL PAUSE AFTER CURRENT CHUNK - - -")
 

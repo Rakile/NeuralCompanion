@@ -113,18 +113,52 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border-radius: 10px;
 }
 QGroupBox#chat_runtime_box, QGroupBox#stt_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
-    margin-top: 18px;
-    padding-top: 12px;
+    margin-top: 6px;
+    padding: 8px;
 }
 QGroupBox#chat_runtime_box::title, QGroupBox#stt_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 8px 0 8px;
+    height: 0px;
+    margin: 0px;
+    padding: 0px;
 }
 QGroupBox#chat_runtime_box::indicator, QGroupBox#stt_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
     width: 0px;
     height: 0px;
 }
+QToolButton#runtime_section_header_button, QToolButton#chat_runtime_header_button, QToolButton#stt_runtime_header_button, QToolButton#tts_runtime_header_button, QToolButton#visual_reply_runtime_header_button {
+    font-weight: 700;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton#runtime_section_header_button, QToolButton#chat_runtime_header_button {
+    color: #fff7ff;
+    background: #21122f;
+    border: 1px solid #ff3fbf;
+}
+QToolButton#runtime_section_header_button:hover, QToolButton#chat_runtime_header_button:hover { background: #351a55; }
+QToolButton#runtime_section_header_button:checked, QToolButton#chat_runtime_header_button:checked { background: #291641; }
+QToolButton#stt_runtime_header_button {
+    color: #f0fdff;
+    background: #09283a;
+    border: 1px solid #00e5ff;
+}
+QToolButton#stt_runtime_header_button:hover { background: #0d3d59; }
+QToolButton#stt_runtime_header_button:checked { background: #0b3148; }
+QToolButton#tts_runtime_header_button {
+    color: #fbf8ff;
+    background: #1a1644;
+    border: 1px solid #8b5cf6;
+}
+QToolButton#tts_runtime_header_button:hover { background: #2a2375; }
+QToolButton#tts_runtime_header_button:checked { background: #211b5d; }
+QToolButton#visual_reply_runtime_header_button {
+    color: #fff8ed;
+    background: #2d1730;
+    border: 1px solid #ff9f1c;
+}
+QToolButton#visual_reply_runtime_header_button:hover { background: #4a254f; }
+QToolButton#visual_reply_runtime_header_button:checked { background: #3a1d3d; }
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
@@ -1185,7 +1219,63 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </layout>
                 </widget>
                </item>
-              </layout>
+             </layout>
+             </item>
+             <item>
+              <widget class="QToolButton" name="chat_runtime_header_button">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>260</width>
+                 <height>34</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>560</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">QToolButton {
+    color: #fff7ff;
+    font-weight: 700;
+    border: 1px solid #ff3fbf;
+    background: #21122f;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton:hover { background: #351a55; }
+QToolButton:checked { background: #291641; }</string>
+               </property>
+               <property name="text">
+                <string>Chat Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>false</bool>
+               </property>
+               <property name="autoRaise">
+                <bool>false</bool>
+               </property>
+               <property name="toolButtonStyle">
+                <enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum>
+               </property>
+               <property name="arrowType">
+                <enum>Qt::ArrowType::RightArrow</enum>
+               </property>
+              </widget>
              </item>
              <item>
               <widget class="QGroupBox" name="chat_runtime_box">
@@ -1404,6 +1494,62 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
              </widget>
              </item>
              <item>
+              <widget class="QToolButton" name="stt_runtime_header_button">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>260</width>
+                 <height>34</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>560</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">QToolButton {
+    color: #f0fdff;
+    font-weight: 700;
+    border: 1px solid #00e5ff;
+    background: #09283a;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton:hover { background: #0d3d59; }
+QToolButton:checked { background: #0b3148; }</string>
+               </property>
+               <property name="text">
+                <string>STT Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>false</bool>
+               </property>
+               <property name="autoRaise">
+                <bool>false</bool>
+               </property>
+               <property name="toolButtonStyle">
+                <enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum>
+               </property>
+               <property name="arrowType">
+                <enum>Qt::ArrowType::RightArrow</enum>
+               </property>
+              </widget>
+             </item>
+             <item>
               <widget class="QGroupBox" name="stt_runtime_box">
                <property name="title">
                 <string>STT Runtime</string>
@@ -1466,6 +1612,62 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </widget>
                 </item>
                </layout>
+             </widget>
+             </item>
+             <item>
+              <widget class="QToolButton" name="tts_runtime_header_button">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>260</width>
+                 <height>34</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>560</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">QToolButton {
+    color: #fbf8ff;
+    font-weight: 700;
+    border: 1px solid #8b5cf6;
+    background: #1a1644;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton:hover { background: #2a2375; }
+QToolButton:checked { background: #211b5d; }</string>
+               </property>
+               <property name="text">
+                <string>TTS Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>false</bool>
+               </property>
+               <property name="autoRaise">
+                <bool>false</bool>
+               </property>
+               <property name="toolButtonStyle">
+                <enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum>
+               </property>
+               <property name="arrowType">
+                <enum>Qt::ArrowType::RightArrow</enum>
+               </property>
               </widget>
              </item>
              <item>
@@ -1565,6 +1767,62 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </item>
                </layout>
              </widget>
+             </item>
+             <item>
+              <widget class="QToolButton" name="visual_reply_runtime_header_button">
+               <property name="sizePolicy">
+                <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+                 <horstretch>0</horstretch>
+                 <verstretch>0</verstretch>
+                </sizepolicy>
+               </property>
+               <property name="minimumSize">
+                <size>
+                 <width>260</width>
+                 <height>34</height>
+                </size>
+               </property>
+               <property name="maximumSize">
+                <size>
+                 <width>560</width>
+                 <height>16777215</height>
+                </size>
+               </property>
+               <property name="cursor">
+                <cursorShape>PointingHandCursor</cursorShape>
+               </property>
+               <property name="styleSheet">
+                <string notr="true">QToolButton {
+    color: #fff8ed;
+    font-weight: 700;
+    border: 1px solid #ff9f1c;
+    background: #2d1730;
+    border-radius: 8px;
+    padding: 6px 12px;
+    text-align: left;
+}
+QToolButton:hover { background: #4a254f; }
+QToolButton:checked { background: #3a1d3d; }</string>
+               </property>
+               <property name="text">
+                <string>Visual Reply Runtime</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>false</bool>
+               </property>
+               <property name="autoRaise">
+                <bool>false</bool>
+               </property>
+               <property name="toolButtonStyle">
+                <enum>Qt::ToolButtonStyle::ToolButtonTextBesideIcon</enum>
+               </property>
+               <property name="arrowType">
+                <enum>Qt::ArrowType::RightArrow</enum>
+               </property>
+              </widget>
              </item>
              <item>
               <widget class="QGroupBox" name="visual_reply_runtime_box">

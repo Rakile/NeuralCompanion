@@ -85,30 +85,52 @@ QComboBox, QTextEdit, QPlainTextEdit, QLineEdit, QListWidget, QSpinBox, QDoubleS
     border-radius: 10px;
 }
 QGroupBox#chat_runtime_box, QGroupBox#stt_runtime_box, QGroupBox#tts_runtime_box, QGroupBox#visual_reply_runtime_box {
-    margin-top: 18px;
-    padding-top: 12px;
+    margin-top: 6px;
+    padding: 8px;
 }
 QGroupBox#chat_runtime_box::title, QGroupBox#stt_runtime_box::title, QGroupBox#tts_runtime_box::title, QGroupBox#visual_reply_runtime_box::title {
-    subcontrol-origin: margin;
-    left: 10px;
-    padding: 0 8px 0 8px;
+    height: 0px;
+    margin: 0px;
+    padding: 0px;
 }
 QGroupBox#chat_runtime_box::indicator, QGroupBox#stt_runtime_box::indicator, QGroupBox#tts_runtime_box::indicator, QGroupBox#visual_reply_runtime_box::indicator {
     width: 0px;
     height: 0px;
 }
-QToolButton#runtime_section_header_button {
-    color: #fff7ff;
+QToolButton#runtime_section_header_button, QToolButton#chat_runtime_header_button, QToolButton#stt_runtime_header_button, QToolButton#tts_runtime_header_button, QToolButton#visual_reply_runtime_header_button {
     font-weight: 700;
-    background: #21122f;
-    border: 1px solid #ff3fbf;
     border-radius: 8px;
     padding: 6px 12px;
     text-align: left;
 }
-QToolButton#runtime_section_header_button:hover {
-    background: #351a55;
+QToolButton#runtime_section_header_button, QToolButton#chat_runtime_header_button {
+    color: #fff7ff;
+    background: #21122f;
+    border: 1px solid #ff3fbf;
 }
+QToolButton#runtime_section_header_button:hover, QToolButton#chat_runtime_header_button:hover { background: #351a55; }
+QToolButton#runtime_section_header_button:checked, QToolButton#chat_runtime_header_button:checked { background: #291641; }
+QToolButton#stt_runtime_header_button {
+    color: #f0fdff;
+    background: #09283a;
+    border: 1px solid #00e5ff;
+}
+QToolButton#stt_runtime_header_button:hover { background: #0d3d59; }
+QToolButton#stt_runtime_header_button:checked { background: #0b3148; }
+QToolButton#tts_runtime_header_button {
+    color: #fbf8ff;
+    background: #1a1644;
+    border: 1px solid #8b5cf6;
+}
+QToolButton#tts_runtime_header_button:hover { background: #2a2375; }
+QToolButton#tts_runtime_header_button:checked { background: #211b5d; }
+QToolButton#visual_reply_runtime_header_button {
+    color: #fff8ed;
+    background: #2d1730;
+    border: 1px solid #ff9f1c;
+}
+QToolButton#visual_reply_runtime_header_button:hover { background: #4a254f; }
+QToolButton#visual_reply_runtime_header_button:checked { background: #3a1d3d; }
 QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {
     color: #f2f5f9;
     padding: 4px 8px;
