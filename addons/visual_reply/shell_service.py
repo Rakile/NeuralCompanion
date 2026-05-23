@@ -338,9 +338,15 @@ class _UiShellVisualReplyService:
         label = self.provider_label_from_value(provider)
         edit.setText(str(provider_setting_from_config(self._state, provider, "api_key", "") or ""))
         if hasattr(edit, "setPlaceholderText"):
-            edit.setPlaceholderText(f"{label} API key (optional)")
+            if provider == "comfyui":
+                edit.setPlaceholderText("http://127.0.0.1:8188")
+            else:
+                edit.setPlaceholderText(f"{label} API key (optional)")
         if hasattr(edit, "setToolTip"):
-            edit.setToolTip(f"Shell-local {label} API key preview. No network call is made.")
+            if provider == "comfyui":
+                edit.setToolTip("Shell-local ComfyUI server URL preview. No network call is made.")
+            else:
+                edit.setToolTip(f"Shell-local {label} API key preview. No network call is made.")
 
     def apply_auto_show(self, checked):
         self._set_state("visual_reply_auto_show_dock", bool(checked))

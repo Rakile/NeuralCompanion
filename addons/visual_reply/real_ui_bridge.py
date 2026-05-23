@@ -6,6 +6,7 @@ from addons.visual_reply.runtime import (
     on_visual_reply_api_key_changed,
     on_visual_reply_auto_show_changed,
     on_visual_reply_comfyui_cleanup_changed,
+    refresh_visual_reply_comfyui_workflow_choices,
     on_visual_reply_mode_changed,
     on_visual_reply_model_changed,
     on_visual_reply_provider_changed,
@@ -14,6 +15,7 @@ from addons.visual_reply.runtime import (
     refresh_visual_reply_hint,
     sync_visual_reply_api_key_field,
     sync_visual_reply_comfyui_cleanup_field,
+    sync_visual_reply_comfyui_workflow_button,
     sync_visual_reply_model_field,
     sync_visual_reply_size_field,
     visual_reply_model_for_provider,
@@ -174,6 +176,10 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.visual_reply_model_edit.setText(current_model)
     backend.visual_reply_model_edit.editingFinished.connect(lambda: on_visual_reply_model_changed(backend))
 
+    backend.visual_reply_comfyui_workflow_refresh_button = QtWidgets.QPushButton("Refresh")
+    backend.visual_reply_comfyui_workflow_refresh_button.setObjectName("visual_reply_comfyui_workflow_refresh_button")
+    backend.visual_reply_comfyui_workflow_refresh_button.clicked.connect(lambda: refresh_visual_reply_comfyui_workflow_choices(backend))
+
     backend.visual_reply_api_key_edit = QtWidgets.QLineEdit()
     backend.visual_reply_api_key_edit.setObjectName("visual_reply_api_key_edit")
     backend.visual_reply_api_key_edit.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -222,7 +228,13 @@ def build_legacy_settings_tab(backend):
     backend.visual_reply_model_label = QtWidgets.QLabel("Image Model")
     backend.visual_reply_model_label.setObjectName("visual_reply_model_label")
     visual_form.addWidget(backend.visual_reply_model_label, 1, 2, QtCore.Qt.AlignVCenter)
-    visual_form.addWidget(backend.visual_reply_model_edit, 1, 3)
+    model_row = QtWidgets.QWidget()
+    model_row_layout = QtWidgets.QHBoxLayout(model_row)
+    model_row_layout.setContentsMargins(0, 0, 0, 0)
+    model_row_layout.setSpacing(6)
+    model_row_layout.addWidget(backend.visual_reply_model_edit, 1)
+    model_row_layout.addWidget(backend.visual_reply_comfyui_workflow_refresh_button, 0)
+    visual_form.addWidget(model_row, 1, 3)
     backend.visual_reply_api_key_label = QtWidgets.QLabel("API Key")
     backend.visual_reply_api_key_label.setObjectName("visual_reply_api_key_label")
     visual_form.addWidget(backend.visual_reply_api_key_label, 2, 0, QtCore.Qt.AlignVCenter)
@@ -243,6 +255,7 @@ def build_legacy_settings_tab(backend):
     visual_layout.addWidget(backend.visual_reply_hint)
     current_provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
     sync_visual_reply_comfyui_cleanup_field(backend, current_provider)
+    sync_visual_reply_comfyui_workflow_button(backend, current_provider)
     refresh_visual_reply_hint(backend)
 
     layout.addWidget(visual_box)
@@ -463,6 +476,7 @@ def apply_runtime_settings(backend, settings):
         sync_visual_reply_model_field(backend, provider)
         sync_visual_reply_api_key_field(backend, provider)
         sync_visual_reply_comfyui_cleanup_field(backend, provider)
+        sync_visual_reply_comfyui_workflow_button(backend, provider)
         refresh_visual_reply_hint(backend)
     widget = backend._live_widget_attr("visual_reply_auto_show_checkbox")
     if "visual_reply_auto_show_dock" in payload and widget is not None:

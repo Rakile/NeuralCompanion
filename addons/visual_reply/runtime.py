@@ -149,7 +149,7 @@ def visual_reply_api_label_for_provider(provider):
 
 def visual_reply_model_placeholder_for_provider(provider):
     if str(provider or "").strip().lower() == "comfyui":
-        return "Path to ComfyUI workflow JSON"
+        return "Local/UNC path, workflows/name.json, template:name, or JSON URL"
     return ""
 
 
@@ -246,7 +246,10 @@ def sync_visual_reply_model_field(backend, provider=None):
             widget.setPlaceholderText(visual_reply_model_placeholder_for_provider(provider))
         if hasattr(widget, "setToolTip"):
             if str(provider or "").strip().lower() == "comfyui":
-                widget.setToolTip("ComfyUI workflow JSON path. UI workflows and API-format workflows are both supported.")
+                widget.setToolTip(
+                    "ComfyUI workflow JSON visible to NeuralCompanion. Use a local/UNC path, "
+                    "an http(s) JSON URL, userdata:workflows/name.json, workflows/name.json, or template:name."
+                )
             else:
                 widget.setToolTip("Image model name used by the selected Visual Reply provider.")
     finally:
@@ -347,6 +350,61 @@ def sync_visual_reply_comfyui_cleanup_field(backend, provider=None):
             pass
 
 
+def sync_visual_reply_comfyui_workflow_button(backend, provider=None):
+    button = _backend_widget(backend, "visual_reply_comfyui_workflow_refresh_button")
+    if button is None:
+        return
+    if provider is None:
+        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    is_comfyui = str(provider or "").strip().lower() == "comfyui"
+    try:
+        button.setVisible(is_comfyui)
+        button.setEnabled(is_comfyui)
+        button.setToolTip("Fetch workflow templates and saved workflow names from the configured ComfyUI server.")
+    except Exception:
+        pass
+
+
+def refresh_visual_reply_comfyui_workflow_choices(backend):
+    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    if provider != "comfyui":
+        return
+    model_edit = _backend_widget(backend, "visual_reply_model_edit")
+    if model_edit is None or not hasattr(model_edit, "setText"):
+        return
+    server_url = visual_reply_api_key_for_provider(backend, "comfyui") or "http://127.0.0.1:8188"
+    parent = model_edit.window() if hasattr(model_edit, "window") else None
+    try:
+        from addons.visual_reply.generation import list_comfyui_workflow_choices
+
+        choices = list_comfyui_workflow_choices(server_url)
+    except Exception as exc:
+        if QtWidgets is not None:
+            QtWidgets.QMessageBox.warning(parent, "ComfyUI Workflows", f"Could not read workflows from ComfyUI:\n{exc}")
+        return
+    if not choices:
+        if QtWidgets is not None:
+            QtWidgets.QMessageBox.information(
+                parent,
+                "ComfyUI Workflows",
+                "No workflow templates or saved user workflows were returned by this ComfyUI server.",
+            )
+        return
+    current = str(model_edit.text() or "").strip()
+    default_index = choices.index(current) if current in choices else 0
+    choice, accepted = QtWidgets.QInputDialog.getItem(
+        parent,
+        "ComfyUI Workflows",
+        "Choose a workflow reference:",
+        choices,
+        default_index,
+        False,
+    )
+    if accepted and str(choice or "").strip():
+        model_edit.setText(str(choice or "").strip())
+        on_visual_reply_model_changed(backend)
+
+
 def on_visual_reply_api_key_changed(backend):
     provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
     edit = _backend_widget(backend, "visual_reply_api_key_edit")
@@ -382,6 +440,7 @@ def refresh_visual_reply_hint(backend):
     sync_visual_reply_model_field(backend, provider)
     sync_visual_reply_api_key_field(backend, provider)
     sync_visual_reply_comfyui_cleanup_field(backend, provider)
+    sync_visual_reply_comfyui_workflow_button(backend, provider)
     if mode == "off":
         title = "Visual Reply Runtime - Off"
         summary = "Visual replies are disabled. NC will not ask the LLM for [visualize: ...] tags or generate images automatically."

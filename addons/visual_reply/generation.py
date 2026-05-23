@@ -610,7 +610,11 @@ def _resolve_comfyui_workflow_path(path_text: str) -> Path:
             candidate = root / expanded
             if candidate.is_file():
                 return candidate
-    raise RuntimeError(f"ComfyUI workflow JSON was not found: {raw}")
+    raise RuntimeError(
+        "ComfyUI workflow JSON was not found from this NeuralCompanion machine: "
+        f"{raw}. Use a local path, a UNC/network-share path, an http(s) URL, "
+        "or a ComfyUI server reference such as workflows/name.json or template:name."
+    )
 
 
 def _parse_workflow_json(path: Path) -> dict:
@@ -622,6 +626,228 @@ def _parse_workflow_json(path: Path) -> dict:
     if not isinstance(payload, dict):
         raise RuntimeError("ComfyUI workflow JSON must be an object.")
     return payload
+
+
+def _workflow_like_json(value) -> bool:
+    if not isinstance(value, dict):
+        return False
+    if isinstance(value.get("nodes"), list):
+        return True
+    return bool(value) and all(
+        isinstance(node, dict) and ("class_type" in node or "inputs" in node)
+        for node in value.values()
+    )
+
+
+def _comfyui_userdata_url(base_url: str, path_text: str) -> str:
+    path = str(path_text or "").strip().strip("/\\")
+    if path.lower().startswith("user/default/"):
+        path = path[len("user/default/") :]
+    if path.lower().startswith("userdata:"):
+        path = path.split(":", 1)[1].strip().strip("/\\")
+    if path.lower().startswith("workflow:"):
+        path = path.split(":", 1)[1].strip().strip("/\\")
+    if path.lower().startswith("workflow/"):
+        path = "workflows/" + path.split("/", 1)[1]
+    quoted = urllib.parse.quote(path.replace("\\", "/"), safe="")
+    return f"{_normalize_comfyui_base_url(base_url)}/userdata/{quoted}"
+
+
+def _comfyui_userdata_workflow_json(base_url: str, path_text: str) -> dict:
+    try:
+        payload = _json_request(_comfyui_userdata_url(base_url, path_text), timeout=30.0)
+    except Exception as exc:
+        raise RuntimeError(f"Could not fetch ComfyUI workflow from server user data: {path_text}") from exc
+    if not isinstance(payload, dict):
+        raise RuntimeError("ComfyUI user-data workflow must be a JSON object.")
+    return payload
+
+
+def _find_template_workflow(payload, wanted: str):
+    wanted_text = str(wanted or "").strip().lower().replace("\\", "/")
+    wanted_base = Path(wanted_text).name
+
+    def key_matches(key) -> bool:
+        key_text = str(key or "").strip().lower().replace("\\", "/")
+        if not wanted_text:
+            return False
+        return key_text in {wanted_text, wanted_base} or key_text.endswith("/" + wanted_text)
+
+    def extract(value):
+        if _workflow_like_json(value):
+            return value
+        if isinstance(value, dict):
+            for field in ("workflow", "workflow_api", "template", "prompt"):
+                nested = value.get(field)
+                found = extract(nested)
+                if found is not None:
+                    return found
+        return None
+
+    def walk(value, key=""):
+        if key_matches(key):
+            found = extract(value)
+            if found is not None:
+                return found
+        if isinstance(value, dict):
+            for child_key, child_value in value.items():
+                found = walk(child_value, child_key)
+                if found is not None:
+                    return found
+        elif isinstance(value, list):
+            for child in value:
+                child_key = child.get("name") or child.get("title") or child.get("filename") if isinstance(child, dict) else ""
+                found = walk(child, child_key)
+                if found is not None:
+                    return found
+        return None
+
+    return walk(payload)
+
+
+def _comfyui_template_workflow_json(base_url: str, template_name: str) -> dict:
+    payload = _json_request(f"{_normalize_comfyui_base_url(base_url)}/workflow_templates", timeout=30.0)
+    workflow = _find_template_workflow(payload, template_name)
+    if workflow is None:
+        raise RuntimeError(f"ComfyUI workflow template was not found: {template_name}")
+    return workflow
+
+
+def _collect_template_workflow_names(payload) -> list[str]:
+    names = []
+
+    def walk(value, path=""):
+        if _workflow_like_json(value) and path:
+            names.append(path)
+            return
+        if isinstance(value, dict):
+            nested_workflow = any(_workflow_like_json(value.get(field)) for field in ("workflow", "workflow_api", "template", "prompt"))
+            if nested_workflow and path:
+                names.append(path)
+                return
+            for key, child in value.items():
+                child_path = f"{path}/{key}" if path else str(key)
+                walk(child, child_path)
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                if isinstance(child, dict):
+                    child_name = child.get("name") or child.get("title") or child.get("filename") or child.get("id") or str(index)
+                else:
+                    child_name = str(index)
+                child_path = f"{path}/{child_name}" if path else str(child_name)
+                walk(child, child_path)
+
+    walk(payload)
+    return sorted(dict.fromkeys(name for name in names if str(name or "").strip()))
+
+
+def _collect_userdata_workflow_paths(payload) -> list[str]:
+    paths = []
+
+    def candidate_text(value):
+        if isinstance(value, str):
+            return value
+        if not isinstance(value, dict):
+            return ""
+        return str(
+            value.get("path")
+            or value.get("name")
+            or value.get("filename")
+            or value.get("file")
+            or value.get("relative_path")
+            or ""
+        )
+
+    def walk(value, prefix=""):
+        if isinstance(value, dict):
+            text = candidate_text(value).replace("\\", "/").strip("/")
+            type_text = str(value.get("type") or "").strip().lower()
+            is_dir = bool(value.get("is_dir") or value.get("isDirectory") or value.get("directory") or type_text == "directory")
+            is_file = type_text == "file" or not is_dir
+            next_prefix = prefix
+            if text:
+                next_prefix = text if "/" in text or not prefix else f"{prefix}/{text}"
+                if next_prefix.lower().endswith(".json") and is_file:
+                    paths.append(next_prefix)
+            for key in ("children", "files", "items", "entries", "data"):
+                child = value.get(key)
+                if child is not None:
+                    walk(child, next_prefix if is_dir else prefix)
+            for key, child in value.items():
+                if key in {"children", "files", "items", "entries", "data"}:
+                    continue
+                if isinstance(child, (dict, list)):
+                    walk(child, prefix)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child, prefix)
+        elif isinstance(value, str):
+            text = value.replace("\\", "/").strip("/")
+            if text.lower().endswith(".json"):
+                paths.append(text)
+
+    walk(payload)
+    normalized = []
+    for path in paths:
+        text = str(path or "").strip().replace("\\", "/").strip("/")
+        if not text:
+            continue
+        if not text.lower().startswith("workflows/"):
+            text = f"workflows/{text}"
+        normalized.append(text)
+    return sorted(dict.fromkeys(normalized))
+
+
+def list_comfyui_workflow_choices(base_url: str) -> list[str]:
+    """Return editable workflow references exposed by a ComfyUI server."""
+    base = _normalize_comfyui_base_url(base_url)
+    choices = []
+    try:
+        templates = _json_request(f"{base}/workflow_templates", timeout=10.0)
+        choices.extend(f"template:{name}" for name in _collect_template_workflow_names(templates))
+    except Exception:
+        pass
+    for endpoint in (
+        f"{base}/v2/userdata?path=workflows",
+        f"{base}/v2/userdata?dir=workflows",
+        f"{base}/v2/userdata/workflows",
+        f"{base}/userdata?dir=workflows",
+    ):
+        try:
+            payload = _json_request(endpoint, timeout=10.0)
+        except Exception:
+            continue
+        user_choices = [f"userdata:{path}" for path in _collect_userdata_workflow_paths(payload)]
+        choices.extend(user_choices)
+        if user_choices:
+            break
+    return sorted(dict.fromkeys(choices))
+
+
+def _load_comfyui_workflow_json(source_text: str, base_url: str) -> dict:
+    raw = str(source_text or "").strip().strip('"')
+    if not raw:
+        raise RuntimeError("ComfyUI workflow path is empty.")
+    parsed = urllib.parse.urlparse(raw)
+    if parsed.scheme.lower() in {"http", "https"}:
+        try:
+            payload = _json_request(raw, timeout=30.0)
+        except Exception as exc:
+            raise RuntimeError(f"Could not download ComfyUI workflow JSON: {raw}") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("ComfyUI workflow JSON URL must return a JSON object.")
+        return payload
+    lowered = raw.lower()
+    if lowered.startswith(("template:", "templates:")):
+        return _comfyui_template_workflow_json(base_url, raw.split(":", 1)[1].strip())
+    if lowered.startswith(("userdata:", "workflow:")) or lowered.startswith(("workflows/", "workflow/", "user/default/workflows/")):
+        return _comfyui_userdata_workflow_json(base_url, raw)
+    try:
+        return _parse_workflow_json(_resolve_comfyui_workflow_path(raw))
+    except RuntimeError:
+        if "/" in raw.replace("\\", "/") or raw.lower().endswith(".json"):
+            return _comfyui_userdata_workflow_json(base_url, raw)
+        raise
 
 
 _COMFYUI_OBJECT_INFO_CACHE = {}
@@ -989,8 +1215,7 @@ class ComfyUIVisualReplyClient:
         self.client_id = uuid.uuid4().hex
 
     def _workflow(self) -> dict:
-        path = _resolve_comfyui_workflow_path(self.runtime.workflow_path())
-        payload = _parse_workflow_json(path)
+        payload = _load_comfyui_workflow_json(self.runtime.workflow_path(), self.runtime.base_url())
         object_info = None if _is_api_workflow(payload) else _comfyui_object_info(self.runtime.base_url())
         return _as_comfyui_api_workflow(payload, object_info=object_info)
 

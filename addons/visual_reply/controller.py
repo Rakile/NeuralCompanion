@@ -753,6 +753,7 @@ class VisualReplyController:
         size_combo = self._ui_child(tab, "visual_reply_size_combo", QtWidgets.QComboBox)
         model_label = self._ui_child(tab, "visual_reply_model_label", QtWidgets.QLabel)
         model_edit = self._ui_child(tab, "visual_reply_model_edit", QtWidgets.QLineEdit)
+        comfyui_workflow_refresh_button = self._ui_child(tab, "visual_reply_comfyui_workflow_refresh_button", QtWidgets.QPushButton)
         api_key_label = self._ui_child(tab, "visual_reply_api_key_label", QtWidgets.QLabel)
         api_key_edit = self._ui_child(tab, "visual_reply_api_key_edit", QtWidgets.QLineEdit)
         comfyui_cleanup_label = self._ui_child(tab, "visual_reply_comfyui_cleanup_label", QtWidgets.QLabel)
@@ -782,6 +783,7 @@ class VisualReplyController:
             size_combo=size_combo,
             model_label=model_label,
             model_edit=model_edit,
+            comfyui_workflow_refresh_button=comfyui_workflow_refresh_button,
             api_key_label=api_key_label,
             api_key_edit=api_key_edit,
             comfyui_cleanup_label=comfyui_cleanup_label,
@@ -794,6 +796,8 @@ class VisualReplyController:
         provider_combo.currentTextChanged.connect(self._visual_reply_service.apply_provider)
         size_combo.currentTextChanged.connect(self._visual_reply_service.apply_size)
         model_edit.editingFinished.connect(self._visual_reply_service.apply_model)
+        if comfyui_workflow_refresh_button is not None:
+            comfyui_workflow_refresh_button.clicked.connect(self._visual_reply_service.refresh_comfyui_workflow_choices)
         api_key_edit.editingFinished.connect(self._visual_reply_service.apply_api_key)
         if comfyui_cleanup_combo is not None:
             comfyui_cleanup_combo.currentTextChanged.connect(self._visual_reply_service.apply_comfyui_cleanup)
