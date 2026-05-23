@@ -5,6 +5,7 @@ import cv2
 import numpy as np
 from PIL import Image
 from .model import BiSeNet
+from ..torch_load import trusted_torch_load
 import torchvision.transforms as transforms
 
 class FaceParsing():
@@ -62,9 +63,9 @@ class FaceParsing():
         net = BiSeNet(resnet_path)
         if torch.cuda.is_available():
             net.cuda()
-            net.load_state_dict(torch.load(model_pth)) 
+            net.load_state_dict(trusted_torch_load(model_pth))
         else:
-            net.load_state_dict(torch.load(model_pth, map_location=torch.device('cpu')))
+            net.load_state_dict(trusted_torch_load(model_pth, map_location=torch.device('cpu')))
         net.eval()
         return net
 

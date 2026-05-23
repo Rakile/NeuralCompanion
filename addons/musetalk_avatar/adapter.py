@@ -566,7 +566,16 @@ class MuseTalkAdapter(avatar_runtime.AvatarAdapter):
             return None
 
         fps = int(current_state.get("fps", self.fps) or self.fps)
-        current_visible_index = get_current_musetalk_source_index(current_state, advance_to_next_frame=False) % len(full_frame_paths)
+        preview_source_index = current_state.get("preview_source_index")
+        preview_chunk_id = current_state.get("preview_chunk_id")
+        current_chunk_id = current_state.get("chunk_id")
+        if preview_chunk_id == current_chunk_id and preview_source_index is not None:
+            try:
+                current_visible_index = int(preview_source_index) % len(full_frame_paths)
+            except Exception:
+                current_visible_index = get_current_musetalk_source_index(current_state, advance_to_next_frame=False) % len(full_frame_paths)
+        else:
+            current_visible_index = get_current_musetalk_source_index(current_state, advance_to_next_frame=False) % len(full_frame_paths)
         predicted_delay = self._estimate_first_chunk_delay()
         predicted_offset_frames = max(1, int(round(predicted_delay * max(fps, 1))))
         predicted_entry_index = (current_visible_index + predicted_offset_frames) % len(full_frame_paths)

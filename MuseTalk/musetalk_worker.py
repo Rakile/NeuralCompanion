@@ -8,7 +8,12 @@ from pathlib import Path
 
 from musetalk_engine import MuseTalkEngine
 
-WORKER_DIAGNOSTIC_LOGGING = False
+
+def _env_flag(name):
+    return str(os.environ.get(name, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+WORKER_DIAGNOSTIC_LOGGING = _env_flag("NC_MUSETALK_WORKER_DIAGNOSTICS")
 
 
 def _configure_stdio_encoding():
@@ -114,6 +119,28 @@ def gpu_vram_snapshot():
     return None
 
 
+def torch_runtime_snapshot():
+    try:
+        import torch
+        payload = {
+            "torch": str(getattr(torch, "__version__", "") or ""),
+            "torch_cuda": str(getattr(torch.version, "cuda", "") or ""),
+            "cuda_available": bool(torch.cuda.is_available()),
+        }
+        if payload["cuda_available"]:
+            capability = torch.cuda.get_device_capability(0)
+            payload.update(
+                {
+                    "device_name": str(torch.cuda.get_device_name(0)),
+                    "capability": [int(capability[0]), int(capability[1])],
+                    "arch_list": list(torch.cuda.get_arch_list()),
+                }
+            )
+        return payload
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
 def emit_worker_checkpoint(label, extra=None):
     if not WORKER_DIAGNOSTIC_LOGGING:
         return
@@ -159,6 +186,7 @@ def main():
                     "vae_slicing": bool(profile["enable_vae_slicing"]),
                     "preload_face_parsing": bool(profile["preload_face_parsing"]),
                     "gpu": gpu_vram_snapshot(),
+                    "torch_runtime": torch_runtime_snapshot(),
                 }
             ),
             flush=True,

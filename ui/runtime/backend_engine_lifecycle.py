@@ -91,9 +91,7 @@ class BackendEngineLifecycleMixin:
             else:
                 _update_runtime_config("stt_backend", "none")
         else:
-            restore_stt = getattr(self, "_restore_stt_backend_for_voice_input", None)
-            stt_backend = restore_stt() if callable(restore_stt) else self._current_stt_backend_value()
-            _update_runtime_config("stt_backend", stt_backend)
+            _update_runtime_config("stt_backend", self._current_stt_backend_value())
         if hasattr(self, "_current_stt_model_value"):
             _update_runtime_config("stt_model_size", self._current_stt_model_value())
         if hasattr(self, "_current_stt_language_value"):

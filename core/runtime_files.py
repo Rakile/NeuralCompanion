@@ -34,8 +34,12 @@ def list_png_frames(frame_dir):
     """Return sorted PNG frame paths for generated avatar frame directories."""
     if not frame_dir or not os.path.isdir(frame_dir):
         return []
+    try:
+        names = os.listdir(frame_dir)
+    except OSError:
+        return []
     return sorted(
         os.path.join(frame_dir, name)
-        for name in os.listdir(frame_dir)
+        for name in names
         if name.lower().endswith(".png")
     )

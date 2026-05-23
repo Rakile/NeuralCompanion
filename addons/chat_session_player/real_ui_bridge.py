@@ -1,3 +1,6 @@
+from PySide6 import QtCore
+
+
 def add_replay_context_menu_action_for_backend(backend, menu, chat_edit, point):
     """Add Chat Player replay action to the main Chat context menu when applicable."""
     if menu is None or chat_edit is None or bool(getattr(backend, "chat_edit_mode", False)):
@@ -18,7 +21,10 @@ def add_replay_context_menu_action_for_backend(backend, menu, chat_edit, point):
         menu.addSeparator()
         replay_action = menu.addAction(f"Start Playing From This Message (#{replay_index})")
         replay_action.triggered.connect(
-            lambda _checked=False, idx=replay_index: backend.trigger_replay_from_chat_index(idx)
+            lambda _checked=False, idx=replay_index: QtCore.QTimer.singleShot(
+                250,
+                lambda: backend.trigger_replay_from_chat_index(idx),
+            )
         )
     except Exception:
         pass

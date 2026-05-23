@@ -20,6 +20,7 @@ from ui.widgets.basic import AltWheelZoomScrollArea
 QT_PREVIEW_CACHE_LIMIT = 384
 QT_PREVIEW_INITIAL_PRELOAD = 96
 QT_PREVIEW_AHEAD_PRELOAD = 72
+QT_PREVIEW_POLL_INTERVAL_MS = 8
 QT_MUSETALK_LOOP_FADE_MS = 180
 
 class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
@@ -138,8 +139,9 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.image_scroll.viewport().installEventFilter(self)
 
         self.poll_timer = QtCore.QTimer(self)
+        self.poll_timer.setTimerType(QtCore.Qt.PreciseTimer)
         self.poll_timer.timeout.connect(self.poll_state)
-        self.poll_timer.start(16)
+        self.poll_timer.start(QT_PREVIEW_POLL_INTERVAL_MS)
 
     def _theme_palette(self):
         provider = getattr(self, "_theme_provider", None)
@@ -826,6 +828,12 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         now = time.time() if now is None else float(now)
         elapsed = max(0.0, now - self.chunk_started_at)
         if state.get("loop", False):
+            if str(state.get("chunk_id", "") or "") == "idle" and self.current_frame_index >= 0:
+                frame_interval = 1.0 / max(self.fps, 1)
+                last_presented = float(self.last_presented_at or self.chunk_started_at or now)
+                if (now - last_presented) < (frame_interval * 0.85):
+                    return self.current_frame_index
+                return (self.current_frame_index + 1) % len(self.frame_paths)
             return int(elapsed * max(self.fps, 1)) % len(self.frame_paths)
         if self.duration_seconds > 0:
             progress = min(elapsed / self.duration_seconds, 1.0)
@@ -1149,6 +1157,14 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     next_chunk_id = latest.get("chunk_id", self.last_chunk_id)
                     next_frame_index = int(latest.get("frame_index", 0) or 0)
                     next_source_index = int(latest.get("source_index", next_frame_index) or next_frame_index)
+                    is_feed_rollback = (
+                        not bool(state.get("loop", False))
+                        and next_chunk_id == self.last_chunk_id
+                        and self.last_presented_source_index is not None
+                        and next_source_index < int(self.last_presented_source_index)
+                    )
+                    if is_feed_rollback:
+                        return
                     if not (
                         next_chunk_id == self.last_presented_chunk_id
                         and next_source_index == self.last_presented_source_index
@@ -1209,4 +1225,3 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                         self.render_current_frame()
         except Exception:
             pass
-

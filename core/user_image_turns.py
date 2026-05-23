@@ -36,6 +36,13 @@ def pending_attachment() -> dict[str, str] | None:
     return dict(_pending_next_user_attachment) if _pending_next_user_attachment else None
 
 
+def consume_pending_attachment() -> dict[str, str] | None:
+    global _pending_next_user_attachment
+    pending = dict(_pending_next_user_attachment) if _pending_next_user_attachment else None
+    _pending_next_user_attachment = None
+    return pending
+
+
 def clear_pending_attachment() -> None:
     global _pending_next_user_attachment
     _pending_next_user_attachment = None
@@ -91,6 +98,7 @@ def queue_image_turn(
     )
     if not turn:
         raise ValueError("Could not prepare image input turn.")
+    clear_pending_attachment()
     append_turn(dict(turn))
     apply_limit()
     set_pending(dict(turn))

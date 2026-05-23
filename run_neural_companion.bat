@@ -32,12 +32,37 @@ if /I "%NC_HEAD%"=="%NC_REMOTE%" goto :eof
 
 echo.
 echo A newer version of Neural Companion is available.
-choice /C YN /N /M "Do you want to update to the latest version? [Y/N] "
+choice /C YNF /N /M "Do you want to update to the latest version? [Y/N/Force] "
+if errorlevel 3 goto :force_update_from_git
 if errorlevel 2 goto :eof
+goto :normal_update_from_git
+
+:normal_update_from_git
 git pull --ff-only origin "%NC_BRANCH%"
 if errorlevel 1 (
   echo.
   echo Update failed or local changes blocked the update.
   echo Launching the current local version instead.
 )
+goto :eof
+
+:force_update_from_git
+echo.
+echo Force update selected. Stashing local tracked and untracked changes before pulling.
+git stash push -u -m "Neural Companion auto-stash before forced update"
+if errorlevel 1 (
+  echo.
+  echo Could not stash local changes. Launching the current local version instead.
+  goto :eof
+)
+git pull --ff-only origin "%NC_BRANCH%"
+if errorlevel 1 (
+  echo.
+  echo Forced update failed after stashing local changes.
+  echo Your local changes are still saved in git stash.
+  echo Launching the current local version instead.
+  goto :eof
+)
+echo.
+echo Update complete. Any previous local changes are saved in git stash.
 goto :eof

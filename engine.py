@@ -3922,7 +3922,7 @@ def clear_pending_user_image_attachment():
 def _attach_pending_user_image_to_turn(input_turn, *, is_placeholder: bool = False) -> dict:
     turn = dict(input_turn or {})
     role = str(turn.get("role", "") or "").strip().lower()
-    pending_attachment = user_image_turns.pending_attachment()
+    pending_attachment = user_image_turns.consume_pending_attachment()
     if role != "user" or is_placeholder or not pending_attachment:
         return turn
     attachment_image_path = str(pending_attachment.get("attachment_image_path", "") or "").strip()
@@ -3934,7 +3934,6 @@ def _attach_pending_user_image_to_turn(input_turn, *, is_placeholder: bool = Fal
         turn["attachment_image_path"] = attachment_image_path
         turn["attachment_source"] = attachment_source
         print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
-    clear_pending_user_image_attachment()
     return turn
 
 
@@ -5310,12 +5309,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             current_state["sync_time"] = audio_start_time
                             current_state["audio_started_at"] = audio_start_time
                             musetalk_state.write_musetalk_preview_snapshot(current_state)
-                            preview_stream_thread = threading.Thread(
-                                target=stream_musetalk_preview_frames,
-                                args=(current_state, preview_stream_stop),
-                                daemon=True,
-                            )
-                            preview_stream_thread.start()
+                            if not _env_flag("NC_MUSETALK_DISABLE_PREVIEW_STREAM_THREAD"):
+                                preview_stream_thread = threading.Thread(
+                                    target=stream_musetalk_preview_frames,
+                                    args=(current_state, preview_stream_stop),
+                                    daemon=True,
+                                )
+                                preview_stream_thread.start()
                         musetalk_state.update_musetalk_pipeline_chunk(
                             current_sequence,
                             reply_id=pipeline_reply_id,
@@ -5663,20 +5663,47 @@ def _set_pending_loaded_input_turn(turn):
     pending_loaded_input_turn = dict(turn)
 
 
+def _consume_pending_loaded_input_turn():
+    global pending_loaded_input_turn
+    if not isinstance(pending_loaded_input_turn, dict):
+        return None
+    loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
+    loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
+    if not loaded_content or loaded_role not in {"user", "system", "assistant"}:
+        pending_loaded_input_turn = None
+        return None
+    resumed_turn = {
+        "role": loaded_role,
+        "content": loaded_content,
+        "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
+    }
+    attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
+    if attachment_image_path:
+        resumed_turn["attachment_image_path"] = attachment_image_path
+        resumed_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
+    pending_loaded_input_turn = None
+    return resumed_turn
+
+
 def queue_typed_chat_message(text, role=None):
     content = str(text or "").strip()
     if not content:
         return {"queued": False, "reason": "empty"}
+    input_role = str(role or _configured_input_message_role() or "user").strip().lower()
+    if input_role not in {"user", "system", "assistant"}:
+        input_role = "user"
     turn = {
-        "role": "user",
+        "role": input_role,
         "content": content,
         "origin": "input",
     }
+    if input_role != "user" and user_image_turns.pending_attachment():
+        clear_pending_user_image_attachment()
     turn = _attach_pending_user_image_to_turn(turn)
     _append_chat_turn(turn)
     _set_pending_loaded_input_turn(turn)
     _request_chat_view_rebuild()
-    return {"queued": True, "role": "user", "content": content}
+    return {"queued": True, "role": input_role, "content": content}
 
 
 def _apply_stored_chat_history_limit():
@@ -6257,8 +6284,12 @@ def run_conversation_flow(source):
         ]
         return True
 
-    def _plan_phase2_actions(current_user_text):
+    def _plan_phase2_actions(current_user_text, input_role_override=None):
         conversation_controller.policy = conversation_controller.machine.policy = ConversationPolicy.from_runtime_config(RUNTIME_CONFIG)
+        override_role = str(input_role_override or "").strip().lower()
+        if override_role in {"user", "system", "assistant"}:
+            conversation_controller.policy.input_message_role = override_role
+            conversation_controller.machine.policy.input_message_role = override_role
         if str(current_user_text or "") == CONTINUE_ASSISTANT_SENTINEL:
             actions = conversation_controller.on_interaction_status("skip_user_reply")
         elif str(current_user_text or "") == "You continue speaking.":
@@ -6268,22 +6299,10 @@ def run_conversation_flow(source):
         actions.extend(conversation_controller.on_thinking_started())
         return actions
 
-    if isinstance(pending_loaded_input_turn, dict):
-        loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
-        loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
-        if loaded_content and loaded_role == "user":
-            user_text = loaded_content
-            resumed_loaded_turn = {
-                "role": loaded_role,
-                "content": loaded_content,
-                "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
-            }
-            attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
-            if attachment_image_path:
-                resumed_loaded_turn["attachment_image_path"] = attachment_image_path
-                resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
-            print("📚 [Session] Resuming loaded user turn immediately...")
-        pending_loaded_input_turn = None
+    resumed_loaded_turn = _consume_pending_loaded_input_turn()
+    if resumed_loaded_turn:
+        user_text = str(resumed_loaded_turn.get("content", "") or "")
+        print("📚 [Session] Resuming loaded input turn immediately...")
 
     def _hidden_sensory_loop_worker():
         while not stop_flag.is_set():
@@ -6342,22 +6361,10 @@ def run_conversation_flow(source):
             active_ctrl = None
             assistant_history_added = False
             discard_assistant_history = False
-            if isinstance(pending_loaded_input_turn, dict):
-                loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
-                loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
-                if loaded_content and loaded_role == "user":
-                    user_text = loaded_content
-                    resumed_loaded_turn = {
-                        "role": loaded_role,
-                        "content": loaded_content,
-                        "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
-                    }
-                    attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
-                    if attachment_image_path:
-                        resumed_loaded_turn["attachment_image_path"] = attachment_image_path
-                        resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
-                    print("📚 [Session] Resuming loaded user turn immediately...")
-                pending_loaded_input_turn = None
+            resumed_loaded_turn = _consume_pending_loaded_input_turn()
+            if resumed_loaded_turn:
+                user_text = str(resumed_loaded_turn.get("content", "") or "")
+                print("📚 [Session] Resuming loaded input turn immediately...")
         dry_run_reply_id = None
 
         # =================================================================================
@@ -6418,24 +6425,13 @@ def run_conversation_flow(source):
             status = None
 
             while time.time() - start_wait < listen_idle_window_seconds:
-                if isinstance(pending_loaded_input_turn, dict):
-                    loaded_content = str(pending_loaded_input_turn.get("content", "") or "").strip()
-                    loaded_role = str(pending_loaded_input_turn.get("role", "") or "").strip().lower()
-                    if loaded_content and loaded_role == "user":
-                        print("\n📋 [Session] Immediate queued user turn detected. Processing now...")
-                        user_text = loaded_content
-                        resumed_loaded_turn = {
-                            "role": loaded_role,
-                            "content": loaded_content,
-                            "origin": str(pending_loaded_input_turn.get("origin", "input") or "input"),
-                        }
-                        attachment_image_path = str(pending_loaded_input_turn.get("attachment_image_path", "") or "").strip()
-                        if attachment_image_path:
-                            resumed_loaded_turn["attachment_image_path"] = attachment_image_path
-                            resumed_loaded_turn["attachment_source"] = str(pending_loaded_input_turn.get("attachment_source", "image") or "image")
-                        pending_loaded_input_turn = None
-                        listening_active.clear()
-                        break
+                queued_loaded_turn = _consume_pending_loaded_input_turn()
+                if queued_loaded_turn:
+                    print("\n📋 [Session] Immediate queued input turn detected. Processing now...")
+                    user_text = str(queued_loaded_turn.get("content", "") or "")
+                    resumed_loaded_turn = queued_loaded_turn
+                    listening_active.clear()
+                    break
                 status = check_interaction_status(source)
 
                 if status == "regenerate_response":
@@ -6569,7 +6565,10 @@ def run_conversation_flow(source):
             active_ctrl = None
             assistant_history_added = False
             discard_assistant_history = False
-            thinking_actions = _plan_phase2_actions(user_text)
+            input_role_override = None
+            if isinstance(resumed_loaded_turn, dict):
+                input_role_override = str(resumed_loaded_turn.get("role", "") or "").strip().lower()
+            thinking_actions = _plan_phase2_actions(user_text, input_role_override=input_role_override)
             is_proactive = bool(conversation_controller.state.is_proactive_turn)
             preserve_proactive_placeholder = bool(conversation_controller.state.preserve_proactive_placeholder)
             dry_run_reply_id = dry_run.begin_reply(
@@ -6583,6 +6582,8 @@ def run_conversation_flow(source):
                     role = str(action.payload.get("role", "user") or "user")
                     content = str(action.payload.get("content", user_text) or user_text)
                     is_placeholder = bool(action.payload.get("placeholder", False))
+                    if role != "user" and not is_placeholder and user_image_turns.pending_attachment():
+                        clear_pending_user_image_attachment()
                     if resumed_loaded_turn and not is_placeholder:
                         resumed_role = str(resumed_loaded_turn.get("role", "") or "").strip().lower()
                         resumed_content = str(resumed_loaded_turn.get("content", "") or "")
@@ -7013,8 +7014,11 @@ def run_companion(config_override=None):
     selected_model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
     chat_provider = _chat_provider()
 
-    if avatar_mode == "musetalk" and not offline_replay_only and chat_provider == "lmstudio":
-        unload_lmstudio_models()
+    if avatar_mode == "musetalk" and not offline_replay_only:
+        try:
+            unload_lmstudio_models()
+        except Exception as exc:
+            print(f"⚠️ [LM Studio] Could not unload active models before MuseTalk warmup: {exc}")
 
     print(f"🔌 Connecting to Avatar Engine: {avatar_mode.upper()}...")
     try:

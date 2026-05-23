@@ -42,6 +42,7 @@ MUSETALK_TORCH_CU118_PACKAGES = ("torch==2.0.1+cu118", "torchaudio==2.0.2+cu118"
 MUSETALK_TORCH_CU118_INDEX_URL = "https://download.pytorch.org/whl/cu118"
 MUSETALK_TORCH_CU128_PACKAGES = ("torch==2.10.0", "torchaudio==2.10.0", "torchvision==0.25.0")
 MUSETALK_TORCH_CU128_INDEX_URL = "https://download.pytorch.org/whl/cu128"
+MUSETALK_MEDIAPIPE_PACKAGE = "mediapipe==0.10.21"
 MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
     "gast",
     "jax",
@@ -64,6 +65,7 @@ MUSETALK_CU128_SKIP_REQUIREMENT_NAMES = {
 MUSETALK_RUNTIME_COMPAT_PACKAGES = (
     "numpy==1.26.4",
     "opencv-python==4.9.0.80",
+    "opencv-contrib-python==4.9.0.80",
     "pillow==11.2.1",
 )
 MAIN_BINARY_COMPAT_PACKAGES = (
@@ -822,7 +824,7 @@ print(json.dumps(status))
             note("Skipping OpenMMLab/mmcv install for MuseTalk cu128; MediaPipe will be used for avatar preprocessing fallback.")
             note("Removing stale OpenMMLab/TensorFlow packages from existing MuseTalk cu128 venvs...")
             self.pip_uninstall(python_exe, MUSETALK_CU128_SKIP_REQUIREMENT_NAMES)
-            self.pip_install(python_exe, "install", "mediapipe")
+            self.pip_install(python_exe, "install", MUSETALK_MEDIAPIPE_PACKAGE)
         else:
             note("Installing OpenMMLab bootstrap tools...")
             self.pip_install(python_exe, "install", "openmim==0.3.9")

@@ -10,6 +10,14 @@ from collections import deque
 MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
 MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA = str(os.environ.get("NC_MUSETALK_ALLOW_UNSUPPORTED_CUDA", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_CPU_THREAD_LIMITS = {
+    "OMP_NUM_THREADS": "1",
+    "MKL_NUM_THREADS": "1",
+    "OPENBLAS_NUM_THREADS": "1",
+    "NUMEXPR_NUM_THREADS": "1",
+    "TORCH_NUM_THREADS": "1",
+    "TORCH_NUM_INTEROP_THREADS": "1",
+}
 _PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
 
 
@@ -129,6 +137,8 @@ print(json.dumps(payload))
             worker_env = dict(os.environ)
             worker_env.setdefault("PYTHONUTF8", "1")
             worker_env.setdefault("PYTHONIOENCODING", "utf-8")
+            for key, value in MUSE_BRIDGE_CPU_THREAD_LIMITS.items():
+                worker_env.setdefault(key, value)
 
             self.process = subprocess.Popen(
                 command,

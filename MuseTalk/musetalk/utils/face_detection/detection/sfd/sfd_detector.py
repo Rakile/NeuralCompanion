@@ -3,6 +3,7 @@ import cv2
 from torch.utils.model_zoo import load_url
 
 from ..core import FaceDetector
+from ....torch_load import trusted_torch_load
 
 from .net_s3fd import s3fd
 from .bbox import *
@@ -21,7 +22,7 @@ class SFDDetector(FaceDetector):
         if not os.path.isfile(path_to_detector):
             model_weights = load_url(models_urls['s3fd'])
         else:
-            model_weights = torch.load(path_to_detector)
+            model_weights = trusted_torch_load(path_to_detector)
 
         self.face_detector = s3fd()
         self.face_detector.load_state_dict(model_weights)

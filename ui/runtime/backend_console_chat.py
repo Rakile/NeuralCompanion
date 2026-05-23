@@ -254,7 +254,10 @@ class BackendConsoleChatMixin:
         if thread is None or not thread.is_alive():
             print("[QtGUI] Initialize the system before sending a typed chat message.")
             return False
-        result = _engine().queue_typed_chat_message(message, role="user")
+        role = None
+        if hasattr(self, "_input_role_value_from_label") and hasattr(self, "input_role_combo"):
+            role = self._input_role_value_from_label(self.input_role_combo.currentText())
+        result = _engine().queue_typed_chat_message(message, role=role)
         if not bool(dict(result or {}).get("queued", False)):
             print(f"[QtGUI] Typed chat message was not queued: {dict(result or {}).get('reason', 'unknown')}")
             return False

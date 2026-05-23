@@ -23,7 +23,12 @@ from musetalk.utils.face_parsing import FaceParsing
 from musetalk.utils.preprocessing import coord_placeholder, get_landmark_and_bbox, read_imgs
 from musetalk.utils.utils import datagen, load_all_model
 
-RENDER_STAGE_DIAGNOSTIC_LOGGING = False
+
+def _env_flag(name):
+    return str(os.environ.get(name, "") or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+RENDER_STAGE_DIAGNOSTIC_LOGGING = _env_flag("NC_MUSETALK_RENDER_DIAGNOSTICS")
 
 
 def fast_check_ffmpeg():

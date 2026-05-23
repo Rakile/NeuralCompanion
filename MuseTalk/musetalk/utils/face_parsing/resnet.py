@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.utils.model_zoo as modelzoo
+from ..torch_load import trusted_torch_load
 
 # from modules.bn import InPlaceABNSync as BatchNorm2d
 
@@ -80,7 +81,7 @@ class Resnet18(nn.Module):
         return feat8, feat16, feat32
 
     def init_weight(self, model_path):
-        state_dict = torch.load(model_path) #modelzoo.load_url(resnet18_url)
+        state_dict = trusted_torch_load(model_path) #modelzoo.load_url(resnet18_url)
         self_state_dict = self.state_dict()
         for k, v in state_dict.items():
             if 'fc' in k: continue
