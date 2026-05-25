@@ -31,6 +31,8 @@ avatar_packs/*
 voices/*
 !voices/.gitkeep
 !voices/README.md
+!voices/Echo_default_voice.wav
+!voices/Eon_default_voice.wav
 addons/**/__pycache__/
 core/**/__pycache__/
 VaMtest/__pycache__/

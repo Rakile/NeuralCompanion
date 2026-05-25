@@ -3937,8 +3937,35 @@ def _attach_pending_user_image_to_turn(input_turn, *, is_placeholder: bool = Fal
     elif attachment_image_path:
         turn["attachment_image_path"] = attachment_image_path
         turn["attachment_source"] = attachment_source
-        print(f"📋 [Clipboard] Attached pending clipboard image to current user turn: {attachment_image_path}")
+        source_label = "Clipboard" if attachment_source == "clipboard" else attachment_source.title()
+        print(f"📎 [{source_label}] Attached pending image to current user turn: {attachment_image_path}")
     return turn
+
+
+def _maybe_arm_screen_image_for_user_turn(input_turn, *, is_placeholder: bool = False) -> None:
+    turn = dict(input_turn or {})
+    role = str(turn.get("role", "") or "").strip().lower()
+    if role != "user" or is_placeholder:
+        return
+    if user_image_turns.pending_attachment():
+        return
+    if not bool(RUNTIME_CONFIG.get("screen_source_auto_attach_next_user_turn", False)):
+        return
+    if "screen" not in _sensory_feedback_sources():
+        return
+    try:
+        snapshot = _capture_sensory_feedback_snapshot("screen")
+    except Exception as exc:
+        print(f"⚠️ [ScreenSource] Could not capture screen attachment for user turn: {exc}")
+        return
+    image_path = str((snapshot or {}).get("image_path", "") or "").strip()
+    if not image_path:
+        return
+    try:
+        user_image_turns.set_pending_attachment(image_path, source="screen")
+        print(f"🖥️ [ScreenSource] Armed screen capture for current user turn: {image_path}")
+    except Exception as exc:
+        print(f"⚠️ [ScreenSource] Could not arm screen attachment for user turn: {exc}")
 
 
 def queue_user_image_turn(image_path, *, content=None, source="clipboard"):
@@ -5662,6 +5689,14 @@ def _request_chat_view_rebuild():
     print(CHAT_REBUILD_SENTINEL)
 
 
+def _display_input_turn_content(turn):
+    content = str((turn or {}).get("content", "") or "").strip()
+    attachment_image_path = str((turn or {}).get("attachment_image_path", "") or "").strip()
+    if attachment_image_path:
+        content = (content or "Please respond to the image I just sent you.") + " [Image attached]"
+    return content
+
+
 def _append_chat_turn(turn):
     conversation_history.append(dict(turn))
 
@@ -5707,6 +5742,7 @@ def queue_typed_chat_message(text, role=None):
     }
     if input_role != "user" and user_image_turns.pending_attachment():
         clear_pending_user_image_attachment()
+    _maybe_arm_screen_image_for_user_turn(turn)
     turn = _attach_pending_user_image_to_turn(turn)
     _append_chat_turn(turn)
     _set_pending_loaded_input_turn(turn)
@@ -6601,18 +6637,18 @@ def run_conversation_flow(source):
                             resumed_loaded_turn = None
                             continue
                     resumed_loaded_turn = None
+                    input_turn = {"role": role, "content": content, "origin": "input"}
+                    _maybe_arm_screen_image_for_user_turn(input_turn, is_placeholder=is_placeholder)
+                    input_turn = _attach_pending_user_image_to_turn(input_turn, is_placeholder=is_placeholder)
+                    display_content = _display_input_turn_content(input_turn)
                     if is_placeholder:
                         print(f"🧠 Regenerating proactive thought... ({role})")
                     elif role == "system":
-                        print(f"💬 You (system): {content}")
+                        print(f"💬 You (system): {display_content}")
                     elif role == "assistant":
-                        print(f"💬 You (assistant): {content}")
+                        print(f"💬 You (assistant): {display_content}")
                     else:
-                        print(f"💬 You: {content}")
-                    input_turn = _attach_pending_user_image_to_turn(
-                        {"role": role, "content": content, "origin": "input"},
-                        is_placeholder=is_placeholder,
-                    )
+                        print(f"💬 You: {display_content}")
                     conversation_history.append(input_turn)
 
                 elif action.type == ConversationActionType.START_LLM_STREAM:

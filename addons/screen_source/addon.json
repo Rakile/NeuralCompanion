@@ -5,6 +5,9 @@
   "version": "0.1.0",
   "entry_point": "main.py",
   "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
+  "runtime_defaults": {
+    "screen_source_auto_attach_next_user_turn": false
+  },
   "permissions": [
     "ui.tabs"
   ],

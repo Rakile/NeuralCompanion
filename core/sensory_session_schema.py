@@ -27,6 +27,7 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("screen_source_jpeg_quality", ("sources", "screen", "jpeg_quality")),
         ("screen_source_capture_mode", ("sources", "screen", "capture_mode")),
         ("screen_source_capture_region", ("sources", "screen", "capture_region")),
+        ("screen_source_auto_attach_next_user_turn", ("sources", "screen", "auto_attach_next_user_turn")),
         ("screen_source_full_max_width", ("sources", "screen", "full_max_width")),
         ("screen_source_full_max_height", ("sources", "screen", "full_max_height")),
         ("mock_heart_rate_bpm", ("sources", "mock_heart_rate", "bpm")),

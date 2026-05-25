@@ -93,6 +93,7 @@ class Addon(BaseAddon):
         )
         self.capture_mode = _normalize_capture_mode(os.environ.get("NC_SCREEN_SOURCE_CAPTURE_MODE"))
         self.capture_region = _normalize_region({})
+        self.auto_attach_next_user_turn = False
         self.full_max_width = int(self.max_width)
         self.full_max_height = int(self.max_height)
         self._tab_refreshers = []
@@ -124,6 +125,7 @@ class Addon(BaseAddon):
         return None
 
     def export_session_state(self):
+        self.auto_attach_next_user_turn = self._auto_attach_from_runtime_config()
         return {
             "screen_source_max_width": int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)),
             "screen_source_max_height": int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)),
@@ -134,6 +136,7 @@ class Addon(BaseAddon):
             "screen_source_jpeg_quality": int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY)),
             "screen_source_capture_mode": _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)),
             "screen_source_capture_region": _normalize_region(getattr(self, "capture_region", {})),
+            "screen_source_auto_attach_next_user_turn": bool(getattr(self, "auto_attach_next_user_turn", False)),
             "screen_source_full_max_width": int(getattr(self, "full_max_width", DEFAULT_MAX_WIDTH)),
             "screen_source_full_max_height": int(getattr(self, "full_max_height", DEFAULT_MAX_HEIGHT)),
         }
@@ -184,6 +187,9 @@ class Addon(BaseAddon):
         )
         self.capture_region = _normalize_region(payload.get("screen_source_capture_region", getattr(self, "capture_region", {})))
         self.capture_mode = _normalize_capture_mode(payload.get("screen_source_capture_mode", getattr(self, "capture_mode", CAPTURE_MODE_FULL)))
+        self.auto_attach_next_user_turn = bool(
+            payload.get("screen_source_auto_attach_next_user_turn", getattr(self, "auto_attach_next_user_turn", False))
+        )
         if self.capture_mode != CAPTURE_MODE_FULL and not self.capture_region:
             self.capture_mode = CAPTURE_MODE_FULL
         self._notify_tab_refreshers()
@@ -446,6 +452,18 @@ class Addon(BaseAddon):
             },
         }
 
+    def _runtime_config_service(self):
+        return self.context.get_service("qt.runtime_config") if getattr(self, "context", None) is not None else None
+
+    def _auto_attach_from_runtime_config(self):
+        service = self._runtime_config_service()
+        if service is None:
+            return bool(getattr(self, "auto_attach_next_user_turn", False))
+        try:
+            return bool(service.get("screen_source_auto_attach_next_user_turn", bool(getattr(self, "auto_attach_next_user_turn", False))))
+        except Exception:
+            return bool(getattr(self, "auto_attach_next_user_turn", False))
+
     def _bind_capture_tab(self, widget, context):
         QtWidgets = self._qt_widgets()
         mount = widget.findChild(QtWidgets.QWidget, "addon_designer_mount") if widget is not None else None
@@ -506,6 +524,13 @@ class Addon(BaseAddon):
 
         layout.addLayout(form)
 
+        auto_attach_checkbox = QtWidgets.QCheckBox("Attach screen capture to every next user turn")
+        auto_attach_checkbox.setToolTip(
+            "When enabled, each user message captures the current screen with these Capture settings and sends it as that turn's image attachment."
+        )
+        auto_attach_checkbox.setChecked(bool(getattr(self, "auto_attach_next_user_turn", False)))
+        layout.addWidget(auto_attach_checkbox)
+
         button_row = QtWidgets.QHBoxLayout()
         button_row.setContentsMargins(0, 0, 0, 0)
         button_row.setSpacing(8)
@@ -538,6 +563,7 @@ class Addon(BaseAddon):
         layout.addWidget(current_label)
 
         def refresh():
+            self.auto_attach_next_user_turn = self._auto_attach_from_runtime_config()
             current_mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
             mode_index = mode_combo.findData(current_mode)
             if mode_index < 0:
@@ -569,6 +595,10 @@ class Addon(BaseAddon):
                 quality_spin.blockSignals(True)
                 quality_spin.setValue(int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY)))
                 quality_spin.blockSignals(False)
+            if auto_attach_checkbox.isChecked() != bool(getattr(self, "auto_attach_next_user_turn", False)):
+                auto_attach_checkbox.blockSignals(True)
+                auto_attach_checkbox.setChecked(bool(getattr(self, "auto_attach_next_user_turn", False)))
+                auto_attach_checkbox.blockSignals(False)
 
         def set_capture_mode_from_combo(_index):
             self._set_capture_mode(mode_combo.currentData())
@@ -594,10 +624,22 @@ class Addon(BaseAddon):
             refresh()
             self._notify_settings_changed()
 
+        def set_auto_attach(checked):
+            self.auto_attach_next_user_turn = bool(checked)
+            service = self._runtime_config_service()
+            if service is not None:
+                try:
+                    service.update("screen_source_auto_attach_next_user_turn", bool(checked))
+                except Exception:
+                    pass
+            refresh()
+            self._notify_settings_changed()
+
         mode_combo.currentIndexChanged.connect(set_capture_mode_from_combo)
         max_width_spin.valueChanged.connect(set_max_width)
         max_height_spin.valueChanged.connect(set_max_height)
         quality_spin.valueChanged.connect(set_quality)
+        auto_attach_checkbox.toggled.connect(set_auto_attach)
         select_region_button.clicked.connect(lambda: self._select_capture_region(square=False))
         select_square_button.clicked.connect(lambda: self._select_capture_region(square=True))
         use_full_button.clicked.connect(lambda: self._set_capture_mode(CAPTURE_MODE_FULL))

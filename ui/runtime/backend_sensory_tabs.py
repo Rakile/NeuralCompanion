@@ -12,6 +12,35 @@ def _sensory():
     return sensory
 
 class BackendSensoryTabsMixin:
+    def _screen_source_auto_attach_enabled(self):
+        try:
+            return bool(_engine().RUNTIME_CONFIG.get("screen_source_auto_attach_next_user_turn", False))
+        except Exception:
+            return False
+
+    def _set_screen_source_auto_attach_enabled(self, checked):
+        try:
+            _engine().update_runtime_config("screen_source_auto_attach_next_user_turn", bool(checked))
+        except Exception:
+            return
+        try:
+            self.save_session()
+        except Exception:
+            pass
+
+    def _add_screen_source_controls(self, layout):
+        checkbox = QtWidgets.QCheckBox("Attach screen capture to each user message")
+        checkbox.setToolTip(
+            "When enabled, each user message captures the current screen with the Screen Capture settings and sends it as that turn's image attachment. "
+            "Manual or clipboard image attachments take priority."
+        )
+        checkbox.setChecked(self._screen_source_auto_attach_enabled())
+        checkbox.toggled.connect(self._set_screen_source_auto_attach_enabled)
+        layout.addWidget(checkbox)
+        if not hasattr(self, "_screen_source_auto_attach_checkboxes"):
+            self._screen_source_auto_attach_checkboxes = []
+        self._screen_source_auto_attach_checkboxes.append(checkbox)
+
     def _vision_source_tab_contributions(self, provider_id):
         manager = getattr(self, "_addon_manager", None)
         if manager is None:
@@ -50,6 +79,9 @@ class BackendSensoryTabsMixin:
         layout.setSpacing(6)
 
         editor = None
+        if provider_key == "screen":
+            self._add_screen_source_controls(layout)
+
         if self._provider_uses_source_prompt_fragment(provider_key):
             prompt_header = QtWidgets.QLabel(f"Source guidance for {label}")
             prompt_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
@@ -321,6 +353,7 @@ class BackendSensoryTabsMixin:
         self._sensory_source_prompt_editors = {}
         self._sensory_source_metadata_editors = {}
         self._sensory_source_prompt_tabs = {}
+        self._screen_source_auto_attach_checkboxes = []
         for provider_id in self._selected_sensory_feedback_sources():
             provider = _sensory().get_provider(provider_id)
             label = str(getattr(provider, "label", provider_id) or provider_id)
