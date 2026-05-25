@@ -824,13 +824,15 @@ print(json.dumps(status))
             note("Skipping OpenMMLab/mmcv install for MuseTalk cu128; MediaPipe will be used for avatar preprocessing fallback.")
             note("Removing stale OpenMMLab/TensorFlow packages from existing MuseTalk cu128 venvs...")
             self.pip_uninstall(python_exe, MUSETALK_CU128_SKIP_REQUIREMENT_NAMES)
-            self.pip_install(python_exe, "install", MUSETALK_MEDIAPIPE_PACKAGE)
         else:
             note("Installing OpenMMLab bootstrap tools...")
             self.pip_install(python_exe, "install", "openmim==0.3.9")
 
             note("Installing mmcv through OpenMIM...")
             run_command([str(python_exe), "-m", "mim", "install", "mmcv==2.0.1"], cwd=REPO_ROOT)
+
+        note("Installing MediaPipe preprocessing fallback...")
+        self.pip_install(python_exe, "install", MUSETALK_MEDIAPIPE_PACKAGE)
 
         note("Preinstalling chumpy without build isolation...")
         self.pip_install(python_exe, "install", "chumpy==0.70", "--no-build-isolation")
@@ -870,8 +872,9 @@ print(json.dumps(status))
 
         self.ensure_musetalk_weights(python_exe)
 
-        musetalk_imports = ["torch", "cv2", "diffusers"]
-        musetalk_imports.append("mediapipe" if use_musetalk_cu128 else "mmcv")
+        musetalk_imports = ["torch", "cv2", "diffusers", "mediapipe"]
+        if not use_musetalk_cu128:
+            musetalk_imports.append("mmcv")
         self.verify_imports(python_exe, musetalk_imports, "MuseTalk")
         self.verify_torch_cuda(python_exe, "MuseTalk")
 
