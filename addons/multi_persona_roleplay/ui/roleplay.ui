@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>MultiPersonaRoleplayTab</class>
+ <widget class="QWidget" name="multi_persona_roleplay_tab">
+  <property name="minimumSize">
+   <size>
+    <width>780</width>
+    <height>540</height>
+   </size>
+  </property>
+  <layout class="QVBoxLayout" name="multi_persona_roleplay_root_layout">
+   <property name="leftMargin">
+    <number>0</number>
+   </property>
+   <property name="topMargin">
+    <number>0</number>
+   </property>
+   <property name="rightMargin">
+    <number>0</number>
+   </property>
+   <property name="bottomMargin">
+    <number>0</number>
+   </property>
+   <item>
+    <widget class="QWidget" name="multi_persona_roleplay_mount" native="true">
+     <layout class="QVBoxLayout" name="multi_persona_roleplay_mount_layout">
+      <property name="leftMargin">
+       <number>0</number>
+      </property>
+      <property name="topMargin">
+       <number>0</number>
+      </property>
+      <property name="rightMargin">
+       <number>0</number>
+      </property>
+      <property name="bottomMargin">
+       <number>0</number>
+      </property>
+     </layout>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

@@ -1,0 +1,51 @@
+{
+  "enabled": true,
+  "mode": "Narrator + characters",
+  "active_persona_id": "mentor",
+  "current_speaker_id": "mentor",
+  "scene_title": "The Lantern Archive",
+  "location": "A quiet archive workshop with a planning table, map wall, voice recorder, and image board.",
+  "time_of_day": "Late evening",
+  "mood": "Curious, focused, collaborative",
+  "objective": "Use the full persona roster to plan a small mystery scene, explain choices clearly, and generate visual prompts when useful.",
+  "scene_summary": "The user has opened a ready-to-run roleplay workspace called The Lantern Archive. Mentor helps structure the task, Friend keeps the conversation relaxed, Story Narrator describes scene beats, Game Master tracks choices and consequences, and Custom Character Template is available as an editable participant. The group is gathered around a table of notes, sketches, and a softly lit image board.",
+  "turn_index": 0,
+  "character_state_summaries": {
+    "mentor": "Mentor is ready to guide setup, explain options, and keep the scene practical.",
+    "friend": "Friend is ready to keep the session casual, warm, and easy to continue.",
+    "story_narrator": "Story Narrator is ready to describe the archive, atmosphere, and visible scene changes.",
+    "game_master": "Game Master is ready to track objectives, consequences, and RPG-style choices.",
+    "custom_character_template": "Custom Character Template is available as a blank editable participant for the user to reshape."
+  },
+  "recent_events": [
+    "The default group roleplay scenario was loaded.",
+    "All bundled personas are present and ready to use."
+  ],
+  "last_visual_reply_at": 0.0,
+  "auto_image_count": 0,
+  "auto_select_speaker": false,
+  "keep_scene_continuity": true,
+  "update_scene_after_reply": true,
+  "ar_use_persona_profiles": true,
+  "ar_pacing": "Slow / Audiobook",
+  "ar_interaction_frequency": "Ask sometimes",
+  "ar_state": {
+    "current_scene": "A rain-glossed city of old hotels, private galleries, forbidden archives, and rooftop gardens. The night begins with an invitation written in silver ink.",
+    "location": "The Velvet Lantern Hotel, a restored art-deco hideaway above a stormy harbor.",
+    "active_characters": ["story_narrator", "mentor", "friend", "game_master"],
+    "tension_level": 4,
+    "story_goal": "Follow a trail of coded invitations, stolen memories, and dangerous attraction while preserving player choice and a suggestive, non-explicit tone.",
+    "recent_events": [
+      "The AR adventure is ready to begin at the Velvet Lantern Hotel.",
+      "A sealed invitation hints at a secret auction, a missing portrait, and someone waiting on the roof after midnight."
+    ],
+    "player_intent": "",
+    "pending_choices": [
+      "Enter the hotel lounge and study the invitation.",
+      "Go straight to the rooftop garden before midnight.",
+      "Ask one active character what they already know."
+    ],
+    "mood": "Velvet-dark, flirtatious, mysterious, cinematic",
+    "time_of_day": "Rainy midnight"
+  }
+}

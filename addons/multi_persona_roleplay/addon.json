@@ -1,0 +1,32 @@
+{
+  "id": "nc.multi_persona_roleplay",
+  "name": "Multi Persona Roleplay",
+  "category": "chat",
+  "version": "0.2.0",
+  "entry_point": "main.py",
+  "description": "Run AlternativeReality story production with narrator-led AR, personas, voice routing, Visual Reply, AudioFX, memory, validation, repair, recovery, and story bundles.",
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write",
+    "events.subscribe",
+    "events.publish",
+    "services.consume",
+    "services.register",
+    "llm.read",
+    "tts.read",
+    "avatar.read"
+  ],
+  "ui": [
+    {
+      "id": "multi_persona_roleplay_tab",
+      "title": "Roleplay",
+      "area": "top_level",
+      "ui_path": "ui/roleplay.ui",
+      "placeholder": "multi_persona_roleplay_tab",
+      "order": 126,
+      "tooltip": "Configure multi-persona roleplay, persona voices, and persona-aware Visual Reply prompts."
+    }
+  ],
+  "enabled": true
+}

@@ -11,15 +11,14 @@ try:
 except Exception:  # pragma: no cover - optional debug-mask dependency
     cv2 = None
 import numpy as np
-from PIL import Image
 from PySide6 import QtCore, QtGui, QtWidgets
 
 from addons.musetalk_avatar import state as musetalk_state
 from ui.widgets.basic import AltWheelZoomScrollArea
 
 QT_PREVIEW_CACHE_LIMIT = 384
-QT_PREVIEW_INITIAL_PRELOAD = 96
-QT_PREVIEW_AHEAD_PRELOAD = 72
+QT_PREVIEW_INITIAL_PRELOAD = 32
+QT_PREVIEW_AHEAD_PRELOAD = 32
 QT_PREVIEW_POLL_INTERVAL_MS = 8
 QT_MUSETALK_LOOP_FADE_MS = 180
 
@@ -597,6 +596,12 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             self.preloaded_frame_images = OrderedDict()
             self.preload_enqueued = set()
 
+    def _restart_preload_window(self):
+        self.preload_generation += 1
+        self.preload_frontier = -1
+        with self.preload_lock:
+            self.preload_enqueued = set()
+
     def _get_target_size(self):
         return None
 
@@ -684,15 +689,10 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         return self.last_start_index + max(frame_index, 0)
 
     def _build_cached_preview_image(self, frame_path, _target_size):
-        with Image.open(frame_path) as source_image:
-            image = source_image.copy()
-            qimage = QtGui.QImage(
-                image.tobytes("raw", "RGBA") if image.mode == "RGBA" else image.convert("RGBA").tobytes("raw", "RGBA"),
-                image.size[0],
-                image.size[1],
-                QtGui.QImage.Format_RGBA8888,
-            ).copy()
-        return qimage
+        image = QtGui.QImage(str(frame_path))
+        if image.isNull():
+            raise ValueError(f"Could not load preview frame: {frame_path}")
+        return image.copy()
 
     def _get_cached_preview_image(self, frame_path):
         with self.preload_lock:
@@ -726,10 +726,12 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             start_index = int(start_index or 0) % total
             preload_paths = [self.frame_paths[(start_index + offset) % total] for offset in range(max(0, int(count or 0)))]
         else:
-            if start_index + count <= self.preload_frontier:
+            requested_end = min(len(self.frame_paths), max(0, int(start_index or 0)) + max(0, int(count or 0)))
+            if requested_end <= self.preload_frontier:
                 return
-            self.preload_frontier = max(self.preload_frontier, start_index + count)
-            preload_paths = list(self.frame_paths[start_index:start_index + count])
+            preload_start = max(0, min(len(self.frame_paths), max(int(start_index or 0), self.preload_frontier)))
+            self.preload_frontier = requested_end
+            preload_paths = list(self.frame_paths[preload_start:requested_end])
         with self.preload_lock:
             for frame_path in preload_paths:
                 key = (generation, frame_path)
@@ -1029,6 +1031,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.last_audio_started_at = float(state.get("audio_started_at", 0.0) or 0.0)
         self.last_is_first_reply_chunk = bool(state.get("is_first_reply_chunk", False))
         self.last_avatar_id = str(state.get("avatar_id", "") or "").strip() or None
+        self._restart_preload_window()
         self._set_preview_status(state)
         if previous_chunk_id and self.last_chunk_id and previous_chunk_id != self.last_chunk_id:
             previous_source_index = previous_source

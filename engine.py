@@ -955,6 +955,129 @@ def _collect_addon_chat_contexts(model_history_window):
     return contexts
 
 
+def _invoke_addon_capability(capability, payload=None):
+    manager = _get_addon_manager()
+    if manager is None:
+        return None
+    invoker = getattr(manager, "invoke_capability", None)
+    if not callable(invoker):
+        return None
+    try:
+        return invoker(str(capability or ""), dict(payload or {}))
+    except Exception as exc:
+        print(f"⚠️ [Addons] Capability '{capability}' failed: {exc}")
+        return None
+
+
+def _addon_voice_route(payload=None):
+    route = _invoke_addon_capability("tts.voice_route", payload or {})
+    return dict(route or {}) if isinstance(route, dict) else {}
+
+
+def _addon_voice_segment_result(payload=None):
+    result = _invoke_addon_capability("tts.voice_segments", payload or {})
+    if isinstance(result, dict):
+        raw_segments = result.get("segments")
+        suppress_original = bool(result.get("suppress_original", False))
+    elif isinstance(result, list):
+        raw_segments = result
+        suppress_original = False
+    else:
+        raw_segments = []
+        suppress_original = False
+    segments = []
+    for raw in list(raw_segments or []):
+        if not isinstance(raw, dict):
+            continue
+        piece_text = str(raw.get("text", "") or "").strip()
+        if not piece_text:
+            continue
+        item = dict(raw)
+        item["text"] = piece_text
+        if item.get("voice_path"):
+            item["voice_path"] = _resolve_voice_reference_path(item.get("voice_path", "")) or ""
+        segments.append(item)
+    return segments, suppress_original
+
+
+def _addon_voice_segments(payload=None):
+    segments, _suppress_original = _addon_voice_segment_result(payload)
+    return segments
+
+
+def _expand_addon_voice_segments(source_iterable, *, streaming=False, voice_path_override=""):
+    last_stream_text = ""
+    stream_source_index = 0
+    for source_item in source_iterable:
+        if voice_path_override or isinstance(source_item, dict):
+            if streaming and isinstance(source_item, dict):
+                text, deduped = _dedupe_adjacent_tts_stream_text(last_stream_text, source_item.get("text", ""))
+                if deduped:
+                    source_item = dict(source_item)
+                    source_item["text"] = text
+                if not str(text or "").strip():
+                    continue
+                last_stream_text = str(text)
+                stream_source_index += 1
+            yield source_item
+            continue
+        piece_text = str(source_item or "")
+        route_payload = {
+            "text": piece_text,
+            "tts_backend": str(RUNTIME_CONFIG.get("tts_backend", "") or ""),
+            "streaming": bool(streaming),
+        }
+        if streaming:
+            route_payload["stream_start"] = stream_source_index == 0
+            route_payload["stream_source_index"] = stream_source_index
+        segments, suppress_original = _addon_voice_segment_result(route_payload)
+        if streaming:
+            stream_source_index += 1
+        if segments:
+            for segment in segments:
+                if streaming:
+                    text, deduped = _dedupe_adjacent_tts_stream_text(last_stream_text, segment.get("text", ""))
+                    if deduped:
+                        segment = dict(segment)
+                        segment["text"] = text
+                    if not str(text or "").strip():
+                        continue
+                    last_stream_text = str(text)
+                yield segment
+        elif suppress_original:
+            continue
+        else:
+            if streaming:
+                text, deduped = _dedupe_adjacent_tts_stream_text(last_stream_text, piece_text)
+                if deduped:
+                    source_item = text
+                if not str(source_item or "").strip():
+                    continue
+                last_stream_text = str(source_item)
+            yield source_item
+
+
+def _notify_addon_assistant_reply(text):
+    content = str(text or "").strip()
+    if not content:
+        return False
+    result = _invoke_addon_capability("roleplay.assistant_reply", {"text": content})
+    return result is not None
+
+
+def _play_addon_story_audio_cues(cue_ids) -> bool:
+    cues = [str(cue_id or "").strip() for cue_id in list(cue_ids or []) if str(cue_id or "").strip()]
+    if not cues:
+        return False
+    result = _invoke_addon_capability("roleplay.play_audio_cues", {"cue_ids": cues})
+    return result is not None
+
+
+def _notify_addon_tts_segment_started(payload=None) -> bool:
+    result = _invoke_addon_capability("tts.segment_started", payload or {})
+    return result is not None
+
+
 def list_available_tts_backends():
     return tts_runtime.list_available_tts_backends(_get_addon_manager, logger=print)
 
@@ -3419,6 +3542,7 @@ def finalize_assistant_reply(raw_text: str):
     # the model to produce those tags automatically.
     if visual_prompt and _visual_reply_enabled():
         request_visual_reply_generation(visual_prompt, source_text=cleaned_text)
+    _notify_addon_assistant_reply(cleaned_text)
     return cleaned_text
 
 
@@ -4368,6 +4492,27 @@ def set_seed(seed: int):
         raise
 
 
+def _dedupe_adjacent_tts_stream_text(previous: str, current: str) -> tuple[str, bool]:
+    prev = str(previous or "").strip()
+    cur = str(current or "").strip()
+    if not prev or not cur:
+        return cur, False
+    prev_norm = re.sub(r"\s+", " ", prev).strip().lower()
+    cur_norm = re.sub(r"\s+", " ", cur).strip().lower()
+    if len(prev_norm) >= 16 and prev_norm == cur_norm:
+        return "", True
+    if len(prev_norm) >= 24 and cur_norm.startswith(prev_norm):
+        return cur[len(prev):].lstrip(" \t\r\n,.;:-"), True
+
+    max_overlap = min(len(prev), len(cur), 160)
+    for size in range(max_overlap, 23, -1):
+        left = re.sub(r"\s+", " ", prev[-size:]).strip().lower()
+        right = re.sub(r"\s+", " ", cur[:size]).strip().lower()
+        if left and left == right:
+            return cur[size:].lstrip(" \t\r\n,.;:-"), True
+    return cur, False
+
+
 def _iter_queue_text_chunks(text_queue, dry_run_reply_id=None):
     first_yield_logged = False
     while True:
@@ -4488,26 +4633,60 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
         muse_chunk_index = 0
         if replay_mode:
             source_iterable = list(replay_items or [])
+        elif text_iterable is None and not resolved_voice_path_override:
+            source_iterable = _addon_voice_segments(
+                {
+                    "text": str(text or ""),
+                    "tts_backend": str(RUNTIME_CONFIG.get("tts_backend", "") or ""),
+                    "streaming": False,
+                }
+            ) or [text]
         else:
             source_iterable = text_iterable if text_iterable is not None else [text]
+        source_iterable = _expand_addon_voice_segments(
+            source_iterable,
+            streaming=bool(text_iterable is not None or RUNTIME_CONFIG.get("stream_mode", False)),
+            voice_path_override=resolved_voice_path_override,
+        )
         first_piece_logged = False
         first_subchunk_logged = False
         first_wav_logged = False
         for source_offset, source_item in enumerate(source_iterable):
             if stop_playback.is_set() or ctrl.cancel_requested.is_set(): break
             source_meta = {}
+            piece_voice_route = {}
             piece_voice_path = resolved_voice_path_override
             if isinstance(source_item, dict):
                 piece_text = str(source_item.get("text", "") or "")
+                raw_voice_route = source_item.get("voice_route")
+                if isinstance(raw_voice_route, dict):
+                    piece_voice_route = dict(raw_voice_route)
                 source_meta = {
                     "replay_message_id": str(source_item.get("message_id", "") or ""),
                     "replay_index": int(source_item.get("index", 0) or 0),
                     "replay_total": int(source_item.get("total", 0) or 0),
                     "replay_label": str(source_item.get("label", "") or ""),
+                    "persona_id": str(source_item.get("persona_id", "") or ""),
+                    "display_name": str(source_item.get("display_name", "") or ""),
+                    "voice_route": dict(piece_voice_route),
+                    "story_audio_cues": list(source_item.get("story_audio_cues") or []),
                 }
                 piece_voice_path = _resolve_voice_reference_path(source_item.get("voice_path", "")) or resolved_voice_path_override
             else:
                 piece_text = source_item
+            if not piece_voice_path:
+                if not piece_voice_route:
+                    piece_voice_route = _addon_voice_route(
+                        {
+                            "text": str(piece_text or ""),
+                            "tts_backend": str(RUNTIME_CONFIG.get("tts_backend", "") or ""),
+                            "streaming": bool(text_iterable is not None or RUNTIME_CONFIG.get("stream_mode", False)),
+                        }
+                    )
+                if bool(piece_voice_route.get("supported")):
+                    piece_voice_path = _resolve_voice_reference_path(piece_voice_route.get("sample_path", ""))
+                elif piece_voice_route.get("warning"):
+                    print(f"⚠️ [TTS] {piece_voice_route.get('warning')}")
             if not piece_text or not str(piece_text).strip():
                 continue
             replay_message_id = str(source_meta.get("replay_message_id", "") or "")
@@ -4572,6 +4751,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     )
                     if piece_voice_path:
                         kwargs["audio_prompt_path"] = piece_voice_path
+                    route_language = str((piece_voice_route or {}).get("language") or "").strip().lower()
+                    route_backend = str(RUNTIME_CONFIG.get("tts_backend", "") or "").strip().lower().replace("-", "_")
+                    if route_backend == "pocket_tts":
+                        route_backend = "pockettts"
+                    if route_language and route_backend in {"pockettts", "pockettts_multilingual"}:
+                        kwargs["pocket_tts_language"] = route_language
                     try:
                         ctrl.set_generating_message_id(replay_message_id)
                         wav = tts_model.generate(sub, **kwargs)
@@ -4636,6 +4821,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         }
                     chunk_meta = dict(source_meta)
                     chunk_meta["replay_message_first_chunk"] = bool(replay_mode and message_chunk_index == 0)
+                    chunk_meta["tts_source_first_chunk"] = bool(message_chunk_index == 0)
+                    if message_chunk_index > 0:
+                        chunk_meta["story_audio_cues"] = []
                     if ctrl.cancel_requested.is_set() or stop_playback.is_set():
                         safe_delete_with_retry(path)
                         break
@@ -5333,6 +5521,23 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         0.0,
                         float(chunk_result.get("playback_duration_seconds", 0.0) or 0.0),
                     )
+                    story_audio_cues = list((source_meta or {}).get("story_audio_cues") or [])
+                    if story_audio_cues:
+                        _play_addon_story_audio_cues(story_audio_cues)
+                    if bool((source_meta or {}).get("tts_source_first_chunk", False)):
+                        persona_id = str((source_meta or {}).get("persona_id", "") or "").strip()
+                        if persona_id:
+                            _notify_addon_tts_segment_started(
+                                {
+                                    "persona_id": persona_id,
+                                    "display_name": str((source_meta or {}).get("display_name", "") or ""),
+                                    "text": str(txt or ""),
+                                    "emotion": str(emotion or ""),
+                                    "voice_route": dict((source_meta or {}).get("voice_route") or {}),
+                                    "chunk_id": chunk_result.get("chunk_id"),
+                                    "sequence_index": int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
+                                }
+                            )
                     if kind == "musetalk":
                         audio_start_time = time.time()
                         _queue_story_visual_reply(txt, emotion)
@@ -5993,7 +6198,7 @@ def refine_instruction_text(text, *, label="Instruction", guidance=""):
     model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
     if _is_model_catalog_placeholder(model_name):
         raise RuntimeError(f"Choose a chat model before refining {field_label}.")
-    guidance_text = f"\nAdditional context: {extra_guidance}" if extra_guidance else ""
+    guidance_text = extra_guidance or "No additional guidance."
     messages = [
         {
             "role": "system",
@@ -6001,13 +6206,18 @@ def refine_instruction_text(text, *, label="Instruction", guidance=""):
                 "You refine short configuration instructions for a local desktop AI companion. "
                 "Preserve the user's intent, constraints, tone, and operational meaning. "
                 "Improve clarity, specificity, and wording without adding new requirements. "
-                "Return only the refined text. Do not include commentary, titles, markdown fences, "
-                "before/after notes, or explanations."
+                f"Field label: {field_label}. "
+                f"Refinement guidance: {guidance_text} "
+                "Use the field label and guidance only as instructions; do not rewrite, quote, "
+                "summarize, or include them in the answer. The user message contains only the "
+                "original text to refine. Return only the refined version of that original text. "
+                "Do not include commentary, titles, markdown fences, before/after notes, "
+                "explanations, or prompt-wrapper labels."
             ),
         },
         {
             "role": "user",
-            "content": f"Refine this {field_label}:{guidance_text}\n\n{original}",
+            "content": original,
         },
     ]
     params = {"model": model_name, "messages": messages}

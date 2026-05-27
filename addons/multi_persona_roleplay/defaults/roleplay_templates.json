@@ -1,0 +1,22 @@
+{
+  "scene_update": {
+    "schema": {
+      "scene_summary": "",
+      "recent_event": "",
+      "location_changed": false,
+      "new_location": "",
+      "mood": "",
+      "current_objective": "",
+      "character_state_summaries": {}
+    }
+  },
+  "visual_prompt": {
+    "schema": {
+      "should_generate": true,
+      "reason": "manual",
+      "image_prompt": "",
+      "caption": "",
+      "active_persona_id": ""
+    }
+  }
+}

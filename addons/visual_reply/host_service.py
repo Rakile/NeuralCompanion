@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from addons.visual_reply.runtime import (
     configure_visual_reply_size_field,
     normalize_visual_reply_size,
@@ -527,6 +529,78 @@ class QtVisualReplyService:
 
     def set_loading(self, status_text: str = "Visual Reply generating...", detail_text: str = "Preparing image...", auto_show: bool = True) -> bool:
         return bool(self._window.set_visual_reply_loading(status_text=status_text, detail_text=detail_text, auto_show=auto_show))
+
+    def request_generation(
+        self,
+        *,
+        prompt: str,
+        caption: str = "",
+        provider: str = "inherit",
+        model: str = "",
+        size: str = "inherit",
+        source: str = "",
+        metadata: dict | None = None,
+        auto_show: bool = True,
+    ):
+        prompt_text = str(prompt or "").strip()
+        if not prompt_text:
+            return False
+        from addons.visual_reply import generation, runtime_config
+
+        runtime = self._runtime_config.snapshot()
+        provider_value = str(provider or "inherit").strip().lower()
+        if provider_value and provider_value != "inherit":
+            runtime["visual_reply_provider"] = provider_value
+        else:
+            provider_value = str(runtime.get("visual_reply_provider", "openai") or "openai").strip().lower()
+        model_value = str(model or "").strip()
+        if model_value:
+            runtime["visual_reply_provider_settings"] = updated_provider_settings(
+                runtime,
+                provider_value,
+                "model",
+                model_value,
+            )
+            runtime["visual_reply_model"] = normalize_model_for_provider(provider_value, model_value)
+        size_value = str(size or "inherit").strip().lower()
+        if size_value and size_value != "inherit":
+            normalized_size = normalize_visual_reply_size(size_value, provider_value)
+            runtime["visual_reply_provider_settings"] = updated_provider_settings(
+                runtime,
+                provider_value,
+                "size",
+                normalized_size,
+            )
+            runtime["visual_reply_size"] = normalized_size
+        runtime["visual_reply_mode"] = "auto"
+        runtime["visual_replies_enabled"] = True
+        visual_runtime = runtime_config.VisualReplyRuntime(lambda: runtime)
+        service = generation.VisualReplyGenerationService(visual_runtime, output_dir=generation.output_dir())
+        self.set_loading(
+            status_text="Visual Reply generating...",
+            detail_text=str(caption or source or prompt_text)[:240],
+            auto_show=auto_show,
+        )
+        request_id = f"mprc_{int(time.time())}"
+        accepted = bool(
+            service.perform_generation(
+                prompt_text,
+                source_text=str(caption or source or metadata or ""),
+                request_id=request_id,
+                keep_current_image=False,
+            )
+        )
+        if not accepted:
+            return False
+        from addons.visual_reply import state
+
+        current = dict(getattr(state, "current_visual_reply_data", {}) or {})
+        return {
+            "accepted": True,
+            "image_path": str(current.get("image_path") or ""),
+            "caption": str(current.get("caption") or prompt_text),
+            "request_id": request_id,
+        }
 
     def show_image(self, image_path: str, caption: str = "", status_text: str = "Visual Reply", auto_show: bool = True) -> bool:
         return bool(self._window.show_visual_reply_image(image_path, caption=caption, status_text=status_text, auto_show=auto_show))

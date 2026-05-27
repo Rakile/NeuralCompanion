@@ -1,0 +1,22 @@
+[
+  {
+    "id": "cinematic",
+    "label": "Cinematic",
+    "prompt": "cinematic composition, natural lighting, clear character identity"
+  },
+  {
+    "id": "storybook",
+    "label": "Storybook",
+    "prompt": "storybook illustration, warm detail, coherent scene design"
+  },
+  {
+    "id": "anime",
+    "label": "Anime",
+    "prompt": "anime illustration, expressive character design, clean background detail"
+  },
+  {
+    "id": "realistic",
+    "label": "Realistic",
+    "prompt": "realistic visual style, natural textures, grounded detail"
+  }
+]
