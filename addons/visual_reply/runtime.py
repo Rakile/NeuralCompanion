@@ -93,6 +93,82 @@ def visual_reply_provider_value_from_label(label):
     return provider_value_from_label(label)
 
 
+def _visual_reply_provider_from_live_combo(backend):
+    getter = getattr(backend, "_live_combo_text", None)
+    text = ""
+    if callable(getter):
+        try:
+            text = str(getter("visual_reply_provider_combo", "") or "").strip()
+        except Exception:
+            text = ""
+    if not text:
+        widget = _backend_widget(backend, "visual_reply_provider_combo")
+        if widget is not None and hasattr(widget, "currentText"):
+            try:
+                text = str(widget.currentText() or "").strip()
+            except Exception:
+                text = ""
+    return visual_reply_provider_value_from_label(text) if text else ""
+
+
+def _visual_reply_active_provider(backend):
+    combo_provider = _visual_reply_provider_from_live_combo(backend)
+    if combo_provider:
+        return combo_provider
+    return str(
+        getattr(backend, "_visual_reply_active_provider", "")
+        or _runtime_config(backend).get("visual_reply_provider", "openai")
+        or "openai"
+    ).strip().lower()
+
+
+def _visual_reply_view_provider(backend):
+    view_provider = str(getattr(backend, "_visual_reply_view_provider", "") or "").strip()
+    if view_provider:
+        return visual_reply_provider_value_from_label(view_provider)
+    return _visual_reply_active_provider(backend)
+
+
+def _visual_reply_view_is_active(backend, provider=None):
+    view_provider = str(provider or _visual_reply_view_provider(backend) or "openai").strip().lower()
+    return view_provider == _visual_reply_active_provider(backend)
+
+
+def _capture_visual_reply_provider_widgets(backend, provider):
+    provider = str(provider or "").strip().lower()
+    if not provider:
+        return
+    size_combo = _backend_widget(backend, "visual_reply_size_combo")
+    if size_combo is not None and hasattr(size_combo, "currentText"):
+        current_size = normalize_visual_reply_size(str(size_combo.currentText() or ""), provider)
+        _update_visual_reply_provider_setting(backend, provider, "size", current_size)
+    model_edit = _backend_widget(backend, "visual_reply_model_edit")
+    if model_edit is not None and hasattr(model_edit, "text"):
+        current_model = str(model_edit.text() or "").strip()
+        _update_visual_reply_provider_setting(
+            backend,
+            provider,
+            "model",
+            visual_reply_model_override_for_provider(provider, current_model),
+        )
+
+
+def set_visual_reply_view_provider(backend, provider, *, refresh=True):
+    previous_provider = _visual_reply_view_provider(backend)
+    if previous_provider:
+        _capture_visual_reply_provider_widgets(backend, previous_provider)
+    provider = visual_reply_provider_value_from_label(provider)
+    setattr(backend, "_visual_reply_view_provider", provider)
+    if refresh:
+        sync_visual_reply_size_field(backend, provider)
+        sync_visual_reply_model_field(backend, provider)
+        sync_visual_reply_api_key_field(backend, provider)
+        sync_visual_reply_comfyui_cleanup_field(backend, provider)
+        sync_visual_reply_comfyui_workflow_button(backend, provider)
+        refresh_visual_reply_hint(backend)
+    return provider
+
+
 def visual_reply_size_label_from_value(value, provider=None):
     size = normalize_visual_reply_size(value, provider)
     return "Auto" if size == "auto" else size
@@ -208,7 +284,7 @@ def sync_visual_reply_api_key_field(backend, provider=None):
     if widget is None or not hasattr(widget, "setText"):
         return
     if provider is None:
-        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        provider = _visual_reply_view_provider(backend)
     label = visual_reply_provider_label_from_value(provider)
     previous = False
     try:
@@ -236,7 +312,7 @@ def sync_visual_reply_model_field(backend, provider=None):
     if widget is None or not hasattr(widget, "setText"):
         return
     if provider is None:
-        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        provider = _visual_reply_view_provider(backend)
     model_name = visual_reply_model_for_provider(backend, provider)
     previous = False
     try:
@@ -309,7 +385,7 @@ def sync_visual_reply_size_field(backend, provider=None):
     if widget is None or not hasattr(widget, "setCurrentText"):
         return
     if provider is None:
-        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        provider = _visual_reply_view_provider(backend)
     size = visual_reply_size_for_provider(backend, provider)
     previous = False
     try:
@@ -327,7 +403,7 @@ def sync_visual_reply_comfyui_cleanup_field(backend, provider=None):
     combo = _backend_widget(backend, "visual_reply_comfyui_cleanup_combo")
     label = _backend_widget(backend, "visual_reply_comfyui_cleanup_label")
     if provider is None:
-        provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+        provider = _visual_reply_view_provider(backend)
     is_comfyui = str(provider or "").strip().lower() == "comfyui"
     for widget in (label, combo):
         if widget is not None and hasattr(widget, "setVisible"):
@@ -366,7 +442,7 @@ def sync_visual_reply_comfyui_workflow_button(backend, provider=None):
 
 
 def refresh_visual_reply_comfyui_workflow_choices(backend):
-    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    provider = _visual_reply_view_provider(backend)
     if provider != "comfyui":
         return
     model_edit = _backend_widget(backend, "visual_reply_model_edit")
@@ -406,7 +482,7 @@ def refresh_visual_reply_comfyui_workflow_choices(backend):
 
 
 def on_visual_reply_api_key_changed(backend):
-    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    provider = _visual_reply_view_provider(backend)
     edit = _backend_widget(backend, "visual_reply_api_key_edit")
     api_key = str(edit.text() if edit is not None and hasattr(edit, "text") else "").strip()
     _update_visual_reply_provider_setting(backend, provider, "api_key", api_key)
@@ -423,7 +499,8 @@ def refresh_visual_reply_hint(backend):
     if hint is None:
         return
     mode = visual_reply_mode_value_from_label(backend._live_combo_text("visual_reply_mode_combo", "Auto"))
-    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    provider = _visual_reply_view_provider(backend)
+    active_provider = _visual_reply_active_provider(backend)
     size = normalize_visual_reply_size(
         backend._live_combo_text("visual_reply_size_combo", visual_reply_size_for_provider(backend, provider)),
         provider,
@@ -437,6 +514,7 @@ def refresh_visual_reply_hint(backend):
     api_label = backend._live_widget_attr("visual_reply_api_key_label")
     if api_label is not None and hasattr(api_label, "setText"):
         api_label.setText(visual_reply_api_label_for_provider(provider))
+    sync_visual_reply_size_field(backend, provider)
     sync_visual_reply_model_field(backend, provider)
     sync_visual_reply_api_key_field(backend, provider)
     sync_visual_reply_comfyui_cleanup_field(backend, provider)
@@ -447,20 +525,26 @@ def refresh_visual_reply_hint(backend):
     else:
         dock_text = "The dock will auto-show when a request starts or finishes." if auto_show else "The dock stays where it is; use Show Visual Reply if you want to watch generation live."
         provider_text = visual_reply_provider_label_from_value(provider)
+        active_note = ""
+        request_label = "Current backend request"
+        if provider != active_provider:
+            active_label = visual_reply_provider_label_from_value(active_provider)
+            active_note = f" Viewing {provider_text} settings; active runtime remains {active_label}."
+            request_label = "Current tab settings"
         if provider == "comfyui":
             server_url = visual_reply_api_key_for_provider(backend, provider) or "http://127.0.0.1:8188"
             cleanup_label = visual_reply_comfyui_cleanup_label_from_value(visual_reply_comfyui_cleanup_for_backend(backend))
             title = f"Visual Reply Runtime - ComfyUI"
             summary = (
                 "Visual replies are enabled through a local/LAN ComfyUI server. NC injects the prompt into the configured workflow, queues it through ComfyUI, "
-                f"then displays the generated output image. Current request: ComfyUI at {server_url}, {size}, workflow '{model}', cleanup: {cleanup_label}. {dock_text}"
+                f"then displays the generated output image. {request_label}: ComfyUI at {server_url}, {size}, workflow '{model}', cleanup: {cleanup_label}. {dock_text}{active_note}"
             )
         else:
             title = f"Visual Reply Runtime - {provider_text} / {model}"
             key_text = "A local API key is set for this provider." if visual_reply_api_key_for_provider(backend, provider) else "API key can come from this field or the provider environment variable."
             summary = (
                 f"Visual replies are enabled. Automatic image generation still follows the NC auto-visual toggle; when allowed, NC may append one [visualize: ...] tag when an image would help. "
-                f"Current backend request: {provider_text}, {size}, model '{model}'. {key_text} {dock_text}"
+                f"{request_label}: {provider_text}, {size}, model '{model}'. {key_text} {dock_text}{active_note}"
             )
     hint.setText(summary)
     runtime_box = backend._live_widget_attr("visual_reply_runtime_box")
@@ -483,32 +567,14 @@ def on_visual_reply_mode_changed(backend, choice):
 
 def on_visual_reply_provider_changed(backend, choice):
     provider = visual_reply_provider_value_from_label(choice)
-    old_provider = str(
-        getattr(backend, "_visual_reply_active_provider", "")
-        or _runtime_config(backend).get("visual_reply_provider", "openai")
-        or "openai"
-    ).strip().lower()
-    if old_provider != provider:
-        size_combo = _backend_widget(backend, "visual_reply_size_combo")
-        current_size = normalize_visual_reply_size(
-            size_combo.currentText() if size_combo is not None and hasattr(size_combo, "currentText") else "",
-            old_provider,
-        )
-        _update_visual_reply_provider_setting(backend, old_provider, "size", current_size)
-        model_edit = _backend_widget(backend, "visual_reply_model_edit")
-        current_model = str(model_edit.text() if model_edit is not None and hasattr(model_edit, "text") else "").strip()
-        _update_visual_reply_provider_setting(
-            backend,
-            old_provider,
-            "model",
-            visual_reply_model_override_for_provider(old_provider, current_model),
-        )
+    _capture_visual_reply_provider_widgets(backend, _visual_reply_view_provider(backend))
     next_size = visual_reply_size_for_provider(backend, provider)
     next_model = visual_reply_model_for_provider(backend, provider)
     _update_runtime_config(backend, "visual_reply_provider", provider)
     _update_runtime_config(backend, "visual_reply_size", next_size)
     _update_runtime_config(backend, "visual_reply_model", next_model)
     setattr(backend, "_visual_reply_active_provider", provider)
+    setattr(backend, "_visual_reply_view_provider", provider)
     sync_visual_reply_size_field(backend, provider)
     sync_visual_reply_model_field(backend, provider)
     sync_visual_reply_api_key_field(backend, provider)
@@ -519,7 +585,7 @@ def on_visual_reply_provider_changed(backend, choice):
 
 
 def on_visual_reply_size_changed(backend, choice):
-    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    provider = _visual_reply_view_provider(backend)
     raw_choice = str(choice or "").strip()
     if provider == "comfyui" and raw_choice and not is_valid_visual_reply_size(raw_choice, provider):
         return
@@ -530,14 +596,15 @@ def on_visual_reply_size_changed(backend, choice):
         if size_combo.currentText() != label:
             size_combo.setCurrentText(label)
     _update_visual_reply_provider_setting(backend, provider, "size", size)
-    _update_runtime_config(backend, "visual_reply_size", size)
+    if _visual_reply_view_is_active(backend, provider):
+        _update_runtime_config(backend, "visual_reply_size", size)
     refresh_visual_reply_hint(backend)
     backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_size", "value": size})
     backend.save_session()
 
 
 def on_visual_reply_model_changed(backend):
-    provider = visual_reply_provider_value_from_label(backend._live_combo_text("visual_reply_provider_combo", "OpenAI"))
+    provider = _visual_reply_view_provider(backend)
     model_edit = _backend_widget(backend, "visual_reply_model_edit")
     raw_model_name = str(model_edit.text() if model_edit is not None and hasattr(model_edit, "text") else "").strip()
     if raw_model_name:
@@ -548,7 +615,8 @@ def on_visual_reply_model_changed(backend):
         _update_visual_reply_provider_setting(backend, provider, "model", "")
     if model_edit is not None and model_edit.text().strip() != model_name:
         model_edit.setText(model_name)
-    _update_runtime_config(backend, "visual_reply_model", model_name)
+    if _visual_reply_view_is_active(backend, provider):
+        _update_runtime_config(backend, "visual_reply_model", model_name)
     refresh_visual_reply_hint(backend)
     backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_model", "value": model_name})
     backend.save_session()
@@ -613,6 +681,9 @@ class BackendVisualReplyRuntimeMixin:
 
     def _refresh_visual_reply_hint(self):
         refresh_visual_reply_hint(self)
+
+    def _set_visual_reply_view_provider(self, provider, *, refresh=True):
+        return set_visual_reply_view_provider(self, provider, refresh=refresh)
 
     def on_visual_reply_mode_changed(self, choice):
         on_visual_reply_mode_changed(self, choice)

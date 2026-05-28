@@ -46,7 +46,7 @@
           <item>
            <widget class="QLabel" name="musetalk_intro_label">
             <property name="styleSheet"><string notr="true">color: #9fb3c8;</string></property>
-            <property name="text"><string>Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. Pack variants are written under avatar_packs/&lt;pack&gt;/&lt;avatar_id&gt;; Standalone Avatars are written under avatar_packs/stand_alone/&lt;avatar_id&gt; so they can be distributed without machine-specific paths.</string></property>
+               <property name="text"><string>Preprocess a source video, still image, or PNG frame folder into the canonical MuseTalk avatar structure. Pack variants are written under avatar_packs/&lt;pack&gt;/&lt;avatar_id&gt;; Standalone Avatars are written under avatar_packs/stand_alone/&lt;avatar_id&gt; so they can be distributed without machine-specific paths.</string></property>
             <property name="wordWrap"><bool>true</bool></property>
            </widget>
           </item>
@@ -68,7 +68,7 @@
              <item>
               <widget class="QLabel" name="musetalk_source_description">
                <property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property>
-               <property name="text"><string>Pick the prepared avatar you want to inspect, or a source clip/folder you want to preprocess into a MuseTalk avatar.</string></property>
+               <property name="text"><string>Pick the prepared avatar you want to inspect, or a source clip/image/folder you want to preprocess into a MuseTalk avatar.</string></property>
                <property name="wordWrap"><bool>true</bool></property>
               </widget>
              </item>
@@ -94,6 +94,7 @@
               <layout class="QHBoxLayout" name="musetalk_source_row">
                <item><widget class="QLineEdit" name="musetalk_source_edit"/></item>
                <item><widget class="QPushButton" name="btn_musetalk_source_video"><property name="text"><string>Video</string></property></widget></item>
+               <item><widget class="QPushButton" name="btn_musetalk_source_image"><property name="text"><string>Image</string></property></widget></item>
                <item><widget class="QPushButton" name="btn_musetalk_source_folder"><property name="text"><string>Frames</string></property></widget></item>
               </layout>
              </item>

@@ -370,6 +370,7 @@ QTabWidget#tts_runtime_addon_tabs QStackedWidget {
             runtime_box_name = {
                 "chat_runtime_provider_tabs": "chat_runtime_box",
                 "stt_runtime_backend_tabs": "stt_runtime_box",
+                "visual_reply_runtime_provider_tabs": "visual_reply_runtime_box",
             }.get(object_name, "")
             runtime_palette = self._frontend_runtime_group_header_palette(self._ui_object(runtime_box_name)) if runtime_box_name else {}
             tab_bg = str(runtime_palette.get("background") or tab_bg)
@@ -2604,7 +2605,7 @@ QTabWidget QStackedWidget {
                 object_name = str(tabs.objectName() or "").strip()
             except Exception:
                 object_name = ""
-            if object_name != "chat_runtime_provider_tabs":
+            if object_name not in {"chat_runtime_provider_tabs", "visual_reply_runtime_provider_tabs"}:
                 return
             try:
                 active_page = tabs.currentWidget()
@@ -2696,6 +2697,10 @@ QTabWidget QStackedWidget {
                         setter(view_value)
                     self._refresh_frontend_stt_runtime_backend_values()
                     self._refresh_frontend_stt_runtime_backend_controls()
+                elif object_name == "visual_reply_runtime_provider_tabs":
+                    setter = getattr(backend, "_set_visual_reply_view_provider", None)
+                    if callable(setter):
+                        setter(view_value)
             except Exception:
                 pass
             if preserve_combo:
@@ -2873,6 +2878,96 @@ QTabWidget QStackedWidget {
             tabs.setProperty("_nc_runtime_provider_initial_selection_done", True)
             self._refresh_runtime_provider_active_tab_marker(tabs, combo)
             self._refresh_frontend_stt_runtime_backend_controls()
+
+    def _browse_visual_reply_runtime_provider_tab(self, tabs, combo, tab_index):
+            if tabs is None:
+                return
+            try:
+                index = int(tab_index)
+            except Exception:
+                index = -1
+            if index < 0:
+                return
+            page = tabs.widget(index)
+            content = getattr(tabs, "_nc_runtime_active_content", None)
+            if page is None or content is None:
+                return
+            preserved_combo = self._runtime_combo_selection_snapshot(combo)
+            self._runtime_provider_tab_browse_in_progress = True
+            try:
+                layout = page.layout()
+                if layout is None:
+                    layout = QtWidgets.QVBoxLayout(page)
+                    layout.setContentsMargins(0, 0, 0, 0)
+                    layout.setSpacing(8)
+                if content.parentWidget() is not page:
+                    layout.addWidget(content)
+                try:
+                    content.setVisible(True)
+                    content.updateGeometry()
+                    page.updateGeometry()
+                    tabs.updateGeometry()
+                except Exception:
+                    pass
+                try:
+                    view_value = str(page.property("runtime_value") or "").strip().lower()
+                except Exception:
+                    view_value = ""
+                setter = getattr(getattr(self, "backend", None), "_set_visual_reply_view_provider", None)
+                if callable(setter):
+                    setter(view_value)
+                self._restore_runtime_combo_selection(combo, preserved_combo)
+                self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                self._sync_runtime_provider_tabs_height(tabs)
+            finally:
+                def _clear_runtime_tab_browse_guard():
+                    try:
+                        self._restore_runtime_combo_selection(combo, preserved_combo)
+                        self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                    finally:
+                        self._runtime_provider_tab_browse_in_progress = False
+
+                QtCore.QTimer.singleShot(0, _clear_runtime_tab_browse_guard)
+
+    def _sync_visual_reply_runtime_provider_tabs(self):
+            tabs = self._ui_object("visual_reply_runtime_provider_tabs")
+            combo = self._ui_object("visual_reply_provider_combo")
+            if tabs is None or combo is None:
+                return
+            options = self._runtime_combo_options(combo, "Visual Reply Provider")
+            self._rebuild_runtime_provider_tabs(tabs, options, "visual_reply_runtime_provider")
+            self._apply_runtime_provider_tab_shape(tabs)
+            if not bool(tabs.property("_nc_runtime_provider_combo_bound")):
+                try:
+                    tabs.currentChanged.connect(
+                        lambda index=0, tabs=tabs, combo=combo: self._browse_visual_reply_runtime_provider_tab(
+                            tabs,
+                            combo,
+                            index,
+                        )
+                    )
+                    combo.currentIndexChanged.connect(
+                        lambda _index=0, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                            tabs,
+                            combo,
+                            getattr(tabs, "_nc_runtime_active_content", None),
+                            select_tab=True,
+                        )
+                    )
+                    tabs.setProperty("_nc_runtime_provider_combo_bound", True)
+                except Exception:
+                    pass
+            initial_select = not bool(tabs.property("_nc_runtime_provider_initial_selection_done"))
+            self._move_runtime_provider_content_to_active_tab(
+                tabs,
+                combo,
+                getattr(tabs, "_nc_runtime_active_content", None),
+                select_tab=initial_select,
+                sync_combo_on_tab_change=False,
+            )
+            tabs.setProperty("_nc_runtime_provider_initial_selection_done", True)
+            self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            self._sync_runtime_provider_tabs_height(tabs)
 
     def _clear_form_rows_preserving_widgets(self, form):
             if form is None or not hasattr(form, "rowCount"):
@@ -3146,9 +3241,147 @@ QTabWidget QStackedWidget {
             setattr(tabs, "_nc_runtime_active_content", content)
             self._sync_stt_runtime_backend_tabs()
 
+    def _normalize_frontend_visual_reply_runtime_layout(self):
+            group = self._ui_object("visual_reply_group")
+            if group is None or not hasattr(group, "layout"):
+                return
+            existing_tabs = self._ui_object("visual_reply_runtime_provider_tabs")
+            if bool(getattr(group, "_nc_provider_tab_runtime_layout", False)) and existing_tabs is not None:
+                self._sync_visual_reply_runtime_provider_tabs()
+                return
+
+            widgets = {
+                "mode_label": self._ui_object("visual_reply_mode_label"),
+                "mode_combo": self._ui_object("visual_reply_mode_combo"),
+                "provider_label": self._ui_object("visual_reply_provider_label"),
+                "provider_combo": self._ui_object("visual_reply_provider_combo"),
+                "size_label": self._ui_object("visual_reply_size_label"),
+                "size_combo": self._ui_object("visual_reply_size_combo"),
+                "model_label": self._ui_object("visual_reply_model_label"),
+                "model_row": self._ui_object("visual_reply_model_row"),
+                "model_edit": self._ui_object("visual_reply_model_edit"),
+                "workflow_button": self._ui_object("visual_reply_comfyui_workflow_refresh_button"),
+                "api_key_label": self._ui_object("visual_reply_api_key_label"),
+                "api_key_edit": self._ui_object("visual_reply_api_key_edit"),
+                "cleanup_label": self._ui_object("visual_reply_comfyui_cleanup_label"),
+                "cleanup_combo": self._ui_object("visual_reply_comfyui_cleanup_combo"),
+                "auto_show": self._ui_object("visual_reply_auto_show_checkbox"),
+                "hint": self._ui_object("visual_reply_hint_label") or self._ui_object("visual_reply_hint"),
+            }
+            if any(widgets[key] is None for key in ("mode_combo", "provider_combo", "size_combo", "model_edit")):
+                return
+
+            if widgets["model_row"] is None:
+                model_row = QtWidgets.QWidget()
+                model_row.setObjectName("visual_reply_model_row")
+                model_row_layout = QtWidgets.QHBoxLayout(model_row)
+                model_row_layout.setContentsMargins(0, 0, 0, 0)
+                model_row_layout.setSpacing(6)
+                model_row_layout.addWidget(widgets["model_edit"], 1)
+                if widgets["workflow_button"] is not None:
+                    model_row_layout.addWidget(widgets["workflow_button"], 0)
+                widgets["model_row"] = model_row
+
+            def _clear_layout(layout):
+                if layout is None:
+                    return
+                try:
+                    while layout.count():
+                        item = layout.takeAt(0)
+                        if item is None:
+                            continue
+                        widget = item.widget()
+                        if widget is not None:
+                            widget.setParent(None)
+                        child_layout = item.layout()
+                        if child_layout is not None:
+                            _clear_layout(child_layout)
+                except Exception:
+                    pass
+
+            _clear_layout(self._ui_object("visual_reply_form"))
+            group_layout = group.layout()
+            _clear_layout(group_layout)
+
+            selector = QtWidgets.QWidget()
+            selector.setObjectName("visual_reply_runtime_selector_row")
+            selector_layout = QtWidgets.QGridLayout(selector)
+            selector_layout.setContentsMargins(0, 0, 0, 0)
+            selector_layout.setHorizontalSpacing(12)
+            selector_layout.setVerticalSpacing(8)
+            if widgets["mode_label"] is not None:
+                selector_layout.addWidget(widgets["mode_label"], 0, 0, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["mode_combo"], 0, 1)
+            if widgets["provider_label"] is not None:
+                selector_layout.addWidget(widgets["provider_label"], 0, 2, QtCore.Qt.AlignVCenter)
+            selector_layout.addWidget(widgets["provider_combo"], 0, 3)
+            selector_layout.setColumnStretch(1, 1)
+            selector_layout.setColumnStretch(3, 1)
+
+            tabs = self._ui_object("visual_reply_runtime_provider_tabs")
+            if tabs is None:
+                tabs = QtWidgets.QTabWidget()
+                tabs.setObjectName("visual_reply_runtime_provider_tabs")
+            self._apply_runtime_provider_tab_shape(tabs)
+
+            content = self._ui_object("visual_reply_runtime_provider_active_content")
+            if content is None:
+                content = QtWidgets.QWidget()
+                content.setObjectName("visual_reply_runtime_provider_active_content")
+                content_layout = QtWidgets.QVBoxLayout(content)
+                content_layout.setContentsMargins(0, 0, 0, 0)
+                content_layout.setSpacing(8)
+                provider_form = QtWidgets.QFormLayout()
+                provider_form.setObjectName("visual_reply_runtime_provider_active_form")
+                provider_form.setContentsMargins(0, 0, 0, 0)
+                provider_form.setHorizontalSpacing(12)
+                provider_form.setVerticalSpacing(8)
+                provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                content_layout.addLayout(provider_form)
+            else:
+                provider_form = content.findChild(QtWidgets.QFormLayout, "visual_reply_runtime_provider_active_form")
+                if provider_form is None:
+                    provider_form = QtWidgets.QFormLayout()
+                    provider_form.setObjectName("visual_reply_runtime_provider_active_form")
+                    provider_form.setContentsMargins(0, 0, 0, 0)
+                    provider_form.setHorizontalSpacing(12)
+                    provider_form.setVerticalSpacing(8)
+                    provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                    if content.layout() is None:
+                        content_layout = QtWidgets.QVBoxLayout(content)
+                        content_layout.setContentsMargins(0, 0, 0, 0)
+                        content_layout.setSpacing(8)
+                    content.layout().addLayout(provider_form)
+            self._clear_form_rows_preserving_widgets(provider_form)
+            if widgets["size_label"] is not None:
+                provider_form.addRow(widgets["size_label"], widgets["size_combo"])
+            if widgets["model_label"] is not None:
+                provider_form.addRow(widgets["model_label"], widgets["model_row"])
+            if widgets["api_key_label"] is not None and widgets["api_key_edit"] is not None:
+                provider_form.addRow(widgets["api_key_label"], widgets["api_key_edit"])
+            if widgets["cleanup_label"] is not None and widgets["cleanup_combo"] is not None:
+                provider_form.addRow(widgets["cleanup_label"], widgets["cleanup_combo"])
+            if widgets["auto_show"] is not None:
+                provider_form.addRow(widgets["auto_show"])
+            if widgets["hint"] is not None:
+                provider_form.addRow(widgets["hint"])
+
+            try:
+                group_layout.setContentsMargins(12, 14, 12, 12)
+                group_layout.setSpacing(8)
+                group_layout.addWidget(selector)
+                group_layout.addWidget(tabs)
+                setattr(group, "_nc_provider_tab_runtime_layout", True)
+                setattr(group, "_nc_horizontal_runtime_layout", True)
+            except Exception:
+                pass
+            setattr(tabs, "_nc_runtime_active_content", content)
+            self._sync_visual_reply_runtime_provider_tabs()
+
     def _normalize_frontend_runtime_section_layouts(self):
             self._normalize_frontend_chat_runtime_layout()
             self._normalize_frontend_stt_runtime_layout()
+            self._normalize_frontend_visual_reply_runtime_layout()
             self._normalize_frontend_chat_runtime_editor_widths()
 
     def _restore_frontend_expanded_runtime_group(self, group_box):

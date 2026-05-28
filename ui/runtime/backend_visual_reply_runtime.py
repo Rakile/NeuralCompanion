@@ -59,6 +59,9 @@ class BackendVisualReplyRuntimeMixin:
     def _refresh_visual_reply_hint(self):
         return self._invoke_visual_reply_runtime("_refresh_visual_reply_hint")
 
+    def _set_visual_reply_view_provider(self, provider, *, refresh=True):
+        return self._invoke_visual_reply_runtime("_set_visual_reply_view_provider", provider, refresh=refresh)
+
     def on_visual_reply_mode_changed(self, choice):
         return self._invoke_visual_reply_runtime("on_visual_reply_mode_changed", choice)
 

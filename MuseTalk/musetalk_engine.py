@@ -39,6 +39,9 @@ def fast_check_ffmpeg():
         return False
 
 
+IMAGE_SOURCE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".bmp", ".webp"}
+
+
 def video2imgs(vid_path, save_path, ext=".png", cut_frame=10000000):
     cap = cv2.VideoCapture(vid_path)
     count = 0
@@ -902,9 +905,13 @@ class MuseTalkEngine:
         )
         normalized_mask_ranges = self._normalize_mask_ranges(mask_ranges, default_bbox_shift=prepared.bbox_shift)
         normalized_mask_overrides = self._normalize_mask_overrides(mask_overrides)
+        source_ext = os.path.splitext(video_path)[1].lower() if os.path.isfile(video_path) else ""
+        source_type = "frames" if os.path.isdir(video_path) else ("image" if source_ext in IMAGE_SOURCE_EXTENSIONS else "video")
         avatar_info = {
             "avatar_id": prepared.avatar_id,
             "video_path": video_path,
+            "source_path": video_path,
+            "source_type": source_type,
             "bbox_shift": prepared.bbox_shift,
             "version": prepared.version,
             "extra_margin": mask_settings["extra_margin"],
@@ -918,16 +925,30 @@ class MuseTalkEngine:
             json.dump(avatar_info, f)
 
         if os.path.isfile(video_path):
-            video2imgs(video_path, prepared.full_imgs_path, ext=".png")
+            if source_ext in IMAGE_SOURCE_EXTENSIONS:
+                frame = cv2.imread(video_path)
+                if frame is None:
+                    raise RuntimeError(f"Could not read MuseTalk source image: {video_path}")
+                cv2.imwrite(os.path.join(prepared.full_imgs_path, "00000000.png"), frame)
+            else:
+                video2imgs(video_path, prepared.full_imgs_path, ext=".png")
         else:
-            files = [file for file in os.listdir(video_path) if file.lower().endswith(".png")]
+            files = [
+                file
+                for file in os.listdir(video_path)
+                if os.path.splitext(file)[1].lower() in IMAGE_SOURCE_EXTENSIONS
+            ]
             for filename in sorted(files):
-                shutil.copyfile(
-                    os.path.join(video_path, filename),
-                    os.path.join(prepared.full_imgs_path, filename),
-                )
+                source_file = os.path.join(video_path, filename)
+                frame = cv2.imread(source_file)
+                if frame is None:
+                    continue
+                output_name = f"{len(os.listdir(prepared.full_imgs_path)):08d}.png"
+                cv2.imwrite(os.path.join(prepared.full_imgs_path, output_name), frame)
 
         input_img_list = sorted(glob.glob(os.path.join(prepared.full_imgs_path, "*.[jpJP][pnPN]*[gG]")))
+        if not input_img_list:
+            raise RuntimeError(f"No readable image frames were produced from MuseTalk source: {video_path}")
         bbox_shift_values = sorted({int(prepared.bbox_shift)} | {int(entry.get("bbox_shift", prepared.bbox_shift) or prepared.bbox_shift) for entry in normalized_mask_ranges})
         coords_by_shift = {}
         frame_list = None

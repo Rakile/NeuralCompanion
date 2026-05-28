@@ -53,8 +53,9 @@ MUSETALK_PREPROCESS_TOOLTIPS = {
     "btn_musetalk_avatar_refresh": "Refresh prepared variants for the selected pack.",
     "btn_musetalk_clear_frame_cache": "Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.",
     "btn_musetalk_make_default_avatar": "Make the selected prepared variant the locked base/default avatar for this pack.",
-    "musetalk_source_edit": "Source video file or PNG frame folder used to create a prepared MuseTalk avatar.",
+    "musetalk_source_edit": "Source video, still image, or PNG frame folder used to create a prepared MuseTalk avatar.",
     "btn_musetalk_source_video": "Choose a source video for preprocessing.",
+    "btn_musetalk_source_image": "Choose a still image for preprocessing.",
     "btn_musetalk_source_folder": "Choose a folder of PNG frames for preprocessing.",
     "musetalk_avatar_id_edit": "Folder-safe variant id written under the selected avatar pack.",
     "musetalk_recreate_checkbox": "Allow preprocessing to replace an existing variant folder with the same Avatar ID.",
@@ -584,12 +585,15 @@ class MuseTalkPreprocessController(QtCore.QObject):
             self.btn_musetalk_make_default_avatar.clicked.connect(self.make_selected_musetalk_avatar_default)
 
         self.musetalk_source_edit = source_edit
-        self.musetalk_source_edit.setPlaceholderText("Source video (.mp4/.mov/...) or folder of PNG frames")
+        self.musetalk_source_edit.setPlaceholderText("Source video, still image, or folder of PNG frames")
         self.musetalk_source_edit.textChanged.connect(self._update_musetalk_avatar_destination_hint)
         self.musetalk_source_edit.textChanged.connect(self._on_musetalk_source_changed)
         self.btn_musetalk_source_video = self._ui_child(root, "btn_musetalk_source_video", QtWidgets.QPushButton)
         if self.btn_musetalk_source_video is not None:
             self.btn_musetalk_source_video.clicked.connect(self.browse_musetalk_source_video)
+        self.btn_musetalk_source_image = self._ui_child(root, "btn_musetalk_source_image", QtWidgets.QPushButton)
+        if self.btn_musetalk_source_image is not None:
+            self.btn_musetalk_source_image.clicked.connect(self.browse_musetalk_source_image)
         self.btn_musetalk_source_folder = self._ui_child(root, "btn_musetalk_source_folder", QtWidgets.QPushButton)
         if self.btn_musetalk_source_folder is not None:
             self.btn_musetalk_source_folder.clicked.connect(self.browse_musetalk_source_folder)
@@ -804,7 +808,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         musetalk_layout = QtWidgets.QVBoxLayout(musetalk_box)
 
         musetalk_intro = QtWidgets.QLabel(
-            "Preprocess a source video or PNG frame folder into the canonical MuseTalk avatar structure. "
+            "Preprocess a source video, still image, or PNG frame folder into the canonical MuseTalk avatar structure. "
             "Pack variants are written under avatar_packs/<pack>/<avatar_id>; Standalone Avatars are written under "
             "avatar_packs/stand_alone/<avatar_id> so they can be distributed without machine-specific paths."
         )
@@ -830,7 +834,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
 
         source_card, source_card_layout = build_musetalk_card(
             "Source",
-            "Pick the prepared avatar you want to inspect, or a source clip/folder you want to preprocess into a MuseTalk avatar.",
+            "Pick the prepared avatar you want to inspect, or a source clip/image/folder you want to preprocess into a MuseTalk avatar.",
         )
         pack_row = QtWidgets.QHBoxLayout()
         self.musetalk_target_pack_combo = NoWheelComboBox()
@@ -874,17 +878,21 @@ class MuseTalkPreprocessController(QtCore.QObject):
         source_row = QtWidgets.QHBoxLayout()
         self.musetalk_source_edit = QtWidgets.QLineEdit()
         self.musetalk_source_edit.setObjectName("musetalk_source_edit")
-        self.musetalk_source_edit.setPlaceholderText("Source video (.mp4/.mov/...) or folder of PNG frames")
+        self.musetalk_source_edit.setPlaceholderText("Source video, still image, or folder of PNG frames")
         self.musetalk_source_edit.textChanged.connect(self._update_musetalk_avatar_destination_hint)
         self.musetalk_source_edit.textChanged.connect(self._on_musetalk_source_changed)
         source_row.addWidget(self.musetalk_source_edit, 1)
         self.btn_musetalk_source_video = QtWidgets.QPushButton("Video")
         self.btn_musetalk_source_video.setObjectName("btn_musetalk_source_video")
         self.btn_musetalk_source_video.clicked.connect(self.browse_musetalk_source_video)
+        self.btn_musetalk_source_image = QtWidgets.QPushButton("Image")
+        self.btn_musetalk_source_image.setObjectName("btn_musetalk_source_image")
+        self.btn_musetalk_source_image.clicked.connect(self.browse_musetalk_source_image)
         self.btn_musetalk_source_folder = QtWidgets.QPushButton("Frames")
         self.btn_musetalk_source_folder.setObjectName("btn_musetalk_source_folder")
         self.btn_musetalk_source_folder.clicked.connect(self.browse_musetalk_source_folder)
         source_row.addWidget(self.btn_musetalk_source_video)
+        source_row.addWidget(self.btn_musetalk_source_image)
         source_row.addWidget(self.btn_musetalk_source_folder)
         source_card_layout.addWidget(QtWidgets.QLabel("Source"))
         source_card_layout.addLayout(source_row)
@@ -2162,6 +2170,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "btn_musetalk_avatar_refresh",
             "btn_musetalk_clear_frame_cache",
             "btn_musetalk_source_video",
+            "btn_musetalk_source_image",
             "btn_musetalk_source_folder",
             "musetalk_source_edit",
             "musetalk_avatar_id_edit",
@@ -2211,6 +2220,24 @@ class MuseTalkPreprocessController(QtCore.QObject):
                 "Select MuseTalk Source Video",
                 str(Path.cwd()),
                 "Video Files (*.mp4 *.mov *.avi *.mkv *.webm);;All Files (*)",
+            )
+        if path:
+            self.musetalk_source_edit.setText(path)
+            self._ensure_musetalk_source_frame_info(path)
+
+    def browse_musetalk_source_image(self):
+        if self.dialogs is not None:
+            path, _ = self.dialogs.open_file(
+                "Select MuseTalk Source Image",
+                str(Path.cwd()),
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)",
+            )
+        else:
+            path, _ = QtWidgets.QFileDialog.getOpenFileName(
+                None,
+                "Select MuseTalk Source Image",
+                str(Path.cwd()),
+                "Image Files (*.png *.jpg *.jpeg *.bmp *.webp);;All Files (*)",
             )
         if path:
             self.musetalk_source_edit.setText(path)
@@ -2282,7 +2309,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self._stop_cached_musetalk_tool_bridge()
         source_path = str(self.musetalk_source_edit.text() or "").strip()
         if not source_path:
-            self._warn("MuseTalk Avatar", "Choose a source video or frame folder first.")
+            self._warn("MuseTalk Avatar", "Choose a source video, still image, or frame folder first.")
             return
         source = Path(source_path)
         if not source.exists():
@@ -2403,7 +2430,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if not source_path:
             self._warn(
                 "MuseTalk Avatar",
-                "Choose a source video/frame folder or select a prepared avatar with stored metadata first.",
+                "Choose a source video/still image/frame folder or select a prepared avatar with stored metadata first.",
             )
             return
         source = Path(source_path)
@@ -2500,7 +2527,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             return
         source_path = str(self.musetalk_source_edit.text() or "").strip() if hasattr(self, "musetalk_source_edit") else ""
         if not source_path:
-            self._warn("MuseTalk Avatar", "Choose a source video or frame folder first.")
+            self._warn("MuseTalk Avatar", "Choose a source video, still image, or frame folder first.")
             return
         source = Path(source_path)
         if not source.exists():
