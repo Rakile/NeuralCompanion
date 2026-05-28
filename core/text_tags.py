@@ -37,8 +37,13 @@ def is_emotion_tag(tag_name, available_emotion_names):
     return normalized in set(str(name or "").strip().lower() for name in available_emotion_names or [])
 
 
-def parse_text_segments(text, available_emotion_names):
+def parse_text_segments(text, available_emotion_names, supported_sound_tag_names=None):
     """Split reply text into emotion-tagged speech segments."""
+    sound_names = SOUND_TAG_NAMES if supported_sound_tag_names is None else {
+        str(name or "").strip().lower()
+        for name in supported_sound_tag_names or []
+        if str(name or "").strip()
+    }
     current_emotion = "neutral"
     segments = []
     current_buffer = []
@@ -49,7 +54,7 @@ def parse_text_segments(text, available_emotion_names):
         clean_part = part.strip()
         if clean_part.startswith("[") and clean_part.endswith("]"):
             normalized_tag = normalize_bracket_tag(clean_part)
-            if is_sound_tag(normalized_tag):
+            if str(normalized_tag or "").strip().lower() in sound_names:
                 current_buffer.append(part)
             elif is_emotion_tag(normalized_tag, available_emotion_names):
                 if current_buffer:
@@ -59,7 +64,7 @@ def parse_text_segments(text, available_emotion_names):
                     current_buffer = []
                 current_emotion = normalized_tag
             else:
-                current_buffer.append(part)
+                current_buffer.append(" ")
         else:
             current_buffer.append(part)
     if current_buffer:
@@ -91,4 +96,3 @@ def looks_like_control_tag_prefix(fragment):
         if sound_name.startswith(value_lower):
             return True
     return False
-

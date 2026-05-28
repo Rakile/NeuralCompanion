@@ -1677,13 +1677,14 @@ def intelligent_chunk_text_progressive(long_text: str, start_chunk_index: int = 
 def sanitize_assistant_text_for_speech(text: str, *, preserve_emotion_tags: bool = False) -> str:
     # Keep the public engine helper stable while the text cleanup lives in the
     # smaller speech-text module.
+    supported_sound_tags = get_tts_supported_sound_tag_names()
     return speech_text.sanitize_assistant_text_for_speech(
         text,
         preserve_emotion_tags=preserve_emotion_tags,
         strip_visual_tail=_strip_visual_reply_tail,
         visual_reply_tag_re=VISUAL_REPLY_TAG_RE,
         normalize_bracket_tag=normalize_bracket_tag,
-        is_sound_tag=is_sound_tag,
+        is_sound_tag=lambda tag: str(tag or "").strip().lower() in supported_sound_tags,
         is_emotion_tag=is_emotion_tag,
     )
 
@@ -1761,6 +1762,49 @@ def is_single_word_control_tag(tag_name):
 
 def is_sound_tag(tag_name):
     return text_tags.is_sound_tag(tag_name)
+
+
+def get_tts_supported_sound_tag_names():
+    backend = str(RUNTIME_CONFIG.get("tts_backend", "") or "").strip().lower()
+    if not backend or backend == "none":
+        return set()
+    manager = _get_addon_manager()
+    if manager is not None:
+        try:
+            entries = list(manager.list_registered_services() or [])
+        except Exception:
+            entries = []
+        for entry in entries:
+            metadata = dict(entry.get("metadata") or {})
+            kind = str(metadata.get("kind", "") or "").strip().lower()
+            if kind not in {"tts", "tts_backend", "text_to_speech"}:
+                continue
+            service_name = str(entry.get("name") or "").strip().lower()
+            candidate_id = str(metadata.get("backend_id") or service_name).strip().lower()
+            candidate_label = str(metadata.get("label") or "").strip().lower()
+            if backend not in {candidate_id, service_name, candidate_label}:
+                continue
+            raw_tags = (
+                metadata.get("supported_speech_tags")
+                or metadata.get("supported_sound_tags")
+                or metadata.get("supported_tts_tags")
+                or []
+            )
+            if isinstance(raw_tags, str):
+                raw_tags = [raw_tags]
+            supported = set()
+            for item in list(raw_tags or []):
+                normalized = normalize_bracket_tag(item) or str(item or "").strip().lower()
+                if normalized:
+                    supported.add(normalized)
+            return supported
+    if backend in {"chatterbox", "chatterbox_multilingual"}:
+        return set(SOUND_TAG_NAMES)
+    return set()
+
+
+def is_supported_tts_sound_tag(tag_name):
+    return str(tag_name or "").strip().lower() in get_tts_supported_sound_tag_names()
 
 
 def is_emotion_tag(tag_name, available_emotion_names=None):
@@ -3550,7 +3594,7 @@ def finalize_assistant_reply(raw_text: str):
 
 
 def parse_text_segments(text):
-    return text_tags.parse_text_segments(text, get_available_emotion_names())
+    return text_tags.parse_text_segments(text, get_available_emotion_names(), get_tts_supported_sound_tag_names())
 
 
 def get_last_emotion_tag(text):

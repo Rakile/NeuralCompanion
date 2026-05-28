@@ -50,6 +50,7 @@ class Addon(BaseAddon):
                 "preferred_for_streaming": False,
                 "preferred_for_non_streaming": False,
                 "supports_voice_reference": False,
+                "supported_speech_tags": [],
                 "runtime_overhead_gib": 0.1,
             },
         )

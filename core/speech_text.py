@@ -41,11 +41,7 @@ def sanitize_assistant_text_for_speech(
             else (
                 _protect_bracket_token(match)
                 if preserve_emotion_tags and is_emotion_tag(normalize_bracket_tag(match.group(0)))
-                else (
-                    ""
-                    if is_emotion_tag(normalize_bracket_tag(match.group(0)))
-                    else _protect_bracket_token(match)
-                )
+                else " "
             )
         ),
         value,

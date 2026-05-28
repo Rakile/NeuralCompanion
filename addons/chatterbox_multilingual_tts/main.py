@@ -50,6 +50,7 @@ class Addon(BaseAddon):
                 "preferred_for_streaming": False,
                 "preferred_for_non_streaming": False,
                 "supports_voice_reference": True,
+                "supported_speech_tags": ["clear throat", "sigh", "shush", "groan", "sniff", "gasp", "chuckle", "laugh"],
                 "runtime_overhead_gib": 5.8,
                 "real_ui_bridge_module": "addons.chatterbox_multilingual_tts.real_ui_bridge",
             },

@@ -50,6 +50,7 @@ class Addon(BaseAddon):
                 "preferred_for_streaming": False,
                 "preferred_for_non_streaming": False,
                 "supports_voice_reference": True,
+                "supported_speech_tags": [],
                 "runtime_overhead_gib": 2.0,
                 "real_ui_bridge_module": "addons.pockettts_multilingual_tts.real_ui_bridge",
             },
