@@ -9,7 +9,7 @@ import time
 import traceback
 from pathlib import Path
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 _CRASH_LOG_HANDLE = None
 _CRASH_LOG_PATH = None
@@ -198,6 +198,12 @@ def run_qt_app(argv=None):
     _install_crash_diagnostics()
     app = QtWidgets.QApplication(sys.argv)
     app.setApplicationName(APP_TITLE)
+    try:
+        icon = QtGui.QIcon(str(APP_ICON_PATH))
+        if not icon.isNull():
+            app.setWindowIcon(icon)
+    except Exception:
+        pass
     _install_no_wheel_input_guard(app)
 
     if len(argv) >= 1 and str(argv[0] or "").strip().lower() in {"--ui-preview", "--ui-file"}:

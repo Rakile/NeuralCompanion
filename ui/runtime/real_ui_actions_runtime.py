@@ -175,15 +175,45 @@ class RealUiActionsRuntimeMixin:
             self._refresh_host_input_runtime_frontend()
 
     def _on_frontend_stt_backend_changed(self, _index=None):
+            if bool(getattr(self, "_runtime_provider_tab_browse_in_progress", False)):
+                return
             self._sync_single_combo_to_backend("stt_backend_combo")
             self._refresh_host_input_runtime_frontend()
+            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+
+    def _frontend_combo_current_value(self, object_name):
+            combo = self._ui_object(object_name)
+            if combo is None:
+                return ""
+            try:
+                data = combo.currentData() if hasattr(combo, "currentData") else None
+            except Exception:
+                data = None
+            if data is not None:
+                return str(data or "").strip()
+            try:
+                return str(combo.currentText() or "").strip()
+            except Exception:
+                return ""
 
     def _on_frontend_stt_model_changed(self, _index=None):
-            self._sync_single_combo_to_backend("stt_model_combo")
+            setter = getattr(self.backend, "_set_stt_editor_runtime_values", None)
+            if callable(setter):
+                language = self._frontend_combo_current_value("stt_language_combo")
+                setter(model_value=self._frontend_combo_current_value("stt_model_combo"), language_value=language)
+            else:
+                self._sync_single_combo_to_backend("stt_model_combo")
             self._refresh_host_input_runtime_frontend()
 
     def _on_frontend_stt_language_changed(self, _index=None):
-            self._sync_single_combo_to_backend("stt_language_combo")
+            setter = getattr(self.backend, "_set_stt_editor_runtime_values", None)
+            if callable(setter):
+                setter(
+                    model_value=self._frontend_combo_current_value("stt_model_combo"),
+                    language_value=self._frontend_combo_current_value("stt_language_combo"),
+                )
+            else:
+                self._sync_single_combo_to_backend("stt_language_combo")
             self._refresh_host_input_runtime_frontend()
 
     def _on_frontend_tts_backend_changed(self, _index=None):

@@ -63,6 +63,7 @@ def _configure_real_ui_bridge_dependencies():
     configure_real_ui_bridge_dependencies({
         "APP_THEME_PRESET_LABELS": APP_THEME_PRESET_LABELS,
         "APP_THEME_PRESET_WIDGETS": APP_THEME_PRESET_WIDGETS,
+        "APP_ICON_PATH": APP_ICON_PATH,
         "APP_TITLE": APP_TITLE,
         "AddonCapabilityBridgeService": AddonCapabilityBridgeService,
         "CompanionQtMainWindow": CompanionQtMainWindow,
@@ -113,6 +114,7 @@ def _configure_real_ui_bridge_dependencies():
 
 def _configure_app_entry_dependencies():
     configure_app_entry_dependencies({
+        "APP_ICON_PATH": APP_ICON_PATH,
         "APP_TITLE": APP_TITLE,
         "CompanionQtMainWindow": CompanionQtMainWindow,
         "MainUiRealRuntimeBridge": MainUiRealRuntimeBridge,
@@ -345,4 +347,3 @@ def _configure_ui_shell_preview_dependencies():
         "_ui_shell_compose_status_line": _ui_shell_compose_status_line,
         "_ui_shell_mount_live_addons": _ui_shell_mount_live_addons,
     })
-

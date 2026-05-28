@@ -12,8 +12,196 @@ def configure_real_ui_layout_dependencies(namespace):
     globals().update(dict(namespace or {}))
 
 
+class _RuntimeProviderTabBar(QtWidgets.QTabBar):
+    """Paint the active runtime tab independently from the currently viewed tab."""
+
+    _ACTIVE_BG = QtGui.QColor("#123626")
+    _ACTIVE_BORDER = QtGui.QColor("#2cc985")
+    _ACTIVE_TEXT = QtGui.QColor("#f4fffa")
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._active_runtime_value = ""
+
+    def set_active_runtime_value(self, value):
+        value = str(value or "").strip().lower()
+        if value == self._active_runtime_value:
+            return
+        self._active_runtime_value = value
+        self.update()
+
+    def _is_active_runtime_tab(self, index):
+        try:
+            value = str(self.tabData(index) or "").strip().lower()
+        except Exception:
+            value = ""
+        return bool(value and value == self._active_runtime_value)
+
+    def sizeHint(self):
+        return super().sizeHint()
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        hint.setWidth(0)
+        return hint
+
+    def paintEvent(self, event):
+        painter = QtWidgets.QStylePainter(self)
+        for index in range(self.count()):
+            option = QtWidgets.QStyleOptionTab()
+            self.initStyleOption(option, index)
+            if not self._is_active_runtime_tab(index):
+                painter.drawControl(QtWidgets.QStyle.CE_TabBarTab, option)
+                continue
+
+            rect = option.rect.adjusted(0, 1, -1, 0)
+            path = QtGui.QPainterPath()
+            path.addRoundedRect(QtCore.QRectF(rect), 6, 6)
+            painter.save()
+            painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+            painter.fillPath(path, self._ACTIVE_BG)
+            painter.setPen(QtGui.QPen(self._ACTIVE_BORDER, 1))
+            painter.drawPath(path)
+            painter.restore()
+
+            option.palette.setColor(QtGui.QPalette.ButtonText, self._ACTIVE_TEXT)
+            option.palette.setColor(QtGui.QPalette.WindowText, self._ACTIVE_TEXT)
+            option.palette.setColor(QtGui.QPalette.Text, self._ACTIVE_TEXT)
+            painter.drawControl(QtWidgets.QStyle.CE_TabBarTabLabel, option)
+
+
 class MainUiRealLayoutMixin:
     """Layout, docking, and collapsible-card helpers for the runtime-backed main.ui bridge."""
+
+    def _ensure_runtime_provider_tab_bar(self, tabs, *, preserve_existing=False):
+            if tabs is None:
+                return None
+            try:
+                tab_bar = tabs.tabBar()
+            except Exception:
+                return None
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                return tab_bar
+            try:
+                if int(tabs.count()) == 0:
+                    tab_bar = _RuntimeProviderTabBar(tabs)
+                    tabs.setTabBar(tab_bar)
+                    return tab_bar
+            except Exception:
+                pass
+            if not preserve_existing:
+                return tab_bar
+            try:
+                current_index = int(tabs.currentIndex())
+            except Exception:
+                current_index = 0
+            items = []
+            try:
+                count = int(tabs.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    items.append(
+                        {
+                            "widget": tabs.widget(index),
+                            "text": str(tabs.tabText(index) or ""),
+                            "icon": tabs.tabIcon(index),
+                            "tooltip": str(tabs.tabToolTip(index) or ""),
+                            "enabled": bool(tabs.isTabEnabled(index)),
+                            "data": tab_bar.tabData(index) if tab_bar is not None else None,
+                        }
+                    )
+                except Exception:
+                    pass
+            if not items:
+                return tab_bar
+            blocker = None
+            try:
+                blocker = QtCore.QSignalBlocker(tabs)
+                while tabs.count():
+                    tabs.removeTab(0)
+                tab_bar = _RuntimeProviderTabBar(tabs)
+                tabs.setTabBar(tab_bar)
+                for item in items:
+                    widget = item.get("widget")
+                    if widget is None:
+                        continue
+                    icon = item.get("icon")
+                    text = str(item.get("text") or "")
+                    if icon is not None and not icon.isNull():
+                        new_index = tabs.addTab(widget, icon, text)
+                    else:
+                        new_index = tabs.addTab(widget, text)
+                    tooltip = str(item.get("tooltip") or "")
+                    if tooltip:
+                        tabs.setTabToolTip(new_index, tooltip)
+                    tabs.setTabEnabled(new_index, bool(item.get("enabled", True)))
+                    data = item.get("data")
+                    if data is not None:
+                        tab_bar.setTabData(new_index, data)
+                if tabs.count():
+                    tabs.setCurrentIndex(max(0, min(current_index, tabs.count() - 1)))
+                return tab_bar
+            except Exception:
+                return tabs.tabBar()
+            finally:
+                if blocker is not None:
+                    del blocker
+            return tab_bar
+
+    def _sync_tts_runtime_tab_backend_data(self, tabs=None):
+            tabs = tabs or self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
+            if tabs is None:
+                return
+            try:
+                tab_bar = tabs.tabBar()
+            except Exception:
+                tab_bar = None
+            backend = getattr(self, "backend", None)
+            label_to_value = getattr(backend, "_tts_backend_value_from_label", None)
+            try:
+                count = int(tabs.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                page = tabs.widget(index)
+                backend_id = ""
+                if page is not None:
+                    try:
+                        backend_id = str(page.property("backend_id") or "").strip().lower()
+                    except Exception:
+                        backend_id = ""
+                if not backend_id and tab_bar is not None:
+                    try:
+                        backend_id = str(tab_bar.tabData(index) or "").strip().lower()
+                    except Exception:
+                        backend_id = ""
+                if not backend_id and callable(label_to_value):
+                    try:
+                        backend_id = str(label_to_value(tabs.tabText(index)) or "").strip().lower()
+                    except Exception:
+                        backend_id = ""
+                if not backend_id:
+                    continue
+                try:
+                    if page is not None:
+                        page.setProperty("runtime_value", backend_id)
+                except Exception:
+                    pass
+                try:
+                    if tab_bar is not None:
+                        tab_bar.setTabData(index, backend_id)
+                except Exception:
+                    pass
+
+    def _refresh_tts_runtime_active_tab_marker(self):
+            tabs = self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
+            combo = self._ui("tts_backend_combo", QtWidgets.QComboBox)
+            if tabs is None or combo is None:
+                return
+            self._sync_tts_runtime_tab_backend_data(tabs)
+            self._refresh_runtime_provider_active_tab_marker(tabs, combo)
 
     def _apply_tts_runtime_tab_shape(self, tabs=None, palette=None):
             tabs = tabs or self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
@@ -35,13 +223,29 @@ class MainUiRealLayoutMixin:
                 tabs.setDocumentMode(False)
                 tabs.setUsesScrollButtons(True)
                 tabs.setElideMode(QtCore.Qt.ElideRight)
-                tab_bar = tabs.tabBar()
+                tabs.setMinimumWidth(0)
+                tabs_policy = tabs.sizePolicy()
+                tabs_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                tabs.setSizePolicy(tabs_policy)
+                tab_bar = self._ensure_runtime_provider_tab_bar(tabs, preserve_existing=True)
                 if tab_bar is not None:
                     tab_bar.setExpanding(False)
                     tab_bar.setUsesScrollButtons(True)
                     tab_bar.setElideMode(QtCore.Qt.ElideRight)
+                    tab_bar.setMinimumWidth(0)
+                    tab_policy = tab_bar.sizePolicy()
+                    tab_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                    tab_bar.setSizePolicy(tab_policy)
+                    tab_bar.setMinimumHeight(36)
+                    tab_bar.setMaximumHeight(40)
             except Exception:
                 pass
+            runtime_palette = self._frontend_runtime_group_header_palette(self._ui_object("tts_runtime_box"))
+            tab_bg = str(runtime_palette.get("background") or tab_bg)
+            tab_checked = str(runtime_palette.get("checked") or tab_bg)
+            tab_hover = str(runtime_palette.get("hover") or tab_hover)
+            tab_border = str(runtime_palette.get("border") or border)
+            tab_text = str(runtime_palette.get("text") or "#f2f5f9")
             style = """
 /* nc-tts-runtime-tab-shape:start */
 QTabWidget#tts_runtime_addon_tabs::tab-bar {
@@ -51,14 +255,35 @@ QTabWidget#tts_runtime_addon_tabs QTabBar {
     background: FIELD_BG;
     qproperty-expanding: false;
 }
+QTabWidget#tts_runtime_addon_tabs QTabBar::scroller {
+    width: 34px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar QToolButton {
+    background: FIELD_BG;
+    color: TAB_TEXT;
+    border: 1px solid TAB_BORDER;
+    border-radius: 4px;
+    width: 16px;
+    min-width: 16px;
+    max-width: 16px;
+    padding: 0px;
+    margin: 8px 1px 2px 1px;
+}
+QTabWidget#tts_runtime_addon_tabs QTabBar QToolButton:hover {
+    background: TAB_HOVER;
+}
 QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
     background: TAB_BG;
-    border: 1px solid BORDER;
-    width: 150px;
-    min-width: 150px;
-    max-width: 150px;
-    min-height: 24px;
-    padding: 5px 10px 6px 10px;
+    color: TAB_TEXT;
+    font-weight: 700;
+    border: 1px solid TAB_BORDER;
+    width: 118px;
+    min-width: 118px;
+    max-width: 118px;
+    height: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0px 14px;
     margin-left: 0px;
     margin-right: 1px;
     margin-bottom: -1px;
@@ -71,12 +296,12 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected {
     margin-top: 1px;
 }
 QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
-    background: FIELD_BG;
-    border-color: BORDER;
+    background: TAB_CHECKED;
+    border-color: TAB_BORDER;
     border-bottom-color: FIELD_BG;
     margin-right: 1px;
     margin-bottom: -1px;
-    padding-bottom: 6px;
+    padding-bottom: 0px;
 }
 QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
     background: TAB_HOVER;
@@ -84,7 +309,7 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
 QTabWidget#tts_runtime_addon_tabs::pane {
     top: -1px;
     background: FIELD_BG;
-    border: 1px solid BORDER;
+    border: 1px solid TAB_BORDER;
     border-top-left-radius: 0px;
     border-top-right-radius: 8px;
     border-bottom-left-radius: 8px;
@@ -100,13 +325,172 @@ QTabWidget#tts_runtime_addon_tabs QStackedWidget {
             style = (
                 style.replace("FIELD_BG", field_bg)
                 .replace("TAB_BG", tab_bg)
+                .replace("TAB_CHECKED", tab_checked)
                 .replace("TAB_HOVER", tab_hover)
+                .replace("TAB_BORDER", tab_border)
+                .replace("TAB_TEXT", tab_text)
                 .replace("BORDER", border)
             )
             try:
                 existing = str(tabs.styleSheet() or "").strip()
                 start = "/* nc-tts-runtime-tab-shape:start */"
                 end = "/* nc-tts-runtime-tab-shape:end */"
+                if start in existing and end in existing:
+                    before, rest = existing.split(start, 1)
+                    _old, after = rest.split(end, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                next_style = f"{existing}\n{style}".strip() if existing else style
+                if str(tabs.styleSheet() or "") != next_style:
+                    tabs.setStyleSheet(next_style)
+            except Exception:
+                pass
+            self._refresh_tts_runtime_active_tab_marker()
+
+    def _apply_runtime_provider_tab_shape(self, tabs=None, palette=None):
+            if tabs is None:
+                return
+            try:
+                object_name = str(tabs.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            if not object_name:
+                return
+            if palette is None:
+                try:
+                    current_preset = _normalize_app_theme_preset_id(
+                        getattr(self.backend, "_active_app_theme_preset", RUNTIME_CONFIG.get("ui_theme_preset", DEFAULT_APP_THEME_PRESET))
+                    )
+                    palette = _app_theme_palette(current_preset)
+                except Exception:
+                    palette = {}
+            field_bg = str((palette or {}).get("field_bg") or "#0f141b")
+            tab_bg = str((palette or {}).get("tab_bg") or "#17212c")
+            tab_hover = str((palette or {}).get("tab_hover_bg") or "#223247")
+            border = str((palette or {}).get("surface_border") or "#273342")
+            runtime_box_name = {
+                "chat_runtime_provider_tabs": "chat_runtime_box",
+                "stt_runtime_backend_tabs": "stt_runtime_box",
+            }.get(object_name, "")
+            runtime_palette = self._frontend_runtime_group_header_palette(self._ui_object(runtime_box_name)) if runtime_box_name else {}
+            tab_bg = str(runtime_palette.get("background") or tab_bg)
+            tab_checked = str(runtime_palette.get("checked") or tab_bg)
+            tab_hover = str(runtime_palette.get("hover") or tab_hover)
+            tab_border = str(runtime_palette.get("border") or border)
+            tab_text = str(runtime_palette.get("text") or "#f2f5f9")
+            try:
+                tabs.setDocumentMode(False)
+                tabs.setUsesScrollButtons(True)
+                tabs.setElideMode(QtCore.Qt.ElideRight)
+                tabs.setMinimumWidth(0)
+                tabs_policy = tabs.sizePolicy()
+                tabs_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                tabs.setSizePolicy(tabs_policy)
+                tab_bar = self._ensure_runtime_provider_tab_bar(tabs)
+                if tab_bar is not None:
+                    tab_bar.setExpanding(False)
+                    tab_bar.setUsesScrollButtons(True)
+                    tab_bar.setElideMode(QtCore.Qt.ElideRight)
+                    tab_bar.setMinimumWidth(0)
+                    tab_policy = tab_bar.sizePolicy()
+                    tab_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                    tab_bar.setSizePolicy(tab_policy)
+                    tab_bar.setMinimumHeight(36)
+                    tab_bar.setMaximumHeight(40)
+            except Exception:
+                pass
+            selector = f"QTabWidget#{object_name}"
+            marker_id = f"nc-runtime-provider-tab-shape-{object_name}"
+            style = """
+/* MARKER_ID:start */
+SELECTOR::tab-bar {
+    left: 0px;
+}
+SELECTOR QTabBar {
+    background: FIELD_BG;
+    qproperty-expanding: false;
+}
+SELECTOR QTabBar::scroller {
+    width: 34px;
+}
+SELECTOR QTabBar QToolButton {
+    background: FIELD_BG;
+    color: TAB_TEXT;
+    border: 1px solid TAB_BORDER;
+    border-radius: 4px;
+    width: 16px;
+    min-width: 16px;
+    max-width: 16px;
+    padding: 0px;
+    margin: 8px 1px 2px 1px;
+}
+SELECTOR QTabBar QToolButton:hover {
+    background: TAB_HOVER;
+}
+SELECTOR QTabBar::tab {
+    background: TAB_BG;
+    color: TAB_TEXT;
+    font-weight: 700;
+    border: 1px solid TAB_BORDER;
+    width: 118px;
+    min-width: 118px;
+    max-width: 118px;
+    height: 36px;
+    min-height: 36px;
+    max-height: 36px;
+    padding: 0px 14px;
+    margin-left: 0px;
+    margin-right: 1px;
+    margin-bottom: -1px;
+    border-top-left-radius: 6px;
+    border-top-right-radius: 6px;
+    border-bottom-left-radius: 0px;
+    border-bottom-right-radius: 0px;
+}
+SELECTOR QTabBar::tab:!selected {
+    margin-top: 1px;
+}
+SELECTOR QTabBar::tab:selected {
+    background: TAB_CHECKED;
+    border-color: TAB_BORDER;
+    border-bottom-color: FIELD_BG;
+    margin-right: 1px;
+    margin-bottom: -1px;
+    padding-bottom: 0px;
+}
+SELECTOR QTabBar::tab:hover {
+    background: TAB_HOVER;
+}
+SELECTOR::pane {
+    top: -1px;
+    background: FIELD_BG;
+    border: 1px solid TAB_BORDER;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 8px;
+    border-bottom-left-radius: 8px;
+    border-bottom-right-radius: 8px;
+    padding: 8px;
+}
+SELECTOR QStackedWidget {
+    padding: 4px;
+    background: transparent;
+}
+/* MARKER_ID:end */
+""".strip()
+            style = (
+                style.replace("FIELD_BG", field_bg)
+                .replace("TAB_BG", tab_bg)
+                .replace("TAB_CHECKED", tab_checked)
+                .replace("TAB_HOVER", tab_hover)
+                .replace("TAB_BORDER", tab_border)
+                .replace("TAB_TEXT", tab_text)
+                .replace("BORDER", border)
+                .replace("SELECTOR", selector)
+                .replace("MARKER_ID", marker_id)
+            )
+            try:
+                existing = str(tabs.styleSheet() or "").strip()
+                start = f"/* {marker_id}:start */"
+                end = f"/* {marker_id}:end */"
                 if start in existing and end in existing:
                     before, rest = existing.split(start, 1)
                     _old, after = rest.split(end, 1)
@@ -1469,6 +1853,19 @@ QTabWidget QStackedWidget {
                     return False
             except Exception:
                 return False
+            fallback_dock = None
+            try:
+                tab_siblings = list(self.window.tabifiedDockWidgets(dock))
+            except Exception:
+                tab_siblings = []
+            for candidate in tab_siblings:
+                try:
+                    if candidate is dock or candidate.isFloating() or not candidate.isVisible():
+                        continue
+                    fallback_dock = candidate
+                    break
+                except Exception:
+                    continue
             try:
                 size = dock.size()
             except Exception:
@@ -1483,9 +1880,17 @@ QTabWidget QStackedWidget {
                 height = max(240, int(size.height() or 320))
                 dock.resize(width, height)
                 dock.move(max(0, int(global_pos.x()) - min(180, width // 2)), max(0, int(global_pos.y()) - 14))
+                if fallback_dock is not None:
+                    try:
+                        fallback_dock.show()
+                        fallback_dock.raise_()
+                    except Exception:
+                        pass
                 dock.show()
                 dock.raise_()
                 self._schedule_frontend_layout_save(delay_ms=1200)
+                if callable(getattr(self, "_schedule_frontend_workspace_dock_tab_refresh", None)):
+                    self._schedule_frontend_workspace_dock_tab_refresh()
                 QtCore.QTimer.singleShot(900, self._apply_frontend_workspace_view_constraints)
                 return True
             except Exception:
@@ -1608,18 +2013,107 @@ QTabWidget QStackedWidget {
             self._bind_frontend_workspace_menu_actions()
 
     def _bind_frontend_workspace_menu_actions(self):
+            menu = self.window.findChild(QtWidgets.QMenu, "menuWorkspace")
+            if menu is not None:
+                try:
+                    menu.setTitle("Workspace ▼")
+                    self._populate_frontend_workspace_menu(menu)
+                    if not bool(menu.property("nc_workspace_menu_populated")):
+                        menu.aboutToShow.connect(lambda m=menu: self._populate_frontend_workspace_menu(m))
+                        menu.setProperty("nc_workspace_menu_populated", True)
+                except Exception:
+                    pass
             action_map = {
                 "actionShowAllPanels": self.show_all_frontend_workspace_panels,
                 "actionResetWorkspaceLayout": self.reset_frontend_workspace_layout,
             }
             for object_name, handler in action_map.items():
-                action = self.window.findChild(QtCore.QObject, object_name)
-                if action is None or not hasattr(action, "triggered"):
+                action = self._frontend_workspace_command_action(object_name, handler)
+                if action is None:
                     continue
+
+    def _frontend_workspace_command_action(self, object_name, handler=None):
+            object_name = str(object_name or "").strip()
+            if not object_name:
+                return None
+            attr_name = f"_frontend_{object_name}"
+            action = getattr(self, attr_name, None)
+            if action is not None:
                 try:
-                    action.triggered.connect(handler)
+                    action.text()
+                except RuntimeError:
+                    action = None
                 except Exception:
                     pass
+            if action is None:
+                text = "Show All Panels" if object_name == "actionShowAllPanels" else "Reset Workspace Layout"
+                action = QtGui.QAction(text, self.window)
+                action.setObjectName(object_name)
+            setattr(self, attr_name, action)
+            try:
+                connected = bool(action.property("nc_workspace_command_connected"))
+            except RuntimeError:
+                text = "Show All Panels" if object_name == "actionShowAllPanels" else "Reset Workspace Layout"
+                action = QtGui.QAction(text, self.window)
+                action.setObjectName(object_name)
+                setattr(self, attr_name, action)
+                connected = False
+            except Exception:
+                connected = False
+            if callable(handler) and not connected:
+                try:
+                    action.triggered.connect(handler)
+                    action.setProperty("nc_workspace_command_connected", True)
+                except Exception:
+                    pass
+            return action
+
+    def _populate_frontend_workspace_menu(self, menu):
+            if menu is None:
+                return
+            show_all_action = self._frontend_workspace_command_action(
+                "actionShowAllPanels",
+                self.show_all_frontend_workspace_panels,
+            )
+            reset_action = self._frontend_workspace_command_action(
+                "actionResetWorkspaceLayout",
+                self.reset_frontend_workspace_layout,
+            )
+            menu.clear()
+            seen = set()
+            for object_name, label in (
+                ("WorkspaceTabsDock", "Workspace Tabs"),
+                ("SystemShapingDock", "System Shaping"),
+                ("MuseTalkPreviewDock", "MuseTalk"),
+                ("PreviewDock", "MuseTalk"),
+                ("OperationalViewDock", "Operational View"),
+                ("VisualReplyDock", "Visual Reply"),
+            ):
+                if object_name in seen or not self._frontend_dock_addon_enabled(object_name):
+                    continue
+                dock = self._ui_object(object_name)
+                if dock is None or not isinstance(dock, QtWidgets.QDockWidget):
+                    continue
+                try:
+                    action = dock.toggleViewAction()
+                    if action is None:
+                        continue
+                    action.setText(label)
+                    menu.addAction(action)
+                    seen.add(object_name)
+                    if label == "MuseTalk":
+                        seen.add("MuseTalkPreviewDock")
+                        seen.add("PreviewDock")
+                except Exception:
+                    continue
+            if not menu.isEmpty():
+                menu.addSeparator()
+            for action in (show_all_action, reset_action):
+                if action is not None:
+                    try:
+                        menu.addAction(action)
+                    except Exception:
+                        pass
 
     def _frontend_workspace_docks(self):
             names = [
@@ -1792,6 +2286,594 @@ QTabWidget QStackedWidget {
                 except Exception:
                     pass
 
+    def _runtime_combo_options(self, combo, fallback_label):
+            options = []
+            if combo is not None and hasattr(combo, "count"):
+                try:
+                    count = int(combo.count())
+                except Exception:
+                    count = 0
+                for index in range(count):
+                    try:
+                        label = str(combo.itemText(index) or "").strip()
+                    except Exception:
+                        label = ""
+                    if not label:
+                        continue
+                    try:
+                        data = combo.itemData(index)
+                    except Exception:
+                        data = None
+                    value = str(data if data is not None else label).strip().lower()
+                    options.append((label, value or label.lower()))
+            if not options:
+                current = ""
+                try:
+                    current = str(combo.currentText() or "").strip()
+                except Exception:
+                    current = ""
+                label = current or str(fallback_label or "Runtime").strip() or "Runtime"
+                options.append((label, label.lower()))
+            return options
+
+    def _runtime_combo_current_value(self, combo):
+            if combo is None:
+                return ""
+            try:
+                data = combo.currentData()
+            except Exception:
+                data = None
+            if data is not None and str(data).strip():
+                return str(data).strip().lower()
+            try:
+                text = str(combo.currentText() or "").strip()
+            except Exception:
+                text = ""
+            return text.lower()
+
+    def _rebuild_runtime_provider_tabs(self, tabs, options, page_prefix):
+            if tabs is None:
+                return False
+            signature = json.dumps([(label, value) for label, value in list(options or [])], sort_keys=True)
+            if str(tabs.property("_nc_runtime_provider_signature") or "") == signature:
+                return False
+            previous_value = ""
+            previous_label = ""
+            try:
+                previous_index = int(tabs.currentIndex())
+                previous_page = tabs.widget(previous_index)
+                if previous_page is not None:
+                    previous_value = str(previous_page.property("runtime_value") or "").strip().lower()
+                previous_label = str(tabs.tabText(previous_index) or "").strip().lower()
+            except Exception:
+                previous_value = ""
+                previous_label = ""
+            blocker = None
+            try:
+                blocker = QtCore.QSignalBlocker(tabs)
+                active_content = getattr(tabs, "_nc_runtime_active_content", None)
+                if active_content is not None:
+                    try:
+                        active_content.setParent(None)
+                    except Exception:
+                        pass
+                while tabs.count():
+                    page = tabs.widget(0)
+                    tabs.removeTab(0)
+                    if page is not None:
+                        page.deleteLater()
+                tab_bar = self._ensure_runtime_provider_tab_bar(tabs)
+                for index, (label, value) in enumerate(list(options or [])):
+                    page = QtWidgets.QWidget(tabs)
+                    safe_value = "".join(ch if ch.isalnum() else "_" for ch in str(value or label).lower()).strip("_") or str(index)
+                    runtime_value = str(value or label).strip().lower()
+                    page.setObjectName(f"{page_prefix}_{safe_value}_page")
+                    page.setProperty("runtime_value", runtime_value)
+                    layout = QtWidgets.QVBoxLayout(page)
+                    layout.setContentsMargins(0, 0, 0, 0)
+                    layout.setSpacing(8)
+                    tab_index = tabs.addTab(page, str(label or value or "Runtime"))
+                    tabs.setTabToolTip(tab_index, str(label or value or "Runtime"))
+                    if tab_bar is not None:
+                        tab_bar.setTabData(tab_index, runtime_value)
+                tabs.setProperty("_nc_runtime_provider_signature", signature)
+                restore_index = -1
+                for index in range(tabs.count()):
+                    page = tabs.widget(index)
+                    try:
+                        value = str(page.property("runtime_value") or "").strip().lower()
+                    except Exception:
+                        value = ""
+                    try:
+                        label = str(tabs.tabText(index) or "").strip().lower()
+                    except Exception:
+                        label = ""
+                    if (previous_value and value == previous_value) or (previous_label and label == previous_label):
+                        restore_index = index
+                        break
+                if restore_index >= 0:
+                    tabs.setCurrentIndex(restore_index)
+                return True
+            except Exception:
+                return False
+            finally:
+                if blocker is not None:
+                    del blocker
+
+    def _runtime_tab_index_for_combo(self, tabs, combo):
+            if tabs is None:
+                return -1
+            current = self._runtime_combo_current_value(combo)
+            try:
+                count = int(tabs.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                page = tabs.widget(index)
+                try:
+                    value = str(page.property("runtime_value") or "").strip().lower()
+                except Exception:
+                    value = ""
+                if value and value == current:
+                    return index
+                try:
+                    tab_bar = tabs.tabBar()
+                    data = str(tab_bar.tabData(index) or "").strip().lower() if tab_bar is not None else ""
+                except Exception:
+                    data = ""
+                if data and data == current:
+                    return index
+                try:
+                    if str(tabs.tabText(index) or "").strip().lower() == current:
+                        return index
+                except Exception:
+                    pass
+            return 0 if count else -1
+
+    def _set_combo_to_runtime_tab_value(self, combo, tabs, tab_index):
+            if combo is None or tabs is None:
+                return
+            page = tabs.widget(tab_index)
+            try:
+                value = str(page.property("runtime_value") or "").strip().lower() if page is not None else ""
+            except Exception:
+                value = ""
+            if not value:
+                return
+            try:
+                count = int(combo.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    data = combo.itemData(index)
+                    item_value = str(data if data is not None else combo.itemText(index)).strip().lower()
+                except Exception:
+                    item_value = ""
+                if item_value == value:
+                    if combo.currentIndex() != index:
+                        combo.setCurrentIndex(index)
+                    return
+
+    def _runtime_combo_selection_snapshot(self, combo):
+            if combo is None:
+                return {}
+            snapshot = {}
+            try:
+                snapshot["index"] = int(combo.currentIndex())
+            except Exception:
+                snapshot["index"] = -1
+            try:
+                snapshot["data"] = combo.currentData()
+            except Exception:
+                snapshot["data"] = None
+            try:
+                snapshot["text"] = str(combo.currentText() or "").strip()
+            except Exception:
+                snapshot["text"] = ""
+            return snapshot
+
+    def _restore_runtime_combo_selection(self, combo, snapshot):
+            if combo is None or not isinstance(snapshot, dict):
+                return
+            try:
+                current_data = combo.currentData() if hasattr(combo, "currentData") else None
+                current_text = str(combo.currentText() or "").strip() if hasattr(combo, "currentText") else ""
+                if snapshot.get("data") is not None and current_data == snapshot.get("data"):
+                    return
+                if snapshot.get("data") is None and current_text == str(snapshot.get("text") or "").strip():
+                    return
+            except Exception:
+                pass
+            target_index = -1
+            data = snapshot.get("data")
+            if data is not None and hasattr(combo, "findData"):
+                try:
+                    target_index = combo.findData(data)
+                except Exception:
+                    target_index = -1
+            text = str(snapshot.get("text") or "").strip()
+            if target_index < 0 and text and hasattr(combo, "findText"):
+                try:
+                    target_index = combo.findText(text)
+                except Exception:
+                    target_index = -1
+            if target_index < 0:
+                try:
+                    index = int(snapshot.get("index", -1))
+                    if 0 <= index < int(combo.count()):
+                        target_index = index
+                except Exception:
+                    target_index = -1
+            if target_index < 0:
+                return
+            try:
+                blocker = QtCore.QSignalBlocker(combo)
+                combo.setCurrentIndex(target_index)
+                del blocker
+            except Exception:
+                pass
+
+    def _set_frontend_runtime_combo_value(self, combo, value):
+            if combo is None:
+                return False
+            target = "" if value is None else str(value).strip()
+            index = -1
+            if hasattr(combo, "findData"):
+                try:
+                    index = combo.findData(target)
+                except Exception:
+                    index = -1
+            if index < 0 and hasattr(combo, "findText"):
+                try:
+                    index = combo.findText(target)
+                except Exception:
+                    index = -1
+            if index < 0:
+                return False
+            try:
+                blocker = QtCore.QSignalBlocker(combo)
+                combo.setCurrentIndex(index)
+                del blocker
+                return True
+            except Exception:
+                return False
+
+    def _refresh_frontend_stt_runtime_backend_values(self):
+            backend = getattr(self, "backend", None)
+            if backend is None:
+                return
+            editor_getter = getattr(backend, "_current_stt_editor_backend_value", None)
+            settings_getter = getattr(backend, "_stt_backend_settings_for", None)
+            model_default = getattr(backend, "_stt_backend_default_model_value", None)
+            language_default = getattr(backend, "_stt_backend_default_language_value", None)
+            if not callable(editor_getter) or not callable(settings_getter):
+                return
+            try:
+                backend_id = str(editor_getter() or "").strip().lower()
+                settings = dict(settings_getter(backend_id) or {})
+            except Exception:
+                return
+            try:
+                model = str(settings.get("model_size") or (model_default(backend_id) if callable(model_default) else "tiny.en") or "tiny.en").strip()
+            except Exception:
+                model = "tiny.en"
+            try:
+                language = settings.get("language")
+                if language is None:
+                    language = language_default(backend_id) if callable(language_default) else "en"
+                language = str(language or "").strip()
+            except Exception:
+                language = "en"
+            self._set_frontend_runtime_combo_value(self._ui_object("stt_model_combo"), model)
+            self._set_frontend_runtime_combo_value(self._ui_object("stt_language_combo"), language)
+
+    def _refresh_runtime_provider_active_tab_marker(self, tabs, combo):
+            if tabs is None or combo is None:
+                return
+            active_value = self._runtime_combo_current_value(combo)
+            active_index = self._runtime_tab_index_for_combo(tabs, combo)
+            try:
+                tab_bar = tabs.tabBar()
+            except Exception:
+                tab_bar = None
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                tab_bar.set_active_runtime_value(active_value)
+            try:
+                count = int(tabs.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    label = str(tabs.tabText(index) or "").strip() or "Runtime"
+                    suffix = " (active runtime)" if index == active_index else ""
+                    tabs.setTabToolTip(index, f"{label}{suffix}")
+                except Exception:
+                    pass
+                if tab_bar is not None and not isinstance(tab_bar, _RuntimeProviderTabBar):
+                    try:
+                        color = QtGui.QColor("#2cc985") if index == active_index else QtGui.QColor()
+                        tab_bar.setTabTextColor(index, color)
+                    except Exception:
+                        pass
+
+    def _sync_runtime_provider_tabs_height(self, tabs):
+            if tabs is None:
+                return
+            try:
+                object_name = str(tabs.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            if object_name != "chat_runtime_provider_tabs":
+                return
+            try:
+                active_page = tabs.currentWidget()
+                tab_bar = tabs.tabBar()
+                if active_page is None or tab_bar is None:
+                    return
+                if active_page.layout() is not None:
+                    active_page.layout().invalidate()
+                    active_page.layout().activate()
+                active_page.adjustSize()
+                active_page.updateGeometry()
+                content_hint = active_page.sizeHint().height()
+                wanted = max(180, int(content_hint) + int(tab_bar.sizeHint().height()) + 38)
+                tabs.setMinimumHeight(wanted)
+                tabs.setMaximumHeight(16777215)
+                policy = tabs.sizePolicy()
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                tabs.setSizePolicy(policy)
+                tabs.updateGeometry()
+            except Exception:
+                pass
+
+    def _move_runtime_provider_content_to_active_tab(self, tabs, combo, content, select_tab=True, sync_combo_on_tab_change=True):
+            if tabs is None or content is None:
+                return
+            preserve_combo = bool(not select_tab and not sync_combo_on_tab_change)
+            preserved_combo = self._runtime_combo_selection_snapshot(combo) if preserve_combo else {}
+            active_index = self._runtime_tab_index_for_combo(tabs, combo)
+            if active_index < 0:
+                return
+            if preserve_combo:
+                self._runtime_provider_tab_browse_in_progress = True
+            try:
+                if select_tab and tabs.currentIndex() != active_index:
+                    blocker = QtCore.QSignalBlocker(tabs)
+                    tabs.setCurrentIndex(active_index)
+                    del blocker
+            except Exception:
+                pass
+            if preserve_combo:
+                self._restore_runtime_combo_selection(combo, preserved_combo)
+                self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            try:
+                index = int(tabs.currentIndex())
+            except Exception:
+                index = active_index
+            if index < 0:
+                index = active_index
+            page = tabs.widget(index)
+            if page is None:
+                return
+            if not select_tab and sync_combo_on_tab_change:
+                self._set_combo_to_runtime_tab_value(combo, tabs, index)
+            try:
+                view_value = str(page.property("runtime_value") or "").strip().lower()
+            except Exception:
+                view_value = ""
+            layout = page.layout()
+            if layout is None:
+                layout = QtWidgets.QVBoxLayout(page)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(8)
+            content_moved = False
+            try:
+                if content.parentWidget() is not page:
+                    layout.addWidget(content)
+                    content_moved = True
+                if not content.isVisible():
+                    content.setVisible(True)
+                    content_moved = True
+                if content_moved:
+                    content.updateGeometry()
+                    page.updateGeometry()
+                    tabs.updateGeometry()
+            except Exception:
+                pass
+            self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            self._sync_runtime_provider_tabs_height(tabs)
+            try:
+                object_name = str(tabs.objectName() or "")
+                backend = getattr(self, "backend", None)
+                if object_name == "chat_runtime_provider_tabs":
+                    setter = getattr(backend, "_set_chat_provider_editor_value", None)
+                    if callable(setter):
+                        setter(view_value)
+                elif object_name == "stt_runtime_backend_tabs":
+                    setter = getattr(backend, "_set_stt_backend_editor_value", None)
+                    if callable(setter):
+                        setter(view_value)
+                    self._refresh_frontend_stt_runtime_backend_values()
+                    self._refresh_frontend_stt_runtime_backend_controls()
+            except Exception:
+                pass
+            if preserve_combo:
+                self._restore_runtime_combo_selection(combo, preserved_combo)
+                self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+
+                def _clear_runtime_tab_browse_guard():
+                    try:
+                        self._restore_runtime_combo_selection(combo, preserved_combo)
+                        self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                    finally:
+                        self._runtime_provider_tab_browse_in_progress = False
+
+                QtCore.QTimer.singleShot(0, _clear_runtime_tab_browse_guard)
+
+    def _sync_chat_runtime_provider_tabs(self):
+            tabs = self._ui_object("chat_runtime_provider_tabs")
+            combo = self._ui_object("chat_provider_combo")
+            if tabs is None or combo is None:
+                return
+            options = self._runtime_combo_options(combo, "Chat Provider")
+            self._rebuild_runtime_provider_tabs(tabs, options, "chat_runtime_provider")
+            self._apply_runtime_provider_tab_shape(tabs)
+            if not bool(tabs.property("_nc_runtime_provider_combo_bound")):
+                try:
+                    tabs.currentChanged.connect(
+                        lambda _index=0, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                            tabs,
+                            combo,
+                            getattr(tabs, "_nc_runtime_active_content", None),
+                            select_tab=False,
+                            sync_combo_on_tab_change=False,
+                        )
+                    )
+                    combo.currentIndexChanged.connect(
+                        lambda _index=0, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                            tabs,
+                            combo,
+                            getattr(tabs, "_nc_runtime_active_content", None),
+                            select_tab=True,
+                        )
+                    )
+                    tabs.setProperty("_nc_runtime_provider_combo_bound", True)
+                except Exception:
+                    pass
+            initial_select = not bool(tabs.property("_nc_runtime_provider_initial_selection_done"))
+            self._move_runtime_provider_content_to_active_tab(
+                tabs,
+                combo,
+                getattr(tabs, "_nc_runtime_active_content", None),
+                select_tab=initial_select,
+                sync_combo_on_tab_change=False,
+            )
+            tabs.setProperty("_nc_runtime_provider_initial_selection_done", True)
+            self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            self._sync_runtime_provider_tabs_height(tabs)
+
+    def _refresh_frontend_stt_runtime_backend_controls(self):
+            combo = self._ui_object("stt_backend_combo")
+            if combo is None:
+                return
+            backend_id = ""
+            backend = getattr(self, "backend", None)
+            editor_getter = getattr(backend, "_current_stt_editor_backend_value", None)
+            if callable(editor_getter):
+                try:
+                    backend_id = str(editor_getter() or "").strip().lower()
+                except Exception:
+                    backend_id = ""
+            if not backend_id:
+                try:
+                    data = combo.currentData()
+                    backend_id = str(data if data is not None else combo.currentText() or "").strip().lower()
+                except Exception:
+                    backend_id = ""
+            metadata = {}
+            getter = getattr(backend, "_stt_backend_metadata", None)
+            if callable(getter):
+                try:
+                    metadata = dict(getter(backend_id) or {})
+                except Exception:
+                    metadata = {}
+            language_mode = str(metadata.get("language_mode") or "").strip().lower()
+            show_model = bool(backend_id and backend_id != "none" and language_mode != "disabled")
+            show_language = bool(language_mode == "multilingual")
+            state_key = (backend_id, show_model, show_language)
+            visibility_matches = True
+            for object_name, expected in (
+                ("stt_model_label", show_model),
+                ("stt_model_combo", show_model),
+                ("stt_language_label", show_language),
+                ("stt_language_combo", show_language),
+            ):
+                widget = self._ui_object(object_name)
+                if widget is None:
+                    continue
+                try:
+                    if bool(widget.isVisible()) != bool(expected):
+                        visibility_matches = False
+                        break
+                except Exception:
+                    visibility_matches = False
+                    break
+            if getattr(self, "_frontend_stt_runtime_controls_state", None) == state_key and visibility_matches:
+                return
+            self._frontend_stt_runtime_controls_state = state_key
+            changed = False
+            for object_name in ("stt_model_label", "stt_model_combo"):
+                widget = self._ui_object(object_name)
+                if widget is not None:
+                    try:
+                        if widget.isVisible() != show_model:
+                            widget.setVisible(show_model)
+                            changed = True
+                    except Exception:
+                        pass
+            for object_name in ("stt_language_label", "stt_language_combo"):
+                widget = self._ui_object(object_name)
+                if widget is not None:
+                    try:
+                        if widget.isVisible() != show_language:
+                            widget.setVisible(show_language)
+                            changed = True
+                    except Exception:
+                        pass
+            if not changed:
+                return
+            tabs = self._ui_object("stt_runtime_backend_tabs")
+            content = self._ui_object("stt_runtime_backend_active_content")
+            for widget in (content, tabs):
+                if widget is not None:
+                    try:
+                        widget.updateGeometry()
+                    except Exception:
+                        pass
+
+    def _sync_stt_runtime_backend_tabs(self):
+            tabs = self._ui_object("stt_runtime_backend_tabs")
+            combo = self._ui_object("stt_backend_combo")
+            if tabs is None or combo is None:
+                return
+            options = self._runtime_combo_options(combo, "STT Backend")
+            self._rebuild_runtime_provider_tabs(tabs, options, "stt_runtime_backend")
+            self._apply_runtime_provider_tab_shape(tabs)
+            if not bool(tabs.property("_nc_runtime_backend_combo_bound")):
+                try:
+                    tabs.currentChanged.connect(
+                        lambda _index=0, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                            tabs,
+                            combo,
+                            getattr(tabs, "_nc_runtime_active_content", None),
+                            select_tab=False,
+                            sync_combo_on_tab_change=False,
+                        )
+                    )
+                    combo.currentIndexChanged.connect(
+                        lambda _index=0, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                            tabs,
+                            combo,
+                            getattr(tabs, "_nc_runtime_active_content", None),
+                            select_tab=True,
+                        )
+                    )
+                    tabs.setProperty("_nc_runtime_backend_combo_bound", True)
+                except Exception:
+                    pass
+            initial_select = not bool(tabs.property("_nc_runtime_provider_initial_selection_done"))
+            self._move_runtime_provider_content_to_active_tab(
+                tabs,
+                combo,
+                getattr(tabs, "_nc_runtime_active_content", None),
+                select_tab=initial_select,
+                sync_combo_on_tab_change=False,
+            )
+            tabs.setProperty("_nc_runtime_provider_initial_selection_done", True)
+            self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            self._refresh_frontend_stt_runtime_backend_controls()
+
     def _clear_form_rows_preserving_widgets(self, form):
             if form is None or not hasattr(form, "rowCount"):
                 return
@@ -1831,7 +2913,9 @@ QTabWidget QStackedWidget {
             if form is None:
                 return
             existing_selector = self._ui_object("chat_runtime_selector_row")
-            if bool(getattr(form, "_nc_horizontal_runtime_layout", False)) and existing_selector is not None:
+            existing_tabs = self._ui_object("chat_runtime_provider_tabs")
+            if bool(getattr(form, "_nc_provider_tab_runtime_layout", False)) and existing_selector is not None and existing_tabs is not None:
+                self._sync_chat_runtime_provider_tabs()
                 return
 
             def _backend_attr(name):
@@ -1888,16 +2972,11 @@ QTabWidget QStackedWidget {
             selector_layout.setVerticalSpacing(8)
             selector_layout.addWidget(widgets["provider_label"], 0, 0, QtCore.Qt.AlignVCenter)
             selector_layout.addWidget(widgets["provider_combo"], 0, 1)
-            selector_layout.addWidget(widgets["model_label"], 0, 2, QtCore.Qt.AlignVCenter)
-            selector_layout.addWidget(widgets["model_row"], 0, 3)
             selector_layout.setColumnStretch(1, 1)
-            selector_layout.setColumnStretch(3, 2)
             for widget in (
                 selector,
                 widgets["provider_label"],
                 widgets["provider_combo"],
-                widgets["model_label"],
-                widgets["model_row"],
             ):
                 try:
                     widget.setVisible(True)
@@ -1905,25 +2984,83 @@ QTabWidget QStackedWidget {
                 except Exception:
                     pass
 
+            hint = self._ui_object("chat_runtime_provider_hint_label")
+            if hint is None:
+                hint = QtWidgets.QLabel("Choose the active chat provider from the dropdown. Tabs browse provider settings without changing the active runtime.")
+                hint.setObjectName("chat_runtime_provider_hint_label")
+                hint.setWordWrap(True)
+                hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            else:
+                try:
+                    hint.setText("Choose the active chat provider from the dropdown. Tabs browse provider settings without changing the active runtime.")
+                except Exception:
+                    pass
+
+            tabs = self._ui_object("chat_runtime_provider_tabs")
+            if tabs is None:
+                tabs = QtWidgets.QTabWidget()
+                tabs.setObjectName("chat_runtime_provider_tabs")
+            self._apply_runtime_provider_tab_shape(tabs)
+
+            content = self._ui_object("chat_runtime_provider_active_content")
+            if content is None:
+                content = QtWidgets.QWidget()
+                content.setObjectName("chat_runtime_provider_active_content")
+                content_layout = QtWidgets.QVBoxLayout(content)
+                content_layout.setContentsMargins(0, 0, 0, 0)
+                content_layout.setSpacing(8)
+                provider_form = QtWidgets.QFormLayout()
+                provider_form.setObjectName("chat_runtime_provider_active_form")
+                provider_form.setContentsMargins(0, 0, 0, 0)
+                provider_form.setHorizontalSpacing(12)
+                provider_form.setVerticalSpacing(8)
+                provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                content_layout.addLayout(provider_form)
+            else:
+                provider_form = content.findChild(QtWidgets.QFormLayout, "chat_runtime_provider_active_form")
+                if provider_form is None:
+                    provider_form = QtWidgets.QFormLayout()
+                    provider_form.setObjectName("chat_runtime_provider_active_form")
+                    provider_form.setContentsMargins(0, 0, 0, 0)
+                    provider_form.setHorizontalSpacing(12)
+                    provider_form.setVerticalSpacing(8)
+                    provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                    if content.layout() is None:
+                        content_layout = QtWidgets.QVBoxLayout(content)
+                        content_layout.setContentsMargins(0, 0, 0, 0)
+                        content_layout.setSpacing(8)
+                    content.layout().addLayout(provider_form)
+            self._clear_form_rows_preserving_widgets(provider_form)
+            provider_form.addRow(widgets["model_label"], widgets["model_row"])
+            if widgets["vision_label"] is not None and widgets["vision_check"] is not None:
+                provider_form.addRow(widgets["vision_label"], widgets["vision_check"])
+            if widgets["settings_label"] is not None and widgets["settings_widget"] is not None:
+                provider_form.addRow(widgets["settings_label"], widgets["settings_widget"])
+            if widgets["generation_label"] is not None and widgets["generation_widget"] is not None:
+                provider_form.addRow(widgets["generation_label"], widgets["generation_widget"])
+
             try:
                 form.setContentsMargins(8, 10, 8, 8)
                 form.setHorizontalSpacing(12)
                 form.setVerticalSpacing(10)
                 form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
                 form.addRow(selector)
-                if widgets["settings_label"] is not None and widgets["settings_widget"] is not None:
-                    form.addRow(widgets["settings_label"], widgets["settings_widget"])
-                if widgets["vision_label"] is not None and widgets["vision_check"] is not None:
-                    form.addRow(widgets["vision_label"], widgets["vision_check"])
-                if widgets["generation_label"] is not None and widgets["generation_widget"] is not None:
-                    form.addRow(widgets["generation_label"], widgets["generation_widget"])
+                form.addRow(hint)
+                form.addRow(tabs)
+                setattr(form, "_nc_provider_tab_runtime_layout", True)
                 setattr(form, "_nc_horizontal_runtime_layout", True)
             except Exception:
                 pass
+            setattr(tabs, "_nc_runtime_active_content", content)
+            self._sync_chat_runtime_provider_tabs()
 
     def _normalize_frontend_stt_runtime_layout(self):
             form = self._ui_object("sttRuntimeForm")
-            if form is None or bool(getattr(form, "_nc_horizontal_runtime_layout", False)):
+            if form is None:
+                return
+            existing_tabs = self._ui_object("stt_runtime_backend_tabs")
+            if bool(getattr(form, "_nc_provider_tab_runtime_layout", False)) and existing_tabs is not None:
+                self._sync_stt_runtime_backend_tabs()
                 return
             widgets = {
                 "backend_label": self._ui_object("stt_backend_label"),
@@ -1946,13 +3083,52 @@ QTabWidget QStackedWidget {
             selector_layout.setVerticalSpacing(8)
             selector_layout.addWidget(widgets["backend_label"], 0, 0, QtCore.Qt.AlignVCenter)
             selector_layout.addWidget(widgets["backend_combo"], 0, 1)
-            selector_layout.addWidget(widgets["model_label"], 0, 2, QtCore.Qt.AlignVCenter)
-            selector_layout.addWidget(widgets["model_combo"], 0, 3)
-            if widgets["language_label"] is not None and widgets["language_combo"] is not None:
-                selector_layout.addWidget(widgets["language_label"], 1, 0, QtCore.Qt.AlignVCenter)
-                selector_layout.addWidget(widgets["language_combo"], 1, 1)
             selector_layout.setColumnStretch(1, 1)
-            selector_layout.setColumnStretch(3, 1)
+
+            hint = self._ui_object("stt_runtime_hint_label")
+            if hint is not None:
+                try:
+                    hint.setText("Choose the active STT backend from the dropdown. Tabs browse backend settings without changing the active runtime.")
+                except Exception:
+                    pass
+            tabs = self._ui_object("stt_runtime_backend_tabs")
+            if tabs is None:
+                tabs = QtWidgets.QTabWidget()
+                tabs.setObjectName("stt_runtime_backend_tabs")
+            self._apply_runtime_provider_tab_shape(tabs)
+
+            content = self._ui_object("stt_runtime_backend_active_content")
+            if content is None:
+                content = QtWidgets.QWidget()
+                content.setObjectName("stt_runtime_backend_active_content")
+                content_layout = QtWidgets.QVBoxLayout(content)
+                content_layout.setContentsMargins(0, 0, 0, 0)
+                content_layout.setSpacing(8)
+                backend_form = QtWidgets.QFormLayout()
+                backend_form.setObjectName("stt_runtime_backend_active_form")
+                backend_form.setContentsMargins(0, 0, 0, 0)
+                backend_form.setHorizontalSpacing(12)
+                backend_form.setVerticalSpacing(8)
+                backend_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                content_layout.addLayout(backend_form)
+            else:
+                backend_form = content.findChild(QtWidgets.QFormLayout, "stt_runtime_backend_active_form")
+                if backend_form is None:
+                    backend_form = QtWidgets.QFormLayout()
+                    backend_form.setObjectName("stt_runtime_backend_active_form")
+                    backend_form.setContentsMargins(0, 0, 0, 0)
+                    backend_form.setHorizontalSpacing(12)
+                    backend_form.setVerticalSpacing(8)
+                    backend_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                    if content.layout() is None:
+                        content_layout = QtWidgets.QVBoxLayout(content)
+                        content_layout.setContentsMargins(0, 0, 0, 0)
+                        content_layout.setSpacing(8)
+                    content.layout().addLayout(backend_form)
+            self._clear_form_rows_preserving_widgets(backend_form)
+            backend_form.addRow(widgets["model_label"], widgets["model_combo"])
+            if widgets["language_label"] is not None and widgets["language_combo"] is not None:
+                backend_form.addRow(widgets["language_label"], widgets["language_combo"])
 
             try:
                 form.setContentsMargins(8, 10, 8, 0)
@@ -1960,9 +3136,15 @@ QTabWidget QStackedWidget {
                 form.setVerticalSpacing(8)
                 form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
                 form.addRow(selector)
+                if hint is not None:
+                    form.addRow(hint)
+                form.addRow(tabs)
+                setattr(form, "_nc_provider_tab_runtime_layout", True)
                 setattr(form, "_nc_horizontal_runtime_layout", True)
             except Exception:
                 pass
+            setattr(tabs, "_nc_runtime_active_content", content)
+            self._sync_stt_runtime_backend_tabs()
 
     def _normalize_frontend_runtime_section_layouts(self):
             self._normalize_frontend_chat_runtime_layout()
@@ -1979,10 +3161,6 @@ QTabWidget QStackedWidget {
                 "stt_runtime_selector_grid",
                 "stt_backend_label",
                 "stt_backend_combo",
-                "stt_model_label",
-                "stt_model_combo",
-                "stt_language_label",
-                "stt_language_combo",
                 "stt_runtime_hint_label",
             ):
                 widget = self._ui_object(child_name)
@@ -1993,6 +3171,7 @@ QTabWidget QStackedWidget {
                     widget.updateGeometry()
                 except Exception:
                     pass
+            self._refresh_frontend_stt_runtime_backend_controls()
             for layout_name in ("sttRuntimeLayout", "sttRuntimeForm"):
                 layout = self._ui_object(layout_name)
                 if layout is None:
@@ -2064,7 +3243,371 @@ QTabWidget QStackedWidget {
                 except Exception:
                     pass
 
+    def _frontend_runtime_group_specs(self):
+            return (
+                ("chat_runtime_box", "Chat Runtime"),
+                ("stt_runtime_box", "STT Runtime"),
+                ("tts_runtime_box", "TTS Runtime"),
+                ("visual_reply_runtime_box", "Visual Reply Runtime"),
+            )
+
+    def _runtime_tab_button_name(self, object_name):
+            base = str(object_name or "").strip()
+            return base.replace("_box", "_tab_button") if base else "runtime_section_tab_button"
+
+    def _runtime_tab_title_parts(self, group_box, fallback_title):
+            try:
+                title = str(group_box.property("nc_collapsible_base_title") or fallback_title or "").strip()
+            except Exception:
+                title = str(fallback_title or "").strip()
+            try:
+                summary = str(group_box.property("nc_collapsible_summary") or "").strip()
+            except Exception:
+                summary = ""
+            title = title or str(fallback_title or "").strip()
+            tooltip = f"{title}  -  {summary}" if summary else title
+            return title, tooltip
+
+    def _replace_marked_widget_stylesheet(self, widget, start_marker, end_marker, block):
+            if widget is None or not hasattr(widget, "styleSheet") or not hasattr(widget, "setStyleSheet"):
+                return
+            try:
+                existing = str(widget.styleSheet() or "").strip()
+                if start_marker in existing and end_marker in existing:
+                    before, rest = existing.split(start_marker, 1)
+                    _old, after = rest.split(end_marker, 1)
+                    existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
+                next_style = f"{existing}\n{block}".strip() if existing else str(block or "").strip()
+                if str(widget.styleSheet() or "") != next_style:
+                    widget.setStyleSheet(next_style)
+            except Exception:
+                pass
+
+    def _style_frontend_runtime_tab_container(self, container):
+            if container is None:
+                return
+            style = """
+/* nc-runtime-tabs-container:start */
+QWidget#runtime_section_tabs {
+    background: transparent;
+}
+QWidget#runtime_section_tab_bar {
+    background: transparent;
+}
+QStackedWidget#runtime_section_stack {
+    background: #0f141b;
+    border: 1px solid #273342;
+    border-top-left-radius: 0px;
+    border-top-right-radius: 10px;
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+}
+QWidget#runtime_section_tab_page {
+    background: transparent;
+}
+/* nc-runtime-tabs-container:end */
+""".strip()
+            self._replace_marked_widget_stylesheet(
+                container,
+                "/* nc-runtime-tabs-container:start */",
+                "/* nc-runtime-tabs-container:end */",
+                style,
+            )
+
+    def _style_frontend_runtime_tab_button(self, button, group_box):
+            if button is None:
+                return
+            palette = self._frontend_runtime_group_header_palette(group_box)
+            try:
+                button.setStyleSheet(
+                    "QToolButton {"
+                    f" color: {palette['text']};"
+                    " font-weight: 700;"
+                    f" border: 1px solid {palette['border']};"
+                    " border-bottom: 1px solid #273342;"
+                    f" background: {palette['background']};"
+                    " border-top-left-radius: 8px;"
+                    " border-top-right-radius: 8px;"
+                    " border-bottom-left-radius: 0px;"
+                    " border-bottom-right-radius: 0px;"
+                    " padding: 8px 14px;"
+                    " text-align: center;"
+                    "}"
+                    f"QToolButton:hover {{ background: {palette['hover']}; }}"
+                    f"QToolButton:checked {{ background: {palette['checked']}; border-bottom-color: #0f141b; padding-bottom: 10px; }}"
+                )
+                button.setMinimumHeight(36)
+                button.setMinimumWidth(148)
+                button.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+                button.setCursor(QtCore.Qt.PointingHandCursor)
+                shadow = button.graphicsEffect()
+                if not isinstance(shadow, QtWidgets.QGraphicsDropShadowEffect):
+                    shadow = QtWidgets.QGraphicsDropShadowEffect(button)
+                    button.setGraphicsEffect(shadow)
+                shadow.setBlurRadius(12)
+                shadow.setOffset(0, 2)
+                shadow.setColor(palette["shadow"])
+            except Exception:
+                pass
+
+    def _style_frontend_runtime_tab_content_group(self, group_box):
+            if group_box is None:
+                return
+            try:
+                object_name = str(group_box.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            if not object_name:
+                return
+            style = f"""
+/* nc-runtime-tab-content:start */
+QGroupBox#{object_name} {{
+    margin-top: 0px;
+    padding: 0px;
+    background: transparent;
+    border: 0px;
+    border-radius: 0px;
+}}
+QGroupBox#{object_name}::title {{
+    height: 0px;
+    margin: 0px;
+    padding: 0px;
+}}
+QGroupBox#{object_name}::indicator {{
+    width: 0px;
+    height: 0px;
+}}
+/* nc-runtime-tab-content:end */
+""".strip()
+            self._replace_marked_widget_stylesheet(
+                group_box,
+                "/* nc-runtime-tab-content:start */",
+                "/* nc-runtime-tab-content:end */",
+                style,
+            )
+
+    def _hide_existing_frontend_runtime_headers(self, parent_layout=None):
+            header_names = (
+                "chat_runtime_header_button",
+                "stt_runtime_header_button",
+                "tts_runtime_header_button",
+                "visual_reply_runtime_header_button",
+                "runtime_section_header_button",
+            )
+            for header_name in header_names:
+                header = self._ui_object(header_name)
+                if header is None:
+                    continue
+                try:
+                    if parent_layout is not None:
+                        parent_layout.removeWidget(header)
+                except Exception:
+                    pass
+                try:
+                    header.hide()
+                    header.setParent(None)
+                    header.deleteLater()
+                except Exception:
+                    pass
+
+    def _update_frontend_runtime_tab_text(self, group_box, fallback_title=None):
+            button = getattr(group_box, "_nc_runtime_tab_button", None) if group_box is not None else None
+            if button is None:
+                return False
+            title, tooltip = self._runtime_tab_title_parts(group_box, fallback_title)
+            try:
+                button.setText(title)
+                button.setToolTip(tooltip)
+            except Exception:
+                pass
+            return True
+
+    def _refresh_frontend_runtime_tab_buttons(self):
+            buttons = getattr(self, "_frontend_runtime_tab_buttons", None) or {}
+            for object_name, fallback_title in self._frontend_runtime_group_specs():
+                group_box = self._ui_object(object_name)
+                button = buttons.get(object_name) or getattr(group_box, "_nc_runtime_tab_button", None)
+                if group_box is None or button is None:
+                    continue
+                self._update_frontend_runtime_tab_text(group_box, fallback_title)
+                self._style_frontend_runtime_tab_button(button, group_box)
+                try:
+                    button.updateGeometry()
+                except Exception:
+                    pass
+
+    def _select_frontend_runtime_tab(self, index):
+            stack = getattr(self, "_frontend_runtime_tab_stack", None)
+            pages = list(getattr(self, "_frontend_runtime_tab_pages", []) or [])
+            buttons = dict(getattr(self, "_frontend_runtime_tab_buttons", {}) or {})
+            try:
+                index = int(index)
+            except Exception:
+                index = 0
+            if stack is None or not pages:
+                return
+            index = max(0, min(index, len(pages) - 1))
+            try:
+                stack.setCurrentIndex(index)
+            except Exception:
+                pass
+            for item_index, (object_name, fallback_title) in enumerate(self._frontend_runtime_group_specs()):
+                group_box = self._ui_object(object_name)
+                button = buttons.get(object_name) or getattr(group_box, "_nc_runtime_tab_button", None)
+                if button is not None:
+                    try:
+                        blocker = QtCore.QSignalBlocker(button)
+                        button.setChecked(item_index == index)
+                        del blocker
+                    except Exception:
+                        pass
+                if group_box is None:
+                    continue
+                try:
+                    group_box.setVisible(True)
+                    group_box.setProperty("nc_collapsible_expanded", True)
+                    group_box.setProperty("nc_runtime_collapsed", False)
+                    self._set_layout_item_tree_visible(group_box.layout(), True)
+                    self._set_frontend_runtime_group_geometry_collapsed(group_box, False)
+                    self._restore_frontend_expanded_runtime_group(group_box)
+                    group_box.updateGeometry()
+                except Exception:
+                    pass
+            try:
+                self._refresh_frontend_runtime_group_region(pages[index])
+            except Exception:
+                pass
+
+    def _ensure_frontend_runtime_tab_selection(self):
+            stack = getattr(self, "_frontend_runtime_tab_stack", None)
+            if stack is None:
+                return False
+            try:
+                current = int(stack.currentIndex())
+            except Exception:
+                current = 0
+            self._select_frontend_runtime_tab(current if current >= 0 else 0)
+            return True
+
+    def _ensure_frontend_runtime_group_tabs(self):
+            specs = self._frontend_runtime_group_specs()
+            group_boxes = []
+            for object_name, fallback_title in specs:
+                group_box = self._ui_object(object_name)
+                if group_box is None:
+                    return False
+                base_title = self._frontend_runtime_group_designer_title(object_name, fallback_title)
+                group_boxes.append((object_name, base_title, group_box))
+
+            existing_container = getattr(self, "_frontend_runtime_tab_container", None) or self._ui_object("runtime_section_tabs")
+            if existing_container is not None:
+                stack = existing_container.findChild(QtWidgets.QStackedWidget, "runtime_section_stack")
+                if stack is not None:
+                    self._frontend_runtime_tab_container = existing_container
+                    self._frontend_runtime_tab_stack = stack
+                    self._style_frontend_runtime_tab_container(existing_container)
+                    self._refresh_frontend_runtime_tab_buttons()
+                    self._ensure_frontend_runtime_tab_selection()
+                    return True
+
+            parent_layout = None
+            insert_index = -1
+            for _object_name, _fallback_title, group_box in group_boxes:
+                parent = group_box.parentWidget()
+                layout = parent.layout() if parent is not None else None
+                if layout is None:
+                    continue
+                try:
+                    index = layout.indexOf(group_box)
+                except Exception:
+                    index = -1
+                if index >= 0:
+                    parent_layout = layout
+                    insert_index = index if insert_index < 0 else min(insert_index, index)
+            if parent_layout is None or insert_index < 0:
+                return False
+
+            self._hide_existing_frontend_runtime_headers(parent_layout)
+
+            container = QtWidgets.QWidget()
+            container.setObjectName("runtime_section_tabs")
+            outer_layout = QtWidgets.QVBoxLayout(container)
+            outer_layout.setContentsMargins(0, 0, 0, 0)
+            outer_layout.setSpacing(0)
+
+            tab_bar = QtWidgets.QWidget(container)
+            tab_bar.setObjectName("runtime_section_tab_bar")
+            tab_layout = QtWidgets.QHBoxLayout(tab_bar)
+            tab_layout.setContentsMargins(0, 0, 0, 0)
+            tab_layout.setSpacing(4)
+            outer_layout.addWidget(tab_bar, 0)
+
+            stack = QtWidgets.QStackedWidget(container)
+            stack.setObjectName("runtime_section_stack")
+            stack.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            outer_layout.addWidget(stack, 1)
+
+            buttons = {}
+            pages = []
+            for index, (object_name, fallback_title, group_box) in enumerate(group_boxes):
+                button = QtWidgets.QToolButton(tab_bar)
+                button.setObjectName(self._runtime_tab_button_name(object_name))
+                button.setCheckable(True)
+                button.setAutoRaise(False)
+                button.setToolButtonStyle(QtCore.Qt.ToolButtonTextOnly)
+                button.clicked.connect(lambda _checked=False, wanted=index: self._select_frontend_runtime_tab(wanted))
+                tab_layout.addWidget(button)
+                buttons[object_name] = button
+                setattr(group_box, "_nc_runtime_tab_button", button)
+
+                page = QtWidgets.QWidget(stack)
+                page.setObjectName("runtime_section_tab_page")
+                page_layout = QtWidgets.QVBoxLayout(page)
+                page_layout.setContentsMargins(10, 10, 10, 10)
+                page_layout.setSpacing(0)
+
+                try:
+                    parent_layout.removeWidget(group_box)
+                except Exception:
+                    pass
+                page_layout.addWidget(group_box)
+                stack.addWidget(page)
+                pages.append(page)
+
+                try:
+                    group_box.setCheckable(False)
+                    group_box.setChecked(True)
+                    group_box.setTitle("")
+                    group_box.setProperty("nc_runtime_content_group", True)
+                    group_box.setProperty("nc_collapsible_base_title", fallback_title)
+                    group_box.setProperty("nc_collapsible_summary", "")
+                    group_box.setToolTip("")
+                    group_box.setVisible(True)
+                    self._set_layout_item_tree_visible(group_box.layout(), True)
+                    self._set_frontend_runtime_group_geometry_collapsed(group_box, False)
+                    self._style_frontend_runtime_tab_content_group(group_box)
+                except Exception:
+                    pass
+
+            tab_layout.addStretch(1)
+            try:
+                parent_layout.insertWidget(insert_index, container)
+            except TypeError:
+                parent_layout.insertWidget(insert_index, container)
+
+            self._frontend_runtime_tab_container = container
+            self._frontend_runtime_tab_stack = stack
+            self._frontend_runtime_tab_pages = pages
+            self._frontend_runtime_tab_buttons = buttons
+            self._style_frontend_runtime_tab_container(container)
+            self._refresh_frontend_runtime_tab_buttons()
+            self._select_frontend_runtime_tab(0)
+            return True
+
     def _refresh_frontend_runtime_group_headers(self):
+            if getattr(self, "_frontend_runtime_tab_container", None) is not None:
+                self._refresh_frontend_runtime_tab_buttons()
+                return
             for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
                 group_box = self._ui_object(object_name)
                 header = getattr(group_box, "_nc_runtime_header_button", None) if group_box is not None else None
@@ -2159,6 +3702,9 @@ QTabWidget QStackedWidget {
                 pass
 
     def _enforce_frontend_runtime_collapsed_visibility(self):
+            if getattr(self, "_frontend_runtime_tab_container", None) is not None:
+                self._ensure_frontend_runtime_tab_selection()
+                return
             for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
                 group_box = self._ui_object(object_name)
                 header = getattr(group_box, "_nc_runtime_header_button", None) if group_box is not None else None
@@ -2194,6 +3740,9 @@ QTabWidget QStackedWidget {
                     pass
 
     def _collapse_frontend_runtime_groups(self):
+            if self._ensure_frontend_runtime_group_tabs():
+                self._ensure_frontend_runtime_tab_selection()
+                return
             for object_name in ("chat_runtime_box", "stt_runtime_box", "tts_runtime_box", "visual_reply_runtime_box"):
                 group_box = self._ui_object(object_name)
                 if group_box is None:
@@ -2348,6 +3897,12 @@ QGroupBox#{object_name}::indicator {{
                     expanded = bool(group_box.isChecked())
             except Exception:
                 expanded = True
+            if self._update_frontend_runtime_tab_text(group_box, base_title):
+                try:
+                    group_box.setTitle("")
+                except Exception:
+                    pass
+                return
             arrow = "▼" if expanded else "▶"
             title = f"{arrow} {base_title}".strip()
             if summary:
@@ -2442,9 +3997,13 @@ QGroupBox#{object_name}::indicator {{
                 group_box.setToolTip("")
             except Exception:
                 pass
+            if self._update_frontend_runtime_tab_text(group_box, fallback_title):
+                return
             self._update_frontend_collapsible_group_title(group_box)
 
     def _configure_frontend_runtime_group_boxes(self):
+            if self._ensure_frontend_runtime_group_tabs():
+                return
             group_specs = (
                 ("chat_runtime_box", "Chat Runtime"),
                 ("stt_runtime_box", "STT Runtime"),

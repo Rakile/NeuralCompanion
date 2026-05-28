@@ -1407,10 +1407,25 @@ class MultiPersonaRoleplayController:
         tabs_layout = QtWidgets.QVBoxLayout(tabs)
         tabs_layout.setContentsMargins(0, 0, 0, 0)
         tabs_layout.setSpacing(0)
+        nav_row = QtWidgets.QWidget()
+        nav_row.setObjectName("mprc_inner_tab_nav_row")
+        nav_row_layout = QtWidgets.QHBoxLayout(nav_row)
+        nav_row_layout.setContentsMargins(0, 0, 0, 0)
+        nav_row_layout.setSpacing(4)
+        nav_prev = QtWidgets.QToolButton()
+        nav_prev.setObjectName("mprc_inner_tab_prev_button")
+        nav_prev.setText("<")
+        nav_prev.setToolTip("Show earlier roleplay tabs")
+        nav_prev.setFixedSize(24, 78)
+        nav_next = QtWidgets.QToolButton()
+        nav_next.setObjectName("mprc_inner_tab_next_button")
+        nav_next.setText(">")
+        nav_next.setToolTip("Show later roleplay tabs")
+        nav_next.setFixedSize(24, 78)
         nav_scroll = QtWidgets.QScrollArea()
         nav_scroll.setObjectName("mprc_inner_tab_scroll")
         nav_scroll.setWidgetResizable(True)
-        nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         nav_scroll.setFixedHeight(92)
@@ -1451,12 +1466,27 @@ class MultiPersonaRoleplayController:
             nav_layout.addWidget(button)
         nav_layout.addStretch(1)
         nav_scroll.setWidget(nav)
-        tabs_layout.addWidget(nav_scroll)
+        nav_row_layout.addWidget(nav_prev, 0)
+        nav_row_layout.addWidget(nav_scroll, 1)
+        nav_row_layout.addWidget(nav_next, 0)
+        tabs_layout.addWidget(nav_row)
         tabs_layout.addWidget(stack, 1)
         root_layout.addWidget(tabs, 1)
         self._controls["tabs"] = tabs
         self._controls["tab_stack"] = stack
         self._controls["tab_buttons"] = buttons
+        self._controls["tab_nav_scroll"] = nav_scroll
+        self._controls["tab_nav_prev"] = nav_prev
+        self._controls["tab_nav_next"] = nav_next
+        nav_prev.clicked.connect(lambda *_args: self._scroll_mprc_tab_nav(-1))
+        nav_next.clicked.connect(lambda *_args: self._scroll_mprc_tab_nav(1))
+        try:
+            scrollbar = nav_scroll.horizontalScrollBar()
+            scrollbar.valueChanged.connect(lambda *_args: self._update_mprc_tab_nav_buttons())
+            scrollbar.rangeChanged.connect(lambda *_args: self._update_mprc_tab_nav_buttons())
+            QtCore.QTimer.singleShot(0, self._update_mprc_tab_nav_buttons)
+        except Exception:
+            pass
         self._select_mprc_tab(0)
         self._assign_control_object_names()
         self._install_tooltips_and_refine()
@@ -1478,6 +1508,12 @@ class MultiPersonaRoleplayController:
             }
             QPushButton { background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; padding: 6px 10px; font-weight: 600; }
             QPushButton:hover { background: #243956; }
+            QToolButton#mprc_inner_tab_prev_button, QToolButton#mprc_inner_tab_next_button {
+                background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; font-weight: 800;
+            }
+            QToolButton#mprc_inner_tab_prev_button:disabled, QToolButton#mprc_inner_tab_next_button:disabled {
+                color: #6f8298; border-color: #2b4058;
+            }
             QWidget#mprc_inner_tabs { background: #122033; border: 1px solid #36506d; border-radius: 8px; }
             QScrollArea#mprc_inner_tab_scroll { background: #101720; border: none; }
             QWidget#mprc_inner_tab_nav { background: #101720; }
@@ -1515,6 +1551,47 @@ class MultiPersonaRoleplayController:
         for offset, button in enumerate(buttons):
             if hasattr(button, "set_selected"):
                 button.set_selected(offset == index)
+        self._ensure_mprc_tab_button_visible(index)
+        self._update_mprc_tab_nav_buttons()
+
+    def _scroll_mprc_tab_nav(self, direction: int) -> None:
+        nav_scroll = self._controls.get("tab_nav_scroll")
+        if nav_scroll is None:
+            return
+        try:
+            scrollbar = nav_scroll.horizontalScrollBar()
+            step = max(90, int(nav_scroll.viewport().width() * 0.65))
+            scrollbar.setValue(scrollbar.value() + (step if int(direction or 0) > 0 else -step))
+            self._update_mprc_tab_nav_buttons()
+        except Exception:
+            pass
+
+    def _ensure_mprc_tab_button_visible(self, index: int) -> None:
+        nav_scroll = self._controls.get("tab_nav_scroll")
+        buttons = self._controls.get("tab_buttons") or []
+        if nav_scroll is None or index < 0 or index >= len(buttons):
+            return
+        button = buttons[index]
+        try:
+            nav_scroll.ensureWidgetVisible(button, 12, 0)
+        except Exception:
+            pass
+
+    def _update_mprc_tab_nav_buttons(self) -> None:
+        nav_scroll = self._controls.get("tab_nav_scroll")
+        prev_button = self._controls.get("tab_nav_prev")
+        next_button = self._controls.get("tab_nav_next")
+        if nav_scroll is None or prev_button is None or next_button is None:
+            return
+        try:
+            scrollbar = nav_scroll.horizontalScrollBar()
+            has_overflow = scrollbar.maximum() > scrollbar.minimum()
+            prev_button.setVisible(has_overflow)
+            next_button.setVisible(has_overflow)
+            prev_button.setEnabled(scrollbar.value() > scrollbar.minimum())
+            next_button.setEnabled(scrollbar.value() < scrollbar.maximum())
+        except Exception:
+            pass
 
     def _sync_mprc_tab_stack_height(self) -> None:
         stack = self._controls.get("tab_stack")

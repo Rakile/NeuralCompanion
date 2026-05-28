@@ -128,7 +128,7 @@ class BackendEngineLifecycleMixin:
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(runtime_config.get("chat_provider_settings", {}) or {}),
             "chat_provider_generation_settings": dict(runtime_config.get("chat_provider_generation_settings", {}) or {}),
-            "model_name": self.model_combo.currentText(),
+            "model_name": self._current_active_chat_provider_model_name() if hasattr(self, "_current_active_chat_provider_model_name") else self.model_combo.currentText(),
             "system_prompt": self.system_prompt_text.toPlainText().strip(),
             "temperature": self.brain_sliders["temperature"].value(),
             "top_p": self.brain_sliders["top_p"].value(),

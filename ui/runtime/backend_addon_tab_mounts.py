@@ -224,6 +224,10 @@ class BackendAddonTabMountMixin:
                 tabs.setDocumentMode(False)
                 tabs.setUsesScrollButtons(True)
                 tabs.setElideMode(QtCore.Qt.ElideRight)
+                tabs.setMinimumWidth(0)
+                tabs_policy = tabs.sizePolicy()
+                tabs_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                tabs.setSizePolicy(tabs_policy)
             except Exception:
                 pass
             try:
@@ -232,6 +236,10 @@ class BackendAddonTabMountMixin:
                     tab_bar.setExpanding(False)
                     tab_bar.setUsesScrollButtons(True)
                     tab_bar.setElideMode(QtCore.Qt.ElideRight)
+                    tab_bar.setMinimumWidth(0)
+                    tab_policy = tab_bar.sizePolicy()
+                    tab_policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Ignored)
+                    tab_bar.setSizePolicy(tab_policy)
                     for index in range(tabs.count()):
                         label = str(tabs.tabText(index) or "").strip()
                         if label and not str(tabs.tabToolTip(index) or "").strip():

@@ -165,15 +165,20 @@ class BackendChatModelCatalogMixin:
         return not self._is_model_catalog_placeholder(current)
 
     def on_model_requires_vision_changed(self, _checked):
-        _update_runtime_config("model_requires_vision", bool(_checked))
+        provider_getter = getattr(self, "_current_chat_provider_editor_value", None)
+        provider = provider_getter() if callable(provider_getter) else self._current_chat_provider_value()
+        active_provider = self._current_chat_provider_value()
+        if provider == active_provider:
+            _update_runtime_config("model_requires_vision", bool(_checked))
         self.refresh_model_list_quietly(quiet=True, preloaded_models=list(getattr(self, "_all_model_catalog", []) or []))
         selected_model = str(self.model_combo.currentText() if hasattr(self, "model_combo") else _runtime_config().get("model_name", "") or "").strip()
         if selected_model:
             model_supports_images = self._current_model_supports_images_value(selected_model)
-            _update_runtime_config("model_supports_images", model_supports_images)
+            if provider == active_provider:
+                _update_runtime_config("model_supports_images", model_supports_images)
             if hasattr(self, "_set_current_chat_provider_model_state_for"):
                 self._set_current_chat_provider_model_state_for(
-                    self._current_chat_provider_value(),
+                    provider,
                     model_name=selected_model,
                     model_requires_vision=bool(_checked),
                     model_supports_images=model_supports_images,
@@ -184,7 +189,8 @@ class BackendChatModelCatalogMixin:
         self.save_session()
 
     def request_model_list_refresh(self, quiet=True, wait_for_reachable=False, force=False):
-        provider = self._current_chat_provider_value()
+        provider_getter = getattr(self, "_current_chat_provider_editor_value", None)
+        provider = provider_getter() if callable(provider_getter) else self._current_chat_provider_value()
         if hasattr(self, "_sync_chat_provider_settings_to_registry"):
             self._sync_chat_provider_settings_to_registry()
         if self._model_refresh_in_flight and str(getattr(self, "_model_refresh_provider", "") or "") == provider and not force:
@@ -236,7 +242,9 @@ class BackendChatModelCatalogMixin:
             self._pending_model_refresh = None
             self._pending_model_refresh_provider = ""
             self._pending_model_refresh_generation = 0
-        if provider != self._current_chat_provider_value() or refresh_generation != int(getattr(self, "_model_refresh_generation", 0) or 0):
+        provider_getter = getattr(self, "_current_chat_provider_editor_value", None)
+        current_provider = provider_getter() if callable(provider_getter) else self._current_chat_provider_value()
+        if provider != current_provider or refresh_generation != int(getattr(self, "_model_refresh_generation", 0) or 0):
             return
         self._model_refresh_in_flight = False
         self._model_refresh_provider = ""
@@ -249,7 +257,9 @@ class BackendChatModelCatalogMixin:
     def refresh_model_list_quietly(self, quiet=True, preloaded_models=None):
         if not hasattr(self, "model_combo"):
             return
-        provider = self._current_chat_provider_value()
+        provider_getter = getattr(self, "_current_chat_provider_editor_value", None)
+        provider = provider_getter() if callable(provider_getter) else self._current_chat_provider_value()
+        active_provider = self._current_chat_provider_value()
         raw_models = list(preloaded_models or _get_chat_models(provider=provider, quiet=quiet))
         available_catalog = self._set_model_catalog(raw_models)
         valid_models = [str(entry.get("id") or "") for entry in list(getattr(self, "_all_model_catalog", []) or []) if str(entry.get("id") or "")]
@@ -269,13 +279,14 @@ class BackendChatModelCatalogMixin:
         pending_wanted = str(getattr(self, "_pending_restored_model_name", "") or "").strip() or provider_wanted
         if previous_items == new_items and (not pending_wanted or current == pending_wanted):
             if current and not self._is_model_catalog_placeholder(current):
-                _update_runtime_config("model_name", current)
                 model_supports_images = self._current_model_supports_images_value(current)
                 model_supports_reasoning = self._current_model_supports_reasoning_value(current)
                 model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(current)
-                _update_runtime_config("model_supports_images", model_supports_images)
-                _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
-                _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
+                if provider == active_provider:
+                    _update_runtime_config("model_name", current)
+                    _update_runtime_config("model_supports_images", model_supports_images)
+                    _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+                    _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
                 if hasattr(self, "_set_current_chat_provider_model_state_for"):
                     self._set_current_chat_provider_model_state_for(
                         provider,
@@ -308,13 +319,14 @@ class BackendChatModelCatalogMixin:
         self.model_combo.blockSignals(False)
         selected_model = str(self.model_combo.currentText() or "").strip()
         if selected_model and not self._is_model_catalog_placeholder(selected_model):
-            _update_runtime_config("model_name", selected_model)
             model_supports_images = self._current_model_supports_images_value(selected_model)
             model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)
             model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(selected_model)
-            _update_runtime_config("model_supports_images", model_supports_images)
-            _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
-            _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
+            if provider == active_provider:
+                _update_runtime_config("model_name", selected_model)
+                _update_runtime_config("model_supports_images", model_supports_images)
+                _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+                _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
             if hasattr(self, "_set_current_chat_provider_model_state_for"):
                 self._set_current_chat_provider_model_state_for(
                     provider,

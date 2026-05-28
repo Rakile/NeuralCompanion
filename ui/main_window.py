@@ -5,7 +5,7 @@ class and its small local constants while the long-lived runtime behavior remain
 in focused mixins under ui.runtime.
 """
 
-from PySide6 import QtWidgets
+from PySide6 import QtGui, QtWidgets
 
 from ui.runtime.engine_access import update_runtime_config
 from ui.runtime.backend_addon_mounts import BackendAddonMountMixin
@@ -41,6 +41,7 @@ from ui.runtime.shell_status_layout import _apply_workspace_view_constraints
 from ui.runtime.main_window_constants import (
     APP_ROOT,
     APP_TITLE,
+    APP_ICON_PATH,
     SESSION_PATH,
     DEFAULT_LOCAL_VAM_ROOT,
     DEFAULT_LOCAL_VAM_EXECUTABLE,
@@ -99,6 +100,12 @@ class CompanionQtMainWindow(MainWindowStartupMixin, MainWindowThemeMixin, MainWi
     def __init__(self, *, suppress_restored_aux_docks=False):
         super().__init__()
         self.setWindowTitle(APP_TITLE)
+        try:
+            icon = QtGui.QIcon(str(APP_ICON_PATH))
+            if not icon.isNull():
+                self.setWindowIcon(icon)
+        except Exception:
+            pass
         self.resize(1400, 980)
         self._initialize_runtime_state(suppress_restored_aux_docks=suppress_restored_aux_docks)
         self._initialize_console_redirect()
@@ -110,6 +117,7 @@ class CompanionQtMainWindow(MainWindowStartupMixin, MainWindowThemeMixin, MainWi
 
 __all__ = [
     'APP_TITLE',
+    'APP_ICON_PATH',
     'SESSION_PATH',
     'DEFAULT_LOCAL_VAM_ROOT',
     'DEFAULT_LOCAL_VAM_EXECUTABLE',

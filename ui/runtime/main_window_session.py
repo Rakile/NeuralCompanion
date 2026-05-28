@@ -16,6 +16,7 @@ from core.musetalk_session_schema import group_musetalk_session, with_flat_muset
 from core.persona_session_schema import group_persona_session, with_flat_persona_settings
 from core.runtime_controls_session_schema import group_runtime_controls_session, with_flat_runtime_controls_settings
 from core.sensory_session_schema import group_sensory_session, with_flat_sensory_settings
+from core.stt_session_schema import group_stt_runtime_session, with_flat_stt_runtime_settings
 from core.tts_session_schema import group_tts_runtime_session, with_flat_tts_runtime_settings
 from core.ui_session_schema import group_ui_session, with_flat_ui_settings
 from core.vam_session_schema import group_vam_session, with_flat_vam_settings
@@ -90,6 +91,11 @@ class MainWindowSessionMixin:
                 pass
 
     def _session_model_name(self):
+        active_model_getter = getattr(self, "_current_active_chat_provider_model_name", None)
+        if callable(active_model_getter):
+            active_model = str(active_model_getter() or "").strip()
+            if active_model:
+                return active_model
         if hasattr(self, "model_combo"):
             model_combo_text = str(self.model_combo.currentText() or "").strip()
         else:
@@ -137,6 +143,7 @@ class MainWindowSessionMixin:
             "stt_backend": self._current_stt_backend_value() if hasattr(self, "stt_backend_combo") else str(RUNTIME_CONFIG.get("stt_backend", "none") or "none"),
             "stt_model_size": self._current_stt_model_value() if hasattr(self, "stt_model_combo") else str(RUNTIME_CONFIG.get("stt_model_size", "tiny.en") or "tiny.en"),
             "stt_language": self._current_stt_language_value() if hasattr(self, "stt_language_combo") else str(RUNTIME_CONFIG.get("stt_language", "en") or "en"),
+            "stt_backend_settings": dict(RUNTIME_CONFIG.get("stt_backend_settings", {}) or {}),
             "tts_backend": self._current_tts_backend_value(),
             "chat_provider": self._current_chat_provider_value(),
             "chat_provider_settings": dict(RUNTIME_CONFIG.get("chat_provider_settings", {}) or {}),
@@ -216,6 +223,7 @@ class MainWindowSessionMixin:
         session = group_chat_runtime_session(session)
         session = group_sensory_session(session)
         session = group_musetalk_session(session)
+        session = group_stt_runtime_session(session)
         session = group_tts_runtime_session(session)
         session = group_visual_reply_session(session)
         session = group_vam_session(session)
@@ -255,13 +263,15 @@ class MainWindowSessionMixin:
         session = with_flat_chat_runtime_settings(
             with_flat_sensory_settings(
                 with_flat_musetalk_settings(
-                    with_flat_tts_runtime_settings(
-                        with_flat_visual_reply_settings(
-                            with_flat_persona_settings(
-                                with_flat_runtime_controls_settings(
-                                    with_flat_dry_run_settings(
-                                        with_flat_chunking_settings(
-                                            with_flat_ui_settings(with_flat_vam_settings(session))
+                    with_flat_stt_runtime_settings(
+                        with_flat_tts_runtime_settings(
+                            with_flat_visual_reply_settings(
+                                with_flat_persona_settings(
+                                    with_flat_runtime_controls_settings(
+                                        with_flat_dry_run_settings(
+                                            with_flat_chunking_settings(
+                                                with_flat_ui_settings(with_flat_vam_settings(session))
+                                            )
                                         )
                                     )
                                 )
@@ -377,6 +387,9 @@ class MainWindowSessionMixin:
                         self.stream_mode_combo.setCurrentIndex(index)
                 else:
                     self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
+            stt_backend_settings = session.get("stt_backend_settings")
+            if stt_backend_settings is not None:
+                update_runtime_config("stt_backend_settings", stt_backend_settings)
             stt_backend = session.get("stt_backend")
             if stt_backend is not None and hasattr(self, "stt_backend_combo"):
                 self._populate_stt_backend_combo(selected_value=stt_backend)

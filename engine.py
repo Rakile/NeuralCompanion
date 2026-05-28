@@ -657,6 +657,7 @@ RUNTIME_CONFIG = {
     "stt_backend": "whisper_english",
     "stt_model_size": "tiny.en",
     "stt_language": "en",
+    "stt_backend_settings": {},
     "tts_backend": "chatterbox",
     "chatterbox_multilingual_language": "en",
     "chatterbox_multilingual_apply_watermark": True,
@@ -796,6 +797,8 @@ def update_runtime_config(key, value):
         elif key == "chat_provider":
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":
+            value = dict(value or {})
+        elif key == "stt_backend_settings":
             value = dict(value or {})
         elif key == "chat_replay_role_voices":
             value = _normalize_chat_replay_role_voices(value)

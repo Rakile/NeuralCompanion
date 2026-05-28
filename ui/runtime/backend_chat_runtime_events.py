@@ -31,8 +31,11 @@ class BackendChatRuntimeEventsMixin:
     def _refresh_chat_runtime_summary(self):
         if not hasattr(self, "chat_runtime_section"):
             return
-        provider_label = self._chat_provider_label_from_value(self._current_chat_provider_value())
-        model_name = str(self.model_combo.currentText() if hasattr(self, "model_combo") else _runtime_config().get("model_name", "") or "").strip()
+        provider_value = self._current_chat_provider_value()
+        provider_label = self._chat_provider_label_from_value(provider_value)
+        state_getter = getattr(self, "_current_chat_provider_model_state_for", None)
+        state = state_getter(provider_value) if callable(state_getter) else {}
+        model_name = str((state or {}).get("model_name") or _runtime_config().get("model_name", "") or "").strip()
         summary = provider_label
         if model_name and not self._is_model_catalog_placeholder(model_name):
             summary = f"{provider_label} / {model_name}"
@@ -69,12 +72,11 @@ class BackendChatRuntimeEventsMixin:
         else:
             settings[field_id] = value
         self._set_current_chat_provider_generation_settings_for(provider_id, settings)
-        self._apply_legacy_generation_mirror(field_id, value)
         self.save_session()
-        self._refresh_preset_dirty_state()
 
     def on_chat_provider_changed(self, _choice):
         provider_value = self._current_chat_provider_value()
+        self._chat_runtime_editor_provider = provider_value
         _update_runtime_config("chat_provider", provider_value)
         state = self._sync_active_provider_model_state_to_runtime(provider_value) if hasattr(self, "_sync_active_provider_model_state_to_runtime") else {}
         wanted_model = str((state or {}).get("model_name") or "").strip()
@@ -96,7 +98,9 @@ class BackendChatRuntimeEventsMixin:
         if self._is_model_catalog_placeholder(selected_model):
             self._refresh_chat_runtime_summary()
             return
-        provider_value = self._current_chat_provider_value()
+        editor_getter = getattr(self, "_current_chat_provider_editor_value", None)
+        provider_value = editor_getter() if callable(editor_getter) else self._current_chat_provider_value()
+        active_provider = self._current_chat_provider_value()
         model_supports_images = self._current_model_supports_images_value(selected_model)
         model_supports_reasoning = self._current_model_supports_reasoning_value(selected_model)
         model_supports_reasoning_toggle = self._current_model_supports_reasoning_toggle_value(selected_model)
@@ -109,10 +113,11 @@ class BackendChatRuntimeEventsMixin:
                 model_supports_reasoning=model_supports_reasoning,
                 model_supports_reasoning_toggle=model_supports_reasoning_toggle,
             )
-        _update_runtime_config("model_name", selected_model)
-        _update_runtime_config("model_supports_images", model_supports_images)
-        _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
-        _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
+        if provider_value == active_provider:
+            _update_runtime_config("model_name", selected_model)
+            _update_runtime_config("model_supports_images", model_supports_images)
+            _update_runtime_config("model_supports_reasoning", model_supports_reasoning)
+            _update_runtime_config("model_supports_reasoning_toggle", model_supports_reasoning_toggle)
         self._advisor_context_manual_override = False
         self.update_model_budget_hint()
         self._refresh_chat_provider_generation_card()

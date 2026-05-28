@@ -1,6 +1,6 @@
 import time
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.designer_loader import ui_shell_find_object as _ui_shell_find_object
 from ui.dock_utils import install_floating_dock_resize_filter
@@ -140,6 +140,12 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         _configure_real_ui_input_dependencies()
         self.window.installEventFilter(self)
         self.window.setWindowTitle(APP_TITLE)
+        try:
+            icon = QtGui.QIcon(str(APP_ICON_PATH))
+            if not icon.isNull():
+                self.window.setWindowIcon(icon)
+        except Exception:
+            pass
         self.window.setProperty("nc_ui_real_runtime", True)
         # main.ui is authored with Qt's more aggressive dock flags
         # (GroupedDragging/AnimatedDocks). Those can become unstable once the
@@ -202,6 +208,9 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._normalize_frontend_runtime_section_layouts()
         self._bind_frontend_layout_persistence_hooks()
         self._restore_frontend_layout_state()
+        self._apply_frontend_workspace_dock_tab_styles()
+        QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_dock_tab_styles)
+        QtCore.QTimer.singleShot(150, self._apply_frontend_workspace_dock_tab_styles)
         self._sync_backend_to_ui(force=True)
         self._collapse_frontend_runtime_groups()
         QtCore.QTimer.singleShot(0, self._collapse_frontend_runtime_groups)

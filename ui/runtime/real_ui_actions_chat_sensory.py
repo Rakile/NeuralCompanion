@@ -282,6 +282,8 @@ class RealUiActionsChatSensoryMixin:
                 self._refresh_sensory_runtime_frontend()
 
     def _on_frontend_chat_provider_changed(self, _index=None):
+            if bool(getattr(self, "_runtime_provider_tab_browse_in_progress", False)):
+                return
             frontend_combo = self._ui_object("chat_provider_combo")
             backend_combo = self._backend_widget("chat_provider_combo")
             if frontend_combo is None or backend_combo is None:

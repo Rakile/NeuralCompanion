@@ -55,6 +55,30 @@ class BackendChatProviderFieldsMixin:
         raw = _runtime_config().get("chat_provider_settings", {}) or {}
         return {str(key or "").strip().lower(): dict(value or {}) for key, value in raw.items() if str(key or "").strip()}
 
+    def _current_chat_provider_editor_value(self):
+        provider = str(getattr(self, "_chat_runtime_editor_provider", "") or "").strip()
+        if provider:
+            return chat_providers.normalize_provider_id(provider, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        return self._current_chat_provider_value()
+
+    def _set_chat_provider_editor_value(self, provider_id, *, force=False):
+        provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
+        previous = str(getattr(self, "_chat_runtime_editor_provider", "") or "").strip().lower()
+        self._chat_runtime_editor_provider = provider_key
+        if previous == provider_key and not force:
+            return
+        state = self._current_chat_provider_model_state_for(provider_key)
+        wanted_model = str((state or {}).get("model_name") or "").strip()
+        self._pending_restored_model_name = wanted_model
+        if hasattr(self, "model_requires_vision_checkbox"):
+            self.model_requires_vision_checkbox.blockSignals(True)
+            try:
+                self.model_requires_vision_checkbox.setChecked(bool((state or {}).get("model_requires_vision", False)))
+            finally:
+                self.model_requires_vision_checkbox.blockSignals(False)
+        self._refresh_chat_provider_card()
+        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
+
     def _sync_chat_provider_settings_to_registry(self):
         try:
             chat_providers.set_provider_settings(self._current_chat_provider_settings_map())
@@ -96,6 +120,19 @@ class BackendChatProviderFieldsMixin:
             "model_supports_reasoning": bool(settings.get("model_supports_reasoning", False)),
             "model_supports_reasoning_toggle": bool(settings.get("model_supports_reasoning_toggle", False)),
         }
+
+    def _current_active_chat_provider_model_name(self):
+        provider_key = self._current_chat_provider_value()
+        state = self._current_chat_provider_model_state_for(provider_key)
+        model_name = str((state or {}).get("model_name") or "").strip()
+        if model_name:
+            return model_name
+        model_name = str(_runtime_config().get("model_name", "") or "").strip()
+        if model_name:
+            return model_name
+        if hasattr(self, "model_combo"):
+            return str(self.model_combo.currentText() or "").strip()
+        return ""
 
     def _set_current_chat_provider_model_state_for(self, provider_id, **updates):
         provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
@@ -279,7 +316,7 @@ class BackendChatProviderFieldsMixin:
         while self.chat_provider_generation_fields_layout.rowCount():
             self.chat_provider_generation_fields_layout.removeRow(0)
 
-        provider_id = self._current_chat_provider_value()
+        provider_id = self._current_chat_provider_editor_value()
         current_settings = self._current_chat_provider_generation_settings_for(provider_id)
         fields = list(self._chat_provider_generation_fields(provider_id))
 
@@ -424,7 +461,7 @@ class BackendChatProviderFieldsMixin:
         self._chat_provider_field_widgets = {}
         self._chat_provider_field_meta = {}
 
-        provider_id = self._current_chat_provider_value()
+        provider_id = self._current_chat_provider_editor_value()
         current_settings = self._current_chat_provider_settings_for(provider_id)
         fields = list(self._chat_provider_config_fields(provider_id))
 

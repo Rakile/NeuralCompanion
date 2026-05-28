@@ -1,6 +1,6 @@
 import json
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from core.ui_session_schema import group_ui_session, with_flat_ui_settings
 
@@ -8,6 +8,247 @@ from core.ui_session_schema import group_ui_session, with_flat_ui_settings
 def configure_real_ui_theme_dependencies(namespace):
     """Inject qt_app-owned theme globals used by the extracted real-UI theme mixin."""
     globals().update(dict(namespace or {}))
+
+
+class _WorkspaceDockTabPaintFilter(QtCore.QObject):
+    def __init__(self, palettes, aliases=None, parent=None):
+        super().__init__(parent)
+        self._palettes = dict(palettes or {})
+        self._aliases = dict(aliases or {})
+        self._fallback = {
+            "background": "#17212c",
+            "checked": "#223247",
+            "hover": "#29405b",
+            "border": "#273342",
+            "text": "#e5e9f0",
+        }
+
+    def _canonical_title(self, title):
+        raw = str(title or "").strip()
+        return self._aliases.get(raw, raw)
+
+    def _palette_for_title(self, title):
+        return self._palettes.get(self._canonical_title(title)) or self._fallback
+
+    def _moving_tab_proxy_widgets(self, tab_bar):
+        if tab_bar is None:
+            return []
+        proxies = []
+        try:
+            children = tab_bar.findChildren(QtWidgets.QWidget, options=QtCore.Qt.FindDirectChildrenOnly)
+        except Exception:
+            return proxies
+        for child in children:
+            if child is None or isinstance(child, QtWidgets.QToolButton):
+                continue
+            try:
+                if str(child.objectName() or "").strip():
+                    continue
+            except Exception:
+                pass
+            proxies.append(child)
+        return proxies
+
+    def _active_moving_tab_title(self, tab_bar):
+        try:
+            title = str(tab_bar.property("nc_workspace_dock_tab_drag_title") or "").strip()
+        except Exception:
+            title = ""
+        if not title:
+            return ""
+        try:
+            if any(proxy.isVisible() for proxy in self._moving_tab_proxy_widgets(tab_bar)):
+                return title
+        except Exception:
+            return title
+        return ""
+
+    def _install_moving_tab_proxy_filter(self, tab_bar):
+        title = self._active_moving_tab_title(tab_bar)
+        if not title:
+            return
+        for proxy in self._moving_tab_proxy_widgets(tab_bar):
+            try:
+                proxy.setProperty("nc_workspace_dock_tab_proxy", True)
+                proxy.setProperty("nc_workspace_dock_tab_proxy_title", title)
+                proxy.setAttribute(QtCore.Qt.WA_TranslucentBackground, True)
+                proxy.setAttribute(QtCore.Qt.WA_NoSystemBackground, True)
+                if not bool(proxy.property("nc_workspace_dock_tab_proxy_filtered")):
+                    proxy.installEventFilter(self)
+                    proxy.setProperty("nc_workspace_dock_tab_proxy_filtered", True)
+                height = max(int(tab_bar.minimumHeight() or 0), int(tab_bar.height() or 0))
+                if height > 0 and proxy.height() < height:
+                    geom = proxy.geometry()
+                    proxy.setGeometry(geom.x(), 0, geom.width(), height)
+                proxy.raise_()
+                proxy.update()
+            except Exception:
+                continue
+
+    def _tab_path(self, rect, radius):
+        path = QtGui.QPainterPath()
+        left = float(rect.left())
+        top = float(rect.top())
+        right = float(rect.right())
+        bottom = float(rect.bottom())
+        radius = max(0.0, min(float(radius), rect.width() / 2.0, rect.height()))
+        path.moveTo(left, bottom)
+        path.lineTo(left, top + radius)
+        path.quadTo(left, top, left + radius, top)
+        path.lineTo(right - radius, top)
+        path.quadTo(right, top, right, top + radius)
+        path.lineTo(right, bottom)
+        path.lineTo(left, bottom)
+        path.closeSubpath()
+        return path
+
+    def _draw_tab_glow(self, painter, rect, color, selected):
+        glow_color = QtGui.QColor(color)
+        spreads = (7, 5, 3) if selected else (4, 2)
+        base_alpha = 42 if selected else 22
+        for step, spread in enumerate(spreads):
+            glow_color.setAlpha(max(8, base_alpha - step * 10))
+            glow_rect = QtCore.QRectF(rect).adjusted(-spread, -spread + 1, spread, spread)
+            painter.fillPath(self._tab_path(glow_rect, 9 + spread), glow_color)
+
+    def _draw_tab_bar(self, tab_bar):
+        painter = QtGui.QPainter(tab_bar)
+        try:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+            base_bg = QtGui.QColor("#11161d")
+            panel_bg = QtGui.QColor("#0f141b")
+            baseline = QtGui.QColor("#273342")
+            painter.fillRect(tab_bar.rect(), base_bg)
+            baseline_y = tab_bar.rect().bottom() - 1
+            painter.fillRect(QtCore.QRect(0, baseline_y, tab_bar.width(), 2), baseline)
+            try:
+                hover_index = tab_bar.tabAt(tab_bar.mapFromGlobal(QtGui.QCursor.pos()))
+            except Exception:
+                hover_index = -1
+            moving_title = self._active_moving_tab_title(tab_bar)
+            for index in range(tab_bar.count()):
+                rect = tab_bar.tabRect(index)
+                if not rect.isValid():
+                    continue
+                title = str(tab_bar.tabText(index) or "")
+                if moving_title and self._canonical_title(title) == self._canonical_title(moving_title):
+                    continue
+                palette = self._palette_for_title(title)
+                selected = index == tab_bar.currentIndex()
+                hovered = index == hover_index
+                background = palette["checked"] if selected else palette["hover"] if hovered else palette["background"]
+                top_offset = 4 if selected else 7
+                tab_rect = QtCore.QRectF(rect.adjusted(1, top_offset, -1, 2 if selected else -1))
+                path = self._tab_path(tab_rect, 8)
+                self._draw_tab_glow(painter, tab_rect, palette["border"], selected)
+                painter.fillPath(path, QtGui.QColor(background))
+                painter.setPen(QtGui.QPen(QtGui.QColor(palette["border"]), 1))
+                painter.drawPath(path)
+                if selected:
+                    painter.fillRect(
+                        QtCore.QRectF(tab_rect.left() + 1, baseline_y - 1, tab_rect.width() - 2, 4),
+                        QtGui.QColor(background),
+                    )
+                    painter.setPen(QtGui.QPen(QtGui.QColor(palette["border"]), 1))
+                    painter.drawLine(QtCore.QPointF(tab_rect.left(), tab_rect.bottom()), QtCore.QPointF(tab_rect.left(), baseline_y))
+                    painter.drawLine(QtCore.QPointF(tab_rect.right(), tab_rect.bottom()), QtCore.QPointF(tab_rect.right(), baseline_y))
+                else:
+                    painter.fillRect(
+                        QtCore.QRectF(tab_rect.left() + 1, baseline_y, tab_rect.width() - 2, 2),
+                        panel_bg,
+                    )
+                font = tab_bar.font()
+                try:
+                    desired_font_px = int(tab_bar.property("nc_workspace_dock_tab_font_pixel_size") or 0)
+                except Exception:
+                    desired_font_px = 0
+                if desired_font_px > 0:
+                    font.setPixelSize(desired_font_px)
+                font.setBold(True)
+                painter.setFont(font)
+                painter.setPen(QtGui.QColor(palette["text"]))
+                painter.drawText(rect.adjusted(12, top_offset - 1, -12, -4), QtCore.Qt.AlignCenter, self._canonical_title(title))
+        finally:
+            painter.end()
+
+    def _draw_tab_proxy(self, proxy):
+        tab_bar = proxy.parentWidget() if proxy is not None else None
+        if not isinstance(tab_bar, QtWidgets.QTabBar):
+            return False
+        try:
+            title = str(proxy.property("nc_workspace_dock_tab_proxy_title") or "").strip()
+        except Exception:
+            title = ""
+        title = title or self._active_moving_tab_title(tab_bar)
+        if not title:
+            return False
+        palette = self._palette_for_title(title)
+        painter = QtGui.QPainter(proxy)
+        try:
+            painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+            rect = QtCore.QRectF(proxy.rect().adjusted(1, 4, -1, -2))
+            path = self._tab_path(rect, 8)
+            self._draw_tab_glow(painter, rect, palette["border"], True)
+            painter.fillPath(path, QtGui.QColor(palette["checked"]))
+            painter.setPen(QtGui.QPen(QtGui.QColor(palette["border"]), 1))
+            painter.drawPath(path)
+            font = tab_bar.font()
+            try:
+                desired_font_px = int(tab_bar.property("nc_workspace_dock_tab_font_pixel_size") or 0)
+            except Exception:
+                desired_font_px = 0
+            if desired_font_px > 0:
+                font.setPixelSize(desired_font_px)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.setPen(QtGui.QColor(palette["text"]))
+            painter.drawText(proxy.rect().adjusted(12, 3, -12, -4), QtCore.Qt.AlignCenter, self._canonical_title(title))
+            return True
+        finally:
+            painter.end()
+
+    def eventFilter(self, obj, event):
+        if event is not None:
+            if isinstance(obj, QtWidgets.QTabBar):
+                event_type = event.type()
+                if event_type == QtCore.QEvent.MouseButtonPress:
+                    try:
+                        if event.button() == QtCore.Qt.LeftButton:
+                            index = obj.tabAt(event.pos())
+                            obj.setProperty("nc_workspace_dock_tab_drag_title", obj.tabText(index) if index >= 0 else "")
+                    except Exception:
+                        obj.setProperty("nc_workspace_dock_tab_drag_title", "")
+                elif event_type in {QtCore.QEvent.MouseMove, QtCore.QEvent.ChildAdded}:
+                    try:
+                        if event_type == QtCore.QEvent.MouseMove and event.buttons() & QtCore.Qt.LeftButton:
+                            obj.setProperty("nc_workspace_dock_tab_native_drag_paint", True)
+                    except Exception:
+                        pass
+                    QtCore.QTimer.singleShot(0, lambda tab_bar=obj: self._install_moving_tab_proxy_filter(tab_bar))
+                elif event_type == QtCore.QEvent.MouseButtonRelease:
+                    try:
+                        obj.setProperty("nc_workspace_dock_tab_native_drag_paint", False)
+                    except Exception:
+                        pass
+                    QtCore.QTimer.singleShot(0, lambda tab_bar=obj: tab_bar.setProperty("nc_workspace_dock_tab_drag_title", ""))
+                if event_type == QtCore.QEvent.Paint:
+                    if bool(obj.property("nc_workspace_dock_tab_native_drag_paint")):
+                        if QtWidgets.QApplication.mouseButtons() & QtCore.Qt.LeftButton:
+                            return False
+                        try:
+                            obj.setProperty("nc_workspace_dock_tab_native_drag_paint", False)
+                            obj.setProperty("nc_workspace_dock_tab_drag_title", "")
+                        except Exception:
+                            pass
+                    self._draw_tab_bar(obj)
+                    return True
+            elif (
+                isinstance(obj, QtWidgets.QWidget)
+                and bool(obj.property("nc_workspace_dock_tab_proxy"))
+                and event.type() == QtCore.QEvent.Paint
+            ):
+                return self._draw_tab_proxy(obj)
+        return super().eventFilter(obj, event)
 
 
 class MainUiRealThemeMixin:
@@ -53,8 +294,145 @@ class MainUiRealThemeMixin:
                     _apply_readable_input_palettes(self.window, palette)
                     _apply_engine_action_button_accents(self.window)
                     self._apply_frontend_dock_title_widgets(palette)
+                    self._normalize_frontend_workspace_dock_titles()
+                    self._apply_frontend_workspace_dock_tab_styles()
                 except Exception:
                     pass
+
+    def _frontend_workspace_dock_tab_palettes(self):
+            return {
+                "System Shaping": {
+                    "background": "#2f1214",
+                    "checked": "#42191d",
+                    "hover": "#552026",
+                    "border": "#ff5f6d",
+                    "text": "#fff4f5",
+                },
+                "Workspace Tabs": {
+                    "background": "#0b203f",
+                    "checked": "#12315e",
+                    "hover": "#164274",
+                    "border": "#4d8dff",
+                    "text": "#f1f7ff",
+                },
+                "Operational View": {
+                    "background": "#0d2b20",
+                    "checked": "#123b2c",
+                    "hover": "#184d39",
+                    "border": "#2cc985",
+                    "text": "#f4fffa",
+                },
+                "Visual Reply": {
+                    "background": "#2d2110",
+                    "checked": "#3f2e16",
+                    "hover": "#564020",
+                    "border": "#ffb347",
+                    "text": "#fff8ed",
+                },
+                "MuseTalk": {
+                    "background": "#1d183b",
+                    "checked": "#282153",
+                    "hover": "#342b70",
+                    "border": "#b085ff",
+                    "text": "#fbf8ff",
+                },
+            }
+
+    def _normalize_frontend_workspace_dock_titles(self):
+            for object_name in ("PreviewDock", "MuseTalkPreviewDock"):
+                dock = self._ui_object(object_name)
+                if dock is None or not hasattr(dock, "setWindowTitle"):
+                    continue
+                try:
+                    if str(dock.windowTitle() or "") != "MuseTalk":
+                        dock.setWindowTitle("MuseTalk")
+                except Exception:
+                    pass
+
+    def _is_frontend_workspace_dock_tab_bar(self, tab_bar, target_titles):
+            if tab_bar is None or not hasattr(tab_bar, "count"):
+                return False
+            for index in range(tab_bar.count()):
+                title = str(tab_bar.tabText(index) or "").strip()
+                if title in target_titles or title == "MuseTalk Preview":
+                    return True
+            return False
+
+    def _apply_frontend_workspace_dock_tab_styles(self):
+            if self.window is None:
+                return
+            self._normalize_frontend_workspace_dock_titles()
+            palettes = self._frontend_workspace_dock_tab_palettes()
+            target_titles = set(palettes)
+            aliases = {"MuseTalk Preview": "MuseTalk"}
+            paint_filter = getattr(self, "_frontend_workspace_dock_tab_paint_filter", None)
+            if paint_filter is None:
+                paint_filter = _WorkspaceDockTabPaintFilter(palettes, aliases, self.window)
+                self._frontend_workspace_dock_tab_paint_filter = paint_filter
+            try:
+                paint_filter._palettes = dict(palettes)
+                paint_filter._aliases = dict(aliases)
+            except Exception:
+                pass
+            for tab_bar in self.window.findChildren(QtWidgets.QTabBar):
+                if not self._is_frontend_workspace_dock_tab_bar(tab_bar, target_titles):
+                    continue
+                try:
+                    if not bool(tab_bar.property("nc_workspace_dock_tab_styled")):
+                        tab_bar.installEventFilter(paint_filter)
+                        tab_bar.setProperty("nc_workspace_dock_tab_styled", True)
+                    font = tab_bar.font()
+                    base_font_height = tab_bar.property("nc_workspace_dock_tab_base_font_height")
+                    try:
+                        base_font_height = float(base_font_height)
+                    except Exception:
+                        base_font_height = 0.0
+                    if base_font_height <= 0.0:
+                        base_font_height = float(max(1, tab_bar.fontMetrics().height()))
+                        tab_bar.setProperty("nc_workspace_dock_tab_base_font_height", base_font_height)
+                    font_px = max(1, int(round(base_font_height * 1.1625)))
+                    height_px = max(1, int(round(base_font_height * 2.1 * 1.1625)))
+                    tab_bar.setProperty("nc_workspace_dock_tab_font_pixel_size", font_px)
+                    font.setPixelSize(font_px)
+                    font.setBold(True)
+                    tab_bar.setFont(font)
+                    tab_bar.setStyleSheet(
+                        "QTabBar {"
+                        " background: #11161d;"
+                        " font-weight: 700;"
+                        f" font-size: {font_px}px;"
+                        f" min-height: {height_px}px;"
+                        "}"
+                        "QTabBar::tab {"
+                        f" min-height: {max(1, height_px - 8)}px;"
+                        " padding-left: 16px;"
+                        " padding-right: 16px;"
+                        "}"
+                    )
+                    tab_bar.setDrawBase(False)
+                    tab_bar.setExpanding(False)
+                    tab_bar.setUsesScrollButtons(True)
+                    tab_bar.setMinimumHeight(max(tab_bar.minimumHeight(), height_px))
+                    if bool(tab_bar.property("nc_workspace_dock_tab_native_drag_paint")):
+                        if QtWidgets.QApplication.mouseButtons() & QtCore.Qt.LeftButton:
+                            QtCore.QTimer.singleShot(120, self._apply_frontend_workspace_dock_tab_styles)
+                            continue
+                        tab_bar.setProperty("nc_workspace_dock_tab_native_drag_paint", False)
+                        tab_bar.setProperty("nc_workspace_dock_tab_drag_title", "")
+                    if tab_bar.count() > 0 and tab_bar.currentIndex() < 0:
+                        tab_bar.setCurrentIndex(0)
+                    tab_bar.updateGeometry()
+                    tab_bar.repaint()
+                    tab_bar.update()
+                except Exception:
+                    continue
+
+    def _schedule_frontend_workspace_dock_tab_refresh(self):
+            QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_dock_tab_styles)
+            QtCore.QTimer.singleShot(50, self._apply_frontend_workspace_dock_tab_styles)
+            QtCore.QTimer.singleShot(150, self._apply_frontend_workspace_dock_tab_styles)
+            QtCore.QTimer.singleShot(350, self._apply_frontend_workspace_dock_tab_styles)
+            QtCore.QTimer.singleShot(700, self._apply_frontend_workspace_dock_tab_styles)
 
     def _frontend_dock_title_stylesheet(self, palette):
             window_bg = palette.get("window_bg", "#11161d")
@@ -89,6 +467,30 @@ QDockWidget::close-button:hover,
 QDockWidget::float-button:hover {{
     background: {palette.get("button_hover_bg", "#29405b")};
 }}
+QMainWindow::separator {{
+    background: transparent;
+    width: 5px;
+    height: 5px;
+}}
+QMainWindow::separator:vertical {{
+    border-left: 1px solid {border};
+    margin-left: 2px;
+    margin-right: 2px;
+}}
+QMainWindow::separator:horizontal {{
+    border-top: 1px solid {border};
+    margin-top: 2px;
+    margin-bottom: 2px;
+}}
+QMainWindow::separator:hover {{
+    background: transparent;
+}}
+QMainWindow::separator:vertical:hover {{
+    border-left-color: {palette.get("button_hover_bg", "#29405b")};
+}}
+QMainWindow::separator:horizontal:hover {{
+    border-top-color: {palette.get("button_hover_bg", "#29405b")};
+}}
 """
 
     def _apply_frontend_dock_title_widgets(self, palette):
@@ -109,6 +511,12 @@ QDockWidget::float-button:hover {{
                         pass
                     try:
                         dock.windowTitleChanged.connect(lambda _title="", d=dock: self._update_frontend_dock_title_widget(d))
+                    except Exception:
+                        pass
+                if not bool(dock.property("nc_workspace_dock_tab_refresh_connected")):
+                    try:
+                        dock.topLevelChanged.connect(lambda _floating=False: self._schedule_frontend_workspace_dock_tab_refresh())
+                        dock.setProperty("nc_workspace_dock_tab_refresh_connected", True)
                     except Exception:
                         pass
                 title_bar.setProperty("nc_theme_palette", dict(palette or {}))
