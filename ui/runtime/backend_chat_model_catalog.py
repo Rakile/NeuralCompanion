@@ -36,23 +36,25 @@ class BackendChatModelCatalogMixin:
     def _normalize_model_catalog_entry(self, item):
         if isinstance(item, dict):
             model_id = str(item.get("id") or item.get("model") or item.get("name") or "").strip()
+            inferred_reasoning = self._infer_model_supports_reasoning(model_id)
             supports_images = bool(item.get("supports_images", False))
-            supports_reasoning = bool(item.get("supports_reasoning", False))
-            supports_reasoning_toggle = bool(item.get("supports_reasoning_toggle", False))
+            supports_reasoning = bool(item.get("supports_reasoning", inferred_reasoning))
+            supports_reasoning_toggle = bool(item.get("supports_reasoning_toggle", inferred_reasoning))
             source = str(item.get("source") or "").strip().lower()
         else:
             model_id = str(item or "").strip()
+            inferred_reasoning = self._infer_model_supports_reasoning(model_id)
             supports_images = self._infer_model_supports_images(model_id)
-            supports_reasoning = self._infer_model_supports_reasoning(model_id)
-            supports_reasoning_toggle = bool(supports_reasoning)
+            supports_reasoning = inferred_reasoning
+            supports_reasoning_toggle = bool(inferred_reasoning)
             source = ""
         if not model_id:
             return None
         return {
             "id": model_id,
             "supports_images": bool(supports_images),
-            "supports_reasoning": bool(supports_reasoning or self._infer_model_supports_reasoning(model_id)),
-            "supports_reasoning_toggle": bool(supports_reasoning_toggle or self._infer_model_supports_reasoning(model_id)),
+            "supports_reasoning": bool(supports_reasoning),
+            "supports_reasoning_toggle": bool(supports_reasoning_toggle),
             "source": source,
         }
 

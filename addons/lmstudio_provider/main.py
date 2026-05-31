@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 from typing import Any, Iterable
 from urllib.request import Request, urlopen
 
@@ -12,11 +13,72 @@ from core.addons.base import BaseAddon
 PROVIDER_ID = "lmstudio"
 DEFAULT_BASE_URL = "http://127.0.0.1:1234/v1"
 DEFAULT_API_KEY = "lm-studio"
+_NATIVE_REASONING_VALUES = {"off", "low", "medium", "high", "on"}
+_THINK_TOKEN = "<|think|>"
+_CHANNEL_START = "<|channel>"
+_CHANNEL_END = "<channel|>"
+_PROMPT_TOKEN_REASONING_FRAGMENTS = ("gemma-4",)
+
+
+def _strip_channel_blocks(text: Any) -> str:
+    value = str(text or "")
+    if _CHANNEL_START not in value:
+        return value.strip()
+    parts: list[str] = []
+    position = 0
+    while position < len(value):
+        start = value.find(_CHANNEL_START, position)
+        if start < 0:
+            parts.append(value[position:])
+            break
+        parts.append(value[position:start])
+        end = value.find(_CHANNEL_END, start + len(_CHANNEL_START))
+        if end < 0:
+            break
+        position = end + len(_CHANNEL_END)
+    return "".join(parts).strip()
+
+
+def _filter_channel_blocks_stream(chunks: Iterable[str]):
+    buffer = ""
+    in_channel = False
+    keep = max(len(_CHANNEL_START), len(_CHANNEL_END)) - 1
+
+    for chunk in chunks:
+        if not chunk:
+            continue
+        buffer += str(chunk)
+        while buffer:
+            if in_channel:
+                end = buffer.find(_CHANNEL_END)
+                if end < 0:
+                    buffer = buffer[-keep:]
+                    break
+                buffer = buffer[end + len(_CHANNEL_END):]
+                in_channel = False
+                continue
+
+            start = buffer.find(_CHANNEL_START)
+            if start >= 0:
+                if start:
+                    yield buffer[:start]
+                buffer = buffer[start + len(_CHANNEL_START):]
+                in_channel = True
+                continue
+
+            if len(buffer) <= keep:
+                break
+            yield buffer[:-keep]
+            buffer = buffer[-keep:]
+            break
+
+    if buffer and not in_channel:
+        yield buffer
 
 
 def _extract_text(response: Any) -> str:
     if isinstance(response, str):
-        return str(response)
+        return _strip_channel_blocks(response)
     choices = getattr(response, "choices", None) or []
     if not choices:
         return ""
@@ -36,11 +98,11 @@ def _extract_text(response: Any) -> str:
                 dict_text = item.get("text")
                 if dict_text:
                     parts.append(str(dict_text))
-        return "".join(parts).strip()
-    return str(content or "").strip()
+        return _strip_channel_blocks("".join(parts))
+    return _strip_channel_blocks(content)
 
 
-def _stream_text(stream: Iterable[Any]):
+def _raw_stream_text(stream: Iterable[Any]):
     for event in stream:
         choices = getattr(event, "choices", None) or []
         if not choices:
@@ -64,9 +126,118 @@ def _stream_text(stream: Iterable[Any]):
             yield str(content)
 
 
+def _stream_text(stream: Iterable[Any]):
+    yield from _filter_channel_blocks_stream(_raw_stream_text(stream))
+
+
+def _native_chat_delta_stream(response: Iterable[bytes]):
+    for raw_line in response:
+        line = raw_line.decode("utf-8", errors="replace").strip()
+        if not line.startswith("data:"):
+            continue
+        raw_payload = line[5:].strip()
+        if not raw_payload:
+            continue
+        try:
+            payload = json.loads(raw_payload)
+        except Exception:
+            continue
+        event_type = str(payload.get("type") or "").strip()
+        if event_type == "message.delta" and payload.get("content"):
+            yield str(payload.get("content"))
+        elif event_type == "error":
+            message = str(payload.get("message") or payload.get("error") or "LM Studio native chat error")
+            raise RuntimeError(message)
+
+
+def _string_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return str(content or "").strip()
+    parts: list[str] = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("type") or "").strip().lower() == "text":
+            parts.append(str(item.get("text") or ""))
+    return "\n".join(part.strip() for part in parts if part and part.strip()).strip()
+
+
+def _image_data_urls(content: Any) -> list[str]:
+    if not isinstance(content, list):
+        return []
+    urls: list[str] = []
+    for item in content:
+        if not isinstance(item, dict):
+            continue
+        if str(item.get("type") or "").strip().lower() != "image_url":
+            continue
+        image_url = item.get("image_url")
+        if isinstance(image_url, dict):
+            url = str(image_url.get("url") or "").strip()
+        else:
+            url = str(image_url or "").strip()
+        if url:
+            urls.append(url)
+    return urls
+
+
+def _native_chat_text(payload: Any) -> str:
+    if isinstance(payload, str):
+        return _strip_channel_blocks(payload)
+    if not isinstance(payload, dict):
+        return ""
+    output = payload.get("output")
+    if isinstance(output, list):
+        parts = []
+        for item in output:
+            if isinstance(item, dict) and str(item.get("type") or "").strip().lower() == "message":
+                parts.append(str(item.get("content") or ""))
+        return _strip_channel_blocks("".join(parts))
+    return _strip_channel_blocks(payload.get("content") or payload.get("text") or "")
+
+
+def _model_uses_prompt_token_reasoning(model_id: str | None) -> bool:
+    value = str(model_id or "").strip().lower()
+    return bool(value) and any(fragment in value for fragment in _PROMPT_TOKEN_REASONING_FRAGMENTS)
+
+
+def _apply_think_token(system_prompt: str, reasoning: str | None) -> str:
+    prompt = str(system_prompt or "").lstrip()
+    while prompt.startswith(_THINK_TOKEN):
+        prompt = prompt[len(_THINK_TOKEN):].lstrip()
+    if str(reasoning or "").strip().lower() in {"on", "low", "medium", "high"}:
+        return f"{_THINK_TOKEN}\n{prompt}".strip()
+    return prompt
+
+
+def _without_reasoning(additional_params: dict[str, Any] | None) -> dict[str, Any]:
+    cleaned = dict(additional_params or {})
+    cleaned.pop("reasoning", None)
+    return cleaned
+
+
+def _is_native_reasoning_unsupported_error(exc: urllib.error.HTTPError) -> bool:
+    try:
+        payload = json.loads(exc.read().decode("utf-8", errors="replace"))
+    except Exception:
+        return False
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if not isinstance(error, dict):
+        return False
+    message = str(error.get("message") or "").lower()
+    param = str(error.get("param") or "").strip().lower()
+    return param == "reasoning" and "does not expose reasoning configuration" in message
+
+
 class Addon(BaseAddon):
     def initialize(self, context):
         super().initialize(context)
+        self._native_reasoning_control_by_model: dict[str, str] = {}
         self._chat_service = context.get_service("qt.chat_providers")
         if self._chat_service is None:
             context.logger.warning("LM Studio provider addon could not find qt.chat_providers service.")
@@ -157,6 +328,139 @@ class Addon(BaseAddon):
             request_kwargs["stream"] = True
         return request_kwargs
 
+    def _should_use_native_chat(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None) -> bool:
+        reasoning = str((additional_params or {}).get("reasoning") or "").strip().lower()
+        if reasoning not in _NATIVE_REASONING_VALUES:
+            return False
+        # LM Studio's native chat endpoint supports reasoning, but the existing
+        # OpenAI-compatible endpoint is still used for JSON response_format calls.
+        if isinstance(params, dict) and params.get("response_format") is not None:
+            return False
+        return True
+
+    def _native_reasoning_control_for_model(self, model_id: str | None) -> str:
+        clean_model_id = str(model_id or "").strip()
+        cached = str(getattr(self, "_native_reasoning_control_by_model", {}).get(clean_model_id) or "").strip()
+        if cached:
+            return cached
+        return "prompt_token" if _model_uses_prompt_token_reasoning(clean_model_id) else "native"
+
+    def _native_chat_payload(
+        self,
+        params: dict[str, Any],
+        additional_params: dict[str, Any] | None = None,
+        *,
+        stream: bool = False,
+        reasoning_control: str | None = None,
+    ) -> dict[str, Any]:
+        source = dict(params or {})
+        extras = dict(additional_params or {})
+        messages = list(source.get("messages") or [])
+        model_id = str(source.get("model") or "").strip()
+        reasoning = str(extras.get("reasoning") or "").strip().lower()
+        reasoning_control = str(reasoning_control or self._native_reasoning_control_for_model(model_id) or "native").strip().lower()
+        system_parts: list[str] = []
+        transcript_parts: list[str] = []
+        input_items: list[dict[str, str]] = []
+
+        for message in messages:
+            if not isinstance(message, dict):
+                continue
+            role = str(message.get("role") or "user").strip().lower() or "user"
+            text = _string_content(message.get("content"))
+            if role == "system":
+                if text:
+                    system_parts.append(text)
+                continue
+            label = "Assistant" if role == "assistant" else "User"
+            if text:
+                transcript_parts.append(f"{label}: {text}")
+            for url in _image_data_urls(message.get("content")):
+                if text:
+                    transcript_parts.append(f"{label}: [attached image]")
+                input_items.append({"type": "image", "data_url": url})
+
+        payload: dict[str, Any] = {
+            "model": model_id,
+            "store": False,
+            "stream": bool(stream),
+        }
+        system_prompt = "\n\n".join(part for part in system_parts if part)
+        if reasoning and reasoning_control == "prompt_token":
+            system_prompt = _apply_think_token(system_prompt, reasoning)
+        if system_prompt:
+            payload["system_prompt"] = system_prompt
+
+        transcript = "\n".join(part for part in transcript_parts if part).strip()
+        if input_items:
+            if transcript:
+                input_items.insert(0, {"type": "text", "content": transcript})
+            payload["input"] = input_items
+        else:
+            payload["input"] = transcript
+
+        for key in ("temperature", "top_p"):
+            if source.get(key) is not None:
+                payload[key] = source.get(key)
+        max_tokens = source.get("max_tokens", source.get("max_completion_tokens"))
+        try:
+            max_tokens = int(max_tokens)
+        except Exception:
+            max_tokens = None
+        if max_tokens is not None and max_tokens > 0:
+            payload["max_output_tokens"] = max_tokens
+        for key in ("top_k", "repeat_penalty", "min_p"):
+            if extras.get(key) is not None:
+                payload[key] = extras.get(key)
+        if reasoning and reasoning_control != "prompt_token":
+            payload["reasoning"] = reasoning
+        return payload
+
+    def _native_chat_request(
+        self,
+        params: dict[str, Any],
+        additional_params: dict[str, Any] | None = None,
+        *,
+        stream: bool = False,
+        reasoning_control: str | None = None,
+    ):
+        payload = self._native_chat_payload(params, additional_params, stream=stream, reasoning_control=reasoning_control)
+        request = Request(
+            f"{self._native_api_base_url()}/api/v1/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={
+                "Authorization": f"Bearer {self._api_key()}",
+                "Content-Type": "application/json",
+            },
+            method="POST",
+        )
+        return urlopen(request, timeout=300.0)
+
+    def _complete_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        try:
+            with self._native_chat_request(params, additional_params, stream=False) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        except urllib.error.HTTPError as exc:
+            if "reasoning" not in dict(additional_params or {}) or not _is_native_reasoning_unsupported_error(exc):
+                raise
+            control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
+            retry_params = additional_params if control else _without_reasoning(additional_params)
+            with self._native_chat_request(params, retry_params, stream=False, reasoning_control=control or None) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="replace"))
+        return _native_chat_text(payload)
+
+    def _stream_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
+        try:
+            response = self._native_chat_request(params, additional_params, stream=True)
+        except urllib.error.HTTPError as exc:
+            if "reasoning" not in dict(additional_params or {}) or not _is_native_reasoning_unsupported_error(exc):
+                raise
+            control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
+            retry_params = additional_params if control else _without_reasoning(additional_params)
+            response = self._native_chat_request(params, retry_params, stream=True, reasoning_control=control or None)
+        with response:
+            yield from _filter_channel_blocks_stream(_native_chat_delta_stream(response))
+
     def _list_models(self, quiet: bool = False):
         native_models = self._list_native_models(quiet=quiet)
         if native_models is not None:
@@ -192,6 +496,7 @@ class Addon(BaseAddon):
         if not isinstance(models, list):
             return None
         catalog = []
+        reasoning_control_by_model = {}
         for model in models:
             if not isinstance(model, dict):
                 continue
@@ -207,16 +512,25 @@ class Addon(BaseAddon):
                 for option in list(reasoning.get("allowed_options") or [])
                 if str(option or "").strip()
             }
+            supports_native_reasoning_toggle = bool({"off", "on"}.issubset(reasoning_options))
+            supports_prompt_token_reasoning = bool(
+                not supports_native_reasoning_toggle and _model_uses_prompt_token_reasoning(model_id)
+            )
+            reasoning_control = "native" if supports_native_reasoning_toggle else ("prompt_token" if supports_prompt_token_reasoning else "")
+            if reasoning_control:
+                reasoning_control_by_model[model_id] = reasoning_control
             catalog.append(
                 {
                     "id": model_id,
                     "supports_images": bool(capabilities.get("vision", False)),
-                    "supports_reasoning": bool(reasoning),
-                    "supports_reasoning_toggle": bool({"off", "on"}.issubset(reasoning_options)),
+                    "supports_reasoning": bool(reasoning or supports_prompt_token_reasoning),
+                    "supports_reasoning_toggle": bool(supports_native_reasoning_toggle or supports_prompt_token_reasoning),
                     "reasoning_options": sorted(reasoning_options),
+                    "reasoning_control": reasoning_control,
                     "source": "lmstudio_native",
                 }
             )
+        self._native_reasoning_control_by_model = reasoning_control_by_model
         return sorted(catalog, key=lambda item: str(item.get("id") or "").lower())
 
     def _check_connection(self):
@@ -238,11 +552,15 @@ class Addon(BaseAddon):
             }
 
     def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        if self._should_use_native_chat(params, additional_params):
+            return self._complete_native_chat(params, additional_params)
         client = self._client()
         response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
         return _extract_text(response)
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
+        if self._should_use_native_chat(params, additional_params):
+            return self._stream_native_chat(params, additional_params)
         client = self._client()
         stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
         return _stream_text(stream)
