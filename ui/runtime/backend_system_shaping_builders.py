@@ -40,6 +40,37 @@ SYSTEM_SHAPING_TOOLTIPS = {
     "btn_preset_refresh": "Reload the preset list from disk.",
 }
 
+CHAT_TAB_TOOLTIPS = {
+    "chat_provider_combo": "Active chat provider used for assistant replies. Provider tabs can be inspected without changing this active selection.",
+    "model_combo": "Model selected for the current chat provider. Use Refresh after starting or changing the provider server.",
+    "btn_model_refresh": "Refresh the model list for the selected chat provider.",
+    "model_requires_vision_checkbox": "Only list or prefer models that can process images when the provider exposes that capability.",
+    "allow_proactive_checkbox": "Allow the assistant to speak after a silence window instead of waiting forever for the next user turn.",
+    "require_first_user_checkbox": "Prevent proactive replies until the user has sent at least one message in the session.",
+    "listen_idle_window_spin": "How long the microphone/input loop waits before considering the session idle.",
+    "proactive_delay_spin": "How long the assistant waits after idle detection before sending a proactive reply.",
+    "chat_context_window_spin": "How many recent chat messages are sent to the model for normal reply context.",
+    "stored_chat_history_limit_spin": "How many chat messages are kept when saving context. Use 0 to save the full conversation history.",
+    "chat_overflow_policy_combo": "What NC should do when the active chat context grows beyond the context window sent to the model.",
+    "long_term_memory_enabled_checkbox": "Maintain a compact Continuity Memory summary for this saved chat context.",
+    "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after 120-239 new saved-chat messages have accumulated.",
+    "long_term_memory_inject_checkbox": "Include the Continuity Memory summary in normal model requests so the assistant can remember older context.",
+    "long_term_memory_max_chars_spin": "Maximum character budget for the Continuity Memory summary.",
+    "btn_review_long_term_memory": "Open the current Continuity Memory summary for inspection.",
+    "btn_batch_update_long_term_memory": "Summarize the latest N messages manually. Useful when importing or catching up an older long chat.",
+    "btn_forget_long_term_memory": "Clear the Continuity Memory summary for the current chat context.",
+    "btn_save_chat_session": "Save changes to the currently loaded/saved chat context file.",
+    "btn_save_chat_session_as": "Choose a new chat context file and save the current conversation there.",
+    "btn_load_chat_session": "Load a saved chat context file into the current session.",
+    "btn_reset_chat_session": "Clear the current in-memory chat history and start a fresh unsaved chat.",
+    "chat_session_hint": "Explains the current conversation-flow settings.",
+    "long_term_memory_hint": "Shows Continuity Memory status, summarized message counts, and auto-summary readiness.",
+    "limit_response_checkbox": "Enable a hard maximum response-token cap for providers that support it.",
+    "max_response_tokens_spin": "Maximum response tokens used when response length limiting is enabled.",
+    "chat_font_size_combo": "Display font size for the chat transcript.",
+    "system_prompt_text": "Main system prompt sent to the chat model.",
+}
+
 
 def _set_tooltip(widget, text):
     if widget is not None and hasattr(widget, "setToolTip"):
@@ -50,6 +81,14 @@ class BackendSystemShapingPanelMixin:
     """Build the backend System Shaping and Workspace panels."""
 
 class BackendSystemShapingBuilderMixin:
+    def _chat_tab_tooltip_map(self):
+        return dict(CHAT_TAB_TOOLTIPS)
+
+    def _apply_chat_tab_tooltips(self):
+        for object_name, tooltip in self._chat_tab_tooltip_map().items():
+            widget = getattr(self, object_name, None)
+            _set_tooltip(widget, tooltip)
+
     def _invoke_initialized_addon_capability(self, addon_id, capability, payload=None, default=None):
         """Invoke an addon capability through the initialized addon manager."""
         manager = getattr(self, "_addon_manager", None)
@@ -545,6 +584,29 @@ class BackendSystemShapingBuilderMixin:
         behavior_layout.addWidget(self.chat_session_hint)
         layout.addWidget(behavior_box)
 
+        memory_box = QtWidgets.QGroupBox("Continuity Memory")
+        memory_layout = QtWidgets.QVBoxLayout(memory_box)
+        memory_layout.setContentsMargins(12, 14, 12, 12)
+        memory_layout.setSpacing(8)
+        memory_layout.addWidget(self.long_term_memory_enabled_checkbox)
+        memory_layout.addWidget(self.long_term_memory_update_on_save_checkbox)
+        memory_layout.addWidget(self.long_term_memory_inject_checkbox)
+        memory_form = QtWidgets.QFormLayout()
+        memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        memory_form.addRow("Summary budget (chars)", self.long_term_memory_max_chars_spin)
+        memory_layout.addLayout(memory_form)
+        memory_button_row = QtWidgets.QHBoxLayout()
+        memory_button_row.setSpacing(8)
+        memory_button_row.addWidget(self.btn_review_long_term_memory)
+        memory_button_row.addWidget(self.btn_batch_update_long_term_memory)
+        memory_button_row.addWidget(self.btn_forget_long_term_memory)
+        memory_button_row.addStretch(1)
+        memory_layout.addLayout(memory_button_row)
+        memory_layout.addWidget(self.long_term_memory_hint)
+        layout.addWidget(memory_box)
+
         actions_box = QtWidgets.QGroupBox("Session")
         actions_layout = QtWidgets.QVBoxLayout(actions_box)
         actions_layout.setContentsMargins(12, 14, 12, 12)
@@ -556,12 +618,16 @@ class BackendSystemShapingBuilderMixin:
         button_row = QtWidgets.QHBoxLayout()
         button_row.setSpacing(8)
         button_row.addWidget(self.btn_save_chat_session)
+        button_row.addWidget(self.btn_save_chat_session_as)
         button_row.addWidget(self.btn_load_chat_session)
         button_row.addWidget(self.btn_reset_chat_session)
         button_row.addStretch(1)
         actions_layout.addLayout(button_row)
         layout.addWidget(actions_box)
 
+        register_memory_callback = getattr(self, "_register_continuity_memory_update_callback", None)
+        if callable(register_memory_callback):
+            register_memory_callback()
         self._refresh_chat_session_hint()
         layout.addStretch(1)
         return tab
@@ -870,9 +936,56 @@ class BackendSystemShapingBuilderMixin:
         self.chat_overflow_policy_combo.setCurrentText(self._chat_overflow_policy_label_from_value(runtime_config.get("chat_context_overflow_policy", "rolling_window")))
         self.chat_overflow_policy_combo.currentTextChanged.connect(self.on_chat_overflow_policy_changed)
 
+        self.long_term_memory_enabled_checkbox = QtWidgets.QCheckBox("Enable continuity memory summary")
+        self.long_term_memory_enabled_checkbox.setObjectName("long_term_memory_enabled_checkbox")
+        self.long_term_memory_enabled_checkbox.setChecked(bool(runtime_config.get("continuity_memory_enabled", runtime_config.get("long_term_memory_enabled", False))))
+        self.long_term_memory_enabled_checkbox.toggled.connect(self.on_long_term_memory_enabled_changed)
+
+        self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize after 120 new messages")
+        self.long_term_memory_update_on_save_checkbox.setObjectName("long_term_memory_update_on_save_checkbox")
+        self.long_term_memory_update_on_save_checkbox.setChecked(bool(runtime_config.get("continuity_memory_auto_summarize", runtime_config.get("continuity_memory_update_on_save", runtime_config.get("long_term_memory_update_on_save", True)))))
+        self.long_term_memory_update_on_save_checkbox.toggled.connect(self.on_long_term_memory_update_on_save_changed)
+
+        self.long_term_memory_inject_checkbox = QtWidgets.QCheckBox("Inject continuity summary into chat")
+        self.long_term_memory_inject_checkbox.setObjectName("long_term_memory_inject_checkbox")
+        self.long_term_memory_inject_checkbox.setChecked(bool(runtime_config.get("continuity_memory_inject", runtime_config.get("long_term_memory_inject", True))))
+        self.long_term_memory_inject_checkbox.toggled.connect(self.on_long_term_memory_inject_changed)
+
+        self.long_term_memory_max_chars_spin = ContextTokenStepper()
+        self.long_term_memory_max_chars_spin.setObjectName("long_term_memory_max_chars_spin")
+        self.long_term_memory_max_chars_spin.setRange(500, 20000)
+        self.long_term_memory_max_chars_spin.setSingleStep(250)
+        self.long_term_memory_max_chars_spin.setValue(max(500, int(runtime_config.get("continuity_memory_max_chars", runtime_config.get("long_term_memory_max_chars", 3000)) or 3000)))
+        self.long_term_memory_max_chars_spin.valueChanged.connect(self.on_long_term_memory_max_chars_changed)
+        self.long_term_memory_max_chars_spin.setMinimumWidth(112)
+        self.long_term_memory_max_chars_spin.setMaximumWidth(132)
+
+        self.btn_review_long_term_memory = QtWidgets.QPushButton("Review Summary")
+        self.btn_review_long_term_memory.setObjectName("btn_review_long_term_memory")
+        self.btn_review_long_term_memory.clicked.connect(self.review_long_term_memory)
+
+        self.btn_batch_update_long_term_memory = QtWidgets.QPushButton("Summarize Recent...")
+        self.btn_batch_update_long_term_memory.setObjectName("btn_batch_update_long_term_memory")
+        self.btn_batch_update_long_term_memory.clicked.connect(self.batch_update_long_term_memory_now)
+
+        self.btn_forget_long_term_memory = QtWidgets.QPushButton("Forget Summary")
+        self.btn_forget_long_term_memory.setObjectName("btn_forget_long_term_memory")
+        self.btn_forget_long_term_memory.clicked.connect(self.forget_long_term_memory)
+
+        self.long_term_memory_hint = QtWidgets.QLabel()
+        self.long_term_memory_hint.setObjectName("long_term_memory_hint")
+        self.long_term_memory_hint.setWordWrap(True)
+        self.long_term_memory_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self._refresh_long_term_memory_hint()
+
         self.btn_save_chat_session = QtWidgets.QPushButton("Save Chat Context")
         self.btn_save_chat_session.setObjectName("btn_save_chat_session")
+        self.btn_save_chat_session.setEnabled(bool(str(runtime_config.get("active_chat_context_path", "") or "").strip()))
         self.btn_save_chat_session.clicked.connect(self.save_chat_context)
+
+        self.btn_save_chat_session_as = QtWidgets.QPushButton("Save Chat Context As...")
+        self.btn_save_chat_session_as.setObjectName("btn_save_chat_session_as")
+        self.btn_save_chat_session_as.clicked.connect(self.save_chat_context_as)
 
         self.btn_load_chat_session = QtWidgets.QPushButton("Load Chat Context")
         self.btn_load_chat_session.setObjectName("btn_load_chat_session")
@@ -886,6 +999,7 @@ class BackendSystemShapingBuilderMixin:
         self.chat_session_hint.setObjectName("chat_session_hint")
         self.chat_session_hint.setWordWrap(True)
         self.chat_session_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self._apply_chat_tab_tooltips()
 
         self.refresh_musetalk_avatar_pack_list()
 

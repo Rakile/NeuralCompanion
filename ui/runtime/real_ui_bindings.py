@@ -82,14 +82,18 @@ class MainUiRealBindingMixin:
                 "chat_quick_save_button": self._chat_context_service.quick_save_chat_context,
                 "chat_quick_load_button": self._chat_context_service.quick_load_chat_context,
                 "btn_save_chat_session": self._chat_context_service.save_chat_context,
+                "btn_save_chat_session_as": getattr(self._chat_context_service, "save_chat_context_as", None),
                 "btn_load_chat_session": self._chat_context_service.load_chat_context,
                 "btn_reset_chat_session": self._chat_context_service.reset_chat_memory,
+                "btn_review_long_term_memory": getattr(self.backend, "review_long_term_memory", None),
+                "btn_batch_update_long_term_memory": getattr(self.backend, "batch_update_long_term_memory_now", None),
+                "btn_forget_long_term_memory": getattr(self.backend, "forget_long_term_memory", None),
             }
             for object_name, handler in bindings.items():
                 widget = self._ui_object(object_name)
-                if widget is None or not hasattr(widget, "clicked"):
+                if widget is None or not hasattr(widget, "clicked") or not callable(handler):
                     continue
-                widget.clicked.connect(handler)
+                widget.clicked.connect(lambda _checked=False, callback=handler: self._invoke_runtime_callback(callback))
 
     def _bind_tutorial_runtime_controls(self):
             # Tutorial overlays need the visible main.ui window for targeting, while
@@ -410,6 +414,18 @@ class MainUiRealBindingMixin:
             chat_overflow_policy_combo = self._ui_object("chat_overflow_policy_combo")
             if chat_overflow_policy_combo is not None and hasattr(chat_overflow_policy_combo, "currentTextChanged"):
                 chat_overflow_policy_combo.currentTextChanged.connect(self._on_frontend_chat_overflow_policy_changed)
+            long_term_memory_enabled_checkbox = self._ui_object("long_term_memory_enabled_checkbox")
+            if long_term_memory_enabled_checkbox is not None and hasattr(long_term_memory_enabled_checkbox, "toggled"):
+                long_term_memory_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_enabled_changed)
+            long_term_memory_update_on_save_checkbox = self._ui_object("long_term_memory_update_on_save_checkbox")
+            if long_term_memory_update_on_save_checkbox is not None and hasattr(long_term_memory_update_on_save_checkbox, "toggled"):
+                long_term_memory_update_on_save_checkbox.toggled.connect(self._on_frontend_long_term_memory_update_on_save_changed)
+            long_term_memory_inject_checkbox = self._ui_object("long_term_memory_inject_checkbox")
+            if long_term_memory_inject_checkbox is not None and hasattr(long_term_memory_inject_checkbox, "toggled"):
+                long_term_memory_inject_checkbox.toggled.connect(self._on_frontend_long_term_memory_inject_changed)
+            long_term_memory_max_chars_spin = self._ui_object("long_term_memory_max_chars_spin")
+            if long_term_memory_max_chars_spin is not None and hasattr(long_term_memory_max_chars_spin, "valueChanged"):
+                long_term_memory_max_chars_spin.valueChanged.connect(self._on_frontend_long_term_memory_max_chars_changed)
             system_prompt_text = self._ui_object("system_prompt_text")
             if system_prompt_text is not None and hasattr(system_prompt_text, "textChanged"):
                 system_prompt_text.textChanged.connect(self._on_frontend_system_prompt_changed)

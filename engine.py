@@ -43,7 +43,7 @@ import gc
 import importlib
 import dry_run
 import app_help
-from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
+from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, continuity_memory, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -691,6 +691,14 @@ RUNTIME_CONFIG = {
     "chat_context_window_messages": 20,
     "chat_context_overflow_policy": "rolling_window",
     "stored_chat_history_limit": 0,
+    "continuity_memory_id": continuity_memory.new_memory_id(),
+    "active_chat_context_path": "",
+    "active_chat_context_name": "",
+    "continuity_memory_enabled": False,
+    "continuity_memory_update_on_save": True,
+    "continuity_memory_auto_summarize": True,
+    "continuity_memory_inject": True,
+    "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
     "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
     "chunk_max_chars": MAX_CHARS_PER_CHUNK,
     "stream_chunk_target_chars": 80,
@@ -772,6 +780,13 @@ HAND_CALIBRATION = avatar_hand_state.HAND_CALIBRATION
 def update_runtime_config(key, value):
     """Called by GUI to update settings in real-time"""
     global RUNTIME_CONFIG
+    key = {
+        "long_term_memory_enabled": "continuity_memory_enabled",
+        "long_term_memory_update_on_save": "continuity_memory_auto_summarize",
+        "continuity_memory_update_on_save": "continuity_memory_auto_summarize",
+        "long_term_memory_inject": "continuity_memory_inject",
+        "long_term_memory_max_chars": "continuity_memory_max_chars",
+    }.get(str(key or ""), key)
     if key in RUNTIME_CONFIG:
         if key == "hotkeys":
             _sync_legacy_hotkey_runtime_keys(value)
@@ -4014,6 +4029,10 @@ def reset_session_state():
     global sensory_hidden_history, sensory_pingpong_state, sensory_hidden_action_state
     conversation_history = []
     assistant_memory = _default_assistant_memory()
+    RUNTIME_CONFIG["continuity_memory_id"] = continuity_memory.new_memory_id()
+    RUNTIME_CONFIG["active_chat_context_path"] = ""
+    RUNTIME_CONFIG["active_chat_context_name"] = ""
+    RUNTIME_CONFIG["continuity_memory_auto_baseline_turn_count"] = 0
     sensory_hidden_history = []
     sensory_pingpong_state = {
         "last_cycle_at": 0.0,
@@ -4151,10 +4170,363 @@ def export_chat_session_state():
     return {
         "version": 1,
         "saved_at": time.time(),
+        "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
         "conversation_history": [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn],
         "assistant_memory": json.loads(json.dumps(assistant_memory or _default_assistant_memory())),
         "sensory_hidden_history": [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(sensory_hidden_history or [])) if item],
     }
+
+
+def _active_continuity_memory_id():
+    memory_id = continuity_memory.normalize_memory_id(RUNTIME_CONFIG.get("continuity_memory_id"))
+    if not memory_id:
+        memory_id = continuity_memory.new_memory_id()
+        RUNTIME_CONFIG["continuity_memory_id"] = memory_id
+    return memory_id
+
+
+def set_continuity_memory_id(memory_id):
+    normalized = continuity_memory.normalize_memory_id(memory_id, fallback=continuity_memory.new_memory_id())
+    RUNTIME_CONFIG["continuity_memory_id"] = normalized
+    return normalized
+
+
+_continuity_memory_auto_update_lock = threading.Lock()
+_continuity_memory_auto_update_running = False
+_continuity_memory_update_callbacks = []
+
+
+def register_continuity_memory_update_callback(callback):
+    if callable(callback) and callback not in _continuity_memory_update_callbacks:
+        _continuity_memory_update_callbacks.append(callback)
+    return callback
+
+
+def unregister_continuity_memory_update_callback(callback):
+    try:
+        _continuity_memory_update_callbacks.remove(callback)
+    except ValueError:
+        pass
+
+
+def _notify_continuity_memory_updated(payload=None):
+    event_payload = dict(payload or {})
+    for callback in list(_continuity_memory_update_callbacks):
+        try:
+            callback(event_payload)
+        except Exception as exc:
+            print(f"⚠️ [Memory] Continuity Memory update callback failed: {exc}")
+
+
+def _continuity_memory_auto_source_turn_count(memory_payload, total_turns):
+    memory_count = int((memory_payload or {}).get("source_turn_count", 0) or 0)
+    return max(0, min(int(total_turns or 0), memory_count))
+
+
+def _save_active_chat_context_snapshot():
+    raw_path = str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip()
+    if not raw_path:
+        return ""
+    target = Path(raw_path)
+    if target.suffix.lower() != ".json":
+        target = target.with_suffix(".json")
+        RUNTIME_CONFIG["active_chat_context_path"] = str(target)
+        RUNTIME_CONFIG["active_chat_context_name"] = target.stem
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(export_chat_session_state(), indent=2), encoding="utf-8")
+    return str(target)
+
+
+def _run_continuity_memory_auto_update(batch_turns, source_turn_count, total_turns, memory_id, max_chars, model_name):
+    global _continuity_memory_auto_update_running
+    try:
+        existing = continuity_memory.load_memory(memory_id)
+        segment = continuity_memory.format_turn_segment(batch_turns)
+        messages = continuity_memory.build_summary_update_messages(
+            str(existing.get("summary", "") or ""),
+            segment,
+            max_chars=max_chars,
+        )
+        params = {"model": model_name, "messages": messages}
+        additional_params = {}
+        _apply_chat_provider_generation_fields(params, additional_params)
+        if _chat_provider() == "lmstudio":
+            params["max_tokens"] = -1
+        else:
+            params.pop("max_tokens", None)
+            params.pop("max_completion_tokens", None)
+        summary = str(_chat_completion_create(params, additional_params) or "").strip()
+        if not summary:
+            raise RuntimeError("The provider returned an empty Continuity Memory summary.")
+        payload = continuity_memory.memory_payload(
+            continuity_memory.trim_to_budget(summary, max_chars),
+            memory_id=memory_id,
+            source_turn_count=source_turn_count + len(batch_turns),
+        )
+        path = continuity_memory.save_memory(payload, memory_id=memory_id)
+        RUNTIME_CONFIG["continuity_memory_auto_baseline_turn_count"] = int(payload.get("source_turn_count", 0) or 0)
+        context_path = _save_active_chat_context_snapshot()
+        remaining_turns = max(0, int(total_turns or 0) - int(payload.get("source_turn_count", 0) or 0))
+        print(f"🧠 [Memory] Auto continuity summary updated: {path} ({len(batch_turns)} turn(s), {remaining_turns} remaining)")
+        if context_path:
+            print(f"💾 [Session] Auto-saved chat context after continuity summary: {context_path}")
+        _notify_continuity_memory_updated({
+            "auto": True,
+            "memory_id": memory_id,
+            "path": str(path),
+            "context_path": context_path,
+            "source_turn_count": int(payload.get("source_turn_count", 0) or 0),
+            "summary_chars": len(str(payload.get("summary", "") or "")),
+        })
+    except Exception as exc:
+        print(f"⚠️ [Memory] Auto continuity summary failed: {exc}")
+    finally:
+        with _continuity_memory_auto_update_lock:
+            _continuity_memory_auto_update_running = False
+
+
+def maybe_start_continuity_memory_auto_update():
+    global _continuity_memory_auto_update_running
+    if not bool(RUNTIME_CONFIG.get("continuity_memory_enabled", False)):
+        return False
+    if not bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", True))):
+        return False
+    if not str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip():
+        return False
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    all_turns = continuity_memory.sanitize_history_turns(sanitized_history)
+    total_turns = len(all_turns)
+    memory_id = _active_continuity_memory_id()
+    existing = continuity_memory.load_memory(memory_id)
+    source_count = _continuity_memory_auto_source_turn_count(existing, total_turns)
+    new_turn_count = total_turns - source_count
+    batch_size = int(continuity_memory.DEFAULT_UPDATE_BATCH_TURNS)
+    if new_turn_count < batch_size or new_turn_count >= (batch_size * 2):
+        return False
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        print("⚠️ [Memory] Auto continuity summary skipped: choose a chat model first.")
+        return False
+    batch_turns = all_turns[source_count:source_count + batch_size]
+    if not batch_turns:
+        return False
+    max_chars = int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS)
+    with _continuity_memory_auto_update_lock:
+        if _continuity_memory_auto_update_running:
+            return False
+        _continuity_memory_auto_update_running = True
+    worker = threading.Thread(
+        target=_run_continuity_memory_auto_update,
+        args=(batch_turns, source_count, total_turns, memory_id, max_chars, model_name),
+        name="nc-continuity-memory-auto",
+        daemon=True,
+    )
+    worker.start()
+    print(f"🧠 [Memory] Auto continuity summary queued: {len(batch_turns)} of {new_turn_count} new turn(s).")
+    return True
+
+
+def set_active_chat_context_path(path_value):
+    raw_path = str(path_value or "").strip()
+    previous_path = str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip()
+    RUNTIME_CONFIG["active_chat_context_path"] = raw_path
+    if raw_path:
+        name = Path(raw_path).stem
+        RUNTIME_CONFIG["active_chat_context_name"] = name
+        current_id = continuity_memory.normalize_memory_id(RUNTIME_CONFIG.get("continuity_memory_id"))
+        if not current_id or (not previous_path and current_id.startswith("chat_")):
+            set_continuity_memory_id(continuity_memory.memory_id_from_label(name))
+    else:
+        RUNTIME_CONFIG["active_chat_context_name"] = ""
+    return {
+        "active_chat_context_path": RUNTIME_CONFIG.get("active_chat_context_path", ""),
+        "active_chat_context_name": RUNTIME_CONFIG.get("active_chat_context_name", ""),
+        "continuity_memory_id": RUNTIME_CONFIG.get("continuity_memory_id", ""),
+    }
+
+
+def continuity_memory_snapshot():
+    return continuity_memory.load_memory(_active_continuity_memory_id())
+
+
+def update_continuity_memory_from_current_chat():
+    memory_id = _active_continuity_memory_id()
+    max_chars = int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS)
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    existing = continuity_memory.load_memory(memory_id)
+    previous_count = max(0, min(len(sanitized_history), int(existing.get("source_turn_count", 0) or 0)))
+    new_turns = continuity_memory.unsummarized_turns(sanitized_history, existing)
+    if not new_turns:
+        path = continuity_memory.save_memory(existing, memory_id=memory_id)
+        return {
+            "path": str(path),
+            "summary_chars": len(str(existing.get("summary", "") or "")),
+            "source_turn_count": int(existing.get("source_turn_count", 0) or 0),
+            "memory_id": memory_id,
+            "updated": False,
+        }
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        raise RuntimeError("Choose a chat model before updating Continuity Memory.")
+    batch_turns = continuity_memory.update_batch_turns(new_turns)
+    segment = continuity_memory.format_turn_segment(batch_turns)
+    messages = continuity_memory.build_summary_update_messages(
+        str(existing.get("summary", "") or ""),
+        segment,
+        max_chars=max_chars,
+    )
+    params = {"model": model_name, "messages": messages}
+    additional_params = {}
+    _apply_chat_provider_generation_fields(params, additional_params)
+    if _chat_provider() == "lmstudio":
+        params["max_tokens"] = -1
+    else:
+        params.pop("max_tokens", None)
+        params.pop("max_completion_tokens", None)
+    summary = str(_chat_completion_create(params, additional_params) or "").strip()
+    if not summary:
+        raise RuntimeError("The provider returned an empty Continuity Memory summary.")
+    payload = continuity_memory.memory_payload(
+        continuity_memory.trim_to_budget(summary, max_chars),
+        memory_id=memory_id,
+        source_turn_count=previous_count + len(batch_turns),
+    )
+    path = continuity_memory.save_memory(payload, memory_id=memory_id)
+    remaining_turns = max(0, len(sanitized_history) - int(payload.get("source_turn_count", 0) or 0))
+    print(f"🧠 [Memory] Continuity Memory updated: {path} ({len(batch_turns)} turn(s), {remaining_turns} remaining)")
+    return {
+        "path": str(path),
+        "summary_chars": len(str(payload.get("summary", "") or "")),
+        "source_turn_count": int(payload.get("source_turn_count", 0) or 0),
+        "processed_turns": len(batch_turns),
+        "remaining_turns": remaining_turns,
+        "memory_id": memory_id,
+        "updated": True,
+    }
+
+
+def batch_update_continuity_memory_from_current_chat(max_batches=1000):
+    try:
+        batch_limit = max(1, int(max_batches or 1000))
+    except Exception:
+        batch_limit = 1000
+    batch_count = 0
+    processed_turns = 0
+    last_result = None
+    while batch_count < batch_limit:
+        result = update_continuity_memory_from_current_chat()
+        last_result = result
+        if not bool(result.get("updated", False)):
+            break
+        batch_count += 1
+        processed_turns += int(result.get("processed_turns", 0) or 0)
+        if int(result.get("remaining_turns", 0) or 0) <= 0:
+            break
+    remaining_turns = int((last_result or {}).get("remaining_turns", 0) or 0)
+    if remaining_turns > 0:
+        print(f"🧠 [Memory] Batch summarize paused after {batch_count} batch(es), {remaining_turns} turn(s) remaining.")
+    else:
+        print(f"🧠 [Memory] Batch summarize complete: {batch_count} batch(es), {processed_turns} turn(s).")
+    return {
+        "path": str((last_result or {}).get("path", "")),
+        "summary_chars": int((last_result or {}).get("summary_chars", 0) or 0),
+        "source_turn_count": int((last_result or {}).get("source_turn_count", 0) or 0),
+        "processed_turns": processed_turns,
+        "remaining_turns": remaining_turns,
+        "batch_count": batch_count,
+        "memory_id": str((last_result or {}).get("memory_id", _active_continuity_memory_id()) or ""),
+        "updated": batch_count > 0,
+    }
+
+
+def summarize_recent_continuity_memory_from_current_chat(turn_count=500):
+    memory_id = _active_continuity_memory_id()
+    max_chars = int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS)
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    all_turns = continuity_memory.sanitize_history_turns(sanitized_history)
+    tail_turns = continuity_memory.tail_summary_turns(all_turns, turn_count)
+    if not tail_turns:
+        existing = continuity_memory.load_memory(memory_id)
+        path = continuity_memory.save_memory(existing, memory_id=memory_id)
+        return {
+            "path": str(path),
+            "summary_chars": len(str(existing.get("summary", "") or "")),
+            "source_turn_count": int(existing.get("source_turn_count", 0) or 0),
+            "processed_turns": 0,
+            "remaining_turns": 0,
+            "memory_id": memory_id,
+            "updated": False,
+        }
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        raise RuntimeError("Choose a chat model before updating Continuity Memory.")
+    existing = continuity_memory.load_memory(memory_id)
+    running_summary = str(existing.get("summary", "") or "")
+    batch_size = int(continuity_memory.DEFAULT_UPDATE_BATCH_TURNS)
+    batch_count = 0
+    for start in range(0, len(tail_turns), batch_size):
+        batch_turns = tail_turns[start:start + batch_size]
+        if not batch_turns:
+            continue
+        segment = continuity_memory.format_turn_segment(batch_turns)
+        messages = continuity_memory.build_summary_update_messages(
+            running_summary,
+            segment,
+            max_chars=max_chars,
+        )
+        params = {"model": model_name, "messages": messages}
+        additional_params = {}
+        _apply_chat_provider_generation_fields(params, additional_params)
+        if _chat_provider() == "lmstudio":
+            params["max_tokens"] = -1
+        else:
+            params.pop("max_tokens", None)
+            params.pop("max_completion_tokens", None)
+        summary = str(_chat_completion_create(params, additional_params) or "").strip()
+        if not summary:
+            raise RuntimeError("The provider returned an empty Continuity Memory summary.")
+        running_summary = continuity_memory.trim_to_budget(summary, max_chars)
+        batch_count += 1
+        print(
+            f"🧠 [Memory] Recent summary batch {batch_count}: "
+            f"{len(batch_turns)} turn(s), {min(start + len(batch_turns), len(tail_turns))}/{len(tail_turns)} selected"
+        )
+    payload = continuity_memory.memory_payload(
+        running_summary,
+        memory_id=memory_id,
+        source_turn_count=len(sanitized_history),
+    )
+    RUNTIME_CONFIG["continuity_memory_auto_baseline_turn_count"] = len(sanitized_history)
+    path = continuity_memory.save_memory(payload, memory_id=memory_id)
+    print(
+        f"🧠 [Memory] Continuity Memory summarized latest {len(tail_turns)} turn(s): "
+        f"{path} ({batch_count} batch(es), marked {len(sanitized_history)}/{len(sanitized_history)} summarized)"
+    )
+    return {
+        "path": str(path),
+        "summary_chars": len(str(payload.get("summary", "") or "")),
+        "source_turn_count": int(payload.get("source_turn_count", 0) or 0),
+        "processed_turns": len(tail_turns),
+        "remaining_turns": 0,
+        "batch_count": batch_count,
+        "memory_id": memory_id,
+        "updated": True,
+    }
+
+
+def clear_continuity_memory():
+    memory_id = _active_continuity_memory_id()
+    path = continuity_memory.clear_memory(memory_id)
+    print(f"🧠 [Memory] Continuity Memory cleared: {path}")
+    return {"path": str(path), "memory_id": memory_id}
+
+
+# Compatibility aliases for the first PoC naming.
+long_term_memory_snapshot = continuity_memory_snapshot
+update_long_term_memory_from_current_chat = update_continuity_memory_from_current_chat
+batch_update_long_term_memory_from_current_chat = batch_update_continuity_memory_from_current_chat
+summarize_recent_long_term_memory_from_current_chat = summarize_recent_continuity_memory_from_current_chat
+clear_long_term_memory = clear_continuity_memory
 
 
 def _chat_replay_role_label(turn):
@@ -4364,6 +4736,10 @@ def import_chat_session_state(payload):
     if not isinstance(payload, dict):
         raise ValueError("Chat session payload must be a JSON object")
     reset_chat_runtime_state()
+    memory_id = continuity_memory.normalize_memory_id(payload.get("continuity_memory_id"))
+    if not memory_id:
+        memory_id = _active_continuity_memory_id()
+    set_continuity_memory_id(memory_id)
     raw_history = payload.get("conversation_history", [])
     raw_memory = payload.get("assistant_memory")
     if isinstance(raw_memory, dict):
@@ -4375,12 +4751,14 @@ def import_chat_session_state(payload):
     sensory_hidden_history = [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(payload.get("sensory_hidden_history", []) or [])) if item]
     _prune_sensory_hidden_history()
     history_result = replace_chat_conversation_history(raw_history, allow_pending_loaded_user=True)
+    RUNTIME_CONFIG["continuity_memory_auto_baseline_turn_count"] = len(conversation_history)
     assistant_memory = sanitized_memory
     chat_session_state_generation += 1
     print(f"📚 [Session] Loaded chat context with {len(conversation_history)} turn(s).")
     return {
         "conversation_turns": int(history_result.get("conversation_turns", len(conversation_history))),
         "assistant_memory_keys": sorted(str(key) for key in assistant_memory.keys()),
+        "continuity_memory_id": memory_id,
     }
 
 
@@ -6107,6 +6485,10 @@ def build_llm_request():
             f"{f' from {sources}' if sources else ''}."
         )
         messages.append({"role": "system", "content": addon_context.get("context", "")})
+    memory_context = continuity_memory.build_context(RUNTIME_CONFIG, memory_id=_active_continuity_memory_id())
+    if memory_context:
+        print("🧠 [Memory] Injected Continuity Memory.")
+        messages.append({"role": "system", "content": memory_context})
     visual_instruction = _visual_reply_generation_instruction()
     if visual_instruction:
         messages.append({"role": "system", "content": visual_instruction})
@@ -6933,6 +7315,7 @@ def run_conversation_flow(source):
                     conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                     assistant_history_added = True
                     _apply_stored_chat_history_limit()
+                    maybe_start_continuity_memory_auto_update()
                     _clear_active_hidden_proactive_candidate()
 
                     if is_proactive:
@@ -7011,6 +7394,7 @@ def run_conversation_flow(source):
                         last_assistant_text = response_text
                         conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                         _apply_stored_chat_history_limit()
+                        maybe_start_continuity_memory_auto_update()
                         assistant_history_added = True
                     _clear_active_hidden_proactive_candidate()
                     if is_proactive:
@@ -7149,6 +7533,7 @@ def run_conversation_flow(source):
                             print(f"   [History Update] Truncated to: \"{final_assistant}\"")
                         elif final_assistant.strip():
                             conversation_history.append({"role": "assistant", "content": final_assistant, "origin": "assistant_reply"})
+                            maybe_start_continuity_memory_auto_update()
                             assistant_history_added = True
 
                         discard_assistant_history = True
@@ -7203,6 +7588,7 @@ def run_conversation_flow(source):
                         last_assistant_text = response_text
                         conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                         _apply_stored_chat_history_limit()
+                        maybe_start_continuity_memory_auto_update()
                         assistant_history_added = True
 
             conversation_controller.on_speaking_finished()

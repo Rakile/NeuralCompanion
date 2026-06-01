@@ -485,6 +485,9 @@ class BackendChatProviderFieldsMixin:
                     editor.setPlaceholderText(str(placeholder))
                 env_names = list(field.get("env") or [])
                 tooltip_parts = []
+                description = str(field.get("description") or field.get("help") or "").strip()
+                if description:
+                    tooltip_parts.append(description)
                 if env_names:
                     tooltip_parts.append("Env: " + ", ".join(str(name) for name in env_names if str(name or "").strip()))
                 if field.get("default"):

@@ -21,10 +21,25 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("chat_context_window_messages", ("context", "window_messages")),
         ("stored_chat_history_limit", ("context", "stored_history_limit")),
         ("chat_context_overflow_policy", ("context", "overflow_policy")),
+        ("continuity_memory_id", ("memory", "id")),
+        ("active_chat_context_path", ("memory", "active_chat_context_path")),
+        ("active_chat_context_name", ("memory", "active_chat_context_name")),
+        ("continuity_memory_enabled", ("memory", "enabled")),
+        ("continuity_memory_auto_summarize", ("memory", "auto_summarize")),
+        ("continuity_memory_inject", ("memory", "inject")),
+        ("continuity_memory_max_chars", ("memory", "max_chars")),
         ("limit_response_length", ("response", "limit_length")),
         ("max_response_tokens", ("response", "max_tokens")),
     )
 )
+
+LEGACY_ALIASES = {
+    "long_term_memory_enabled": "continuity_memory_enabled",
+    "long_term_memory_update_on_save": "continuity_memory_auto_summarize",
+    "continuity_memory_update_on_save": "continuity_memory_auto_summarize",
+    "long_term_memory_inject": "continuity_memory_inject",
+    "long_term_memory_max_chars": "continuity_memory_max_chars",
+}
 
 GENERATION_DEFAULT_KEYS = ("temperature", "top_p", "top_k", "repeat_penalty", "min_p")
 
@@ -72,6 +87,10 @@ def normalize_chat_runtime_settings(session_or_settings) -> dict:
         grouped = {}
     else:
         grouped = copy.deepcopy(grouped)
+
+    for old_key, new_key in LEGACY_ALIASES.items():
+        if old_key in source and new_key not in source:
+            source[new_key] = source.get(old_key)
 
     for legacy_key, path in LEGACY_FIELD_PATHS.items():
         if legacy_key in source and _nested_get(grouped, path) is _MISSING:
@@ -162,6 +181,8 @@ def group_chat_runtime_session(session: Mapping) -> dict:
     payload = dict(session or {})
     grouped = normalize_chat_runtime_settings(payload)
     for key in LEGACY_FIELD_PATHS:
+        payload.pop(key, None)
+    for key in LEGACY_ALIASES:
         payload.pop(key, None)
     for key in GENERATION_DEFAULT_KEYS:
         payload.pop(key, None)

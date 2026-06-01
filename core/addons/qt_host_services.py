@@ -889,6 +889,13 @@ class QtChatContextService:
             handler()
         return self.snapshot()
 
+    def save_chat_context_as(self):
+        self._last_action = "save_chat_context_as"
+        handler = getattr(self._window, "save_chat_context_as", None)
+        if callable(handler):
+            handler()
+        return self.snapshot()
+
     def load_chat_context(self):
         self._last_action = "load_chat_context"
         handler = getattr(self._window, "load_chat_context", None)
@@ -1199,6 +1206,11 @@ class QtChatReplayService:
 
     def save_chat_context(self) -> None:
         self._window.save_chat_context()
+
+    def save_chat_context_as(self) -> None:
+        handler = getattr(self._window, "save_chat_context_as", None)
+        if callable(handler):
+            handler()
 
     def quick_save_chat_context(self) -> None:
         self._window.quick_save_chat_context()

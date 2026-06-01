@@ -532,8 +532,10 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
                     "chat_quick_save_button",
                     "chat_quick_load_button",
                     "btn_save_chat_session",
+                    "btn_save_chat_session_as",
                     "btn_load_chat_session",
                     "btn_reset_chat_session",
+                    "btn_batch_update_long_term_memory",
                 )
                 if self._ui_object(name) is not None
             ],

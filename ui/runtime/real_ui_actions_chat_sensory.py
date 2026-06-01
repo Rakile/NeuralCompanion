@@ -61,6 +61,10 @@ class RealUiActionsChatSensoryMixin:
             except Exception:
                 pass
             try:
+                self.backend._refresh_long_term_memory_hint()
+            except Exception:
+                pass
+            try:
                 self.backend._update_chat_status(self.backend._console_redirect.chat_line_count, int(self.backend.chat_auto_scroll))
             except Exception:
                 pass
@@ -106,6 +110,30 @@ class RealUiActionsChatSensoryMixin:
     def _on_frontend_chat_overflow_policy_changed(self, choice):
             try:
                 self.backend.on_chat_overflow_policy_changed(str(choice or ""))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_enabled_changed(self, checked):
+            try:
+                self.backend.on_long_term_memory_enabled_changed(bool(checked))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_update_on_save_changed(self, checked):
+            try:
+                self.backend.on_long_term_memory_update_on_save_changed(bool(checked))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_inject_changed(self, checked):
+            try:
+                self.backend.on_long_term_memory_inject_changed(bool(checked))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_max_chars_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_max_chars_changed(int(value))
             finally:
                 self._refresh_chat_session_runtime_frontend()
 

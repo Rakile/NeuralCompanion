@@ -116,6 +116,15 @@ class MainUiRealSurfacesMixin:
                     "Provider generation-field editors are now rendered into the real Designer surface through the hidden backend."
                 )
 
+    def _apply_frontend_chat_tab_tooltips(self):
+            tooltip_getter = getattr(self.backend, "_chat_tab_tooltip_map", None)
+            if not callable(tooltip_getter):
+                return
+            for object_name, tooltip in dict(tooltip_getter() or {}).items():
+                widget = self._ui_object(object_name)
+                if widget is not None and hasattr(widget, "setToolTip"):
+                    widget.setToolTip(str(tooltip or "").strip())
+
     def _redirect_backend_provider_runtime_surface(self):
             fields_layout = self._ui_object("chat_provider_fields_layout")
             generation_layout = self._ui_object("chat_provider_generation_fields_layout")
@@ -130,11 +139,125 @@ class MainUiRealSurfacesMixin:
             try:
                 self.backend._refresh_chat_provider_card()
                 self.backend._refresh_chat_runtime_summary()
+                self._apply_frontend_chat_tab_tooltips()
                 self._provider_runtime_redirected = True
             except Exception as exc:
                 print(f"[UI Real] Provider runtime surface redirect failed: {exc}")
 
+    def _ensure_frontend_long_term_memory_widgets(self):
+            session_button = self._ui_object("btn_save_chat_session")
+            if session_button is None:
+                return
+            if self._ui_object("btn_save_chat_session_as") is None:
+                button_parent = session_button.parentWidget()
+                button_layout = button_parent.layout() if button_parent is not None and hasattr(button_parent, "layout") else None
+                if button_layout is not None and hasattr(button_layout, "insertWidget"):
+                    save_as = QtWidgets.QPushButton("Save Chat Context As...", button_parent)
+                    save_as.setObjectName("btn_save_chat_session_as")
+                    insert_index = button_layout.indexOf(session_button)
+                    button_layout.insertWidget(insert_index + 1 if insert_index >= 0 else button_layout.count(), save_as)
+            if self._ui_object("long_term_memory_enabled_checkbox") is not None:
+                auto_checkbox = self._ui_object("long_term_memory_update_on_save_checkbox")
+                if auto_checkbox is not None and hasattr(auto_checkbox, "setText"):
+                    auto_checkbox.setText("Auto summarize after 120 new messages")
+                update_button = self._ui_object("btn_update_long_term_memory")
+                if update_button is not None:
+                    update_button.setVisible(False)
+                    update_button.setEnabled(False)
+                if self._ui_object("btn_batch_update_long_term_memory") is None:
+                    review_button = self._ui_object("btn_review_long_term_memory")
+                    anchor_button = review_button or update_button
+                    if anchor_button is not None:
+                        button_parent = anchor_button.parentWidget()
+                        button_layout = button_parent.layout() if button_parent is not None and hasattr(button_parent, "layout") else None
+                        if button_layout is not None and hasattr(button_layout, "insertWidget"):
+                            batch_update = QtWidgets.QPushButton("Summarize Recent...", button_parent)
+                            batch_update.setObjectName("btn_batch_update_long_term_memory")
+                            insert_index = button_layout.indexOf(anchor_button)
+                            button_layout.insertWidget(insert_index + 1 if insert_index >= 0 else button_layout.count(), batch_update)
+                return
+
+            session_box = session_button
+            while session_box is not None and not isinstance(session_box, QtWidgets.QGroupBox):
+                session_box = session_box.parentWidget()
+            if session_box is None:
+                return
+            parent_widget = session_box.parentWidget()
+            parent_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
+            if parent_layout is None or not hasattr(parent_layout, "insertWidget"):
+                return
+
+            def _backend_checked(name, default=False):
+                widget = getattr(self.backend, name, None)
+                return bool(widget.isChecked()) if widget is not None and hasattr(widget, "isChecked") else bool(default)
+
+            def _backend_value(name, default=3000):
+                widget = getattr(self.backend, name, None)
+                try:
+                    return int(widget.value()) if widget is not None and hasattr(widget, "value") else int(default)
+                except Exception:
+                    return int(default)
+
+            memory_box = QtWidgets.QGroupBox("Continuity Memory", parent_widget)
+            memory_box.setObjectName("long_term_memory_group")
+            memory_layout = QtWidgets.QVBoxLayout(memory_box)
+            memory_layout.setContentsMargins(12, 14, 12, 12)
+            memory_layout.setSpacing(8)
+
+            enabled = QtWidgets.QCheckBox("Enable continuity memory summary", memory_box)
+            enabled.setObjectName("long_term_memory_enabled_checkbox")
+            enabled.setChecked(_backend_checked("long_term_memory_enabled_checkbox", False))
+            memory_layout.addWidget(enabled)
+
+            update_on_save = QtWidgets.QCheckBox("Auto summarize after 120 new messages", memory_box)
+            update_on_save.setObjectName("long_term_memory_update_on_save_checkbox")
+            update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", True))
+            memory_layout.addWidget(update_on_save)
+
+            inject = QtWidgets.QCheckBox("Inject continuity summary into chat", memory_box)
+            inject.setObjectName("long_term_memory_inject_checkbox")
+            inject.setChecked(_backend_checked("long_term_memory_inject_checkbox", True))
+            memory_layout.addWidget(inject)
+
+            max_chars = QtWidgets.QSpinBox(memory_box)
+            max_chars.setObjectName("long_term_memory_max_chars_spin")
+            max_chars.setRange(500, 20000)
+            max_chars.setSingleStep(250)
+            max_chars.setValue(max(500, min(20000, _backend_value("long_term_memory_max_chars_spin", 3000))))
+            max_chars.setMinimumWidth(112)
+            max_chars.setMaximumWidth(132)
+            memory_form = QtWidgets.QFormLayout()
+            memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+            memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+            memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            memory_form.addRow("Summary budget (chars)", max_chars)
+            memory_layout.addLayout(memory_form)
+
+            button_row = QtWidgets.QHBoxLayout()
+            button_row.setSpacing(8)
+            review = QtWidgets.QPushButton("Review Summary", memory_box)
+            review.setObjectName("btn_review_long_term_memory")
+            batch_update = QtWidgets.QPushButton("Summarize Recent...", memory_box)
+            batch_update.setObjectName("btn_batch_update_long_term_memory")
+            forget = QtWidgets.QPushButton("Forget Summary", memory_box)
+            forget.setObjectName("btn_forget_long_term_memory")
+            button_row.addWidget(review)
+            button_row.addWidget(batch_update)
+            button_row.addWidget(forget)
+            button_row.addStretch(1)
+            memory_layout.addLayout(button_row)
+
+            hint = QtWidgets.QLabel(memory_box)
+            hint.setObjectName("long_term_memory_hint")
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            memory_layout.addWidget(hint)
+
+            insert_index = parent_layout.indexOf(session_box)
+            parent_layout.insertWidget(insert_index if insert_index >= 0 else parent_layout.count(), memory_box)
+
     def _redirect_backend_chat_session_runtime_surface(self):
+            self._ensure_frontend_long_term_memory_widgets()
             frontend_widgets = {
                 "allow_proactive_checkbox": self._ui_object("allow_proactive_checkbox"),
                 "require_first_user_checkbox": self._ui_object("require_first_user_checkbox"),
@@ -143,6 +266,18 @@ class MainUiRealSurfacesMixin:
                 "chat_context_window_spin": self._ui_object("chat_context_window_spin"),
                 "stored_chat_history_limit_spin": self._ui_object("stored_chat_history_limit_spin"),
                 "chat_overflow_policy_combo": self._ui_object("chat_overflow_policy_combo"),
+                "long_term_memory_enabled_checkbox": self._ui_object("long_term_memory_enabled_checkbox"),
+                "long_term_memory_update_on_save_checkbox": self._ui_object("long_term_memory_update_on_save_checkbox"),
+                "long_term_memory_inject_checkbox": self._ui_object("long_term_memory_inject_checkbox"),
+                "long_term_memory_max_chars_spin": self._ui_object("long_term_memory_max_chars_spin"),
+                "long_term_memory_hint": self._ui_object("long_term_memory_hint"),
+                "btn_review_long_term_memory": self._ui_object("btn_review_long_term_memory"),
+                "btn_batch_update_long_term_memory": self._ui_object("btn_batch_update_long_term_memory"),
+                "btn_forget_long_term_memory": self._ui_object("btn_forget_long_term_memory"),
+                "btn_save_chat_session": self._ui_object("btn_save_chat_session"),
+                "btn_save_chat_session_as": self._ui_object("btn_save_chat_session_as"),
+                "btn_load_chat_session": self._ui_object("btn_load_chat_session"),
+                "btn_reset_chat_session": self._ui_object("btn_reset_chat_session"),
                 "chat_session_hint": self._ui_object("chat_session_hint"),
                 "system_prompt_text": self._ui_object("system_prompt_text"),
             }
@@ -195,6 +330,10 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("chat_context_window_spin"), frontend_widgets.get("chat_context_window_spin"))
             _copy_value(backend_widgets.get("stored_chat_history_limit_spin"), frontend_widgets.get("stored_chat_history_limit_spin"))
             _copy_combo(backend_widgets.get("chat_overflow_policy_combo"), frontend_widgets.get("chat_overflow_policy_combo"))
+            _copy_checked(backend_widgets.get("long_term_memory_enabled_checkbox"), frontend_widgets.get("long_term_memory_enabled_checkbox"))
+            _copy_checked(backend_widgets.get("long_term_memory_update_on_save_checkbox"), frontend_widgets.get("long_term_memory_update_on_save_checkbox"))
+            _copy_checked(backend_widgets.get("long_term_memory_inject_checkbox"), frontend_widgets.get("long_term_memory_inject_checkbox"))
+            _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
 
             redirected = False
             for attribute_name, widget in frontend_widgets.items():
@@ -206,6 +345,12 @@ class MainUiRealSurfacesMixin:
                 return
             try:
                 self.backend._refresh_chat_session_hint()
+                self.backend._refresh_continuity_memory_hint()
+                self.backend._refresh_chat_context_save_controls()
+                apply_tooltips = getattr(self.backend, "_apply_chat_tab_tooltips", None)
+                if callable(apply_tooltips):
+                    apply_tooltips()
+                self._apply_frontend_chat_tab_tooltips()
                 self._chat_session_runtime_redirected = True
             except Exception as exc:
                 print(f"[UI Real] Chat/session runtime surface redirect failed: {exc}")

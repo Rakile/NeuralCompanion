@@ -265,7 +265,7 @@ def _bind_ui_shell_runtime_action_controls(window):
 
     for object_name, action in action_buttons.items():
         button = _ui_shell_find_object(window, object_name)
-        if button is None:
+        if button is None or not callable(callback):
             continue
         bound.append(object_name)
         if hasattr(button, "setEnabled"):
@@ -294,6 +294,7 @@ def _bind_ui_shell_chat_context_controls(window):
         "chat_quick_save_button": ("Quick Save", service.quick_save_chat_context),
         "chat_quick_load_button": ("Quick Load", service.quick_load_chat_context),
         "btn_save_chat_session": ("Save Chat Context", service.save_chat_context),
+        "btn_save_chat_session_as": ("Save Chat Context As...", getattr(service, "save_chat_context_as", None)),
         "btn_load_chat_session": ("Load Chat Context", service.load_chat_context),
         "btn_reset_chat_session": ("Reset Chat Memory", service.reset_chat_memory),
     }

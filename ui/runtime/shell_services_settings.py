@@ -32,6 +32,10 @@ class _UiShellChatContextService:
         self._last_action = "save_chat_context"
         return self.snapshot()
 
+    def save_chat_context_as(self):
+        self._last_action = "save_chat_context_as"
+        return self.snapshot()
+
     def load_chat_context(self):
         self._last_action = "load_chat_context"
         return self.snapshot()

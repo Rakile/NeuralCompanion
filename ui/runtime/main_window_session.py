@@ -162,6 +162,13 @@ class MainWindowSessionMixin:
             "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
             "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
+            "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
+            "active_chat_context_path": str(RUNTIME_CONFIG.get("active_chat_context_path", "") or ""),
+            "active_chat_context_name": str(RUNTIME_CONFIG.get("active_chat_context_name", "") or ""),
+            "continuity_memory_enabled": bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_enabled", RUNTIME_CONFIG.get("long_term_memory_enabled", False))),
+            "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", RUNTIME_CONFIG.get("long_term_memory_update_on_save", True)))),
+            "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_inject", RUNTIME_CONFIG.get("long_term_memory_inject", True))),
+            "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
@@ -493,6 +500,35 @@ class MainWindowSessionMixin:
                 policy_text = self._chat_overflow_policy_label_from_value(chat_context_overflow_policy)
                 self.chat_overflow_policy_combo.setCurrentText(policy_text)
                 self.on_chat_overflow_policy_changed(policy_text)
+            continuity_memory_id = session.get("continuity_memory_id")
+            if continuity_memory_id is not None:
+                update_runtime_config("continuity_memory_id", str(continuity_memory_id or ""))
+            active_chat_context_path = session.get("active_chat_context_path")
+            if active_chat_context_path is not None:
+                update_runtime_config("active_chat_context_path", str(active_chat_context_path or ""))
+            active_chat_context_name = session.get("active_chat_context_name")
+            if active_chat_context_name is not None:
+                update_runtime_config("active_chat_context_name", str(active_chat_context_name or ""))
+            continuity_memory_enabled = session.get("continuity_memory_enabled", session.get("long_term_memory_enabled"))
+            if continuity_memory_enabled is not None and hasattr(self, "long_term_memory_enabled_checkbox"):
+                self.long_term_memory_enabled_checkbox.setChecked(bool(continuity_memory_enabled))
+                self.on_continuity_memory_enabled_changed(bool(continuity_memory_enabled))
+            continuity_memory_auto_summarize = session.get("continuity_memory_auto_summarize", session.get("continuity_memory_update_on_save", session.get("long_term_memory_update_on_save")))
+            if continuity_memory_auto_summarize is not None and hasattr(self, "long_term_memory_update_on_save_checkbox"):
+                self.long_term_memory_update_on_save_checkbox.setChecked(bool(continuity_memory_auto_summarize))
+                self.on_continuity_memory_update_on_save_changed(bool(continuity_memory_auto_summarize))
+            continuity_memory_inject = session.get("continuity_memory_inject", session.get("long_term_memory_inject"))
+            if continuity_memory_inject is not None and hasattr(self, "long_term_memory_inject_checkbox"):
+                self.long_term_memory_inject_checkbox.setChecked(bool(continuity_memory_inject))
+                self.on_continuity_memory_inject_changed(bool(continuity_memory_inject))
+            continuity_memory_max_chars = session.get("continuity_memory_max_chars", session.get("long_term_memory_max_chars"))
+            if continuity_memory_max_chars is not None and hasattr(self, "long_term_memory_max_chars_spin"):
+                memory_chars = max(500, min(20000, int(continuity_memory_max_chars)))
+                self.long_term_memory_max_chars_spin.setValue(memory_chars)
+                self.on_continuity_memory_max_chars_changed(memory_chars)
+            refresh_chat_context_save_controls = getattr(self, "_refresh_chat_context_save_controls", None)
+            if callable(refresh_chat_context_save_controls):
+                refresh_chat_context_save_controls()
             limit_response_length = session.get("limit_response_length")
             if limit_response_length is not None:
                 self.limit_response_checkbox.setChecked(bool(limit_response_length))

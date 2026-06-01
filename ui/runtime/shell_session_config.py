@@ -54,6 +54,7 @@ def _bind_ui_shell_preset_session_controls(window, providers):
     session_hint = _ui_shell_find_object(window, "session_hint_label")
     session_buttons = [
         _ui_shell_find_object(window, "btn_save_chat_session"),
+        _ui_shell_find_object(window, "btn_save_chat_session_as"),
         _ui_shell_find_object(window, "btn_load_chat_session"),
         _ui_shell_find_object(window, "btn_reset_chat_session"),
     ]

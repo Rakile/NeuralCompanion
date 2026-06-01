@@ -208,6 +208,9 @@ class BackendConsoleChatMixin:
         self.chat_status.setText(f"autoscroll {state}{context_suffix}{edit_suffix}")
         self.chat_status.setStyleSheet("color: #ff6b6b;" if capped else "")
         self.chat_autoscroll_button.setText(f"Autoscroll: {'On' if self.chat_auto_scroll else 'Off'}")
+        refresh_memory_hint = getattr(self, "_refresh_continuity_memory_hint", None)
+        if callable(refresh_memory_hint):
+            refresh_memory_hint()
 
     def toggle_console_autoscroll(self):
         self.console_auto_scroll = not self.console_auto_scroll
@@ -518,6 +521,7 @@ class BackendConsoleChatMixin:
     def reset_chat_session(self):
         _engine().reset_session_state()
         self.clear_chat()
+        self._refresh_chat_context_save_controls()
         print("[QtGUI] Chat memory reset.")
 
     def _default_chat_context_path(self):
@@ -531,28 +535,82 @@ class BackendConsoleChatMixin:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         return runtime_dir / "chat_context_quick_save.json"
 
+    def _remember_chat_context_path(self, path):
+        engine = _engine()
+        remember = getattr(engine, "set_active_chat_context_path", None)
+        if callable(remember):
+            try:
+                remember(str(path))
+            except Exception as exc:
+                print(f"[QtGUI] Chat context path tracking failed: {exc}")
+        self._refresh_chat_context_save_controls()
+
+    def _active_chat_context_path(self):
+        config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+        raw_path = str(config.get("active_chat_context_path", "") or "").strip()
+        return Path(raw_path) if raw_path else None
+
+    def _refresh_chat_context_save_controls(self):
+        active_path = self._active_chat_context_path()
+        has_target = active_path is not None
+        button = getattr(self, "btn_save_chat_session", None)
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(has_target)
+        if button is not None and hasattr(button, "setToolTip"):
+            if has_target:
+                button.setToolTip(f"Save the current chat context to {active_path}")
+            else:
+                button.setToolTip("Load a chat context or use Save Chat Context As... first.")
+
+    def _prepare_loaded_chat_context_payload(self, payload, path):
+        data = dict(payload or {})
+        if not str(data.get("continuity_memory_id") or "").strip():
+            data["continuity_memory_id"] = Path(path).stem
+        return data
+
+    def _maybe_update_continuity_memory_on_save(self):
+        refresh = getattr(self, "_refresh_continuity_memory_hint", None)
+        if callable(refresh):
+            refresh()
+
+    def _maybe_update_long_term_memory_on_save(self):
+        self._maybe_update_continuity_memory_on_save()
+
+    def _write_chat_context_to_path(self, target, *, label="Chat context"):
+        target = Path(target)
+        if target.suffix.lower() != ".json":
+            target = target.with_suffix(".json")
+        self._remember_chat_context_path(target)
+        payload = _engine().export_chat_session_state()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        self._maybe_update_continuity_memory_on_save()
+        print(f"[QtGUI] {label} saved: {target}")
+
     def save_chat_context(self):
+        target = self._active_chat_context_path()
+        if target is None:
+            self.save_chat_context_as()
+            return
+        self._write_chat_context_to_path(target)
+
+    def save_chat_context_as(self):
         default_path = self._default_chat_context_path()
+        current_path = self._active_chat_context_path()
+        if current_path is not None:
+            default_path = current_path
         path, _ = QtDialogService(self).save_file(
-            "Save Chat Context",
+            "Save Chat Context As",
             str(default_path),
             "Chat Context (*.json);;JSON (*.json);;All Files (*.*)",
         )
         if not path:
             return
-        target = Path(path)
-        if target.suffix.lower() != ".json":
-            target = target.with_suffix(".json")
-        payload = _engine().export_chat_session_state()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"[QtGUI] Chat context saved: {target}")
+        self._write_chat_context_to_path(path)
 
     def quick_save_chat_context(self):
         target = self._quick_chat_context_path()
-        payload = _engine().export_chat_session_state()
-        target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        print(f"[QtGUI] Quick chat context saved: {target}")
+        self._write_chat_context_to_path(target, label="Quick chat context")
 
     def load_chat_context(self):
         path, _ = QtDialogService(self).open_file(
@@ -562,12 +620,16 @@ class BackendConsoleChatMixin:
         )
         if not path:
             return
-        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        payload = self._prepare_loaded_chat_context_payload(json.loads(Path(path).read_text(encoding="utf-8")), path)
         musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
+        self._remember_chat_context_path(path)
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
+        refresh = getattr(self, "_refresh_continuity_memory_hint", None)
+        if callable(refresh):
+            refresh()
         print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
 
     def quick_load_chat_context(self):
@@ -575,10 +637,14 @@ class BackendConsoleChatMixin:
         if not path.exists():
             print(f"[QtGUI] Quick chat context not found: {path}")
             return
-        payload = json.loads(path.read_text(encoding="utf-8"))
+        payload = self._prepare_loaded_chat_context_payload(json.loads(path.read_text(encoding="utf-8")), path)
         musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
+        self._remember_chat_context_path(path)
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
+        refresh = getattr(self, "_refresh_continuity_memory_hint", None)
+        if callable(refresh):
+            refresh()
         print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
