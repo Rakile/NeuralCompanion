@@ -59,12 +59,15 @@ CHAT_TAB_TOOLTIPS = {
     "btn_review_long_term_memory": "Open the current Continuity Memory summary for inspection.",
     "btn_batch_update_long_term_memory": "Summarize the latest N messages manually. Useful when importing or catching up an older long chat.",
     "btn_forget_long_term_memory": "Clear the Continuity Memory summary for the current chat context.",
-    "btn_extract_long_term_memory_archive": "Extract structured Long-Term Memory records from recent chat messages. This is manual and does not affect prompts yet.",
     "btn_search_long_term_memory_archive": "Search extracted memory records and raw archived chat chunks without injecting them into chat.",
     "btn_review_long_term_memory_archive": "Review the currently stored Long-Term Memory archive records.",
     "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
+    "long_term_memory_embedding_enabled_checkbox": "Use LM Studio embeddings for semantic Long-Term Memory archive retrieval. Keyword search remains available as fallback.",
+    "long_term_memory_embedding_model_edit": "Embedding model name served by LM Studio, such as text-embedding-bge-m3.",
+    "long_term_memory_embedding_base_url_edit": "OpenAI-compatible LM Studio base URL for embeddings, usually http://127.0.0.1:1234/v1.",
+    "long_term_memory_embedding_context_length_spin": "Context length NC will request when loading the LM Studio embedding model. This is stored with the chat session and used as part of the embedding index identity.",
     "btn_save_chat_session": "Save changes to the currently loaded/saved chat context file.",
     "btn_save_chat_session_as": "Choose a new chat context file and save the current conversation there.",
     "btn_load_chat_session": "Load a saved chat context file into the current session.",
@@ -617,7 +620,7 @@ class BackendSystemShapingBuilderMixin:
         archive_layout = QtWidgets.QVBoxLayout(archive_box)
         archive_layout.setContentsMargins(12, 14, 12, 12)
         archive_layout.setSpacing(8)
-        archive_hint = QtWidgets.QLabel("Manual archive extraction stores structured memory records. It does not inject retrieved memories into chat yet.")
+        archive_hint = QtWidgets.QLabel("Manual archive extraction stores structured memory records. Retrieval can inject matching archive recall into chat requests.")
         archive_hint.setWordWrap(True)
         archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         archive_layout.addWidget(archive_hint)
@@ -627,10 +630,13 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
+        retrieval_form.addRow("Embedding model", self.long_term_memory_embedding_model_edit)
+        retrieval_form.addRow("Embedding context", self.long_term_memory_embedding_context_length_spin)
+        retrieval_form.addRow("Embedding base URL", self.long_term_memory_embedding_base_url_edit)
         archive_layout.addLayout(retrieval_form)
+        archive_layout.addWidget(self.long_term_memory_embedding_enabled_checkbox)
         archive_button_row = QtWidgets.QHBoxLayout()
         archive_button_row.setSpacing(8)
-        archive_button_row.addWidget(self.btn_extract_long_term_memory_archive)
         archive_button_row.addWidget(self.btn_search_long_term_memory_archive)
         archive_button_row.addWidget(self.btn_review_long_term_memory_archive)
         archive_button_row.addStretch(1)
@@ -1009,10 +1015,6 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         self._refresh_long_term_memory_hint()
 
-        self.btn_extract_long_term_memory_archive = QtWidgets.QPushButton("Extract Recent...")
-        self.btn_extract_long_term_memory_archive.setObjectName("btn_extract_long_term_memory_archive")
-        self.btn_extract_long_term_memory_archive.clicked.connect(self.extract_long_term_memory_archive_now)
-
         self.btn_review_long_term_memory_archive = QtWidgets.QPushButton("Review Archive")
         self.btn_review_long_term_memory_archive.setObjectName("btn_review_long_term_memory_archive")
         self.btn_review_long_term_memory_archive.clicked.connect(self.review_long_term_memory_archive)
@@ -1034,6 +1036,30 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_retrieval_max_items_spin.valueChanged.connect(self.on_long_term_memory_retrieval_max_items_changed)
         self.long_term_memory_retrieval_max_items_spin.setMinimumWidth(112)
         self.long_term_memory_retrieval_max_items_spin.setMaximumWidth(132)
+
+        self.long_term_memory_embedding_enabled_checkbox = QtWidgets.QCheckBox("Use LM Studio embeddings for semantic retrieval")
+        self.long_term_memory_embedding_enabled_checkbox.setObjectName("long_term_memory_embedding_enabled_checkbox")
+        self.long_term_memory_embedding_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_embedding_enabled", False)))
+        self.long_term_memory_embedding_enabled_checkbox.toggled.connect(self.on_long_term_memory_embedding_enabled_changed)
+
+        self.long_term_memory_embedding_model_edit = QtWidgets.QLineEdit(str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"))
+        self.long_term_memory_embedding_model_edit.setObjectName("long_term_memory_embedding_model_edit")
+        self.long_term_memory_embedding_model_edit.editingFinished.connect(self.on_long_term_memory_embedding_model_changed)
+        self.long_term_memory_embedding_model_edit.setMinimumWidth(220)
+
+        self.long_term_memory_embedding_context_length_spin = ContextTokenStepper()
+        self.long_term_memory_embedding_context_length_spin.setObjectName("long_term_memory_embedding_context_length_spin")
+        self.long_term_memory_embedding_context_length_spin.setRange(512, 262144)
+        self.long_term_memory_embedding_context_length_spin.setSingleStep(512)
+        self.long_term_memory_embedding_context_length_spin.setValue(max(512, min(262144, int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192))))
+        self.long_term_memory_embedding_context_length_spin.valueChanged.connect(self.on_long_term_memory_embedding_context_length_changed)
+        self.long_term_memory_embedding_context_length_spin.setMinimumWidth(112)
+        self.long_term_memory_embedding_context_length_spin.setMaximumWidth(132)
+
+        self.long_term_memory_embedding_base_url_edit = QtWidgets.QLineEdit(str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"))
+        self.long_term_memory_embedding_base_url_edit.setObjectName("long_term_memory_embedding_base_url_edit")
+        self.long_term_memory_embedding_base_url_edit.editingFinished.connect(self.on_long_term_memory_embedding_base_url_changed)
+        self.long_term_memory_embedding_base_url_edit.setMinimumWidth(220)
 
         self.long_term_memory_archive_hint = QtWidgets.QLabel()
         self.long_term_memory_archive_hint.setObjectName("long_term_memory_archive_hint")

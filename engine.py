@@ -694,6 +694,8 @@ RUNTIME_CONFIG = {
     "continuity_memory_id": continuity_memory.new_memory_id(),
     "active_chat_context_path": "",
     "active_chat_context_name": "",
+    "long_term_memory_db_path": "",
+    "long_term_memory_db_id": "",
     "continuity_memory_enabled": False,
     "continuity_memory_update_on_save": True,
     "continuity_memory_auto_summarize": True,
@@ -701,6 +703,11 @@ RUNTIME_CONFIG = {
     "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
     "long_term_memory_retrieval_enabled": False,
     "long_term_memory_retrieval_max_items": 6,
+    "long_term_memory_embedding_enabled": False,
+    "long_term_memory_embedding_base_url": "http://127.0.0.1:1234/v1",
+    "long_term_memory_embedding_model": "text-embedding-bge-m3",
+    "long_term_memory_embedding_context_length": 8192,
+    "long_term_memory_embedding_min_score": 0.25,
     "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
     "chunk_max_chars": MAX_CHARS_PER_CHUNK,
     "stream_chunk_target_chars": 80,
@@ -822,6 +829,11 @@ def update_runtime_config(key, value):
         elif key == "musetalk_enabled_pack_emotions":
             value = _normalize_musetalk_enabled_pack_emotions(value)
         RUNTIME_CONFIG[key] = value
+        if key in {"continuity_memory_id", "active_chat_context_path", "active_chat_context_name"}:
+            try:
+                _configure_active_long_term_memory_store(RUNTIME_CONFIG.get("continuity_memory_id"))
+            except Exception:
+                pass
         if key == "chat_provider_settings":
             chat_providers.set_provider_settings(value)
         if key in {"musetalk_avatar_pack_id", "musetalk_enabled_pack_emotions"}:
@@ -4034,6 +4046,7 @@ def reset_session_state():
     RUNTIME_CONFIG["continuity_memory_id"] = continuity_memory.new_memory_id()
     RUNTIME_CONFIG["active_chat_context_path"] = ""
     RUNTIME_CONFIG["active_chat_context_name"] = ""
+    _configure_active_long_term_memory_store(RUNTIME_CONFIG["continuity_memory_id"])
     RUNTIME_CONFIG["continuity_memory_auto_baseline_turn_count"] = 0
     sensory_hidden_history = []
     sensory_pingpong_state = {
@@ -4184,13 +4197,27 @@ def _active_continuity_memory_id():
     if not memory_id:
         memory_id = continuity_memory.new_memory_id()
         RUNTIME_CONFIG["continuity_memory_id"] = memory_id
+        _configure_active_long_term_memory_store(memory_id)
     return memory_id
+
+
+def _configure_active_long_term_memory_store(memory_id=None):
+    normalized = continuity_memory.normalize_memory_id(memory_id or RUNTIME_CONFIG.get("continuity_memory_id"), fallback="default")
+    path = long_term_memory.db_path_for_memory_id(normalized)
+    long_term_memory.set_default_db_path(path)
+    RUNTIME_CONFIG["long_term_memory_db_path"] = str(path)
+    RUNTIME_CONFIG["long_term_memory_db_id"] = normalized
+    return path
 
 
 def set_continuity_memory_id(memory_id):
     normalized = continuity_memory.normalize_memory_id(memory_id, fallback=continuity_memory.new_memory_id())
     RUNTIME_CONFIG["continuity_memory_id"] = normalized
+    _configure_active_long_term_memory_store(normalized)
     return normalized
+
+
+_configure_active_long_term_memory_store(RUNTIME_CONFIG.get("continuity_memory_id"))
 
 
 _continuity_memory_auto_update_lock = threading.Lock()
@@ -4336,14 +4363,16 @@ def set_active_chat_context_path(path_value):
         name = Path(raw_path).stem
         RUNTIME_CONFIG["active_chat_context_name"] = name
         current_id = continuity_memory.normalize_memory_id(RUNTIME_CONFIG.get("continuity_memory_id"))
-        if not current_id or (not previous_path and current_id.startswith("chat_")):
+        if not current_id or (not previous_path and re.fullmatch(r"chat_[0-9a-f]{12}", current_id or "")):
             set_continuity_memory_id(continuity_memory.memory_id_from_label(name))
     else:
         RUNTIME_CONFIG["active_chat_context_name"] = ""
+    _configure_active_long_term_memory_store(RUNTIME_CONFIG.get("continuity_memory_id"))
     return {
         "active_chat_context_path": RUNTIME_CONFIG.get("active_chat_context_path", ""),
         "active_chat_context_name": RUNTIME_CONFIG.get("active_chat_context_name", ""),
         "continuity_memory_id": RUNTIME_CONFIG.get("continuity_memory_id", ""),
+        "long_term_memory_db_path": RUNTIME_CONFIG.get("long_term_memory_db_path", ""),
     }
 
 
@@ -4524,8 +4553,280 @@ def clear_continuity_memory():
 
 
 def initialize_long_term_memory_store():
+    _configure_active_long_term_memory_store(_active_continuity_memory_id())
     path = long_term_memory.init_store()
     return {"path": str(path), "schema_version": long_term_memory.SCHEMA_VERSION}
+
+
+_LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE = {}
+
+
+def _long_term_memory_embedding_config():
+    base_url = str(RUNTIME_CONFIG.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "").strip()
+    model = str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "").strip()
+    context_length = long_term_memory.embedding_context_length(
+        RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", long_term_memory.DEFAULT_EMBEDDING_CONTEXT_TOKENS)
+    )
+    model_name = model or "text-embedding-bge-m3"
+    return {
+        "enabled": bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
+        "base_url": base_url.rstrip("/") or "http://127.0.0.1:1234/v1",
+        "model": model_name,
+        "context_length": context_length,
+        "index_model": long_term_memory.embedding_model_key(model_name, context_length),
+    }
+
+
+def _lmstudio_native_base_url(base_url):
+    url = str(base_url or "http://127.0.0.1:1234/v1").strip().rstrip("/")
+    if url.endswith("/v1"):
+        return url[:-3].rstrip("/") + "/api/v1"
+    if url.endswith("/api/v1"):
+        return url
+    return url + "/api/v1"
+
+
+def _lmstudio_request_json(url, *, payload=None, timeout=30):
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    headers = {"Content-Type": "application/json", "Authorization": "Bearer lm-studio"}
+    request = urllib.request.Request(url, data=data, headers=headers, method="POST" if payload is not None else "GET")
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        return json.loads(response.read().decode("utf-8", errors="replace"))
+
+
+def _lmstudio_embedding_model_status(config=None):
+    config = dict(config or _long_term_memory_embedding_config())
+    try:
+        data = _lmstudio_request_json(f"{_lmstudio_native_base_url(config.get('base_url'))}/models", timeout=8)
+    except Exception as exc:
+        return {"available": False, "warning": f"LM Studio model list unavailable: {exc}"}
+    model_name = str(config.get("model") or "").strip()
+    for item in list((data or {}).get("models") or []):
+        if str(item.get("key") or "") != model_name:
+            continue
+        loaded = list(item.get("loaded_instances") or [])
+        context = None
+        instance_id = ""
+        if loaded:
+            instance_id = str((loaded[0] or {}).get("id") or "")
+            try:
+                context = int(((loaded[0] or {}).get("config") or {}).get("context_length") or 0)
+            except Exception:
+                context = None
+        return {
+            "available": True,
+            "loaded": bool(loaded),
+            "instance_id": instance_id,
+            "loaded_context_length": context,
+            "max_context_length": item.get("max_context_length"),
+            "type": item.get("type"),
+            "display_name": item.get("display_name"),
+        }
+    return {"available": False, "warning": f"Embedding model '{model_name}' is not listed by LM Studio."}
+
+
+def _ensure_lmstudio_embedding_model_loaded(config=None, *, force=False):
+    config = dict(config or _long_term_memory_embedding_config())
+    model_name = str(config.get("model") or "").strip()
+    context_length = int(config.get("context_length") or long_term_memory.DEFAULT_EMBEDDING_CONTEXT_TOKENS)
+    if not model_name:
+        return {"ok": False, "warning": "No embedding model selected."}
+    cache_key = (str(config.get("base_url") or ""), model_name, context_length)
+    now = time.time()
+    cached = _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE.get(cache_key)
+    if not force and cached and now - float(cached.get("checked_at", 0.0) or 0.0) < 30.0:
+        return dict(cached.get("result") or {"ok": True})
+    status = _lmstudio_embedding_model_status(config)
+    if (
+        bool(status.get("available"))
+        and bool(status.get("loaded"))
+        and int(status.get("loaded_context_length") or 0) == context_length
+    ):
+        result = {"ok": True, "status": status}
+        _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE[cache_key] = {"checked_at": now, "result": result}
+        return result
+    if bool(status.get("loaded")) and int(status.get("loaded_context_length") or 0) != context_length:
+        instance_id = str(status.get("instance_id") or "").strip()
+        if instance_id:
+            try:
+                _lmstudio_request_json(
+                    f"{_lmstudio_native_base_url(config.get('base_url'))}/models/unload",
+                    payload={"instance_id": instance_id},
+                    timeout=60,
+                )
+            except Exception as exc:
+                result = {
+                    "ok": False,
+                    "status": status,
+                    "warning": (
+                        f"Embedding model is loaded at context {status.get('loaded_context_length')}; "
+                        f"could not unload it to switch to {context_length}: {exc}"
+                    ),
+                }
+                _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE[cache_key] = {"checked_at": now, "result": result}
+                return result
+    try:
+        data = _lmstudio_request_json(
+            f"{_lmstudio_native_base_url(config.get('base_url'))}/models/load",
+            payload={"model": model_name, "context_length": context_length, "echo_load_config": True},
+            timeout=120,
+        )
+    except Exception as exc:
+        result = {"ok": False, "status": status, "warning": f"Could not load embedding model at context {context_length}: {exc}"}
+        _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE[cache_key] = {"checked_at": now, "result": result}
+        return result
+    loaded_context = (((data or {}).get("load_config") or {}).get("context_length"))
+    warning = ""
+    try:
+        if int(loaded_context or 0) and int(loaded_context) != context_length:
+            warning = f"LM Studio loaded context {loaded_context}, expected {context_length}."
+    except Exception:
+        pass
+    result = {"ok": not bool(warning), "status": status, "load": data, "warning": warning}
+    _LONG_TERM_MEMORY_EMBEDDING_LOAD_CACHE[cache_key] = {"checked_at": now, "result": result}
+    return result
+
+
+def _lmstudio_embedding(text, *, model="", base_url="", context_length=None, ensure_loaded=True):
+    payload_text = str(text or "").replace("\n", " ").strip()
+    if not payload_text:
+        return []
+    config = _long_term_memory_embedding_config()
+    if model:
+        config["model"] = str(model or "").strip()
+    if base_url:
+        config["base_url"] = str(base_url or "").strip().rstrip("/")
+    if context_length is not None:
+        config["context_length"] = long_term_memory.embedding_context_length(context_length)
+    model_name = str(config.get("model") or "").strip()
+    url = str(config.get("base_url") or "http://127.0.0.1:1234/v1").strip().rstrip("/")
+    if not model_name:
+        return []
+    if ensure_loaded:
+        load_result = _ensure_lmstudio_embedding_model_loaded(config)
+        if load_result and load_result.get("warning"):
+            print(f"🧠 [Memory] Embedding model warning: {load_result.get('warning')}")
+        if load_result and load_result.get("ok") is False:
+            return []
+    request = urllib.request.Request(
+        f"{url}/embeddings",
+        data=json.dumps({"input": [payload_text], "model": model_name}).encode("utf-8"),
+        headers={"Content-Type": "application/json", "Authorization": "Bearer lm-studio"},
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=30) as response:
+        data = json.loads(response.read().decode("utf-8", errors="replace"))
+    embedding = (((data or {}).get("data") or [{}])[0] or {}).get("embedding")
+    return [float(value) for value in list(embedding or [])]
+
+
+def _long_term_memory_embedding_enabled():
+    config = _long_term_memory_embedding_config()
+    return bool(config.get("enabled")) and bool(config.get("model")) and bool(config.get("base_url"))
+
+
+def _embed_long_term_memory_target(target):
+    if not _long_term_memory_embedding_enabled():
+        return None
+    config = _long_term_memory_embedding_config()
+    text = str((target or {}).get("text", "") or "").strip()
+    if not text:
+        return None
+    try:
+        vector = _lmstudio_embedding(
+            text,
+            model=config["model"],
+            base_url=config["base_url"],
+            context_length=config["context_length"],
+        )
+    except Exception as exc:
+        print(f"🧠 [Memory] Embedding skipped: {exc}")
+        return None
+    if not vector:
+        return None
+    return long_term_memory.upsert_embedding(
+        target_kind=(target or {}).get("kind"),
+        target_id=(target or {}).get("id"),
+        model=config["index_model"],
+        text=text,
+        vector=vector,
+    )
+
+
+def _embed_long_term_memory_record(record):
+    if not record:
+        return None
+    return _embed_long_term_memory_target({
+        "kind": "record",
+        "id": (record or {}).get("id", ""),
+        "text": long_term_memory.embedding_text_for_record(record),
+    })
+
+
+def _embed_long_term_memory_chunk(chunk):
+    if not chunk:
+        return []
+    config = _long_term_memory_embedding_config()
+    results = []
+    for target in long_term_memory.embedding_targets_for_chunk(chunk, context_length=config["context_length"]):
+        result = _embed_long_term_memory_target(target)
+        if result:
+            results.append(result)
+    return results
+
+
+def long_term_memory_embedding_status(*, include_lmstudio=False):
+    config = _long_term_memory_embedding_config()
+    status = long_term_memory.embedding_status(model=config["index_model"])
+    status.update(config)
+    if bool(config.get("enabled")) and bool(include_lmstudio):
+        lmstudio_status = _lmstudio_embedding_model_status(config)
+        status["lmstudio"] = lmstudio_status
+        if lmstudio_status.get("warning"):
+            status["warning"] = lmstudio_status.get("warning")
+        elif lmstudio_status.get("loaded") and int(lmstudio_status.get("loaded_context_length") or 0) != int(config.get("context_length") or 0):
+            status["warning"] = (
+                f"LM Studio has {config['model']} loaded at context {lmstudio_status.get('loaded_context_length')}; "
+                f"NC expects {config['context_length']} for this chat session."
+            )
+    return status
+
+
+def rebuild_long_term_memory_embeddings(*, limit=200):
+    if not _long_term_memory_embedding_enabled():
+        raise RuntimeError("Enable Long-Term Memory embeddings and choose an embedding model first.")
+    config = _long_term_memory_embedding_config()
+    load_result = _ensure_lmstudio_embedding_model_loaded(config, force=True)
+    if load_result and load_result.get("warning"):
+        print(f"🧠 [Memory] Embedding model warning: {load_result.get('warning')}")
+    targets = long_term_memory.list_embedding_targets(
+        model=config["index_model"],
+        context_length=config["context_length"],
+        limit=limit,
+    )
+    embedded = []
+    failed = []
+    for target in targets:
+        try:
+            result = _embed_long_term_memory_target(target)
+            if result:
+                embedded.append(result)
+            else:
+                failed.append(target)
+        except Exception as exc:
+            failed.append({**dict(target or {}), "error": str(exc)})
+    print(f"🧠 [Memory] Embedded {len(embedded)} Long-Term Memory item(s); failed {len(failed)}.")
+    return {
+        "model": config["model"],
+        "index_model": config["index_model"],
+        "context_length": config["context_length"],
+        "base_url": config["base_url"],
+        "selected": len(targets),
+        "embedded": len(embedded),
+        "failed": len(failed),
+        "failures": failed[:10],
+        "status": long_term_memory_embedding_status(),
+    }
 
 
 def create_long_term_memory_record(
@@ -4553,6 +4854,7 @@ def create_long_term_memory_record(
         importance=importance,
         confidence=confidence,
     )
+    _embed_long_term_memory_record(record)
     print(f"🧠 [Memory] Long-Term Memory record stored: {record.get('id', '')} ({record.get('type', '')})")
     return record
 
@@ -4662,11 +4964,28 @@ def delete_long_term_memory_chunk(chunk_id, *, hard=False):
 
 
 def retrieve_long_term_memory(query, *, record_limit=6, chunk_limit=4, source_chat_id=""):
+    query_vector = None
+    embedding_model = ""
+    if _long_term_memory_embedding_enabled():
+        config = _long_term_memory_embedding_config()
+        embedding_model = config["index_model"]
+        try:
+            query_vector = _lmstudio_embedding(
+                query,
+                model=config["model"],
+                base_url=config["base_url"],
+                context_length=config["context_length"],
+            )
+        except Exception as exc:
+            print(f"🧠 [Memory] Semantic retrieval skipped: {exc}")
     return long_term_memory.retrieve_memories(
         query,
         record_limit=record_limit,
         chunk_limit=chunk_limit,
         source_chat_id=source_chat_id,
+        query_vector=query_vector,
+        embedding_model=embedding_model,
+        semantic_min_score=float(RUNTIME_CONFIG.get("long_term_memory_embedding_min_score", 0.25) or 0.25),
     )
 
 
@@ -4724,6 +5043,102 @@ def _active_long_term_memory_source_chat_id():
     return "unsaved_chat"
 
 
+def _long_term_memory_archive_enabled():
+    return bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)) or bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False))
+
+
+def _long_term_memory_last_archived_turn(source_chat_id):
+    source = long_term_memory.normalize_memory_id(source_chat_id, fallback="unsaved_chat")
+    last = 0
+    for chunk in long_term_memory.list_archived_chunks(source_chat_id=source, limit=1000):
+        try:
+            last = max(last, int((chunk or {}).get("source_message_end") or 0))
+        except Exception:
+            continue
+    return last
+
+
+def sync_long_term_memory_archive_from_current_chat(*, batch_size=long_term_memory.DEFAULT_EXTRACTION_TURNS, source_chat_id=""):
+    if not _long_term_memory_archive_enabled():
+        return {"enabled": False, "archived_chunks": 0, "embedded": 0, "pending_turns": 0}
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    turns = long_term_memory.sanitize_history_turns(sanitized_history)
+    if not turns:
+        return {"enabled": True, "archived_chunks": 0, "embedded": 0, "pending_turns": 0}
+    resolved_source = str(source_chat_id or _active_long_term_memory_source_chat_id() or "unsaved_chat")
+    normalized_source = long_term_memory.normalize_memory_id(resolved_source, fallback="unsaved_chat")
+    archived_through = _long_term_memory_last_archived_turn(normalized_source)
+    pending_turns = [turn for turn in turns if int((turn or {}).get("index") or 0) > archived_through]
+    if not pending_turns:
+        return {
+            "enabled": True,
+            "source_chat_id": normalized_source,
+            "archived_through": archived_through,
+            "total_turns": int(turns[-1]["index"]),
+            "archived_chunks": 0,
+            "embedded": 0,
+            "pending_turns": 0,
+        }
+    try:
+        size = max(1, int(batch_size))
+    except Exception:
+        size = long_term_memory.DEFAULT_EXTRACTION_TURNS
+    ready_count = (len(pending_turns) // size) * size
+    ready_turns = pending_turns[:ready_count]
+    deferred_count = len(pending_turns) - ready_count
+    if not ready_turns:
+        print(
+            f"🧠 [Memory] Long-Term archive sync on save deferred: "
+            f"{len(pending_turns)}/{size} pending turn(s), source={normalized_source}."
+        )
+        return {
+            "enabled": True,
+            "source_chat_id": normalized_source,
+            "archived_through": archived_through,
+            "total_turns": int(turns[-1]["index"]),
+            "archived_chunks": 0,
+            "embedded": 0,
+            "pending_turns": len(pending_turns),
+            "next_batch_turns": size - len(pending_turns),
+        }
+    archived_chunks = []
+    embedded_count = 0
+    for start in range(0, len(ready_turns), size):
+        batch_turns = ready_turns[start:start + size]
+        chunk_text = long_term_memory.format_history_segment(batch_turns)
+        chunk_id = long_term_memory.chunk_id_for_segment(
+            normalized_source,
+            batch_turns[0]["index"],
+            batch_turns[-1]["index"],
+            chunk_text,
+        )
+        existing = long_term_memory.get_archived_chunk(chunk_id)
+        chunk = existing if existing and str(existing.get("status", "") or "") == "active" else long_term_memory.archive_history_chunk(
+            batch_turns,
+            source_chat_id=normalized_source,
+            tags=["raw_chat", "auto_save"],
+        )
+        if chunk:
+            archived_chunks.append(chunk)
+            if _long_term_memory_embedding_enabled():
+                embedded_count += len(_embed_long_term_memory_chunk(chunk) or [])
+    print(
+        f"🧠 [Memory] Long-Term archive sync on save: {len(archived_chunks)} chunk(s), "
+        f"{embedded_count} embedding target(s), {deferred_count} pending turn(s), source={normalized_source}."
+    )
+    return {
+        "enabled": True,
+        "source_chat_id": normalized_source,
+        "archived_through": int(archived_chunks[-1].get("source_message_end") or archived_through) if archived_chunks else archived_through,
+        "total_turns": int(turns[-1]["index"]),
+        "archived_chunks": len(archived_chunks),
+        "embedded": embedded_count,
+        "pending_turns": deferred_count,
+        "next_batch_turns": (size - deferred_count) if deferred_count else 0,
+        "chunks": archived_chunks,
+    }
+
+
 def _long_term_memory_extraction_payload(response_text):
     payload = _extract_json_object_from_text(response_text)
     if payload is None:
@@ -4732,6 +5147,50 @@ def _long_term_memory_extraction_payload(response_text):
     if payload is None:
         raise RuntimeError("The provider did not return a valid Long-Term Memory JSON payload.")
     return payload
+
+
+def _long_term_memory_extracted_record_id(source_chat_id, candidate, source_start, source_end):
+    title = str((candidate or {}).get("title", "") or "").strip().lower()
+    memory_type = long_term_memory.normalize_memory_type((candidate or {}).get("type", "note"))
+    key = json.dumps(
+        [
+            long_term_memory.normalize_memory_id(source_chat_id, fallback="unsaved_chat"),
+            int(source_start or 0),
+            int(source_end or 0),
+            memory_type,
+            re.sub(r"\s+", " ", title),
+        ],
+        ensure_ascii=True,
+        separators=(",", ":"),
+    )
+    digest = uuid.uuid5(uuid.NAMESPACE_URL, key).hex[:16]
+    return long_term_memory.normalize_memory_id(f"mem_{digest}", fallback=f"mem_{digest}")
+
+
+def _long_term_memory_existing_extracted_record(source_chat_id, candidate, source_start, source_end):
+    normalized_source = long_term_memory.normalize_memory_id(source_chat_id, fallback="unsaved_chat")
+    memory_type = long_term_memory.normalize_memory_type((candidate or {}).get("type", "note"))
+    title = re.sub(r"\s+", " ", str((candidate or {}).get("title", "") or "").strip().lower())
+    try:
+        start = int(source_start or 0)
+        end = int(source_end or 0)
+    except Exception:
+        return None
+    for record in long_term_memory.list_memories(source_chat_id=normalized_source, limit=1000):
+        try:
+            record_start = int((record or {}).get("source_message_start") or 0)
+            record_end = int((record or {}).get("source_message_end") or 0)
+        except Exception:
+            continue
+        record_title = re.sub(r"\s+", " ", str((record or {}).get("title", "") or "").strip().lower())
+        if (
+            record_start == start
+            and record_end == end
+            and long_term_memory.normalize_memory_type((record or {}).get("type", "note")) == memory_type
+            and record_title == title
+        ):
+            return record
+    return None
 
 
 def extract_long_term_memory_records_from_current_chat(
@@ -4762,11 +5221,35 @@ def extract_long_term_memory_records_from_current_chat(
     if _is_model_catalog_placeholder(model_name):
         raise RuntimeError("Choose a chat model before extracting Long-Term Memory records.")
     resolved_source = str(source_chat_id or _active_long_term_memory_source_chat_id() or "unsaved_chat")
+    chunk_text = long_term_memory.format_history_segment(selected_turns)
+    chunk_id = long_term_memory.chunk_id_for_segment(
+        resolved_source,
+        selected_turns[0]["index"],
+        selected_turns[-1]["index"],
+        chunk_text,
+    )
+    existing_chunk = long_term_memory.get_archived_chunk(chunk_id)
+    if existing_chunk and str(existing_chunk.get("status", "") or "") == "active":
+        print(
+            f"🧠 [Memory] Long-Term Memory extract skipped: raw chunk already archived "
+            f"for {len(selected_turns)} chat turn(s)."
+        )
+        _embed_long_term_memory_chunk(existing_chunk)
+        return {
+            "source_chat_id": long_term_memory.normalize_memory_id(resolved_source),
+            "selected_turns": len(selected_turns),
+            "archived_chunks": 0,
+            "chunks": [existing_chunk],
+            "stored_records": 0,
+            "records": [],
+            "skipped_existing_chunk": True,
+        }
     archived_chunk = long_term_memory.archive_history_chunk(
         selected_turns,
         source_chat_id=resolved_source,
         tags=["raw_chat", "manual_extract"],
     )
+    _embed_long_term_memory_chunk(archived_chunk)
     messages = long_term_memory.build_extraction_messages(
         selected_turns,
         source_chat_id=resolved_source,
@@ -4798,18 +5281,28 @@ def extract_long_term_memory_records_from_current_chat(
     )
     stored_records = []
     for candidate in candidates:
-        record = long_term_memory.create_memory(
-            memory_type=candidate.get("type", "note"),
-            title=candidate.get("title", ""),
-            summary=candidate.get("summary", ""),
-            content=candidate.get("content", ""),
-            tags=candidate.get("tags", []),
-            source_chat_id=resolved_source,
-            source_message_start=candidate.get("source_message_start") or selected_turns[0]["index"],
-            source_message_end=candidate.get("source_message_end") or selected_turns[-1]["index"],
-            importance=candidate.get("importance", 0.5),
-            confidence=candidate.get("confidence", 0.8),
+        source_start = candidate.get("source_message_start") or selected_turns[0]["index"]
+        source_end = candidate.get("source_message_end") or selected_turns[-1]["index"]
+        existing = _long_term_memory_existing_extracted_record(resolved_source, candidate, source_start, source_end)
+        record_id = (existing or {}).get("id") or _long_term_memory_extracted_record_id(resolved_source, candidate, source_start, source_end)
+        record = long_term_memory.upsert_memory(
+            {
+                "memory_id": record_id,
+                "type": candidate.get("type", "note"),
+                "title": candidate.get("title", ""),
+                "summary": candidate.get("summary", ""),
+                "content": candidate.get("content", ""),
+                "tags": candidate.get("tags", []),
+                "source_chat_id": resolved_source,
+                "source_message_start": source_start,
+                "source_message_end": source_end,
+                "importance": candidate.get("importance", 0.5),
+                "confidence": candidate.get("confidence", 0.8),
+                "status": "active",
+                "created_at": (existing or {}).get("created_at", ""),
+            }
         )
+        _embed_long_term_memory_record(record)
         stored_records.append(record)
     print(
         f"🧠 [Memory] Extracted {len(stored_records)} Long-Term Memory record(s) "

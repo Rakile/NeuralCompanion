@@ -88,7 +88,6 @@ class MainUiRealBindingMixin:
                 "btn_review_long_term_memory": getattr(self.backend, "review_long_term_memory", None),
                 "btn_batch_update_long_term_memory": getattr(self.backend, "batch_update_long_term_memory_now", None),
                 "btn_forget_long_term_memory": getattr(self.backend, "forget_long_term_memory", None),
-                "btn_extract_long_term_memory_archive": getattr(self.backend, "extract_long_term_memory_archive_now", None),
                 "btn_search_long_term_memory_archive": getattr(self.backend, "search_long_term_memory_archive", None),
                 "btn_review_long_term_memory_archive": getattr(self.backend, "review_long_term_memory_archive", None),
             }
@@ -435,6 +434,18 @@ class MainUiRealBindingMixin:
             long_term_memory_retrieval_max_items_spin = self._ui_object("long_term_memory_retrieval_max_items_spin")
             if long_term_memory_retrieval_max_items_spin is not None and hasattr(long_term_memory_retrieval_max_items_spin, "valueChanged"):
                 long_term_memory_retrieval_max_items_spin.valueChanged.connect(self._on_frontend_long_term_memory_retrieval_max_items_changed)
+            long_term_memory_embedding_enabled_checkbox = self._ui_object("long_term_memory_embedding_enabled_checkbox")
+            if long_term_memory_embedding_enabled_checkbox is not None and hasattr(long_term_memory_embedding_enabled_checkbox, "toggled"):
+                long_term_memory_embedding_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_embedding_enabled_changed)
+            long_term_memory_embedding_model_edit = self._ui_object("long_term_memory_embedding_model_edit")
+            if long_term_memory_embedding_model_edit is not None and hasattr(long_term_memory_embedding_model_edit, "editingFinished"):
+                long_term_memory_embedding_model_edit.editingFinished.connect(self._on_frontend_long_term_memory_embedding_model_changed)
+            long_term_memory_embedding_context_length_spin = self._ui_object("long_term_memory_embedding_context_length_spin")
+            if long_term_memory_embedding_context_length_spin is not None and hasattr(long_term_memory_embedding_context_length_spin, "valueChanged"):
+                long_term_memory_embedding_context_length_spin.valueChanged.connect(self._on_frontend_long_term_memory_embedding_context_length_changed)
+            long_term_memory_embedding_base_url_edit = self._ui_object("long_term_memory_embedding_base_url_edit")
+            if long_term_memory_embedding_base_url_edit is not None and hasattr(long_term_memory_embedding_base_url_edit, "editingFinished"):
+                long_term_memory_embedding_base_url_edit.editingFinished.connect(self._on_frontend_long_term_memory_embedding_base_url_changed)
             system_prompt_text = self._ui_object("system_prompt_text")
             if system_prompt_text is not None and hasattr(system_prompt_text, "textChanged"):
                 system_prompt_text.textChanged.connect(self._on_frontend_system_prompt_changed)

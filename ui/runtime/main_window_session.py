@@ -171,6 +171,10 @@ class MainWindowSessionMixin:
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+            "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
+            "long_term_memory_embedding_model": str(self.long_term_memory_embedding_model_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_model_edit") else str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
+            "long_term_memory_embedding_context_length": int(self.long_term_memory_embedding_context_length_spin.value()) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", 8192) or 8192),
+            "long_term_memory_embedding_base_url": str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(RUNTIME_CONFIG.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
@@ -537,6 +541,23 @@ class MainWindowSessionMixin:
                 max_items = max(1, min(12, int(retrieval_max_items)))
                 self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
                 self.on_long_term_memory_retrieval_max_items_changed(max_items)
+            embedding_enabled = session.get("long_term_memory_embedding_enabled")
+            if embedding_enabled is not None and hasattr(self, "long_term_memory_embedding_enabled_checkbox"):
+                self.long_term_memory_embedding_enabled_checkbox.setChecked(bool(embedding_enabled))
+                self.on_long_term_memory_embedding_enabled_changed(bool(embedding_enabled))
+            embedding_model = session.get("long_term_memory_embedding_model")
+            if embedding_model is not None and hasattr(self, "long_term_memory_embedding_model_edit"):
+                self.long_term_memory_embedding_model_edit.setText(str(embedding_model or "text-embedding-bge-m3"))
+                self.on_long_term_memory_embedding_model_changed()
+            embedding_context_length = session.get("long_term_memory_embedding_context_length")
+            if embedding_context_length is not None and hasattr(self, "long_term_memory_embedding_context_length_spin"):
+                context_length = max(512, min(262144, int(embedding_context_length or 8192)))
+                self.long_term_memory_embedding_context_length_spin.setValue(context_length)
+                self.on_long_term_memory_embedding_context_length_changed(context_length)
+            embedding_base_url = session.get("long_term_memory_embedding_base_url")
+            if embedding_base_url is not None and hasattr(self, "long_term_memory_embedding_base_url_edit"):
+                self.long_term_memory_embedding_base_url_edit.setText(str(embedding_base_url or "http://127.0.0.1:1234/v1"))
+                self.on_long_term_memory_embedding_base_url_changed()
             refresh_chat_context_save_controls = getattr(self, "_refresh_chat_context_save_controls", None)
             if callable(refresh_chat_context_save_controls):
                 refresh_chat_context_save_controls()

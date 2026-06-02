@@ -107,6 +107,7 @@ class RealUiSyncFrontendMixin:
                     "long_term_memory_update_on_save_checkbox",
                     "long_term_memory_inject_checkbox",
                     "long_term_memory_retrieval_enabled_checkbox",
+                    "long_term_memory_embedding_enabled_checkbox",
                     "sensory_pingpong_checkbox",
                     "sensory_allow_hidden_proactive_checkbox",
                     "sensory_allow_hidden_visual_checkbox",
@@ -128,6 +129,7 @@ class RealUiSyncFrontendMixin:
                     "proactive_delay_spin",
                     "long_term_memory_max_chars_spin",
                     "long_term_memory_retrieval_max_items_spin",
+                    "long_term_memory_embedding_context_length_spin",
                     "sensory_feedback_interval_spin",
                     "sensory_pingpong_history_spin",
                     "dry_run_target_spin",
@@ -216,6 +218,7 @@ class RealUiSyncFrontendMixin:
                 "long_term_memory_update_on_save_checkbox",
                 "long_term_memory_inject_checkbox",
                 "long_term_memory_retrieval_enabled_checkbox",
+                "long_term_memory_embedding_enabled_checkbox",
                 "sensory_pingpong_checkbox",
                 "sensory_allow_hidden_proactive_checkbox",
                 "sensory_allow_hidden_visual_checkbox",
@@ -236,6 +239,7 @@ class RealUiSyncFrontendMixin:
                 "proactive_delay_spin",
                 "long_term_memory_max_chars_spin",
                 "long_term_memory_retrieval_max_items_spin",
+                "long_term_memory_embedding_context_length_spin",
                 "sensory_feedback_interval_spin",
                 "sensory_pingpong_history_spin",
                 "dry_run_target_spin",
@@ -244,7 +248,13 @@ class RealUiSyncFrontendMixin:
             )
 
     def _line_edit_sync_names(self):
-            return tuple(sorted(self._addon_sync_widget_names("line_edit")))
+            return tuple(
+                list((
+                "long_term_memory_embedding_model_edit",
+                "long_term_memory_embedding_base_url_edit",
+                ))
+                + sorted(self._addon_sync_widget_names("line_edit"))
+            )
 
     def _sync_frontend_to_backend(self):
             for object_name in self._combo_sync_names():

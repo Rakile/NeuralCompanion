@@ -113,6 +113,10 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("continuity_memory_max_chars", max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000)
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
+        _update_runtime_config("long_term_memory_embedding_enabled", bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False)
+        _update_runtime_config("long_term_memory_embedding_model", str(self.long_term_memory_embedding_model_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_model_edit") else str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"))
+        _update_runtime_config("long_term_memory_embedding_context_length", max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192))
+        _update_runtime_config("long_term_memory_embedding_base_url", str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"))
         self._update_tts_backend_runtime_config_from_widgets(tts_backend, runtime_config)
         _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
@@ -145,6 +149,10 @@ class BackendEngineLifecycleMixin:
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
             "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
+            "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False,
+            "long_term_memory_embedding_model": str(self.long_term_memory_embedding_model_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_model_edit") else str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
+            "long_term_memory_embedding_context_length": max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192),
+            "long_term_memory_embedding_base_url": str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
             "avatar_mode": mode,
             "input_mode": input_mode,
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),

@@ -155,7 +155,7 @@ class MainUiRealSurfacesMixin:
             parent_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
 
             def _ensure_archive_box():
-                if self._ui_object("btn_extract_long_term_memory_archive") is not None:
+                if self._ui_object("long_term_memory_archive_group") is not None:
                     return
                 if parent_widget is None or parent_layout is None or not hasattr(parent_layout, "insertWidget"):
                     return
@@ -170,6 +170,13 @@ class MainUiRealSurfacesMixin:
                         return int(widget.value()) if widget is not None and hasattr(widget, "value") else int(default)
                     except Exception:
                         return int(default)
+
+                def _backend_archive_text(name, default=""):
+                    widget = getattr(self.backend, name, None)
+                    try:
+                        return str(widget.text() or "") if widget is not None and hasattr(widget, "text") else str(default)
+                    except Exception:
+                        return str(default)
 
                 archive_box = QtWidgets.QGroupBox("Long-Term Memory Archive", parent_widget)
                 archive_box.setObjectName("long_term_memory_archive_group")
@@ -201,17 +208,35 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
                 retrieval_form.addRow("Max recall items", retrieval_max_items)
+                embedding_model = QtWidgets.QLineEdit(_backend_archive_text("long_term_memory_embedding_model_edit", "text-embedding-bge-m3"), archive_box)
+                embedding_model.setObjectName("long_term_memory_embedding_model_edit")
+                embedding_model.setMinimumWidth(220)
+                embedding_context = QtWidgets.QSpinBox(archive_box)
+                embedding_context.setObjectName("long_term_memory_embedding_context_length_spin")
+                embedding_context.setRange(512, 262144)
+                embedding_context.setSingleStep(512)
+                embedding_context.setValue(max(512, min(262144, _backend_archive_value("long_term_memory_embedding_context_length_spin", 8192))))
+                embedding_context.setMinimumWidth(112)
+                embedding_context.setMaximumWidth(132)
+                embedding_base_url = QtWidgets.QLineEdit(_backend_archive_text("long_term_memory_embedding_base_url_edit", "http://127.0.0.1:1234/v1"), archive_box)
+                embedding_base_url.setObjectName("long_term_memory_embedding_base_url_edit")
+                embedding_base_url.setMinimumWidth(220)
+                retrieval_form.addRow("Embedding model", embedding_model)
+                retrieval_form.addRow("Embedding context", embedding_context)
+                retrieval_form.addRow("Embedding base URL", embedding_base_url)
                 archive_layout.addLayout(retrieval_form)
+
+                embedding_enabled = QtWidgets.QCheckBox("Use LM Studio embeddings for semantic retrieval", archive_box)
+                embedding_enabled.setObjectName("long_term_memory_embedding_enabled_checkbox")
+                embedding_enabled.setChecked(_backend_archive_checked("long_term_memory_embedding_enabled_checkbox", False))
+                archive_layout.addWidget(embedding_enabled)
 
                 archive_button_row = QtWidgets.QHBoxLayout()
                 archive_button_row.setSpacing(8)
-                extract = QtWidgets.QPushButton("Extract Recent...", archive_box)
-                extract.setObjectName("btn_extract_long_term_memory_archive")
                 search_archive = QtWidgets.QPushButton("Search Archive...", archive_box)
                 search_archive.setObjectName("btn_search_long_term_memory_archive")
                 review_archive = QtWidgets.QPushButton("Review Archive", archive_box)
                 review_archive.setObjectName("btn_review_long_term_memory_archive")
-                archive_button_row.addWidget(extract)
                 archive_button_row.addWidget(search_archive)
                 archive_button_row.addWidget(review_archive)
                 archive_button_row.addStretch(1)
@@ -348,11 +373,14 @@ class MainUiRealSurfacesMixin:
                 "btn_review_long_term_memory": self._ui_object("btn_review_long_term_memory"),
                 "btn_batch_update_long_term_memory": self._ui_object("btn_batch_update_long_term_memory"),
                 "btn_forget_long_term_memory": self._ui_object("btn_forget_long_term_memory"),
-                "btn_extract_long_term_memory_archive": self._ui_object("btn_extract_long_term_memory_archive"),
                 "btn_search_long_term_memory_archive": self._ui_object("btn_search_long_term_memory_archive"),
                 "btn_review_long_term_memory_archive": self._ui_object("btn_review_long_term_memory_archive"),
                 "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
+                "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
+                "long_term_memory_embedding_model_edit": self._ui_object("long_term_memory_embedding_model_edit"),
+                "long_term_memory_embedding_context_length_spin": self._ui_object("long_term_memory_embedding_context_length_spin"),
+                "long_term_memory_embedding_base_url_edit": self._ui_object("long_term_memory_embedding_base_url_edit"),
                 "long_term_memory_archive_hint": self._ui_object("long_term_memory_archive_hint"),
                 "btn_save_chat_session": self._ui_object("btn_save_chat_session"),
                 "btn_save_chat_session_as": self._ui_object("btn_save_chat_session_as"),
@@ -401,6 +429,17 @@ class MainUiRealSurfacesMixin:
                 finally:
                     del blocker
 
+            def _copy_text(source, target):
+                if source is None or target is None or not hasattr(source, "text") or not hasattr(target, "setText"):
+                    return
+                blocker = QtCore.QSignalBlocker(target)
+                try:
+                    target.setText(str(source.text() or ""))
+                except Exception:
+                    pass
+                finally:
+                    del blocker
+
             # Preserve values restored into the hidden backend before replacing
             # backend widget references with the live Designer controls.
             _copy_checked(backend_widgets.get("allow_proactive_checkbox"), frontend_widgets.get("allow_proactive_checkbox"))
@@ -416,6 +455,10 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_retrieval_enabled_checkbox"), frontend_widgets.get("long_term_memory_retrieval_enabled_checkbox"))
             _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
+            _copy_checked(backend_widgets.get("long_term_memory_embedding_enabled_checkbox"), frontend_widgets.get("long_term_memory_embedding_enabled_checkbox"))
+            _copy_text(backend_widgets.get("long_term_memory_embedding_model_edit"), frontend_widgets.get("long_term_memory_embedding_model_edit"))
+            _copy_value(backend_widgets.get("long_term_memory_embedding_context_length_spin"), frontend_widgets.get("long_term_memory_embedding_context_length_spin"))
+            _copy_text(backend_widgets.get("long_term_memory_embedding_base_url_edit"), frontend_widgets.get("long_term_memory_embedding_base_url_edit"))
 
             redirected = False
             for attribute_name, widget in frontend_widgets.items():

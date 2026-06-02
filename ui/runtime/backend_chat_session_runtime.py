@@ -83,7 +83,6 @@ class BackendChatSessionRuntimeMixin:
 
     def _long_term_memory_archive_locked_widgets(self):
         names = (
-            "btn_extract_long_term_memory_archive",
             "btn_search_long_term_memory_archive",
             "btn_review_long_term_memory_archive",
         )
@@ -273,14 +272,27 @@ class BackendChatSessionRuntimeMixin:
             deleted_records = engine.list_long_term_memory_records(status="deleted", include_deleted=True, limit=1000)
             active_chunks = engine.list_long_term_memory_chunks(limit=1000)
             deleted_chunks = engine.list_long_term_memory_chunks(status="deleted", include_deleted=True, limit=1000)
+            embedding_status = engine.long_term_memory_embedding_status()
             path = str((store or {}).get("path", "") or "")
         except Exception as exc:
             self.long_term_memory_archive_hint.setText(f"Long-Term Memory archive is unavailable: {exc}")
             return
+        embedding_text = "Embeddings off."
+        if bool((embedding_status or {}).get("enabled", False)):
+            warning = str((embedding_status or {}).get("warning", "") or "").strip()
+            embedding_text = (
+                f"Embeddings: {int((embedding_status or {}).get('model_embeddings', 0) or 0)} indexed for "
+                f"{str((embedding_status or {}).get('model', '') or 'selected model')} "
+                f"at context {int((embedding_status or {}).get('context_length', 0) or 0)}; "
+                f"{int((embedding_status or {}).get('missing_for_model', 0) or 0)} missing."
+            )
+            if warning:
+                embedding_text += f"\nEmbedding warning: {warning}"
         self.long_term_memory_archive_hint.setText(
             "Long-Term Memory archive: "
             f"{len(active_records)} active record(s), {len(active_chunks)} raw chunk(s). "
             f"Deleted: {len(deleted_records)} record(s), {len(deleted_chunks)} chunk(s).\n"
+            f"{embedding_text}\n"
             f"Storage: {path}"
         )
 
@@ -368,6 +380,79 @@ class BackendChatSessionRuntimeMixin:
     def on_long_term_memory_retrieval_max_items_changed(self, value):
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(value))))
         self.save_session()
+
+    def on_long_term_memory_embedding_enabled_changed(self, checked):
+        _update_runtime_config("long_term_memory_embedding_enabled", bool(checked))
+        self._refresh_long_term_memory_archive_hint()
+        self.save_session()
+
+    def on_long_term_memory_embedding_model_changed(self):
+        text = ""
+        if hasattr(self, "long_term_memory_embedding_model_edit"):
+            text = str(self.long_term_memory_embedding_model_edit.text() or "").strip()
+        _update_runtime_config("long_term_memory_embedding_model", text or "text-embedding-bge-m3")
+        self._refresh_long_term_memory_archive_hint()
+        self.save_session()
+
+    def on_long_term_memory_embedding_context_length_changed(self, value):
+        _update_runtime_config("long_term_memory_embedding_context_length", max(512, min(262144, int(value))))
+        self._refresh_long_term_memory_archive_hint()
+        self.save_session()
+
+    def on_long_term_memory_embedding_base_url_changed(self):
+        text = ""
+        if hasattr(self, "long_term_memory_embedding_base_url_edit"):
+            text = str(self.long_term_memory_embedding_base_url_edit.text() or "").strip()
+        _update_runtime_config("long_term_memory_embedding_base_url", text or "http://127.0.0.1:1234/v1")
+        self._refresh_long_term_memory_archive_hint()
+        self.save_session()
+
+    def rebuild_long_term_memory_embeddings_now(self):
+        if bool(getattr(self, "_long_term_memory_embedding_rebuild_running", False)):
+            return
+        self.on_long_term_memory_embedding_model_changed()
+        if hasattr(self, "long_term_memory_embedding_context_length_spin"):
+            self.on_long_term_memory_embedding_context_length_changed(self.long_term_memory_embedding_context_length_spin.value())
+        self.on_long_term_memory_embedding_base_url_changed()
+        self._long_term_memory_embedding_rebuild_running = True
+        self._set_long_term_memory_archive_controls_locked(True)
+        if hasattr(self, "long_term_memory_archive_hint"):
+            self.long_term_memory_archive_hint.setText(f"{self.long_term_memory_archive_hint.text()}\nBuilding missing embeddings...")
+
+        bridge = _ContinuityMemoryWorkerBridge()
+        bridge.finished.connect(self._on_long_term_memory_embeddings_rebuild_finished)
+        self._long_term_memory_embedding_bridge = bridge
+
+        def worker():
+            result = None
+            error = None
+            try:
+                result = _engine().rebuild_long_term_memory_embeddings(limit=500)
+            except Exception as exc:
+                error = exc
+            bridge.finished.emit(result, error)
+
+        threading.Thread(target=worker, name="nc-long-term-memory-embeddings", daemon=True).start()
+
+    def _on_long_term_memory_embeddings_rebuild_finished(self, result, error):
+        self._long_term_memory_embedding_rebuild_running = False
+        self._set_long_term_memory_archive_controls_locked(False)
+        self._long_term_memory_embedding_bridge = None
+        self._refresh_long_term_memory_archive_hint()
+        if error is not None:
+            QtWidgets.QMessageBox.warning(self, "Long-Term Memory Embeddings", f"Could not build embeddings:\n{error}")
+            return
+        result = result or {}
+        QtWidgets.QMessageBox.information(
+            self,
+            "Long-Term Memory Embeddings",
+            (
+                "Embedding build complete.\n\n"
+                f"Selected items: {int(result.get('selected', 0) or 0)}\n"
+                f"Embedded: {int(result.get('embedded', 0) or 0)}\n"
+                f"Failed: {int(result.get('failed', 0) or 0)}"
+            ),
+        )
 
     def update_continuity_memory_now(self):
         try:

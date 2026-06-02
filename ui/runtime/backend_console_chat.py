@@ -564,8 +564,10 @@ class BackendConsoleChatMixin:
 
     def _prepare_loaded_chat_context_payload(self, payload, path):
         data = dict(payload or {})
-        if not str(data.get("continuity_memory_id") or "").strip():
-            data["continuity_memory_id"] = Path(path).stem
+        file_stem = Path(path).stem
+        stored_memory_id = str(data.get("continuity_memory_id") or "").strip()
+        if not stored_memory_id or stored_memory_id == "chat_context_quick_save":
+            data["continuity_memory_id"] = file_stem
         return data
 
     def _maybe_update_continuity_memory_on_save(self):
@@ -576,15 +578,32 @@ class BackendConsoleChatMixin:
     def _maybe_update_long_term_memory_on_save(self):
         self._maybe_update_continuity_memory_on_save()
 
-    def _write_chat_context_to_path(self, target, *, label="Chat context"):
+    def _write_chat_context_to_path(self, target, *, label="Chat context", reset_memory_identity=False):
         target = Path(target)
         if target.suffix.lower() != ".json":
             target = target.with_suffix(".json")
+        if reset_memory_identity:
+            setter = getattr(_engine(), "set_continuity_memory_id", None)
+            if callable(setter):
+                try:
+                    setter(target.stem)
+                except Exception as exc:
+                    print(f"[QtGUI] Chat context memory identity reset failed: {exc}")
         self._remember_chat_context_path(target)
         payload = _engine().export_chat_session_state()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         self._maybe_update_continuity_memory_on_save()
+        sync_archive = getattr(_engine(), "sync_long_term_memory_archive_from_current_chat", None)
+        if callable(sync_archive):
+            try:
+                result = sync_archive()
+                if result and result.get("enabled"):
+                    refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+                    if callable(refresh_archive):
+                        refresh_archive()
+            except Exception as exc:
+                print(f"[QtGUI] Long-Term Memory archive sync on save failed: {exc}")
         print(f"[QtGUI] {label} saved: {target}")
 
     def save_chat_context(self):
@@ -606,7 +625,7 @@ class BackendConsoleChatMixin:
         )
         if not path:
             return
-        self._write_chat_context_to_path(path)
+        self._write_chat_context_to_path(path, reset_memory_identity=True)
 
     def quick_save_chat_context(self):
         target = self._quick_chat_context_path()
@@ -630,6 +649,9 @@ class BackendConsoleChatMixin:
         refresh = getattr(self, "_refresh_continuity_memory_hint", None)
         if callable(refresh):
             refresh()
+        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+        if callable(refresh_archive):
+            refresh_archive()
         print(f"[QtGUI] Chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")
 
     def quick_load_chat_context(self):
@@ -647,4 +669,7 @@ class BackendConsoleChatMixin:
         refresh = getattr(self, "_refresh_continuity_memory_hint", None)
         if callable(refresh):
             refresh()
+        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+        if callable(refresh_archive):
+            refresh_archive()
         print(f"[QtGUI] Quick chat context loaded: {path} ({int(result.get('conversation_turns', 0))} turn(s))")

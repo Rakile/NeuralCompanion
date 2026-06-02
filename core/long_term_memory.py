@@ -19,12 +19,16 @@ from typing import Any
 from core import runtime_paths
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 MEMORY_DIR = runtime_paths.RUNTIME_DIR / "long_term_memory"
 DEFAULT_DB_PATH = MEMORY_DIR / "memory.sqlite3"
+_ACTIVE_DB_PATH = DEFAULT_DB_PATH
 DEFAULT_LIMIT = 100
 DEFAULT_EXTRACTION_TURNS = 120
 DEFAULT_EXTRACTION_MAX_RECORDS = 12
+DEFAULT_EMBEDDING_CONTEXT_TOKENS = 8192
+EMBEDDING_CHARS_PER_TOKEN = 3
+EMBEDDING_SLICE_OVERLAP_CHARS = 600
 VALID_STATUSES = {"active", "archived", "superseded", "deleted"}
 VALID_MEMORY_TYPES = {
     "preference",
@@ -116,8 +120,23 @@ def _json_text(value: Any) -> str:
         return json.dumps([str(value)], ensure_ascii=True)
 
 
+def db_path_for_memory_id(memory_id: Any = "") -> Path:
+    normalized = normalize_memory_id(memory_id, fallback="default")
+    return MEMORY_DIR / f"{normalized}.sqlite3"
+
+
+def set_default_db_path(path: Any = None) -> Path:
+    global _ACTIVE_DB_PATH
+    _ACTIVE_DB_PATH = Path(path) if path else DEFAULT_DB_PATH
+    return _ACTIVE_DB_PATH
+
+
+def default_db_path() -> Path:
+    return _ACTIVE_DB_PATH
+
+
 def _db_path(path: Any = None) -> Path:
-    return Path(path) if path else DEFAULT_DB_PATH
+    return Path(path) if path else _ACTIVE_DB_PATH
 
 
 def _connect(path: Any = None) -> sqlite3.Connection:
@@ -177,6 +196,21 @@ def init_store(path: Any = None) -> Path:
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS long_term_memory_embeddings (
+                id TEXT PRIMARY KEY,
+                target_kind TEXT NOT NULL,
+                target_id TEXT NOT NULL,
+                model TEXT NOT NULL,
+                text_hash TEXT NOT NULL,
+                dimension INTEGER NOT NULL,
+                vector_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+            """
+        )
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_status ON long_term_memory(status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_type ON long_term_memory(type)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_source_chat ON long_term_memory(source_chat_id)")
@@ -184,6 +218,9 @@ def init_store(path: Any = None) -> Path:
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_chunks_status ON long_term_memory_chunks(status)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_chunks_source_chat ON long_term_memory_chunks(source_chat_id)")
         connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_chunks_updated_at ON long_term_memory_chunks(updated_at)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_embeddings_target ON long_term_memory_embeddings(target_kind, target_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_ltm_embeddings_model ON long_term_memory_embeddings(model)")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_ltm_embeddings_unique ON long_term_memory_embeddings(target_kind, target_id, model)")
         connection.execute(
             "INSERT OR REPLACE INTO memory_meta(key, value) VALUES (?, ?)",
             ("schema_version", str(SCHEMA_VERSION)),
@@ -228,6 +265,282 @@ def _row_to_chunk(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "created_at": str(row["created_at"] or ""),
         "updated_at": str(row["updated_at"] or ""),
         "status": str(row["status"] or ""),
+    }
+
+
+def _loads_vector(value: Any) -> list[float]:
+    try:
+        parsed = json.loads(str(value or "[]"))
+    except Exception:
+        parsed = []
+    if not isinstance(parsed, list):
+        return []
+    vector: list[float] = []
+    for item in parsed:
+        try:
+            vector.append(float(item))
+        except Exception:
+            return []
+    return vector
+
+
+def _embedding_id(target_kind: Any, target_id: Any, model: Any) -> str:
+    kind = normalize_memory_id(target_kind, fallback="item")
+    target = normalize_memory_id(target_id, fallback="unknown")
+    model_key = normalize_memory_id(model, fallback="embedding_model")
+    digest = hashlib.sha1(f"{kind}:{target}:{model_key}".encode("utf-8", errors="replace")).hexdigest()[:16]
+    return normalize_memory_id(f"emb_{digest}", fallback=f"emb_{digest}")
+
+
+def embedding_context_length(value: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS) -> int:
+    try:
+        parsed = int(value)
+    except Exception:
+        parsed = DEFAULT_EMBEDDING_CONTEXT_TOKENS
+    return max(512, min(262144, parsed))
+
+
+def embedding_model_key(model: Any, context_length: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS) -> str:
+    model_name = str(model or "").strip()
+    if not model_name:
+        return ""
+    return f"{model_name}||ctx={embedding_context_length(context_length)}"
+
+
+def embedding_context_length_from_model_key(model: Any) -> int:
+    match = re.search(r"\|\|ctx=(\d+)\s*$", str(model or ""))
+    return embedding_context_length(match.group(1)) if match else DEFAULT_EMBEDDING_CONTEXT_TOKENS
+
+
+def embedding_model_name_from_key(model: Any) -> str:
+    return str(model or "").split("||ctx=", 1)[0].strip()
+
+
+def embedding_slice_char_limit(context_length: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS) -> int:
+    return max(1200, embedding_context_length(context_length) * EMBEDDING_CHARS_PER_TOKEN)
+
+
+def split_embedding_text(text: Any, *, context_length: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS) -> list[str]:
+    normalized = re.sub(r"\s+", " ", str(text or "")).strip()
+    if not normalized:
+        return []
+    limit = embedding_slice_char_limit(context_length)
+    if len(normalized) <= limit:
+        return [normalized]
+    overlap = min(EMBEDDING_SLICE_OVERLAP_CHARS, max(0, limit // 8))
+    chunks: list[str] = []
+    start = 0
+    text_len = len(normalized)
+    while start < text_len:
+        hard_end = min(text_len, start + limit)
+        end = hard_end
+        if hard_end < text_len:
+            boundary = max(
+                normalized.rfind(". ", start, hard_end),
+                normalized.rfind("? ", start, hard_end),
+                normalized.rfind("! ", start, hard_end),
+                normalized.rfind("; ", start, hard_end),
+                normalized.rfind(", ", start, hard_end),
+            )
+            if boundary > start + max(200, limit // 2):
+                end = boundary + 1
+        chunk = normalized[start:end].strip()
+        if chunk:
+            chunks.append(chunk)
+        if end >= text_len:
+            break
+        start = max(end - overlap, start + 1)
+    return chunks
+
+
+def chunk_parent_id_from_embedding_target(target_kind: Any, target_id: Any) -> str:
+    kind = normalize_memory_id(target_kind)
+    target = normalize_memory_id(target_id)
+    if kind == "chunk":
+        return target
+    if kind != "chunk_slice":
+        return ""
+    match = re.match(r"^(?P<chunk_id>.+)_s\d{4}$", target)
+    return str(match.group("chunk_id") or "") if match else ""
+
+
+def _normalize_vector(vector: Any) -> list[float]:
+    if not isinstance(vector, (list, tuple)):
+        return []
+    normalized: list[float] = []
+    for value in vector:
+        try:
+            normalized.append(float(value))
+        except Exception:
+            return []
+    return normalized
+
+
+def embedding_text_for_record(record: dict[str, Any]) -> str:
+    tags = ", ".join(normalize_tags((record or {}).get("tags")))
+    parts = [
+        str((record or {}).get("title", "") or "").strip(),
+        str((record or {}).get("summary", "") or "").strip(),
+        str((record or {}).get("content", "") or "").strip(),
+    ]
+    if tags:
+        parts.append(f"Tags: {tags}")
+    return "\n".join(part for part in parts if part).strip()
+
+
+def embedding_text_for_chunk(chunk: dict[str, Any]) -> str:
+    return str((chunk or {}).get("text", "") or "").strip()
+
+
+def embedding_targets_for_chunk(
+    chunk: dict[str, Any],
+    *,
+    context_length: Any = DEFAULT_EMBEDDING_CONTEXT_TOKENS,
+) -> list[dict[str, Any]]:
+    chunk_id = str((chunk or {}).get("id", "") or "").strip()
+    if not chunk_id:
+        return []
+    slices = split_embedding_text(embedding_text_for_chunk(chunk), context_length=context_length)
+    if not slices:
+        return []
+    if len(slices) == 1:
+        return [{"kind": "chunk", "id": chunk_id, "text": slices[0], "text_hash": text_hash(slices[0])}]
+    targets: list[dict[str, Any]] = []
+    for index, text in enumerate(slices, start=1):
+        target_id = normalize_memory_id(f"{chunk_id}_s{index:04d}")
+        targets.append({"kind": "chunk_slice", "id": target_id, "text": text, "text_hash": text_hash(text)})
+    return targets
+
+
+def _cosine_similarity(left: list[float], right: list[float]) -> float:
+    if not left or not right or len(left) != len(right):
+        return 0.0
+    dot = 0.0
+    left_norm = 0.0
+    right_norm = 0.0
+    for a, b in zip(left, right):
+        dot += a * b
+        left_norm += a * a
+        right_norm += b * b
+    if left_norm <= 0.0 or right_norm <= 0.0:
+        return 0.0
+    return dot / ((left_norm ** 0.5) * (right_norm ** 0.5))
+
+
+def upsert_embedding(
+    *,
+    target_kind: Any,
+    target_id: Any,
+    model: Any,
+    text: Any,
+    vector: Any,
+    path: Any = None,
+) -> dict[str, Any] | None:
+    normalized_kind = normalize_memory_id(target_kind)
+    normalized_target = normalize_memory_id(target_id)
+    normalized_model = str(model or "").strip()
+    normalized_vector = _normalize_vector(vector)
+    if normalized_kind not in {"record", "chunk", "chunk_slice"} or not normalized_target or not normalized_model or not normalized_vector:
+        return None
+    now = _now_iso()
+    embedding_id = _embedding_id(normalized_kind, normalized_target, normalized_model)
+    payload = json.dumps(normalized_vector, ensure_ascii=True, separators=(",", ":"))
+    content_hash = text_hash(text)
+    init_store(path)
+    with _connect(path) as connection:
+        connection.execute(
+            """
+            INSERT INTO long_term_memory_embeddings(
+                id, target_kind, target_id, model, text_hash, dimension, vector_json, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(target_kind, target_id, model) DO UPDATE SET
+                text_hash=excluded.text_hash,
+                dimension=excluded.dimension,
+                vector_json=excluded.vector_json,
+                updated_at=excluded.updated_at
+            """,
+            (
+                embedding_id,
+                normalized_kind,
+                normalized_target,
+                normalized_model,
+                content_hash,
+                len(normalized_vector),
+                payload,
+                now,
+                now,
+            ),
+        )
+        connection.commit()
+    return {
+        "id": embedding_id,
+        "target_kind": normalized_kind,
+        "target_id": normalized_target,
+        "model": normalized_model,
+        "text_hash": content_hash,
+        "dimension": len(normalized_vector),
+        "updated_at": now,
+    }
+
+
+def list_embedding_targets(
+    *,
+    model: Any = "",
+    context_length: Any = None,
+    include_chunks: bool = True,
+    include_records: bool = True,
+    only_missing: bool = True,
+    limit: Any = DEFAULT_LIMIT,
+    path: Any = None,
+) -> list[dict[str, Any]]:
+    init_store(path)
+    normalized_model = str(model or "").strip()
+    if not normalized_model:
+        return []
+    resolved_context = embedding_context_length(
+        context_length if context_length is not None else embedding_context_length_from_model_key(normalized_model)
+    )
+    targets: list[dict[str, Any]] = []
+    if include_records:
+        for record in list_memories(limit=DEFAULT_LIMIT * 100, path=path):
+            text = embedding_text_for_record(record)
+            if not text:
+                continue
+            targets.append({"kind": "record", "id": record.get("id", ""), "text": text, "text_hash": text_hash(text)})
+    if include_chunks:
+        for chunk in list_archived_chunks(limit=DEFAULT_LIMIT * 100, path=path):
+            targets.extend(embedding_targets_for_chunk(chunk, context_length=resolved_context))
+    if only_missing and targets:
+        with _connect(path) as connection:
+            rows = connection.execute(
+                "SELECT target_kind, target_id, text_hash FROM long_term_memory_embeddings WHERE model = ?",
+                (normalized_model,),
+            ).fetchall()
+        embedded = {(str(row["target_kind"]), str(row["target_id"])): str(row["text_hash"] or "") for row in rows}
+        targets = [
+            target for target in targets
+            if embedded.get((str(target["kind"]), str(target["id"]))) != str(target["text_hash"])
+        ]
+    return targets[: _limit(limit)]
+
+
+def embedding_status(*, model: Any = "", path: Any = None) -> dict[str, Any]:
+    init_store(path)
+    normalized_model = str(model or "").strip()
+    with _connect(path) as connection:
+        total = connection.execute("SELECT COUNT(*) AS c FROM long_term_memory_embeddings").fetchone()["c"]
+        model_total = 0
+        if normalized_model:
+            model_total = connection.execute(
+                "SELECT COUNT(*) AS c FROM long_term_memory_embeddings WHERE model = ?",
+                (normalized_model,),
+            ).fetchone()["c"]
+    return {
+        "total_embeddings": int(total or 0),
+        "model_embeddings": int(model_total or 0),
+        "missing_for_model": len(list_embedding_targets(model=normalized_model, only_missing=True, limit=100000, path=path)) if normalized_model else 0,
+        "model": normalized_model,
     }
 
 
@@ -295,6 +608,10 @@ def compact_text(value: Any, limit: int = 900) -> str:
     return text[: max(0, limit - 3)].rstrip() + "..."
 
 
+def text_hash(value: Any) -> str:
+    return hashlib.sha1(str(value or "").encode("utf-8", errors="replace")).hexdigest()
+
+
 _SEARCH_STOPWORDS = {
     "about",
     "after",
@@ -350,6 +667,58 @@ def _append_text_search_clause(clauses: list[str], values: list[Any], fields: li
             values.append(term_like)
     if parts:
         clauses.append("(" + " OR ".join(parts) + ")")
+
+
+def _keyword_field_score(query: Any, weighted_fields: list[tuple[Any, float]]) -> float:
+    phrase = str(query or "").strip().lower()
+    terms = _search_terms(phrase, limit=12)
+    if not phrase and not terms:
+        return 0.0
+    score = 0.0
+    for value, weight in weighted_fields:
+        text = str(value or "").lower()
+        if not text:
+            continue
+        if phrase and phrase in text:
+            score += 8.0 * float(weight)
+        for term in terms:
+            if term in text:
+                score += float(weight)
+                score += min(3, text.count(term)) * 0.1 * float(weight)
+    return score
+
+
+def _record_keyword_score(query: Any, record: dict[str, Any]) -> float:
+    return _keyword_field_score(
+        query,
+        [
+            (record.get("title", ""), 4.0),
+            (record.get("summary", ""), 3.0),
+            (record.get("content", ""), 1.5),
+            (" ".join(list(record.get("tags") or [])), 2.5),
+        ],
+    )
+
+
+def _chunk_keyword_score(query: Any, chunk: dict[str, Any]) -> float:
+    return _keyword_field_score(
+        query,
+        [
+            (chunk.get("text", ""), 1.0),
+            (" ".join(list(chunk.get("tags") or [])), 1.5),
+        ],
+    )
+
+
+def _candidate_limit(limit: Any) -> int:
+    return max(_limit(limit), min(DEFAULT_LIMIT, _limit(limit) * 8))
+
+
+def _semantic_rank_score(entry: dict[str, Any]) -> float:
+    score = float((entry or {}).get("score", 0.0) or 0.0)
+    if str((entry or {}).get("kind", "") or "") == "record":
+        score += 0.06
+    return score
 
 
 def sanitize_history_turns(history: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -739,10 +1108,20 @@ def search_memories(
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY importance DESC, updated_at DESC LIMIT ? OFFSET ?"
-    values.extend([_limit(limit), _offset(offset)])
+    values.extend([_candidate_limit(limit) if text else _limit(limit), _offset(offset)])
     with _connect(path) as connection:
         rows = connection.execute(sql, values).fetchall()
-    return [record for record in (_row_to_record(row) for row in rows) if record]
+    records = [record for record in (_row_to_record(row) for row in rows) if record]
+    if text:
+        records.sort(
+            key=lambda record: (
+                _record_keyword_score(text, record),
+                float(record.get("importance", 0.0) or 0.0),
+                str(record.get("updated_at", "") or ""),
+            ),
+            reverse=True,
+        )
+    return records[: _limit(limit)]
 
 
 def get_archived_chunk(chunk_id: Any, path: Any = None) -> dict[str, Any] | None:
@@ -808,10 +1187,19 @@ def search_archived_chunks(
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
     sql += " ORDER BY updated_at DESC LIMIT ? OFFSET ?"
-    values.extend([_limit(limit), _offset(offset)])
+    values.extend([_candidate_limit(limit) if text else _limit(limit), _offset(offset)])
     with _connect(path) as connection:
         rows = connection.execute(sql, values).fetchall()
-    return [chunk for chunk in (_row_to_chunk(row) for row in rows) if chunk]
+    chunks = [chunk for chunk in (_row_to_chunk(row) for row in rows) if chunk]
+    if text:
+        chunks.sort(
+            key=lambda chunk: (
+                _chunk_keyword_score(text, chunk),
+                str(chunk.get("updated_at", "") or ""),
+            ),
+            reverse=True,
+        )
+    return chunks[: _limit(limit)]
 
 
 def delete_archived_chunk(chunk_id: Any, *, hard: bool = False, path: Any = None) -> bool:
@@ -834,14 +1222,81 @@ def delete_archived_chunk(chunk_id: Any, *, hard: bool = False, path: Any = None
         return cursor.rowcount > 0
 
 
+def semantic_search(
+    query_vector: Any,
+    *,
+    model: Any,
+    limit: Any = DEFAULT_LIMIT,
+    min_score: Any = 0.2,
+    source_chat_id: Any = "",
+    path: Any = None,
+) -> list[dict[str, Any]]:
+    vector = _normalize_vector(query_vector)
+    normalized_model = str(model or "").strip()
+    if not vector or not normalized_model:
+        return []
+    normalized_source = normalize_memory_id(source_chat_id)
+    threshold = _clamped_float(min_score, -1.0, 1.0, 0.2)
+    init_store(path)
+    with _connect(path) as connection:
+        rows = connection.execute(
+            "SELECT target_kind, target_id, vector_json FROM long_term_memory_embeddings WHERE model = ?",
+            (normalized_model,),
+        ).fetchall()
+    scored: list[dict[str, Any]] = []
+    for row in rows:
+        target_kind = str(row["target_kind"] or "")
+        target_id = str(row["target_id"] or "")
+        score = _cosine_similarity(vector, _loads_vector(row["vector_json"]))
+        if score < threshold:
+            continue
+        item: dict[str, Any] | None = None
+        if target_kind == "record":
+            item = get_memory(target_id, path=path)
+            if item is not None and str(item.get("status", "") or "") != "active":
+                item = None
+        elif target_kind in {"chunk", "chunk_slice"}:
+            parent_id = chunk_parent_id_from_embedding_target(target_kind, target_id)
+            item = get_archived_chunk(parent_id, path=path) if parent_id else None
+            if item is not None and str(item.get("status", "") or "") != "active":
+                item = None
+            target_kind = "chunk"
+        if item is None:
+            continue
+        if normalized_source and normalize_memory_id(item.get("source_chat_id")) != normalized_source:
+            continue
+        scored.append({"kind": target_kind, "score": score, "item": item})
+    deduped: dict[tuple[str, str], dict[str, Any]] = {}
+    for entry in scored:
+        item = dict(entry.get("item") or {})
+        key = (str(entry.get("kind") or ""), str(item.get("id", "") or ""))
+        existing = deduped.get(key)
+        if existing is None or float(entry.get("score", 0.0) or 0.0) > float(existing.get("score", 0.0) or 0.0):
+            deduped[key] = entry
+    scored = list(deduped.values())
+    scored.sort(key=lambda entry: (_semantic_rank_score(entry), float(entry.get("score", 0.0) or 0.0)), reverse=True)
+    return scored[: _limit(limit)]
+
+
 def retrieve_memories(
     query: Any,
     *,
     record_limit: Any = 6,
     chunk_limit: Any = 4,
     source_chat_id: Any = "",
+    query_vector: Any = None,
+    embedding_model: Any = "",
+    semantic_min_score: Any = 0.2,
     path: Any = None,
 ) -> list[dict[str, Any]]:
+    semantic = semantic_search(
+        query_vector,
+        model=embedding_model,
+        limit=max(_limit(record_limit), _limit(chunk_limit), _limit(record_limit) + _limit(chunk_limit)),
+        min_score=semantic_min_score,
+        source_chat_id=source_chat_id,
+        path=path,
+    )
     records = search_memories(
         query,
         source_chat_id=source_chat_id,
@@ -855,8 +1310,9 @@ def retrieve_memories(
         path=path,
     )
     results: list[dict[str, Any]] = []
-    for record in records:
-        results.append({
+
+    def _append_record(record: dict[str, Any], *, semantic_score: float | None = None):
+        payload = {
             "kind": "record",
             "id": record.get("id", ""),
             "title": record.get("title", ""),
@@ -870,9 +1326,13 @@ def retrieve_memories(
             "importance": float(record.get("importance", 0.0) or 0.0),
             "confidence": float(record.get("confidence", 0.0) or 0.0),
             "snippet": compact_text(record.get("summary") or record.get("content"), 520),
-        })
-    for chunk in chunks:
-        results.append({
+        }
+        if semantic_score is not None:
+            payload["semantic_score"] = float(semantic_score)
+        results.append(payload)
+
+    def _append_chunk(chunk: dict[str, Any], *, semantic_score: float | None = None):
+        payload = {
             "kind": "chunk",
             "id": chunk.get("id", ""),
             "title": "Raw chat chunk",
@@ -886,7 +1346,36 @@ def retrieve_memories(
             "importance": 0.25,
             "confidence": 1.0,
             "snippet": compact_text(chunk.get("text", ""), 720),
-        })
+        }
+        if semantic_score is not None:
+            payload["semantic_score"] = float(semantic_score)
+        results.append(payload)
+
+    seen: set[tuple[str, str]] = set()
+    for entry in semantic:
+        kind = str(entry.get("kind") or "")
+        item = dict(entry.get("item") or {})
+        target_id = str(item.get("id", "") or "")
+        if not kind or not target_id:
+            continue
+        seen.add((kind, target_id))
+        if kind == "record":
+            _append_record(item, semantic_score=float(entry.get("score", 0.0) or 0.0))
+        elif kind == "chunk":
+            _append_chunk(item, semantic_score=float(entry.get("score", 0.0) or 0.0))
+
+    for record in records:
+        key = ("record", str(record.get("id", "") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        _append_record(record)
+    for chunk in chunks:
+        key = ("chunk", str(chunk.get("id", "") or ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        _append_chunk(chunk)
     return results
 
 
@@ -956,6 +1445,7 @@ def _offset(value: Any) -> int:
 
 
 __all__ = [
+    "DEFAULT_EMBEDDING_CONTEXT_TOKENS",
     "DEFAULT_EXTRACTION_MAX_RECORDS",
     "DEFAULT_EXTRACTION_TURNS",
     "DEFAULT_DB_PATH",
@@ -964,10 +1454,22 @@ __all__ = [
     "archive_history_chunk",
     "build_extraction_messages",
     "chunk_id_for_segment",
+    "chunk_parent_id_from_embedding_target",
     "compact_text",
     "create_memory",
+    "db_path_for_memory_id",
+    "default_db_path",
     "delete_archived_chunk",
     "delete_memory",
+    "embedding_context_length",
+    "embedding_context_length_from_model_key",
+    "embedding_model_key",
+    "embedding_model_name_from_key",
+    "embedding_slice_char_limit",
+    "embedding_status",
+    "embedding_targets_for_chunk",
+    "embedding_text_for_chunk",
+    "embedding_text_for_record",
     "format_history_segment",
     "get_archived_chunk",
     "get_memory",
@@ -986,7 +1488,10 @@ __all__ = [
     "search_archived_chunks",
     "search_memories",
     "select_history_turns",
+    "set_default_db_path",
     "set_memory_status",
+    "split_embedding_text",
     "update_memory",
+    "upsert_embedding",
     "upsert_memory",
 ]
