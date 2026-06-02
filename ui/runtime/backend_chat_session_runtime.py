@@ -81,6 +81,26 @@ class BackendChatSessionRuntimeMixin:
         if callable(refresh_save_controls):
             refresh_save_controls()
 
+    def _long_term_memory_archive_locked_widgets(self):
+        names = (
+            "btn_extract_long_term_memory_archive",
+            "btn_search_long_term_memory_archive",
+            "btn_review_long_term_memory_archive",
+        )
+        widgets = []
+        for name in names:
+            widget = getattr(self, name, None)
+            if widget is not None and hasattr(widget, "setEnabled") and widget not in widgets:
+                widgets.append(widget)
+        return widgets
+
+    def _set_long_term_memory_archive_controls_locked(self, locked):
+        for widget in self._long_term_memory_archive_locked_widgets():
+            try:
+                widget.setEnabled(not bool(locked))
+            except Exception:
+                pass
+
     def _chat_overflow_policy_value_from_label(self, label):
         text = str(label or "").strip().lower()
         if text == "truncate middle":
@@ -243,6 +263,27 @@ class BackendChatSessionRuntimeMixin:
     def _refresh_long_term_memory_hint(self):
         self._refresh_continuity_memory_hint()
 
+    def _refresh_long_term_memory_archive_hint(self):
+        if not hasattr(self, "long_term_memory_archive_hint"):
+            return
+        try:
+            engine = _engine()
+            store = engine.initialize_long_term_memory_store()
+            active_records = engine.list_long_term_memory_records(limit=1000)
+            deleted_records = engine.list_long_term_memory_records(status="deleted", include_deleted=True, limit=1000)
+            active_chunks = engine.list_long_term_memory_chunks(limit=1000)
+            deleted_chunks = engine.list_long_term_memory_chunks(status="deleted", include_deleted=True, limit=1000)
+            path = str((store or {}).get("path", "") or "")
+        except Exception as exc:
+            self.long_term_memory_archive_hint.setText(f"Long-Term Memory archive is unavailable: {exc}")
+            return
+        self.long_term_memory_archive_hint.setText(
+            "Long-Term Memory archive: "
+            f"{len(active_records)} active record(s), {len(active_chunks)} raw chunk(s). "
+            f"Deleted: {len(deleted_records)} record(s), {len(deleted_chunks)} chunk(s).\n"
+            f"Storage: {path}"
+        )
+
     def _continuity_memory_text(self):
         try:
             payload = _engine().continuity_memory_snapshot()
@@ -319,6 +360,14 @@ class BackendChatSessionRuntimeMixin:
 
     def on_long_term_memory_max_chars_changed(self, value):
         self.on_continuity_memory_max_chars_changed(value)
+
+    def on_long_term_memory_retrieval_enabled_changed(self, checked):
+        _update_runtime_config("long_term_memory_retrieval_enabled", bool(checked))
+        self.save_session()
+
+    def on_long_term_memory_retrieval_max_items_changed(self, value):
+        _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(value))))
+        self.save_session()
 
     def update_continuity_memory_now(self):
         try:
@@ -436,6 +485,164 @@ class BackendChatSessionRuntimeMixin:
 
     def forget_long_term_memory(self):
         self.forget_continuity_memory()
+
+    def extract_long_term_memory_archive_now(self):
+        if bool(getattr(self, "_long_term_memory_archive_extract_running", False)):
+            return
+        total_turns = len(list(getattr(_engine(), "conversation_history", []) or []))
+        if total_turns <= 0:
+            QtWidgets.QMessageBox.information(self, "Long-Term Memory Archive", "There are no chat messages to extract from.")
+            return
+        default_turns = min(120, total_turns)
+        requested_turns, accepted = QtWidgets.QInputDialog.getInt(
+            self,
+            "Extract Long-Term Memory",
+            "Extract structured Long-Term Memory records from the latest N chat messages.",
+            default_turns,
+            1,
+            total_turns,
+            1,
+        )
+        if not accepted:
+            return
+        self._long_term_memory_archive_extract_running = True
+        self._set_long_term_memory_archive_controls_locked(True)
+        if hasattr(self, "long_term_memory_archive_hint"):
+            self.long_term_memory_archive_hint.setText(
+                f"{self.long_term_memory_archive_hint.text()}\nExtracting from latest {requested_turns} message(s)..."
+            )
+
+        bridge = _ContinuityMemoryWorkerBridge()
+        bridge.finished.connect(self._on_long_term_memory_archive_extract_finished)
+        self._long_term_memory_archive_bridge = bridge
+
+        def worker():
+            result = None
+            error = None
+            try:
+                result = _engine().extract_long_term_memory_records_from_current_chat(
+                    turn_count=requested_turns,
+                    max_records=12,
+                )
+            except Exception as exc:
+                error = exc
+            bridge.finished.emit(result, error)
+
+        threading.Thread(target=worker, name="nc-long-term-memory-extract", daemon=True).start()
+
+    def _on_long_term_memory_archive_extract_finished(self, result, error):
+        self._long_term_memory_archive_extract_running = False
+        self._set_long_term_memory_archive_controls_locked(False)
+        self._long_term_memory_archive_bridge = None
+        self._refresh_long_term_memory_archive_hint()
+        if error is not None:
+            QtWidgets.QMessageBox.warning(self, "Long-Term Memory Archive", f"Could not extract memory records:\n{error}")
+            return
+        result = result or {}
+        QtWidgets.QMessageBox.information(
+            self,
+            "Long-Term Memory Archive",
+            (
+                "Extraction complete.\n\n"
+                f"Selected messages: {int(result.get('selected_turns', 0) or 0)}\n"
+                f"Archived raw chunks: {int(result.get('archived_chunks', 0) or 0)}\n"
+                f"Stored records: {int(result.get('stored_records', 0) or 0)}"
+            ),
+        )
+
+    def review_long_term_memory_archive(self):
+        try:
+            records = _engine().list_long_term_memory_records(limit=200)
+            chunks = _engine().list_long_term_memory_chunks(limit=50)
+            store = _engine().initialize_long_term_memory_store()
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "Long-Term Memory Archive", f"Could not load archive records:\n{exc}")
+            return
+        lines = [f"Storage: {str((store or {}).get('path', '') or '')}", ""]
+        if not records and not chunks:
+            lines.append("Long-Term Memory archive is empty.")
+        if chunks:
+            lines.extend(["Raw Archived Chat Chunks", ""])
+            for index, chunk in enumerate(chunks, start=1):
+                preview = str(chunk.get("text", "") or "").strip()
+                if len(preview) > 700:
+                    preview = preview[:697].rstrip() + "..."
+                lines.extend([
+                    f"{index}. {chunk.get('id', '')}",
+                    f"   Source: {chunk.get('source_chat_id', '')} messages {chunk.get('source_message_start', '')}-{chunk.get('source_message_end', '')}",
+                    f"   Text: {preview}",
+                    "",
+                ])
+        if records:
+            lines.extend(["Extracted Memory Records", ""])
+        for index, record in enumerate(records, start=1):
+            tags = ", ".join(list(record.get("tags") or []))
+            lines.extend([
+                f"{index}. {record.get('title', '')}",
+                f"   ID: {record.get('id', '')}",
+                f"   Type: {record.get('type', '')} | Importance: {record.get('importance', 0):.2f} | Confidence: {record.get('confidence', 0):.2f}",
+                f"   Source: {record.get('source_chat_id', '')} messages {record.get('source_message_start', '')}-{record.get('source_message_end', '')}",
+                f"   Tags: {tags}",
+                f"   Summary: {record.get('summary', '')}",
+                "",
+            ])
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Long-Term Memory Archive")
+        dialog.resize(820, 520)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        text_edit = QtWidgets.QPlainTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText("\n".join(lines).strip())
+        layout.addWidget(text_edit)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
+
+    def search_long_term_memory_archive(self):
+        query, accepted = QtWidgets.QInputDialog.getText(
+            self,
+            "Search Long-Term Memory Archive",
+            "Search extracted memory records and raw archived chat chunks:",
+        )
+        if not accepted:
+            return
+        query = str(query or "").strip()
+        if not query:
+            QtWidgets.QMessageBox.information(self, "Long-Term Memory Archive", "Enter a search query first.")
+            return
+        try:
+            results = _engine().retrieve_long_term_memory(query, record_limit=8, chunk_limit=5)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "Long-Term Memory Archive", f"Could not search archive:\n{exc}")
+            return
+        lines = [f"Query: {query}", f"Matches: {len(results)}", ""]
+        if not results:
+            lines.append("No archive matches found.")
+        for index, item in enumerate(results, start=1):
+            tags = ", ".join(list(item.get("tags") or []))
+            label = "Memory Record" if item.get("kind") == "record" else "Raw Chat Chunk"
+            lines.extend([
+                f"{index}. {label}: {item.get('title', '')}",
+                f"   ID: {item.get('id', '')}",
+                f"   Type: {item.get('type', '')}",
+                f"   Source: {item.get('source_chat_id', '')} messages {item.get('source_message_start', '')}-{item.get('source_message_end', '')}",
+                f"   Tags: {tags}",
+                f"   Snippet: {item.get('snippet', '')}",
+                "",
+            ])
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("Search Long-Term Memory Archive")
+        dialog.resize(820, 520)
+        layout = QtWidgets.QVBoxLayout(dialog)
+        text_edit = QtWidgets.QPlainTextEdit()
+        text_edit.setReadOnly(True)
+        text_edit.setPlainText("\n".join(lines).strip())
+        layout.addWidget(text_edit)
+        buttons = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Close)
+        buttons.rejected.connect(dialog.reject)
+        layout.addWidget(buttons)
+        dialog.exec()
 
     def on_chat_font_size_changed(self, _index):
         if not hasattr(self, "chat_font_size_combo"):

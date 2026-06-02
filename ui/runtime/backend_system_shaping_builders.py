@@ -59,6 +59,12 @@ CHAT_TAB_TOOLTIPS = {
     "btn_review_long_term_memory": "Open the current Continuity Memory summary for inspection.",
     "btn_batch_update_long_term_memory": "Summarize the latest N messages manually. Useful when importing or catching up an older long chat.",
     "btn_forget_long_term_memory": "Clear the Continuity Memory summary for the current chat context.",
+    "btn_extract_long_term_memory_archive": "Extract structured Long-Term Memory records from recent chat messages. This is manual and does not affect prompts yet.",
+    "btn_search_long_term_memory_archive": "Search extracted memory records and raw archived chat chunks without injecting them into chat.",
+    "btn_review_long_term_memory_archive": "Review the currently stored Long-Term Memory archive records.",
+    "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
+    "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
+    "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
     "btn_save_chat_session": "Save changes to the currently loaded/saved chat context file.",
     "btn_save_chat_session_as": "Choose a new chat context file and save the current conversation there.",
     "btn_load_chat_session": "Load a saved chat context file into the current session.",
@@ -607,6 +613,31 @@ class BackendSystemShapingBuilderMixin:
         memory_layout.addWidget(self.long_term_memory_hint)
         layout.addWidget(memory_box)
 
+        archive_box = QtWidgets.QGroupBox("Long-Term Memory Archive")
+        archive_layout = QtWidgets.QVBoxLayout(archive_box)
+        archive_layout.setContentsMargins(12, 14, 12, 12)
+        archive_layout.setSpacing(8)
+        archive_hint = QtWidgets.QLabel("Manual archive extraction stores structured memory records. It does not inject retrieved memories into chat yet.")
+        archive_hint.setWordWrap(True)
+        archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        archive_layout.addWidget(archive_hint)
+        archive_layout.addWidget(self.long_term_memory_retrieval_enabled_checkbox)
+        retrieval_form = QtWidgets.QFormLayout()
+        retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
+        archive_layout.addLayout(retrieval_form)
+        archive_button_row = QtWidgets.QHBoxLayout()
+        archive_button_row.setSpacing(8)
+        archive_button_row.addWidget(self.btn_extract_long_term_memory_archive)
+        archive_button_row.addWidget(self.btn_search_long_term_memory_archive)
+        archive_button_row.addWidget(self.btn_review_long_term_memory_archive)
+        archive_button_row.addStretch(1)
+        archive_layout.addLayout(archive_button_row)
+        archive_layout.addWidget(self.long_term_memory_archive_hint)
+        layout.addWidget(archive_box)
+
         actions_box = QtWidgets.QGroupBox("Session")
         actions_layout = QtWidgets.QVBoxLayout(actions_box)
         actions_layout.setContentsMargins(12, 14, 12, 12)
@@ -977,6 +1008,38 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_hint.setWordWrap(True)
         self.long_term_memory_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         self._refresh_long_term_memory_hint()
+
+        self.btn_extract_long_term_memory_archive = QtWidgets.QPushButton("Extract Recent...")
+        self.btn_extract_long_term_memory_archive.setObjectName("btn_extract_long_term_memory_archive")
+        self.btn_extract_long_term_memory_archive.clicked.connect(self.extract_long_term_memory_archive_now)
+
+        self.btn_review_long_term_memory_archive = QtWidgets.QPushButton("Review Archive")
+        self.btn_review_long_term_memory_archive.setObjectName("btn_review_long_term_memory_archive")
+        self.btn_review_long_term_memory_archive.clicked.connect(self.review_long_term_memory_archive)
+
+        self.btn_search_long_term_memory_archive = QtWidgets.QPushButton("Search Archive...")
+        self.btn_search_long_term_memory_archive.setObjectName("btn_search_long_term_memory_archive")
+        self.btn_search_long_term_memory_archive.clicked.connect(self.search_long_term_memory_archive)
+
+        self.long_term_memory_retrieval_enabled_checkbox = QtWidgets.QCheckBox("Use archive retrieval in chat")
+        self.long_term_memory_retrieval_enabled_checkbox.setObjectName("long_term_memory_retrieval_enabled_checkbox")
+        self.long_term_memory_retrieval_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_retrieval_enabled", False)))
+        self.long_term_memory_retrieval_enabled_checkbox.toggled.connect(self.on_long_term_memory_retrieval_enabled_changed)
+
+        self.long_term_memory_retrieval_max_items_spin = ContextTokenStepper()
+        self.long_term_memory_retrieval_max_items_spin.setObjectName("long_term_memory_retrieval_max_items_spin")
+        self.long_term_memory_retrieval_max_items_spin.setRange(1, 12)
+        self.long_term_memory_retrieval_max_items_spin.setSingleStep(1)
+        self.long_term_memory_retrieval_max_items_spin.setValue(max(1, min(12, int(runtime_config.get("long_term_memory_retrieval_max_items", 6) or 6))))
+        self.long_term_memory_retrieval_max_items_spin.valueChanged.connect(self.on_long_term_memory_retrieval_max_items_changed)
+        self.long_term_memory_retrieval_max_items_spin.setMinimumWidth(112)
+        self.long_term_memory_retrieval_max_items_spin.setMaximumWidth(132)
+
+        self.long_term_memory_archive_hint = QtWidgets.QLabel()
+        self.long_term_memory_archive_hint.setObjectName("long_term_memory_archive_hint")
+        self.long_term_memory_archive_hint.setWordWrap(True)
+        self.long_term_memory_archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self._refresh_long_term_memory_archive_hint()
 
         self.btn_save_chat_session = QtWidgets.QPushButton("Save Chat Context")
         self.btn_save_chat_session.setObjectName("btn_save_chat_session")

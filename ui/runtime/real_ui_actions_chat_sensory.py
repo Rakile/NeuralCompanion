@@ -137,6 +137,18 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_long_term_memory_retrieval_enabled_changed(self, checked):
+            try:
+                self.backend.on_long_term_memory_retrieval_enabled_changed(bool(checked))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_retrieval_max_items_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_retrieval_max_items_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _show_frontend_system_prompt_context_menu(self, point):
             system_prompt_text = self._ui_object("system_prompt_text")
             if system_prompt_text is None:

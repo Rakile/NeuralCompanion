@@ -111,6 +111,8 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("continuity_memory_auto_summarize", bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else True)
         _update_runtime_config("continuity_memory_inject", bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else True)
         _update_runtime_config("continuity_memory_max_chars", max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000)
+        _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
+        _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
         self._update_tts_backend_runtime_config_from_widgets(tts_backend, runtime_config)
         _update_runtime_config("emotional_instructions", self.emotional_text.toPlainText().strip())
         _update_runtime_config("system_prompt", self.system_prompt_text.toPlainText().strip())
@@ -141,6 +143,8 @@ class BackendEngineLifecycleMixin:
             "min_p": self.brain_sliders["min_p"].value(),
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
+            "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
+            "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
             "avatar_mode": mode,
             "input_mode": input_mode,
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),

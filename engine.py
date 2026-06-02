@@ -43,7 +43,7 @@ import gc
 import importlib
 import dry_run
 import app_help
-from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, continuity_memory, conversation_history as conversation_history_runtime, lmstudio_runtime, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
+from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, continuity_memory, conversation_history as conversation_history_runtime, lmstudio_runtime, long_term_memory, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
 from core.addons.runtime_defaults import addon_runtime_defaults
@@ -699,6 +699,8 @@ RUNTIME_CONFIG = {
     "continuity_memory_auto_summarize": True,
     "continuity_memory_inject": True,
     "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
+    "long_term_memory_retrieval_enabled": False,
+    "long_term_memory_retrieval_max_items": 6,
     "chunk_target_chars": TARGET_CHARS_PER_CHUNK,
     "chunk_max_chars": MAX_CHARS_PER_CHUNK,
     "stream_chunk_target_chars": 80,
@@ -4521,6 +4523,308 @@ def clear_continuity_memory():
     return {"path": str(path), "memory_id": memory_id}
 
 
+def initialize_long_term_memory_store():
+    path = long_term_memory.init_store()
+    return {"path": str(path), "schema_version": long_term_memory.SCHEMA_VERSION}
+
+
+def create_long_term_memory_record(
+    *,
+    memory_type="note",
+    title="",
+    summary="",
+    content="",
+    tags=None,
+    source_chat_id="",
+    source_message_start=None,
+    source_message_end=None,
+    importance=0.5,
+    confidence=0.8,
+):
+    record = long_term_memory.create_memory(
+        memory_type=memory_type,
+        title=title,
+        summary=summary,
+        content=content,
+        tags=tags,
+        source_chat_id=source_chat_id,
+        source_message_start=source_message_start,
+        source_message_end=source_message_end,
+        importance=importance,
+        confidence=confidence,
+    )
+    print(f"🧠 [Memory] Long-Term Memory record stored: {record.get('id', '')} ({record.get('type', '')})")
+    return record
+
+
+def list_long_term_memory_records(
+    *,
+    status="active",
+    memory_type="",
+    source_chat_id="",
+    include_deleted=False,
+    limit=100,
+    offset=0,
+):
+    return long_term_memory.list_memories(
+        status=status,
+        memory_type=memory_type,
+        source_chat_id=source_chat_id,
+        include_deleted=include_deleted,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def search_long_term_memory_records(
+    query,
+    *,
+    status="active",
+    memory_type="",
+    source_chat_id="",
+    include_deleted=False,
+    limit=100,
+    offset=0,
+):
+    return long_term_memory.search_memories(
+        query,
+        status=status,
+        memory_type=memory_type,
+        source_chat_id=source_chat_id,
+        include_deleted=include_deleted,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def get_long_term_memory_record(memory_id):
+    return long_term_memory.get_memory(memory_id)
+
+
+def update_long_term_memory_record(memory_id, **fields):
+    return long_term_memory.update_memory(memory_id, **fields)
+
+
+def set_long_term_memory_record_status(memory_id, status):
+    return long_term_memory.set_memory_status(memory_id, status)
+
+
+def delete_long_term_memory_record(memory_id, *, hard=False):
+    deleted = long_term_memory.delete_memory(memory_id, hard=hard)
+    if deleted:
+        mode = "deleted" if hard else "marked deleted"
+        print(f"🧠 [Memory] Long-Term Memory record {mode}: {memory_id}")
+    return deleted
+
+
+def list_long_term_memory_chunks(
+    *,
+    status="active",
+    source_chat_id="",
+    include_deleted=False,
+    limit=100,
+    offset=0,
+):
+    return long_term_memory.list_archived_chunks(
+        status=status,
+        source_chat_id=source_chat_id,
+        include_deleted=include_deleted,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def search_long_term_memory_chunks(
+    query,
+    *,
+    status="active",
+    source_chat_id="",
+    include_deleted=False,
+    limit=100,
+    offset=0,
+):
+    return long_term_memory.search_archived_chunks(
+        query,
+        status=status,
+        source_chat_id=source_chat_id,
+        include_deleted=include_deleted,
+        limit=limit,
+        offset=offset,
+    )
+
+
+def delete_long_term_memory_chunk(chunk_id, *, hard=False):
+    deleted = long_term_memory.delete_archived_chunk(chunk_id, hard=hard)
+    if deleted:
+        mode = "deleted" if hard else "marked deleted"
+        print(f"🧠 [Memory] Long-Term Memory chunk {mode}: {chunk_id}")
+    return deleted
+
+
+def retrieve_long_term_memory(query, *, record_limit=6, chunk_limit=4, source_chat_id=""):
+    return long_term_memory.retrieve_memories(
+        query,
+        record_limit=record_limit,
+        chunk_limit=chunk_limit,
+        source_chat_id=source_chat_id,
+    )
+
+
+def _latest_user_query_from_history(history):
+    for turn in reversed(list(history or [])):
+        if str((turn or {}).get("role", "") or "").strip().lower() != "user":
+            continue
+        content = str((turn or {}).get("content", "") or "").strip()
+        if content:
+            return content
+    return ""
+
+
+def build_long_term_memory_context(history):
+    if not bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)):
+        return ""
+    query = _latest_user_query_from_history(history)
+    if not query:
+        return ""
+    try:
+        max_items = max(1, min(12, int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6)))
+    except Exception:
+        max_items = 6
+    record_limit = max_items
+    chunk_limit = max(1, min(4, max_items // 2))
+    results = retrieve_long_term_memory(query, record_limit=record_limit, chunk_limit=chunk_limit)
+    if not results:
+        return ""
+    lines = [
+        "Relevant Long-Term Memory archive recall. These are retrieved older memory records and raw chat snippets. "
+        "Use them only when relevant to the current user request. Current conversation and explicit user corrections override old memory.",
+        "",
+    ]
+    for index, item in enumerate(results[:max_items], start=1):
+        kind = "memory record" if item.get("kind") == "record" else "raw chat chunk"
+        source = str(item.get("source_chat_id", "") or "")
+        start = item.get("source_message_start")
+        end = item.get("source_message_end")
+        source_text = f"{source} messages {start}-{end}" if source else f"messages {start}-{end}"
+        title = str(item.get("title", "") or kind).strip()
+        snippet = long_term_memory.compact_text(item.get("snippet") or item.get("summary") or item.get("content"), 640)
+        lines.append(f"{index}. [{kind}] {title}")
+        lines.append(f"   Source: {source_text}")
+        lines.append(f"   Recall: {snippet}")
+    return "\n".join(lines).strip()
+
+
+def _active_long_term_memory_source_chat_id():
+    active_name = str(RUNTIME_CONFIG.get("active_chat_context_name", "") or "").strip()
+    if active_name:
+        return long_term_memory.normalize_memory_id(active_name)
+    continuity_id = str(RUNTIME_CONFIG.get("continuity_memory_id", "") or "").strip()
+    if continuity_id:
+        return long_term_memory.normalize_memory_id(continuity_id)
+    return "unsaved_chat"
+
+
+def _long_term_memory_extraction_payload(response_text):
+    payload = _extract_json_object_from_text(response_text)
+    if payload is None:
+        repaired = _repair_common_json_mistakes(response_text)
+        payload = _extract_json_object_from_text(repaired)
+    if payload is None:
+        raise RuntimeError("The provider did not return a valid Long-Term Memory JSON payload.")
+    return payload
+
+
+def extract_long_term_memory_records_from_current_chat(
+    *,
+    turn_count=long_term_memory.DEFAULT_EXTRACTION_TURNS,
+    start_index=None,
+    end_index=None,
+    max_records=long_term_memory.DEFAULT_EXTRACTION_MAX_RECORDS,
+    source_chat_id="",
+):
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    selected_turns = long_term_memory.select_history_turns(
+        sanitized_history,
+        start_index=start_index,
+        end_index=end_index,
+        turn_count=turn_count,
+    )
+    if not selected_turns:
+        return {
+            "source_chat_id": str(source_chat_id or _active_long_term_memory_source_chat_id()),
+            "selected_turns": 0,
+            "archived_chunks": 0,
+            "chunks": [],
+            "stored_records": 0,
+            "records": [],
+        }
+    model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
+    if _is_model_catalog_placeholder(model_name):
+        raise RuntimeError("Choose a chat model before extracting Long-Term Memory records.")
+    resolved_source = str(source_chat_id or _active_long_term_memory_source_chat_id() or "unsaved_chat")
+    archived_chunk = long_term_memory.archive_history_chunk(
+        selected_turns,
+        source_chat_id=resolved_source,
+        tags=["raw_chat", "manual_extract"],
+    )
+    messages = long_term_memory.build_extraction_messages(
+        selected_turns,
+        source_chat_id=resolved_source,
+        max_records=max_records,
+    )
+    params = {
+        "model": model_name,
+        "messages": messages,
+        "response_format": {"type": "json_object"},
+    }
+    additional_params = {}
+    _apply_chat_provider_generation_fields(params, additional_params)
+    if _chat_provider() == "lmstudio":
+        params["max_tokens"] = -1
+    else:
+        params.pop("max_tokens", None)
+        params.pop("max_completion_tokens", None)
+    try:
+        payload_text = _chat_completion_create(params, additional_params)
+    except Exception as exc:
+        message = str(exc)
+        if "response_format" not in message and "json_object" not in message:
+            raise
+        params.pop("response_format", None)
+        payload_text = _chat_completion_create(params, additional_params)
+    candidates = long_term_memory.normalize_extracted_memories(
+        _long_term_memory_extraction_payload(payload_text),
+        max_records=max_records,
+    )
+    stored_records = []
+    for candidate in candidates:
+        record = long_term_memory.create_memory(
+            memory_type=candidate.get("type", "note"),
+            title=candidate.get("title", ""),
+            summary=candidate.get("summary", ""),
+            content=candidate.get("content", ""),
+            tags=candidate.get("tags", []),
+            source_chat_id=resolved_source,
+            source_message_start=candidate.get("source_message_start") or selected_turns[0]["index"],
+            source_message_end=candidate.get("source_message_end") or selected_turns[-1]["index"],
+            importance=candidate.get("importance", 0.5),
+            confidence=candidate.get("confidence", 0.8),
+        )
+        stored_records.append(record)
+    print(
+        f"🧠 [Memory] Extracted {len(stored_records)} Long-Term Memory record(s) "
+        f"from {len(selected_turns)} chat turn(s); archived {1 if archived_chunk else 0} raw chunk(s)."
+    )
+    return {
+        "source_chat_id": long_term_memory.normalize_memory_id(resolved_source),
+        "selected_turns": len(selected_turns),
+        "archived_chunks": 1 if archived_chunk else 0,
+        "chunks": [archived_chunk] if archived_chunk else [],
+        "stored_records": len(stored_records),
+        "records": stored_records,
+    }
+
+
 # Compatibility aliases for the first PoC naming.
 long_term_memory_snapshot = continuity_memory_snapshot
 update_long_term_memory_from_current_chat = update_continuity_memory_from_current_chat
@@ -6489,6 +6793,10 @@ def build_llm_request():
     if memory_context:
         print("🧠 [Memory] Injected Continuity Memory.")
         messages.append({"role": "system", "content": memory_context})
+    long_term_memory_context = build_long_term_memory_context(model_history_window)
+    if long_term_memory_context:
+        print("🧠 [Memory] Injected Long-Term Memory retrieval.")
+        messages.append({"role": "system", "content": long_term_memory_context})
     visual_instruction = _visual_reply_generation_instruction()
     if visual_instruction:
         messages.append({"role": "system", "content": visual_instruction})

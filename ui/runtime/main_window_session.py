@@ -169,6 +169,8 @@ class MainWindowSessionMixin:
             "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", RUNTIME_CONFIG.get("long_term_memory_update_on_save", True)))),
             "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_inject", RUNTIME_CONFIG.get("long_term_memory_inject", True))),
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
+            "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
+            "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
             "limit_response_length": self.limit_response_checkbox.isChecked() if hasattr(self, "limit_response_checkbox") else False,
             "max_response_tokens": int(self.max_response_tokens_spin.value()) if hasattr(self, "max_response_tokens_spin") else DEFAULT_MAX_RESPONSE_TOKENS,
             "sensory_feedback_source": self._sensory_feedback_source_value_from_label(self.sensory_feedback_source_combo.currentText()) if hasattr(self, "sensory_feedback_source_combo") else str(RUNTIME_CONFIG.get("sensory_feedback_source", "off") or "off"),
@@ -526,6 +528,15 @@ class MainWindowSessionMixin:
                 memory_chars = max(500, min(20000, int(continuity_memory_max_chars)))
                 self.long_term_memory_max_chars_spin.setValue(memory_chars)
                 self.on_continuity_memory_max_chars_changed(memory_chars)
+            retrieval_enabled = session.get("long_term_memory_retrieval_enabled")
+            if retrieval_enabled is not None and hasattr(self, "long_term_memory_retrieval_enabled_checkbox"):
+                self.long_term_memory_retrieval_enabled_checkbox.setChecked(bool(retrieval_enabled))
+                self.on_long_term_memory_retrieval_enabled_changed(bool(retrieval_enabled))
+            retrieval_max_items = session.get("long_term_memory_retrieval_max_items")
+            if retrieval_max_items is not None and hasattr(self, "long_term_memory_retrieval_max_items_spin"):
+                max_items = max(1, min(12, int(retrieval_max_items)))
+                self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
+                self.on_long_term_memory_retrieval_max_items_changed(max_items)
             refresh_chat_context_save_controls = getattr(self, "_refresh_chat_context_save_controls", None)
             if callable(refresh_chat_context_save_controls):
                 refresh_chat_context_save_controls()

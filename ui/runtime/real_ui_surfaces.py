@@ -148,6 +148,83 @@ class MainUiRealSurfacesMixin:
             session_button = self._ui_object("btn_save_chat_session")
             if session_button is None:
                 return
+            session_box = session_button
+            while session_box is not None and not isinstance(session_box, QtWidgets.QGroupBox):
+                session_box = session_box.parentWidget()
+            parent_widget = session_box.parentWidget() if session_box is not None else None
+            parent_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
+
+            def _ensure_archive_box():
+                if self._ui_object("btn_extract_long_term_memory_archive") is not None:
+                    return
+                if parent_widget is None or parent_layout is None or not hasattr(parent_layout, "insertWidget"):
+                    return
+
+                def _backend_archive_checked(name, default=False):
+                    widget = getattr(self.backend, name, None)
+                    return bool(widget.isChecked()) if widget is not None and hasattr(widget, "isChecked") else bool(default)
+
+                def _backend_archive_value(name, default=6):
+                    widget = getattr(self.backend, name, None)
+                    try:
+                        return int(widget.value()) if widget is not None and hasattr(widget, "value") else int(default)
+                    except Exception:
+                        return int(default)
+
+                archive_box = QtWidgets.QGroupBox("Long-Term Memory Archive", parent_widget)
+                archive_box.setObjectName("long_term_memory_archive_group")
+                archive_layout = QtWidgets.QVBoxLayout(archive_box)
+                archive_layout.setContentsMargins(12, 14, 12, 12)
+                archive_layout.setSpacing(8)
+                archive_intro = QtWidgets.QLabel(
+                    "Manual archive extraction stores structured memory records. Retrieval can inject matching archive recall into chat requests.",
+                    archive_box,
+                )
+                archive_intro.setWordWrap(True)
+                archive_intro.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+                archive_layout.addWidget(archive_intro)
+
+                retrieval_enabled = QtWidgets.QCheckBox("Use archive retrieval in chat", archive_box)
+                retrieval_enabled.setObjectName("long_term_memory_retrieval_enabled_checkbox")
+                retrieval_enabled.setChecked(_backend_archive_checked("long_term_memory_retrieval_enabled_checkbox", False))
+                archive_layout.addWidget(retrieval_enabled)
+
+                retrieval_max_items = QtWidgets.QSpinBox(archive_box)
+                retrieval_max_items.setObjectName("long_term_memory_retrieval_max_items_spin")
+                retrieval_max_items.setRange(1, 12)
+                retrieval_max_items.setSingleStep(1)
+                retrieval_max_items.setValue(max(1, min(12, _backend_archive_value("long_term_memory_retrieval_max_items_spin", 6))))
+                retrieval_max_items.setMinimumWidth(112)
+                retrieval_max_items.setMaximumWidth(132)
+                retrieval_form = QtWidgets.QFormLayout()
+                retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+                retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+                retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+                retrieval_form.addRow("Max recall items", retrieval_max_items)
+                archive_layout.addLayout(retrieval_form)
+
+                archive_button_row = QtWidgets.QHBoxLayout()
+                archive_button_row.setSpacing(8)
+                extract = QtWidgets.QPushButton("Extract Recent...", archive_box)
+                extract.setObjectName("btn_extract_long_term_memory_archive")
+                search_archive = QtWidgets.QPushButton("Search Archive...", archive_box)
+                search_archive.setObjectName("btn_search_long_term_memory_archive")
+                review_archive = QtWidgets.QPushButton("Review Archive", archive_box)
+                review_archive.setObjectName("btn_review_long_term_memory_archive")
+                archive_button_row.addWidget(extract)
+                archive_button_row.addWidget(search_archive)
+                archive_button_row.addWidget(review_archive)
+                archive_button_row.addStretch(1)
+                archive_layout.addLayout(archive_button_row)
+                archive_hint = QtWidgets.QLabel(archive_box)
+                archive_hint.setObjectName("long_term_memory_archive_hint")
+                archive_hint.setWordWrap(True)
+                archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+                archive_layout.addWidget(archive_hint)
+                anchor = self._ui_object("long_term_memory_group") or session_box
+                insert_index = parent_layout.indexOf(anchor)
+                parent_layout.insertWidget(insert_index + 1 if insert_index >= 0 else parent_layout.count(), archive_box)
+
             if self._ui_object("btn_save_chat_session_as") is None:
                 button_parent = session_button.parentWidget()
                 button_layout = button_parent.layout() if button_parent is not None and hasattr(button_parent, "layout") else None
@@ -175,15 +252,11 @@ class MainUiRealSurfacesMixin:
                             batch_update.setObjectName("btn_batch_update_long_term_memory")
                             insert_index = button_layout.indexOf(anchor_button)
                             button_layout.insertWidget(insert_index + 1 if insert_index >= 0 else button_layout.count(), batch_update)
+                _ensure_archive_box()
                 return
 
-            session_box = session_button
-            while session_box is not None and not isinstance(session_box, QtWidgets.QGroupBox):
-                session_box = session_box.parentWidget()
             if session_box is None:
                 return
-            parent_widget = session_box.parentWidget()
-            parent_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
             if parent_layout is None or not hasattr(parent_layout, "insertWidget"):
                 return
 
@@ -255,6 +328,7 @@ class MainUiRealSurfacesMixin:
 
             insert_index = parent_layout.indexOf(session_box)
             parent_layout.insertWidget(insert_index if insert_index >= 0 else parent_layout.count(), memory_box)
+            _ensure_archive_box()
 
     def _redirect_backend_chat_session_runtime_surface(self):
             self._ensure_frontend_long_term_memory_widgets()
@@ -274,6 +348,12 @@ class MainUiRealSurfacesMixin:
                 "btn_review_long_term_memory": self._ui_object("btn_review_long_term_memory"),
                 "btn_batch_update_long_term_memory": self._ui_object("btn_batch_update_long_term_memory"),
                 "btn_forget_long_term_memory": self._ui_object("btn_forget_long_term_memory"),
+                "btn_extract_long_term_memory_archive": self._ui_object("btn_extract_long_term_memory_archive"),
+                "btn_search_long_term_memory_archive": self._ui_object("btn_search_long_term_memory_archive"),
+                "btn_review_long_term_memory_archive": self._ui_object("btn_review_long_term_memory_archive"),
+                "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
+                "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
+                "long_term_memory_archive_hint": self._ui_object("long_term_memory_archive_hint"),
                 "btn_save_chat_session": self._ui_object("btn_save_chat_session"),
                 "btn_save_chat_session_as": self._ui_object("btn_save_chat_session_as"),
                 "btn_load_chat_session": self._ui_object("btn_load_chat_session"),
@@ -334,6 +414,8 @@ class MainUiRealSurfacesMixin:
             _copy_checked(backend_widgets.get("long_term_memory_update_on_save_checkbox"), frontend_widgets.get("long_term_memory_update_on_save_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_inject_checkbox"), frontend_widgets.get("long_term_memory_inject_checkbox"))
             _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
+            _copy_checked(backend_widgets.get("long_term_memory_retrieval_enabled_checkbox"), frontend_widgets.get("long_term_memory_retrieval_enabled_checkbox"))
+            _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
 
             redirected = False
             for attribute_name, widget in frontend_widgets.items():
@@ -346,6 +428,7 @@ class MainUiRealSurfacesMixin:
             try:
                 self.backend._refresh_chat_session_hint()
                 self.backend._refresh_continuity_memory_hint()
+                self.backend._refresh_long_term_memory_archive_hint()
                 self.backend._refresh_chat_context_save_controls()
                 apply_tooltips = getattr(self.backend, "_apply_chat_tab_tooltips", None)
                 if callable(apply_tooltips):
