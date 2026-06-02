@@ -73,13 +73,17 @@ py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe" --
 
 ## Requirements
 
-Recommended baseline:
+Required baseline:
 
 - Windows
 - Python 3.11
 - FFmpeg on PATH, or the installer-bundled FFmpeg tools
 - a local or API chat provider
 - NVIDIA CUDA GPU for MuseTalk
+
+Python 3.11 is required. Python 3.12+ is not currently supported by the full
+runtime stack, and older Python versions may fail during dependency
+installation.
 
 Useful external tools:
 
@@ -95,14 +99,19 @@ Start Neural Companion:
 run_neural_companion.bat
 ```
 
-Or directly:
+This is the recommended launch method because it uses the installed Neural
+Companion environment.
 
-```powershell
-py qt_app.py
+If you need to run the app manually from the project folder, use the installed
+environment explicitly:
+
+```bat
+.venv\Scripts\python.exe qt_app.py
 ```
 
-The legacy fallback UI is kept for diagnostics and can be launched with:
+Or activate the environment first:
 
-```powershell
-py qt_app.py --legacy-ui
+```bat
+.venv\Scripts\activate.bat
+python qt_app.py
 ```

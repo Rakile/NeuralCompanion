@@ -1,129 +1,95 @@
 # Neural Companion
 
-Neural Companion is a local desktop AI companion shell for realtime chat,
-speech, avatar output, visual replies, and addon-driven workflows.
+Neural Companion is a local Windows desktop AI companion for realtime chat,
+speech, avatars, visual replies, and addon-driven workflows.
 
-The project is designed as a box of LEGO pieces:
+It is designed for users who want a configurable AI companion that can talk,
+listen, roleplay, use local or API models, drive avatars, and grow through
+addons.
 
-- chat providers are addons
-- TTS backends are addons
-- avatar engines are addons
-- vision/sensory sources are addons
-- workspace tabs and tools can be extended over time
+## What It Can Do
 
-The app runs locally on Windows and is built around a PySide6 desktop UI.
-
-## Manual
-
-See the [Neural Companion Manual](docs/manual/index.md) for installation,
-first-run, avatar, TTS, PocketTTS, MuseTalk, addon, and troubleshooting
-guidance.
-
-## Status
-
-This repository is an early public release candidate. It is usable, but still an
-experimental local AI/avatar application. Expect sharp edges around GPU setup,
-third-party model installs, external avatar engines, and local device
-configuration.
-
-## Highlights
-
-- Local or API chat providers: LM Studio, OpenAI, xAI/Grok, Claude, and addon providers.
-- TTS backends: Chatterbox, Gemini TTS Preview, PocketTTS, and addon backends.
-- Avatar engines: MuseTalk, VSeeFace, VaM, or no-avatar mode.
-- Dockable Qt workspace with system shaping, runtime console/chat, preview panels, and addon tabs.
-- MuseTalk preview and avatar-pack support.
-- VaM bridge support through VMC and file-bridge flows.
-- Vision and sensory supervisors for screen, webcam, clipboard, heart-rate, and visual replies.
-- Presets, Dry Run-generated performance profiles, tutorials, hotkeys, and chat replay tools.
+- Chat through local or API providers such as LM Studio, OpenAI, xAI/Grok,
+  Claude, DeepSeek, and addon providers.
+- Speak through TTS backends such as Chatterbox, Gemini TTS Preview,
+  PocketTTS, and addon backends.
+- Drive avatars through MuseTalk, VSeeFace, VaM, or no-avatar mode.
+- Use screen, webcam, clipboard, heart-rate, and visual-reply workflows.
+- Save and reload chat contexts.
+- Use Continuity Memory summaries and Long-Term Memory archive retrieval.
+- Run tutorials, presets, hotkeys, chat replay, and addon tools.
 
 ## Requirements
 
-Recommended baseline:
+Neural Companion currently requires:
 
 - Windows
 - Python 3.11
-- FFmpeg on PATH, or the installer-bundled FFmpeg tools
-- a local or API chat provider
-- NVIDIA CUDA GPU for MuseTalk
+- FFmpeg, either installed on PATH or provided by the bundled installer tools
+- A local or API chat provider
+- An NVIDIA CUDA GPU for MuseTalk avatar generation and playback
+
+Python 3.11 is required. Python 3.12+ is not currently supported by the full
+runtime stack, and older Python versions may fail during dependency
+installation.
 
 Useful external tools:
 
 - LM Studio for local LLMs
 - VSeeFace for VRM-style avatar output
 - VaM plus the Neural Companion bridge/plugin for VaM output
-- MuseTalk model weights if using MuseTalk
 
 ## Install
 
-For the detailed public install guide, see [docs/install.md](docs/install.md).
-
-Graphical installer:
-
-Double-click:
+For most users, use the graphical installer:
 
 ```text
 INSTALL_NEURAL_COMPANION.bat
 ```
 
-or run:
+The installer should be run with Python 3.11 available on the system. If Python
+3.11 is not your default Python, choose or provide the Python 3.11 executable
+when installing.
 
-```powershell
-py install_neural_companion_gui.py
-```
+For the detailed public install guide, see:
 
-For the main app:
+- [docs/install.md](docs/install.md)
+- [docs/manual/installation.md](docs/manual/installation.md)
 
-```powershell
-py install_neural_companion.py --main --non-interactive
-```
-
-For a fuller install:
-
-```powershell
-py install_neural_companion.py --all
-```
-
-If Python 3.11 is not your default Python:
-
-```powershell
-py install_neural_companion.py --python-exe "C:\Path\To\Python311\python.exe"
-```
-
-Optional installs:
-
-```powershell
-py install_neural_companion.py --musetalk --non-interactive
-py install_neural_companion.py --pockettts --non-interactive
-py install_neural_companion.py --avatar-packs --non-interactive
-```
-
-The graphical installer selects the default Echo and Eon MuseTalk avatar packs
-by default. The command-line `--all` target installs the main, MuseTalk, and
-PocketTTS runtimes; add `--avatar-packs` if you also want the default avatar
-packs from the separate avatar-pack release.
+Advanced command-line install options are documented in the manual. They are
+intended for users who already know which runtime components they want to
+install.
 
 ## Run
+
+Start Neural Companion with:
 
 ```bat
 run_neural_companion.bat
 ```
 
-Or directly:
+This is the recommended launch method because it uses the installed Neural
+Companion environment.
 
-```powershell
-py qt_app.py
+If you need to run the app manually from the project folder, use the installed
+environment explicitly:
+
+```bat
+.venv\Scripts\python.exe qt_app.py
 ```
 
-The legacy fallback UI is kept for diagnostics and can be launched with:
+Or activate the environment first:
 
-```powershell
-py qt_app.py --legacy-ui
+```bat
+.venv\Scripts\activate.bat
+python qt_app.py
 ```
 
 ## First Run
 
-The simplest first run is:
+The simplest first run is to follow the tutorial displayed at first launch.
+
+If you want to start manually:
 
 1. Start LM Studio and load a chat model.
 2. Start Neural Companion.
@@ -131,14 +97,14 @@ The simplest first run is:
 4. Select `None` as Avatar Engine.
 5. Select a TTS backend.
 6. Press `Initialize System`.
-7. Use push-to-talk or type input to verify chat and speech.
+7. Use push-to-talk or typed input to verify chat and speech.
 
-Once that path works, enable MuseTalk, VSeeFace, VaM, visual replies, or sensory
+Once that works, enable MuseTalk, VSeeFace, VaM, visual replies, or sensory
 addons one at a time.
 
-## Voice References
+## Voices
 
-The public repo does not ship voice samples.
+The public repo ships with two voice samples.
 
 If you want Chatterbox or another backend to clone a reference voice, place your
 own `.wav` files under:
@@ -160,24 +126,12 @@ avatar_packs/<pack_id>/
 Large avatar packs and frame caches are intentionally not stored in the main
 repository. Demo packs live in the separate
 [NeuralCompanion-AvatarPacks](https://github.com/Rakile/NeuralCompanion-AvatarPacks)
-repository. See [docs/avatar_packs.md](docs/avatar_packs.md) and
-[docs/release_asset_policy.md](docs/release_asset_policy.md).
+repository.
 
-## Runtime Data
+Useful docs:
 
-Generated files are ignored by Git. Important generated locations include:
-
-- `runtime/`
-- `MuseTalk/runtime/`
-- `avatar_packs/`
-- `voices/`
-
-Diagnostic file logs are off by default. Enable only when debugging:
-
-```powershell
-$env:NC_MUSETALK_WORKER_LOG = "1"
-$env:NC_MUSETALK_PREVIEW_LOG = "1"
-```
+- [docs/avatar_packs.md](docs/avatar_packs.md)
+- [docs/release_asset_policy.md](docs/release_asset_policy.md)
 
 ## Addons
 
@@ -186,25 +140,21 @@ Most runtime capabilities are implemented as addons under `addons/`.
 Useful docs:
 
 - [docs/addon_quickstart.md](docs/addon_quickstart.md)
-- [docs/templates/README.md](docs/templates/README.md)
 - [docs/chat_provider_addons.md](docs/chat_provider_addons.md)
 - [docs/vision_source_addons.md](docs/vision_source_addons.md)
-- [docs/vision_supervisor_addons.md](docs/vision_supervisor_addons.md)
 - [docs/visual_reply_addons.md](docs/visual_reply_addons.md)
 - [docs/addon_state_and_presets.md](docs/addon_state_and_presets.md)
 
-## Repository Hygiene
+## More Documentation
 
-The main repository should not contain local runtime outputs, model weights,
-avatar packs, voice samples, generated images, logs, or local virtual
-environments.
+See the [Neural Companion Manual](docs/manual/index.md) for installation,
+first-run, avatar, TTS, PocketTTS, MuseTalk, addon, and troubleshooting
+guidance.
 
-See:
+For development and repository details, see:
 
 - [CONTRIBUTING.md](CONTRIBUTING.md)
-- [docs/avatar_packs.md](docs/avatar_packs.md)
 - [docs/release_checklist.md](docs/release_checklist.md)
-- [docs/release_asset_policy.md](docs/release_asset_policy.md)
 - [docs/third_party_and_assets.md](docs/third_party_and_assets.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)
 - [docs/known_limitations.md](docs/known_limitations.md)
@@ -221,11 +171,9 @@ provider, voice, avatar, or generated asset you use with the app.
 
 ## Current Limitations
 
-- Setup is still Windows/Python-heavy.
-- MuseTalk requires separate model weights and benefits strongly from CUDA.
+- Neural Companion is currently Windows only.
+- MuseTalk requires an NVIDIA CUDA GPU.
 - Some integrations require external applications or plugins.
-- The Designer-backed `main.ui` shell is the default; the legacy Qt shell remains
-  as a temporary fallback.
 - Public demo assets are intentionally not bundled in the main repo.
 
 ## Community

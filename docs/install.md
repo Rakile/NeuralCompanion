@@ -86,7 +86,7 @@ providers. Start with `None` avatar mode and one working chat provider first.
 ## First Run Checklist
 
 1. Start LM Studio or configure an API chat provider.
-2. Run `run_neural_companion.bat` or `py qt_app.py`.
+2. Run `run_neural_companion.bat`.
 3. Select a chat provider and model.
 4. Select `None` as Avatar Engine.
 5. Select a TTS backend.

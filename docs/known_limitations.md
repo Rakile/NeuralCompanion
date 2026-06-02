@@ -25,9 +25,7 @@ releases.
 
 ## UI State
 
-- The Designer-backed `main.ui` path is the default startup UI.
-- The older Python-built Qt shell remains available through `--legacy-ui` as a
-  temporary fallback.
+- The Designer-backed `main.ui` path is the supported startup UI.
 
 ## Runtime Behavior
 

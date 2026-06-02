@@ -22,8 +22,7 @@ Use this checklist before tagging or publishing a public release.
 
 ## Minimal Smoke Test
 
-- Start the app with the default Designer UI: `py qt_app.py`.
-- Start the app with the legacy fallback UI: `py qt_app.py --legacy-ui`.
+- Start the app with the default Designer UI: `run_neural_companion.bat`.
 - Load the `DryRun_MuseTalk` preset and confirm the app can initialize with Avatar Engine `None`.
 - Load the `Tutorial_Persona` preset and confirm the first-run tutorial can start.
 - Verify Chat Runtime can select provider/model and save/reload a preset.

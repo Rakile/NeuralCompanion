@@ -7,8 +7,8 @@ Use this as the starting point for a public GitHub release.
 ### Status
 
 - Release type: beta / release candidate / stable
-- Recommended platform: Windows, Python 3.11
-- Primary UI path: `py qt_app.py`
+- Required platform/runtime: Windows, Python 3.11
+- Primary launch path: `run_neural_companion.bat`
 
 ### Highlights
 

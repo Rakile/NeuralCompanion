@@ -219,11 +219,6 @@ def run_qt_app(argv=None):
         window.show()
         sys.exit(app.exec())
 
-    if len(argv) >= 1 and str(argv[0] or "").strip().lower() == "--legacy-ui":
-        window = CompanionQtMainWindow()
-        window.show()
-        sys.exit(app.exec())
-
     if len(argv) >= 1 and str(argv[0] or "").strip().lower() == "--ui-real":
         ui_arg = argv[1] if len(argv) >= 2 and not str(argv[1] or "").startswith("--") else "main.ui"
         runtime_smoke = any(str(item or "").strip().lower() == "--runtime-smoke" for item in argv[1:])

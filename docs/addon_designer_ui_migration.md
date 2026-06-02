@@ -117,4 +117,4 @@ The avatar engine UI pages for VSeeFace, MuseTalk, and VaM are now addon-owned D
 - The Visual Reply image dock panel is intentionally still a custom Python widget because it is not just a static settings form. It owns polling, storage navigation, zoom behavior, and image display state. The static Designer placeholder has been removed from `main.ui`; the runtime panel is mounted by the Visual Reply runtime bridge.
 - The supervisor addons share large repeated behavior-editor forms. Their current Designer shell removes `qt_app.py` ownership of the tab boundary; a later pass can extract and Designer-bind the repeated inner editor itself.
 - Audio Story Mode and MuseTalk Preprocess are runtime-heavy tabs. Their current Designer shells avoid importing or starting heavy runtime objects before the addon binder mounts the existing controller widget.
-- `python qt_app.py` now launches `main.ui` by default. Use `python qt_app.py --legacy-ui` only as a temporary fallback while the old Python-built shell still exists.
+- `python qt_app.py` now launches the supported `main.ui` runtime shell.
