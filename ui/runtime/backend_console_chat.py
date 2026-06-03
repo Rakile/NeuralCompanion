@@ -632,7 +632,12 @@ class BackendConsoleChatMixin:
         if hasattr(self, "long_term_memory_retrieval_max_items_spin") and isinstance(config, dict):
             self.long_term_memory_retrieval_max_items_spin.setValue(int(config.get("long_term_memory_retrieval_max_items", 6) or 6))
         if hasattr(self, "long_term_memory_embedding_model_edit") and isinstance(config, dict):
-            self.long_term_memory_embedding_model_edit.setText(str(config.get("long_term_memory_embedding_model", "") or ""))
+            widget = self.long_term_memory_embedding_model_edit
+            value = str(config.get("long_term_memory_embedding_model", "") or "")
+            if hasattr(widget, "setCurrentText"):
+                widget.setCurrentText(value)
+            elif hasattr(widget, "setText"):
+                widget.setText(value)
         if hasattr(self, "long_term_memory_embedding_context_length_spin") and isinstance(config, dict):
             self.long_term_memory_embedding_context_length_spin.setValue(int(config.get("long_term_memory_embedding_context_length", 8192) or 8192))
         if hasattr(self, "long_term_memory_embedding_base_url_edit") and isinstance(config, dict):

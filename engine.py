@@ -4606,6 +4606,49 @@ def _lmstudio_request_json(url, *, payload=None, timeout=30):
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 
+def list_lmstudio_embedding_models(*, base_url="", quiet=True):
+    native_base = _lmstudio_native_base_url(base_url or RUNTIME_CONFIG.get("long_term_memory_embedding_base_url"))
+    try:
+        data = _lmstudio_request_json(f"{native_base}/models", timeout=8)
+    except Exception as exc:
+        if not quiet:
+            print(f"Error fetching LM Studio embedding models: {exc}")
+        return []
+    models = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(models, list):
+        return []
+    embedding_models = []
+    seen = set()
+    for model in models:
+        if not isinstance(model, dict):
+            continue
+        model_id = str(model.get("key") or model.get("id") or "").strip()
+        if not model_id:
+            continue
+        model_type = str(model.get("type") or "").strip().lower()
+        capabilities = model.get("capabilities") if isinstance(model.get("capabilities"), dict) else {}
+        value = model_id.lower()
+        looks_embedding = (
+            model_type in {"embd", "embedding", "embeddings"}
+            or bool(capabilities.get("embedding", False))
+            or "embedding" in value
+            or "embed" in value
+            or "bge" in value
+            or "e5" in value
+            or "gte" in value
+            or "nomic-embed" in value
+            or "jina-embeddings" in value
+        )
+        looks_non_embedding = any(fragment in value for fragment in ("whisper", "tts", "rerank", "grok-imagine"))
+        if not looks_embedding or looks_non_embedding:
+            continue
+        if model_id in seen:
+            continue
+        seen.add(model_id)
+        embedding_models.append(model_id)
+    return sorted(embedding_models, key=str.lower)
+
+
 def _lmstudio_embedding_model_status(config=None):
     config = dict(config or _long_term_memory_embedding_config())
     try:

@@ -409,13 +409,105 @@ class BackendChatSessionRuntimeMixin:
         self._refresh_long_term_memory_archive_hint()
         self.save_session()
 
+    def _long_term_memory_embedding_model_text(self):
+        widget = getattr(self, "long_term_memory_embedding_model_edit", None)
+        if widget is None:
+            return ""
+        try:
+            if hasattr(widget, "currentText"):
+                return str(widget.currentText() or "").strip()
+            if hasattr(widget, "text"):
+                return str(widget.text() or "").strip()
+        except Exception:
+            return ""
+        return ""
+
+    def _set_long_term_memory_embedding_model_text(self, value):
+        widget = getattr(self, "long_term_memory_embedding_model_edit", None)
+        text = str(value or "").strip()
+        if widget is None:
+            return
+        try:
+            if hasattr(widget, "setCurrentText"):
+                widget.setCurrentText(text)
+            elif hasattr(widget, "setText"):
+                widget.setText(text)
+        except Exception:
+            pass
+
     def on_long_term_memory_embedding_model_changed(self):
-        text = ""
-        if hasattr(self, "long_term_memory_embedding_model_edit"):
-            text = str(self.long_term_memory_embedding_model_edit.text() or "").strip()
+        text = self._long_term_memory_embedding_model_text()
         _update_runtime_config("long_term_memory_embedding_model", text or "text-embedding-bge-m3")
         self._refresh_long_term_memory_archive_hint()
         self.save_session()
+
+    def refresh_long_term_memory_embedding_models(self):
+        button = getattr(self, "btn_long_term_memory_embedding_model_refresh", None)
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(False)
+            button.setText("Refreshing...")
+
+        def worker():
+            error = ""
+            models = []
+            try:
+                list_models = getattr(_engine(), "list_lmstudio_embedding_models", None)
+                if not callable(list_models):
+                    raise RuntimeError("LM Studio embedding model listing is unavailable.")
+                base_url = ""
+                if hasattr(self, "long_term_memory_embedding_base_url_edit"):
+                    base_url = str(self.long_term_memory_embedding_base_url_edit.text() or "").strip()
+                models = list_models(base_url=base_url, quiet=False)
+            except Exception as exc:
+                error = str(exc)
+            self._pending_long_term_memory_embedding_models = list(models or [])
+            self._pending_long_term_memory_embedding_models_error = error
+            if bool(getattr(self, "_closing", False)):
+                return
+            try:
+                QtCore.QMetaObject.invokeMethod(self, "_apply_pending_long_term_memory_embedding_models", QtCore.Qt.QueuedConnection)
+            except RuntimeError:
+                return
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    @QtCore.Slot()
+    def _apply_pending_long_term_memory_embedding_models(self):
+        models = list(getattr(self, "_pending_long_term_memory_embedding_models", []) or [])
+        error = str(getattr(self, "_pending_long_term_memory_embedding_models_error", "") or "").strip()
+        self._pending_long_term_memory_embedding_models = []
+        self._pending_long_term_memory_embedding_models_error = ""
+        button = getattr(self, "btn_long_term_memory_embedding_model_refresh", None)
+        if button is not None and hasattr(button, "setEnabled"):
+            button.setEnabled(True)
+            button.setText("Refresh")
+        combo = getattr(self, "long_term_memory_embedding_model_edit", None)
+        current = self._long_term_memory_embedding_model_text() or str((getattr(_engine(), "RUNTIME_CONFIG", {}) or {}).get("long_term_memory_embedding_model", "") or "")
+        if combo is not None and hasattr(combo, "clear") and hasattr(combo, "addItem"):
+            try:
+                combo.blockSignals(True)
+                combo.clear()
+                values = list(models or [])
+                if current and current not in values:
+                    values.insert(0, current)
+                if not values:
+                    values = [current or "text-embedding-bge-m3"]
+                for model in values:
+                    combo.addItem(str(model or ""))
+                if current and hasattr(combo, "setCurrentText"):
+                    combo.setCurrentText(current)
+            finally:
+                try:
+                    combo.blockSignals(False)
+                except Exception:
+                    pass
+        if error:
+            print(f"[QtGUI] LM Studio embedding model refresh failed: {error}")
+        elif not models:
+            print("[QtGUI] No LM Studio embedding models found.")
+        else:
+            print(f"[QtGUI] Refreshed LM Studio embedding models: {len(models)} found.")
+        self.on_long_term_memory_embedding_model_changed()
 
     def on_long_term_memory_embedding_context_length_changed(self, value):
         _update_runtime_config("long_term_memory_embedding_context_length", max(512, min(262144, int(value))))

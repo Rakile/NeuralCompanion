@@ -162,6 +162,15 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_long_term_memory_embedding_models_refresh(self):
+            self._sync_single_line_edit_to_backend("long_term_memory_embedding_model_edit")
+            self._sync_single_line_edit_to_backend("long_term_memory_embedding_base_url_edit")
+            try:
+                self.backend.refresh_long_term_memory_embedding_models()
+            finally:
+                QtCore.QTimer.singleShot(350, self._refresh_chat_session_runtime_frontend)
+                QtCore.QTimer.singleShot(1200, self._refresh_chat_session_runtime_frontend)
+
     def _on_frontend_long_term_memory_embedding_context_length_changed(self, value):
             try:
                 self.backend.on_long_term_memory_embedding_context_length_changed(int(value))

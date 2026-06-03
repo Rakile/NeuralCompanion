@@ -114,7 +114,14 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
         _update_runtime_config("long_term_memory_embedding_enabled", bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False)
-        _update_runtime_config("long_term_memory_embedding_model", str(self.long_term_memory_embedding_model_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_model_edit") else str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"))
+        embedding_model_widget = getattr(self, "long_term_memory_embedding_model_edit", None)
+        if embedding_model_widget is not None and hasattr(embedding_model_widget, "currentText"):
+            embedding_model = str(embedding_model_widget.currentText() or "").strip()
+        elif embedding_model_widget is not None and hasattr(embedding_model_widget, "text"):
+            embedding_model = str(embedding_model_widget.text() or "").strip()
+        else:
+            embedding_model = str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3")
+        _update_runtime_config("long_term_memory_embedding_model", embedding_model)
         _update_runtime_config("long_term_memory_embedding_context_length", max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192))
         _update_runtime_config("long_term_memory_embedding_base_url", str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"))
         self._update_tts_backend_runtime_config_from_widgets(tts_backend, runtime_config)
@@ -133,6 +140,13 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("avatar_mode", mode)
         self.apply_text_config()
         input_mode = self._input_mode_value_from_label(self.input_mode_combo.currentText())
+        embedding_model_widget = getattr(self, "long_term_memory_embedding_model_edit", None)
+        if embedding_model_widget is not None and hasattr(embedding_model_widget, "currentText"):
+            embedding_model = str(embedding_model_widget.currentText() or "").strip()
+        elif embedding_model_widget is not None and hasattr(embedding_model_widget, "text"):
+            embedding_model = str(embedding_model_widget.text() or "").strip()
+        else:
+            embedding_model = str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3")
         config = {
             "active_preset_name": str(runtime_config.get("active_preset_name", "") or ""),
             "chat_provider": self._current_chat_provider_value(),
@@ -150,7 +164,7 @@ class BackendEngineLifecycleMixin:
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
             "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False,
-            "long_term_memory_embedding_model": str(self.long_term_memory_embedding_model_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_model_edit") else str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
+            "long_term_memory_embedding_model": embedding_model,
             "long_term_memory_embedding_context_length": max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192),
             "long_term_memory_embedding_base_url": str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
             "avatar_mode": mode,

@@ -440,6 +440,11 @@ class MainUiRealBindingMixin:
             long_term_memory_embedding_model_edit = self._ui_object("long_term_memory_embedding_model_edit")
             if long_term_memory_embedding_model_edit is not None and hasattr(long_term_memory_embedding_model_edit, "editingFinished"):
                 long_term_memory_embedding_model_edit.editingFinished.connect(self._on_frontend_long_term_memory_embedding_model_changed)
+            if long_term_memory_embedding_model_edit is not None and hasattr(long_term_memory_embedding_model_edit, "currentTextChanged"):
+                long_term_memory_embedding_model_edit.currentTextChanged.connect(lambda _text: self._on_frontend_long_term_memory_embedding_model_changed())
+            embedding_model_refresh = self._ui_object("btn_long_term_memory_embedding_model_refresh")
+            if embedding_model_refresh is not None and hasattr(embedding_model_refresh, "clicked"):
+                embedding_model_refresh.clicked.connect(lambda _checked=False: self._on_frontend_long_term_memory_embedding_models_refresh())
             long_term_memory_embedding_context_length_spin = self._ui_object("long_term_memory_embedding_context_length_spin")
             if long_term_memory_embedding_context_length_spin is not None and hasattr(long_term_memory_embedding_context_length_spin, "valueChanged"):
                 long_term_memory_embedding_context_length_spin.valueChanged.connect(self._on_frontend_long_term_memory_embedding_context_length_changed)

@@ -208,9 +208,13 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
                 retrieval_form.addRow("Max recall items", retrieval_max_items)
-                embedding_model = QtWidgets.QLineEdit(_backend_archive_text("long_term_memory_embedding_model_edit", "text-embedding-bge-m3"), archive_box)
+                embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
+                embedding_model.setEditable(True)
+                embedding_model.addItem(_backend_archive_text("long_term_memory_embedding_model_edit", "text-embedding-bge-m3"))
                 embedding_model.setMinimumWidth(220)
+                embedding_refresh = QtWidgets.QPushButton("Refresh", archive_box)
+                embedding_refresh.setObjectName("btn_long_term_memory_embedding_model_refresh")
                 embedding_context = QtWidgets.QSpinBox(archive_box)
                 embedding_context.setObjectName("long_term_memory_embedding_context_length_spin")
                 embedding_context.setRange(512, 262144)
@@ -221,7 +225,11 @@ class MainUiRealSurfacesMixin:
                 embedding_base_url = QtWidgets.QLineEdit(_backend_archive_text("long_term_memory_embedding_base_url_edit", "http://127.0.0.1:1234/v1"), archive_box)
                 embedding_base_url.setObjectName("long_term_memory_embedding_base_url_edit")
                 embedding_base_url.setMinimumWidth(220)
-                retrieval_form.addRow("Embedding model", embedding_model)
+                embedding_model_row = QtWidgets.QHBoxLayout()
+                embedding_model_row.setSpacing(8)
+                embedding_model_row.addWidget(embedding_model, 1)
+                embedding_model_row.addWidget(embedding_refresh)
+                retrieval_form.addRow("Embedding model", embedding_model_row)
                 retrieval_form.addRow("Embedding context", embedding_context)
                 retrieval_form.addRow("Embedding base URL", embedding_base_url)
                 archive_layout.addLayout(retrieval_form)
@@ -379,6 +387,7 @@ class MainUiRealSurfacesMixin:
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
                 "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
                 "long_term_memory_embedding_model_edit": self._ui_object("long_term_memory_embedding_model_edit"),
+                "btn_long_term_memory_embedding_model_refresh": self._ui_object("btn_long_term_memory_embedding_model_refresh"),
                 "long_term_memory_embedding_context_length_spin": self._ui_object("long_term_memory_embedding_context_length_spin"),
                 "long_term_memory_embedding_base_url_edit": self._ui_object("long_term_memory_embedding_base_url_edit"),
                 "long_term_memory_archive_hint": self._ui_object("long_term_memory_archive_hint"),
@@ -430,11 +439,20 @@ class MainUiRealSurfacesMixin:
                     del blocker
 
             def _copy_text(source, target):
-                if source is None or target is None or not hasattr(source, "text") or not hasattr(target, "setText"):
+                if source is None or target is None:
                     return
                 blocker = QtCore.QSignalBlocker(target)
                 try:
-                    target.setText(str(source.text() or ""))
+                    if hasattr(source, "currentText"):
+                        text = str(source.currentText() or "")
+                    elif hasattr(source, "text"):
+                        text = str(source.text() or "")
+                    else:
+                        return
+                    if hasattr(target, "setCurrentText"):
+                        target.setCurrentText(text)
+                    elif hasattr(target, "setText"):
+                        target.setText(text)
                 except Exception:
                     pass
                 finally:

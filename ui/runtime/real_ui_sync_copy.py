@@ -151,6 +151,9 @@ class RealUiSyncCopyMixin:
             if hasattr(source, "toPlainText") and hasattr(target, "setPlainText"):
                 text = str(source.toPlainText() or "")
                 return self._set_text_widget_text(target, text)
+            if hasattr(source, "currentText") and hasattr(target, "setCurrentText"):
+                text = str(source.currentText() or "")
+                return self._set_text_widget_text(target, text)
             if hasattr(source, "text") and hasattr(target, "setText"):
                 text = str(source.text() or "")
                 return self._set_text_widget_text(target, text)
@@ -179,6 +182,17 @@ class RealUiSyncCopyMixin:
                     was_blocked = bool(target.blockSignals(True)) if hasattr(target, "blockSignals") else False
                     try:
                         target.setText(value)
+                    finally:
+                        if hasattr(target, "blockSignals"):
+                            target.blockSignals(was_blocked)
+                    return True
+                if hasattr(target, "currentText") and hasattr(target, "setCurrentText"):
+                    current = str(target.currentText() or "")
+                    if current == value:
+                        return True
+                    was_blocked = bool(target.blockSignals(True)) if hasattr(target, "blockSignals") else False
+                    try:
+                        target.setCurrentText(value)
                     finally:
                         if hasattr(target, "blockSignals"):
                             target.blockSignals(was_blocked)

@@ -65,7 +65,8 @@ CHAT_TAB_TOOLTIPS = {
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
     "long_term_memory_embedding_enabled_checkbox": "Use LM Studio embeddings for semantic Long-Term Memory archive retrieval. Keyword search remains available as fallback.",
-    "long_term_memory_embedding_model_edit": "Embedding model name served by LM Studio, such as text-embedding-bge-m3.",
+    "long_term_memory_embedding_model_edit": "Embedding model served by LM Studio. Use Refresh after starting or changing the LM Studio embedding server.",
+    "btn_long_term_memory_embedding_model_refresh": "Refresh LM Studio embedding models.",
     "long_term_memory_embedding_base_url_edit": "OpenAI-compatible LM Studio base URL for embeddings, usually http://127.0.0.1:1234/v1.",
     "long_term_memory_embedding_context_length_spin": "Context length NC will request when loading the LM Studio embedding model. This is stored with the chat session and used as part of the embedding index identity.",
     "btn_save_chat_session": "Save changes to the currently loaded/saved chat context file.",
@@ -630,7 +631,11 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
-        retrieval_form.addRow("Embedding model", self.long_term_memory_embedding_model_edit)
+        embedding_model_row = QtWidgets.QHBoxLayout()
+        embedding_model_row.setSpacing(8)
+        embedding_model_row.addWidget(self.long_term_memory_embedding_model_edit, 1)
+        embedding_model_row.addWidget(self.btn_long_term_memory_embedding_model_refresh)
+        retrieval_form.addRow("Embedding model", embedding_model_row)
         retrieval_form.addRow("Embedding context", self.long_term_memory_embedding_context_length_spin)
         retrieval_form.addRow("Embedding base URL", self.long_term_memory_embedding_base_url_edit)
         archive_layout.addLayout(retrieval_form)
@@ -1042,10 +1047,16 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_embedding_enabled_checkbox.setChecked(bool(runtime_config.get("long_term_memory_embedding_enabled", False)))
         self.long_term_memory_embedding_enabled_checkbox.toggled.connect(self.on_long_term_memory_embedding_enabled_changed)
 
-        self.long_term_memory_embedding_model_edit = QtWidgets.QLineEdit(str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"))
+        self.long_term_memory_embedding_model_edit = NoWheelComboBox()
         self.long_term_memory_embedding_model_edit.setObjectName("long_term_memory_embedding_model_edit")
-        self.long_term_memory_embedding_model_edit.editingFinished.connect(self.on_long_term_memory_embedding_model_changed)
+        self.long_term_memory_embedding_model_edit.setEditable(True)
+        self.long_term_memory_embedding_model_edit.addItem(str(runtime_config.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"))
+        self.long_term_memory_embedding_model_edit.currentTextChanged.connect(self.on_long_term_memory_embedding_model_changed)
         self.long_term_memory_embedding_model_edit.setMinimumWidth(220)
+
+        self.btn_long_term_memory_embedding_model_refresh = QtWidgets.QPushButton("Refresh")
+        self.btn_long_term_memory_embedding_model_refresh.setObjectName("btn_long_term_memory_embedding_model_refresh")
+        self.btn_long_term_memory_embedding_model_refresh.clicked.connect(self.refresh_long_term_memory_embedding_models)
 
         self.long_term_memory_embedding_context_length_spin = ContextTokenStepper()
         self.long_term_memory_embedding_context_length_spin.setObjectName("long_term_memory_embedding_context_length_spin")

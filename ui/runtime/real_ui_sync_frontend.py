@@ -194,6 +194,7 @@ class RealUiSyncFrontendMixin:
                 "preset_combo",
                 "chat_provider_combo",
                 "model_combo",
+                "long_term_memory_embedding_model_edit",
                 "model_requires_vision_checkbox",
                 "sensory_feedback_source_combo",
                 "chat_font_size_combo",
@@ -250,7 +251,6 @@ class RealUiSyncFrontendMixin:
     def _line_edit_sync_names(self):
             return tuple(
                 list((
-                "long_term_memory_embedding_model_edit",
                 "long_term_memory_embedding_base_url_edit",
                 ))
                 + sorted(self._addon_sync_widget_names("line_edit"))
@@ -332,10 +332,21 @@ class RealUiSyncFrontendMixin:
     def _sync_single_line_edit_to_backend(self, object_name):
             front = self._ui_object(object_name)
             back = self._backend_widget(object_name)
-            if front is None or back is None or not hasattr(front, "text") or not hasattr(back, "setText"):
+            if front is None or back is None:
                 return False
             try:
-                back.setText(str(front.text() or ""))
+                if hasattr(front, "currentText"):
+                    text = str(front.currentText() or "")
+                elif hasattr(front, "text"):
+                    text = str(front.text() or "")
+                else:
+                    return False
+                if hasattr(back, "setCurrentText"):
+                    back.setCurrentText(text)
+                elif hasattr(back, "setText"):
+                    back.setText(text)
+                else:
+                    return False
                 return True
             except Exception:
                 return False
