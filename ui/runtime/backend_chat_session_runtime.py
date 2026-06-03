@@ -204,8 +204,13 @@ class BackendChatSessionRuntimeMixin:
             return
         try:
             engine = _engine()
-            payload = engine.continuity_memory_snapshot()
             config = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+            if bool(config.get("quick_chat_context_active", False)):
+                self.long_term_memory_hint.setText(
+                    "Continuity Memory is disabled while using Quick Load scratch chat."
+                )
+                return
+            payload = engine.continuity_memory_snapshot()
         except Exception:
             payload = {}
             config = {}
@@ -225,7 +230,7 @@ class BackendChatSessionRuntimeMixin:
         active_name = str(config.get("active_chat_context_name", "") or "").strip()
         memory_id = str((payload or {}).get("memory_id") or config.get("continuity_memory_id", "") or "").strip()
         target = active_name or memory_id or "unsaved chat"
-        auto_enabled = bool(config.get("continuity_memory_auto_summarize", config.get("continuity_memory_update_on_save", True)))
+        auto_enabled = bool(config.get("continuity_memory_auto_summarize", config.get("continuity_memory_update_on_save", False)))
         active_path = str(config.get("active_chat_context_path", "") or "").strip()
         try:
             batch_size = int(getattr(getattr(engine, "continuity_memory", None), "DEFAULT_UPDATE_BATCH_TURNS", 120) or 120)
@@ -267,6 +272,24 @@ class BackendChatSessionRuntimeMixin:
             return
         try:
             engine = _engine()
+            config = getattr(engine, "RUNTIME_CONFIG", {}) or {}
+            if bool(config.get("quick_chat_context_active", False)):
+                self.long_term_memory_archive_hint.setText(
+                    "Long-Term Memory archive is disabled while using Quick Load scratch chat."
+                )
+                return
+            retrieval_enabled = bool(config.get("long_term_memory_retrieval_enabled", False))
+            embedding_enabled = bool(config.get("long_term_memory_embedding_enabled", False))
+            if not retrieval_enabled and not embedding_enabled:
+                self.long_term_memory_archive_hint.setText(
+                    "Long-Term Memory archive is off. Enable retrieval or embeddings to use per-chat archive memory."
+                )
+                return
+            if not str(config.get("active_chat_context_path", "") or "").strip():
+                self.long_term_memory_archive_hint.setText(
+                    "Long-Term Memory archive is waiting for a saved or loaded chat context."
+                )
+                return
             store = engine.initialize_long_term_memory_store()
             active_records = engine.list_long_term_memory_records(limit=1000)
             deleted_records = engine.list_long_term_memory_records(status="deleted", include_deleted=True, limit=1000)

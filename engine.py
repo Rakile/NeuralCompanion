@@ -694,12 +694,13 @@ RUNTIME_CONFIG = {
     "continuity_memory_id": continuity_memory.new_memory_id(),
     "active_chat_context_path": "",
     "active_chat_context_name": "",
+    "quick_chat_context_active": False,
     "long_term_memory_db_path": "",
     "long_term_memory_db_id": "",
     "continuity_memory_enabled": False,
-    "continuity_memory_update_on_save": True,
-    "continuity_memory_auto_summarize": True,
-    "continuity_memory_inject": True,
+    "continuity_memory_update_on_save": False,
+    "continuity_memory_auto_summarize": False,
+    "continuity_memory_inject": False,
     "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
     "long_term_memory_retrieval_enabled": False,
     "long_term_memory_retrieval_max_items": 6,
@@ -4186,6 +4187,16 @@ def export_chat_session_state():
         "version": 1,
         "saved_at": time.time(),
         "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
+        "continuity_memory_enabled": bool(RUNTIME_CONFIG.get("continuity_memory_enabled", False)),
+        "continuity_memory_auto_summarize": bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", False))),
+        "continuity_memory_inject": bool(RUNTIME_CONFIG.get("continuity_memory_inject", False)),
+        "continuity_memory_max_chars": int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS),
+        "long_term_memory_retrieval_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
+        "long_term_memory_retrieval_max_items": int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+        "long_term_memory_embedding_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
+        "long_term_memory_embedding_model": str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
+        "long_term_memory_embedding_context_length": int(RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", 8192) or 8192),
+        "long_term_memory_embedding_base_url": str(RUNTIME_CONFIG.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
         "conversation_history": [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn],
         "assistant_memory": json.loads(json.dumps(assistant_memory or _default_assistant_memory())),
         "sensory_hidden_history": [item for item in (_sanitize_sensory_hidden_event(entry) for entry in list(sensory_hidden_history or [])) if item],
@@ -4318,7 +4329,7 @@ def maybe_start_continuity_memory_auto_update():
     global _continuity_memory_auto_update_running
     if not bool(RUNTIME_CONFIG.get("continuity_memory_enabled", False)):
         return False
-    if not bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", True))):
+    if not bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", False))):
         return False
     if not str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip():
         return False
@@ -4359,6 +4370,7 @@ def set_active_chat_context_path(path_value):
     raw_path = str(path_value or "").strip()
     previous_path = str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip()
     RUNTIME_CONFIG["active_chat_context_path"] = raw_path
+    RUNTIME_CONFIG["quick_chat_context_active"] = False
     if raw_path:
         name = Path(raw_path).stem
         RUNTIME_CONFIG["active_chat_context_name"] = name

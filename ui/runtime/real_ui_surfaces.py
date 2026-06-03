@@ -309,12 +309,12 @@ class MainUiRealSurfacesMixin:
 
             update_on_save = QtWidgets.QCheckBox("Auto summarize after 120 new messages", memory_box)
             update_on_save.setObjectName("long_term_memory_update_on_save_checkbox")
-            update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", True))
+            update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", False))
             memory_layout.addWidget(update_on_save)
 
             inject = QtWidgets.QCheckBox("Inject continuity summary into chat", memory_box)
             inject.setObjectName("long_term_memory_inject_checkbox")
-            inject.setChecked(_backend_checked("long_term_memory_inject_checkbox", True))
+            inject.setChecked(_backend_checked("long_term_memory_inject_checkbox", False))
             memory_layout.addWidget(inject)
 
             max_chars = QtWidgets.QSpinBox(memory_box)

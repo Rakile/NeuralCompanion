@@ -980,12 +980,12 @@ class BackendSystemShapingBuilderMixin:
 
         self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize after 120 new messages")
         self.long_term_memory_update_on_save_checkbox.setObjectName("long_term_memory_update_on_save_checkbox")
-        self.long_term_memory_update_on_save_checkbox.setChecked(bool(runtime_config.get("continuity_memory_auto_summarize", runtime_config.get("continuity_memory_update_on_save", runtime_config.get("long_term_memory_update_on_save", True)))))
+        self.long_term_memory_update_on_save_checkbox.setChecked(bool(runtime_config.get("continuity_memory_auto_summarize", runtime_config.get("continuity_memory_update_on_save", runtime_config.get("long_term_memory_update_on_save", False)))))
         self.long_term_memory_update_on_save_checkbox.toggled.connect(self.on_long_term_memory_update_on_save_changed)
 
         self.long_term_memory_inject_checkbox = QtWidgets.QCheckBox("Inject continuity summary into chat")
         self.long_term_memory_inject_checkbox.setObjectName("long_term_memory_inject_checkbox")
-        self.long_term_memory_inject_checkbox.setChecked(bool(runtime_config.get("continuity_memory_inject", runtime_config.get("long_term_memory_inject", True))))
+        self.long_term_memory_inject_checkbox.setChecked(bool(runtime_config.get("continuity_memory_inject", runtime_config.get("long_term_memory_inject", False))))
         self.long_term_memory_inject_checkbox.toggled.connect(self.on_long_term_memory_inject_changed)
 
         self.long_term_memory_max_chars_spin = ContextTokenStepper()

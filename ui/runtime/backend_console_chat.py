@@ -535,8 +535,17 @@ class BackendConsoleChatMixin:
         runtime_dir.mkdir(parents=True, exist_ok=True)
         return runtime_dir / "chat_context_quick_save.json"
 
+    def _is_quick_chat_context_path(self, path):
+        try:
+            return Path(path).resolve() == self._quick_chat_context_path().resolve()
+        except Exception:
+            return Path(path).name == "chat_context_quick_save.json"
+
     def _remember_chat_context_path(self, path):
         engine = _engine()
+        runtime_config = getattr(engine, "RUNTIME_CONFIG", None)
+        if isinstance(runtime_config, dict):
+            runtime_config["quick_chat_context_active"] = False
         remember = getattr(engine, "set_active_chat_context_path", None)
         if callable(remember):
             try:
@@ -544,6 +553,90 @@ class BackendConsoleChatMixin:
             except Exception as exc:
                 print(f"[QtGUI] Chat context path tracking failed: {exc}")
         self._refresh_chat_context_save_controls()
+
+    def _detach_active_chat_context_path(self):
+        engine = _engine()
+        runtime_config = getattr(engine, "RUNTIME_CONFIG", None)
+        if isinstance(runtime_config, dict):
+            runtime_config["active_chat_context_path"] = ""
+            runtime_config["active_chat_context_name"] = ""
+            runtime_config["continuity_memory_id"] = ""
+            runtime_config["long_term_memory_db_path"] = ""
+            runtime_config["long_term_memory_db_id"] = ""
+            runtime_config["quick_chat_context_active"] = True
+        self._refresh_chat_context_save_controls()
+
+    def _disable_memory_for_quick_chat_context(self):
+        engine = _engine()
+        runtime_config = getattr(engine, "RUNTIME_CONFIG", None)
+        if isinstance(runtime_config, dict):
+            runtime_config["quick_chat_context_active"] = True
+            runtime_config["continuity_memory_enabled"] = False
+            runtime_config["continuity_memory_auto_summarize"] = False
+            runtime_config["continuity_memory_update_on_save"] = False
+            runtime_config["continuity_memory_inject"] = False
+            runtime_config["long_term_memory_retrieval_enabled"] = False
+            runtime_config["long_term_memory_embedding_enabled"] = False
+        checkbox_names = (
+            "long_term_memory_enabled_checkbox",
+            "long_term_memory_update_on_save_checkbox",
+            "long_term_memory_inject_checkbox",
+            "long_term_memory_retrieval_enabled_checkbox",
+            "long_term_memory_embedding_enabled_checkbox",
+        )
+        for name in checkbox_names:
+            widget = getattr(self, name, None)
+            if widget is not None and hasattr(widget, "setChecked"):
+                try:
+                    widget.setChecked(False)
+                except Exception:
+                    pass
+        self._refresh_continuity_memory_hint()
+        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+        if callable(refresh_archive):
+            refresh_archive()
+
+    def _set_memory_checkbox_checked(self, name, checked):
+        widget = getattr(self, name, None)
+        if widget is not None and hasattr(widget, "setChecked"):
+            try:
+                widget.setChecked(bool(checked))
+            except Exception:
+                pass
+
+    def _apply_loaded_chat_context_memory_settings(self, payload):
+        data = dict(payload or {})
+        config = getattr(_engine(), "RUNTIME_CONFIG", None)
+        memory_settings = {
+            "continuity_memory_enabled": bool(data.get("continuity_memory_enabled", data.get("long_term_memory_enabled", False))),
+            "continuity_memory_auto_summarize": bool(data.get("continuity_memory_auto_summarize", data.get("continuity_memory_update_on_save", data.get("long_term_memory_update_on_save", False)))),
+            "continuity_memory_inject": bool(data.get("continuity_memory_inject", data.get("long_term_memory_inject", False))),
+            "long_term_memory_retrieval_enabled": bool(data.get("long_term_memory_retrieval_enabled", False)),
+            "long_term_memory_embedding_enabled": bool(data.get("long_term_memory_embedding_enabled", False)),
+        }
+        if isinstance(config, dict):
+            config.update(memory_settings)
+            config["continuity_memory_update_on_save"] = memory_settings["continuity_memory_auto_summarize"]
+            config["continuity_memory_max_chars"] = max(500, min(20000, int(data.get("continuity_memory_max_chars", data.get("long_term_memory_max_chars", config.get("continuity_memory_max_chars", 3000))) or 3000)))
+            config["long_term_memory_retrieval_max_items"] = max(1, min(12, int(data.get("long_term_memory_retrieval_max_items", config.get("long_term_memory_retrieval_max_items", 6)) or 6)))
+            config["long_term_memory_embedding_model"] = str(data.get("long_term_memory_embedding_model", config.get("long_term_memory_embedding_model", "text-embedding-bge-m3")) or "text-embedding-bge-m3")
+            config["long_term_memory_embedding_context_length"] = max(512, min(262144, int(data.get("long_term_memory_embedding_context_length", config.get("long_term_memory_embedding_context_length", 8192)) or 8192)))
+            config["long_term_memory_embedding_base_url"] = str(data.get("long_term_memory_embedding_base_url", config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1")) or "http://127.0.0.1:1234/v1")
+        self._set_memory_checkbox_checked("long_term_memory_enabled_checkbox", memory_settings["continuity_memory_enabled"])
+        self._set_memory_checkbox_checked("long_term_memory_update_on_save_checkbox", memory_settings["continuity_memory_auto_summarize"])
+        self._set_memory_checkbox_checked("long_term_memory_inject_checkbox", memory_settings["continuity_memory_inject"])
+        self._set_memory_checkbox_checked("long_term_memory_retrieval_enabled_checkbox", memory_settings["long_term_memory_retrieval_enabled"])
+        self._set_memory_checkbox_checked("long_term_memory_embedding_enabled_checkbox", memory_settings["long_term_memory_embedding_enabled"])
+        if hasattr(self, "long_term_memory_max_chars_spin") and isinstance(config, dict):
+            self.long_term_memory_max_chars_spin.setValue(int(config.get("continuity_memory_max_chars", 3000) or 3000))
+        if hasattr(self, "long_term_memory_retrieval_max_items_spin") and isinstance(config, dict):
+            self.long_term_memory_retrieval_max_items_spin.setValue(int(config.get("long_term_memory_retrieval_max_items", 6) or 6))
+        if hasattr(self, "long_term_memory_embedding_model_edit") and isinstance(config, dict):
+            self.long_term_memory_embedding_model_edit.setText(str(config.get("long_term_memory_embedding_model", "") or ""))
+        if hasattr(self, "long_term_memory_embedding_context_length_spin") and isinstance(config, dict):
+            self.long_term_memory_embedding_context_length_spin.setValue(int(config.get("long_term_memory_embedding_context_length", 8192) or 8192))
+        if hasattr(self, "long_term_memory_embedding_base_url_edit") and isinstance(config, dict):
+            self.long_term_memory_embedding_base_url_edit.setText(str(config.get("long_term_memory_embedding_base_url", "") or ""))
 
     def _active_chat_context_path(self):
         config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
@@ -578,32 +671,42 @@ class BackendConsoleChatMixin:
     def _maybe_update_long_term_memory_on_save(self):
         self._maybe_update_continuity_memory_on_save()
 
-    def _write_chat_context_to_path(self, target, *, label="Chat context", reset_memory_identity=False):
+    def _write_chat_context_to_path(
+        self,
+        target,
+        *,
+        label="Chat context",
+        reset_memory_identity=False,
+        remember_active_context=True,
+        sync_memory=True,
+    ):
         target = Path(target)
         if target.suffix.lower() != ".json":
             target = target.with_suffix(".json")
-        if reset_memory_identity:
+        if reset_memory_identity and remember_active_context:
             setter = getattr(_engine(), "set_continuity_memory_id", None)
             if callable(setter):
                 try:
                     setter(target.stem)
                 except Exception as exc:
                     print(f"[QtGUI] Chat context memory identity reset failed: {exc}")
-        self._remember_chat_context_path(target)
+        if remember_active_context:
+            self._remember_chat_context_path(target)
         payload = _engine().export_chat_session_state()
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-        self._maybe_update_continuity_memory_on_save()
-        sync_archive = getattr(_engine(), "sync_long_term_memory_archive_from_current_chat", None)
-        if callable(sync_archive):
-            try:
-                result = sync_archive()
-                if result and result.get("enabled"):
-                    refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
-                    if callable(refresh_archive):
-                        refresh_archive()
-            except Exception as exc:
-                print(f"[QtGUI] Long-Term Memory archive sync on save failed: {exc}")
+        if sync_memory:
+            self._maybe_update_continuity_memory_on_save()
+            sync_archive = getattr(_engine(), "sync_long_term_memory_archive_from_current_chat", None)
+            if callable(sync_archive):
+                try:
+                    result = sync_archive()
+                    if result and result.get("enabled"):
+                        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+                        if callable(refresh_archive):
+                            refresh_archive()
+                except Exception as exc:
+                    print(f"[QtGUI] Long-Term Memory archive sync on save failed: {exc}")
         print(f"[QtGUI] {label} saved: {target}")
 
     def save_chat_context(self):
@@ -629,7 +732,12 @@ class BackendConsoleChatMixin:
 
     def quick_save_chat_context(self):
         target = self._quick_chat_context_path()
-        self._write_chat_context_to_path(target, label="Quick chat context")
+        self._write_chat_context_to_path(
+            target,
+            label="Quick chat context",
+            remember_active_context=False,
+            sync_memory=False,
+        )
 
     def load_chat_context(self):
         path, _ = QtDialogService(self).open_file(
@@ -642,7 +750,12 @@ class BackendConsoleChatMixin:
         payload = self._prepare_loaded_chat_context_payload(json.loads(Path(path).read_text(encoding="utf-8")), path)
         musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
-        self._remember_chat_context_path(path)
+        if self._is_quick_chat_context_path(path):
+            self._detach_active_chat_context_path()
+            self._disable_memory_for_quick_chat_context()
+        else:
+            self._remember_chat_context_path(path)
+            self._apply_loaded_chat_context_memory_settings(payload)
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)
@@ -662,7 +775,8 @@ class BackendConsoleChatMixin:
         payload = self._prepare_loaded_chat_context_payload(json.loads(path.read_text(encoding="utf-8")), path)
         musetalk_preview_snapshot = _capture_musetalk_preview_snapshot(self)
         result = _engine().import_chat_session_state(payload)
-        self._remember_chat_context_path(path)
+        self._detach_active_chat_context_path()
+        self._disable_memory_for_quick_chat_context()
         _restore_musetalk_preview_snapshot(musetalk_preview_snapshot, self)
         self._set_chat_edit_mode(False)
         self._rebuild_chat_view_from_history(force=True)

@@ -221,7 +221,7 @@ def build_context(runtime_config: dict[str, Any], *, memory_id: Any = "", path: 
     enabled = bool((runtime_config or {}).get("continuity_memory_enabled", (runtime_config or {}).get("long_term_memory_enabled", False)))
     if not enabled:
         return ""
-    inject = bool((runtime_config or {}).get("continuity_memory_inject", (runtime_config or {}).get("long_term_memory_inject", True)))
+    inject = bool((runtime_config or {}).get("continuity_memory_inject", (runtime_config or {}).get("long_term_memory_inject", False)))
     if not inject:
         return ""
     resolved_id = normalize_memory_id(memory_id or (runtime_config or {}).get("continuity_memory_id"), fallback="default")
