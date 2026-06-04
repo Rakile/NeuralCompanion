@@ -80,6 +80,7 @@ MUSETALK_PREPROCESS_TOOLTIPS = {
     "musetalk_debug_show_mask_overlay_checkbox": "Show the mask overlay in debug previews.",
     "musetalk_debug_brush_size_spin": "Brush radius used by the mask editor.",
     "musetalk_debug_brush_feather_spin": "Soft edge width for the mask editor brush.",
+    "musetalk_debug_brush_transparency_spin": "Overall mask editor brush transparency; 0 is full strength.",
     "btn_musetalk_debug_zoom_out": "Zoom debug preview out.",
     "btn_musetalk_debug_zoom_reset": "Fit debug preview to the available area.",
     "btn_musetalk_debug_zoom_in": "Zoom debug preview in.",
@@ -748,6 +749,11 @@ class MuseTalkPreprocessController(QtCore.QObject):
             self.musetalk_debug_brush_feather_spin.setRange(0, 80)
             self.musetalk_debug_brush_feather_spin.setValue(6)
             self.musetalk_debug_brush_feather_spin.valueChanged.connect(self._on_musetalk_debug_brush_settings_changed)
+        self.musetalk_debug_brush_transparency_spin = self._ui_child(root, "musetalk_debug_brush_transparency_spin", QtWidgets.QSpinBox)
+        if self.musetalk_debug_brush_transparency_spin is not None:
+            self.musetalk_debug_brush_transparency_spin.setRange(0, 99)
+            self.musetalk_debug_brush_transparency_spin.setValue(0)
+            self.musetalk_debug_brush_transparency_spin.valueChanged.connect(self._on_musetalk_debug_brush_settings_changed)
         self.btn_musetalk_debug_zoom_out = self._ui_child(root, "btn_musetalk_debug_zoom_out", QtWidgets.QPushButton)
         if self.btn_musetalk_debug_zoom_out is not None:
             self.btn_musetalk_debug_zoom_out.setFixedWidth(34)
@@ -1250,6 +1256,17 @@ class MuseTalkPreprocessController(QtCore.QObject):
         brush_feather_column.addWidget(self.musetalk_debug_brush_feather_spin)
         debug_tools_row.addLayout(brush_feather_column)
 
+        brush_transparency_column = QtWidgets.QVBoxLayout()
+        self.musetalk_debug_brush_transparency_spin = ContextTokenStepper()
+        self.musetalk_debug_brush_transparency_spin.setObjectName("musetalk_debug_brush_transparency_spin")
+        self.musetalk_debug_brush_transparency_spin.setRange(0, 99)
+        self.musetalk_debug_brush_transparency_spin.setMinimumWidth(96)
+        self.musetalk_debug_brush_transparency_spin.setValue(0)
+        self.musetalk_debug_brush_transparency_spin.valueChanged.connect(self._on_musetalk_debug_brush_settings_changed)
+        brush_transparency_column.addWidget(QtWidgets.QLabel("Transparency"))
+        brush_transparency_column.addWidget(self.musetalk_debug_brush_transparency_spin)
+        debug_tools_row.addLayout(brush_transparency_column)
+
         zoom_column = QtWidgets.QVBoxLayout()
         zoom_column.addWidget(QtWidgets.QLabel("Preview Zoom"))
         zoom_buttons_row = QtWidgets.QHBoxLayout()
@@ -1335,6 +1352,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             "musetalk_debug_show_mask_overlay": self._musetalk_debug_overlay_enabled(),
             "musetalk_debug_brush_size": int(self.musetalk_debug_brush_size_spin.value()) if hasattr(self, "musetalk_debug_brush_size_spin") else 12,
             "musetalk_debug_brush_feather": int(self.musetalk_debug_brush_feather_spin.value()) if hasattr(self, "musetalk_debug_brush_feather_spin") else 6,
+            "musetalk_debug_brush_transparency": int(self.musetalk_debug_brush_transparency_spin.value()) if getattr(self, "musetalk_debug_brush_transparency_spin", None) is not None else 0,
             "musetalk_parsing_mode": self.musetalk_parsing_mode_combo.currentData() if hasattr(self, "musetalk_parsing_mode_combo") else "jaw",
             "musetalk_extra_margin": int(self.musetalk_extra_margin_spin.value()) if hasattr(self, "musetalk_extra_margin_spin") else 10,
             "musetalk_left_cheek_width": int(self.musetalk_left_cheek_width_spin.value()) if hasattr(self, "musetalk_left_cheek_width_spin") else 90,
@@ -1376,6 +1394,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
         musetalk_debug_brush_feather = session.get("musetalk_debug_brush_feather")
         if musetalk_debug_brush_feather is not None and hasattr(self, "musetalk_debug_brush_feather_spin"):
             self.musetalk_debug_brush_feather_spin.setValue(int(musetalk_debug_brush_feather))
+        musetalk_debug_brush_transparency = session.get("musetalk_debug_brush_transparency")
+        if musetalk_debug_brush_transparency is not None and getattr(self, "musetalk_debug_brush_transparency_spin", None) is not None:
+            self.musetalk_debug_brush_transparency_spin.setValue(int(musetalk_debug_brush_transparency))
         musetalk_parsing_mode = str(session.get("musetalk_parsing_mode", "") or "").strip().lower()
         if musetalk_parsing_mode and hasattr(self, "musetalk_parsing_mode_combo"):
             index = self.musetalk_parsing_mode_combo.findData(musetalk_parsing_mode)
@@ -2636,8 +2657,9 @@ class MuseTalkPreprocessController(QtCore.QObject):
             return
         radius = int(self.musetalk_debug_brush_size_spin.value()) if hasattr(self, "musetalk_debug_brush_size_spin") else 12
         feather = int(self.musetalk_debug_brush_feather_spin.value()) if hasattr(self, "musetalk_debug_brush_feather_spin") else 6
+        transparency = int(self.musetalk_debug_brush_transparency_spin.value()) if getattr(self, "musetalk_debug_brush_transparency_spin", None) is not None else 0
         try:
-            self.musetalk_ui.set_debug_mask_brush(radius=radius, feather=feather)
+            self.musetalk_ui.set_debug_mask_brush(radius=radius, feather=feather, transparency=transparency)
         except Exception:
             pass
 

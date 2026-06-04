@@ -271,11 +271,17 @@ class QtMuseTalkUIService:
             )
         )
 
-    def set_debug_mask_brush(self, *, radius: int | None = None, feather: int | None = None) -> bool:
+    def set_debug_mask_brush(
+        self,
+        *,
+        radius: int | None = None,
+        feather: int | None = None,
+        transparency: int | None = None,
+    ) -> bool:
         preview_widget = self._preview_widget()
         if preview_widget is None or not hasattr(preview_widget, "set_debug_mask_brush"):
             return False
-        return bool(preview_widget.set_debug_mask_brush(radius=radius, feather=feather))
+        return bool(preview_widget.set_debug_mask_brush(radius=radius, feather=feather, transparency=transparency))
 
     def adjust_preview_zoom(self, factor_delta: float) -> bool:
         preview_widget = self._preview_widget()

@@ -113,11 +113,16 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.debug_mask_draw_value = 255
         self.debug_mask_brush_radius = 12
         self.debug_mask_brush_feather = 6
+        self.debug_mask_brush_transparency = 0
         self.debug_mask_base_frame = None
         self.debug_mask_full_mask = None
         self.debug_mask_bbox = None
         self.debug_mask_crop_box = None
         self.debug_mask_modified_path = None
+        self.debug_mask_overlay_frame = None
+        self.debug_mask_overlay_dirty_rect = None
+        self.debug_mask_overlay_refresh_pending = False
+        self.debug_mask_overlay_last_refresh_at = 0.0
         self.debug_mask_stroke_base_mask = None
         self.debug_mask_stroke_accumulator = None
         self.debug_mask_stroke_add_mask = True
@@ -228,6 +233,8 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                             return True
                 elif event.type() == QtCore.QEvent.MouseButtonRelease and self.debug_mask_drawing:
                     self.debug_mask_drawing = False
+                    self._flush_debug_mask_overlay_preview()
+                    self._save_debug_mask_modified()
                     self.debug_mask_stroke_base_mask = None
                     self.debug_mask_stroke_accumulator = None
                     return True
@@ -355,11 +362,13 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.debug_mask_stroke_accumulator = None
         self._update_debug_mask_cursor()
 
-    def set_debug_mask_brush(self, *, radius=None, feather=None):
+    def set_debug_mask_brush(self, *, radius=None, feather=None, transparency=None):
         if radius is not None:
             self.debug_mask_brush_radius = max(1, int(radius))
         if feather is not None:
             self.debug_mask_brush_feather = max(0, int(feather))
+        if transparency is not None:
+            self.debug_mask_brush_transparency = max(0, min(99, int(transparency)))
         self._update_debug_mask_cursor()
         return True
 
@@ -412,6 +421,10 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.debug_mask_bbox = None
         self.debug_mask_crop_box = None
         self.debug_mask_modified_path = None
+        self.debug_mask_overlay_frame = None
+        self.debug_mask_overlay_dirty_rect = None
+        self.debug_mask_overlay_refresh_pending = False
+        self.debug_mask_overlay_last_refresh_at = 0.0
         self.debug_mask_stroke_base_mask = None
         self.debug_mask_stroke_accumulator = None
         self._set_debug_mask_editor_enabled(False)
@@ -486,19 +499,92 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         if self.debug_mask_base_frame is None or self.debug_mask_full_mask is None:
             return False
         mask_overlay = self.debug_mask_base_frame.copy()
-        alpha = (self.debug_mask_full_mask.astype(np.float32) / 255.0)[:, :, None] * 0.75
-        overlay_color = np.zeros_like(mask_overlay)
-        overlay_color[:, :, 2] = 255
-        overlay_color[:, :, 1] = 40
-        mask_overlay = (mask_overlay.astype(np.float32) * (1.0 - alpha) + overlay_color.astype(np.float32) * alpha).clip(0, 255).astype(np.uint8)
+        self._blend_debug_mask_overlay_region(mask_overlay, 0, 0, mask_overlay.shape[1], mask_overlay.shape[0])
         if self.debug_mask_bbox and len(self.debug_mask_bbox) == 4:
             x1, y1, x2, y2 = [int(v) for v in self.debug_mask_bbox]
             cv2.rectangle(mask_overlay, (x1, y1), (x2, y2), (0, 220, 255), 3)
         cv2.putText(mask_overlay, 'MASK OVERLAY (EDIT)', (18, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 220, 255), 2, cv2.LINE_AA)
+        self.debug_mask_overlay_frame = mask_overlay
         rgb = cv2.cvtColor(mask_overlay, cv2.COLOR_BGR2RGB)
         qimage = QtGui.QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.strides[0], QtGui.QImage.Format_RGB888).copy()
         self.current_pixmap = QtGui.QPixmap.fromImage(qimage)
         self._refresh_displayed_pixmap()
+        self.preview_label.setText('MuseTalk debug mask overlay (editable)')
+        return True
+
+    def _blend_debug_mask_overlay_region(self, overlay_frame, x_start, y_start, x_end, y_end):
+        if self.debug_mask_base_frame is None or self.debug_mask_full_mask is None:
+            return False
+        height, width = self.debug_mask_full_mask.shape[:2]
+        x_start = max(0, min(width, int(x_start)))
+        y_start = max(0, min(height, int(y_start)))
+        x_end = max(x_start, min(width, int(x_end)))
+        y_end = max(y_start, min(height, int(y_end)))
+        if x_end <= x_start or y_end <= y_start:
+            return False
+        base_patch = self.debug_mask_base_frame[y_start:y_end, x_start:x_end]
+        mask_patch = self.debug_mask_full_mask[y_start:y_end, x_start:x_end]
+        alpha = (mask_patch.astype(np.float32) / 255.0)[:, :, None] * 0.75
+        overlay_color = np.zeros_like(base_patch)
+        overlay_color[:, :, 2] = 255
+        overlay_color[:, :, 1] = 40
+        overlay_frame[y_start:y_end, x_start:x_end] = (
+            base_patch.astype(np.float32) * (1.0 - alpha) + overlay_color.astype(np.float32) * alpha
+        ).clip(0, 255).astype(np.uint8)
+        return True
+
+    def _merge_debug_mask_dirty_rect(self, rect):
+        if rect is None:
+            return
+        x_start, y_start, x_end, y_end = [int(v) for v in rect]
+        if self.debug_mask_overlay_dirty_rect is None:
+            self.debug_mask_overlay_dirty_rect = (x_start, y_start, x_end, y_end)
+            return
+        old_x1, old_y1, old_x2, old_y2 = self.debug_mask_overlay_dirty_rect
+        self.debug_mask_overlay_dirty_rect = (
+            min(old_x1, x_start),
+            min(old_y1, y_start),
+            max(old_x2, x_end),
+            max(old_y2, y_end),
+        )
+
+    def _schedule_debug_mask_overlay_preview(self, rect):
+        self._merge_debug_mask_dirty_rect(rect)
+        now = time.time()
+        min_interval = 1.0 / 30.0
+        elapsed = now - float(self.debug_mask_overlay_last_refresh_at or 0.0)
+        if elapsed >= min_interval:
+            self._flush_debug_mask_overlay_preview()
+            return
+        if self.debug_mask_overlay_refresh_pending:
+            return
+        self.debug_mask_overlay_refresh_pending = True
+        delay_ms = max(1, int(round((min_interval - elapsed) * 1000.0)))
+        QtCore.QTimer.singleShot(delay_ms, self._flush_debug_mask_overlay_preview)
+
+    def _flush_debug_mask_overlay_preview(self):
+        self.debug_mask_overlay_refresh_pending = False
+        if (
+            self.debug_mask_base_frame is None
+            or self.debug_mask_full_mask is None
+            or self.debug_mask_overlay_dirty_rect is None
+        ):
+            return False
+        if self.debug_mask_overlay_frame is None:
+            return self._refresh_debug_mask_overlay_preview()
+        x_start, y_start, x_end, y_end = self.debug_mask_overlay_dirty_rect
+        self.debug_mask_overlay_dirty_rect = None
+        if not self._blend_debug_mask_overlay_region(self.debug_mask_overlay_frame, x_start, y_start, x_end, y_end):
+            return False
+        if self.debug_mask_bbox and len(self.debug_mask_bbox) == 4:
+            x1, y1, x2, y2 = [int(v) for v in self.debug_mask_bbox]
+            cv2.rectangle(self.debug_mask_overlay_frame, (x1, y1), (x2, y2), (0, 220, 255), 3)
+        cv2.putText(self.debug_mask_overlay_frame, 'MASK OVERLAY (EDIT)', (18, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0, 220, 255), 2, cv2.LINE_AA)
+        rgb = cv2.cvtColor(self.debug_mask_overlay_frame, cv2.COLOR_BGR2RGB)
+        qimage = QtGui.QImage(rgb.data, rgb.shape[1], rgb.shape[0], rgb.strides[0], QtGui.QImage.Format_RGB888).copy()
+        self.current_pixmap = QtGui.QPixmap.fromImage(qimage)
+        self._refresh_displayed_pixmap()
+        self.debug_mask_overlay_last_refresh_at = time.time()
         self.preview_label.setText('MuseTalk debug mask overlay (editable)')
         return True
 
@@ -510,13 +596,18 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             return False
         radius = max(1, int(self.debug_mask_brush_radius))
         feather = max(0, int(self.debug_mask_brush_feather))
+        transparency = max(0, min(99, int(getattr(self, "debug_mask_brush_transparency", 0) or 0)))
+        strength = max(1, 100 - transparency) / 100.0
         outer_radius = float(radius)
         inner_radius = max(0.0, float(radius - feather))
         x_start = max(0, int(image_x - radius))
         y_start = max(0, int(image_y - radius))
         x_end = min(self.debug_mask_full_mask.shape[1], int(image_x + radius + 1))
         y_end = min(self.debug_mask_full_mask.shape[0], int(image_y + radius + 1))
-        brush = np.zeros_like(self.debug_mask_full_mask, dtype=np.uint8)
+        x_start = max(x_start, x1)
+        y_start = max(y_start, y1)
+        x_end = min(x_end, x2 + 1)
+        y_end = min(y_end, y2 + 1)
         if x_end <= x_start or y_end <= y_start:
             return False
         yy, xx = np.ogrid[y_start:y_end, x_start:x_end]
@@ -528,25 +619,22 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             alpha[ring] = ((outer_radius - distances[ring]) / max(0.001, outer_radius - inner_radius)).astype(np.float32)
         elif inner_radius <= 0:
             alpha[distances <= outer_radius] = 1.0
-        brush_patch = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
-        brush[y_start:y_end, x_start:x_end] = brush_patch
-        brush[:max(0, y1), :] = 0
-        brush[min(self.debug_mask_full_mask.shape[0], y2 + 1):, :] = 0
-        brush[:, :max(0, x1)] = 0
-        brush[:, min(self.debug_mask_full_mask.shape[1], x2 + 1):] = 0
+        brush_patch = np.clip(alpha * 255.0 * strength, 0, 255).astype(np.uint8)
         if self.debug_mask_stroke_base_mask is None or self.debug_mask_stroke_accumulator is None:
             self.debug_mask_stroke_base_mask = self.debug_mask_full_mask.copy()
             self.debug_mask_stroke_accumulator = np.zeros_like(self.debug_mask_full_mask, dtype=np.uint8)
             self.debug_mask_stroke_add_mask = bool(add_mask)
-        self.debug_mask_stroke_accumulator = np.maximum(self.debug_mask_stroke_accumulator, brush)
+        acc_patch = self.debug_mask_stroke_accumulator[y_start:y_end, x_start:x_end]
+        self.debug_mask_stroke_accumulator[y_start:y_end, x_start:x_end] = np.maximum(acc_patch, brush_patch)
         if self.debug_mask_stroke_add_mask:
-            self.debug_mask_full_mask = np.maximum(self.debug_mask_stroke_base_mask, self.debug_mask_stroke_accumulator)
+            base_patch = self.debug_mask_stroke_base_mask[y_start:y_end, x_start:x_end]
+            acc_patch = self.debug_mask_stroke_accumulator[y_start:y_end, x_start:x_end]
+            self.debug_mask_full_mask[y_start:y_end, x_start:x_end] = np.maximum(base_patch, acc_patch)
         else:
-            base = self.debug_mask_stroke_base_mask.astype(np.float32)
-            alpha_mask = self.debug_mask_stroke_accumulator.astype(np.float32) / 255.0
-            self.debug_mask_full_mask = np.clip(base * (1.0 - alpha_mask), 0, 255).astype(np.uint8)
-        self._save_debug_mask_modified()
-        self._refresh_debug_mask_overlay_preview()
+            base_patch = self.debug_mask_stroke_base_mask[y_start:y_end, x_start:x_end].astype(np.float32)
+            alpha_mask = self.debug_mask_stroke_accumulator[y_start:y_end, x_start:x_end].astype(np.float32) / 255.0
+            self.debug_mask_full_mask[y_start:y_end, x_start:x_end] = np.clip(base_patch * (1.0 - alpha_mask), 0, 255).astype(np.uint8)
+        self._schedule_debug_mask_overlay_preview((x_start, y_start, x_end, y_end))
         return True
 
     def reset_preview(self):
