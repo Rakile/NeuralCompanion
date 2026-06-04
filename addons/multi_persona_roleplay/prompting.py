@@ -206,7 +206,10 @@ def _ar_description(persona: PersonaConfig, session: RoleplaySessionState) -> st
 def _ar_system_prompt(persona: PersonaConfig, session: RoleplaySessionState) -> str:
     if not (getattr(session, "ar_use_persona_profiles", True) and getattr(persona, "ar_profile_enabled", True)):
         return ""
-    return str(getattr(persona, "ar_system_prompt", "") or "").strip()
+    prompt = str(getattr(persona, "ar_system_prompt", "") or "").strip()
+    if prompt == "Use [NARRATOR] for scene framing. Do not speak as Mira unless a [CHARACTER: Mira] section is needed.":
+        return "Use [NARRATOR] for scene framing. Characters only speak in their own [CHARACTER: Name] sections."
+    return prompt
 
 
 def _available_audio_lines(items: list[dict[str, Any]]) -> list[str]:

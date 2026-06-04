@@ -274,6 +274,29 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "story_narrator",
         ]
 
+        character_curly_dialogue = router.split_text_by_persona(
+            {
+                "text": (
+                    "[CHARACTER: Friend]\n"
+                    "“Right right... can't promise anything,” she echoes back in your own weary cadence. "
+                    "A soft chime of amusement colors her tone. "
+                    "“That's the spirit. Optimism would just get in the way down here.”"
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        character_curly_segments = character_curly_dialogue.get("segments") or []
+        assert [item.get("persona_id") for item in character_curly_segments] == [
+            "friend",
+            "story_narrator",
+            "friend",
+        ]
+        assert [Path(item.get("voice_path", "")).name for item in character_curly_segments] == [
+            "friend.wav",
+            "narrator.wav",
+            "friend.wav",
+        ]
+
         assistant_same_line = router.split_text_by_persona(
             {
                 "text": (

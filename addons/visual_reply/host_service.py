@@ -576,11 +576,6 @@ class QtVisualReplyService:
         runtime["visual_replies_enabled"] = True
         visual_runtime = runtime_config.VisualReplyRuntime(lambda: runtime)
         service = generation.VisualReplyGenerationService(visual_runtime, output_dir=generation.output_dir())
-        self.set_loading(
-            status_text="Visual Reply generating...",
-            detail_text=str(caption or source or prompt_text)[:240],
-            auto_show=auto_show,
-        )
         request_id = f"mprc_{int(time.time())}"
         accepted = bool(
             service.perform_generation(

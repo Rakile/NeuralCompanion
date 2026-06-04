@@ -58,6 +58,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="mprc_chat_float_button">
+       <property name="text">
+        <string>Float Play</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <spacer name="mprc_chat_toolbar_spacer">
        <property name="orientation">
         <enum>Qt::Horizontal</enum>

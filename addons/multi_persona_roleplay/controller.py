@@ -147,19 +147,28 @@ class _MprcUiBridge(QtCore.QObject):
     def _on_visual_reply_requested(self, persona_id: str, reason: str):
         controller = getattr(self, "controller", None)
         if controller is not None and not controller.is_shutdown():
-            controller._run_auto_visual_reply_request(str(persona_id or ""), str(reason or "manual"))
+            controller._queue_visual_worker(
+                "mprc_visual_reply",
+                lambda: controller._run_auto_visual_reply_request(str(persona_id or ""), str(reason or "manual")),
+            )
 
     @QtCore.Slot(str)
     def _on_tts_character_image_requested(self, persona_id: str):
         controller = getattr(self, "controller", None)
         if controller is not None and not controller.is_shutdown():
-            controller._run_tts_character_image_request(str(persona_id or ""))
+            controller._queue_visual_worker(
+                "mprc_tts_character_image",
+                lambda: controller._run_tts_character_image_request(str(persona_id or "")),
+            )
 
     @QtCore.Slot(str, str)
     def _on_tts_visual_reply_requested(self, persona_id: str, spoken_text: str):
         controller = getattr(self, "controller", None)
         if controller is not None and not controller.is_shutdown():
-            controller._run_tts_visual_reply_request(str(persona_id or ""), str(spoken_text or ""))
+            controller._queue_visual_worker(
+                "mprc_tts_visual_reply",
+                lambda: controller._run_tts_visual_reply_request(str(persona_id or ""), str(spoken_text or "")),
+            )
 
     @QtCore.Slot()
     def _on_shutdown_requested(self):
@@ -255,6 +264,25 @@ class _MprcCurrentPageStack(QtWidgets.QStackedWidget):
         return current.minimumSizeHint() if current is not None else super().minimumSizeHint()
 
 
+class _MprcFloatingPlayWindow(QtWidgets.QDialog):
+    def __init__(self, controller, parent=None):
+        super().__init__(parent)
+        self.controller = controller
+        self.setObjectName("mprc_floating_play_window")
+        self.setWindowTitle("MPRC Play")
+        self.setMinimumSize(920, 560)
+        self.resize(1280, 820)
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose, False)
+
+    def closeEvent(self, event):
+        controller = getattr(self, "controller", None)
+        if controller is not None and not controller.is_shutdown():
+            controller._dock_chat_play_tab()
+            event.ignore()
+            return
+        super().closeEvent(event)
+
+
 class MultiPersonaRoleplayController:
     STATE_KEY = "multi_persona_roleplay"
 
@@ -315,6 +343,10 @@ class MultiPersonaRoleplayController:
         self._mprc_tts_token = ""
         self._mprc_chat_history: list[dict[str, str]] = []
         self._mprc_pending_chat_users: dict[str, dict[str, str]] = {}
+        self._chat_play_page = None
+        self._chat_play_placeholder = None
+        self._chat_play_floating_window = None
+        self._chat_play_stack_index = -1
         self._ensure_session_persona()
 
     def _host_service(self, name: str):
@@ -447,6 +479,10 @@ class MultiPersonaRoleplayController:
                 pass
 
     def _shutdown_qt_objects(self) -> None:
+        try:
+            self._dock_chat_play_tab()
+        except Exception:
+            pass
         self._stop_guide_speech()
         player = getattr(self, "_audiofx_player", None)
         if player is not None:
@@ -470,6 +506,18 @@ class MultiPersonaRoleplayController:
                 pass
         self._audiofx_player = None
         self._audiofx_output = None
+        window = getattr(self, "_chat_play_floating_window", None)
+        if window is not None:
+            try:
+                window.controller = None
+                window.hide()
+                window.deleteLater()
+            except RuntimeError:
+                pass
+        self._chat_play_floating_window = None
+        self._chat_play_placeholder = None
+        self._chat_play_page = None
+        self._chat_play_stack_index = -1
         for attr in ("_refine_bridge", "_story_bridge", "_story_audio_bridge", "_ui_bridge"):
             bridge = getattr(self, attr, None)
             if bridge is None:
@@ -947,6 +995,11 @@ class MultiPersonaRoleplayController:
             if save:
                 self.save_state()
             return existing
+        if not self._character_label_looks_auto_creatable(display_name):
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.info("[MPRC] Ignored non-name character label from %s: %s", source, display_name)
+            return None
         persona = self._build_auto_chat_persona(display_name, context_text=context_text, source=source)
         self.personas.append(persona)
         self._mark_auto_personas([persona.id])
@@ -1039,14 +1092,89 @@ class MultiPersonaRoleplayController:
             return ""
         return value
 
+    @staticmethod
+    def _character_label_looks_auto_creatable(name: str) -> bool:
+        value = str(name or "").strip()
+        if not value:
+            return False
+        if re.search(r"[.!?\"“”]", value):
+            return False
+        words = re.findall(r"[A-Za-z0-9][A-Za-z0-9'_-]*", value)
+        if not words or len(words) > 5:
+            return False
+        lowered_words = {word.lower().strip("_-") for word in words}
+        phrase_markers = {
+            "and",
+            "or",
+            "but",
+            "you",
+            "your",
+            "yours",
+            "me",
+            "my",
+            "mine",
+            "we",
+            "our",
+            "ours",
+            "they",
+            "their",
+            "it",
+            "its",
+            "will",
+            "would",
+            "should",
+            "could",
+            "can",
+            "can't",
+            "cannot",
+            "have",
+            "has",
+            "had",
+            "are",
+            "is",
+            "was",
+            "were",
+            "look",
+            "tell",
+            "whisper",
+            "again",
+        }
+        if lowered_words & phrase_markers:
+            return False
+        first_alpha = re.search(r"[A-Za-z]", value)
+        if first_alpha is not None and not first_alpha.group(0).isupper():
+            return False
+        return True
+
+    @staticmethod
+    def _persona_name_aliases(persona: PersonaConfig) -> set[str]:
+        aliases: set[str] = set()
+
+        def add(value: Any) -> None:
+            text = str(value or "").strip()
+            if not text:
+                return
+            aliases.add(text.lower())
+            aliases.add(normalize_persona_id(text))
+
+        add(getattr(persona, "id", ""))
+        display_name = str(getattr(persona, "display_name", "") or "").strip()
+        add(display_name)
+        without_parenthetical = re.sub(r"\s*\([^)]*\)\s*", " ", display_name).strip()
+        add(without_parenthetical)
+        for alias in re.findall(r"\(([^)]{1,80})\)", display_name):
+            add(alias)
+        return {alias for alias in aliases if alias}
+
     def _find_persona_by_name_or_id(self, name: str) -> PersonaConfig | None:
         wanted_id = normalize_persona_id(name)
         wanted_name = str(name or "").strip().lower()
+        wanted_aliases = {wanted_id, wanted_name}
         for persona in self.personas:
-            if persona.id == wanted_id:
+            if persona.id == wanted_id or wanted_id in self._persona_name_aliases(persona):
                 return persona
         for persona in self.personas:
-            if str(persona.display_name or "").strip().lower() == wanted_name:
+            if wanted_aliases & self._persona_name_aliases(persona):
                 return persona
         return None
 
@@ -1192,6 +1320,48 @@ class MultiPersonaRoleplayController:
         self.settings["chat_auto_created_persona_ids"] = sorted(current)
         self.storage.save_settings(self.settings)
 
+    def _remove_chat_auto_personas(self) -> int:
+        auto_ids = self._chat_auto_created_persona_ids()
+        if not auto_ids:
+            return 0
+        existing_ids = {persona.id for persona in self.personas}
+        removed_ids = {persona_id for persona_id in auto_ids if persona_id in existing_ids}
+        if removed_ids:
+            self.personas = [persona for persona in self.personas if persona.id not in removed_ids]
+            self.session.character_state_summaries = {
+                str(persona_id): summary
+                for persona_id, summary in dict(self.session.character_state_summaries or {}).items()
+                if normalize_persona_id(persona_id) not in removed_ids
+            }
+            state = self.session.ar_state
+            state.active_characters = [
+                normalize_persona_id(persona_id)
+                for persona_id in list(state.active_characters or [])
+                if normalize_persona_id(persona_id) not in removed_ids
+            ]
+            if self.session.active_persona_id in removed_ids:
+                self.session.active_persona_id = ""
+            if self.session.current_speaker_id in removed_ids:
+                self.session.current_speaker_id = ""
+            self._ensure_session_persona()
+        for key in (
+            "chat_auto_created_persona_ids",
+            "master_story_created_persona_ids",
+            "master_story_linked_persona_ids",
+        ):
+            raw = self.settings.get(key)
+            if isinstance(raw, list):
+                self.settings[key] = [
+                    normalize_persona_id(item)
+                    for item in raw
+                    if normalize_persona_id(item) and normalize_persona_id(item) not in auto_ids
+                ]
+        for key in ("narrator_persona_id", "selected_narrator_id"):
+            if normalize_persona_id(self.settings.get(key)) in removed_ids:
+                self.settings[key] = ""
+        self.storage.save_settings(self.settings)
+        return len(removed_ids)
+
     def _link_persona_to_current_story(self, persona_id: str) -> None:
         normalized = normalize_persona_id(persona_id)
         if not normalized:
@@ -1234,35 +1404,45 @@ class MultiPersonaRoleplayController:
     def request_auto_visual_reply(self, persona_id: str, reason: str) -> None:
         if self.is_shutdown():
             return
-        bridge = getattr(self, "_ui_bridge", None)
         persona = self.persona_by_id(str(persona_id or "").strip())
-        if bridge is None:
-            self._record_visual_debug(
-                source="auto_visual_trigger",
-                reason=str(reason or "manual"),
-                persona=persona,
-                accepted=False,
-                message="Auto Visual Reply request skipped because the UI bridge is unavailable.",
-            )
-            return
         self._record_visual_debug(
             source="auto_visual_trigger",
             reason=str(reason or "manual"),
             persona=persona,
             accepted=None,
-            message="Auto Visual Reply request queued for the UI thread.",
+            message="Auto Visual Reply request queued for a background worker.",
         )
-        try:
-            bridge.visual_reply_requested.emit(str(persona_id or ""), str(reason or "manual"))
-        except RuntimeError:
+        if not self._queue_visual_worker(
+            "mprc_visual_reply",
+            lambda: self._run_auto_visual_reply_request(str(persona_id or ""), str(reason or "manual")),
+        ):
             self._record_visual_debug(
                 source="auto_visual_trigger",
                 reason=str(reason or "manual"),
                 persona=persona,
                 accepted=False,
-                message="Auto Visual Reply request could not be queued because the UI bridge is unavailable.",
+                message="Auto Visual Reply request could not start a background worker.",
             )
-            pass
+
+    def _queue_visual_worker(self, prefix: str, target) -> bool:
+        token = self._new_worker_token(str(prefix or "mprc_visual"))
+        if not token:
+            return False
+
+        def worker():
+            try:
+                target()
+            except Exception as exc:
+                logger = getattr(self.context, "logger", None)
+                if logger is not None:
+                    logger.warning("[MPRC] Background visual worker failed: %s", exc)
+            finally:
+                self._finish_worker_token(token)
+
+        if self._start_daemon_worker(token, worker, name=str(prefix or "mprc-visual-worker")):
+            return True
+        self._cancel_worker_token(token)
+        return False
 
     def _run_auto_visual_reply_request(self, persona_id: str, reason: str) -> None:
         if self.is_shutdown():
@@ -1299,7 +1479,8 @@ class MultiPersonaRoleplayController:
             block = block[:next_section]
         choices = []
         for line in block.splitlines():
-            clean = line.strip(" \t\r\n-*0123456789. )")
+            clean = str(line or "").strip()
+            clean = re.sub(r"^\s*(?:[-*]\s+|\d+[.)]\s+)", "", clean)
             if clean:
                 choices.append(clean[:180])
             if len(choices) >= 6:
@@ -1380,6 +1561,7 @@ class MultiPersonaRoleplayController:
 
         root = QtWidgets.QWidget()
         root.setObjectName("mprc_root")
+        self._controls["root"] = root
         root_layout = QtWidgets.QVBoxLayout(root)
         root_layout.setContentsMargins(12, 12, 12, 12)
         root_layout.setSpacing(10)
@@ -1465,7 +1647,11 @@ class MultiPersonaRoleplayController:
             (self._build_debug_tab(), "Debug", "Prompt / Debug", "#94a3b8"),
         ]
         for page, title, tooltip, color in tab_specs:
-            index = stack.addWidget(self._wrap_mprc_tab_page(page, title))
+            wrapped_page = self._wrap_mprc_tab_page(page, title)
+            index = stack.addWidget(wrapped_page)
+            if str(getattr(wrapped_page, "objectName", lambda: "")() or "") == "mprc_chat_play_tab":
+                self._chat_play_page = wrapped_page
+                self._chat_play_stack_index = index
             button = _MprcTabButton(index, title, self._tab_icon(title.lower(), color), color, tooltip)
             button.clicked.connect(lambda tab_index, target=index: self._select_mprc_tab(target))
             buttons.append(button)
@@ -1901,6 +2087,7 @@ class MultiPersonaRoleplayController:
             "chat_pause": page.findChild(QtWidgets.QPushButton, "mprc_chat_pause_button"),
             "chat_restart": page.findChild(QtWidgets.QPushButton, "mprc_chat_restart_button"),
             "chat_clear": page.findChild(QtWidgets.QPushButton, "mprc_chat_clear_button"),
+            "chat_float": page.findChild(QtWidgets.QPushButton, "mprc_chat_float_button"),
             "chat_send": page.findChild(QtWidgets.QPushButton, "mprc_chat_send_button"),
             "chat_speaker": page.findChild(QtWidgets.QComboBox, "mprc_chat_speaker_combo"),
             "chat_intent": page.findChild(QtWidgets.QComboBox, "mprc_chat_intent_combo"),
@@ -1921,13 +2108,20 @@ class MultiPersonaRoleplayController:
             "chat_summarize": page.findChild(QtWidgets.QPushButton, "mprc_chat_summarize_button"),
             "chat_repair": page.findChild(QtWidgets.QPushButton, "mprc_chat_repair_button"),
         }
+        if controls.get("chat_float") is None:
+            toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar")
+            if toolbar is not None:
+                float_button = QtWidgets.QPushButton("Float Play")
+                float_button.setObjectName("mprc_chat_float_button")
+                toolbar.insertWidget(min(4, toolbar.count()), float_button)
+                controls["chat_float"] = float_button
         self._controls.update({key: widget for key, widget in controls.items() if widget is not None})
         self._configure_chat_play_layout(page)
 
         intent = controls.get("chat_intent")
         if intent is not None:
-            intent.addItems(["Act", "Say", "Direct", "OOC", "System"])
-            intent.setCurrentText("Act")
+            intent.addItems(["Auto", "Act", "Say", "Direct", "OOC"])
+            intent.setCurrentText("Auto")
         pacing = controls.get("chat_director_pacing")
         if pacing is not None:
             pacing.addItems(list(AR_PACING_MODES))
@@ -1954,6 +2148,9 @@ class MultiPersonaRoleplayController:
         clear = controls.get("chat_clear")
         if clear is not None:
             clear.clicked.connect(self._on_mprc_chat_clear_clicked)
+        float_button = controls.get("chat_float")
+        if float_button is not None:
+            float_button.clicked.connect(self._toggle_chat_play_floating)
         start = controls.get("chat_start")
         if start is not None:
             start.clicked.connect(self._on_mprc_chat_start_clicked)
@@ -2134,6 +2331,148 @@ class MultiPersonaRoleplayController:
             status.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
             status.setMaximumHeight(30)
 
+    def _chat_play_is_floating(self) -> bool:
+        window = getattr(self, "_chat_play_floating_window", None)
+        return window is not None
+
+    def _set_chat_play_float_button_text(self) -> None:
+        button = self._controls.get("chat_float")
+        if button is None or not hasattr(button, "setText"):
+            return
+        if self._chat_play_is_floating():
+            button.setText("Dock Play")
+            button.setToolTip("Return the MPRC Play surface to the addon tab.")
+        else:
+            button.setText("Float Play")
+            button.setToolTip("Move the MPRC Play surface into a floating window.")
+
+    def _build_chat_play_placeholder(self):
+        placeholder = QtWidgets.QWidget()
+        placeholder.setObjectName("mprc_chat_play_floating_placeholder")
+        layout = QtWidgets.QVBoxLayout(placeholder)
+        layout.setContentsMargins(18, 18, 18, 18)
+        layout.setSpacing(12)
+        message = QtWidgets.QLabel("MPRC Play is floating in its own window.")
+        message.setObjectName("mprc_chat_play_floating_placeholder_label")
+        message.setAlignment(QtCore.Qt.AlignCenter)
+        message.setWordWrap(True)
+        dock_button = QtWidgets.QPushButton("Dock Play")
+        dock_button.setObjectName("mprc_chat_play_dock_placeholder_button")
+        dock_button.clicked.connect(self._dock_chat_play_tab)
+        layout.addStretch(1)
+        layout.addWidget(message, 0, QtCore.Qt.AlignCenter)
+        layout.addWidget(dock_button, 0, QtCore.Qt.AlignCenter)
+        layout.addStretch(1)
+        return placeholder
+
+    def _toggle_chat_play_floating(self):
+        if self._chat_play_is_floating():
+            self._dock_chat_play_tab()
+        else:
+            self._float_chat_play_tab()
+
+    def _float_chat_play_tab(self):
+        if self.is_shutdown():
+            return
+        page = getattr(self, "_chat_play_page", None)
+        stack = self._controls.get("tab_stack")
+        if page is None or stack is None:
+            return
+        existing = getattr(self, "_chat_play_floating_window", None)
+        if existing is not None and existing.isVisible():
+            existing.raise_()
+            existing.activateWindow()
+            self._set_chat_play_float_button_text()
+            return
+        index = stack.indexOf(page)
+        if index < 0:
+            index = int(getattr(self, "_chat_play_stack_index", 0) or 0)
+        self._chat_play_stack_index = max(0, index)
+        placeholder = self._build_chat_play_placeholder()
+        stack.removeWidget(page)
+        stack.insertWidget(self._chat_play_stack_index, placeholder)
+        stack.setCurrentIndex(self._chat_play_stack_index)
+        self._chat_play_placeholder = placeholder
+
+        parent_window = None
+        try:
+            parent_window = self._widget.window() if self._widget is not None else None
+        except Exception:
+            parent_window = None
+        window = _MprcFloatingPlayWindow(self, parent_window)
+        style_source = self._controls.get("root") or self._widget
+        if style_source is not None:
+            try:
+                window.setStyleSheet(style_source.styleSheet())
+            except Exception:
+                pass
+        layout = QtWidgets.QVBoxLayout(window)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(0)
+        layout.addWidget(page)
+        page.setVisible(True)
+        page.show()
+        page.updateGeometry()
+        self._chat_play_floating_window = window
+        self._set_chat_play_float_button_text()
+        self._sync_mprc_tab_stack_height()
+        window.show()
+        try:
+            window.layout().activate()
+        except Exception:
+            pass
+        window.raise_()
+        window.activateWindow()
+
+    def _dock_chat_play_tab(self):
+        page = getattr(self, "_chat_play_page", None)
+        stack = self._controls.get("tab_stack")
+        if page is None or stack is None:
+            return
+        window = getattr(self, "_chat_play_floating_window", None)
+        placeholder = getattr(self, "_chat_play_placeholder", None)
+        if window is None and placeholder is None and stack.indexOf(page) >= 0:
+            self._set_chat_play_float_button_text()
+            return
+        index = stack.indexOf(placeholder) if placeholder is not None else -1
+        if index < 0:
+            index = int(getattr(self, "_chat_play_stack_index", 0) or 0)
+        self._chat_play_stack_index = max(0, index)
+        if window is not None:
+            try:
+                layout = window.layout()
+                if layout is not None:
+                    layout.removeWidget(page)
+            except Exception:
+                pass
+            try:
+                window.controller = None
+                window.hide()
+                window.deleteLater()
+            except RuntimeError:
+                pass
+        self._chat_play_floating_window = None
+        page.setParent(None)
+        if placeholder is not None:
+            try:
+                stack.removeWidget(placeholder)
+                placeholder.deleteLater()
+            except RuntimeError:
+                pass
+        self._chat_play_placeholder = None
+        if stack.indexOf(page) < 0:
+            stack.insertWidget(self._chat_play_stack_index, page)
+        stack.setCurrentWidget(page)
+        page.setVisible(True)
+        page.show()
+        page.updateGeometry()
+        self._set_chat_play_float_button_text()
+        self._sync_mprc_tab_stack_height()
+        try:
+            stack.updateGeometry()
+        except Exception:
+            pass
+
     def _append_chat_play_line(self, speaker: str, text: str, *, role: str = "note") -> None:
         transcript = self._controls.get("chat_transcript")
         if transcript is None:
@@ -2255,6 +2594,7 @@ class MultiPersonaRoleplayController:
     def _on_mprc_chat_restart_clicked(self):
         self._stop_mprc_chat_playback()
         self._reset_mprc_chat_history()
+        removed_auto_personas = self._remove_chat_auto_personas()
         transcript = self._controls.get("chat_transcript")
         if transcript is not None:
             transcript.clear()
@@ -2278,9 +2618,15 @@ class MultiPersonaRoleplayController:
             pass
         self._clear_story_memory_preserving_pins()
         self.save_state()
-        self._append_chat_play_line("System", "Story restarted from the current setup. Story and character memory were reset.", role="system")
-        self._set_chat_play_status("MPRC story restarted. Personas and saved story setup were left intact; story memory was reset.")
+        restart_note = "Story restarted from the current setup. Story and character memory were reset."
+        status_note = "MPRC story restarted. Saved story setup was left intact; story memory was reset."
+        if removed_auto_personas:
+            restart_note += f" Removed {removed_auto_personas} auto-created chat persona(s)."
+            status_note += f" Removed {removed_auto_personas} [Auto Chat] persona(s)."
+        self._append_chat_play_line("System", restart_note, role="system")
+        self._set_chat_play_status(status_note)
         self._refresh_memory_browser()
+        self._refresh_persona_selectors()
         self._refresh_reliability_panels()
         self._refresh_chat_play_controls()
 
@@ -2354,10 +2700,11 @@ class MultiPersonaRoleplayController:
             self._set_chat_play_status("MPRC turn is already running.")
             return
         self._stop_mprc_chat_speech()
-        intent = "Act"
+        intent_choice = "Auto"
         intent_combo = self._controls.get("chat_intent")
         if intent_combo is not None and hasattr(intent_combo, "currentText"):
-            intent = str(intent_combo.currentText() or "Act").strip() or "Act"
+            intent_choice = str(intent_combo.currentText() or "Auto").strip() or "Auto"
+        intent = self._infer_mprc_chat_intent(text, intent_choice)
         speaker = "Player"
         speaker_id = ""
         combo = self._controls.get("chat_speaker")
@@ -2455,12 +2802,30 @@ class MultiPersonaRoleplayController:
                 pass
         intent_combo = self._controls.get("chat_intent")
         if intent_combo is not None and hasattr(intent_combo, "setCurrentText"):
-            intent_combo.setCurrentText("Act")
+            intent_combo.setCurrentText("Auto")
         if send:
             self._set_chat_play_status("Choice selected and sent.")
             self._on_mprc_chat_send_clicked()
         else:
             self._set_chat_play_status("Choice loaded into Player Action. Edit or Send.")
+
+    def _infer_mprc_chat_intent(self, text: str, selected_intent: str = "Auto") -> str:
+        selected = str(selected_intent or "Auto").strip()
+        if selected and selected.lower() != "auto":
+            return selected
+        value = str(text or "").strip()
+        lowered = value.lower()
+        if not value:
+            return "Act"
+        if lowered.startswith(("ooc:", "[ooc]", "out of character:", "out-of-character:")):
+            return "OOC"
+        if lowered.startswith(("direct:", "director:", "scene:", "pace:", "tone:", "camera:")):
+            return "Direct"
+        if lowered.startswith(("say ", "ask ", "tell ", "reply ", "answer ", "whisper ", "shout ")):
+            return "Say"
+        if value.startswith(('"', "'")):
+            return "Say"
+        return "Act"
 
     def _build_mprc_chat_turn_messages(self, *, intent: str, player_text: str, speaker_id: str = "") -> list[dict[str, str]]:
         player_action = str(player_text or "").strip()
@@ -2477,6 +2842,7 @@ class MultiPersonaRoleplayController:
                 "Write only the next story response to the player's action. Do not summarize these instructions or expose prompt structure.",
                 "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
                 "Use clear story-native formatting. In AR mode, prefer [NARRATOR], [CHARACTER: Exact Name], optional exact story audio tags, and [CHOICES].",
+                "Treat the user payload's focus instruction as binding for who performs or frames the latest action.",
                 context_text,
                 director_text,
             ]
@@ -2486,16 +2852,33 @@ class MultiPersonaRoleplayController:
                 "Write only the next story response to the player's latest action. Do not recap the full setup unless the player asks.",
                 "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
                 "In AR mode, use [NARRATOR], [CHARACTER: Exact Name], exact listed story audio tags when needed, and optional [CHOICES].",
+                "Treat the user payload's focus instruction as binding for who performs or frames the latest action.",
                 self._mprc_chat_compact_turn_context(latest_user_text),
                 director_text,
             ]
         system_prompt = "\n\n".join(part for part in system_parts if str(part or "").strip())
         self.set_debug_prompt(system_prompt)
         focused = self.persona_by_id(speaker_id) if speaker_id else None
+        if focused is not None and self._persona_looks_like_narrator(focused):
+            focus_instruction = (
+                f"The player is directing the scene through narrator focus '{focused.display_name}'. "
+                "Treat the player_action as scene-level narration or direction unless it explicitly names another speaker."
+            )
+        elif focused is not None:
+            focus_instruction = (
+                f"The player is acting through or speaking as '{focused.display_name}' for this turn. "
+                "Treat the player_action as that character's intended action or dialogue unless it explicitly names another actor."
+            )
+        else:
+            focus_instruction = (
+                "No character focus is selected. Treat the player_action as the player's own action or director instruction, "
+                "depending on the intent."
+            )
         user_payload = {
-            "intent": str(intent or "Act").strip() or "Act",
+            "intent": intent_text,
             "player_action": player_action,
             "focused_speaker": focused.display_name if focused is not None else "Player",
+            "focus_instruction": focus_instruction,
             "instruction": "Advance the MPRC scene by one coherent turn without touching normal chat continuity.",
         }
         messages = [{"role": "system", "content": system_prompt}]
@@ -4661,6 +5044,7 @@ class MultiPersonaRoleplayController:
             next_speaker.blockSignals(False)
 
     def _refresh_chat_play_controls(self):
+        self._set_chat_play_float_button_text()
         combo = self._controls.get("chat_speaker")
         if combo is not None:
             combo.blockSignals(True)
@@ -6670,7 +7054,7 @@ class MultiPersonaRoleplayController:
                     "system_prompt": "Narrate the scene with concise audiobook pacing and clear consequences.",
                     "ar_profile_enabled": True,
                     "ar_description": "Primary narrator for the demo. Controls continuity, mood, camera-like framing, and pacing.",
-                    "ar_system_prompt": "Use [NARRATOR] for scene framing. Do not speak as Mira unless a [CHARACTER: Mira] section is needed.",
+                    "ar_system_prompt": "Use [NARRATOR] for scene framing. Characters only speak in their own [CHARACTER: Name] sections.",
                     "speaking_style": "calm, cinematic, atmospheric",
                     "behavior_mode": "narrator",
                     "memory_scope": "shared",
@@ -10443,14 +10827,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             if self._shutting_down or not key or key in self._tts_persona_visual_inflight:
                 return
             self._tts_persona_visual_inflight.add(key)
-        bridge = getattr(self, "_ui_bridge", None)
-        if bridge is None:
-            with self._state_lock:
-                self._tts_persona_visual_inflight.discard(key)
-            return
-        try:
-            bridge.tts_character_image_requested.emit(key)
-        except RuntimeError:
+        if not self._queue_visual_worker("mprc_tts_character_image", lambda: self._run_tts_character_image_request(key)):
             with self._state_lock:
                 self._tts_persona_visual_inflight.discard(key)
 
@@ -10536,11 +10913,13 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             reason="tts_reply",
             persona=persona,
             accepted=None,
-            message="TTS Visual Reply request queued for the UI thread.",
+            message="TTS Visual Reply request queued for a background worker.",
             prompt=str(spoken_text or "")[:800],
         )
-        bridge = getattr(self, "_ui_bridge", None)
-        if bridge is None:
+        if not self._queue_visual_worker(
+            "mprc_tts_visual_reply",
+            lambda: self._run_tts_visual_reply_request(key, str(spoken_text or "")),
+        ):
             with self._state_lock:
                 self._tts_visual_reply_inflight.discard(key)
             self._record_visual_debug(
@@ -10548,20 +10927,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 reason="tts_reply",
                 persona=persona,
                 accepted=False,
-                message="TTS Visual Reply request could not be queued because the UI bridge is unavailable.",
-            )
-            return
-        try:
-            bridge.tts_visual_reply_requested.emit(key, str(spoken_text or ""))
-        except RuntimeError:
-            with self._state_lock:
-                self._tts_visual_reply_inflight.discard(key)
-            self._record_visual_debug(
-                source="tts_visual_trigger",
-                reason="tts_reply",
-                persona=persona,
-                accepted=False,
-                message="TTS Visual Reply request could not be queued because the UI bridge rejected the signal.",
+                message="TTS Visual Reply request could not start a background worker.",
             )
 
     def _run_tts_visual_reply_request(self, persona_id: str, spoken_text: str = "") -> None:

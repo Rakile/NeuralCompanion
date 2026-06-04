@@ -477,7 +477,7 @@ class PersonaVoiceRouter:
         value = str(text or "").strip()
         if not value:
             return []
-        matches = list(re.finditer(r'"[^"\n]*(?:"|$)', value))
+        matches = list(re.finditer(r'"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)', value))
         if persona.id == narrator.id:
             return self._split_ar_narrator_attributed_dialogue(value, narrator, matches)
         if not matches:
@@ -670,7 +670,7 @@ class PersonaVoiceRouter:
 
     @staticmethod
     def _is_direction_only_dialogue(text: str) -> bool:
-        value = str(text or "").strip().strip('"').strip()
+        value = str(text or "").strip().strip('"“”').strip()
         return bool(re.fullmatch(r"\[[^\]]{1,40}\]", value))
 
     def _looks_like_character_direct_speech(self, text: str, persona: PersonaConfig) -> bool:
