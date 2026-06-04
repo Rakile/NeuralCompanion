@@ -152,10 +152,35 @@
             <property name="openExternalLinks">
              <bool>false</bool>
             </property>
-           </widget>
-          </item>
-         </layout>
-        </widget>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="mprc_visual_prompt_debug_box">
+        <property name="title">
+         <string>Visual Prompt Debug</string>
+        </property>
+        <layout class="QVBoxLayout" name="mprc_visual_prompt_debug_layout">
+         <item>
+          <widget class="QPlainTextEdit" name="mprc_visual_prompt_debug_text">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>120</height>
+            </size>
+           </property>
+           <property name="readOnly">
+            <bool>true</bool>
+           </property>
+           <property name="plainText">
+            <string>Visual prompt debug will appear here after an MPRC Visual Reply request.</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+      </layout>
+     </widget>
        </item>
        <item>
        <widget class="QGroupBox" name="mprc_player_action_box">

@@ -61,6 +61,7 @@ def run_smoke() -> None:
     _smoke_voice_routing(personas, ar_session)
     _smoke_story_only_persona_overrides(personas, ar_session)
     _smoke_visual_reply(personas, ar_session)
+    _smoke_ar_scene_state_update(personas)
     _smoke_audio_prompts()
     _smoke_long_memory(personas, ar_session)
     _smoke_schema_migration()
@@ -135,8 +136,8 @@ class _FakeVisualReply:
     def __init__(self):
         self.calls = []
 
-    def request_generation(self, persona=None, reason: str = "manual"):
-        self.calls.append((getattr(persona, "id", ""), reason))
+    def request_generation(self, persona=None, reason: str = "manual", source_text: str = ""):
+        self.calls.append((getattr(persona, "id", ""), reason, source_text))
         return {"accepted": True, "message": "ok"}
 
 
@@ -367,6 +368,10 @@ def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionS
     visual_prompt = prompting.build_visual_reply_prompt(personas[0], session, reason="choices_present")
     assert "Story scene image for Visual Reply" in visual_prompt
     assert "Current story moment" in visual_prompt
+    comfy_prompt = prompting.build_visual_reply_prompt(personas[0], session, reason="choices_present", provider="comfyui")
+    assert "Story scene image for Visual Reply" not in comfy_prompt
+    assert "Current story moment" not in comfy_prompt
+    assert "dynamic story scene" in comfy_prompt
 
     controller = _FakeController(personas, session)
     engine = RoleplayEngine(controller)
@@ -374,7 +379,67 @@ def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionS
     deadline = time.time() + 2.0
     while time.time() < deadline and not controller.visual_reply.calls:
         time.sleep(0.02)
-    assert controller.visual_reply.calls == [("mentor", "choices_present")]
+    assert controller.visual_reply.calls == [
+        ("mentor", "choices_present", "[NARRATOR] The lantern door opens.\n[CHOICES]\n- Enter\n- Wait")
+    ]
+
+
+def _smoke_ar_scene_state_update(personas: list[PersonaConfig]) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    session = RoleplaySessionState.from_dict(
+        {
+            "enabled": True,
+            "mode": AR_MODE,
+            "scene_summary": "The story begins at a sealed archive door.",
+            "ar_state": {
+                "current_scene": "opening beat",
+                "location": "Archive corridor",
+                "active_characters": ["mentor", "friend"],
+                "story_goal": "Open the door.",
+                "recent_events": ["A knock came from inside."],
+            },
+        }
+    )
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = personas
+    probe.session = session
+    changed = probe._apply_ar_scene_update_payload(
+        {
+            "scene_summary": "Mentor and Friend have left the archive door and entered a flooded pump room.",
+            "current_scene": "Friend kneels beside a valve while Mentor studies a moving reflection.",
+            "location": "Flooded pump room",
+            "time_of_day": "after midnight",
+            "mood": "tense and damp",
+            "story_goal": "Stop the water pressure before the hatch bursts.",
+            "tension_level": 7,
+            "recent_event": "Friend found the valve vibrating under her hand.",
+            "pending_choices": ["Turn the valve", "Ask Mentor to listen"],
+            "character_state_summaries": {"friend": "Friend is crouched by the unstable valve."},
+        }
+    )
+    assert changed
+    assert session.ar_state.current_scene.startswith("Friend kneels")
+    assert session.ar_state.location == "Flooded pump room"
+    assert session.ar_state.tension_level == 7
+    assert session.ar_state.pending_choices == ["Turn the valve", "Ask Mentor to listen"]
+    assert session.character_state_summaries["friend"].startswith("Friend is crouched")
+    changed = probe._apply_ar_scene_update_payload(
+        {
+            "scene_summary": "Mentor and Friend move deeper into the pump room.",
+            "current_scene": "Friend watches the valve settle while Mentor listens to the pipes.",
+            "location": "Flooded pump room",
+            "time_of_day": "after midnight",
+            "mood": "watchful",
+            "story_goal": "Follow the pipe noise.",
+            "tension_level": 4,
+            "recent_event": "The old choices are no longer current.",
+            "pending_choices": [],
+            "character_state_summaries": {},
+        }
+    )
+    assert changed
+    assert session.ar_state.pending_choices == []
 
 
 def _smoke_story_only_persona_overrides(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:

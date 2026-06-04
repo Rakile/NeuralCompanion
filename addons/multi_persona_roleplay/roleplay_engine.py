@@ -157,9 +157,9 @@ class RoleplayEngine:
 
         requester = getattr(self.controller, "request_auto_visual_reply", None)
         if callable(requester):
-            requester(persona.id, reason)
+            requester(persona.id, reason, assistant_text)
             return
-        self.controller.visual_reply.request_generation(persona=persona, reason=reason)
+        self.controller.visual_reply.request_generation(persona=persona, reason=reason, source_text=assistant_text)
 
     def _visual_persona_for_reply(self, assistant_text: str) -> PersonaConfig | None:
         labeled = self._persona_from_visual_text(assistant_text)

@@ -18,17 +18,65 @@ class PersonaVisualReply:
                 return str(style.get("prompt") or "").strip()
         return ""
 
-    def build_prompt(self, persona: PersonaConfig | None = None, reason: str = "manual") -> dict[str, Any]:
+    def effective_provider(self, persona: PersonaConfig | None = None) -> str:
+        visual = getattr(persona, "visual", None)
+        provider = str(getattr(visual, "provider", "inherit") or "inherit").strip().lower()
+        if provider and provider != "inherit":
+            return provider
+        service = getattr(self.controller, "visual_reply_service", None)
+        snapshotter = getattr(service, "settings_snapshot", None)
+        if callable(snapshotter):
+            try:
+                snapshot = snapshotter()
+                provider = str((snapshot or {}).get("provider_value") or "").strip().lower()
+                if provider:
+                    return provider
+            except Exception:
+                pass
+        return "inherit"
+
+    def build_prompt(
+        self,
+        persona: PersonaConfig | None = None,
+        reason: str = "manual",
+        source_text: str = "",
+        use_action_prompt: bool = True,
+    ) -> dict[str, Any]:
         persona = persona or self.controller.current_speaker_persona() or self.controller.active_persona()
         if persona is None:
             return prompting.build_visual_json_contract("", "", reason)
         session: RoleplaySessionState = self.controller.session
+        provider = self.effective_provider(persona)
         prompt = prompting.build_visual_reply_prompt(
             persona,
             session,
             style_prompt=self.style_prompt(persona.visual.style_preset),
             reason=reason,
+            provider=provider,
         )
+        debugger = getattr(self.controller, "set_chat_visual_prompt_debug_from_parts", None)
+        if callable(debugger):
+            debugger(
+                persona=persona,
+                reason=reason,
+                provider=provider,
+                stage="fallback/base prompt",
+                final_prompt=prompt,
+                base_prompt=prompt,
+                source_text=str(source_text or ""),
+            )
+        if use_action_prompt and str(source_text or "").strip():
+            refiner = getattr(self.controller, "build_visual_action_prompt", None)
+            if callable(refiner):
+                refined = refiner(
+                    persona=persona,
+                    source_text=str(source_text or ""),
+                    base_prompt=prompt,
+                    reason=reason,
+                    provider=provider,
+                )
+                if str(refined or "").strip():
+                    prompt = str(refined or "").strip()
         return prompting.build_visual_json_contract(prompt, persona.id, reason)
 
     def _record_debug(
@@ -88,13 +136,17 @@ class PersonaVisualReply:
             return False, "Visual Reply cooldown is active."
         return True, ""
 
-    def request_generation(self, persona: PersonaConfig | None = None, reason: str = "manual") -> dict[str, Any]:
+    def request_generation(
+        self,
+        persona: PersonaConfig | None = None,
+        reason: str = "manual",
+        source_text: str = "",
+    ) -> dict[str, Any]:
         persona = persona or self.controller.current_speaker_persona() or self.controller.active_persona()
-        payload = self.build_prompt(persona, reason=reason)
+        payload = self.build_prompt(persona, reason=reason, use_action_prompt=False)
         if not payload.get("should_generate"):
             self._record_debug("persona_visual_reply", reason, persona, False, "No visual prompt was generated.", payload)
             return {"accepted": False, "message": "No visual prompt was generated.", "payload": payload}
-        self._record_debug("persona_visual_reply", reason, persona, None, "Visual Reply prompt built.", payload)
         allowed, message = self.can_auto_generate(persona, reason=reason)
         if not allowed:
             self._record_debug("persona_visual_reply", reason, persona, False, message, payload)
@@ -114,6 +166,12 @@ class PersonaVisualReply:
                 "message": "Visual Reply generation service is unavailable. Prompt preview still works.",
                 "payload": payload,
             }
+        if str(source_text or "").strip():
+            payload = self.build_prompt(persona, reason=reason, source_text=source_text, use_action_prompt=True)
+            if not payload.get("should_generate"):
+                self._record_debug("persona_visual_reply", reason, persona, False, "No visual prompt was generated.", payload)
+                return {"accepted": False, "message": "No visual prompt was generated.", "payload": payload}
+        self._record_debug("persona_visual_reply", reason, persona, None, "Visual Reply prompt built.", payload)
         visual = persona.visual if persona is not None else None
         try:
             accepted = bool(

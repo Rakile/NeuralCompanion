@@ -312,6 +312,7 @@ class MultiPersonaRoleplayController:
         self._widget = None
         self._debug_prompt = ""
         self._debug_visual_prompt = ""
+        self._chat_visual_prompt_debug = ""
         self._debug_voice = ""
         self._validation_result = ""
         self._story_event_log: list[dict[str, str]] = self._load_story_event_log()
@@ -751,7 +752,9 @@ class MultiPersonaRoleplayController:
             prompt = str(item.get("prompt") or "").strip()
             if prompt:
                 preview = " ".join(prompt.split())
-                lines.append(f"    prompt: {preview[:420]}")
+                preview_text = prompting._compact(preview, 420)
+                suffix = f" ({len(prompt)} chars)" if len(preview_text) < len(preview) else ""
+                lines.append(f"    prompt preview{suffix}: {preview_text}")
         return "\n".join(lines)
 
     def _clear_visual_debug_log(self):
@@ -955,15 +958,151 @@ class MultiPersonaRoleplayController:
         event = str(assistant_text or "").strip()
         if not event:
             return
-        compact = event.replace("\r", " ").replace("\n", " ")
-        while "  " in compact:
-            compact = compact.replace("  ", " ")
-        state.recent_events.append(compact[:260])
-        state.recent_events = state.recent_events[-12:]
-        state.pending_choices = self._extract_ar_choices(event)
+        previous_choices = list(state.pending_choices or [])
+        changed = self._update_ar_state_from_reply(event)
+        extracted_choices = self._extract_ar_choices(event)
+        if extracted_choices and list(state.pending_choices or []) == previous_choices:
+            state.pending_choices = extracted_choices
+            changed = True
+        if not changed:
+            compact = event.replace("\r", " ").replace("\n", " ")
+            while "  " in compact:
+                compact = compact.replace("  ", " ")
+            state.recent_events.append(compact[:260])
+            state.recent_events = state.recent_events[-12:]
+            state.pending_choices = extracted_choices
+        if changed:
+            self._request_ui_refresh()
         logger = getattr(self.context, "logger", None)
         if logger is not None:
             logger.info("[AR_MODE] Recorded AR reply event; choices=%s", len(state.pending_choices))
+
+    def _update_ar_state_from_reply(self, assistant_text: str) -> bool:
+        if self.is_shutdown() or not str(assistant_text or "").strip():
+            return False
+        try:
+            from core.engine_access import engine_module
+
+            engine = engine_module()
+            model_name = str(getattr(engine, "RUNTIME_CONFIG", {}).get("model_name", "") or "").strip()
+            if not model_name:
+                return False
+            if hasattr(engine, "_is_model_catalog_placeholder") and engine._is_model_catalog_placeholder(model_name):
+                return False
+            prompt = prompting.build_scene_update_prompt(self.session, self._mprc_strip_audio_tags(assistant_text))
+            params = {
+                "model": model_name,
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are NeuralCompanion's hidden MPRC AR state updater. "
+                            "Return strict JSON only, no markdown and no prose. "
+                            "Track visible story progression for the next turn and Visual Reply prompts."
+                        ),
+                    },
+                    {"role": "user", "content": prompt},
+                ],
+                "temperature": 0.1,
+                "max_tokens": 800,
+                "response_format": {"type": "json_object"},
+                "timeout": 45,
+            }
+            additional_params: dict[str, Any] = {}
+            if hasattr(engine, "_apply_chat_provider_generation_fields"):
+                engine._apply_chat_provider_generation_fields(params, additional_params)
+            params["temperature"] = 0.1
+            params["max_tokens"] = 800
+            params["response_format"] = {"type": "json_object"}
+            params["timeout"] = max(45, int(float(params.get("timeout", 0) or 0)))
+            raw_text = ""
+            last_error = None
+            for _attempt in range(2):
+                try:
+                    raw_text = str(engine._chat_completion_create(params, additional_params) or "").strip()
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    message = str(exc).lower()
+                    changed = False
+                    if "response_format" in message or "json_object" in message:
+                        changed = "response_format" in params
+                        params.pop("response_format", None)
+                    if ("timeout" in message or "unsupported" in message) and "timeout" in params:
+                        params.pop("timeout", None)
+                        changed = True
+                    if not changed:
+                        raise
+            if not raw_text and last_error is not None:
+                raise last_error
+            payload = prompting.parse_json_object(raw_text) or {}
+            return self._apply_ar_scene_update_payload(payload)
+        except Exception as exc:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.info("[MPRC] Hidden AR state update skipped: %s", exc)
+            return False
+
+    def _apply_ar_scene_update_payload(self, payload: dict[str, Any]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        state = self.session.ar_state
+        changed = False
+
+        def assign_text(target: Any, attr: str, value: Any, limit: int) -> bool:
+            text = prompting._compact(str(value or "").strip(), limit)
+            if not text or text == str(getattr(target, attr, "") or ""):
+                return False
+            setattr(target, attr, text)
+            return True
+
+        changed = assign_text(self.session, "scene_summary", payload.get("scene_summary"), 1400) or changed
+        changed = assign_text(state, "current_scene", payload.get("current_scene"), 360) or changed
+        changed = assign_text(state, "location", payload.get("location"), 180) or changed
+        changed = assign_text(state, "time_of_day", payload.get("time_of_day"), 120) or changed
+        changed = assign_text(state, "mood", payload.get("mood"), 180) or changed
+        changed = assign_text(state, "story_goal", payload.get("story_goal") or payload.get("current_objective"), 300) or changed
+
+        try:
+            tension = int(payload.get("tension_level"))
+            tension = max(0, min(10, tension))
+            if tension != int(getattr(state, "tension_level", 0) or 0):
+                state.tension_level = tension
+                changed = True
+        except Exception:
+            pass
+
+        recent_event = prompting._compact(str(payload.get("recent_event") or "").strip(), 260)
+        if recent_event:
+            events = [str(item or "").strip() for item in list(state.recent_events or []) if str(item or "").strip()]
+            if not events or events[-1] != recent_event:
+                events.append(recent_event)
+                state.recent_events = events[-12:]
+                changed = True
+
+        raw_choices = payload.get("pending_choices")
+        if isinstance(raw_choices, list):
+            choices = [prompting._compact(str(item or "").strip(), 180) for item in raw_choices if str(item or "").strip()]
+            choices = choices[:6]
+            if choices != list(state.pending_choices or []):
+                state.pending_choices = choices
+                changed = True
+
+        summaries = payload.get("character_state_summaries")
+        if isinstance(summaries, dict):
+            known_ids = {persona.id for persona in self.personas}
+            current = dict(self.session.character_state_summaries or {})
+            for persona_id, summary in summaries.items():
+                normalized = normalize_persona_id(str(persona_id or ""))
+                if normalized not in known_ids:
+                    continue
+                text = prompting._compact(str(summary or "").strip(), 360)
+                if text and current.get(normalized) != text:
+                    current[normalized] = text
+                    changed = True
+            if changed:
+                self.session.character_state_summaries = current
+        return changed
 
     def ensure_personas_from_assistant_text(self, assistant_text: str, *, source: str = "assistant_reply") -> list[str]:
         text = str(assistant_text or "")
@@ -1401,7 +1540,7 @@ class MultiPersonaRoleplayController:
             except RuntimeError:
                 pass
 
-    def request_auto_visual_reply(self, persona_id: str, reason: str) -> None:
+    def request_auto_visual_reply(self, persona_id: str, reason: str, source_text: str = "") -> None:
         if self.is_shutdown():
             return
         persona = self.persona_by_id(str(persona_id or "").strip())
@@ -1414,7 +1553,11 @@ class MultiPersonaRoleplayController:
         )
         if not self._queue_visual_worker(
             "mprc_visual_reply",
-            lambda: self._run_auto_visual_reply_request(str(persona_id or ""), str(reason or "manual")),
+            lambda: self._run_auto_visual_reply_request(
+                str(persona_id or ""),
+                str(reason or "manual"),
+                str(source_text or ""),
+            ),
         ):
             self._record_visual_debug(
                 source="auto_visual_trigger",
@@ -1444,7 +1587,7 @@ class MultiPersonaRoleplayController:
         self._cancel_worker_token(token)
         return False
 
-    def _run_auto_visual_reply_request(self, persona_id: str, reason: str) -> None:
+    def _run_auto_visual_reply_request(self, persona_id: str, reason: str, source_text: str = "") -> None:
         if self.is_shutdown():
             return
         persona = self.persona_by_id(persona_id)
@@ -1456,7 +1599,7 @@ class MultiPersonaRoleplayController:
                 message=f"No persona matched Visual Reply request id '{persona_id}'.",
             )
             return
-        result = self.visual_reply.request_generation(persona=persona, reason=reason)
+        result = self.visual_reply.request_generation(persona=persona, reason=reason, source_text=source_text)
         logger = getattr(self.context, "logger", None)
         if logger is not None and not bool(result.get("accepted")):
             logger.info("MPRC auto Visual Reply skipped: %s", result.get("message", "not accepted"))
@@ -1467,6 +1610,184 @@ class MultiPersonaRoleplayController:
                 kind="visual",
                 persist=True,
             )
+
+    def build_visual_action_prompt(
+        self,
+        *,
+        persona: PersonaConfig,
+        source_text: str,
+        base_prompt: str,
+        reason: str = "manual",
+        provider: str = "",
+    ) -> str:
+        reply_text = self._mprc_strip_audio_tags(str(source_text or "").strip())
+        if not reply_text or persona is None or self.is_shutdown():
+            return ""
+        try:
+            from core.engine_access import engine_module
+
+            engine = engine_module()
+            model_name = str(getattr(engine, "RUNTIME_CONFIG", {}).get("model_name", "") or "").strip()
+            if not model_name:
+                return ""
+            if hasattr(engine, "_is_model_catalog_placeholder") and engine._is_model_catalog_placeholder(model_name):
+                return ""
+            state = self.session.ar_state
+            active_ids = [normalize_persona_id(item) for item in list(state.active_characters or []) if str(item or "").strip()]
+            if not active_ids:
+                active_ids = [self.session.current_speaker_id, self.session.active_persona_id, persona.id]
+            active_cast = []
+            seen = set()
+            for persona_id in active_ids:
+                cast_persona = self.persona_by_id(persona_id)
+                if cast_persona is None or cast_persona.id in seen:
+                    continue
+                seen.add(cast_persona.id)
+                active_cast.append(
+                    {
+                        "id": cast_persona.id,
+                        "name": cast_persona.display_name,
+                        "role": cast_persona.role or cast_persona.behavior_mode,
+                        "appearance": (
+                            cast_persona.visual.character_description
+                            or cast_persona.ar_description
+                            or cast_persona.description
+                        ),
+                        "clothing_props": cast_persona.visual.clothing_props,
+                    }
+                )
+            visual = persona.visual
+            prompt_payload = {
+                "task": "Create one image prompt for the current MPRC story reply.",
+                "provider": str(provider or "inherit").strip().lower(),
+                "trigger_reason": str(reason or "manual"),
+                "selected_visual_persona": {
+                    "id": persona.id,
+                    "name": persona.display_name,
+                    "role": persona.role or persona.behavior_mode,
+                    "appearance": visual.character_description or persona.ar_description or persona.description,
+                    "clothing_props": visual.clothing_props,
+                    "environment_style": visual.environment_style,
+                    "negative_prompt": visual.negative_prompt,
+                },
+                "scene_state": {
+                    "title": self.session.scene_title,
+                    "summary": self._mprc_compact(self.session.scene_summary, 600),
+                    "current_scene": self._mprc_compact(state.current_scene or self.session.scene_title, 360),
+                    "location": state.location or self.session.location,
+                    "time_of_day": state.time_of_day or self.session.time_of_day,
+                    "mood": state.mood or self.session.mood,
+                    "objective": state.story_goal or self.session.objective,
+                    "recent_events": [
+                        self._mprc_compact(item, 220)
+                        for item in list(state.recent_events or self.session.recent_events or [])[-4:]
+                        if str(item or "").strip()
+                    ],
+                    "pending_choices": [
+                        self._mprc_compact(item, 160)
+                        for item in list(state.pending_choices or [])[:4]
+                        if str(item or "").strip()
+                    ],
+                },
+                "active_cast": active_cast[:6],
+                "current_story_reply": self._mprc_compact(reply_text, 2400),
+                "fallback_prompt": self._mprc_compact(base_prompt, 900),
+            }
+            system_prompt = (
+                "You are NeuralCompanion's hidden MPRC visual-action prompt planner. "
+                "Return strict JSON only, no markdown and no prose. "
+                "Focus on the visible action happening in current_story_reply. "
+                "Use scene_state and active_cast only to keep identity, setting, and continuity grounded. "
+                "Do not invent new characters, props, injuries, weapons, monsters, or location changes unless visible in the current story reply. "
+                "Do not include hidden reasoning."
+            )
+            user_prompt = (
+                "Return this exact JSON shape:\n"
+                '{"image_prompt":"ready image prompt focused on the current visible action","negative_prompt":"optional concise avoid list"}\n\n'
+                "Rules:\n"
+                "- image_prompt must describe who is visibly doing what, where, with mood/lighting/camera.\n"
+                "- Prioritize action, body language, object interaction, threat, discovery, movement, or reaction from current_story_reply.\n"
+                "- Keep recurring character identity consistent using active_cast and selected_visual_persona.\n"
+                "- If provider is comfyui, use a direct positive prompt without labels like 'Story scene image' or 'Current story moment'.\n"
+                "- Keep image_prompt under 900 characters.\n\n"
+                "Input JSON:\n"
+                f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
+            )
+            params = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                "temperature": 0.2,
+                "max_tokens": 700,
+                "response_format": {"type": "json_object"},
+                "timeout": 45,
+            }
+            additional_params: dict[str, Any] = {}
+            if hasattr(engine, "_apply_chat_provider_generation_fields"):
+                engine._apply_chat_provider_generation_fields(params, additional_params)
+            params["temperature"] = 0.2
+            params["max_tokens"] = 700
+            params["response_format"] = {"type": "json_object"}
+            params["timeout"] = max(45, int(float(params.get("timeout", 0) or 0)))
+            last_error = None
+            raw_text = ""
+            for _attempt in range(2):
+                try:
+                    raw_text = str(engine._chat_completion_create(params, additional_params) or "").strip()
+                    break
+                except Exception as exc:
+                    last_error = exc
+                    message = str(exc).lower()
+                    changed = False
+                    if "response_format" in message or "json_object" in message:
+                        changed = "response_format" in params
+                        params.pop("response_format", None)
+                    if ("timeout" in message or "unsupported" in message) and "timeout" in params:
+                        params.pop("timeout", None)
+                        changed = True
+                    if not changed:
+                        raise
+            if not raw_text and last_error is not None:
+                raise last_error
+            payload = prompting.parse_json_object(raw_text) or {}
+            prompt = str(payload.get("image_prompt") or payload.get("prompt") or "").strip()
+            if len(prompt) < 20:
+                return ""
+            prompt = prompting._compact(prompt, 900)
+            self.set_chat_visual_prompt_debug_from_parts(
+                persona=persona,
+                reason=str(reason or "manual"),
+                provider=str(provider or "inherit"),
+                stage="hidden LLM current-reply action prompt",
+                final_prompt=prompt,
+                base_prompt=base_prompt,
+                source_text=reply_text,
+                request_payload=prompt_payload,
+            )
+            self._record_visual_debug(
+                source="visual_action_prompt",
+                reason=str(reason or "manual"),
+                persona=persona,
+                accepted=None,
+                message="Hidden LLM built current-reply visual action prompt.",
+                prompt=prompt,
+            )
+            return prompt
+        except Exception as exc:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.info("[MPRC] Visual action prompt refinement skipped: %s", exc)
+            self._record_visual_debug(
+                source="visual_action_prompt",
+                reason=str(reason or "manual"),
+                persona=persona,
+                accepted=False,
+                message=f"Hidden LLM visual action prompt skipped: {exc}",
+                prompt=base_prompt,
+            )
+            return ""
 
     def _extract_ar_choices(self, text: str) -> list[str]:
         raw = str(text or "")
@@ -1514,6 +1835,76 @@ class MultiPersonaRoleplayController:
             if self._shutting_down:
                 return
             self._debug_prompt = str(prompt or "")
+        self._request_debug_refresh()
+
+    def set_chat_visual_prompt_debug_from_parts(
+        self,
+        *,
+        persona: PersonaConfig | None,
+        reason: str = "manual",
+        provider: str = "",
+        stage: str = "",
+        final_prompt: str = "",
+        base_prompt: str = "",
+        source_text: str = "",
+        request_payload: dict[str, Any] | None = None,
+    ) -> None:
+        payload = dict(request_payload or {}) if isinstance(request_payload, dict) else {}
+        lines = [
+            "MPRC Visual Prompt Debug",
+            f"Stage: {stage or 'base prompt'}",
+            f"Reason: {reason or 'manual'}",
+            f"Provider: {provider or 'inherit'}",
+        ]
+        if persona is not None:
+            visual = getattr(persona, "visual", None)
+            lines.extend(
+                [
+                    "",
+                    "[Persona / Visual Settings]",
+                    f"Persona: {persona.display_name} ({persona.id})",
+                    f"Role: {persona.role or persona.behavior_mode}",
+                    f"Visual mode: {getattr(visual, 'mode', '')}",
+                    f"Provider override: {getattr(visual, 'provider', '')}",
+                    f"Model override: {getattr(visual, 'model', '')}",
+                    f"Size override: {getattr(visual, 'size', '')}",
+                    f"Style preset: {getattr(visual, 'style_preset', '')}",
+                    f"Include scene summary: {bool(getattr(visual, 'include_scene_summary', False))}",
+                    f"Include active speaker: {bool(getattr(visual, 'include_active_speaker', False))}",
+                    f"Character description: {self._mprc_compact(getattr(visual, 'character_description', ''), 420)}",
+                    f"Clothing / props: {self._mprc_compact(getattr(visual, 'clothing_props', ''), 260)}",
+                    f"Environment style: {self._mprc_compact(getattr(visual, 'environment_style', ''), 260)}",
+                    f"Negative prompt: {self._mprc_compact(getattr(visual, 'negative_prompt', ''), 260)}",
+                ]
+            )
+        state = self.session.ar_state
+        lines.extend(
+            [
+                "",
+                "[AR State Inputs]",
+                f"Current scene: {self._mprc_compact(state.current_scene or self.session.scene_title, 420)}",
+                f"Location: {self._mprc_compact(state.location or self.session.location, 260)}",
+                f"Time: {self._mprc_compact(state.time_of_day or self.session.time_of_day, 160)}",
+                f"Mood: {self._mprc_compact(state.mood or self.session.mood, 220)}",
+                f"Story goal: {self._mprc_compact(state.story_goal or self.session.objective, 320)}",
+                f"Active characters: {', '.join(list(state.active_characters or []))}",
+                f"Pending choices: {self._mprc_join_compact(list(state.pending_choices or []), 6, 140)}",
+                f"Recent events: {self._mprc_join_compact(list(state.recent_events or [])[-4:], 4, 180)}",
+                f"Scene summary: {self._mprc_compact(self.session.scene_summary, 700)}",
+            ]
+        )
+        if source_text:
+            lines.extend(["", "[Current Story Reply Input]", self._mprc_compact(source_text, 1800)])
+        if payload:
+            lines.extend(["", "[Hidden LLM Request Payload]", json.dumps(payload, indent=2, ensure_ascii=False)])
+        if base_prompt:
+            lines.extend(["", "[Fallback/Base Prompt]", self._mprc_compact(base_prompt, 1200)])
+        if final_prompt:
+            lines.extend(["", "[Final Image Prompt Sent]", final_prompt])
+        with self._state_lock:
+            if self._shutting_down:
+                return
+            self._chat_visual_prompt_debug = "\n".join(str(item) for item in lines if item is not None).strip()
         self._request_debug_refresh()
 
     def _request_debug_refresh(self) -> None:
@@ -2088,21 +2479,34 @@ class MultiPersonaRoleplayController:
             "chat_restart": page.findChild(QtWidgets.QPushButton, "mprc_chat_restart_button"),
             "chat_clear": page.findChild(QtWidgets.QPushButton, "mprc_chat_clear_button"),
             "chat_float": page.findChild(QtWidgets.QPushButton, "mprc_chat_float_button"),
+            "chat_runtime_splitter": page.findChild(QtWidgets.QSplitter, "mprc_story_runtime_splitter"),
+            "chat_story_feed_box": page.findChild(QtWidgets.QGroupBox, "mprc_story_feed_box"),
+            "chat_player_action_box": page.findChild(QtWidgets.QGroupBox, "mprc_player_action_box"),
+            "chat_visual_prompt_debug_box": page.findChild(QtWidgets.QGroupBox, "mprc_visual_prompt_debug_box"),
+            "chat_visual_prompt_debug": page.findChild(QtWidgets.QPlainTextEdit, "mprc_visual_prompt_debug_text"),
             "chat_send": page.findChild(QtWidgets.QPushButton, "mprc_chat_send_button"),
+            "chat_speaker_label": page.findChild(QtWidgets.QLabel, "mprc_chat_speaker_label"),
             "chat_speaker": page.findChild(QtWidgets.QComboBox, "mprc_chat_speaker_combo"),
+            "chat_intent_label": page.findChild(QtWidgets.QLabel, "mprc_chat_mode_label"),
             "chat_intent": page.findChild(QtWidgets.QComboBox, "mprc_chat_intent_combo"),
             "chat_transcript": page.findChild(QtWidgets.QTextBrowser, "mprc_chat_transcript"),
             "chat_input": page.findChild(QtWidgets.QPlainTextEdit, "mprc_chat_input"),
             "chat_use_ar": page.findChild(QtWidgets.QCheckBox, "mprc_chat_use_ar_checkbox"),
             "chat_visuals": page.findChild(QtWidgets.QCheckBox, "mprc_chat_visuals_checkbox"),
             "chat_status": page.findChild(QtWidgets.QLabel, "mprc_chat_status_label"),
+            "chat_scene_state_box": page.findChild(QtWidgets.QGroupBox, "mprc_scene_state_box"),
             "chat_scene_state": page.findChild(QtWidgets.QLabel, "mprc_chat_scene_state_label"),
             "chat_active_speaker": page.findChild(QtWidgets.QLabel, "mprc_chat_active_speaker_label"),
+            "chat_story_state_tabs": page.findChild(QtWidgets.QTabWidget, "mprc_story_state_tabs"),
             "chat_present_characters": page.findChild(QtWidgets.QListWidget, "mprc_chat_present_characters_list"),
             "chat_recent_events": page.findChild(QtWidgets.QListWidget, "mprc_chat_recent_events_list"),
             "chat_next_actions": page.findChild(QtWidgets.QListWidget, "mprc_chat_next_actions_list"),
+            "chat_director_box": page.findChild(QtWidgets.QGroupBox, "mprc_director_box"),
+            "chat_director_pacing_label": page.findChild(QtWidgets.QLabel, "mprc_director_pacing_label"),
             "chat_director_pacing": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_pacing_combo"),
+            "chat_director_tone_label": page.findChild(QtWidgets.QLabel, "mprc_director_tone_label"),
             "chat_director_tone": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_tone_combo"),
+            "chat_director_agency_label": page.findChild(QtWidgets.QLabel, "mprc_director_agency_label"),
             "chat_director_agency": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_agency_combo"),
             "chat_advance_scene": page.findChild(QtWidgets.QPushButton, "mprc_chat_advance_scene_button"),
             "chat_summarize": page.findChild(QtWidgets.QPushButton, "mprc_chat_summarize_button"),
@@ -2244,6 +2648,7 @@ class MultiPersonaRoleplayController:
             if main_splitter is None:
                 story_box = widget("mprc_story_feed_box")
                 action_box = widget("mprc_player_action_box")
+                visual_debug_box = widget("mprc_visual_prompt_debug_box")
                 if story_box is not None and action_box is not None:
                     while main_layout.count():
                         main_layout.takeAt(0)
@@ -2251,12 +2656,18 @@ class MultiPersonaRoleplayController:
                     main_splitter.setObjectName("mprc_story_main_vertical_splitter")
                     main_splitter.addWidget(story_box)
                     main_splitter.addWidget(action_box)
+                    if visual_debug_box is not None:
+                        main_splitter.addWidget(visual_debug_box)
                     main_splitter.setChildrenCollapsible(False)
                     main_splitter.setHandleWidth(6)
                     main_splitter.setStyleSheet(splitter_style)
                     main_splitter.setStretchFactor(0, 1)
                     main_splitter.setStretchFactor(1, 0)
-                    main_splitter.setSizes([360, 150])
+                    if visual_debug_box is not None:
+                        main_splitter.setStretchFactor(2, 0)
+                        main_splitter.setSizes([340, 150, 150])
+                    else:
+                        main_splitter.setSizes([360, 150])
                     main_layout.addWidget(main_splitter, 1)
             if main_splitter is not None:
                 main_splitter.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
@@ -2268,6 +2679,7 @@ class MultiPersonaRoleplayController:
 
         flexible_heights = {
             "mprc_player_action_box": (120, 220),
+            "mprc_visual_prompt_debug_box": (120, 320),
             "mprc_scene_state_box": (105, 230),
             "mprc_story_state_tabs": (145, 16777215),
             "mprc_director_box": (165, 230),
@@ -2282,6 +2694,7 @@ class MultiPersonaRoleplayController:
 
         for name, max_height in (
             ("mprc_chat_input", 130),
+            ("mprc_visual_prompt_debug_text", 16777215),
             ("mprc_chat_present_characters_list", 16777215),
             ("mprc_chat_recent_events_list", 16777215),
             ("mprc_chat_next_actions_list", 16777215),
@@ -3300,19 +3713,64 @@ class MultiPersonaRoleplayController:
 
     def _install_tooltips_and_refine(self):
         tooltip_map = {
-            "enabled": "Turn MPRC prompt and voice routing on or off. Off restores normal NC chat behavior.",
-            "active": "Choose the persona that currently shapes chat replies, voice routing, and Visual Reply prompts.",
-            "ar_mode": "Switch MPRC into AlternativeReality, a narrator-led interactive audiobook/adventure runtime.",
-            "current_character_meta": "Quick status for the current character: ID, behavior, memory, voice, visual, and AR profile.",
-            "current_character_story": "Shows which active and saved Master Stories include this character.",
-            "current_character_quick_status": "Status messages from quick persona actions.",
+            "enabled": "Turn MPRC prompt and voice routing on or off. Off restores normal NC chat behavior, normal chat history, and normal voice routing.",
+            "active": "Choose the persona that currently shapes MPRC replies, voice routing, character preview, and Visual Reply prompts. In AR Play, Focus can temporarily direct a turn without changing this saved active persona.",
+            "ar_mode": "Switch MPRC into AlternativeReality, a narrator-led interactive audiobook/adventure runtime. AR mode expects [NARRATOR], [CHARACTER: Name], [CHOICES], and story audio tags.",
+            "chat_start": "Arm the MPRC Play runtime. If an active story exists, the narrator opens or continues that story inside the isolated Play feed instead of normal NC chat.",
+            "chat_pause": "Stop the current MPRC Play speech/playback path. Use this when you want to interrupt spoken story output before sending another action.",
+            "chat_restart": "Restart the active story from the current setup. This clears story/character memory for the active run and removes auto-created chat characters, while keeping saved personas and saved story files.",
+            "chat_clear": "Clear the visible Play transcript. This does not delete personas, story setup, saved memory, or normal NC chat history.",
+            "chat_float": "Move the MPRC Play surface into its own floating window, or dock it back into the addon tab when already floating.",
+            "chat_runtime_splitter": "Resizable divider between the Story Feed/player action area and the scene-state sidebar.",
+            "chat_story_feed_box": "Isolated MPRC story transcript. It shows narrator/character output, choices, selected player actions, and restored memory beats without writing into normal NC chat.",
+            "chat_transcript": "Live MPRC Story Feed. Spoken narrator/character chunks are derived from this structured story text and routed by [NARRATOR] and [CHARACTER: Name] tags.",
+            "chat_player_action_box": "Player input area for acting, speaking, directing the scene, or asking out-of-character questions inside the MPRC Play runtime.",
+            "chat_input": "Type the next player action, dialogue, director note, or OOC request. Choice clicks can fill this field; double-clicking a choice sends it.",
+            "chat_use_ar": "Use AlternativeReality prompting for this Play turn. Keep enabled for narrator-led story play; disable only when testing non-AR MPRC behavior.",
+            "chat_visuals": "Allow this Play turn to request story-scene Visual Reply images when persona visual settings, cooldowns, and provider readiness allow it.",
+            "chat_send": "Send the Player Action to the MPRC-only turn pipeline. If speech is still playing, MPRC stops it before continuing so replies do not overlap.",
+            "chat_visual_prompt_debug_box": "Debug-only breakdown of the latest MPRC Visual Reply prompt request. Use this to see which story reply, AR state, persona visual settings, and fallback prompt contributed to the final image prompt.",
+            "chat_visual_prompt_debug": "Read-only Visual Reply prompt audit for MPRC Play. It shows the final image prompt plus the current story reply, AR state inputs, persona visual settings, and hidden LLM payload when available.",
+            "chat_intent_label": "Intent controls how MPRC interprets the Player Action before building the Play prompt.",
+            "chat_intent": "Auto lets MPRC infer Act, Say, Direct, or OOC from the text. Choose a mode only when you want to force how the next Player Action is framed.",
+            "chat_speaker_label": "Focus chooses whose perspective or scope the next Player Action targets.",
+            "chat_speaker": "Focus for the next Play turn. Player means user/director action; Narrator means scene-level direction; a character means the player acts or speaks through that character for this turn.",
+            "chat_status": "Short Play status line for isolated runtime state, send locks, restore notices, visual request state, and story start/stop messages.",
+            "chat_scene_state_box": "Compact current scene card used as prompt context: scene, location, time, mood, objective, and active speaker.",
+            "chat_scene_state": "Current scene fields carried into the next MPRC Play prompt.",
+            "chat_active_speaker": "Resolved active speaker for the current story moment. This can differ from Active persona when Focus or story routing chooses another character.",
+            "chat_story_state_tabs": "Cast, Events, and Choices for the current Play scene. These tabs expose enough structured state to understand who is present, what just happened, and what can be done next.",
+            "chat_present_characters": "Characters currently present in the story scene. [Auto Chat] entries were created from story labels and are removed by Restart Story.",
+            "chat_recent_events": "Recent story events remembered by MPRC. These are compact visible continuity beats, not hidden chain-of-thought.",
+            "chat_next_actions": "Current player choices. Click a choice to copy it into Player Action; double-click or press Enter to send it immediately.",
+            "chat_director_box": "Director controls for pacing, tone, agency, and maintenance actions that steer the next Play request without editing the story draft.",
+            "chat_director_pacing_label": "Pacing controls how quickly the narrator moves from description to consequence or choice.",
+            "chat_director_pacing": "Pacing hint for the next Play request. Balanced keeps normal rhythm; faster modes reach choices sooner; slower/audiobook modes allow more narration.",
+            "chat_director_tone_label": "Tone controls the emotional color requested for the next scene beat.",
+            "chat_director_tone": "Tone hint for the next Play request. Keep current preserves the story's present mood; other choices nudge the narrator for the next beat.",
+            "chat_director_agency_label": "Agency controls how strongly MPRC constrains player options and consequences.",
+            "chat_director_agency": "Agency hint for the next Play request. Guided offers clear options; Open leaves more room; Strict consequences asks the narrator to enforce outcomes more firmly.",
+            "chat_advance_scene": "Queue a director action asking the narrator to move the scene forward while preserving current continuity.",
+            "chat_summarize": "Queue an out-of-character story summary request inside the Play feed.",
+            "chat_repair": "Queue a director repair request asking MPRC to restate/repair confusing story state, choices, or speaker routing.",
+            "character_preview_panel": "Current-character dashboard. It follows the active persona or current speaker when tracking is enabled, and gives quick access to avatar, save/import/export, duplicate, and edit actions.",
+            "current_character_image": "The active persona picture. This updates when the active persona changes or when Track current speaker in character preview follows a story speaker.",
+            "current_character_name": "Display name of the persona currently shown in the preview panel.",
+            "current_character_role": "Role/archetype for the previewed persona, such as narrator, companion, story character, or auto-created chat participant.",
+            "current_character_meta": "Quick status for the current character: ID, behavior, memory scope, voice readiness, visual readiness, and whether an AR profile is active.",
+            "current_character_story": "Shows which active and saved Master Stories include this character, and whether the character is active/speaking in the current story.",
+            "current_character_quick_status": "Status messages from quick persona actions such as save, import, duplicate, avatar changes, and editor jumps.",
+            "character_roster_frame": "Horizontal preview strip for the story/persona roster. It is a visual selector, separate from the Registry list.",
+            "character_roster_strip": "Scroll through character picture tiles. Click a tile to switch the active persona.",
+            "character_roster_content": "Container for the current story/persona picture tiles.",
             "quick_change_avatar": "Choose a new avatar image for the current character.",
             "quick_save_persona": "Save persona, session, and addon settings immediately.",
             "quick_import_persona": "Import persona JSON from disk. This uses the same import flow as the Registry tab.",
             "quick_export_personas": "Export all current personas to a JSON file.",
             "quick_duplicate_persona": "Duplicate the current character as a new editable persona.",
             "quick_edit_persona": "Jump to the Persona Editor for the current character.",
-            "persona_list": "All saved personas. Select one to edit it or make it active. [Auto Chat] means MPRC created it from a new character in the current chat.",
+            "show_character": "Keep the character preview panel synchronized with the current speaker. This is only the preview/highlight behavior; story-scene images are controlled by each persona's Visual tab.",
+            "persona_list": "All saved personas. Select one to edit it or make it active. [Story] means linked to a saved/active story; [Auto Chat] means MPRC created it from a new character label in the current chat.",
             "add_persona": "Create a new neutral editable persona.",
             "duplicate_persona": "Copy the selected persona as a starting point for a variant.",
             "delete_persona": "Delete the selected persona. At least one persona is always kept.",
@@ -3321,8 +3779,7 @@ class MultiPersonaRoleplayController:
             "reset_defaults": "Restore the bundled neutral defaults and clear the current roleplay scene.",
             "load_default_scenario": "Load the bundled touch-and-go group scenario with all default personas represented.",
             "persona_id": "Stable local ID for this persona. Keep it short and lowercase. Right-click to refine if needed.",
-            "persona_enabled": "Enable or disable this persona without deleting it.",
-            "show_character": "Keep the character preview panel synchronized with the current speaker. This is only the preview/highlight behavior; story-scene images are controlled by each persona's Visual tab.",
+            "persona_enabled": "Enable or disable this persona without deleting it. Disabled personas are kept in storage but ignored by normal routing and story cast selection.",
             "display_name": "Name shown in the Roleplay UI and prompts. Right-click to refine.",
             "role": "Short archetype or role, such as mentor, narrator, technician, or explorer. Right-click to refine.",
             "description": "Compact visible description of who this persona is. Right-click to refine this Short Description field.",
@@ -3342,8 +3799,11 @@ class MultiPersonaRoleplayController:
             "memory_scope": "Controls how the prompt frames persona-specific continuity.",
             "behavior_mode": "Sets the persona's roleplay framing.",
             "tags": "Comma-separated tags for organizing personas. Right-click to refine.",
-            "voice_enabled": "Use this persona's voice sample when roleplay mode is enabled.",
-            "narrator_persona": "Choose which persona voice is used for [NARRATOR]. Auto uses the Story Narrator/narrator-tagged persona.",
+            "guide_read_all": "Read every section of the Guide tab aloud using the local system speech helper, if one is available.",
+            "guide_stop_speech": "Stop Guide tab speech playback.",
+            "guide_speech_status": "Shows whether the Guide tab is speaking, stopped, or unavailable on this system.",
+            "voice_enabled": "Use this persona's voice sample when roleplay mode is enabled. If disabled or unsupported, NC falls back to the active TTS backend's normal voice.",
+            "narrator_persona": "Choose which persona voice is used for [NARRATOR]. Auto uses the Story Narrator/narrator-tagged persona, then falls back to the active persona.",
             "voice_follow_active": "Keep the Voice tab locked to the current active persona. Disable this only when you intentionally want to edit another persona's voice.",
             "voice_current_persona": "Shows the exact persona whose voice fields will be changed.",
             "voice_persona": "Choose which persona's voice settings are shown in the fields below.",
@@ -3374,9 +3834,14 @@ class MultiPersonaRoleplayController:
             "ar_interaction": "How often AlternativeReality should pause for player choices.",
             "ar_tension": "Compact 0-10 tension hint for the AR prompt.",
             "ar_current_scene": "Current AR scene beat used when the player says continue.",
+            "ar_location": "Current AR location carried into the next Play prompt. Keep it concise and visible, not secret.",
+            "ar_time_of_day": "Current AR time, lighting, era, or timing cue carried into the next Play prompt.",
+            "ar_mood": "Current AR mood/atmosphere hint. This steers tone but should stay short enough to remain prompt-safe.",
+            "ar_story_goal": "Current story objective used by Play and Continue requests.",
             "ar_active_characters": "Comma-separated persona IDs active in the AR scene. Characters still speak only when relevant.",
             "ar_player_intent": "Latest player intent/action summary for AR continuity.",
             "ar_pending_choices": "Optional player choices shown or remembered by AR mode.",
+            "ar_recent_events": "Read-only compact AR event history. These are visible continuity beats, not hidden reasoning.",
             "ar_seed": "Copy scene, location, mood, time, and objective from the regular Session tab into AR state.",
             "ar_fill_profiles": "Fill missing AR descriptions and AR system prompts from the bundled cinematic adventure defaults.",
             "ar_clear": "Clear AR state and reseed safe defaults if AR mode is active.",
@@ -3500,6 +3965,11 @@ class MultiPersonaRoleplayController:
             "visual_auto_show": "Show the existing Visual Reply dock when an image is requested.",
             "visual_generate": "Request a story-scene image in the existing Visual Reply window using the selected persona's effective image prompt.",
             "visual_preview": "Show the generated image prompt in the debug panel without requesting an image.",
+            "debug_prompt": "Effective persona prompt/context used by MPRC for the current or last routed request. Use this to verify persona, AR, memory, scene, and instruction text before blaming the model.",
+            "debug_visual": "Effective Visual Reply payload/prompt for the current persona or last story image request. Use this to inspect provider, model, size, persona visual fields, scene context, and skip reasons.",
+            "debug_voice": "Effective voice routing config for the current or last persona route. Use this to verify persona ID, selected voice sample, backend support, route reason, warning, and fallback behavior.",
+            "debug_state": "Compact JSON state snapshot for MPRC: session, AR state, active persona, memory, story links, and runtime flags that feed prompt/routing decisions.",
+            "debug_clear": "Clear the Debug tab panes. This only clears the displayed debug output, not story state, memory, generated images, or Visual Reply settings.",
             "debug_visual_calls": "Live Visual Reply audit log for MPRC. It shows queued, accepted, skipped, and failed image requests with persona, reason, source, and prompt preview.",
             "debug_visual_calls_copy": "Copy the Visual Reply call log to the clipboard.",
             "debug_visual_calls_clear": "Clear the MPRC Visual Reply call log. This does not delete generated images or change Visual Reply settings.",
@@ -10946,7 +11416,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             )
             return
         try:
-            result = self.visual_reply.request_generation(persona=persona, reason="tts_reply")
+            result = self.visual_reply.request_generation(persona=persona, reason="tts_reply", source_text=spoken_text)
             logger = getattr(self.context, "logger", None)
             if logger is not None and not bool(result.get("accepted")):
                 logger.info("[MPRC] TTS Visual Reply skipped for %s: %s", persona.display_name, result.get("message", "not accepted"))
@@ -10975,7 +11445,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             pieces.append("Persona essence: " + persona.system_prompt[:360])
         pieces.append("single character, clear face, neutral background, no text, no watermark")
         prompt = ". ".join(str(item or "").strip(" .") for item in pieces if str(item or "").strip())
-        return prompt[:760].rstrip(" \t\r\n,;:.-")
+        return prompting._compact(prompt, 760)
 
     def _set_image_label(self, label, image_path: str, *, fallback_text: str = "No picture") -> None:
         if label is None:
@@ -11391,6 +11861,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
     def _clear_debug(self):
         self._debug_prompt = ""
         self._debug_visual_prompt = ""
+        self._chat_visual_prompt_debug = ""
         self._debug_voice = ""
         self._refresh_debug()
 
@@ -11409,3 +11880,6 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             self._controls["debug_state"].setPlainText(json.dumps(state, indent=2))
         if "debug_visual_calls" in self._controls:
             self._controls["debug_visual_calls"].setPlainText(self._visual_debug_log_text())
+        if "chat_visual_prompt_debug" in self._controls:
+            text = self._chat_visual_prompt_debug or "Visual prompt debug will appear here after an MPRC Visual Reply request."
+            self._controls["chat_visual_prompt_debug"].setPlainText(text)

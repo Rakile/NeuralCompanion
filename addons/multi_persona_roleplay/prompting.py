@@ -11,7 +11,13 @@ def _compact(text: str, limit: int = 1200) -> str:
     value = re.sub(r"\s+", " ", str(text or "")).strip()
     if len(value) <= limit:
         return value
-    return value[:limit].rstrip(" \t\r\n,;:.-")
+    if limit <= 3:
+        return value[:limit]
+    cut = value[: max(0, limit - 3)].rstrip(" \t\r\n,;:.-")
+    boundary = cut.rfind(" ")
+    if boundary >= max(24, int(limit * 0.55)):
+        cut = cut[:boundary].rstrip(" \t\r\n,;:.-")
+    return (cut + "...") if cut else value[:limit]
 
 
 def _block(title: str, body: str) -> str:
@@ -258,13 +264,20 @@ def _looks_like_continue(text: str) -> bool:
 
 
 def build_scene_update_prompt(session: RoleplaySessionState, assistant_text: str) -> str:
+    state = session.ar_state
     return "\n".join(
         [
-            "Return JSON only. Update compact roleplay scene state from the assistant reply.",
-            'Schema: {"scene_summary":"...","recent_event":"...","location_changed":false,"new_location":"","mood":"...","current_objective":"...","character_state_summaries":{"persona_id":"short summary only"}}',
-            "Do not include hidden reasoning.",
+            "Return JSON only. Update compact visible AlternativeReality scene state from the latest assistant reply.",
+            'Schema: {"scene_summary":"...","current_scene":"...","location":"","time_of_day":"","mood":"","story_goal":"","tension_level":0,"recent_event":"...","pending_choices":["..."],"character_state_summaries":{"persona_id":"short summary only"}}',
+            "Only include visible story state. Do not include hidden reasoning.",
+            "If a field did not visibly change, repeat the previous value for that field.",
+            "Exception: pending_choices must describe only choices offered in the latest assistant reply. Return [] when the latest reply offers no current choices.",
+            "Keep current_scene focused on the newest visible beat, not the opening premise.",
+            "Keep scene_summary as compact continuity across the story so far.",
+            "Use persona IDs, not display names, as character_state_summaries keys.",
             _block("Previous scene summary", _compact(session.scene_summary, 900)),
-            _block("Assistant reply", _compact(assistant_text, 900)),
+            _block("Previous AR state", json.dumps(state.to_dict(), ensure_ascii=False)),
+            _block("Assistant reply", _compact(assistant_text, 1800)),
         ]
     ).strip()
 
@@ -274,10 +287,56 @@ def build_visual_reply_prompt(
     session: RoleplaySessionState,
     style_prompt: str = "",
     reason: str = "manual",
+    provider: str = "",
 ) -> str:
     visual = persona.visual
+    provider_id = str(provider or getattr(visual, "provider", "") or "").strip().lower()
     pieces = []
     ar_state = getattr(session, "ar_state", None)
+    if provider_id == "comfyui":
+        if visual.include_scene_summary:
+            scene_bits = []
+            current_scene = _compact(getattr(ar_state, "current_scene", ""), 260) if ar_state is not None else ""
+            if current_scene:
+                scene_bits.append(current_scene)
+            if session.scene_summary:
+                scene_bits.append(_compact(session.scene_summary, 260))
+            location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
+            location = location or _compact(session.location, 120)
+            mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
+            mood = mood or _compact(session.mood, 120)
+            time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
+            time_of_day = time_of_day or _compact(session.time_of_day, 80)
+            scene_bits.extend(item for item in (location, time_of_day, mood) if item)
+            recent = []
+            if ar_state is not None:
+                recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
+            recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
+            scene_bits.extend(_compact(item, 180) for item in recent[-2:] if item)
+            if scene_bits:
+                pieces.append(", ".join(scene_bits))
+        if visual.character_description:
+            pieces.append(visual.character_description)
+        else:
+            pieces.append(", ".join(item for item in (persona.display_name, persona.description or persona.role) if item))
+        if visual.clothing_props:
+            pieces.append(visual.clothing_props)
+        if visual.environment_style:
+            pieces.append(visual.environment_style)
+        if not visual.include_scene_summary and (session.location or session.mood):
+            pieces.append(", ".join(item for item in (session.location, session.mood) if item))
+        if visual.include_active_speaker:
+            pieces.append(persona.display_name)
+        if style_prompt:
+            pieces.append(style_prompt)
+        if visual.keep_continuity:
+            pieces.append("consistent recurring character identity, consistent scene continuity")
+        pieces.append("dynamic story scene, environmental storytelling, visible action, no text, no watermark")
+        prompt = ", ".join(item.strip(" ,") for item in pieces if item).strip()
+        if len(prompt) > 760:
+            prompt = _compact(prompt, 760)
+        return prompt
+
     pieces.append("Story scene image for Visual Reply: show what is happening in the current roleplay moment, not a static character portrait")
     if visual.include_scene_summary:
         scene_bits = []
@@ -324,7 +383,7 @@ def build_visual_reply_prompt(
         pieces.append(f"Avoid: {visual.negative_prompt}")
     prompt = ". ".join(item.strip(" .") for item in pieces if item).strip()
     if len(prompt) > 760:
-        prompt = prompt[:760].rstrip(" \t\r\n,;:.-")
+        prompt = _compact(prompt, 760)
     return prompt
 
 
