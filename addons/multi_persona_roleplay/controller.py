@@ -309,6 +309,12 @@ class MultiPersonaRoleplayController:
         self._tts_visual_reply_inflight: set[str] = set()
         self._last_tts_visual_reply_at: dict[str, float] = {}
         self._suppress_next_auto_visual_reply = False
+        self._mprc_tts_lock = threading.RLock()
+        self._mprc_tts_state_lock = threading.RLock()
+        self._mprc_tts_controller = None
+        self._mprc_tts_token = ""
+        self._mprc_chat_history: list[dict[str, str]] = []
+        self._mprc_pending_chat_users: dict[str, dict[str, str]] = {}
         self._ensure_session_persona()
 
     def _host_service(self, name: str):
@@ -1938,6 +1944,7 @@ class MultiPersonaRoleplayController:
             transcript.setHtml(
                 "<div style='color:#9fb3c8;'>MPRC Play transcript is separate from normal chat.</div>"
             )
+            self._restore_chat_play_feed_from_state()
         status = controls.get("chat_status")
         if status is not None:
             status.setProperty("muted", True)
@@ -2151,6 +2158,46 @@ class MultiPersonaRoleplayController:
         except Exception:
             pass
 
+    def _restore_chat_play_feed_from_state(self) -> None:
+        transcript = self._controls.get("chat_transcript")
+        if transcript is None or bool(transcript.property("_mprc_state_restored")):
+            return
+        turn_index = int(getattr(self.session, "turn_index", 0) or 0)
+        restored_beats = self._restored_chat_play_beats()
+        if turn_index <= 0 and not restored_beats:
+            return
+        transcript.setProperty("_mprc_state_restored", True)
+        self._append_chat_play_line(
+            "System",
+            "Restored an ongoing MPRC story from saved state. The full Play transcript is not persisted; fuller archived story beats are shown below when available.",
+            role="system",
+        )
+        for beat in restored_beats:
+            self._append_chat_play_line("Restored Beat", beat, role="assistant")
+
+    def _restored_chat_play_beats(self) -> list[str]:
+        beats: list[str] = []
+        try:
+            payload = self.long_memory.load()
+        except Exception:
+            payload = {}
+        events = list(payload.get("events") or []) if isinstance(payload, dict) else []
+        for event in events[-6:]:
+            if not isinstance(event, dict):
+                continue
+            text = str(event.get("assistant_text") or event.get("summary") or "").strip()
+            if text:
+                beats.append(self._mprc_compact(self._mprc_strip_audio_tags(text), 1600))
+        if beats:
+            return beats
+        ar_events = list(getattr(self.session.ar_state, "recent_events", []) or [])
+        events = ar_events or list(getattr(self.session, "recent_events", []) or [])
+        for event in events[-6:]:
+            text = str(event or "").strip()
+            if text:
+                beats.append(self._mprc_strip_audio_tags(text))
+        return beats
+
     def _set_chat_play_status(self, message: str) -> None:
         status = self._controls.get("chat_status")
         if status is not None and hasattr(status, "setText"):
@@ -2161,6 +2208,8 @@ class MultiPersonaRoleplayController:
         self.session.enabled = True
         if use_ar is not None and use_ar.isChecked():
             self.session.mode = AR_MODE
+        if int(getattr(self.session, "turn_index", 0) or 0) <= 0:
+            self._reset_mprc_chat_history()
         self.save_state()
         self._set_chat_play_status("MPRC Play session is active.")
         self._append_chat_play_line("System", "Play session armed inside MPRC.", role="system")
@@ -2205,6 +2254,7 @@ class MultiPersonaRoleplayController:
 
     def _on_mprc_chat_restart_clicked(self):
         self._stop_mprc_chat_playback()
+        self._reset_mprc_chat_history()
         transcript = self._controls.get("chat_transcript")
         if transcript is not None:
             transcript.clear()
@@ -2226,9 +2276,12 @@ class MultiPersonaRoleplayController:
             self.roleplay_engine._recent_assistant_texts = []
         except Exception:
             pass
+        self._clear_story_memory_preserving_pins()
         self.save_state()
-        self._append_chat_play_line("System", "Story restarted from the current setup.", role="system")
-        self._set_chat_play_status("MPRC story restarted. Personas and saved story setup were left intact.")
+        self._append_chat_play_line("System", "Story restarted from the current setup. Story and character memory were reset.", role="system")
+        self._set_chat_play_status("MPRC story restarted. Personas and saved story setup were left intact; story memory was reset.")
+        self._refresh_memory_browser()
+        self._refresh_reliability_panels()
         self._refresh_chat_play_controls()
 
     def _on_mprc_chat_clear_clicked(self):
@@ -2237,15 +2290,35 @@ class MultiPersonaRoleplayController:
             transcript.clear()
         self._set_chat_play_status("MPRC Play transcript cleared.")
 
+    def _reset_mprc_chat_history(self) -> None:
+        self._mprc_chat_history = []
+        self._mprc_pending_chat_users = {}
+
     def _stop_mprc_chat_playback(self) -> None:
         send_button = self._controls.get("chat_send")
         if send_button is not None:
             token = str(send_button.property("_mprc_worker_token") or "").strip()
             if token:
                 self._cancel_worker_token(token)
+                self._mprc_pending_chat_users.pop(token, None)
             send_button.setProperty("_mprc_in_flight", False)
             send_button.setProperty("_mprc_worker_token", "")
             send_button.setEnabled(True)
+        self._stop_mprc_chat_speech()
+
+    def _stop_mprc_chat_speech(self) -> None:
+        with self._mprc_tts_state_lock:
+            tts_controller = self._mprc_tts_controller
+            self._mprc_tts_controller = None
+            tts_token = str(self._mprc_tts_token or "")
+            self._mprc_tts_token = ""
+        if tts_token:
+            self._cancel_worker_token(tts_token)
+        try:
+            if tts_controller is not None and hasattr(tts_controller, "cancel"):
+                tts_controller.cancel()
+        except Exception:
+            pass
         try:
             player = getattr(self, "_audiofx_player", None)
             if player is not None:
@@ -2280,6 +2353,7 @@ class MultiPersonaRoleplayController:
         if send_button is not None and bool(send_button.property("_mprc_in_flight")):
             self._set_chat_play_status("MPRC turn is already running.")
             return
+        self._stop_mprc_chat_speech()
         intent = "Act"
         intent_combo = self._controls.get("chat_intent")
         if intent_combo is not None and hasattr(intent_combo, "currentText"):
@@ -2329,6 +2403,9 @@ class MultiPersonaRoleplayController:
         token = self._new_worker_token("mprc_chat")
         if not token:
             return
+        user_message = next((item for item in reversed(messages) if str(item.get("role", "") or "") == "user"), {})
+        if user_message:
+            self._mprc_pending_chat_users[token] = dict(user_message)
         if send_button is not None:
             send_button.setProperty("_mprc_in_flight", True)
             send_button.setProperty("_mprc_worker_token", token)
@@ -2355,6 +2432,7 @@ class MultiPersonaRoleplayController:
                 self._cancel_worker_token(token)
 
         if not self._start_daemon_worker(token, worker, name="nc-mprc-chat-turn"):
+            self._mprc_pending_chat_users.pop(token, None)
             if send_button is not None:
                 send_button.setProperty("_mprc_in_flight", False)
                 send_button.setProperty("_mprc_worker_token", "")
@@ -2388,32 +2466,31 @@ class MultiPersonaRoleplayController:
         player_action = str(player_text or "").strip()
         if not player_action:
             raise ValueError("Player action is empty.")
-        prompt_personas = self.story_prompt_personas()
         intent_text = str(intent or "Act").strip() or "Act"
         latest_user_text = player_action if intent_text.lower() == "system" else f"{intent_text}: {player_action}"
-        if prompting.is_alternative_reality_mode(self.session):
-            context_text = prompting.build_alternative_reality_prompt(
-                prompt_personas,
-                self.session,
-                latest_user_text=latest_user_text,
-                available_audio=self.available_story_audio_files(),
-                narrator_persona_id=self.selected_narrator_persona_id(),
-            )
-        else:
-            persona = self.current_speaker_persona() or self.active_persona()
-            context_text = prompting.build_persona_system_prompt(persona, self.session) if persona is not None else ""
-            if self.session.mode != "Single active persona":
-                context_text = (context_text + "\n\n" + prompting.build_multi_character_prompt(prompt_personas, self.session)).strip()
         director_text = self._mprc_chat_director_context()
-        system_parts = [
-            "You are NeuralCompanion's dedicated Multi Persona Roleplay story runtime. This is separate from normal chat history.",
-            "Write only the next story response to the player's action. Do not summarize these instructions or expose prompt structure.",
-            "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
-            "Use clear story-native formatting. In AR mode, prefer [NARRATOR], [CHARACTER: Exact Name], optional exact story audio tags, and [CHOICES].",
-            context_text,
-            director_text,
-        ]
-        self.set_debug_prompt("\n\n".join(part for part in system_parts if str(part or "").strip()))
+        full_setup = not bool(self._mprc_chat_history) and int(getattr(self.session, "turn_index", 0) or 0) <= 0
+        if full_setup:
+            context_text = self._mprc_chat_full_context(latest_user_text)
+            system_parts = [
+                "You are NeuralCompanion's dedicated Multi Persona Roleplay story runtime. This is separate from normal chat history.",
+                "Write only the next story response to the player's action. Do not summarize these instructions or expose prompt structure.",
+                "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
+                "Use clear story-native formatting. In AR mode, prefer [NARRATOR], [CHARACTER: Exact Name], optional exact story audio tags, and [CHOICES].",
+                context_text,
+                director_text,
+            ]
+        else:
+            system_parts = [
+                "You are NeuralCompanion's dedicated Multi Persona Roleplay story runtime. Continue the existing MPRC Play conversation below.",
+                "Write only the next story response to the player's latest action. Do not recap the full setup unless the player asks.",
+                "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
+                "In AR mode, use [NARRATOR], [CHARACTER: Exact Name], exact listed story audio tags when needed, and optional [CHOICES].",
+                self._mprc_chat_compact_turn_context(latest_user_text),
+                director_text,
+            ]
+        system_prompt = "\n\n".join(part for part in system_parts if str(part or "").strip())
+        self.set_debug_prompt(system_prompt)
         focused = self.persona_by_id(speaker_id) if speaker_id else None
         user_payload = {
             "intent": str(intent or "Act").strip() or "Act",
@@ -2421,10 +2498,135 @@ class MultiPersonaRoleplayController:
             "focused_speaker": focused.display_name if focused is not None else "Player",
             "instruction": "Advance the MPRC scene by one coherent turn without touching normal chat continuity.",
         }
-        return [
-            {"role": "system", "content": "\n\n".join(part for part in system_parts if str(part or "").strip())},
-            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=True, indent=2)},
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.append({"role": "user", "content": json.dumps(user_payload, ensure_ascii=True, indent=2)})
+        return messages
+
+    def _mprc_chat_full_context(self, latest_user_text: str) -> str:
+        prompt_personas = self.story_prompt_personas()
+        if prompting.is_alternative_reality_mode(self.session):
+            return prompting.build_alternative_reality_prompt(
+                prompt_personas,
+                self.session,
+                latest_user_text=latest_user_text,
+                available_audio=self.available_story_audio_files(),
+                narrator_persona_id=self.selected_narrator_persona_id(),
+            )
+        persona = self.current_speaker_persona() or self.active_persona()
+        context_text = prompting.build_persona_system_prompt(persona, self.session) if persona is not None else ""
+        if self.session.mode != "Single active persona":
+            context_text = (context_text + "\n\n" + prompting.build_multi_character_prompt(prompt_personas, self.session)).strip()
+        return context_text
+
+    def _mprc_chat_compact_turn_context(self, latest_user_text: str) -> str:
+        state = self.session.ar_state
+        active_lines = self._mprc_chat_active_character_lines()
+        cue_lines = self._mprc_chat_audio_activation_lines()
+        history_lines = self._mprc_chat_history_lines()
+        parts = [
+            "MPRC compact turn state:",
+            f"Scene: {self._mprc_compact(state.current_scene or self.session.scene_title, 180)}",
+            f"Location: {self._mprc_compact(state.location or self.session.location, 140)}",
+            f"Time: {self._mprc_compact(state.time_of_day or self.session.time_of_day, 80)}",
+            f"Mood: {self._mprc_compact(state.mood or self.session.mood, 100)}",
+            f"Tension: {int(getattr(state, 'tension_level', 0) or 0)}",
+            f"Goal: {self._mprc_compact(state.story_goal or self.session.objective, 220)}",
+            f"Latest player intent: {self._mprc_compact(latest_user_text or state.player_intent, 220)}",
+            f"Pending choices: {self._mprc_join_compact(state.pending_choices, 4, 120)}",
+            f"Recent events: {self._mprc_join_compact(list(state.recent_events or [])[-4:], 4, 150)}",
+            f"Scene summary: {self._mprc_compact(self.session.scene_summary, 700)}",
         ]
+        if active_lines:
+            parts.append("Active cast:\n" + "\n".join(active_lines))
+        if cue_lines:
+            parts.append("Allowed story audio tags:\n" + "\n".join(cue_lines))
+        if history_lines:
+            parts.append("Recent play transcript (compact):\n" + "\n".join(history_lines))
+        return "\n".join(item for item in parts if str(item or "").strip()).strip()
+
+    def _mprc_chat_active_character_lines(self) -> list[str]:
+        state = self.session.ar_state
+        active_ids = [normalize_persona_id(item) for item in list(state.active_characters or []) if str(item or "").strip()]
+        if not active_ids:
+            active_ids = [self.session.current_speaker_id, self.session.active_persona_id]
+        lines = []
+        seen = set()
+        for persona_id in active_ids:
+            persona = self.persona_by_id(persona_id)
+            if persona is None or persona.id in seen:
+                continue
+            seen.add(persona.id)
+            role = self._mprc_compact(persona.role or persona.behavior_mode, 80)
+            desc = self._mprc_compact(getattr(persona, "ar_description", "") or persona.description, 180)
+            instruction = self._mprc_compact(getattr(persona, "ar_system_prompt", ""), 220)
+            line = f"- {persona.display_name} ({persona.id})"
+            if role:
+                line += f": {role}"
+            if desc:
+                line += f"; {desc}"
+            if instruction:
+                line += f"; instruction={instruction}"
+            lines.append(line)
+        return lines[:6]
+
+    def _mprc_chat_audio_activation_lines(self) -> list[str]:
+        lines = []
+        for item in list(self.available_story_audio_files() or [])[:16]:
+            if not isinstance(item, dict) or not item.get("ready", True):
+                continue
+            audio_type = str(item.get("type") or "Audio").strip().upper() or "AUDIO"
+            if audio_type in {"SFX"}:
+                audio_type = "FX"
+            if audio_type not in {"AMBIENCE", "AMBIENT", "MUSIC", "FX", "STINGER", "AUDIO"}:
+                audio_type = "AUDIO"
+            if audio_type == "AMBIENT":
+                audio_type = "AMBIENCE"
+            description = self._mprc_compact(str(item.get("description") or item.get("prompt") or item.get("id") or ""), 120)
+            if description:
+                lines.append(f"- [{audio_type}: {description}]")
+        return lines
+
+    def _mprc_chat_history_lines(self) -> list[str]:
+        lines = []
+        for message in list(self._mprc_chat_history or [])[-8:]:
+            role = str((message or {}).get("role") or "").strip().lower()
+            content = str((message or {}).get("content") or "").strip()
+            if not role or not content:
+                continue
+            if role == "user":
+                label = "Player"
+                try:
+                    payload = json.loads(content)
+                except Exception:
+                    payload = {}
+                if isinstance(payload, dict):
+                    intent = str(payload.get("intent") or "Action").strip() or "Action"
+                    action = str(payload.get("player_action") or "").strip()
+                    content = f"{intent}: {action}" if action else content
+                lines.append(f"- {label}: {self._mprc_compact(content, 180)}")
+            elif role == "assistant":
+                lines.append(f"- Story: {self._mprc_compact(self._mprc_strip_audio_tags(content), 240)}")
+        return lines
+
+    @staticmethod
+    def _mprc_strip_audio_tags(text: str) -> str:
+        return re.sub(
+            r"\[(?:AMBIENCE|AMBIENT|MUSIC|FX|SFX|STINGER|AUDIO):[^\]]+\]",
+            " ",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+
+    @staticmethod
+    def _mprc_compact(text: Any, limit: int) -> str:
+        value = re.sub(r"\s+", " ", str(text or "")).strip()
+        if len(value) <= max(0, int(limit or 0)):
+            return value
+        return value[: max(0, int(limit or 0) - 1)].rstrip() + "..."
+
+    def _mprc_join_compact(self, items: list[Any], count: int, limit: int) -> str:
+        values = [self._mprc_compact(item, limit) for item in list(items or []) if str(item or "").strip()]
+        return "; ".join(values[-max(0, int(count or 0)):]) or "none"
 
     def _mprc_chat_director_context(self) -> str:
         tone = self._control_current_text("chat_director_tone")
@@ -2464,20 +2666,28 @@ class MultiPersonaRoleplayController:
 
     def _on_mprc_chat_turn_finished(self, token: str, reply_text: str, error: str):
         send_button = self._controls.get("chat_send")
+        token = str(token or "")
         if not self._finish_worker_token(str(token or "")):
+            self._mprc_pending_chat_users.pop(token, None)
             return
         if send_button is not None:
             send_button.setProperty("_mprc_in_flight", False)
             send_button.setProperty("_mprc_worker_token", "")
             send_button.setEnabled(True)
         if error:
+            self._mprc_pending_chat_users.pop(token, None)
             self._set_chat_play_status(f"MPRC turn failed: {error}")
             self._append_chat_play_line("System", f"MPRC turn failed: {error}", role="system")
             return
         reply = str(reply_text or "").strip()
         if not reply:
+            self._mprc_pending_chat_users.pop(token, None)
             self._set_chat_play_status("MPRC turn returned no story text.")
             return
+        user_message = self._mprc_pending_chat_users.pop(token, None)
+        if user_message:
+            self._remember_mprc_chat_message(user_message)
+        self._remember_mprc_chat_message({"role": "assistant", "content": reply})
         self._append_chat_play_line("Story", reply, role="assistant")
         allow_visuals = self._control_checked("chat_visuals", False)
         self._suppress_next_auto_visual_reply = not allow_visuals
@@ -2493,25 +2703,60 @@ class MultiPersonaRoleplayController:
         self._set_chat_play_status("MPRC turn complete.")
         self._refresh_chat_play_controls()
 
+    def _remember_mprc_chat_message(self, message: dict[str, str]) -> None:
+        role = str((message or {}).get("role") or "").strip().lower()
+        content = str((message or {}).get("content") or "").strip()
+        if role not in {"user", "assistant"} or not content:
+            return
+        self._mprc_chat_history.append({"role": role, "content": content})
+        self._mprc_chat_history = self._mprc_chat_history[-16:]
+
     def _speak_mprc_chat_reply(self, reply: str) -> None:
         text = str(reply or "").strip()
         if not text:
             return
-        try:
-            from core.engine_access import engine_module
+        token = self._new_worker_token("mprc_tts")
+        if not token:
+            return
+        with self._mprc_tts_state_lock:
+            self._mprc_tts_token = token
 
-            engine = engine_module()
-            if getattr(engine, "tts_model", None) is None:
-                logger = getattr(self.context, "logger", None)
-                if logger is not None:
-                    logger.info("[MPRC] TTS is not loaded; skipping MPRC Play reply speech.")
-                return
-            if hasattr(engine, "speak_async"):
-                engine.speak_async(text)
-        except Exception as exc:
+        def worker():
             logger = getattr(self.context, "logger", None)
-            if logger is not None:
-                logger.warning("[MPRC] Could not speak MPRC Play reply: %s", exc)
+            try:
+                from core.engine_access import engine_module
+
+                engine = engine_module()
+                if getattr(engine, "tts_model", None) is None:
+                    init_tts = getattr(engine, "init_tts", None)
+                    if not callable(init_tts):
+                        if logger is not None:
+                            logger.info("[MPRC] TTS init is unavailable; skipping MPRC Play reply speech.")
+                        return
+                    with self._mprc_tts_lock:
+                        if getattr(engine, "tts_model", None) is None and not bool(init_tts()):
+                            if logger is not None:
+                                logger.info("[MPRC] TTS could not be initialized; skipping MPRC Play reply speech.")
+                            return
+                if self._worker_should_emit(token) and hasattr(engine, "speak_async"):
+                    controller = engine.speak_async(text)
+                    with self._mprc_tts_state_lock:
+                        if self._worker_should_emit(token):
+                            self._mprc_tts_controller = controller
+            except Exception as exc:
+                if logger is not None:
+                    logger.warning("[MPRC] Could not speak MPRC Play reply: %s", exc)
+            finally:
+                with self._mprc_tts_state_lock:
+                    if self._mprc_tts_token == token:
+                        self._mprc_tts_token = ""
+                self._finish_worker_token(token)
+
+        if not self._start_daemon_worker(token, worker, name="nc-mprc-tts"):
+            with self._mprc_tts_state_lock:
+                if self._mprc_tts_token == token:
+                    self._mprc_tts_token = ""
+            self._cancel_worker_token(token)
 
     def _on_mprc_chat_speaker_changed(self):
         combo = self._controls.get("chat_speaker")
@@ -7196,13 +7441,16 @@ class MultiPersonaRoleplayController:
         self._refresh_memory_browser()
 
     def _reset_story_memory_only(self):
+        self._clear_story_memory_preserving_pins()
+        self._record_story_event("memory edit: reset story memory only", severity="info", kind="memory", persist=True)
+        self._refresh_memory_browser()
+        self._refresh_reliability_panels()
+
+    def _clear_story_memory_preserving_pins(self) -> None:
         payload = self._memory_payload()
         pinned = list(payload.get("pinned_facts") or [])
         self.long_memory.save({"pinned_facts": pinned})
         self.save_active_story_memory_snapshot()
-        self._record_story_event("memory edit: reset story memory only", severity="info", kind="memory", persist=True)
-        self._refresh_memory_browser()
-        self._refresh_reliability_panels()
 
     def _preview_next_ar_request(self):
         widget = self._controls.get("story_next_inspector")
