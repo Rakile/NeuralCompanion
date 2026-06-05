@@ -1,4 +1,5 @@
 import threading
+import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
@@ -394,15 +395,134 @@ class BackendChatSessionRuntimeMixin:
             except Exception:
                 pass
 
+    def _refresh_spellcheck_language_options(self):
+        widget = getattr(self, "spellcheck_language_combo", None)
+        if widget is None or not hasattr(widget, "addItem"):
+            return
+        current = self._current_spellcheck_language_value()
+        try:
+            from ui.runtime.spellcheck import available_languages
+
+            languages = available_languages()
+        except Exception:
+            languages = []
+        if current not in languages:
+            languages.insert(0, current)
+        try:
+            blocker = QtCore.QSignalBlocker(widget)
+        except Exception:
+            blocker = None
+        try:
+            widget.clear()
+            for language in languages or [current]:
+                widget.addItem(str(language or "en_US"))
+            widget.setCurrentText(current)
+        except Exception:
+            pass
+        finally:
+            del blocker
+
+    def _refresh_spellcheck_dependency_controls(self):
+        try:
+            from ui.runtime.spellcheck import dependency_status
+
+            status = dependency_status()
+        except Exception as exc:
+            status = {"available": False, "installable": False, "message": f"Spellcheck status unavailable ({exc})."}
+        available = bool(status.get("available", False))
+        installable = bool(status.get("installable", False))
+        message = str(status.get("message") or "")
+        hint = getattr(self, "spellcheck_dependency_hint", None)
+        if hint is not None and hasattr(hint, "setText"):
+            try:
+                hint.setText(message)
+                hint.setVisible(not available or bool(message and not available))
+            except Exception:
+                pass
+        button = getattr(self, "btn_install_spellcheck_dependency", None)
+        if button is not None and hasattr(button, "setVisible"):
+            try:
+                running = getattr(self, "_spellcheck_install_process", None) is not None
+                button.setVisible(not available and installable)
+                button.setEnabled(not running)
+                button.setText("Installing PyEnchant..." if running else "Install PyEnchant")
+            except Exception:
+                pass
+        language_combo = getattr(self, "spellcheck_language_combo", None)
+        if language_combo is not None and hasattr(language_combo, "setEnabled"):
+            try:
+                language_combo.setEnabled(available)
+            except Exception:
+                pass
+
+    def on_install_spellcheck_dependency_requested(self):
+        if getattr(self, "_spellcheck_install_process", None) is not None:
+            return
+        process = QtCore.QProcess(self)
+        process.setProgram(sys.executable)
+        process.setArguments(["-m", "pip", "install", "pyenchant"])
+        process.finished.connect(self._on_spellcheck_dependency_install_finished)
+        process.errorOccurred.connect(self._on_spellcheck_dependency_install_error)
+        self._spellcheck_install_process = process
+        hint = getattr(self, "spellcheck_dependency_hint", None)
+        if hint is not None and hasattr(hint, "setText"):
+            hint.setText("Installing PyEnchant into the active NC Python environment...")
+            hint.setVisible(True)
+        self._refresh_spellcheck_dependency_controls()
+        process.start()
+
+    def _on_spellcheck_dependency_install_error(self, error):
+        hint = getattr(self, "spellcheck_dependency_hint", None)
+        if hint is not None and hasattr(hint, "setText"):
+            hint.setText(f"PyEnchant install could not start: {error}")
+            hint.setVisible(True)
+        self._spellcheck_install_process = None
+        self._refresh_spellcheck_dependency_controls()
+
+    def _on_spellcheck_dependency_install_finished(self, exit_code, _exit_status):
+        process = getattr(self, "_spellcheck_install_process", None)
+        output = ""
+        if process is not None:
+            try:
+                output = bytes(process.readAllStandardError()).decode(errors="replace").strip()
+            except Exception:
+                output = ""
+        self._spellcheck_install_process = None
+        try:
+            from ui.runtime.spellcheck import clear_spellcheck_cache
+
+            clear_spellcheck_cache()
+        except Exception:
+            pass
+        self._refresh_spellcheck_language_options()
+        self._refresh_spellcheck_widgets()
+        self._refresh_spellcheck_dependency_controls()
+        try:
+            from ui.runtime.spellcheck import dependency_status
+
+            status = dependency_status()
+        except Exception as exc:
+            status = {"available": False, "message": str(exc)}
+        hint = getattr(self, "spellcheck_dependency_hint", None)
+        if hint is not None and hasattr(hint, "setText"):
+            if int(exit_code) == 0 and bool(status.get("available", False)):
+                hint.setText("PyEnchant installed. Spellcheck is ready.")
+            else:
+                detail = str(status.get("message") or output or "Unknown install error.")
+                hint.setText(f"PyEnchant install finished, but spellcheck is not ready: {detail}")
+            hint.setVisible(True)
+
     def on_spellcheck_enabled_changed(self, checked):
         _update_runtime_config("spellcheck_enabled", bool(checked))
         self._refresh_spellcheck_widgets()
+        self._refresh_spellcheck_dependency_controls()
         self.save_session()
 
     def on_spellcheck_language_changed(self, choice):
         language = str(choice or "en_US").strip() or "en_US"
         _update_runtime_config("spellcheck_language", language)
         self._refresh_spellcheck_widgets()
+        self._refresh_spellcheck_dependency_controls()
         self.save_session()
 
     def on_continuity_memory_enabled_changed(self, checked):

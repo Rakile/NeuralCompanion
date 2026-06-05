@@ -385,6 +385,12 @@ class RealUiActionsChatSensoryMixin:
                 self._refresh_frontend_spellcheck_widgets()
                 self._sync_backend_to_ui(force=True)
 
+    def _on_frontend_install_spellcheck_dependency(self):
+            try:
+                self.backend.on_install_spellcheck_dependency_requested()
+            finally:
+                self._sync_backend_to_ui(force=True)
+
     def _refresh_frontend_spellcheck_widgets(self):
             try:
                 from ui.runtime.spellcheck import refresh_spellcheck

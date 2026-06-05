@@ -54,6 +54,8 @@ CHAT_TAB_TOOLTIPS = {
     "chat_overflow_policy_combo": "What NC should do when the active chat context grows beyond the context window sent to the model.",
     "spellcheck_enabled_checkbox": "Enable red underline spellcheck in the normal typed chat input and Chat Edit Mode when PyEnchant dictionaries are available.",
     "spellcheck_language_combo": "Dictionary language used for chat spellcheck. The list contains dictionaries visible to PyEnchant in the active NC environment.",
+    "btn_install_spellcheck_dependency": "Install only the PyEnchant package into the active NC Python environment when spellcheck is unavailable after an update.",
+    "spellcheck_dependency_hint": "Shows whether the optional PyEnchant spellcheck package and dictionaries are available in the active NC Python environment.",
     "long_term_memory_enabled_checkbox": "Maintain a compact Continuity Memory summary for this saved chat context.",
     "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after 120-239 new saved-chat messages have accumulated.",
     "long_term_memory_inject_checkbox": "Include the Continuity Memory summary in normal model requests so the assistant can remember older context.",
@@ -595,6 +597,11 @@ class BackendSystemShapingBuilderMixin:
         timing_form.addRow("Dictionary language", self.spellcheck_language_combo)
         behavior_layout.addLayout(timing_form)
         behavior_layout.addWidget(self.spellcheck_enabled_checkbox)
+        spellcheck_repair_row = QtWidgets.QHBoxLayout()
+        spellcheck_repair_row.setSpacing(8)
+        spellcheck_repair_row.addWidget(self.btn_install_spellcheck_dependency)
+        spellcheck_repair_row.addWidget(self.spellcheck_dependency_hint, 1)
+        behavior_layout.addLayout(spellcheck_repair_row)
         behavior_layout.addWidget(self.chat_session_hint)
         layout.addWidget(behavior_box)
 
@@ -1004,6 +1011,18 @@ class BackendSystemShapingBuilderMixin:
         self.spellcheck_language_combo.currentTextChanged.connect(self.on_spellcheck_language_changed)
         self.spellcheck_language_combo.setMinimumWidth(112)
         self.spellcheck_language_combo.setMaximumWidth(180)
+
+        self.btn_install_spellcheck_dependency = QtWidgets.QPushButton("Install PyEnchant")
+        self.btn_install_spellcheck_dependency.setObjectName("btn_install_spellcheck_dependency")
+        self.btn_install_spellcheck_dependency.clicked.connect(self.on_install_spellcheck_dependency_requested)
+        self.btn_install_spellcheck_dependency.setVisible(False)
+
+        self.spellcheck_dependency_hint = QtWidgets.QLabel("")
+        self.spellcheck_dependency_hint.setObjectName("spellcheck_dependency_hint")
+        self.spellcheck_dependency_hint.setWordWrap(True)
+        self.spellcheck_dependency_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self.spellcheck_dependency_hint.setVisible(False)
+        self._refresh_spellcheck_dependency_controls()
 
         self.long_term_memory_enabled_checkbox = QtWidgets.QCheckBox("Enable continuity memory summary")
         self.long_term_memory_enabled_checkbox.setObjectName("long_term_memory_enabled_checkbox")

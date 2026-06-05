@@ -364,7 +364,12 @@ class MainUiRealSurfacesMixin:
             _ensure_archive_box()
 
     def _ensure_frontend_spellcheck_widgets(self):
-            if self._ui_object("spellcheck_enabled_checkbox") is not None and self._ui_object("spellcheck_language_combo") is not None:
+            if (
+                self._ui_object("spellcheck_enabled_checkbox") is not None
+                and self._ui_object("spellcheck_language_combo") is not None
+                and self._ui_object("btn_install_spellcheck_dependency") is not None
+                and self._ui_object("spellcheck_dependency_hint") is not None
+            ):
                 return
             overflow_combo = self._ui_object("chat_overflow_policy_combo")
             if overflow_combo is None:
@@ -412,6 +417,37 @@ class MainUiRealSurfacesMixin:
                 insert_row = row[0] + 1 if row and row[0] >= 0 else parent_layout.rowCount()
                 parent_layout.insertRow(insert_row, "", enabled)
 
+            install_button = self._ui_object("btn_install_spellcheck_dependency")
+            dependency_hint = self._ui_object("spellcheck_dependency_hint")
+            if install_button is None or dependency_hint is None:
+                repair_widget = QtWidgets.QWidget(parent_widget)
+                repair_layout = QtWidgets.QHBoxLayout(repair_widget)
+                repair_layout.setContentsMargins(0, 0, 0, 0)
+                repair_layout.setSpacing(8)
+                if install_button is None:
+                    install_button = QtWidgets.QPushButton("Install PyEnchant", repair_widget)
+                    install_button.setObjectName("btn_install_spellcheck_dependency")
+                    install_button.setVisible(False)
+                if dependency_hint is None:
+                    dependency_hint = QtWidgets.QLabel("", repair_widget)
+                    dependency_hint.setObjectName("spellcheck_dependency_hint")
+                    dependency_hint.setWordWrap(True)
+                    dependency_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+                    dependency_hint.setVisible(False)
+                repair_layout.addWidget(install_button)
+                repair_layout.addWidget(dependency_hint, 1)
+                row = parent_layout.getWidgetPosition(enabled)
+                insert_row = row[0] + 1 if row and row[0] >= 0 else parent_layout.rowCount()
+                parent_layout.insertRow(insert_row, "", repair_widget)
+            try:
+                self.backend._refresh_spellcheck_dependency_controls()
+            except Exception:
+                pass
+            try:
+                self._apply_frontend_chat_tab_tooltips()
+            except Exception:
+                pass
+
     def _find_layout_containing_widget(self, layout, widget):
             if layout is None:
                 return None
@@ -441,6 +477,8 @@ class MainUiRealSurfacesMixin:
                 "chat_overflow_policy_combo": self._ui_object("chat_overflow_policy_combo"),
                 "spellcheck_enabled_checkbox": self._ui_object("spellcheck_enabled_checkbox"),
                 "spellcheck_language_combo": self._ui_object("spellcheck_language_combo"),
+                "btn_install_spellcheck_dependency": self._ui_object("btn_install_spellcheck_dependency"),
+                "spellcheck_dependency_hint": self._ui_object("spellcheck_dependency_hint"),
                 "long_term_memory_enabled_checkbox": self._ui_object("long_term_memory_enabled_checkbox"),
                 "long_term_memory_update_on_save_checkbox": self._ui_object("long_term_memory_update_on_save_checkbox"),
                 "long_term_memory_inject_checkbox": self._ui_object("long_term_memory_inject_checkbox"),

@@ -445,6 +445,9 @@ class MainUiRealBindingMixin:
             spellcheck_language_combo = self._ui_object("spellcheck_language_combo")
             if spellcheck_language_combo is not None and hasattr(spellcheck_language_combo, "currentTextChanged"):
                 spellcheck_language_combo.currentTextChanged.connect(self._on_frontend_spellcheck_language_changed)
+            btn_install_spellcheck_dependency = self._ui_object("btn_install_spellcheck_dependency")
+            if btn_install_spellcheck_dependency is not None and hasattr(btn_install_spellcheck_dependency, "clicked"):
+                btn_install_spellcheck_dependency.clicked.connect(self._on_frontend_install_spellcheck_dependency)
             long_term_memory_enabled_checkbox = self._ui_object("long_term_memory_enabled_checkbox")
             if long_term_memory_enabled_checkbox is not None and hasattr(long_term_memory_enabled_checkbox, "toggled"):
                 long_term_memory_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_enabled_changed)

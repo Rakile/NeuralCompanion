@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import re
 from typing import Any
 
@@ -139,6 +140,42 @@ def available_languages() -> list[str]:
         return sorted(str(item) for item in enchant.list_languages())
     except Exception:
         return []
+
+
+def dependency_status() -> dict[str, Any]:
+    try:
+        import enchant  # type: ignore
+    except Exception as exc:
+        return {
+            "available": False,
+            "installable": True,
+            "message": f"PyEnchant is not installed in this NC environment ({exc}).",
+        }
+    try:
+        languages = sorted(str(item) for item in enchant.list_languages())
+    except Exception as exc:
+        return {
+            "available": False,
+            "installable": False,
+            "message": f"PyEnchant is installed, but dictionaries are not available ({exc}).",
+        }
+    if not languages:
+        return {
+            "available": False,
+            "installable": False,
+            "message": "PyEnchant is installed, but no dictionaries are visible in this NC environment.",
+        }
+    return {
+        "available": True,
+        "installable": False,
+        "message": "Spellcheck is available.",
+        "languages": languages,
+    }
+
+
+def clear_spellcheck_cache() -> None:
+    importlib.invalidate_caches()
+    _DICT_CACHE.clear()
 
 
 def _runtime_spellcheck_settings(enabled: bool | None = None, language: str | None = None) -> tuple[bool, str]:
