@@ -137,10 +137,26 @@ class BackendOperationalPanelMixin:
         chat_layout.addWidget(self.chat_edit, 1)
         chat_input_row = QtWidgets.QHBoxLayout()
         chat_input_row.setSpacing(8)
-        self.chat_message_input = QtWidgets.QLineEdit()
+        try:
+            from ui.runtime.spellcheck import ChatMessageInput
+        except Exception:
+            ChatMessageInput = None
+        if ChatMessageInput is not None:
+            self.chat_message_input = ChatMessageInput()
+        else:
+            self.chat_message_input = QtWidgets.QLineEdit()
         self.chat_message_input.setObjectName("chat_message_input")
         self.chat_message_input.setPlaceholderText("Type a message...")
-        self.chat_message_input.returnPressed.connect(self.send_typed_chat_message)
+        if hasattr(self.chat_message_input, "sendRequested"):
+            self.chat_message_input.sendRequested.connect(self.send_typed_chat_message)
+        elif hasattr(self.chat_message_input, "returnPressed"):
+            self.chat_message_input.returnPressed.connect(self.send_typed_chat_message)
+        try:
+            from ui.runtime.spellcheck import attach_spellcheck
+
+            attach_spellcheck(self.chat_message_input)
+        except Exception:
+            pass
         chat_input_row.addWidget(self.chat_message_input, 1)
         self.chat_send_button = QtWidgets.QPushButton("Send")
         self.chat_send_button.setObjectName("chat_send_button")

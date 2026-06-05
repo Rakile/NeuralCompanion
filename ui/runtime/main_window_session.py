@@ -162,6 +162,8 @@ class MainWindowSessionMixin:
             "chat_context_window_messages": int(self.chat_context_window_spin.value()) if hasattr(self, "chat_context_window_spin") else 20,
             "stored_chat_history_limit": int(self.stored_chat_history_limit_spin.value()) if hasattr(self, "stored_chat_history_limit_spin") else 0,
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
+            "spellcheck_enabled": bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(RUNTIME_CONFIG.get("spellcheck_enabled", True)),
+            "spellcheck_language": str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(RUNTIME_CONFIG.get("spellcheck_language", "en_US") or "en_US"),
             "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
             "active_chat_context_path": str(RUNTIME_CONFIG.get("active_chat_context_path", "") or ""),
             "active_chat_context_name": str(RUNTIME_CONFIG.get("active_chat_context_name", "") or ""),
@@ -514,6 +516,17 @@ class MainWindowSessionMixin:
                 policy_text = self._chat_overflow_policy_label_from_value(chat_context_overflow_policy)
                 self.chat_overflow_policy_combo.setCurrentText(policy_text)
                 self.on_chat_overflow_policy_changed(policy_text)
+            spellcheck_enabled = session.get("spellcheck_enabled")
+            if spellcheck_enabled is not None and hasattr(self, "spellcheck_enabled_checkbox"):
+                self.spellcheck_enabled_checkbox.setChecked(bool(spellcheck_enabled))
+                self.on_spellcheck_enabled_changed(bool(spellcheck_enabled))
+            spellcheck_language = session.get("spellcheck_language")
+            if spellcheck_language is not None and hasattr(self, "spellcheck_language_combo"):
+                language = str(spellcheck_language or "en_US").strip() or "en_US"
+                if self.spellcheck_language_combo.findText(language) < 0:
+                    self.spellcheck_language_combo.addItem(language)
+                self.spellcheck_language_combo.setCurrentText(language)
+                self.on_spellcheck_language_changed(language)
             continuity_memory_id = session.get("continuity_memory_id")
             if continuity_memory_id is not None:
                 update_runtime_config("continuity_memory_id", str(continuity_memory_id or ""))

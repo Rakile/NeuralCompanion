@@ -249,7 +249,12 @@ class BackendConsoleChatMixin:
             return False
         if text is None:
             widget = getattr(self, "chat_message_input", None)
-            text = widget.text() if widget is not None and hasattr(widget, "text") else ""
+            if widget is not None and hasattr(widget, "text"):
+                text = widget.text()
+            elif widget is not None and hasattr(widget, "toPlainText"):
+                text = widget.toPlainText()
+            else:
+                text = ""
         message = str(text or "").strip()
         if not message:
             return False
@@ -356,6 +361,12 @@ class BackendConsoleChatMixin:
 
     def _show_chat_context_menu(self, point):
         menu = self.chat_edit.createStandardContextMenu()
+        try:
+            from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+            add_spellcheck_suggestions_to_menu(self.chat_edit, menu, point)
+        except Exception:
+            pass
         addon_id = self._addon_id_for_ui_role("chat_replay", fallback="")
         self._invoke_addon_capability(
             addon_id,
@@ -386,6 +397,12 @@ class BackendConsoleChatMixin:
         self.chat_edit.setFont(current_font)
         self.chat_edit.setCurrentFont(current_font)
         self._set_chat_edit_mode(True)
+        try:
+            from ui.runtime.spellcheck import attach_spellcheck
+
+            attach_spellcheck(self.chat_edit)
+        except Exception:
+            pass
         self._restore_vertical_scroll_state(self.chat_edit, scroll_state)
         QtCore.QTimer.singleShot(0, lambda state=scroll_state: self._restore_vertical_scroll_state(self.chat_edit, state))
         print("[QtGUI] Chat edit mode enabled.")
@@ -395,6 +412,12 @@ class BackendConsoleChatMixin:
             return
         scroll_state = self._capture_vertical_scroll_state(self.chat_edit)
         self._set_chat_edit_mode(False)
+        try:
+            from ui.runtime.spellcheck import detach_spellcheck
+
+            detach_spellcheck(self.chat_edit)
+        except Exception:
+            pass
         self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
         print("[QtGUI] Chat edit mode cancelled.")
 
@@ -444,6 +467,12 @@ class BackendConsoleChatMixin:
             print(f"[QtGUI] Chat edit apply failed: {exc}")
             return
         self._set_chat_edit_mode(False)
+        try:
+            from ui.runtime.spellcheck import detach_spellcheck
+
+            detach_spellcheck(self.chat_edit)
+        except Exception:
+            pass
         self._rebuild_chat_view_from_history(force=True, preserve_scroll_state=scroll_state)
         print(f"[QtGUI] Chat context edited in place ({int(result.get('conversation_turns', 0))} turn(s)).")
 

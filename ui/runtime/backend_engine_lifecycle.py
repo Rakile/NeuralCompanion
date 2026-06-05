@@ -107,6 +107,8 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("chat_context_window_messages", max(4, int(self.chat_context_window_spin.value())) if hasattr(self, "chat_context_window_spin") else 20)
         _update_runtime_config("stored_chat_history_limit", max(0, int(self.stored_chat_history_limit_spin.value())) if hasattr(self, "stored_chat_history_limit_spin") else 0)
         _update_runtime_config("chat_context_overflow_policy", self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window")
+        _update_runtime_config("spellcheck_enabled", bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(runtime_config.get("spellcheck_enabled", True)))
+        _update_runtime_config("spellcheck_language", str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(runtime_config.get("spellcheck_language", "en_US") or "en_US"))
         _update_runtime_config("continuity_memory_enabled", bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else False)
         _update_runtime_config("continuity_memory_auto_summarize", bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else False)
         _update_runtime_config("continuity_memory_inject", bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else False)
@@ -167,6 +169,8 @@ class BackendEngineLifecycleMixin:
             "long_term_memory_embedding_model": embedding_model,
             "long_term_memory_embedding_context_length": max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192),
             "long_term_memory_embedding_base_url": str(self.long_term_memory_embedding_base_url_edit.text() or "").strip() if hasattr(self, "long_term_memory_embedding_base_url_edit") else str(runtime_config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1") or "http://127.0.0.1:1234/v1"),
+            "spellcheck_enabled": bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(runtime_config.get("spellcheck_enabled", True)),
+            "spellcheck_language": str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(runtime_config.get("spellcheck_language", "en_US") or "en_US"),
             "avatar_mode": mode,
             "input_mode": input_mode,
             "input_message_role": self._input_role_value_from_label(self.input_role_combo.currentText()),

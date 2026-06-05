@@ -371,6 +371,40 @@ class RealUiActionsChatSensoryMixin:
             QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
             QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)
 
+    def _on_frontend_spellcheck_enabled_changed(self, checked):
+            try:
+                self.backend.on_spellcheck_enabled_changed(bool(checked))
+            finally:
+                self._refresh_frontend_spellcheck_widgets()
+                self._sync_backend_to_ui(force=True)
+
+    def _on_frontend_spellcheck_language_changed(self, choice):
+            try:
+                self.backend.on_spellcheck_language_changed(str(choice or "en_US"))
+            finally:
+                self._refresh_frontend_spellcheck_widgets()
+                self._sync_backend_to_ui(force=True)
+
+    def _refresh_frontend_spellcheck_widgets(self):
+            try:
+                from ui.runtime.spellcheck import refresh_spellcheck
+            except Exception:
+                return
+            for object_name in ("chat_message_input", "chat_edit"):
+                widget = self._ui_object(object_name)
+                if widget is None:
+                    continue
+                if object_name == "chat_edit":
+                    try:
+                        if bool(widget.isReadOnly()):
+                            continue
+                    except Exception:
+                        continue
+                try:
+                    refresh_spellcheck(widget)
+                except Exception:
+                    pass
+
     def _on_frontend_model_selection_changed(self, _index=None):
             frontend_combo = self._ui_object("model_combo")
             backend_combo = self._backend_widget("model_combo")
@@ -408,12 +442,28 @@ class RealUiActionsChatSensoryMixin:
                 self.backend.enter_chat_edit_mode()
             finally:
                 self._sync_backend_to_ui(force=True)
+                chat_edit = self._ui_object("chat_edit")
+                if chat_edit is not None:
+                    try:
+                        from ui.runtime.spellcheck import attach_spellcheck
+
+                        attach_spellcheck(chat_edit)
+                    except Exception:
+                        pass
 
     def _cancel_chat_edit_mode_from_ui_real(self):
             try:
                 self.backend.cancel_chat_edit_mode()
             finally:
                 self._sync_backend_to_ui(force=True)
+                chat_edit = self._ui_object("chat_edit")
+                if chat_edit is not None:
+                    try:
+                        from ui.runtime.spellcheck import detach_spellcheck
+
+                        detach_spellcheck(chat_edit)
+                    except Exception:
+                        pass
 
     def _apply_chat_edit_mode_from_ui_real(self):
             frontend_chat = self._ui_object("chat_edit")
@@ -427,12 +477,24 @@ class RealUiActionsChatSensoryMixin:
                 self.backend.apply_chat_edit_mode()
             finally:
                 self._sync_backend_to_ui(force=True)
+                if frontend_chat is not None:
+                    try:
+                        from ui.runtime.spellcheck import detach_spellcheck
+
+                        detach_spellcheck(frontend_chat)
+                    except Exception:
+                        pass
 
     def _send_frontend_typed_chat_message(self):
             message_input = self._ui_object("chat_message_input")
-            if message_input is None or not hasattr(message_input, "text"):
+            if message_input is None:
                 return
-            text = str(message_input.text() or "").strip()
+            if hasattr(message_input, "text"):
+                text = str(message_input.text() or "").strip()
+            elif hasattr(message_input, "toPlainText"):
+                text = str(message_input.toPlainText() or "").strip()
+            else:
+                return
             if not text:
                 return
             queued = False

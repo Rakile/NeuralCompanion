@@ -691,6 +691,8 @@ RUNTIME_CONFIG = {
     "chat_context_window_messages": 20,
     "chat_context_overflow_policy": "rolling_window",
     "stored_chat_history_limit": 0,
+    "spellcheck_enabled": True,
+    "spellcheck_language": "en_US",
     "continuity_memory_id": continuity_memory.new_memory_id(),
     "active_chat_context_path": "",
     "active_chat_context_name": "",

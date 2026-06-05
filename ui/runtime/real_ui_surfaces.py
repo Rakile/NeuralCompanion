@@ -363,7 +363,73 @@ class MainUiRealSurfacesMixin:
             parent_layout.insertWidget(insert_index if insert_index >= 0 else parent_layout.count(), memory_box)
             _ensure_archive_box()
 
+    def _ensure_frontend_spellcheck_widgets(self):
+            if self._ui_object("spellcheck_enabled_checkbox") is not None and self._ui_object("spellcheck_language_combo") is not None:
+                return
+            overflow_combo = self._ui_object("chat_overflow_policy_combo")
+            if overflow_combo is None:
+                return
+            parent_widget = overflow_combo.parentWidget()
+            root_layout = parent_widget.layout() if parent_widget is not None and hasattr(parent_widget, "layout") else None
+            parent_layout = self._find_layout_containing_widget(root_layout, overflow_combo)
+            if parent_layout is None or not isinstance(parent_layout, QtWidgets.QFormLayout):
+                return
+            try:
+                from ui.runtime.engine_access import engine_module
+
+                config = getattr(engine_module(), "RUNTIME_CONFIG", {}) or {}
+            except Exception:
+                config = {}
+            selected_language = str((config or {}).get("spellcheck_language", "en_US") or "en_US").strip() or "en_US"
+
+            language_combo = self._ui_object("spellcheck_language_combo")
+            if language_combo is None:
+                language_combo = QtWidgets.QComboBox(parent_widget)
+                language_combo.setObjectName("spellcheck_language_combo")
+                try:
+                    from ui.runtime.spellcheck import available_languages
+
+                    languages = available_languages()
+                except Exception:
+                    languages = []
+                if selected_language not in languages:
+                    languages.insert(0, selected_language)
+                for language in languages or [selected_language]:
+                    language_combo.addItem(str(language or "en_US"))
+                language_combo.setCurrentText(selected_language)
+                language_combo.setMinimumWidth(112)
+                language_combo.setMaximumWidth(180)
+                row = parent_layout.getWidgetPosition(overflow_combo)
+                insert_row = row[0] + 1 if row and row[0] >= 0 else parent_layout.rowCount()
+                parent_layout.insertRow(insert_row, "Dictionary language", language_combo)
+
+            enabled = self._ui_object("spellcheck_enabled_checkbox")
+            if enabled is None:
+                enabled = QtWidgets.QCheckBox("Enable spell checking", parent_widget)
+                enabled.setObjectName("spellcheck_enabled_checkbox")
+                enabled.setChecked(bool((config or {}).get("spellcheck_enabled", True)))
+                row = parent_layout.getWidgetPosition(language_combo)
+                insert_row = row[0] + 1 if row and row[0] >= 0 else parent_layout.rowCount()
+                parent_layout.insertRow(insert_row, "", enabled)
+
+    def _find_layout_containing_widget(self, layout, widget):
+            if layout is None:
+                return None
+            for index in range(layout.count()):
+                item = layout.itemAt(index)
+                if item is None:
+                    continue
+                if item.widget() is widget:
+                    return layout
+                nested_layout = item.layout()
+                if nested_layout is not None:
+                    found = self._find_layout_containing_widget(nested_layout, widget)
+                    if found is not None:
+                        return found
+            return None
+
     def _redirect_backend_chat_session_runtime_surface(self):
+            self._ensure_frontend_spellcheck_widgets()
             self._ensure_frontend_long_term_memory_widgets()
             frontend_widgets = {
                 "allow_proactive_checkbox": self._ui_object("allow_proactive_checkbox"),
@@ -373,6 +439,8 @@ class MainUiRealSurfacesMixin:
                 "chat_context_window_spin": self._ui_object("chat_context_window_spin"),
                 "stored_chat_history_limit_spin": self._ui_object("stored_chat_history_limit_spin"),
                 "chat_overflow_policy_combo": self._ui_object("chat_overflow_policy_combo"),
+                "spellcheck_enabled_checkbox": self._ui_object("spellcheck_enabled_checkbox"),
+                "spellcheck_language_combo": self._ui_object("spellcheck_language_combo"),
                 "long_term_memory_enabled_checkbox": self._ui_object("long_term_memory_enabled_checkbox"),
                 "long_term_memory_update_on_save_checkbox": self._ui_object("long_term_memory_update_on_save_checkbox"),
                 "long_term_memory_inject_checkbox": self._ui_object("long_term_memory_inject_checkbox"),
@@ -467,6 +535,8 @@ class MainUiRealSurfacesMixin:
             _copy_value(backend_widgets.get("chat_context_window_spin"), frontend_widgets.get("chat_context_window_spin"))
             _copy_value(backend_widgets.get("stored_chat_history_limit_spin"), frontend_widgets.get("stored_chat_history_limit_spin"))
             _copy_combo(backend_widgets.get("chat_overflow_policy_combo"), frontend_widgets.get("chat_overflow_policy_combo"))
+            _copy_checked(backend_widgets.get("spellcheck_enabled_checkbox"), frontend_widgets.get("spellcheck_enabled_checkbox"))
+            _copy_combo(backend_widgets.get("spellcheck_language_combo"), frontend_widgets.get("spellcheck_language_combo"))
             _copy_checked(backend_widgets.get("long_term_memory_enabled_checkbox"), frontend_widgets.get("long_term_memory_enabled_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_update_on_save_checkbox"), frontend_widgets.get("long_term_memory_update_on_save_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_inject_checkbox"), frontend_widgets.get("long_term_memory_inject_checkbox"))

@@ -161,8 +161,25 @@ class MainUiRealBindingMixin:
             if send_button is not None and hasattr(send_button, "clicked"):
                 send_button.clicked.connect(lambda _checked=False: self._send_frontend_typed_chat_message())
             message_input = self._ui_object("chat_message_input")
-            if message_input is not None and hasattr(message_input, "returnPressed"):
+            try:
+                from ui.runtime.spellcheck import replace_line_edit_with_chat_input
+
+                replacement = replace_line_edit_with_chat_input(message_input)
+                if replacement is not None:
+                    message_input = replacement
+            except Exception:
+                pass
+            if message_input is not None and hasattr(message_input, "sendRequested"):
+                message_input.sendRequested.connect(self._send_frontend_typed_chat_message)
+            elif message_input is not None and hasattr(message_input, "returnPressed"):
                 message_input.returnPressed.connect(self._send_frontend_typed_chat_message)
+            if message_input is not None:
+                try:
+                    from ui.runtime.spellcheck import attach_spellcheck
+
+                    attach_spellcheck(message_input)
+                except Exception:
+                    pass
 
     def _show_frontend_chat_context_menu(self, point):
             chat_edit = self._ui_object("chat_edit")
@@ -172,6 +189,12 @@ class MainUiRealBindingMixin:
                 menu = chat_edit.createStandardContextMenu()
             except Exception:
                 menu = QtWidgets.QMenu(chat_edit)
+            try:
+                from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+                add_spellcheck_suggestions_to_menu(chat_edit, menu, point)
+            except Exception:
+                pass
             replay_addon_id = ""
             callback = getattr(self.backend, "_addon_id_for_ui_role", None)
             if callable(callback):
@@ -416,6 +439,12 @@ class MainUiRealBindingMixin:
             chat_overflow_policy_combo = self._ui_object("chat_overflow_policy_combo")
             if chat_overflow_policy_combo is not None and hasattr(chat_overflow_policy_combo, "currentTextChanged"):
                 chat_overflow_policy_combo.currentTextChanged.connect(self._on_frontend_chat_overflow_policy_changed)
+            spellcheck_enabled_checkbox = self._ui_object("spellcheck_enabled_checkbox")
+            if spellcheck_enabled_checkbox is not None and hasattr(spellcheck_enabled_checkbox, "toggled"):
+                spellcheck_enabled_checkbox.toggled.connect(self._on_frontend_spellcheck_enabled_changed)
+            spellcheck_language_combo = self._ui_object("spellcheck_language_combo")
+            if spellcheck_language_combo is not None and hasattr(spellcheck_language_combo, "currentTextChanged"):
+                spellcheck_language_combo.currentTextChanged.connect(self._on_frontend_spellcheck_language_changed)
             long_term_memory_enabled_checkbox = self._ui_object("long_term_memory_enabled_checkbox")
             if long_term_memory_enabled_checkbox is not None and hasattr(long_term_memory_enabled_checkbox, "toggled"):
                 long_term_memory_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_enabled_changed)

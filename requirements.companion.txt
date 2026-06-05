@@ -24,6 +24,7 @@ pandas==1.5.3
 pillow==11.2.1
 pypdf
 pydub
+pyenchant
 nvidia-ml-py==13.595.45
 pynput
 PySide6

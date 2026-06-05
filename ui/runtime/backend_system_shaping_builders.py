@@ -52,6 +52,8 @@ CHAT_TAB_TOOLTIPS = {
     "chat_context_window_spin": "How many recent chat messages are sent to the model for normal reply context.",
     "stored_chat_history_limit_spin": "How many chat messages are kept when saving context. Use 0 to save the full conversation history.",
     "chat_overflow_policy_combo": "What NC should do when the active chat context grows beyond the context window sent to the model.",
+    "spellcheck_enabled_checkbox": "Enable red underline spellcheck in the normal typed chat input and Chat Edit Mode when PyEnchant dictionaries are available.",
+    "spellcheck_language_combo": "Dictionary language used for chat spellcheck. The list contains dictionaries visible to PyEnchant in the active NC environment.",
     "long_term_memory_enabled_checkbox": "Maintain a compact Continuity Memory summary for this saved chat context.",
     "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after 120-239 new saved-chat messages have accumulated.",
     "long_term_memory_inject_checkbox": "Include the Continuity Memory summary in normal model requests so the assistant can remember older context.",
@@ -590,7 +592,9 @@ class BackendSystemShapingBuilderMixin:
         timing_form.addRow("Context window (msgs)", self.chat_context_window_spin)
         timing_form.addRow("Stored history limit", self.stored_chat_history_limit_spin)
         timing_form.addRow("Overflow policy", self.chat_overflow_policy_combo)
+        timing_form.addRow("Dictionary language", self.spellcheck_language_combo)
         behavior_layout.addLayout(timing_form)
+        behavior_layout.addWidget(self.spellcheck_enabled_checkbox)
         behavior_layout.addWidget(self.chat_session_hint)
         layout.addWidget(behavior_box)
 
@@ -977,6 +981,29 @@ class BackendSystemShapingBuilderMixin:
         self.chat_overflow_policy_combo.addItems(["Rolling Window", "Truncate Middle", "Stop At Limit"])
         self.chat_overflow_policy_combo.setCurrentText(self._chat_overflow_policy_label_from_value(runtime_config.get("chat_context_overflow_policy", "rolling_window")))
         self.chat_overflow_policy_combo.currentTextChanged.connect(self.on_chat_overflow_policy_changed)
+
+        self.spellcheck_enabled_checkbox = QtWidgets.QCheckBox("Enable spell checking")
+        self.spellcheck_enabled_checkbox.setObjectName("spellcheck_enabled_checkbox")
+        self.spellcheck_enabled_checkbox.setChecked(bool(runtime_config.get("spellcheck_enabled", True)))
+        self.spellcheck_enabled_checkbox.toggled.connect(self.on_spellcheck_enabled_changed)
+
+        self.spellcheck_language_combo = NoWheelComboBox()
+        self.spellcheck_language_combo.setObjectName("spellcheck_language_combo")
+        try:
+            from ui.runtime.spellcheck import available_languages
+
+            languages = available_languages()
+        except Exception:
+            languages = []
+        selected_spellcheck_language = str(runtime_config.get("spellcheck_language", "en_US") or "en_US").strip() or "en_US"
+        if selected_spellcheck_language not in languages:
+            languages.insert(0, selected_spellcheck_language)
+        for language in languages or [selected_spellcheck_language]:
+            self.spellcheck_language_combo.addItem(str(language or "en_US"))
+        self.spellcheck_language_combo.setCurrentText(selected_spellcheck_language)
+        self.spellcheck_language_combo.currentTextChanged.connect(self.on_spellcheck_language_changed)
+        self.spellcheck_language_combo.setMinimumWidth(112)
+        self.spellcheck_language_combo.setMaximumWidth(180)
 
         self.long_term_memory_enabled_checkbox = QtWidgets.QCheckBox("Enable continuity memory summary")
         self.long_term_memory_enabled_checkbox.setObjectName("long_term_memory_enabled_checkbox")

@@ -21,6 +21,8 @@ LEGACY_FIELD_PATHS = OrderedDict(
         ("chat_context_window_messages", ("context", "window_messages")),
         ("stored_chat_history_limit", ("context", "stored_history_limit")),
         ("chat_context_overflow_policy", ("context", "overflow_policy")),
+        ("spellcheck_enabled", ("spellcheck", "enabled")),
+        ("spellcheck_language", ("spellcheck", "language")),
         ("continuity_memory_id", ("memory", "id")),
         ("active_chat_context_path", ("memory", "active_chat_context_path")),
         ("active_chat_context_name", ("memory", "active_chat_context_name")),

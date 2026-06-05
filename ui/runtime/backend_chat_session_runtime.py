@@ -366,6 +366,45 @@ class BackendChatSessionRuntimeMixin:
         self._refresh_chat_session_hint()
         self.save_session()
 
+    def _current_spellcheck_language_value(self):
+        widget = getattr(self, "spellcheck_language_combo", None)
+        if widget is not None and hasattr(widget, "currentText"):
+            return str(widget.currentText() or "en_US").strip() or "en_US"
+        config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+        return str(config.get("spellcheck_language", "en_US") or "en_US").strip() or "en_US"
+
+    def _refresh_spellcheck_widgets(self):
+        config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+        enabled = bool(config.get("spellcheck_enabled", True))
+        language = str(config.get("spellcheck_language", "en_US") or "en_US").strip() or "en_US"
+        try:
+            from ui.runtime.spellcheck import refresh_spellcheck
+        except Exception:
+            return
+        input_widget = getattr(self, "chat_message_input", None)
+        if input_widget is not None:
+            try:
+                refresh_spellcheck(input_widget, language=language, enabled=enabled)
+            except Exception:
+                pass
+        chat_edit = getattr(self, "chat_edit", None)
+        if chat_edit is not None and bool(getattr(self, "chat_edit_mode", False)):
+            try:
+                refresh_spellcheck(chat_edit, language=language, enabled=enabled)
+            except Exception:
+                pass
+
+    def on_spellcheck_enabled_changed(self, checked):
+        _update_runtime_config("spellcheck_enabled", bool(checked))
+        self._refresh_spellcheck_widgets()
+        self.save_session()
+
+    def on_spellcheck_language_changed(self, choice):
+        language = str(choice or "en_US").strip() or "en_US"
+        _update_runtime_config("spellcheck_language", language)
+        self._refresh_spellcheck_widgets()
+        self.save_session()
+
     def on_continuity_memory_enabled_changed(self, checked):
         _update_runtime_config("continuity_memory_enabled", bool(checked))
         self._refresh_continuity_memory_hint()
