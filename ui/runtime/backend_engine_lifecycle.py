@@ -138,6 +138,7 @@ class BackendEngineLifecycleMixin:
             return
         self._engine_stop_in_progress = False
         self._publish_addon_event("runtime.heavy_task_starting", {"source": "engine_start"})
+        self._publish_addon_event("runtime.engine_starting", {"source": "engine_start"})
         mode = self._current_avatar_mode_value()
         _update_runtime_config("avatar_mode", mode)
         self.apply_text_config()
@@ -237,6 +238,7 @@ class BackendEngineLifecycleMixin:
         self._update_restart_sensitive_controls()
         self._update_control_action_buttons()
         self._update_push_to_talk_button()
+        self._publish_addon_event("runtime.engine_stopped", self.get_tutorial_runtime_state())
         print("[QtGUI] System Halted.")
 
     def stop_engine(self):
@@ -254,6 +256,7 @@ class BackendEngineLifecycleMixin:
                 engine.shutdown_avatar_engine()
             self.btn_stop.setEnabled(False)
             self.emit_tutorial_event("engine_stop_requested", self.get_tutorial_runtime_state())
+            self._publish_addon_event("runtime.engine_stop_requested", self.get_tutorial_runtime_state())
             self._update_restart_sensitive_controls()
             self._update_control_action_buttons()
             self._update_push_to_talk_button()

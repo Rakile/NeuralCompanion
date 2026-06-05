@@ -240,6 +240,11 @@ class BackendChatProviderFieldsMixin:
             provider_settings = self._current_chat_provider_settings_for(provider_id)
             if "max_tokens" in provider_settings:
                 return provider_settings.get("max_tokens")
+            omit_values = field.get("omit_if", [])
+            if not isinstance(omit_values, list):
+                omit_values = [omit_values]
+            if any(str(value) == "-1" for value in omit_values):
+                return -1
             if bool(_runtime_config().get("limit_response_length", False)):
                 return int(_runtime_config().get("max_response_tokens", field.get("default", DEFAULT_MAX_RESPONSE_TOKENS)) or DEFAULT_MAX_RESPONSE_TOKENS)
         return field.get("default", "")

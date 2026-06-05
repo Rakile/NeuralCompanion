@@ -112,6 +112,17 @@ class ChatProviderRuntime(ChatProviderAdapter):
                 return True
         return False
 
+    def _max_tokens_omit_cap_value(self, field: dict[str, Any]) -> Any:
+        field_id = str((field or {}).get("id") or "").strip()
+        if field_id not in {"max_tokens", "max_completion_tokens"}:
+            return None
+        omit_values = (field or {}).get("omit_if", [])
+        if not isinstance(omit_values, list):
+            omit_values = [omit_values]
+        if any(str(value) == "-1" for value in omit_values):
+            return -1
+        return None
+
     def _legacy_generation_value(self, field: dict[str, Any], provider: str) -> Any:
         config = self._config()
         field_id = str((field or {}).get("id") or "").strip()
@@ -125,6 +136,9 @@ class ChatProviderRuntime(ChatProviderAdapter):
             provider_settings = chat_providers.get_provider_settings(provider)
             if isinstance(provider_settings, dict) and provider_settings.get("max_tokens") not in {None, ""}:
                 return provider_settings.get("max_tokens")
+            omit_cap_value = self._max_tokens_omit_cap_value(field)
+            if omit_cap_value is not None:
+                return omit_cap_value
             if bool(config.get("limit_response_length", False)):
                 return max(1, int(config.get("max_response_tokens", 600) or 600))
             if provider == "lmstudio":
@@ -187,7 +201,12 @@ class ChatProviderRuntime(ChatProviderAdapter):
                 max_token_applied = True
 
         if not max_token_applied:
-            if bool(config.get("limit_response_length")):
+            has_omitted_max_token_field = any(
+                self._max_tokens_omit_cap_value(field) is not None
+                for field in fields
+                if isinstance(field, dict)
+            )
+            if bool(config.get("limit_response_length")) and not has_omitted_max_token_field:
                 params["max_tokens"] = max(1, int(config.get("max_response_tokens", 600) or 600))
             elif provider_key == "lmstudio":
                 params["max_tokens"] = -1
