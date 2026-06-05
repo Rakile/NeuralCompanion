@@ -474,6 +474,10 @@ class AddonManager:
         return None if record is None else record.instance
 
     def get_addon_registry_snapshot(self) -> list[dict[str, Any]]:
+        try:
+            from core.dependency_repair import addon_requirements_status
+        except Exception:
+            addon_requirements_status = None
         categories: dict[str, dict[str, Any]] = {}
         for record in self._records:
             category = self._category_for_manifest(record.manifest)
@@ -488,6 +492,26 @@ class AddonManager:
             )
             addon_override = self._addon_enabled_override(record.manifest.id)
             addon_enabled = record.manifest.enabled if addon_override is None else bool(addon_override)
+            requirements_path = record.root_dir / "requirements.txt"
+            dependency_status = None
+            if requirements_path.exists() and callable(addon_requirements_status):
+                try:
+                    dependency_status = addon_requirements_status(
+                        addon_id=record.manifest.id,
+                        label=record.manifest.name,
+                        requirements_path=requirements_path,
+                    )
+                except Exception as exc:
+                    dependency_status = {
+                        "id": record.manifest.id,
+                        "kind": "addon",
+                        "label": record.manifest.name,
+                        "requirements_path": str(requirements_path),
+                        "status": "error",
+                        "needs_install": False,
+                        "installable": False,
+                        "message": f"Could not inspect addon requirements: {exc}",
+                    }
             group["addons"].append(
                 {
                     "id": record.manifest.id,
@@ -502,6 +526,7 @@ class AddonManager:
                     "services": [dict(item) for item in list(getattr(record.manifest, "services", []) or []) if isinstance(item, dict)],
                     "ui": [dict(item) for item in list(getattr(record.manifest, "ui", []) or []) if isinstance(item, dict)],
                     "version": str(record.manifest.version or ""),
+                    "dependency_status": dependency_status,
                 }
             )
         ordered = sorted(categories.values(), key=lambda item: item["label"].lower())

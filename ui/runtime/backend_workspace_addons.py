@@ -1,3 +1,5 @@
+import sys
+
 from PySide6 import QtCore, QtWidgets
 
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
@@ -75,6 +77,125 @@ class BackendWorkspaceAddonsMixin:
         manager.set_addon_enabled(str(addon_id or ""), bool(checked))
         self._refresh_addons_management_ui()
         self.save_session()
+
+    def _on_addon_requirements_install_requested(self, addon_id):
+        manager = getattr(self, "_addon_manager", None)
+        if manager is None:
+            return
+        record = manager.get_addon_record(str(addon_id or ""))
+        if record is None:
+            return
+        requirements_path = record.root_dir / "requirements.txt"
+        if not requirements_path.exists():
+            return
+        try:
+            requirements_preview = requirements_path.read_text(encoding="utf-8").strip()
+        except Exception:
+            requirements_preview = str(requirements_path)
+        if len(requirements_preview) > 1200:
+            requirements_preview = requirements_preview[:1200].rstrip() + "\n..."
+        message = (
+            f"Addon '{record.manifest.name}' needs to install/update Python libraries from:\n\n"
+            f"{requirements_path}\n\n"
+            f"Requirements:\n{requirements_preview or '(empty requirements file)'}\n\n"
+            "Install these addon requirements into the active Neural Companion Python environment now?"
+        )
+        choice = QtWidgets.QMessageBox.question(
+            self,
+            "Install Addon Requirements",
+            message,
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if choice != QtWidgets.QMessageBox.Yes:
+            return
+        try:
+            from core.dependency_repair import addon_requirements_status, install_args_for_requirements
+
+            status = addon_requirements_status(
+                addon_id=record.manifest.id,
+                label=record.manifest.name,
+                requirements_path=requirements_path,
+            )
+            requirements_hash = str(status.get("requirements_hash") or "")
+            install_args = install_args_for_requirements(requirements_path)
+        except Exception as exc:
+            QtWidgets.QMessageBox.warning(self, "Install Addon Requirements", f"Could not prepare addon requirements install: {exc}")
+            return
+        process = QtCore.QProcess(self)
+        process.setProgram(sys.executable)
+        process.setArguments(install_args)
+        process.finished.connect(
+            lambda exit_code, exit_status, addon_id=record.manifest.id, req_hash=requirements_hash, req_path=str(requirements_path), proc=process: self._on_addon_requirements_install_finished(
+                addon_id,
+                req_hash,
+                req_path,
+                proc,
+                exit_code,
+                exit_status,
+            )
+        )
+        process.errorOccurred.connect(
+            lambda error, addon_id=record.manifest.id, req_hash=requirements_hash, req_path=str(requirements_path): self._on_addon_requirements_install_error(
+                addon_id,
+                req_hash,
+                req_path,
+                error,
+            )
+        )
+        self._addon_requirements_install_process = process
+        self.btn_addons_refresh.setEnabled(False)
+        process.start()
+
+    def _on_addon_requirements_install_error(self, addon_id, requirements_hash, requirements_path, error):
+        try:
+            from core.dependency_repair import record_install_result
+
+            record_install_result(
+                target_id=str(addon_id or ""),
+                kind="addon",
+                requirements_hash=str(requirements_hash or ""),
+                requirements_path=str(requirements_path or ""),
+                success=False,
+                error=str(error),
+            )
+        except Exception:
+            pass
+        self._addon_requirements_install_process = None
+        if hasattr(self, "btn_addons_refresh"):
+            self.btn_addons_refresh.setEnabled(True)
+        self._refresh_addons_management_ui()
+
+    def _on_addon_requirements_install_finished(self, addon_id, requirements_hash, requirements_path, process, exit_code, _exit_status):
+        details = ""
+        try:
+            details = bytes(process.readAllStandardError()).decode(errors="replace").strip()
+        except Exception:
+            details = ""
+        success = int(exit_code) == 0
+        try:
+            from core.dependency_repair import record_install_result
+
+            record_install_result(
+                target_id=str(addon_id or ""),
+                kind="addon",
+                requirements_hash=str(requirements_hash or ""),
+                requirements_path=str(requirements_path or ""),
+                success=success,
+                error=details,
+            )
+        except Exception:
+            pass
+        self._addon_requirements_install_process = None
+        if hasattr(self, "btn_addons_refresh"):
+            self.btn_addons_refresh.setEnabled(True)
+        self._refresh_addons_management_ui()
+        if not success:
+            QtWidgets.QMessageBox.warning(
+                self,
+                "Install Addon Requirements",
+                f"Addon requirements install failed for '{addon_id}'.\n\n{details or 'No details were reported.'}",
+            )
 
     def _refresh_addons_management_ui(self):
         layout = getattr(self, "addons_management_layout", None)
@@ -182,6 +303,23 @@ class BackendWorkspaceAddonsMixin:
                     description_label.setWordWrap(True)
                     description_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
                     row_layout.addWidget(description_label)
+
+                dependency_status = addon.get("dependency_status")
+                if isinstance(dependency_status, dict):
+                    dependency_row = QtWidgets.QHBoxLayout()
+                    dependency_message = str(dependency_status.get("message") or "").strip()
+                    dependency_label = QtWidgets.QLabel(dependency_message or "Addon requirements status unavailable.")
+                    dependency_label.setWordWrap(True)
+                    dependency_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+                    dependency_row.addWidget(dependency_label, 1)
+                    if bool(dependency_status.get("needs_install", False)) and bool(dependency_status.get("installable", False)):
+                        install_button = QtWidgets.QPushButton("Install requirements")
+                        install_button.setToolTip("Install only this addon's requirements.txt into the active NC Python environment.")
+                        install_button.clicked.connect(
+                            lambda _checked=False, addon_id=str(addon.get("id") or ""): self._on_addon_requirements_install_requested(addon_id)
+                        )
+                        dependency_row.addWidget(install_button)
+                    row_layout.addLayout(dependency_row)
 
                 category_layout.addWidget(row_frame)
             layout.addWidget(category_box)

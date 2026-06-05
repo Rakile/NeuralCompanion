@@ -432,10 +432,16 @@ class BackendChatSessionRuntimeMixin:
         available = bool(status.get("available", False))
         installable = bool(status.get("installable", False))
         message = str(status.get("message") or "")
+        target_id = str(status.get("id") or "core.spellcheck").strip() or "core.spellcheck"
+        requirements_hash = str(status.get("requirements_hash") or "").strip()
+        dependency_detail = f"Dependency target: {target_id}"
+        if requirements_hash:
+            dependency_detail += f"\nRequirements hash: {requirements_hash[:12]}"
         hint = getattr(self, "spellcheck_dependency_hint", None)
         if hint is not None and hasattr(hint, "setText"):
             try:
                 hint.setText(message)
+                hint.setToolTip(dependency_detail)
                 hint.setVisible(not available or bool(message and not available))
             except Exception:
                 pass
@@ -446,6 +452,7 @@ class BackendChatSessionRuntimeMixin:
                 button.setVisible(not available and installable)
                 button.setEnabled(not running)
                 button.setText("Installing PyEnchant..." if running else "Install PyEnchant")
+                button.setToolTip(dependency_detail + "\nInstall only this core feature dependency into the active NC Python environment.")
             except Exception:
                 pass
         language_combo = getattr(self, "spellcheck_language_combo", None)
@@ -458,9 +465,15 @@ class BackendChatSessionRuntimeMixin:
     def on_install_spellcheck_dependency_requested(self):
         if getattr(self, "_spellcheck_install_process", None) is not None:
             return
+        try:
+            from ui.runtime.spellcheck import dependency_install_args
+
+            install_args = dependency_install_args()
+        except Exception:
+            install_args = ["-m", "pip", "install", "pyenchant"]
         process = QtCore.QProcess(self)
         process.setProgram(sys.executable)
-        process.setArguments(["-m", "pip", "install", "pyenchant"])
+        process.setArguments(install_args)
         process.finished.connect(self._on_spellcheck_dependency_install_finished)
         process.errorOccurred.connect(self._on_spellcheck_dependency_install_error)
         self._spellcheck_install_process = process
@@ -472,6 +485,12 @@ class BackendChatSessionRuntimeMixin:
         process.start()
 
     def _on_spellcheck_dependency_install_error(self, error):
+        try:
+            from ui.runtime.spellcheck import record_dependency_install_result
+
+            record_dependency_install_result(False, str(error))
+        except Exception:
+            pass
         hint = getattr(self, "spellcheck_dependency_hint", None)
         if hint is not None and hasattr(hint, "setText"):
             hint.setText(f"PyEnchant install could not start: {error}")
@@ -503,6 +522,12 @@ class BackendChatSessionRuntimeMixin:
             status = dependency_status()
         except Exception as exc:
             status = {"available": False, "message": str(exc)}
+        try:
+            from ui.runtime.spellcheck import record_dependency_install_result
+
+            record_dependency_install_result(int(exit_code) == 0 and bool(status.get("available", False)), str(status.get("message") or output or ""))
+        except Exception:
+            pass
         hint = getattr(self, "spellcheck_dependency_hint", None)
         if hint is not None and hasattr(hint, "setText"):
             if int(exit_code) == 0 and bool(status.get("available", False)):

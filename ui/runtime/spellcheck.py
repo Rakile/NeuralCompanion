@@ -10,6 +10,8 @@ from PySide6 import QtCore, QtGui, QtWidgets
 _WORD_RE = re.compile(r"[A-Za-z][A-Za-z']{2,}")
 _DICT_CACHE: dict[str, Any | None] = {}
 DEFAULT_LANGUAGE = "en_US"
+SPELLCHECK_FEATURE_ID = "core.spellcheck"
+SPELLCHECK_REQUIREMENTS = ["pyenchant"]
 
 
 class ChatMessageInput(QtWidgets.QPlainTextEdit):
@@ -143,34 +145,72 @@ def available_languages() -> list[str]:
 
 
 def dependency_status() -> dict[str, Any]:
+    available = False
+    installable = True
+    message = ""
+    languages: list[str] = []
     try:
         import enchant  # type: ignore
     except Exception as exc:
-        return {
-            "available": False,
-            "installable": True,
-            "message": f"PyEnchant is not installed in this NC environment ({exc}).",
-        }
+        message = f"PyEnchant is not installed in this NC environment ({exc})."
+    else:
+        try:
+            languages = sorted(str(item) for item in enchant.list_languages())
+            available = bool(languages)
+            installable = not available
+            message = "Spellcheck is available." if available else "PyEnchant is installed, but no dictionaries are visible in this NC environment."
+        except Exception as exc:
+            available = False
+            installable = False
+            message = f"PyEnchant is installed, but dictionaries are not available ({exc})."
     try:
-        languages = sorted(str(item) for item in enchant.list_languages())
-    except Exception as exc:
-        return {
-            "available": False,
-            "installable": False,
-            "message": f"PyEnchant is installed, but dictionaries are not available ({exc}).",
+        from core.dependency_repair import core_feature_status
+
+        status = core_feature_status(
+            feature_id=SPELLCHECK_FEATURE_ID,
+            label="Chat Spellcheck",
+            requirements=SPELLCHECK_REQUIREMENTS,
+            available=available,
+            installable=installable,
+            message=message,
+        )
+    except Exception:
+        status = {
+            "id": SPELLCHECK_FEATURE_ID,
+            "kind": "core_feature",
+            "label": "Chat Spellcheck",
+            "requirements": list(SPELLCHECK_REQUIREMENTS),
+            "available": available,
+            "installable": installable,
+            "needs_install": bool(installable and not available),
+            "message": message,
         }
-    if not languages:
-        return {
-            "available": False,
-            "installable": False,
-            "message": "PyEnchant is installed, but no dictionaries are visible in this NC environment.",
-        }
-    return {
-        "available": True,
-        "installable": False,
-        "message": "Spellcheck is available.",
-        "languages": languages,
-    }
+    status["languages"] = languages
+    return status
+
+
+def dependency_install_args() -> list[str]:
+    try:
+        from core.dependency_repair import install_args_for_packages
+
+        return install_args_for_packages(list(SPELLCHECK_REQUIREMENTS))
+    except Exception:
+        return ["-m", "pip", "install", *SPELLCHECK_REQUIREMENTS]
+
+
+def record_dependency_install_result(success: bool, error: str = "") -> None:
+    try:
+        from core.dependency_repair import record_install_result, requirements_hash_from_lines
+
+        record_install_result(
+            target_id=SPELLCHECK_FEATURE_ID,
+            kind="core_feature",
+            requirements_hash=requirements_hash_from_lines(list(SPELLCHECK_REQUIREMENTS)),
+            success=bool(success),
+            error=str(error or ""),
+        )
+    except Exception:
+        pass
 
 
 def clear_spellcheck_cache() -> None:

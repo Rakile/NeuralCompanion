@@ -596,6 +596,7 @@ class MainUiRealSurfacesMixin:
                 return
             try:
                 self.backend._refresh_chat_session_hint()
+                self.backend._refresh_spellcheck_dependency_controls()
                 self.backend._refresh_continuity_memory_hint()
                 self.backend._refresh_long_term_memory_archive_hint()
                 self.backend._refresh_chat_context_save_controls()
