@@ -11,6 +11,7 @@ Multi Persona Roleplay Companion, or MPRC, adds a Roleplay tab to NeuralCompanio
 - Builds persona-aware Visual Reply prompts and can request generation through the existing Visual Reply addon when available.
 - Adds an Audio tab with a persistent Story Sounds toggle and a local Suno-style prompt builder for music, ambience, FX, and stingers.
 - Adds a Master Story tab that can turn one story prompt into linked personas, session state, and saved reusable story setups.
+- Adds Story Library Export for portable zip story packages with selectable sections, green availability rows, copied avatar/voice/audio assets, and safe import remapping.
 - Adds a Status cockpit for first-run demo, validation, repair actions, voice routing inspection, Visual Reply/AudioFX tests, story bundles, and memory editing.
 
 ## Add A Persona
@@ -59,6 +60,10 @@ Personas linked to the current Master Story are marked in the persona selectors 
 
 `Save Story` stores the reviewed draft in addon storage. `Load Story` loads and applies it, so saved stories can quickly switch scene state, active speaker, AR settings, and linked persona roster. The Story Library sits above the builder and shows a framed 180x180 story image beside the saved-story selector. If a saved story has no image path, MPRC creates a local fallback cover image in story storage.
 
+`Story Library Export` sits directly below Story Library. It creates a portable `.mprcstory.zip` package with selectable sections for session state, story metadata, linked personas, visual settings, avatar image files, voice settings, voice files, story memory, recent events, AudioFX settings, AudioFX files, visual styles, Master Story draft data, and templates/prompts. Green rows mean data exists for that section. When avatar, voice, or AudioFX files are selected, MPRC copies those files into the package instead of requiring the original absolute paths on restore.
+
+Imported story packages are validated through `manifest.json`, saved through the existing recovery-backup path, and restored into the addon's runtime asset folder. Avatar image, voice sample, and AudioFX paths are remapped to extracted local files under `runtime/addons/nc.multi_persona_roleplay/assets/story_packages/imported/<story_id>/`. Re-importing the same story package reuses that story asset folder instead of creating a new timestamped folder. Existing personas and stories are protected by creating unique imported IDs when a package would collide with saved data.
+
 MPRC stores active long memory and session state per loaded Master Story. When a story is loaded again, the addon restores that story's memory so AR state, recent events, long-memory context, and story-linked audio prompt data continue with the loaded story instead of leaking from another story.
 
 ## Story Production Cockpit
@@ -69,7 +74,7 @@ The Status tab is the recommended first stop before a serious AR session. `Start
 
 The Voice Routing Inspector shows exactly how `[NARRATOR]` and `[CHARACTER: Name]` sections map to personas and voice files. The next-turn inspector can preview the next AR request or explain the narrator, active character, voice, memory, Visual Reply, and AudioFX routing before the next Continue.
 
-`Export Story Bundle` creates a portable JSON bundle containing story metadata, linked cast, narrator lock, memory snapshot, prompts, AudioFX links/descriptions, visual settings, voice routing info, and `schema_version`. `Import Story Bundle` restores a bundle after saving a recovery backup.
+`Export Story Bundle` creates a compact JSON bundle containing story metadata, linked cast, narrator lock, memory snapshot, prompts, AudioFX links/descriptions, visual settings, voice routing info, and `schema_version`. `Import Story Bundle` restores a bundle after saving a recovery backup. For a complete movable package with copied voice/audio assets, use `Story Library Export` in the Master tab.
 
 ## Visual Reply
 
@@ -104,10 +109,11 @@ runtime/addons/nc.multi_persona_roleplay/
   sessions/current_session.json
   stories/index.json
   stories/*.json
+  assets/story_packages/imported/
   memory/long_memory.json
 ```
 
-Voice sample paths are stored as paths only.
+Normal avatar, voice sample, and AudioFX paths are stored as paths only. Story Library Export packages can copy selected avatar, voice, and AudioFX files into the zip and remap them into the addon's runtime asset folder during import, so restored voices and sound effects play from `runtime/addons/nc.multi_persona_roleplay/assets/...`.
 
 ## Long Memory
 

@@ -1009,6 +1009,32 @@ def _addon_voice_route(payload=None):
     return dict(route or {}) if isinstance(route, dict) else {}
 
 
+def _normalized_tts_voice_volume(value, fallback=1.0):
+    try:
+        volume = float(value)
+    except Exception:
+        try:
+            volume = float(fallback)
+        except Exception:
+            volume = 1.0
+    if volume > 2.0:
+        volume = volume / 100.0
+    return max(0.0, min(1.0, volume))
+
+
+def _voice_route_volume(route=None, fallback=1.0):
+    route = route if isinstance(route, dict) else {}
+    if "volume" in route:
+        return _normalized_tts_voice_volume(route.get("volume"), fallback=fallback)
+    if "voice_volume" in route:
+        return _normalized_tts_voice_volume(route.get("voice_volume"), fallback=fallback)
+    if "volume_percent" in route:
+        return _normalized_tts_voice_volume(route.get("volume_percent"), fallback=fallback)
+    if "voice_volume_percent" in route:
+        return _normalized_tts_voice_volume(route.get("voice_volume_percent"), fallback=fallback)
+    return _normalized_tts_voice_volume(fallback)
+
+
 def _addon_voice_segment_result(payload=None):
     result = _invoke_addon_capability("tts.voice_segments", payload or {})
     if isinstance(result, dict):
@@ -1111,6 +1137,27 @@ def _play_addon_story_audio_cues(cue_ids) -> bool:
 def _notify_addon_tts_segment_started(payload=None) -> bool:
     result = _invoke_addon_capability("tts.segment_started", payload or {})
     return result is not None
+
+
+def _tts_playback_voice_volume(source_meta=None, text="") -> float:
+    meta = dict(source_meta or {})
+    fallback = _normalized_tts_voice_volume(meta.get("voice_volume", 1.0))
+    payload = {
+        "persona_id": str(meta.get("persona_id", "") or ""),
+        "text": str(text or ""),
+        "tts_backend": str(RUNTIME_CONFIG.get("tts_backend", "") or ""),
+        "streaming": bool(RUNTIME_CONFIG.get("stream_mode", False)),
+    }
+    try:
+        route = _addon_voice_route(payload)
+        if isinstance(route, dict) and route:
+            return _voice_route_volume(route, fallback=fallback)
+    except Exception:
+        pass
+    route = meta.get("voice_route")
+    if isinstance(route, dict):
+        return _voice_route_volume(route, fallback=fallback)
+    return fallback
 
 
 def list_available_tts_backends():
@@ -1520,7 +1567,7 @@ def _open_configured_microphone(*, sample_rate=None):
     return sr.Microphone(**kwargs)
 
 
-def play_audio_file(path: str, stop_event=None):
+def play_audio_file(path: str, stop_event=None, volume=1.0):
     class _PlaybackStopEvent:
         def is_set(self):
             try:
@@ -1535,6 +1582,7 @@ def play_audio_file(path: str, stop_event=None):
         stop_event=_PlaybackStopEvent(),
         audio_playing_event=audio_playing,
         output_device=_selected_sounddevice_output_index(),
+        volume=volume,
         logger=print,
     )
 
@@ -5935,11 +5983,16 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
             source_meta = {}
             piece_voice_route = {}
             piece_voice_path = resolved_voice_path_override
+            piece_voice_volume = 1.0
             if isinstance(source_item, dict):
                 piece_text = str(source_item.get("text", "") or "")
+                piece_voice_volume = _normalized_tts_voice_volume(
+                    source_item.get("voice_volume", source_item.get("volume", 1.0))
+                )
                 raw_voice_route = source_item.get("voice_route")
                 if isinstance(raw_voice_route, dict):
                     piece_voice_route = dict(raw_voice_route)
+                    piece_voice_volume = _voice_route_volume(piece_voice_route, fallback=piece_voice_volume)
                 source_meta = {
                     "replay_message_id": str(source_item.get("message_id", "") or ""),
                     "replay_index": int(source_item.get("index", 0) or 0),
@@ -5948,6 +6001,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     "persona_id": str(source_item.get("persona_id", "") or ""),
                     "display_name": str(source_item.get("display_name", "") or ""),
                     "voice_route": dict(piece_voice_route),
+                    "voice_volume": piece_voice_volume,
                     "story_audio_cues": list(source_item.get("story_audio_cues") or []),
                 }
                 piece_voice_path = _resolve_voice_reference_path(source_item.get("voice_path", "")) or resolved_voice_path_override
@@ -5966,6 +6020,10 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     piece_voice_path = _resolve_voice_reference_path(piece_voice_route.get("sample_path", ""))
                 elif piece_voice_route.get("warning"):
                     print(f"⚠️ [TTS] {piece_voice_route.get('warning')}")
+            piece_voice_volume = _voice_route_volume(piece_voice_route, fallback=piece_voice_volume)
+            if source_meta:
+                source_meta["voice_route"] = dict(piece_voice_route)
+                source_meta["voice_volume"] = piece_voice_volume
             if not piece_text or not str(piece_text).strip():
                 continue
             replay_message_id = str(source_meta.get("replay_message_id", "") or "")
@@ -6918,7 +6976,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         else:
                             time.sleep(0.05)
                     else:
-                        play_audio_file(path, stop_event=ctrl.skip_current_message if replay_message_id else None)
+                        playback_voice_volume = _tts_playback_voice_volume(source_meta, txt)
+                        play_audio_file(
+                            path,
+                            stop_event=ctrl.skip_current_message if replay_message_id else None,
+                            volume=playback_voice_volume,
+                        )
                     if ctrl.should_skip_message(replay_message_id):
                         print("⏭️ [Replay] Skipped current replay message.")
                     preview_stream_stop.set()

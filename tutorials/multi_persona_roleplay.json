@@ -25,6 +25,11 @@
       "target": "main_window"
     },
     {
+      "title": "Export a Story Package",
+      "body": "Use Story Library Export below the Story Library card to create a portable story package. Choose which sections to include; green rows mean data exists. When selected, avatar images, voice samples, and AudioFX files are copied into the package and remapped into the addon's runtime assets folder on import.",
+      "target": "main_window"
+    },
+    {
       "title": "Configure Voices",
       "body": "Open Voice and assign a local voice sample path to every persona that should sound different. Newly created personas need voice samples, and the active NC TTS backend must support reference audio such as Chatterbox or PocketTTS.",
       "target": "main_window"

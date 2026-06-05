@@ -12,6 +12,7 @@ import threading
 import time
 import weakref
 import wave
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -387,6 +388,11 @@ class MultiPersonaRoleplayController:
         self._story_audio_bridge = _MprcStoryAudioBridge(self)
         self._ui_bridge = _MprcUiBridge(self)
         self._adopt_qobject_bridges(self._qt_application_instance())
+        self._editor_commit_timer = QtCore.QTimer()
+        self._editor_commit_timer.setSingleShot(True)
+        self._editor_commit_timer.timeout.connect(self._commit_scheduled_editor)
+        self._editor_commit_include_identity = False
+        self._commit_timers: dict[str, QtCore.QTimer] = {}
         self._master_story_draft: dict[str, Any] = {}
         self._tts_persona_visual_inflight: set[str] = set()
         self._tts_visual_reply_inflight: set[str] = set()
@@ -2788,6 +2794,9 @@ class MultiPersonaRoleplayController:
             "chat_restart": page.findChild(QtWidgets.QPushButton, "mprc_chat_restart_button"),
             "chat_clear": page.findChild(QtWidgets.QPushButton, "mprc_chat_clear_button"),
             "chat_float": page.findChild(QtWidgets.QPushButton, "mprc_chat_float_button"),
+            "chat_voice_volume_label": page.findChild(QtWidgets.QLabel, "mprc_chat_voice_volume_label"),
+            "chat_voice_volume": page.findChild(QtWidgets.QSlider, "mprc_chat_voice_volume_slider"),
+            "chat_voice_volume_value": page.findChild(QtWidgets.QLabel, "mprc_chat_voice_volume_value"),
             "chat_runtime_splitter": page.findChild(QtWidgets.QSplitter, "mprc_story_runtime_splitter"),
             "chat_story_feed_box": page.findChild(QtWidgets.QGroupBox, "mprc_story_feed_box"),
             "chat_player_action_box": page.findChild(QtWidgets.QGroupBox, "mprc_player_action_box"),
@@ -2829,6 +2838,7 @@ class MultiPersonaRoleplayController:
                 float_button.setObjectName("mprc_chat_float_button")
                 toolbar.insertWidget(min(4, toolbar.count()), float_button)
                 controls["chat_float"] = float_button
+        self._ensure_chat_play_voice_volume_controls(page, controls)
         self._controls.update({key: widget for key, widget in controls.items() if widget is not None})
         self._configure_chat_play_layout(page)
 
@@ -2868,6 +2878,9 @@ class MultiPersonaRoleplayController:
         float_button = controls.get("chat_float")
         if float_button is not None:
             float_button.clicked.connect(self._toggle_chat_play_floating)
+        volume_slider = controls.get("chat_voice_volume")
+        if volume_slider is not None:
+            volume_slider.valueChanged.connect(self._on_mprc_voice_volume_changed)
         start = controls.get("chat_start")
         if start is not None:
             start.clicked.connect(self._on_mprc_chat_start_clicked)
@@ -2898,6 +2911,48 @@ class MultiPersonaRoleplayController:
         if repair is not None:
             repair.clicked.connect(lambda: self._on_mprc_director_action("repair"))
         return page
+
+    def _ensure_chat_play_voice_volume_controls(self, page, controls: dict[str, Any]) -> None:
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar") if page is not None else None
+        if toolbar is None:
+            return
+        slider = controls.get("chat_voice_volume")
+        label = controls.get("chat_voice_volume_label")
+        value = controls.get("chat_voice_volume_value")
+        if slider is not None and label is not None and value is not None:
+            self._sync_chat_play_voice_volume_controls(slider=slider, value_label=value)
+            return
+
+        label = QtWidgets.QLabel("Voice")
+        label.setObjectName("mprc_chat_voice_volume_label")
+        label.setToolTip("Volume for MPRC-routed story voice in the Play tab.")
+        slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        slider.setObjectName("mprc_chat_voice_volume_slider")
+        slider.setRange(0, 100)
+        slider.setMinimumWidth(120)
+        slider.setMaximumWidth(170)
+        slider.setToolTip("Set the volume for addon-routed Play voice. This does not change AudioFX/background sound volume.")
+        value = QtWidgets.QLabel("")
+        value.setObjectName("mprc_chat_voice_volume_value")
+        value.setMinimumWidth(42)
+        value.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        value.setToolTip("Current MPRC Play voice volume percentage.")
+        self._sync_chat_play_voice_volume_controls(slider=slider, value_label=value)
+
+        insert_at = toolbar.count()
+        float_button = controls.get("chat_float")
+        if float_button is not None:
+            for index in range(toolbar.count()):
+                item = toolbar.itemAt(index)
+                if item is not None and item.widget() is float_button:
+                    insert_at = index + 1
+                    break
+        toolbar.insertWidget(insert_at, label)
+        toolbar.insertWidget(insert_at + 1, slider)
+        toolbar.insertWidget(insert_at + 2, value)
+        controls["chat_voice_volume_label"] = label
+        controls["chat_voice_volume"] = slider
+        controls["chat_voice_volume_value"] = value
 
     def _replace_chat_play_input(self, widget):
         if widget is None:
@@ -3897,6 +3952,7 @@ class MultiPersonaRoleplayController:
         text = str(reply or "").strip()
         if not text:
             return
+        voice_segments = self._mprc_chat_reply_voice_segments(text)
         token = self._new_worker_token("mprc_tts")
         if not token:
             return
@@ -3921,7 +3977,7 @@ class MultiPersonaRoleplayController:
                                 logger.info("[MPRC] TTS could not be initialized; skipping MPRC Play reply speech.")
                             return
                 if self._worker_should_emit(token) and hasattr(engine, "speak_async"):
-                    controller = engine.speak_async(text)
+                    controller = engine.speak_async(text, text_iterable=list(voice_segments or []))
                     with self._mprc_tts_state_lock:
                         if self._worker_should_emit(token):
                             self._mprc_tts_controller = controller
@@ -3939,6 +3995,64 @@ class MultiPersonaRoleplayController:
                 if self._mprc_tts_token == token:
                     self._mprc_tts_token = ""
             self._cancel_worker_token(token)
+
+    def _mprc_chat_reply_voice_segments(self, text: str) -> list[dict[str, Any]]:
+        content = str(text or "").strip()
+        if not content:
+            return []
+        volume_percent = self.mprc_voice_volume_percent()
+        volume = volume_percent / 100.0
+        backend = self.current_tts_backend()
+
+        def with_volume(segment: dict[str, Any]) -> dict[str, Any]:
+            item = dict(segment or {})
+            item["voice_volume"] = volume
+            item["voice_volume_percent"] = volume_percent
+            route = item.get("voice_route")
+            if isinstance(route, dict):
+                route = dict(route)
+            else:
+                route = {}
+            route["volume"] = volume
+            route["volume_percent"] = volume_percent
+            item["voice_route"] = route
+            return item
+
+        try:
+            routed = self.voice_router.split_text_by_persona(
+                {
+                    "text": content,
+                    "tts_backend": backend,
+                    "streaming": False,
+                }
+            )
+            segments = [with_volume(item) for item in list((routed or {}).get("segments") or []) if isinstance(item, dict)]
+            if segments:
+                return segments
+        except Exception as exc:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC] Could not prepare routed Play voice segments: %s", exc)
+
+        route = {}
+        try:
+            route = self.voice_router.effective_voice_config(
+                {
+                    "text": content,
+                    "tts_backend": backend,
+                    "streaming": False,
+                }
+            )
+        except Exception:
+            route = {}
+        segment = {
+            "text": content,
+            "persona_id": str((route or {}).get("persona_id") or ""),
+            "display_name": str((route or {}).get("display_name") or ""),
+            "voice_path": str((route or {}).get("sample_path") or "") if (route or {}).get("supported") else "",
+            "voice_route": route if isinstance(route, dict) else {},
+        }
+        return [with_volume(segment)]
 
     def _on_mprc_chat_speaker_changed(self):
         combo = self._controls.get("chat_speaker")
@@ -4238,6 +4352,10 @@ class MultiPersonaRoleplayController:
             "story_load_template": "Load the selected built-in template with narrator, one character, memory seed, visual profile, and AudioFX cue.",
             "story_export_bundle": "Export the current story, linked cast, narrator setup, memory snapshot, AudioFX links, visual settings, and voice routing as a portable JSON bundle.",
             "story_import_bundle": "Import a portable MPRC story bundle and apply it after saving a recovery backup.",
+            "story_export_status": "Story Library Export summary. Green option rows have data available to save into the portable story package.",
+            "story_export_button": "Create a zip story package from the selected Story Library Export sections. Selected avatar, voice, and AudioFX files are copied into the package when available.",
+            "story_import_button": "Import a zip story package, extract assets into this addon's runtime assets folder, remap file paths, and protect existing personas with unique imported IDs.",
+            "story_export_preview": "Preview which selected Story Library Export sections currently have data before creating a package.",
             "story_status_refresh": "Recalculate the runtime status and voice routing inspector.",
             "story_validate": "Check the active story for broken narrator, persona, voice, image, memory, AudioFX, and schema/resource issues.",
             "story_restore_backup": "Restore the latest recovery snapshot made automatically before Apply Draft changes story/persona state.",
@@ -4298,6 +4416,9 @@ class MultiPersonaRoleplayController:
             "audiofx_volume_label": "Volume for MPRC AudioFX playback.",
             "audiofx_volume": "Set the volume for addon AudioFX playback. This affects automatic story/background sounds and manual AudioFX previews, but not NC's main TTS voice volume.",
             "audiofx_volume_value": "Current AudioFX volume percentage.",
+            "chat_voice_volume_label": "Volume for MPRC-routed Play voice.",
+            "chat_voice_volume": "Set the volume for addon-routed story voice in the Play tab. This does not change AudioFX/background sounds.",
+            "chat_voice_volume_value": "Current MPRC Play voice volume percentage.",
             "audiofx_test_mode": "Create and keep a small local test AudioFX set active for checking tag playback without needing a full external sound library.",
             "audiofx_create_test_sounds": "Generate local WAV test sounds and register them as ready AudioFX items for Ambience, Music, FX, and Stinger tag testing.",
             "audiofx_play_test_tag": "Manually trigger the exact test tag [AMBIENCE: pub ambient]. Use this to confirm playback before relying on generated story text.",
@@ -4847,7 +4968,7 @@ class MultiPersonaRoleplayController:
             "7. Test the Response Window or Play mode. Plain AR narration should stay on the narrator voice; voices should switch only on explicit [NARRATOR] or [CHARACTER: Name] sections.",
             "8. If validation reports a problem, use the repair buttons before guessing: choose narrator, browse voice file, disable missing AudioFX, fix image path, create memory snapshot, relink personas, or reset invalid overrides.",
             "9. Use Preview next AR request and Explain next routing when you want to understand the next Continue turn before running it.",
-            "10. Export Story Bundle when a story is ready to share or back up. Import Story Bundle restores story, cast, narrator, memory, prompts, AudioFX, visual settings, and routing data.",
+            "10. Use Story Library Export below the Story Library card when a story is ready to move, share, or back up as a zip package with selectable sections. Green rows mean data exists; selected avatar, voice, and AudioFX files are copied into the package.",
         ]
         for step in steps:
             label = QtWidgets.QLabel(step)
@@ -4873,7 +4994,8 @@ class MultiPersonaRoleplayController:
             "- Voice Routing Inspector: shows exactly how [NARRATOR] and [CHARACTER: Name] route to personas and voice files.\n"
             "- Next-turn inspector: preview the next AR request or explain narrator, character, voice, memory, Visual Reply, and AudioFX routing.\n"
             "- Memory Browser / Editor: pin facts, review recent memory, delete one memory, reset character memory, or reset story memory.\n"
-            "- Story Bundle export/import: portable story package with schema version, cast, narrator setup, memory, prompts, AudioFX, visuals, and routing.\n\n"
+            "- Story Bundle export/import: compact JSON bundle for story setup, cast, narrator setup, memory, prompts, AudioFX, visuals, and routing.\n"
+            "- Story Library Export in the Master tab: zip package export/import below Story Library, with selectable sections, green availability rows, copied avatar/voice/audio assets, and safe import remapping.\n\n"
             "If something does not happen, check Validation Results and the Why Didn't It Happen Log before changing prompts."
         )
         cockpit_text.setToolTip("Explains the Status tab story production cockpit and confidence workflow.")
@@ -4915,6 +5037,7 @@ class MultiPersonaRoleplayController:
         master_text.setMinimumHeight(160)
         master_text.setPlainText(
             "Master turns one story prompt into a reusable story setup. The draft can include session state, AR state, linked personas, and visual profiles.\n\n"
+            "Story Library Export sits directly below the Story Library card. Use it when you want a portable zip package instead of the compact JSON Story Bundle: choose which sections to include, use the green rows to see what data exists, and include avatar/voice/AudioFX files when you want the package to restore local assets on import.\n\n"
             "Useful options:\n"
             "- Avatar visual direction: steer character portrait style, genre, costume language, and mood.\n"
             "- Native story personas to draft: target how many original story characters the prompt should ask for.\n"
@@ -5160,24 +5283,29 @@ class MultiPersonaRoleplayController:
         form_layout.addLayout(form)
         layout.addWidget(box)
         layout.addStretch(1)
-        explicit_text_edits = {"description", "system_prompt", "ar_description", "ar_system_prompt", "character_image_path"}
+        text_area_keys = {"description", "system_prompt", "ar_description", "ar_system_prompt"}
+        identity_line_keys = {"persona_id", "display_name"}
         for key, widget in controls.items():
-            if key in explicit_text_edits:
+            if key in text_area_keys:
                 continue
             if hasattr(widget, "textChanged"):
-                widget.textChanged.connect(self._commit_editor)
+                if key in identity_line_keys and hasattr(widget, "editingFinished"):
+                    widget.editingFinished.connect(lambda key=key: self._commit_editor_now(include_identity=True))
+                else:
+                    widget.textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+                    if hasattr(widget, "editingFinished"):
+                        widget.editingFinished.connect(lambda key=key: self._commit_editor_now(include_identity=False))
             elif hasattr(widget, "currentTextChanged"):
-                widget.currentTextChanged.connect(lambda *_args: self._commit_editor())
+                widget.currentTextChanged.connect(lambda *_args: self._commit_editor_now(include_identity=False))
             elif hasattr(widget, "toggled"):
-                widget.toggled.connect(lambda *_args: self._commit_editor())
-        controls["description"].textChanged.connect(self._commit_editor)
-        controls["character_image_path"].textChanged.connect(self._commit_editor)
-        controls["system_prompt"].textChanged.connect(self._commit_editor)
-        controls["ar_description"].textChanged.connect(self._commit_editor)
-        controls["ar_system_prompt"].textChanged.connect(self._commit_editor)
+                widget.toggled.connect(lambda *_args: self._commit_editor_now(include_identity=False))
+        controls["description"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["system_prompt"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["ar_description"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["ar_system_prompt"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
         image_browse.clicked.connect(self._browse_character_image)
         image_generate.clicked.connect(self._generate_character_image)
-        image_clear.clicked.connect(lambda *_args: controls["character_image_path"].setText(""))
+        image_clear.clicked.connect(lambda *_args: (controls["character_image_path"].setText(""), self._commit_editor_now(include_identity=False)))
         return page
 
     def _build_voice_tab(self):
@@ -5262,14 +5390,16 @@ class MultiPersonaRoleplayController:
         narrator_persona.currentIndexChanged.connect(lambda *_args: self._commit_narrator_persona())
         follow_active.toggled.connect(lambda *_args: self._commit_voice_follow_active())
         voice_persona.currentIndexChanged.connect(lambda *_args: self._commit_voice_persona())
-        enabled.toggled.connect(lambda *_args: self._commit_voice())
-        backend.currentTextChanged.connect(lambda *_args: self._commit_voice())
+        enabled.toggled.connect(lambda *_args: self._commit_voice_now())
+        backend.currentTextChanged.connect(lambda *_args: self._commit_voice_now())
         sample_picker.currentIndexChanged.connect(lambda *_args: self._select_voice_sample_from_picker())
-        sample.textChanged.connect(lambda *_args: self._commit_voice())
-        preset.textChanged.connect(lambda *_args: self._commit_voice())
-        language.currentTextChanged.connect(lambda *_args: self._commit_voice())
+        sample.textChanged.connect(lambda *_args: self._schedule_voice_commit())
+        sample.editingFinished.connect(self._commit_voice_now)
+        preset.textChanged.connect(lambda *_args: self._schedule_voice_commit())
+        preset.editingFinished.connect(self._commit_voice_now)
+        language.currentTextChanged.connect(lambda *_args: self._commit_voice_now())
         browse.clicked.connect(self._browse_voice_sample)
-        clear.clicked.connect(lambda *_args: (sample.setText(""), self._sync_voice_sample_picker("")))
+        clear.clicked.connect(lambda *_args: (sample.setText(""), self._sync_voice_sample_picker(""), self._commit_voice_now()))
         test.clicked.connect(self._test_voice)
         self._populate_voice_sample_picker()
         return page
@@ -5335,13 +5465,14 @@ class MultiPersonaRoleplayController:
             "export_session": export_session,
             "import_session": import_session,
         })
-        for widget in (mode, next_speaker):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_session())
+        mode.currentTextChanged.connect(lambda *_args: self._commit_session_now(refresh_ui=True))
+        next_speaker.currentTextChanged.connect(lambda *_args: self._commit_session_now(refresh_ui=False))
         for widget in (scene_title, location, time_of_day, mood, objective):
-            widget.textChanged.connect(lambda *_args: self._commit_session())
-        scene_summary.textChanged.connect(self._commit_session)
+            widget.textChanged.connect(lambda *_args: self._schedule_session_commit())
+            widget.editingFinished.connect(lambda widget=widget: self._commit_session_now(refresh_ui=False))
+        scene_summary.textChanged.connect(lambda *_args: self._schedule_session_commit())
         for widget in (auto_select, continuity, update_scene):
-            widget.toggled.connect(lambda *_args: self._commit_session())
+            widget.toggled.connect(lambda *_args: self._commit_session_now(refresh_ui=False))
         reset.clicked.connect(self._reset_scene)
         export_session.clicked.connect(self._export_session)
         import_session.clicked.connect(self._import_session)
@@ -5428,13 +5559,14 @@ class MultiPersonaRoleplayController:
             "ar_clear": clear,
         })
         ar_enabled.toggled.connect(self._on_ar_mode_changed)
-        ar_use_persona_profiles.toggled.connect(lambda *_args: self._commit_ar_state())
+        ar_use_persona_profiles.toggled.connect(lambda *_args: self._commit_ar_state_now())
         for widget in (ar_pacing, ar_interaction):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_ar_state())
+            widget.currentTextChanged.connect(lambda *_args: self._commit_ar_state_now())
         for widget in (current_scene, location, time_of_day, mood, story_goal, active_characters, player_intent):
-            widget.textChanged.connect(lambda *_args: self._commit_ar_state())
-        tension.valueChanged.connect(lambda *_args: self._commit_ar_state())
-        pending_choices.textChanged.connect(self._commit_ar_state)
+            widget.textChanged.connect(lambda *_args: self._schedule_ar_state_commit())
+            widget.editingFinished.connect(self._commit_ar_state_now)
+        tension.valueChanged.connect(lambda *_args: self._commit_ar_state_now())
+        pending_choices.textChanged.connect(lambda *_args: self._schedule_ar_state_commit())
         seed.clicked.connect(self._seed_ar_state_from_session)
         fill_profiles.clicked.connect(self._fill_ar_persona_profiles)
         clear.clicked.connect(self._clear_ar_state)
@@ -5608,9 +5740,9 @@ class MultiPersonaRoleplayController:
         test_mode.toggled.connect(self._on_audiofx_test_mode_changed)
         create_test_sounds.clicked.connect(self._create_test_audiofx)
         play_test_tag.clicked.connect(self._play_test_ambience_tag)
-        description.textChanged.connect(self._commit_audio_settings)
-        audio_type.currentTextChanged.connect(lambda *_args: self._commit_audio_settings())
-        output.textChanged.connect(self._commit_audio_settings)
+        description.textChanged.connect(lambda *_args: self._schedule_audio_settings_commit())
+        audio_type.currentTextChanged.connect(lambda *_args: self._commit_audio_settings_now())
+        output.textChanged.connect(lambda *_args: self._schedule_audio_settings_commit())
         create.clicked.connect(lambda *_args: self._create_audio_prompt())
         ambience.clicked.connect(lambda *_args: self._create_audio_prompt("ambience"))
         horror.clicked.connect(lambda *_args: self._create_audio_prompt("horror"))
@@ -5750,7 +5882,10 @@ class MultiPersonaRoleplayController:
         library_content.addWidget(image_frame)
         library_layout.addLayout(library_content)
 
+        export_box = self._build_story_export_card()
+
         layout.addWidget(library_box)
+        layout.addWidget(export_box)
         layout.addWidget(builder_box)
         layout.addStretch(1)
         self._controls.update({
@@ -5798,6 +5933,61 @@ class MultiPersonaRoleplayController:
         avatar_style_sheets.toggled.connect(lambda *_args: self._commit_master_story_options())
         clear_memory.toggled.connect(lambda *_args: self._commit_master_story_options())
         return page
+
+    def _build_story_export_card(self):
+        from PySide6 import QtWidgets
+
+        box, layout = self._group("Story Library Export")
+        description = QtWidgets.QLabel(
+            "Export or import a complete story setup with selected personas, voices, memory, sounds, and story assets."
+        )
+        description.setWordWrap(True)
+        description.setProperty("muted", True)
+        layout.addWidget(description)
+
+        options_layout = QtWidgets.QGridLayout()
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setHorizontalSpacing(18)
+        options_layout.setVerticalSpacing(4)
+        option_controls: dict[str, Any] = {}
+        saved_selection = self.settings.get("story_library_export_sections")
+        selected = set(saved_selection if isinstance(saved_selection, list) else [])
+        for index, spec in enumerate(self._story_export_option_specs()):
+            key = str(spec.get("key") or "").strip()
+            if not key:
+                continue
+            checkbox = QtWidgets.QCheckBox(str(spec.get("label") or key))
+            checkbox.setChecked(key in selected if selected else bool(spec.get("default", True)))
+            checkbox.setToolTip(str(spec.get("tooltip") or ""))
+            checkbox.toggled.connect(lambda *_args: self._on_story_export_option_changed())
+            option_controls[key] = checkbox
+            options_layout.addWidget(checkbox, index // 2, index % 2)
+        layout.addLayout(options_layout)
+
+        status = QtWidgets.QLabel("Story export availability will appear here.")
+        status.setWordWrap(True)
+        status.setProperty("muted", True)
+        layout.addWidget(status)
+
+        buttons = QtWidgets.QHBoxLayout()
+        export_button = QtWidgets.QPushButton("Export")
+        import_button = QtWidgets.QPushButton("Import")
+        preview_button = QtWidgets.QPushButton("Preview package contents")
+        for button in (export_button, import_button, preview_button):
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+
+        self._controls["story_export_options"] = option_controls
+        self._controls["story_export_status"] = status
+        self._controls["story_export_button"] = export_button
+        self._controls["story_import_button"] = import_button
+        self._controls["story_export_preview"] = preview_button
+        export_button.clicked.connect(self._export_story_package)
+        import_button.clicked.connect(self._import_story_package)
+        preview_button.clicked.connect(self._preview_story_package_contents)
+        QtCore.QTimer.singleShot(0, self._refresh_story_export_card)
+        return box
 
     def _build_visual_tab(self):
         from PySide6 import QtWidgets
@@ -5887,16 +6077,17 @@ class MultiPersonaRoleplayController:
             "visual_preview": preview,
         })
         mode.currentIndexChanged.connect(lambda *_args: self._update_visual_mode_note())
-        mode.currentIndexChanged.connect(lambda *_args: self._commit_visual())
+        mode.currentIndexChanged.connect(lambda *_args: self._commit_visual_now())
         for widget in (provider, size, style):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_visual())
+            widget.currentTextChanged.connect(lambda *_args: self._commit_visual_now())
         for widget in (model, clothing, environment, negative):
-            widget.textChanged.connect(lambda *_args: self._commit_visual())
-        character.textChanged.connect(self._commit_visual)
+            widget.textChanged.connect(lambda *_args: self._schedule_visual_commit())
+            widget.editingFinished.connect(self._commit_visual_now)
+        character.textChanged.connect(lambda *_args: self._schedule_visual_commit())
         for widget in (enabled, continuity, scene, speaker, auto_show):
-            widget.toggled.connect(lambda *_args: self._commit_visual())
+            widget.toggled.connect(lambda *_args: self._commit_visual_now())
         for widget in (interval, cooldown, max_auto):
-            widget.valueChanged.connect(lambda *_args: self._commit_visual())
+            widget.valueChanged.connect(lambda *_args: self._commit_visual_now())
         preview.clicked.connect(self._preview_visual_prompt)
         generate.clicked.connect(self._generate_visual_reply)
         return page
@@ -5969,6 +6160,7 @@ class MultiPersonaRoleplayController:
             self._populate_ar()
             self._populate_audio()
             self._populate_master_stories()
+            self._refresh_story_export_card()
             self._refresh_character_preview()
             self._refresh_debug()
             self._refresh_reliability_panels()
@@ -6022,6 +6214,7 @@ class MultiPersonaRoleplayController:
 
     def _refresh_chat_play_controls(self):
         self._set_chat_play_float_button_text()
+        self._sync_chat_play_voice_volume_controls()
         combo = self._controls.get("chat_speaker")
         if combo is not None:
             combo.blockSignals(True)
@@ -6048,6 +6241,42 @@ class MultiPersonaRoleplayController:
             pacing.setCurrentText(str(self.session.ar_pacing or "Balanced"))
             pacing.blockSignals(False)
         self._refresh_chat_play_state_sidebar()
+
+    def mprc_voice_volume_percent(self) -> int:
+        try:
+            value = int(self.settings.get("mprc_voice_volume", 100))
+        except Exception:
+            value = 100
+        return max(0, min(100, value))
+
+    def mprc_voice_volume_factor(self) -> float:
+        return self.mprc_voice_volume_percent() / 100.0
+
+    def _sync_chat_play_voice_volume_controls(self, *, slider=None, value_label=None) -> None:
+        slider = slider or self._controls.get("chat_voice_volume")
+        value_label = value_label or self._controls.get("chat_voice_volume_value")
+        volume = self.mprc_voice_volume_percent()
+        if slider is not None and hasattr(slider, "setValue"):
+            slider.blockSignals(True)
+            slider.setValue(volume)
+            slider.blockSignals(False)
+        if value_label is not None and hasattr(value_label, "setText"):
+            value_label.setText(f"{volume}%")
+
+    def _on_mprc_voice_volume_changed(self, value: int) -> None:
+        if self._syncing:
+            return
+        try:
+            volume = int(value)
+        except Exception:
+            volume = 100
+        volume = max(0, min(100, volume))
+        self.settings["mprc_voice_volume"] = volume
+        self.storage.save_settings(self.settings)
+        label = self._controls.get("chat_voice_volume_value")
+        if label is not None and hasattr(label, "setText"):
+            label.setText(f"{volume}%")
+        self._refresh_debug()
 
     def _set_list_items(self, widget, items: list[str], *, empty_text: str = ""):
         if widget is None:
@@ -7172,7 +7401,79 @@ class MultiPersonaRoleplayController:
     def _selected_persona(self) -> PersonaConfig | None:
         return self.active_persona()
 
-    def _commit_editor(self):
+    def _schedule_delayed_commit(self, key: str, callback, *, delay_ms: int = 450) -> None:
+        if self._syncing:
+            return
+        timer_key = str(key or "").strip()
+        if not timer_key:
+            return
+        timer = self._commit_timers.get(timer_key)
+        if timer is None:
+            timer = QtCore.QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(callback)
+            self._commit_timers[timer_key] = timer
+        timer.start(max(0, int(delay_ms)))
+
+    def _commit_delayed_now(self, key: str, callback) -> None:
+        timer = self._commit_timers.get(str(key or "").strip())
+        if timer is not None and timer.isActive():
+            timer.stop()
+        callback()
+
+    def _schedule_editor_commit(self, *, include_identity: bool = False, delay_ms: int = 450) -> None:
+        if self._syncing:
+            return
+        self._editor_commit_include_identity = bool(self._editor_commit_include_identity or include_identity)
+        timer = getattr(self, "_editor_commit_timer", None)
+        if timer is not None:
+            timer.start(max(0, int(delay_ms)))
+        else:
+            self._commit_editor(include_identity=include_identity)
+
+    def _commit_scheduled_editor(self) -> None:
+        include_identity = bool(getattr(self, "_editor_commit_include_identity", False))
+        self._editor_commit_include_identity = False
+        self._commit_editor(include_identity=include_identity)
+
+    def _commit_editor_now(self, *, include_identity: bool = True) -> None:
+        timer = getattr(self, "_editor_commit_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+        self._editor_commit_include_identity = False
+        self._commit_editor(include_identity=include_identity)
+
+    def _schedule_voice_commit(self) -> None:
+        self._schedule_delayed_commit("voice", self._commit_voice)
+
+    def _commit_voice_now(self) -> None:
+        self._commit_delayed_now("voice", self._commit_voice)
+
+    def _schedule_visual_commit(self) -> None:
+        self._schedule_delayed_commit("visual", self._commit_visual)
+
+    def _commit_visual_now(self) -> None:
+        self._commit_delayed_now("visual", self._commit_visual)
+
+    def _schedule_session_commit(self) -> None:
+        self._schedule_delayed_commit("session", lambda: self._commit_session(refresh_ui=False))
+
+    def _commit_session_now(self, *, refresh_ui: bool = True) -> None:
+        self._commit_delayed_now("session", lambda: self._commit_session(refresh_ui=refresh_ui))
+
+    def _schedule_ar_state_commit(self) -> None:
+        self._schedule_delayed_commit("ar_state", self._commit_ar_state)
+
+    def _commit_ar_state_now(self) -> None:
+        self._commit_delayed_now("ar_state", self._commit_ar_state)
+
+    def _schedule_audio_settings_commit(self) -> None:
+        self._schedule_delayed_commit("audio_settings", self._commit_audio_settings)
+
+    def _commit_audio_settings_now(self) -> None:
+        self._commit_delayed_now("audio_settings", self._commit_audio_settings)
+
+    def _commit_editor(self, *, include_identity: bool = True):
         if self._syncing:
             return
         persona = self._selected_persona()
@@ -7182,11 +7483,13 @@ class MultiPersonaRoleplayController:
         old_display_name = persona.display_name
         old_image_path = persona.character_image_path
         old_master_narrator = self._persona_is_master_narrator(persona)
-        requested_id = unique_persona_id(self._controls["persona_id"].text(), {p.id for p in self.personas if p is not persona})
-        persona.id = requested_id
+        if include_identity:
+            requested_id = unique_persona_id(self._controls["persona_id"].text(), {p.id for p in self.personas if p is not persona})
+            persona.id = requested_id
         persona.enabled = self._controls["persona_enabled"].isChecked()
         persona.master_narrator = bool(self._controls["master_narrator"].isChecked())
-        persona.display_name = self._controls["display_name"].text().strip() or persona.id.replace("_", " ").title()
+        if include_identity:
+            persona.display_name = self._controls["display_name"].text().strip() or persona.id.replace("_", " ").title()
         persona.role = self._controls["role"].text().strip()
         persona.description = self._controls["description"].toPlainText().strip()
         persona.character_image_path = self._controls["character_image_path"].text().strip()
@@ -7220,7 +7523,8 @@ class MultiPersonaRoleplayController:
         identity_changed = old_id != persona.id or old_display_name != persona.display_name
         if identity_changed or old_master_narrator != self._persona_is_master_narrator(persona):
             self._refresh_persona_selectors()
-            self._populate_session()
+            if "session_mode" in self._controls:
+                self._populate_session()
             self._refresh_narrator_selector()
             self._refresh_voice_persona_selector()
         if old_image_path != persona.character_image_path:
@@ -7348,7 +7652,7 @@ class MultiPersonaRoleplayController:
         self.save_state()
         self._refresh_debug()
 
-    def _commit_session(self):
+    def _commit_session(self, *, refresh_ui: bool = True):
         if self._syncing:
             return
         c = self._controls
@@ -7374,7 +7678,11 @@ class MultiPersonaRoleplayController:
             self.settings["last_non_ar_mode"] = self.session.mode
             self.storage.save_settings(self.settings)
         self.save_state()
-        self.refresh_ui()
+        if refresh_ui:
+            self.refresh_ui()
+        else:
+            self._refresh_chat_play_state_sidebar()
+            self._refresh_story_export_card()
         self._refresh_debug()
 
     def _commit_ar_state(self):
@@ -7492,6 +7800,7 @@ class MultiPersonaRoleplayController:
     def _on_master_story_selection_changed(self):
         self._update_master_story_buttons()
         self._refresh_master_story_image_preview()
+        self._refresh_story_export_card()
 
     def _refresh_master_story_image_preview(self):
         label = self._controls.get("master_story_image")
@@ -8387,6 +8696,263 @@ class MultiPersonaRoleplayController:
             pass
         return False
 
+    def _story_export_option_specs(self) -> list[dict[str, Any]]:
+        return [
+            {"key": "story_setup", "label": "Story setup / session state", "default": True, "file": "session.json"},
+            {"key": "story_metadata", "label": "Story Library entry / story metadata", "default": True, "file": "story.json"},
+            {"key": "personas", "label": "Personas used by this story", "default": True, "file": "personas.json"},
+            {"key": "persona_visual", "label": "Persona visual settings", "default": True, "file": "persona_visual_settings.json"},
+            {"key": "avatar_assets", "label": "Persona avatar image files", "default": True, "file": "assets/visuals/"},
+            {"key": "persona_voice", "label": "Persona voice settings", "default": True, "file": "persona_voice_settings.json"},
+            {"key": "voice_assets", "label": "Voice sample/audio files", "default": True, "file": "assets/voices/"},
+            {"key": "story_memory", "label": "Story memory", "default": True, "file": "story_memory.json"},
+            {"key": "story_events", "label": "Recent story events / story log", "default": True, "file": "story_events.json"},
+            {"key": "audiofx", "label": "Sound effects / AudioFX settings", "default": True, "file": "audiofx.json"},
+            {"key": "audiofx_assets", "label": "Sound effect audio files", "default": True, "file": "assets/audiofx/"},
+            {"key": "visual_styles", "label": "Visual styles used by story", "default": True, "file": "visual_styles.json"},
+            {"key": "master_story", "label": "Master Story draft/setup data if available", "default": True, "file": "master_story.json"},
+            {"key": "templates", "label": "Story prompt/template data if available", "default": True, "file": "templates.json"},
+        ]
+
+    def _story_export_spec_by_key(self) -> dict[str, dict[str, Any]]:
+        return {str(item.get("key") or ""): dict(item) for item in self._story_export_option_specs()}
+
+    def _on_story_export_option_changed(self) -> None:
+        if self._syncing:
+            return
+        self.settings["story_library_export_sections"] = self._story_export_selected_sections()
+        self.storage.save_settings(self.settings)
+        self._refresh_story_export_card()
+
+    def _story_export_selected_sections(self) -> list[str]:
+        controls = self._controls.get("story_export_options")
+        if isinstance(controls, dict) and controls:
+            selected = [
+                str(key)
+                for key, checkbox in controls.items()
+                if hasattr(checkbox, "isChecked") and bool(checkbox.isChecked())
+            ]
+            return [item for item in self._story_export_spec_by_key() if item in set(selected)]
+        raw = self.settings.get("story_library_export_sections")
+        if isinstance(raw, list):
+            selected = {str(item or "").strip() for item in raw}
+            return [item for item in self._story_export_spec_by_key() if item in selected]
+        return [str(item.get("key") or "") for item in self._story_export_option_specs() if bool(item.get("default", True))]
+
+    def _story_export_story_id(self) -> str:
+        selected = self._selected_master_story_id()
+        return self.storage.story_id(selected or self._current_story_id() or "")
+
+    def _story_export_story_payload(self) -> dict[str, Any]:
+        story_id = self._story_export_story_id()
+        payload = self.storage.load_story(story_id) if story_id else {}
+        if isinstance(payload, dict) and payload:
+            return payload
+        snapshot = self._current_master_story_snapshot()
+        return snapshot if isinstance(snapshot, dict) else {}
+
+    def _story_export_persona_ids_from_story(self, story: dict[str, Any] | None = None) -> list[str]:
+        story = dict(story or self._story_export_story_payload() or {})
+        ids: list[str] = []
+
+        def add(value: Any) -> None:
+            persona_id = normalize_persona_id(value)
+            if persona_id and persona_id not in ids:
+                ids.append(persona_id)
+
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            add(story.get(key))
+        session = dict(story.get("session") or {}) if isinstance(story.get("session"), dict) else {}
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            add(session.get(key))
+        ar_state = dict(session.get("ar_state") or {}) if isinstance(session.get("ar_state"), dict) else {}
+        for item in list(ar_state.get("active_characters") or []):
+            add(item)
+        for item in list(story.get("personas") or []):
+            if isinstance(item, dict):
+                add(item.get("id") or item.get("display_name"))
+        overrides = story.get("persona_overrides")
+        if isinstance(overrides, dict):
+            for key in overrides:
+                add(key)
+        for item in [self.selected_narrator_persona_id(), *self._current_linked_persona_ids()]:
+            add(item)
+        return ids
+
+    def _story_export_persona_configs(self, story: dict[str, Any] | None = None) -> list[PersonaConfig]:
+        story = dict(story or self._story_export_story_payload() or {})
+        ids = self._story_export_persona_ids_from_story(story)
+        by_id = {persona.id: persona for persona in self.personas}
+        result: list[PersonaConfig] = []
+        seen: set[str] = set()
+        for persona_id in ids:
+            persona = by_id.get(persona_id)
+            if persona is None:
+                for item in list(story.get("personas") or []):
+                    if isinstance(item, dict) and normalize_persona_id(item.get("id") or item.get("display_name")) == persona_id:
+                        persona = PersonaConfig.from_dict(item)
+                        break
+            if persona is not None and persona.id not in seen:
+                result.append(persona)
+                seen.add(persona.id)
+        if not result and self.personas:
+            active = self.active_persona()
+            if active is not None:
+                result.append(active)
+        return result
+
+    def _story_export_visual_styles_for_personas(self, personas: list[PersonaConfig]) -> list[dict[str, str]]:
+        used = {
+            str(getattr(getattr(persona, "visual", None), "style_preset", "") or "").strip()
+            for persona in list(personas or [])
+        }
+        used = {item for item in used if item}
+        if not used:
+            return []
+        return [dict(item) for item in list(self.visual_styles or []) if str(item.get("id") or "").strip() in used]
+
+    def _story_export_templates_payload(self) -> dict[str, Any]:
+        templates = self.storage._read_json("roleplay_templates.json", {})
+        payload: dict[str, Any] = {}
+        if isinstance(templates, dict) and templates:
+            payload["roleplay_templates"] = copy.deepcopy(templates)
+        saved_prompts = self.settings.get("saved_audio_prompts")
+        if isinstance(saved_prompts, list) and saved_prompts:
+            payload["saved_audio_prompts"] = copy.deepcopy(saved_prompts)
+        prompt = self._controls.get("master_story_prompt")
+        if prompt is not None and hasattr(prompt, "toPlainText"):
+            text = str(prompt.toPlainText() or "").strip()
+            if text:
+                payload["current_master_story_prompt"] = text
+        return payload
+
+    def _story_export_availability(self) -> dict[str, dict[str, Any]]:
+        story = self._story_export_story_payload()
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "")
+        personas = self._story_export_persona_configs(story)
+        voice_paths = [
+            str(getattr(getattr(persona, "voice", None), "sample_path", "") or "").strip()
+            for persona in personas
+        ]
+        audio_items = self._audiofx_items()
+        available_audio = self.available_story_audio_files()
+        memory = self.storage.load_story_memory(story_id) if story_id else {}
+        if not memory:
+            try:
+                loaded = self.long_memory.load()
+                memory = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                memory = {}
+        story_events = list(self._story_event_log or [])
+        ar_state = getattr(self.session, "ar_state", None)
+        session_events = list(getattr(self.session, "recent_events", []) or []) + list(getattr(ar_state, "recent_events", []) or [])
+        visual_styles = self._story_export_visual_styles_for_personas(personas)
+        templates = self._story_export_templates_payload()
+        draft = self._master_story_draft if isinstance(self._master_story_draft, dict) else {}
+
+        def item(available: bool, count: int = 0, detail: str = "") -> dict[str, Any]:
+            return {"available": bool(available), "count": int(count or 0), "detail": str(detail or "")}
+
+        return {
+            "story_setup": item(bool(self.session), 1, "Current roleplay session state"),
+            "story_metadata": item(bool(story), 1 if story else 0, story.get("title") or story_id),
+            "personas": item(bool(personas), len(personas), f"{len(personas)} linked persona(s)"),
+            "persona_visual": item(
+                any(
+                    bool(getattr(persona.visual, "enabled", False))
+                    or any(str(getattr(persona.visual, field, "") or "").strip() for field in ("style_preset", "character_description", "clothing_props", "environment_style", "negative_prompt"))
+                    for persona in personas
+                ),
+                len(personas),
+                "Visual profile data",
+            ),
+            "avatar_assets": item(
+                any(
+                    str(getattr(persona, "character_image_path", "") or "").strip()
+                    and Path(str(persona.character_image_path)).exists()
+                    for persona in personas
+                ),
+                len([
+                    persona
+                    for persona in personas
+                    if str(getattr(persona, "character_image_path", "") or "").strip()
+                    and Path(str(persona.character_image_path)).exists()
+                ]),
+                "Existing local character/avatar image files",
+            ),
+            "persona_voice": item(
+                any(bool(getattr(persona.voice, "enabled", False)) or str(getattr(persona.voice, "sample_path", "") or "").strip() for persona in personas),
+                len([persona for persona in personas if bool(getattr(persona.voice, "enabled", False)) or str(getattr(persona.voice, "sample_path", "") or "").strip()]),
+                "Per-persona voice routing settings",
+            ),
+            "voice_assets": item(
+                any(path and Path(path).exists() for path in voice_paths),
+                len([path for path in voice_paths if path and Path(path).exists()]),
+                "Existing local voice sample files",
+            ),
+            "story_memory": item(bool(memory), 1 if memory else 0, "Saved story memory or active long memory"),
+            "story_events": item(bool(story_events or session_events), len(story_events) + len(session_events), "Recent story events and story log"),
+            "audiofx": item(bool(audio_items or available_audio or self.settings.get("saved_audio_prompts")), len(audio_items), "AudioFX settings and saved audio prompts"),
+            "audiofx_assets": item(
+                any(self._audiofx_file_ready(item) for item in audio_items) or any(Path(str(item.get("file_path") or "")).exists() for item in available_audio if isinstance(item, dict)),
+                sum(1 for item in audio_items if self._audiofx_file_ready(item)),
+                "Existing local AudioFX files",
+            ),
+            "visual_styles": item(bool(visual_styles), len(visual_styles), "Style presets referenced by linked personas"),
+            "master_story": item(bool(story or draft), 1 if story or draft else 0, "Saved story payload and current draft"),
+            "templates": item(bool(templates), len(templates), "Roleplay templates, saved prompts, or current story prompt"),
+        }
+
+    def _refresh_story_export_card(self) -> None:
+        controls = self._controls.get("story_export_options")
+        status = self._controls.get("story_export_status")
+        if not isinstance(controls, dict) or not controls:
+            return
+        availability = self._story_export_availability()
+        selected = set(self._story_export_selected_sections())
+        spec_by_key = self._story_export_spec_by_key()
+        available_selected = 0
+        selected_count = 0
+        for key, checkbox in controls.items():
+            info = availability.get(str(key), {})
+            available = bool(info.get("available"))
+            if str(key) in selected:
+                selected_count += 1
+                if available:
+                    available_selected += 1
+            label = str(spec_by_key.get(str(key), {}).get("label") or key)
+            detail = str(info.get("detail") or "")
+            count = int(info.get("count") or 0)
+            checkbox.setToolTip(f"{label}\n{'Available' if available else 'No data detected'}" + (f": {detail}" if detail else ""))
+            checkbox.setStyleSheet(
+                "QCheckBox { color: #22c55e; font-weight: 700; }"
+                if available
+                else "QCheckBox { color: #9fb3c8; font-weight: 600; }"
+            )
+            checkbox.setText(f"{label} ({count})" if available and count > 1 else label)
+        if status is not None:
+            story = self._story_export_story_payload()
+            title = str(story.get("title") or self._story_export_story_id() or "current story").strip()
+            status.setText(
+                f"{available_selected}/{selected_count or len(selected)} selected sections have data for '{title}'. "
+                "Green rows have data available to save; neutral rows have no matching data right now."
+            )
+
+    def _preview_story_package_contents(self) -> None:
+        availability = self._story_export_availability()
+        selected = set(self._story_export_selected_sections())
+        spec_by_key = self._story_export_spec_by_key()
+        lines = ["Story Library Export preview:", ""]
+        for key in spec_by_key:
+            if key not in selected:
+                continue
+            info = availability.get(key, {})
+            marker = "ready" if bool(info.get("available")) else "no data"
+            detail = str(info.get("detail") or "").strip()
+            lines.append(f"- {spec_by_key[key].get('label')}: {marker}" + (f" ({detail})" if detail else ""))
+        parent = self._widget.window() if self._widget is not None else None
+        QtWidgets.QMessageBox.information(parent, "Story Library Export", "\n".join(lines))
+
     def _story_bundle_settings(self) -> dict[str, Any]:
         keys = (
             "last_master_story_id",
@@ -8486,6 +9052,770 @@ class MultiPersonaRoleplayController:
                 "mode": self._narrator_selection_mode(),
                 "display_name": self.selected_narrator_persona().display_name if self.selected_narrator_persona() is not None else "",
             },
+        }
+
+    def _story_package_safe_name(self, value: Any, fallback: str = "asset") -> str:
+        text = str(value or "").strip()
+        safe = []
+        previous = False
+        for char in text:
+            if char.isalnum() or char in {".", "_", "-"}:
+                safe.append(char)
+                previous = False
+            elif not previous:
+                safe.append("_")
+                previous = True
+        result = "".join(safe).strip("._-")
+        return result[:96] or fallback
+
+    def _story_package_scrub_runtime_paths(self, value: Any) -> Any:
+        path_keys = {"sample_path", "file_path", "character_image_path", "story_image_path", "cover_image_path", "image_path"}
+        if isinstance(value, list):
+            return [self._story_package_scrub_runtime_paths(item) for item in value]
+        if not isinstance(value, dict):
+            return copy.deepcopy(value)
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text in path_keys and isinstance(item, str):
+                text = str(item or "").strip().replace("\\", "/")
+                cleaned[key] = text if text.startswith("assets/") else ""
+            else:
+                cleaned[key] = self._story_package_scrub_runtime_paths(item)
+        return cleaned
+
+    def _story_package_unique_asset_path(self, folder: str, key: str, source_path: Path, used: set[str]) -> str:
+        stem = self._story_package_safe_name(key, "asset")
+        name = self._story_package_safe_name(source_path.name, "file")
+        candidate = f"assets/{folder}/{stem}_{name}"
+        counter = 2
+        while candidate.lower() in used:
+            candidate = f"assets/{folder}/{stem}_{counter}_{name}"
+            counter += 1
+        used.add(candidate.lower())
+        return candidate
+
+    def _copy_package_asset(
+        self,
+        zip_handle: zipfile.ZipFile,
+        source_path: str,
+        asset_path: str,
+        asset_key: str,
+        asset_file_map: dict[str, Any],
+        warnings: list[str],
+    ) -> bool:
+        raw = str(source_path or "").strip()
+        if not raw:
+            return False
+        path = Path(raw)
+        if not path.exists() or not path.is_file():
+            warnings.append(f"Missing asset for {asset_key}: {raw}")
+            return False
+        try:
+            zip_handle.write(str(path), asset_path)
+            asset_file_map[asset_key] = {
+                "asset_path": asset_path,
+                "file_name": path.name,
+                "source_path": str(path),
+            }
+            return True
+        except Exception as exc:
+            warnings.append(f"Could not copy asset for {asset_key}: {exc}")
+            return False
+
+    def _build_story_package_manifest(
+        self,
+        *,
+        story: dict[str, Any],
+        included_sections: list[str],
+        asset_file_map: dict[str, Any],
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        manifest = getattr(self.context, "manifest", None)
+        addon_version = ""
+        try:
+            addon_version = str(getattr(manifest, "version", "") or "")
+        except Exception:
+            addon_version = ""
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "story")
+        return {
+            "package_schema_version": 1,
+            "addon_id": "nc.multi_persona_roleplay",
+            "addon_version": addon_version,
+            "exported_at": QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate),
+            "story_title": str(story.get("title") or story_id).strip() or story_id,
+            "story_id": story_id,
+            "included_sections": list(included_sections or []),
+            "asset_file_map": copy.deepcopy(asset_file_map),
+            "warnings": list(warnings or []),
+            "source_paths": {
+                key: str(value.get("source_path") or "")
+                for key, value in asset_file_map.items()
+                if isinstance(value, dict) and str(value.get("source_path") or "").strip()
+            },
+        }
+
+    def _story_package_persona_payloads(
+        self,
+        personas: list[PersonaConfig],
+        sections: set[str],
+        voice_asset_paths: dict[str, str],
+        avatar_asset_paths: dict[str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+        include_visual = "persona_visual" in sections
+        include_voice = "persona_voice" in sections
+        avatar_asset_paths = dict(avatar_asset_paths or {})
+        personas_payload: list[dict[str, Any]] = []
+        visual_settings: dict[str, Any] = {}
+        voice_settings: dict[str, Any] = {}
+        for persona in list(personas or []):
+            payload = persona.to_dict()
+            visual_payload = copy.deepcopy(payload.get("visual") or {})
+            voice_payload = copy.deepcopy(payload.get("voice") or {})
+            avatar_asset_path = str(avatar_asset_paths.get(persona.id, "") or "")
+            asset_path = voice_asset_paths.get(persona.id, "")
+            if asset_path:
+                voice_payload["sample_path"] = asset_path
+            elif str(voice_payload.get("sample_path") or "").strip():
+                voice_payload["sample_path"] = ""
+            if include_visual:
+                visual_settings[persona.id] = {
+                    "visual": visual_payload,
+                    "character_image_path": avatar_asset_path,
+                }
+            else:
+                payload.pop("visual", None)
+            payload["character_image_path"] = avatar_asset_path
+            if include_voice:
+                voice_settings[persona.id] = voice_payload
+                payload["voice"] = voice_payload
+            else:
+                payload.pop("voice", None)
+            personas_payload.append(payload)
+        return personas_payload, visual_settings, voice_settings
+
+    def _story_package_audiofx_payload(
+        self,
+        sections: set[str],
+        audiofx_asset_paths: dict[str, str],
+    ) -> dict[str, Any]:
+        items = []
+        for item in self._audiofx_items():
+            payload = dict(item)
+            key = str(payload.get("id") or self._audio_file_key(payload.get("file_path", "")) or "").strip()
+            asset_path = audiofx_asset_paths.get(key, "")
+            if asset_path:
+                payload["file_path"] = asset_path
+            elif str(payload.get("file_path") or "").strip():
+                payload["file_path"] = ""
+            items.append(payload)
+        available = []
+        for item in self.available_story_audio_files():
+            payload = dict(item)
+            key = str(payload.get("source_audiofx_id") or payload.get("id") or self._audio_file_key(payload.get("file_path", "")) or "").strip()
+            asset_path = audiofx_asset_paths.get(key, "")
+            if asset_path:
+                payload["file_path"] = asset_path
+                payload["ready"] = True
+            elif str(payload.get("file_path") or "").strip():
+                payload["file_path"] = ""
+                payload["ready"] = False
+            available.append(payload)
+        return {
+            "items": items,
+            "available_audio_files": available,
+            "saved_audio_prompts": copy.deepcopy(list(self.settings.get("saved_audio_prompts") or [])),
+            "story_sounds_enabled": bool(self.settings.get("story_sounds_enabled", True)),
+            "audiofx_volume": self.settings.get("audiofx_volume"),
+        }
+
+    def _write_story_package(self, path: str | Path, sections: list[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        selected = list(sections or self._story_export_selected_sections())
+        section_set = set(selected)
+        story = self._story_export_story_payload()
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "story")
+        if not story:
+            story = self._current_master_story_snapshot()
+        personas = self._story_export_persona_configs(story)
+        warnings: list[str] = []
+        asset_file_map: dict[str, Any] = {}
+        used_assets: set[str] = set()
+        voice_asset_paths: dict[str, str] = {}
+        avatar_asset_paths: dict[str, str] = {}
+        audiofx_asset_paths: dict[str, str] = {}
+        voice_asset_sources: list[tuple[str, str, str]] = []
+        avatar_asset_sources: list[tuple[str, str, str]] = []
+        audio_asset_sources: list[tuple[str, str, str]] = []
+
+        if "voice_assets" in section_set:
+            for persona in personas:
+                sample_path = str(getattr(getattr(persona, "voice", None), "sample_path", "") or "").strip()
+                if not sample_path:
+                    continue
+                source = Path(sample_path)
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("voices", persona.id, source, used_assets)
+                    voice_asset_paths[persona.id] = asset_path
+                    voice_asset_sources.append((f"voice:{persona.id}", sample_path, asset_path))
+                else:
+                    warnings.append(f"Missing voice sample for {persona.display_name}: {sample_path}")
+
+        if "avatar_assets" in section_set:
+            for persona in personas:
+                image_path = str(getattr(persona, "character_image_path", "") or "").strip()
+                if not image_path:
+                    continue
+                source = Path(image_path)
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("visuals", persona.id, source, used_assets)
+                    avatar_asset_paths[persona.id] = asset_path
+                    avatar_asset_sources.append((f"avatar:{persona.id}", image_path, asset_path))
+                else:
+                    warnings.append(f"Missing avatar image for {persona.display_name}: {image_path}")
+
+        if "audiofx_assets" in section_set:
+            for item in self._audiofx_items():
+                file_path = str(item.get("file_path") or "").strip()
+                if not file_path:
+                    continue
+                source = Path(file_path)
+                key = str(item.get("id") or self._audio_file_key(file_path) or source.stem).strip()
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("audiofx", key, source, used_assets)
+                    audiofx_asset_paths[key] = asset_path
+                    audio_asset_sources.append((f"audiofx:{key}", file_path, asset_path))
+                else:
+                    warnings.append(f"Missing AudioFX file for {item.get('description') or key}: {file_path}")
+
+        personas_payload, visual_settings, voice_settings = self._story_package_persona_payloads(personas, section_set, voice_asset_paths, avatar_asset_paths)
+        package_story = self._story_package_scrub_runtime_paths(story)
+        json_files: dict[str, Any] = {}
+        if "story_setup" in section_set:
+            json_files["session.json"] = self.session.to_dict()
+        if "story_metadata" in section_set:
+            json_files["story.json"] = package_story
+        if "personas" in section_set:
+            json_files["personas.json"] = personas_payload
+        if "persona_visual" in section_set:
+            json_files["persona_visual_settings.json"] = visual_settings
+        if "avatar_assets" in section_set:
+            json_files["avatar_images.json"] = {
+                persona.id: {
+                    "display_name": persona.display_name,
+                    "character_image_path": avatar_asset_paths.get(persona.id, ""),
+                }
+                for persona in personas
+                if avatar_asset_paths.get(persona.id)
+            }
+        if "persona_voice" in section_set:
+            json_files["persona_voice_settings.json"] = voice_settings
+        if "story_memory" in section_set:
+            memory = self.storage.load_story_memory(story_id) if story_id else {}
+            if not memory:
+                try:
+                    memory = self.long_memory.load()
+                except Exception:
+                    memory = {}
+            json_files["story_memory.json"] = self._story_package_scrub_runtime_paths(memory if isinstance(memory, dict) else {})
+        if "story_events" in section_set:
+            ar_state = getattr(self.session, "ar_state", None)
+            json_files["story_events.json"] = {
+                "story_event_log": copy.deepcopy(list(self._story_event_log or [])),
+                "session_recent_events": list(getattr(self.session, "recent_events", []) or []),
+                "ar_recent_events": list(getattr(ar_state, "recent_events", []) or []),
+            }
+        if "audiofx" in section_set:
+            json_files["audiofx.json"] = self._story_package_audiofx_payload(section_set, audiofx_asset_paths)
+        if "visual_styles" in section_set:
+            json_files["visual_styles.json"] = self._story_export_visual_styles_for_personas(personas)
+        if "master_story" in section_set:
+            json_files["master_story.json"] = {
+                "draft": self._story_package_scrub_runtime_paths(self._master_story_draft if isinstance(self._master_story_draft, dict) else {}),
+                "active_story": package_story,
+                "generation_constraints": self._master_story_generation_constraints(),
+            }
+        if "templates" in section_set:
+            json_files["templates.json"] = self._story_export_templates_payload()
+
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as handle:
+            for asset_key, source_path, asset_path in voice_asset_sources + avatar_asset_sources + audio_asset_sources:
+                self._copy_package_asset(handle, source_path, asset_path, asset_key, asset_file_map, warnings)
+            manifest = self._build_story_package_manifest(
+                story=story,
+                included_sections=selected,
+                asset_file_map=asset_file_map,
+                warnings=warnings,
+            )
+            handle.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=True))
+            for file_name, payload in json_files.items():
+                handle.writestr(file_name, json.dumps(payload, indent=2, ensure_ascii=True))
+        return manifest, warnings
+
+    def _export_story_package(self):
+        story_id = self._story_export_story_id() or "mprc_story"
+        default_path = Path.home() / f"{story_id}.mprcstory.zip"
+        path = self._save_file(
+            "Export Story Library package",
+            str(default_path),
+            "MPRC story packages (*.mprcstory.zip *.storypackage.zip);;Zip files (*.zip)",
+        )
+        if not path:
+            self._set_master_story_status("Story Library Export cancelled.")
+            return
+        if not str(path).lower().endswith((".mprcstory.zip", ".storypackage.zip", ".zip")):
+            path = str(path) + ".mprcstory.zip"
+        try:
+            manifest, warnings = self._write_story_package(path, self._story_export_selected_sections())
+        except Exception as exc:
+            self._warn("Story Library Export", f"Export failed:\n\n{exc}")
+            self._set_master_story_status(f"Story Library Export failed: {exc}")
+            return
+        warning_note = f" with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}" if warnings else ""
+        self._record_story_event(f"exported story library package: {path}{warning_note}", severity="info", kind="package", persist=True)
+        self._set_master_story_status(f"Exported Story Library package '{manifest.get('story_title')}' to {path}{warning_note}.")
+        self._refresh_story_export_card()
+
+    def _read_package_json(self, zip_handle: zipfile.ZipFile, file_name: str, fallback: Any) -> Any:
+        try:
+            if file_name not in zip_handle.namelist():
+                return fallback
+            return json.loads(zip_handle.read(file_name).decode("utf-8"))
+        except Exception:
+            return fallback
+
+    def _read_story_package_manifest(self, path: str | Path) -> tuple[dict[str, Any], list[str]]:
+        warnings: list[str] = []
+        try:
+            with zipfile.ZipFile(path, "r") as handle:
+                manifest = self._read_package_json(handle, "manifest.json", {})
+        except Exception as exc:
+            raise ValueError(f"Could not open story package: {exc}") from exc
+        if not isinstance(manifest, dict) or not manifest:
+            raise ValueError("Package is missing manifest.json.")
+        try:
+            schema_version = int(manifest.get("package_schema_version", 0) or 0)
+        except Exception:
+            schema_version = 0
+        if schema_version < 1:
+            raise ValueError("Package manifest has no supported schema version.")
+        if schema_version > 1:
+            warnings.append(f"Package schema {schema_version} is newer than this addon; importing with v1 fallback.")
+        if str(manifest.get("addon_id") or "") not in {"", "nc.multi_persona_roleplay"}:
+            warnings.append(f"Package addon id is {manifest.get('addon_id')}; expected nc.multi_persona_roleplay.")
+        return manifest, warnings
+
+    def _confirm_story_package_import(self, manifest: dict[str, Any], warnings: list[str]) -> bool:
+        parent = self._widget.window() if self._widget is not None else None
+        sections = ", ".join(str(item) for item in list(manifest.get("included_sections") or [])) or "none"
+        message = (
+            f"Import story package '{manifest.get('story_title') or manifest.get('story_id') or 'Untitled'}'?\n\n"
+            f"Included sections: {sections}\n"
+            f"Assets: {len(dict(manifest.get('asset_file_map') or {}))}\n"
+            "A recovery backup will be saved before applying the package."
+        )
+        if warnings:
+            message += "\n\nWarnings:\n" + "\n".join(f"- {item}" for item in warnings[:8])
+        answer = QtWidgets.QMessageBox.question(parent, "Import Story Library Package", message)
+        return answer == QtWidgets.QMessageBox.Yes
+
+    def _import_story_package(self):
+        path = self._open_file(
+            "Import Story Library package",
+            str(Path.home()),
+            "MPRC story packages (*.mprcstory.zip *.storypackage.zip);;Zip files (*.zip)",
+        )
+        if not path:
+            self._set_master_story_status("Story Library Import cancelled.")
+            return
+        try:
+            manifest, warnings = self._read_story_package_manifest(path)
+        except Exception as exc:
+            self._warn("Story Library Import", str(exc))
+            self._set_master_story_status(f"Story Library Import failed: {exc}")
+            return
+        all_warnings = warnings + [str(item) for item in list(manifest.get("warnings") or []) if str(item or "").strip()]
+        if not self._confirm_story_package_import(manifest, all_warnings):
+            self._set_master_story_status("Story Library Import cancelled.")
+            return
+        try:
+            result = self._apply_story_package(path, manifest=manifest)
+        except Exception as exc:
+            self._warn("Story Library Import", f"Import failed:\n\n{exc}")
+            self._set_master_story_status(f"Story Library Import failed: {exc}")
+            return
+        warnings = list(result.get("warnings") or [])
+        story_title = str(result.get("story_title") or result.get("story_id") or "story").strip()
+        warning_note = f" with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}" if warnings else ""
+        self._record_story_event(f"imported story library package: {path}{warning_note}", severity="info", kind="package", persist=True)
+        self.refresh_ui()
+        self._set_master_story_status(f"Imported Story Library package '{story_title}'{warning_note}.")
+
+    def _story_package_import_asset_root(self, manifest: dict[str, Any]) -> Path:
+        story_id = self.storage.story_id((manifest or {}).get("story_id") or (manifest or {}).get("story_title") or "imported_story")
+        return self.context.storage.resolve(f"assets/story_packages/imported/{story_id}")
+
+    def _extract_package_assets(self, zip_handle: zipfile.ZipFile, manifest: dict[str, Any], warnings: list[str]) -> dict[str, str]:
+        asset_file_map = manifest.get("asset_file_map")
+        if not isinstance(asset_file_map, dict) or not asset_file_map:
+            return {}
+        root = self._story_package_import_asset_root(manifest)
+        extracted: dict[str, str] = {}
+        names = set(zip_handle.namelist())
+        for asset_key, item in asset_file_map.items():
+            if not isinstance(item, dict):
+                continue
+            asset_path = str(item.get("asset_path") or "").replace("\\", "/").strip()
+            if not asset_path or asset_path.startswith("/") or ".." in Path(asset_path).parts:
+                warnings.append(f"Skipped unsafe asset path for {asset_key}: {asset_path}")
+                continue
+            if asset_path not in names:
+                warnings.append(f"Package asset missing for {asset_key}: {asset_path}")
+                continue
+            if asset_path.startswith("assets/voices/"):
+                folder = "voices"
+            elif asset_path.startswith("assets/audiofx/"):
+                folder = "audiofx"
+            elif asset_path.startswith("assets/visuals/"):
+                folder = "visuals"
+            else:
+                folder = "misc"
+            target = root / folder / self._story_package_safe_name(Path(asset_path).name, "asset")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zip_handle.read(asset_path))
+                extracted[asset_path] = str(target)
+            except Exception as exc:
+                warnings.append(f"Could not extract {asset_path}: {exc}")
+        return extracted
+
+    def _remap_imported_asset_paths(self, value: Any, extracted_assets: dict[str, str]) -> Any:
+        if isinstance(value, str):
+            return extracted_assets.get(value, value)
+        if isinstance(value, list):
+            return [self._remap_imported_asset_paths(item, extracted_assets) for item in value]
+        if isinstance(value, dict):
+            return {key: self._remap_imported_asset_paths(item, extracted_assets) for key, item in value.items()}
+        return value
+
+    def _remap_persona_id_value(self, value: Any, id_map: dict[str, str]) -> Any:
+        normalized = normalize_persona_id(value)
+        return id_map.get(normalized, value)
+
+    def _remap_story_payload_persona_ids(self, payload: dict[str, Any], id_map: dict[str, str]) -> dict[str, Any]:
+        story = copy.deepcopy(dict(payload or {}))
+        if not id_map:
+            return story
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            if key in story:
+                story[key] = self._remap_persona_id_value(story.get(key), id_map)
+        session = dict(story.get("session") or {}) if isinstance(story.get("session"), dict) else {}
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            if key in session:
+                session[key] = self._remap_persona_id_value(session.get(key), id_map)
+        ar_state = dict(session.get("ar_state") or {}) if isinstance(session.get("ar_state"), dict) else {}
+        if isinstance(ar_state.get("active_characters"), list):
+            ar_state["active_characters"] = [self._remap_persona_id_value(item, id_map) for item in ar_state.get("active_characters") or []]
+        session["ar_state"] = ar_state
+        if session:
+            story["session"] = session
+        personas = []
+        for item in list(story.get("personas") or []):
+            if isinstance(item, dict):
+                persona = dict(item)
+                old_id = normalize_persona_id(persona.get("id") or persona.get("display_name"))
+                if old_id in id_map:
+                    persona["id"] = id_map[old_id]
+                personas.append(persona)
+        if personas:
+            story["personas"] = personas
+        overrides = story.get("persona_overrides")
+        if isinstance(overrides, dict):
+            remapped = {}
+            for key, value in overrides.items():
+                remapped[str(self._remap_persona_id_value(key, id_map))] = copy.deepcopy(value)
+            story["persona_overrides"] = remapped
+        return story
+
+    def _remap_story_memory_persona_ids(self, payload: dict[str, Any], id_map: dict[str, str], story_id: str) -> dict[str, Any]:
+        memory = copy.deepcopy(dict(payload or {}))
+        memory["story_id"] = story_id
+        if not id_map:
+            return memory
+        session = memory.get("session")
+        if isinstance(session, dict):
+            remapped_story = self._remap_story_payload_persona_ids({"session": session}, id_map)
+            memory["session"] = remapped_story.get("session", session)
+        settings = memory.get("settings")
+        if isinstance(settings, dict):
+            for key in ("narrator_persona_id",):
+                if key in settings:
+                    settings[key] = self._remap_persona_id_value(settings.get(key), id_map)
+            for key in ("master_story_linked_persona_ids", "master_story_created_persona_ids"):
+                if isinstance(settings.get(key), list):
+                    settings[key] = [self._remap_persona_id_value(item, id_map) for item in settings.get(key) or []]
+            overrides = settings.get("master_story_persona_overrides")
+            if isinstance(overrides, dict):
+                settings["master_story_persona_overrides"] = {
+                    str(self._remap_persona_id_value(key, id_map)): copy.deepcopy(value)
+                    for key, value in overrides.items()
+                }
+        long_memory = memory.get("long_memory")
+        if isinstance(long_memory, dict):
+            for key in ("character_memory",):
+                value = long_memory.get(key)
+                if isinstance(value, dict):
+                    long_memory[key] = {
+                        str(self._remap_persona_id_value(persona_id, id_map)): copy.deepcopy(item)
+                        for persona_id, item in value.items()
+                    }
+            active = long_memory.get("active_character_ids")
+            if isinstance(active, list):
+                long_memory["active_character_ids"] = [self._remap_persona_id_value(item, id_map) for item in active]
+        return memory
+
+    def _unique_story_id(self, story_id: str) -> str:
+        base = self.storage.story_id(story_id or "imported_story")
+        existing = {str(item.get("id") or "").strip() for item in self.storage.load_story_index()}
+        if base not in existing:
+            return base
+        candidate = f"{base}_imported"
+        counter = 2
+        while candidate in existing:
+            candidate = f"{base}_imported_{counter}"
+            counter += 1
+        return candidate
+
+    def _apply_imported_personas(self, payload: Any, warnings: list[str]) -> dict[str, str]:
+        imported = personas_from_payload(payload)
+        if not imported:
+            return {}
+        existing_ids = {persona.id for persona in self.personas}
+        id_map: dict[str, str] = {}
+        for persona in imported:
+            original_id = persona.id
+            if persona.id in existing_ids:
+                persona.id = unique_persona_id(f"{persona.id}_imported", existing_ids)
+                if "(Imported)" not in persona.display_name:
+                    persona.display_name = f"{persona.display_name} (Imported)"
+                warnings.append(f"Persona id '{original_id}' already existed; imported as '{persona.id}'.")
+            id_map[original_id] = persona.id
+            existing_ids.add(persona.id)
+            self.personas.append(persona)
+        return id_map
+
+    def _apply_imported_voice_settings(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, voice in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None or not isinstance(voice, dict):
+                continue
+            updated = PersonaConfig.from_dict({**persona.to_dict(), "voice": voice})
+            persona.voice = updated.voice
+
+    def _apply_imported_visual_settings(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, visual_payload in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None or not isinstance(visual_payload, dict):
+                continue
+            merged = persona.to_dict()
+            if isinstance(visual_payload.get("visual"), dict):
+                merged["visual"] = visual_payload.get("visual")
+            if "character_image_path" in visual_payload:
+                merged["character_image_path"] = str(visual_payload.get("character_image_path") or "")
+            updated = PersonaConfig.from_dict(merged)
+            persona.visual = updated.visual
+            persona.character_image_path = updated.character_image_path
+
+    def _apply_imported_avatar_images(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, item in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None:
+                continue
+            image_path = ""
+            if isinstance(item, dict):
+                image_path = str(item.get("character_image_path") or "").strip()
+            elif isinstance(item, str):
+                image_path = str(item or "").strip()
+            if image_path:
+                persona.character_image_path = image_path
+
+    def _merge_imported_audiofx(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        imported_items = [dict(item) for item in list(payload.get("items") or []) if isinstance(item, dict)]
+        if not imported_items:
+            return
+        existing = self._audiofx_items()
+        existing_ids = {str(item.get("id") or "").strip() for item in existing}
+        merged = list(existing)
+        for item in imported_items:
+            base = str(item.get("id") or self._new_audiofx_id(merged)).strip() or self._new_audiofx_id(merged)
+            item_id = base
+            counter = 2
+            while item_id in existing_ids:
+                item_id = f"{base}_imported_{counter}"
+                counter += 1
+            item["id"] = item_id
+            existing_ids.add(item_id)
+            merged.append(item)
+        if "story_sounds_enabled" in payload:
+            self.settings["story_sounds_enabled"] = bool(payload.get("story_sounds_enabled"))
+        if payload.get("audiofx_volume") is not None:
+            self.settings["audiofx_volume"] = payload.get("audiofx_volume")
+        saved = payload.get("saved_audio_prompts")
+        if isinstance(saved, list) and saved:
+            current = [item for item in list(self.settings.get("saved_audio_prompts") or []) if isinstance(item, dict)]
+            current.extend(dict(item) for item in saved if isinstance(item, dict))
+            self.settings["saved_audio_prompts"] = current[-100:]
+        self._save_audiofx_items(merged)
+
+    def _merge_imported_visual_styles(self, payload: Any) -> None:
+        if not isinstance(payload, list):
+            return
+        current = [dict(item) for item in list(self.visual_styles or []) if isinstance(item, dict)]
+        seen = {str(item.get("id") or "").strip() for item in current}
+        changed = False
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            style_id = str(item.get("id") or "").strip()
+            if not style_id or style_id in seen:
+                continue
+            current.append(dict(item))
+            seen.add(style_id)
+            changed = True
+        if changed:
+            self.visual_styles = current
+            self.storage._write_json("visual_styles.json", current)
+
+    def _merge_imported_templates(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        templates = payload.get("roleplay_templates")
+        if isinstance(templates, dict):
+            current = self.storage._read_json("roleplay_templates.json", {})
+            current = dict(current or {}) if isinstance(current, dict) else {}
+            changed = False
+            for key, value in templates.items():
+                if key not in current:
+                    current[key] = copy.deepcopy(value)
+                    changed = True
+            if changed:
+                self.storage._write_json("roleplay_templates.json", current)
+        saved = payload.get("saved_audio_prompts")
+        if isinstance(saved, list) and saved:
+            current = [item for item in list(self.settings.get("saved_audio_prompts") or []) if isinstance(item, dict)]
+            current.extend(dict(item) for item in saved if isinstance(item, dict))
+            self.settings["saved_audio_prompts"] = current[-100:]
+
+    def _apply_story_package(self, path: str | Path, *, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+        warnings: list[str] = []
+        if manifest is None:
+            manifest, manifest_warnings = self._read_story_package_manifest(path)
+            warnings.extend(manifest_warnings)
+        warnings.extend(str(item) for item in list((manifest or {}).get("warnings") or []) if str(item or "").strip())
+        included = {str(item or "").strip() for item in list((manifest or {}).get("included_sections") or []) if str(item or "").strip()}
+        self._save_pre_apply_backup("Import Story Library Package")
+        with zipfile.ZipFile(path, "r") as handle:
+            extracted_assets = self._extract_package_assets(handle, manifest or {}, warnings)
+            story_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "story.json", {}), extracted_assets)
+            session_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "session.json", {}), extracted_assets)
+            personas_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "personas.json", []), extracted_assets)
+            voice_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "persona_voice_settings.json", {}), extracted_assets)
+            visual_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "persona_visual_settings.json", {}), extracted_assets)
+            avatar_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "avatar_images.json", {}), extracted_assets)
+            memory_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "story_memory.json", {}), extracted_assets)
+            events_payload = self._read_package_json(handle, "story_events.json", {})
+            audiofx_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "audiofx.json", {}), extracted_assets)
+            visual_styles_payload = self._read_package_json(handle, "visual_styles.json", [])
+            master_story_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "master_story.json", {}), extracted_assets)
+            templates_payload = self._read_package_json(handle, "templates.json", {})
+
+        id_map: dict[str, str] = {}
+        if "personas" in included:
+            id_map = self._apply_imported_personas(personas_payload, warnings)
+        if "persona_voice" in included:
+            self._apply_imported_voice_settings(voice_payload, id_map)
+        if "persona_visual" in included:
+            self._apply_imported_visual_settings(visual_payload, id_map)
+        if "avatar_assets" in included:
+            self._apply_imported_avatar_images(avatar_payload, id_map)
+
+        story_id = ""
+        story_title = str((manifest or {}).get("story_title") or "").strip()
+        if "story_metadata" in included and isinstance(story_payload, dict) and story_payload:
+            story = self._remap_story_payload_persona_ids(story_payload, id_map)
+            original_story_id = self.storage.story_id(story.get("id") or (manifest or {}).get("story_id") or "imported_story")
+            story_id = self._unique_story_id(original_story_id)
+            if story_id != original_story_id:
+                warnings.append(f"Story id '{original_story_id}' already existed; imported as '{story_id}'.")
+            story["id"] = story_id
+            story_title = str(story.get("title") or story_title or story_id).strip()
+            story["updated_at"] = QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate)
+            self.storage.save_story(story)
+            self.settings["last_master_story_id"] = story_id
+            self.settings["last_master_story_title"] = story_title or story_id
+            self._master_story_draft = copy.deepcopy(story)
+
+        if "story_setup" in included and isinstance(session_payload, dict) and session_payload:
+            session_story = self._remap_story_payload_persona_ids({"session": session_payload}, id_map)
+            self.session = RoleplaySessionState.from_dict(session_story.get("session") or session_payload)
+            self.session.enabled = True
+            self._ensure_session_persona()
+
+        if "story_memory" in included and isinstance(memory_payload, dict) and memory_payload:
+            target_story_id = story_id or self._unique_story_id(str((manifest or {}).get("story_id") or "imported_story"))
+            memory = self._remap_story_memory_persona_ids(memory_payload, id_map, target_story_id)
+            self.storage.save_story_memory(target_story_id, memory)
+            if isinstance(memory.get("long_memory"), dict):
+                self.long_memory.save(memory.get("long_memory"))
+            self.settings["last_master_story_id"] = target_story_id
+            if story_title:
+                self.settings["last_master_story_title"] = story_title
+
+        if "story_events" in included and isinstance(events_payload, dict):
+            imported_events = [item for item in list(events_payload.get("story_event_log") or []) if isinstance(item, dict)]
+            if imported_events:
+                self._story_event_log = (self._story_event_log + imported_events)[-80:]
+                self.settings["story_event_log"] = list(self._story_event_log)
+
+        if "audiofx" in included:
+            self._merge_imported_audiofx(audiofx_payload)
+        if "visual_styles" in included:
+            self._merge_imported_visual_styles(visual_styles_payload)
+        if "templates" in included:
+            self._merge_imported_templates(templates_payload)
+        if "master_story" in included and isinstance(master_story_payload, dict):
+            draft = master_story_payload.get("draft")
+            active_story = master_story_payload.get("active_story")
+            if isinstance(draft, dict) and draft:
+                self._master_story_draft = self._remap_story_payload_persona_ids(draft, id_map)
+            elif isinstance(active_story, dict) and active_story:
+                self._master_story_draft = self._remap_story_payload_persona_ids(active_story, id_map)
+
+        self.storage.save_settings(self.settings)
+        self.save_state()
+        self._populate_master_stories()
+        self._story_audio_block_active = False
+        self._story_audio_pending_text = ""
+        self._last_story_audio_cues.clear()
+        return {
+            "story_id": story_id or self.settings.get("last_master_story_id") or (manifest or {}).get("story_id") or "",
+            "story_title": story_title or self.settings.get("last_master_story_title") or (manifest or {}).get("story_title") or "",
+            "warnings": warnings,
         }
 
     def _export_story_bundle(self):
@@ -11931,6 +13261,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             self._controls["voice_sample"].setText(path)
             self._populate_voice_sample_picker()
             self._sync_voice_sample_picker(path)
+            self._commit_voice_now()
 
     def _voice_sample_folder(self) -> Path:
         return Path(__file__).resolve().parents[2] / "voices"
@@ -12007,6 +13338,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         path = str(combo.currentData() or "").strip()
         if path:
             sample.setText(path)
+            self._commit_voice_now()
 
     @staticmethod
     def _normalized_path_text(value: Any) -> str:
@@ -12022,6 +13354,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         path = self._open_file("Choose character picture", str(Path.home()), "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All files (*.*)")
         if path:
             self._controls["character_image_path"].setText(path)
+            self._commit_editor_now(include_identity=False)
 
     def _generate_character_image(self):
         persona = self._selected_persona()

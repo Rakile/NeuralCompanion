@@ -2,14 +2,19 @@ from __future__ import annotations
 
 from pathlib import Path
 import json
+import os
 import sys
 import tempfile
 import time
+import zipfile
 from types import SimpleNamespace
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
+from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
 from addons.multi_persona_roleplay.long_memory import RoleplayLongMemory
 from addons.multi_persona_roleplay.audio_prompts import create_audio_prompt, infer_audio_type
 from addons.multi_persona_roleplay import prompting
@@ -69,6 +74,11 @@ def run_smoke() -> None:
     _smoke_master_story_persona_count_controls()
     _smoke_master_narrator_controls()
     _smoke_master_story_json_validation_and_sfw()
+    _smoke_story_library_export_package()
+    _smoke_persona_editor_identity_commit_is_quiet()
+    _smoke_tab_text_inputs_commit_quietly()
+    _smoke_chat_play_voice_volume()
+    _smoke_output_playback_volume()
     _smoke_schema_migration()
     _smoke_tutorial_doc()
 
@@ -91,6 +101,39 @@ class _Storage:
         import json
 
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class _AddonStorage:
+    def __init__(self, root: Path):
+        self.root = Path(root)
+
+    def resolve(self, relative_path: str):
+        return self.root / relative_path
+
+    def read_json(self, relative_path: str):
+        return json.loads((self.root / relative_path).read_text(encoding="utf-8"))
+
+    def write_json(self, relative_path: str, payload):
+        path = self.root / relative_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+class _AddonContext:
+    def __init__(self, root: Path):
+        self.logger = None
+        self.storage = _AddonStorage(root)
+        self.manifest = SimpleNamespace(
+            root_dir=str(Path(__file__).resolve().parent),
+            version="smoke",
+        )
+
+    def get_service(self, _name: str):
+        return None
+
+
+def _new_controller(root: Path) -> MultiPersonaRoleplayController:
+    return MultiPersonaRoleplayController(_AddonContext(root))
 
 
 def _smoke_long_memory(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
@@ -229,6 +272,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         session.active_persona_id = "mentor"
         session.current_speaker_id = "mentor"
         controller = _FakeController(personas, session)
+        controller.settings["mprc_voice_volume"] = 42
         router = PersonaVoiceRouter(controller)
 
         emoji_prefixed = router.split_text_by_persona(
@@ -248,6 +292,8 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         whole_segments = whole.get("segments") or []
         assert [item.get("persona_id") for item in whole_segments] == ["story_narrator", "friend"]
         assert [Path(item.get("voice_path", "")).name for item in whole_segments] == ["narrator.wav", "friend.wav"]
+        assert [item.get("voice_volume_percent") for item in whole_segments] == [42, 42]
+        assert [item.get("voice_route", {}).get("volume_percent") for item in whole_segments] == [42, 42]
         assert [item.get("voice_route", {}).get("route_reason") for item in whole_segments] == [
             "text_speaker_label",
             "text_speaker_label",
@@ -694,6 +740,357 @@ def _smoke_master_story_json_validation_and_sfw() -> None:
     invalid_probe._apply_master_story_draft()
     assert warnings
     assert not applied
+
+
+def _smoke_story_library_export_package() -> None:
+    with tempfile.TemporaryDirectory() as export_tmp, tempfile.TemporaryDirectory() as import_tmp:
+        export_root = Path(export_tmp)
+        controller = _new_controller(export_root / "storage")
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        card = controller._build_story_export_card()
+        assert card is not None
+        assert controller._controls.get("story_export_button") is not None
+        assert controller._controls.get("story_import_button") is not None
+        assert controller._controls.get("story_export_options")
+        app.processEvents()
+        avatar_path = export_root / "mentor_avatar.png"
+        voice_path = export_root / "mentor_voice.wav"
+        audio_path = export_root / "rain_loop.wav"
+        avatar_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        voice_path.write_bytes(b"RIFF0000WAVE")
+        audio_path.write_bytes(b"RIFF1111WAVE")
+
+        persona = controller.personas[0]
+        persona.character_image_path = str(avatar_path)
+        persona.voice.enabled = True
+        persona.voice.backend = "chatterbox"
+        persona.voice.sample_path = str(voice_path)
+        persona.visual.enabled = True
+        persona.visual.mode = "manual"
+        persona.visual.style_preset = "cinematic_test"
+        controller.visual_styles = [{"id": "cinematic_test", "label": "Cinematic Test", "prompt": "cinematic story image"}]
+        controller.session.enabled = True
+        controller.session.mode = AR_MODE
+        controller.session.active_persona_id = persona.id
+        controller.session.current_speaker_id = persona.id
+        controller.session.scene_title = "Package Scene"
+        controller.session.location = "Archive"
+        controller.session.ar_state.active_characters = [persona.id]
+        controller.settings["last_master_story_id"] = "package_story"
+        controller.settings["last_master_story_title"] = "Package Story"
+        controller.settings["master_story_linked_persona_ids"] = [persona.id]
+        controller.settings["audio_fx_items"] = [
+            {
+                "id": "rain_loop",
+                "type": "Ambience",
+                "description": "rain loop",
+                "prompt": "soft rain loop",
+                "file_path": str(audio_path),
+            }
+        ]
+        controller._save_audiofx_items(controller.settings["audio_fx_items"])
+        story = controller._current_master_story_snapshot()
+        story["id"] = "package_story"
+        story["title"] = "Package Story"
+        controller.storage.save_story(story)
+        controller.long_memory.save({"events": [{"summary": "The rain started."}], "pinned_facts": ["The archive key is brass."]})
+        controller._save_story_memory_snapshot("package_story")
+        controller._record_story_event("package smoke event", kind="smoke", persist=True)
+
+        availability = controller._story_export_availability()
+        assert availability["story_setup"]["available"]
+        assert availability["personas"]["available"]
+        assert availability["avatar_assets"]["available"]
+        assert availability["voice_assets"]["available"]
+        assert availability["audiofx_assets"]["available"]
+        assert availability["visual_styles"]["available"]
+
+        package_path = export_root / "package_story.mprcstory.zip"
+        manifest, warnings = controller._write_story_package(package_path)
+        assert package_path.exists()
+        assert manifest["package_schema_version"] == 1
+        assert "avatar_assets" in manifest["included_sections"]
+        assert "voice_assets" in manifest["included_sections"]
+        assert not warnings
+        with zipfile.ZipFile(package_path, "r") as handle:
+            names = set(handle.namelist())
+            assert "manifest.json" in names
+            assert "personas.json" in names
+            assert "avatar_images.json" in names
+            assert "story_memory.json" in names
+            assert any(name.startswith("assets/visuals/") for name in names)
+            assert any(name.startswith("assets/voices/") for name in names)
+            assert any(name.startswith("assets/audiofx/") for name in names)
+            loaded_manifest = json.loads(handle.read("manifest.json").decode("utf-8"))
+            assert loaded_manifest["asset_file_map"]
+
+        session_only_path = export_root / "session_only.mprcstory.zip"
+        controller._write_story_package(session_only_path, ["story_setup"])
+        with zipfile.ZipFile(session_only_path, "r") as handle:
+            names = set(handle.namelist())
+            assert "session.json" in names
+            assert "personas.json" not in names
+
+        original_voice = persona.voice.sample_path
+        persona.voice.sample_path = str(export_root / "missing_voice.wav")
+        _missing_manifest, missing_warnings = controller._write_story_package(export_root / "missing_voice.mprcstory.zip", ["personas", "persona_voice", "voice_assets"])
+        persona.voice.sample_path = original_voice
+        assert any("Missing voice sample" in item for item in missing_warnings)
+
+        importer = _new_controller(Path(import_tmp) / "storage")
+        result = importer._apply_story_package(package_path)
+        assert result["story_id"]
+        imported_personas = [item for item in importer.personas if item.display_name.endswith("(Imported)")]
+        assert imported_personas
+        imported_avatar = next((item.character_image_path for item in imported_personas if item.character_image_path), "")
+        assert imported_avatar and Path(imported_avatar).exists()
+        imported_voice = next((item.voice.sample_path for item in imported_personas if item.voice.sample_path), "")
+        assert imported_voice and Path(imported_voice).exists()
+        imported_audio = [item for item in importer._audiofx_items() if item.get("description") == "rain loop"]
+        assert imported_audio and Path(str(imported_audio[0].get("file_path") or "")).exists()
+        voice_parts = set(Path(imported_voice).parts)
+        audio_parts = set(Path(str(imported_audio[0].get("file_path") or "")).parts)
+        assert {"assets", "story_packages", "imported", "voices"}.issubset(voice_parts)
+        assert {"assets", "story_packages", "imported", "audiofx"}.issubset(audio_parts)
+        imported_voice_parent = Path(imported_voice).parent
+        imported_audio_parent = Path(str(imported_audio[0].get("file_path") or "")).parent
+        importer._apply_story_package(package_path)
+        imported_voice_paths = [
+            Path(item.voice.sample_path)
+            for item in importer.personas
+            if item.display_name.endswith("(Imported)") and item.voice.sample_path
+        ]
+        imported_audio_paths = [
+            Path(str(item.get("file_path") or ""))
+            for item in importer._audiofx_items()
+            if item.get("description") == "rain loop" and item.get("file_path")
+        ]
+        assert imported_voice_paths
+        assert imported_audio_paths
+        assert all(path.parent == imported_voice_parent for path in imported_voice_paths)
+        assert all(path.parent == imported_audio_parent for path in imported_audio_paths)
+        assert importer.storage.load_story(result["story_id"])
+        assert importer.storage.load_story_memory(result["story_id"])
+
+        partial_importer = _new_controller(Path(import_tmp) / "partial_storage")
+        partial_result = partial_importer._apply_story_package(session_only_path)
+        assert partial_result["warnings"] == []
+
+
+def _smoke_persona_editor_identity_commit_is_quiet() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        tab = controller._build_editor_tab()
+        assert tab is not None
+        persona = controller.active_persona()
+        assert persona is not None
+        controller._syncing = True
+        try:
+            controller._populate_editor(persona)
+        finally:
+            controller._syncing = False
+        original_name = persona.display_name
+        display = controller._controls["display_name"]
+        role = controller._controls["role"]
+
+        display.setText("Quiet Draft Name")
+        app.processEvents()
+        assert persona.display_name == original_name
+
+        role.setText("quiet role")
+        controller._commit_scheduled_editor()
+        assert persona.role == "quiet role"
+        assert persona.display_name == original_name
+
+        display.setText("")
+        controller._commit_scheduled_editor()
+        assert persona.display_name == original_name
+
+        display.setText("Quiet Final Name")
+        controller._commit_editor_now(include_identity=True)
+        assert persona.display_name == "Quiet Final Name"
+
+
+def _smoke_tab_text_inputs_commit_quietly() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        tabs = []
+        for builder in (
+            controller._build_voice_tab,
+            controller._build_session_tab,
+            controller._build_ar_tab,
+            controller._build_audio_tab,
+            controller._build_visual_tab,
+        ):
+            tab = builder()
+            assert tab is not None
+            tabs.append(tab)
+        persona = controller.active_persona()
+        assert persona is not None
+        controller._syncing = True
+        try:
+            controller._refresh_persona_selectors()
+            controller._refresh_voice_persona_selector()
+            controller._populate_voice(persona)
+            controller._populate_session()
+            controller._populate_ar()
+            controller._populate_audio()
+            controller._populate_visual(persona)
+        finally:
+            controller._syncing = False
+
+        controller._controls["voice_sample"].setText("Q:/quiet/voice.wav")
+        app.processEvents()
+        assert persona.voice.sample_path != "Q:/quiet/voice.wav"
+        controller._commit_voice_now()
+        assert persona.voice.sample_path == "Q:/quiet/voice.wav"
+
+        controller._controls["scene_title"].setText("Quiet Scene")
+        app.processEvents()
+        assert controller.session.scene_title != "Quiet Scene"
+        controller._commit_session_now(refresh_ui=False)
+        assert controller.session.scene_title == "Quiet Scene"
+
+        controller._controls["ar_current_scene"].setText("Quiet AR Scene")
+        app.processEvents()
+        assert controller.session.ar_state.current_scene != "Quiet AR Scene"
+        controller._commit_ar_state_now()
+        assert controller.session.ar_state.current_scene == "Quiet AR Scene"
+
+        controller._controls["audio_sound_description"].setPlainText("quiet ambience")
+        app.processEvents()
+        assert controller.settings.get("audio_prompt_description") != "quiet ambience"
+        controller._commit_audio_settings_now()
+        assert controller.settings.get("audio_prompt_description") == "quiet ambience"
+
+        controller._controls["visual_model"].setText("quiet-model")
+        app.processEvents()
+        assert persona.visual.model != "quiet-model"
+        controller._commit_visual_now()
+        assert persona.visual.model == "quiet-model"
+
+
+def _smoke_chat_play_voice_volume() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        page = controller._build_chat_play_tab()
+        assert page is not None
+        slider = controller._controls.get("chat_voice_volume")
+        value = controller._controls.get("chat_voice_volume_value")
+        assert slider is not None
+        assert value is not None
+        assert slider.value() == 100
+        slider.setValue(37)
+        app.processEvents()
+        assert controller.settings.get("mprc_voice_volume") == 37
+        assert value.text() == "37%"
+        assert controller.mprc_voice_volume_percent() == 37
+        controller.personas = _personas()
+        controller.session.enabled = True
+        controller.session.mode = AR_MODE
+        controller.settings["narrator_persona_id"] = "story_narrator"
+        segments = controller._mprc_chat_reply_voice_segments("[NARRATOR]\nThe lantern speaks.")
+        assert segments
+        assert segments[0].get("voice_volume_percent") == 37
+        assert segments[0].get("voice_volume") == 0.37
+        assert segments[0].get("voice_route", {}).get("volume_percent") == 37
+
+        class _FakeEngine:
+            tts_model = object()
+
+            def __init__(self):
+                self.calls = []
+
+            def speak_async(self, text, text_iterable=None, **_kwargs):
+                self.calls.append((text, list(text_iterable or [])))
+                return SimpleNamespace(cancel=lambda: None)
+
+        fake_engine = _FakeEngine()
+        from core import engine_access
+
+        original_engine_module = engine_access.engine_module
+
+        def run_sync(_token, target, *, name):
+            target()
+            return True
+
+        try:
+            engine_access.engine_module = lambda: fake_engine
+            controller._start_daemon_worker = run_sync
+            controller._speak_mprc_chat_reply("[NARRATOR]\nThe lantern answers.")
+        finally:
+            engine_access.engine_module = original_engine_module
+        assert fake_engine.calls
+        _spoken_text, spoken_segments = fake_engine.calls[-1]
+        assert spoken_segments
+        assert spoken_segments[0].get("voice_volume_percent") == 37
+        assert spoken_segments[0].get("voice_route", {}).get("volume_percent") == 37
+
+
+def _smoke_output_playback_volume() -> None:
+    from core import audio_playback
+
+    class _AudioData:
+        def __init__(self, value: float):
+            self.value = value
+
+        def __mul__(self, other):
+            return _AudioData(self.value * float(other))
+
+    class _SoundFile:
+        def read(self, _path):
+            return _AudioData(1.0), 24000
+
+    class _Stream:
+        active = False
+
+    class _SoundDevice:
+        def __init__(self):
+            self.played = []
+
+        def play(self, data, sample_rate, device=None):
+            self.played.append((data.value, sample_rate, device))
+
+        def get_stream(self):
+            return _Stream()
+
+        def stop(self):
+            return None
+
+    class _Event:
+        def set(self):
+            return None
+
+        def clear(self):
+            return None
+
+    class _Stop:
+        def is_set(self):
+            return False
+
+    output = _SoundDevice()
+    audio_playback.play_audio_file(
+        "fake.wav",
+        soundfile_module=_SoundFile(),
+        sounddevice_module=output,
+        stop_event=_Stop(),
+        audio_playing_event=_Event(),
+        output_device=3,
+        volume=0.25,
+        logger=lambda *_args: None,
+    )
+    assert output.played == [(0.25, 24000, 3)]
 
 
 class _TextControl:

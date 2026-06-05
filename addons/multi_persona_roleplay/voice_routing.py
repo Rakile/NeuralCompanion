@@ -32,6 +32,19 @@ class PersonaVoiceRouter:
         self._ar_stream_speaker_by_key: dict[str, str] = {}
         self._ar_stream_speaker_at_by_key: dict[str, float] = {}
 
+    def _voice_volume_percent(self) -> int:
+        getter = getattr(self.controller, "mprc_voice_volume_percent", None)
+        if callable(getter):
+            try:
+                return max(0, min(100, int(getter())))
+            except Exception:
+                return 100
+        settings = getattr(self.controller, "settings", {})
+        try:
+            return max(0, min(100, int(settings.get("mprc_voice_volume", 100))))
+        except Exception:
+            return 100
+
     def effective_voice_config(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = dict(payload or {})
         controller = self.controller
@@ -39,6 +52,7 @@ class PersonaVoiceRouter:
         route_reason_override = str(payload.get("_route_reason_override") or "").strip()
         persona = self.persona_for_payload(payload)
         active_backend = normalize_tts_backend(payload.get("tts_backend") or controller.current_tts_backend())
+        volume_percent = self._voice_volume_percent()
         result = {
             "enabled": False,
             "persona_id": getattr(persona, "id", ""),
@@ -46,6 +60,8 @@ class PersonaVoiceRouter:
             "backend": active_backend,
             "sample_path": "",
             "language": "",
+            "volume": volume_percent / 100.0,
+            "volume_percent": volume_percent,
             "supported": False,
             "warning": "",
             "route_reason": route_reason_override or str(payload.get("_route_reason") or ""),
@@ -197,6 +213,8 @@ class PersonaVoiceRouter:
                             "persona_id": explicit_persona.id,
                             "display_name": explicit_persona.display_name,
                             "voice_path": str(route.get("sample_path") or "") if route.get("supported") else "",
+                            "voice_volume": route.get("volume", 1.0),
+                            "voice_volume_percent": route.get("volume_percent", 100),
                             "voice_route": route,
                             "story_audio_cues": self._consume_pending_story_audio_cues(),
                         }
@@ -261,6 +279,8 @@ class PersonaVoiceRouter:
                     "persona_id": persona.id,
                     "display_name": persona.display_name,
                     "voice_path": str(route.get("sample_path") or "") if route.get("supported") else "",
+                    "voice_volume": route.get("volume", 1.0),
+                    "voice_volume_percent": route.get("volume_percent", 100),
                     "voice_route": route,
                     "story_audio_cues": list(story_cues or []),
                 }
@@ -346,6 +366,8 @@ class PersonaVoiceRouter:
                             "persona_id": persona.id,
                             "display_name": persona.display_name,
                             "voice_path": str(route.get("sample_path") or "") if route.get("supported") else "",
+                            "voice_volume": route.get("volume", 1.0),
+                            "voice_volume_percent": route.get("volume_percent", 100),
                             "voice_route": route,
                             "story_audio_cues": self._consume_pending_story_audio_cues(),
                         }
@@ -370,6 +392,8 @@ class PersonaVoiceRouter:
                             "persona_id": persona.id,
                             "display_name": persona.display_name,
                             "voice_path": str(route.get("sample_path") or "") if route.get("supported") else "",
+                            "voice_volume": route.get("volume", 1.0),
+                            "voice_volume_percent": route.get("volume_percent", 100),
                             "voice_route": route,
                             "story_audio_cues": self._consume_pending_story_audio_cues(),
                         }
