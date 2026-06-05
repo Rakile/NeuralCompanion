@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
@@ -64,7 +66,11 @@ def run_smoke() -> None:
     _smoke_ar_scene_state_update(personas)
     _smoke_audio_prompts()
     _smoke_long_memory(personas, ar_session)
+    _smoke_master_story_persona_count_controls()
+    _smoke_master_narrator_controls()
+    _smoke_master_story_json_validation_and_sfw()
     _smoke_schema_migration()
+    _smoke_tutorial_doc()
 
 
 class _Storage:
@@ -141,11 +147,26 @@ class _FakeVisualReply:
         return {"accepted": True, "message": "ok"}
 
 
+class _FakeVisualGenerationService:
+    def __init__(self, provider: str = "runware"):
+        self.provider = provider
+        self.requests = []
+
+    def settings_snapshot(self):
+        return {"provider_value": self.provider, "model_name": "", "size_value": "1024x1024"}
+
+    def request_generation(self, **kwargs):
+        self.requests.append(dict(kwargs))
+        return True
+
+
 class _FakeController:
     def __init__(self, personas: list[PersonaConfig], session: RoleplaySessionState):
         self.personas = personas
         self.session = session
         self.visual_reply = _FakeVisualReply()
+        self.visual_reply_service = None
+        self.visual_styles = []
         self.context = type("Context", (), {"logger": None, "app_root": Path.cwd()})()
         self.settings = {"narrator_persona_id": "story_narrator"}
         self._story_audio_pending_text = ""
@@ -182,6 +203,9 @@ class _FakeController:
 
     def _story_audio_cue_ids(self, *_args, **_kwargs):
         return []
+
+    def save_state(self):
+        return None
 
 
 def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
@@ -224,6 +248,10 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         whole_segments = whole.get("segments") or []
         assert [item.get("persona_id") for item in whole_segments] == ["story_narrator", "friend"]
         assert [Path(item.get("voice_path", "")).name for item in whole_segments] == ["narrator.wav", "friend.wav"]
+        assert [item.get("voice_route", {}).get("route_reason") for item in whole_segments] == [
+            "text_speaker_label",
+            "text_speaker_label",
+        ]
 
         narrated_dialogue = router.split_text_by_persona(
             {
@@ -340,6 +368,52 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         assert [item.get("persona_id") for item in routed] == ["friend", "friend", "story_narrator"]
         assert [Path(item.get("voice_path", "")).name for item in routed] == ["friend.wav", "friend.wav", "narrator.wav"]
 
+        no_start_chunks = [
+            "[CHARACTER: Friend]\n",
+            "Hold the lantern steady.",
+            "[NARRATOR]\n",
+            "The corridor goes quiet.",
+        ]
+        routed_no_start = []
+        for index, chunk in enumerate(no_start_chunks):
+            result = router.split_text_by_persona(
+                {
+                    "text": chunk,
+                    "tts_backend": "chatterbox",
+                    "streaming": True,
+                    "stream_source_index": index,
+                    "response_id": "no-start-stream",
+                }
+            )
+            routed_no_start.extend(result.get("segments") or [])
+        assert [item.get("persona_id") for item in routed_no_start] == ["friend", "story_narrator"]
+        assert [item.get("voice_route", {}).get("route_reason") for item in routed_no_start] == [
+            "ar_stream_speaker",
+            "ar_stream_speaker",
+        ]
+
+        plain_response = router.split_text_by_persona(
+            {
+                "text": "The archive settles into silence.",
+                "tts_backend": "chatterbox",
+            }
+        )
+        plain_segments = plain_response.get("segments") or []
+        assert [item.get("persona_id") for item in plain_segments] == ["story_narrator"]
+        assert plain_segments[0].get("voice_route", {}).get("route_reason") == "ar_narrator_default"
+
+        explicit_wins = router.split_text_by_persona(
+            {
+                "text": "[CHARACTER: Friend]\nThis label should not override the payload speaker.",
+                "persona_id": "mentor",
+                "tts_backend": "chatterbox",
+            }
+        )
+        explicit_segments = explicit_wins.get("segments") or []
+        assert [item.get("persona_id") for item in explicit_segments] == ["mentor"]
+        assert "[CHARACTER" not in explicit_segments[0].get("text", "")
+        assert explicit_segments[0].get("voice_route", {}).get("route_reason") == "explicit_persona"
+
         from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
 
         probe = object.__new__(MultiPersonaRoleplayController)
@@ -356,11 +430,16 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
 
 
 def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    from addons.multi_persona_roleplay.visual_reply import PersonaVisualReply
+
     assert "auto_choices" in VISUAL_MODES
     personas[0].visual.enabled = True
     personas[0].visual.mode = "auto_choices"
     personas[0].visual.cooldown_seconds = 0
     personas[0].visual.max_auto_images_per_session = 0
+    personas[0].visual.character_description = "Mentor with silver spectacles and a dark travel coat"
+    personas[0].visual.clothing_props = "brass lantern, field notebook, worn leather gloves"
+    personas[0].visual.environment_style = "ancient archive corridor with blue dust and carved stone"
     session.active_persona_id = personas[0].id
     session.current_speaker_id = personas[0].id
     session.turn_index = 1
@@ -372,6 +451,32 @@ def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionS
     assert "Story scene image for Visual Reply" not in comfy_prompt
     assert "Current story moment" not in comfy_prompt
     assert "dynamic story scene" in comfy_prompt
+    grok_prompt = prompting.build_visual_reply_prompt(personas[0], session, reason="choices_present", provider="grok_text_to_image")
+    runware_prompt = prompting.build_visual_reply_prompt(personas[0], session, reason="choices_present", provider="runware")
+    assert prompting.visual_prompt_style("grok") == "grok"
+    assert prompting.normalize_visual_provider_id("grok_text_to_image") == "xai"
+    assert "natural-language image prompt" in grok_prompt
+    assert "Current story moment" in grok_prompt
+    assert "Active persona identity" in grok_prompt
+    assert "Current story moment" not in runware_prompt
+    assert "Hidden LLM" not in runware_prompt
+    assert len(runware_prompt) < len(grok_prompt)
+    assert len(runware_prompt) <= 520
+
+    visual_service = _FakeVisualGenerationService("runware")
+    visual_controller = _FakeController(personas, session)
+    visual_controller.visual_reply_service = visual_service
+    personas[0].visual.provider = "inherit"
+    personas[0].visual.mode = "manual"
+    visual_builder = PersonaVisualReply(visual_controller)
+    inherited_payload = visual_builder.build_prompt(persona=personas[0], reason="manual")
+    assert inherited_payload["effective_provider"] == "runware"
+    assert inherited_payload["prompt_style"] == "runware"
+    result = visual_builder.request_generation(persona=personas[0], reason="manual")
+    assert result["accepted"]
+    assert visual_service.requests[-1]["provider"] == "runware"
+    personas[0].visual.mode = "auto_choices"
+    personas[0].visual.provider = "inherit"
 
     controller = _FakeController(personas, session)
     engine = RoleplayEngine(controller)
@@ -470,6 +575,249 @@ def _smoke_story_only_persona_overrides(personas: list[PersonaConfig], session: 
     assert probe.resolve_story_persona_alias("Gate Oracle").id == "mentor"
 
 
+def _smoke_master_story_persona_count_controls() -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe._controls = {}
+    probe._control_int_value = lambda key, default, minimum, maximum: 3 if key == "master_story_native_persona_count" else default
+    warning = probe._master_story_persona_count_warning({"personas": [{"id": "one"}, {"id": "two"}]})
+    assert "Requested 3" in warning
+    assert "returned 2" in warning
+
+    text = probe._master_story_generation_constraints_text(
+        {
+            "native_personas_to_draft": 3,
+            "maximum_new_personas_to_create": 2,
+            "allow_exceed_max_created_characters": False,
+            "use_existing_personas": True,
+        }
+    )
+    assert "Draft exactly 3" in text
+    assert "Apply Draft will create no more than 2" in text
+
+    limited = _master_story_apply_probe(max_created=2, allow_exceed=False)
+    limited_result = limited._apply_master_story_payload(_story_payload_with_personas(3), apply_plan=_apply_plan())
+    assert limited_result["created"] == 2
+    assert any("creation limit" in item for item in limited_result["skipped"])
+
+    override = _master_story_apply_probe(max_created=2, allow_exceed=False)
+    override_plan = _apply_plan()
+    override_plan["allow_exceed_max_created_characters"] = True
+    override_result = override._apply_master_story_payload(_story_payload_with_personas(3), apply_plan=override_plan)
+    assert override_result["created"] == 3
+    assert not override_result["skipped"]
+
+
+def _smoke_master_narrator_controls() -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    plain = PersonaConfig.from_dict({"id": "plain", "display_name": "Plain", "role": "guide"})
+    master_one = PersonaConfig.from_dict({"id": "fav_narrator", "display_name": "Favorite Narrator", "master_narrator": True})
+    master_two = PersonaConfig.from_dict({"id": "second_narrator", "display_name": "Second Narrator", "master_narrator": True})
+    assert master_one.to_dict()["master_narrator"] is True
+    assert MultiPersonaRoleplayController._persona_narrator_score(master_one) > MultiPersonaRoleplayController._persona_narrator_score(
+        PersonaConfig.from_dict({"id": "story_narrator", "display_name": "Story Narrator"})
+    )
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = [plain, master_one, master_two]
+    probe.session = RoleplaySessionState.from_dict({"enabled": True, "mode": AR_MODE})
+    probe.settings = {"narrator_persona_mode": "auto"}
+    probe._ensure_session_persona = lambda: None
+    ordered = probe._ordered_voice_selector_personas()
+    assert [persona.id for persona in ordered[:2]] == ["fav_narrator", "second_narrator"]
+    assert probe._master_narrator_number(master_two) == 2
+    assert "Favorite Narrator #1" in probe._persona_voice_selector_label(master_one)
+    assert probe.selected_narrator_persona_id() == "fav_narrator"
+
+    warnings: list[tuple[str, str]] = []
+    probe.session.active_persona_id = "fav_narrator"
+    probe._selected_persona = lambda: master_one
+    probe._warn = lambda title, message: warnings.append((title, message))
+    probe.save_state = lambda: (_ for _ in ()).throw(AssertionError("protected delete should not save"))
+    probe.refresh_ui = lambda: None
+    probe._delete_persona()
+    assert [persona.id for persona in probe.personas] == ["plain", "fav_narrator", "second_narrator"]
+    assert warnings and "protected" in warnings[0][1].lower()
+
+
+def _smoke_master_story_json_validation_and_sfw() -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = _master_story_validation_probe(native_count=3, max_created=2, sfw=True)
+    duplicate_payload, duplicate_errors = probe._parse_master_story_json_text(
+        '{"id":"story_one","title":"Good","mode":"AlternativeReality","session":{},"personas":[],"id":"bad"}'
+    )
+    assert isinstance(duplicate_payload, dict)
+    assert any("Duplicate JSON key 'id'" in item for item in duplicate_errors)
+    _overwritten, overwrite_errors = probe._parse_master_story_json_text(
+        '{"id":"story_one","title":"Good","mode":"AlternativeReality","session":{},"personas":[{"id":"a"}],"personas":[]}'
+    )
+    assert any("Duplicate JSON key 'personas'" in item for item in overwrite_errors)
+
+    mixed, mixed_errors = probe._canonical_master_story_payload(
+        {
+            "task": "Draft a Master Story setup from the user's prompt.",
+            "id": "bad_wrapper",
+            "draft": _valid_master_story_payload(3),
+        }
+    )
+    assert mixed["id"] == "story_one"
+    assert any("mixes wrapper fields" in item for item in mixed_errors)
+
+    normalized = probe._normalize_master_story_payload(_valid_master_story_payload(3, sfw=False))
+    assert len(normalized["personas"]) == 3
+    assert normalized["content_safety"]["sfw"] is False
+    assert normalized["content_safety"]["allow_explicit_sexual_content"] is False
+    assert normalized["generation"]["requested_story_native_personas"] == 3
+    warning = probe._master_story_generated_persona_limit_warning(normalized)
+    assert "This draft contains 3 personas, but only 2 new personas will be created unless override is enabled." in warning
+
+    old_normalized = probe._normalize_master_story_payload(_valid_master_story_payload(3, include_content_safety=False))
+    assert old_normalized["content_safety"]["sfw"] is True
+
+    safe_text = probe._master_story_safety_normalized_prompt(
+        "Explore inter-racial relationships and sexual activity across enemy lines.",
+        sfw=True,
+    )
+    assert "sexual activity" not in safe_text.lower()
+    assert "forbidden relationships" in safe_text.lower()
+
+    invalid_probe = _master_story_validation_probe(native_count=3, max_created=2, sfw=True)
+    invalid_probe._controls["master_story_draft"] = _TextControl("{not valid json")
+    warnings: list[tuple[str, str]] = []
+    applied: list[bool] = []
+    invalid_probe._warn = lambda title, message: warnings.append((title, message))
+    invalid_probe._show_master_story_apply_dialog = lambda payload: {}
+    invalid_probe._apply_master_story_payload = lambda payload, apply_plan=None: applied.append(True)
+    invalid_probe._apply_master_story_draft()
+    assert warnings
+    assert not applied
+
+
+class _TextControl:
+    def __init__(self, text: str = ""):
+        self._text = text
+
+    def toPlainText(self) -> str:
+        return self._text
+
+    def setPlainText(self, text: str) -> None:
+        self._text = str(text or "")
+
+
+def _valid_master_story_payload(count: int, *, sfw: bool = True, include_content_safety: bool = True) -> dict:
+    payload = {
+        "id": "story_one",
+        "title": "Story One",
+        "summary": "A compact adventure premise.",
+        "mode": AR_MODE,
+        "active_persona_id": "draft_1",
+        "current_speaker_id": "draft_1",
+        "session": {"scene_title": "Opening", "location": "Archive"},
+        "personas": [
+            {
+                "id": f"draft_{index}",
+                "display_name": f"Draft {index}",
+                "role": "story character",
+                "system_prompt": "Stay in character and preserve user agency.",
+            }
+            for index in range(1, count + 1)
+        ],
+    }
+    if include_content_safety:
+        payload["content_safety"] = {
+            "sfw": bool(sfw),
+            "allow_romance": True,
+            "allow_mature_themes": not bool(sfw),
+            "allow_explicit_sexual_content": False,
+        }
+    return payload
+
+
+def _master_story_validation_probe(*, native_count: int, max_created: int, sfw: bool):
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = []
+    probe.session = RoleplaySessionState.from_dict({"enabled": True, "mode": AR_MODE})
+    probe.settings = {"master_story_sfw_mode": sfw}
+    probe._controls = {
+        "master_story_sfw_mode": SimpleNamespace(isChecked=lambda: sfw, setChecked=lambda *_args: None),
+        "master_story_draft": _TextControl(""),
+    }
+    probe._syncing = False
+    probe.storage = SimpleNamespace(story_id=RoleplayStorage.story_id, save_settings=lambda *_args, **_kwargs: None)
+    probe._set_master_story_status = lambda *_args, **_kwargs: None
+    probe._control_int_value = lambda key, default, minimum, maximum: native_count if key == "master_story_native_persona_count" else (max_created if key == "master_story_max_created_characters" else default)
+    probe._control_checked = lambda key, default=False: sfw if key == "master_story_sfw_mode" else bool(default)
+    return probe
+
+
+def _story_payload_with_personas(count: int) -> dict:
+    return {
+        "id": "limit_story",
+        "title": "Limit Story",
+        "mode": "Narrator + characters",
+        "session": {
+            "scene_title": "Limit Scene",
+            "location": "Archive",
+            "objective": "Test the cast limit.",
+        },
+        "personas": [
+            {
+                "id": f"draft_{index}",
+                "display_name": f"Draft {index}",
+                "role": "story character",
+                "description": "A compact draft character.",
+            }
+            for index in range(1, count + 1)
+        ],
+    }
+
+
+def _apply_plan() -> dict:
+    return {
+        "skip_backup": True,
+        "clear_memory": False,
+        "auto_create": True,
+        "update_existing": False,
+        "auto_avatars": False,
+        "avatar_style_sheets": False,
+    }
+
+
+def _master_story_apply_probe(*, max_created: int, allow_exceed: bool):
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = []
+    probe.session = RoleplaySessionState.from_dict({"enabled": True, "mode": "Narrator + characters"})
+    probe.settings = {}
+    probe._controls = {}
+    probe._syncing = False
+    probe.context = SimpleNamespace(logger=None)
+    probe.storage = SimpleNamespace(
+        save_settings=lambda *_args, **_kwargs: None,
+        story_id=RoleplayStorage.story_id,
+    )
+    probe._master_story_draft = {}
+    probe._ensure_session_persona = lambda: None
+    probe._control_int_value = lambda key, default, minimum, maximum: max_created if key == "master_story_max_created_characters" else default
+    probe._control_checked = lambda key, default=False: allow_exceed if key == "master_story_allow_exceed_max_created_characters" else bool(default)
+    probe._save_pre_apply_backup = lambda *_args, **_kwargs: None
+    probe._clear_master_story_runtime_state = lambda *_args, **_kwargs: None
+    probe._story_character_summaries = lambda linked_ids: {persona_id: "" for persona_id in linked_ids}
+    probe._generate_story_avatar_images = lambda *_args, **_kwargs: ""
+    probe._generate_story_avatar_style_sheets = lambda *_args, **_kwargs: ""
+    probe.refresh_ui = lambda: None
+    probe.save_state = lambda: None
+    probe._set_master_story_status = lambda *_args, **_kwargs: None
+    probe._record_story_event = lambda *_args, **_kwargs: None
+    return probe
+
+
 def _smoke_schema_migration() -> None:
     storage = object.__new__(RoleplayStorage)
     storage.logger = None
@@ -488,6 +836,18 @@ def _smoke_schema_migration() -> None:
     assert isinstance(legacy_memory["long_memory"], dict)
     assert isinstance(legacy_memory["session"], dict)
     assert legacy_memory.get("_migration_log")
+
+
+def _smoke_tutorial_doc() -> None:
+    path = Path(__file__).resolve().parents[2] / "tutorials" / "multi_persona_roleplay.json"
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    assert payload["id"] == "multi_persona_roleplay"
+    body = "\n".join(str(step.get("body", "")) for step in payload.get("steps") or [])
+    assert "Status" in body
+    assert "Master Story" in body
+    assert "Grok/xAI" in body
+    assert "Runware" in body
+    assert "Voice Routing Inspector" in body
 
 
 if __name__ == "__main__":

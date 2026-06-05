@@ -1523,6 +1523,10 @@ QTabWidget QStackedWidget {
                         floating_geometry.height(),
                     ],
                 }
+                if bool(dock.property("nc_workspace_dock_custom_title")):
+                    title = str(dock.windowTitle() or "").strip()
+                    if title:
+                        docks[object_name]["title"] = title
             return docks
 
     def _save_frontend_layout_state(self):
@@ -1602,6 +1606,10 @@ QTabWidget QStackedWidget {
                         if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                             continue
                         try:
+                            title = str(dock_state.get("title") or "").strip()
+                            if title:
+                                dock.setProperty("nc_workspace_dock_custom_title", True)
+                                dock.setWindowTitle(title)
                             dock.setFloating(bool(dock_state.get("floating", False)))
                             if dock.isFloating():
                                 geometry = dock_state.get("floating_geometry") or dock_state.get("geometry")
@@ -1652,6 +1660,10 @@ QTabWidget QStackedWidget {
                     if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                         continue
                     try:
+                        title = str(dock_state.get("title") or "").strip()
+                        if title:
+                            dock.setProperty("nc_workspace_dock_custom_title", True)
+                            dock.setWindowTitle(title)
                         visible = bool(dock_state.get("visible", True))
                         floating = bool(dock_state.get("floating", False))
                         dock.setVisible(visible)
@@ -2003,7 +2015,7 @@ QTabWidget QStackedWidget {
                     dock.installEventFilter(self)
                 except Exception:
                     pass
-                for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged"):
+                for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged", "windowTitleChanged"):
                     signal = getattr(dock, signal_name, None)
                     if signal is None:
                         continue
@@ -2083,12 +2095,12 @@ QTabWidget QStackedWidget {
             menu.clear()
             seen = set()
             for object_name, label in (
-                ("WorkspaceTabsDock", "Workspace Tabs"),
-                ("SystemShapingDock", "System Shaping"),
+                ("WorkspaceTabsDock", "ADDONS"),
+                ("SystemShapingDock", "HOST"),
                 ("MuseTalkPreviewDock", "MuseTalk"),
                 ("PreviewDock", "MuseTalk"),
-                ("OperationalViewDock", "Operational View"),
-                ("VisualReplyDock", "Visual Reply"),
+                ("OperationalViewDock", "CHAT INTERFACE"),
+                ("VisualReplyDock", "VISUAL REPLY"),
             ):
                 if object_name in seen or not self._frontend_dock_addon_enabled(object_name):
                     continue
@@ -2099,7 +2111,8 @@ QTabWidget QStackedWidget {
                     action = dock.toggleViewAction()
                     if action is None:
                         continue
-                    action.setText(label)
+                    title = str(dock.windowTitle() or "").strip() or label
+                    action.setText(title)
                     menu.addAction(action)
                     seen.add(object_name)
                     if label == "MuseTalk":

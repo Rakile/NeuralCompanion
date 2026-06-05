@@ -29,11 +29,14 @@ class PersonaVoiceRouter:
         self._last_warning = ""
         self._pending_story_audio_cues: list[str] = []
         self._ar_stream_speaker_id = ""
+        self._ar_stream_speaker_by_key: dict[str, str] = {}
+        self._ar_stream_speaker_at_by_key: dict[str, float] = {}
 
     def effective_voice_config(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         payload = dict(payload or {})
         controller = self.controller
         session: RoleplaySessionState = controller.session
+        route_reason_override = str(payload.get("_route_reason_override") or "").strip()
         persona = self.persona_for_payload(payload)
         active_backend = normalize_tts_backend(payload.get("tts_backend") or controller.current_tts_backend())
         result = {
@@ -45,7 +48,7 @@ class PersonaVoiceRouter:
             "language": "",
             "supported": False,
             "warning": "",
-            "route_reason": str(payload.get("_route_reason") or ""),
+            "route_reason": route_reason_override or str(payload.get("_route_reason") or ""),
         }
         if persona is None or not session.enabled:
             return result
@@ -136,6 +139,7 @@ class PersonaVoiceRouter:
             streaming=bool(payload.get("streaming", False)),
             stream_start=bool(payload.get("stream_start", False)),
             stream_source_index=payload.get("stream_source_index", ""),
+            stream_key=self._ar_stream_key(payload) if bool(payload.get("streaming", False)) else "",
             enabled=bool(self.controller.session.enabled),
             mode=str(getattr(self.controller.session, "mode", "") or ""),
             text_excerpt=self._voice_route_log_excerpt(text),
@@ -165,10 +169,41 @@ class PersonaVoiceRouter:
         streaming = bool(payload.get("streaming", False))
         stream_start = bool(payload.get("stream_start", False))
         if self._is_alternative_reality():
-            if not streaming or stream_start:
-                self._ar_stream_speaker_id = ""
+            if not streaming:
+                self._clear_ar_stream_speaker_state()
+            elif stream_start or self._stream_source_index_is_start(payload):
+                self._set_ar_stream_speaker(payload, "")
+            else:
+                self._expire_stale_ar_stream_speaker(payload)
             text = self._strip_assistant_prefix_before_ar_tag(text)
             text = self._normalize_ar_story_tags(text)
+        explicit_persona = self._explicit_persona_for_payload(payload)
+        if explicit_persona is not None:
+            segment_text = self._strip_known_speaker_labels_for_explicit_route(text)
+            if not segment_text.strip():
+                return finish({"segments": [], "suppress_original": bool(audio_changed)})
+            route_payload = dict(payload)
+            route_payload["text"] = segment_text
+            route_payload["persona_id"] = explicit_persona.id
+            route_payload["_route_reason_override"] = "explicit_persona"
+            route = self.effective_voice_config(route_payload)
+            if self._is_alternative_reality() and streaming:
+                self._set_ar_stream_speaker(payload, explicit_persona.id)
+            return finish(
+                {
+                    "segments": [
+                        {
+                            "text": segment_text,
+                            "persona_id": explicit_persona.id,
+                            "display_name": explicit_persona.display_name,
+                            "voice_path": str(route.get("sample_path") or "") if route.get("supported") else "",
+                            "voice_route": route,
+                            "story_audio_cues": self._consume_pending_story_audio_cues(),
+                        }
+                    ],
+                    "suppress_original": True,
+                }
+            )
         creator = getattr(self.controller, "ensure_personas_from_assistant_text", None)
         if callable(creator):
             try:
@@ -180,21 +215,33 @@ class PersonaVoiceRouter:
 
         default_payload = {key: value for key, value in payload.items() if key != "text"}
         if self._is_alternative_reality():
-            default_persona = self._ar_stream_persona(payload) or self._narrator_persona() or self.persona_for_payload(default_payload)
+            stream_persona = self._ar_stream_persona(payload)
+            narrator_persona = self._narrator_persona()
+            default_persona = stream_persona or narrator_persona or self.persona_for_payload(default_payload)
+            if stream_persona is not None:
+                default_reason = "ar_stream_speaker"
+            elif narrator_persona is not None:
+                default_reason = "ar_narrator_default"
+            else:
+                default_reason = str(default_payload.get("_route_reason") or "active_persona")
         else:
             default_persona = self.persona_for_payload(default_payload)
+            default_reason = str(default_payload.get("_route_reason") or "current_speaker")
         current_persona = default_persona
+        current_reason = default_reason
         segments: list[dict[str, Any]] = []
         current_lines: list[str] = []
         saw_label = False
 
-        def append_segment(persona: PersonaConfig, segment_text: str, *, story_cues: list[str] | None = None) -> None:
+        def append_segment(persona: PersonaConfig, segment_text: str, *, route_reason: str = "", story_cues: list[str] | None = None) -> None:
             segment_text = str(segment_text or "").strip()
             if not segment_text:
                 return
             route_payload = dict(payload)
             route_payload["text"] = segment_text
             route_payload["persona_id"] = persona.id
+            if route_reason:
+                route_payload["_route_reason_override"] = route_reason
             route = self.effective_voice_config(route_payload)
             self._voice_route_debug(
                 "append_segment",
@@ -207,7 +254,7 @@ class PersonaVoiceRouter:
                 warning=str(route.get("warning") or ""),
             )
             if self._is_alternative_reality() and bool(payload.get("streaming", False)):
-                self._ar_stream_speaker_id = persona.id
+                self._set_ar_stream_speaker(payload, persona.id)
             segments.append(
                 {
                     "text": segment_text,
@@ -220,7 +267,7 @@ class PersonaVoiceRouter:
             )
 
         def flush() -> None:
-            nonlocal current_lines, current_persona
+            nonlocal current_lines, current_persona, current_reason
             segment_text = "\n".join(current_lines).strip()
             current_lines = []
             if not segment_text:
@@ -238,9 +285,10 @@ class PersonaVoiceRouter:
             )
             if split_fragments:
                 for index, (fragment_persona, fragment_text) in enumerate(split_fragments):
-                    append_segment(fragment_persona, fragment_text, story_cues=story_cues if index == 0 else [])
+                    fragment_reason = current_reason if fragment_persona.id == persona.id else "text_speaker_label"
+                    append_segment(fragment_persona, fragment_text, route_reason=fragment_reason, story_cues=story_cues if index == 0 else [])
                 return
-            append_segment(persona, segment_text, story_cues=story_cues)
+            append_segment(persona, segment_text, route_reason=current_reason, story_cues=story_cues)
 
         for raw_line in text.splitlines():
             audio_body = self._handle_story_audio_line(raw_line, current_lines=current_lines, flush=flush)
@@ -262,14 +310,16 @@ class PersonaVoiceRouter:
                         display_name=speaker.display_name,
                     )
                     current_persona = speaker
+                    current_reason = "text_speaker_label"
                     self.controller.session.current_speaker_id = speaker.id
                     if self._is_alternative_reality():
-                        self._ar_stream_speaker_id = speaker.id
+                        self._set_ar_stream_speaker(payload, speaker.id)
                 else:
                     self._voice_route_debug("unresolved_speaker_label", label_excerpt=self._voice_route_log_excerpt(raw_line))
                     current_persona = current_persona or default_persona or self.controller.active_persona()
+                    current_reason = current_reason or default_reason
                     if self._is_alternative_reality():
-                        self._ar_stream_speaker_id = getattr(current_persona, "id", "")
+                        self._set_ar_stream_speaker(payload, getattr(current_persona, "id", ""))
                     self._warn_unresolved_speaker(raw_line)
                 if body.strip():
                     current_lines.append(body)
@@ -287,6 +337,7 @@ class PersonaVoiceRouter:
                 route_payload = dict(payload)
                 route_payload["text"] = text
                 route_payload["persona_id"] = persona.id
+                route_payload["_route_reason_override"] = default_reason
                 route = self.effective_voice_config(route_payload)
                 return finish({
                     "segments": [
@@ -310,6 +361,7 @@ class PersonaVoiceRouter:
                 route_payload = dict(payload)
                 route_payload["text"] = text
                 route_payload["persona_id"] = persona.id
+                route_payload["_route_reason_override"] = default_reason
                 route = self.effective_voice_config(route_payload)
                 return finish({
                     "segments": [
@@ -815,6 +867,45 @@ class PersonaVoiceRouter:
                 return persona, (leading_tags + remaining).strip(), True
         return None, text, False
 
+    def _explicit_persona_for_payload(self, payload: dict[str, Any] | None) -> PersonaConfig | None:
+        data = payload if isinstance(payload, dict) else {}
+        explicit = data.get("persona_id") or data.get("speaker_id") or data.get("current_speaker_id") or ""
+        return self._resolve_persona(explicit)
+
+    def _strip_known_speaker_labels_for_explicit_route(self, text: str) -> str:
+        lines = []
+        for raw_line in str(text or "").splitlines():
+            line = str(raw_line or "")
+            assistant_prefixed = re.match(
+                r"^\s*(?:[^\w\[]+\s*)?(?:assistant|ai|bot)\s*:\s*(\[(?:CHARACTER\s*:[^\]]+|NARRATOR|CHOICES)\].*)$",
+                line,
+                re.IGNORECASE,
+            )
+            if assistant_prefixed:
+                line = assistant_prefixed.group(1)
+            character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+)\]\s*(.*)$", line, re.IGNORECASE)
+            if character:
+                if str(character.group(2) or "").strip():
+                    lines.append(str(character.group(2) or "").strip())
+                continue
+            section = re.match(r"^\s*\[(NARRATOR|CHOICES)\]\s*(.*)$", line, re.IGNORECASE)
+            if section:
+                if str(section.group(2) or "").strip():
+                    lines.append(str(section.group(2) or "").strip())
+                continue
+            control = re.match(r"^\s*\[(?:persona|speaker)\s*:\s*([^\]]+)\]\s*(.*)$", line, re.IGNORECASE)
+            if control and self._resolve_persona(control.group(1)) is not None:
+                if str(control.group(2) or "").strip():
+                    lines.append(str(control.group(2) or "").strip())
+                continue
+            bracket_label = re.match(r"^\s*\[([^\]]{1,120})\]\s*(.*)$", line)
+            if bracket_label and self._resolve_persona(bracket_label.group(1).split(":", 1)[0].strip()) is not None:
+                if str(bracket_label.group(2) or "").strip():
+                    lines.append(str(bracket_label.group(2) or "").strip())
+                continue
+            lines.append(line)
+        return "\n".join(lines).strip()
+
     def _ensure_character_persona(self, name: str, context_text: str) -> PersonaConfig | None:
         creator = getattr(self.controller, "ensure_persona_for_character_label", None)
         if not callable(creator):
@@ -976,10 +1067,64 @@ class PersonaVoiceRouter:
     def _ar_stream_persona(self, payload: dict[str, Any] | None = None) -> PersonaConfig | None:
         if not bool((payload or {}).get("streaming", False)):
             return None
-        speaker_id = str(self._ar_stream_speaker_id or "").strip()
+        key = self._ar_stream_key(payload)
+        speaker_id = str(self._ar_stream_speaker_by_key.get(key) or self._ar_stream_speaker_id or "").strip()
         if not speaker_id:
             return None
         return self._resolve_persona(speaker_id)
+
+    def _set_ar_stream_speaker(self, payload: dict[str, Any] | None, speaker_id: str) -> None:
+        key = self._ar_stream_key(payload)
+        value = str(speaker_id or "").strip()
+        self._ar_stream_speaker_id = value
+        if value:
+            self._ar_stream_speaker_by_key[key] = value
+            self._ar_stream_speaker_at_by_key[key] = time.time()
+        else:
+            self._ar_stream_speaker_by_key.pop(key, None)
+            self._ar_stream_speaker_at_by_key.pop(key, None)
+
+    def _clear_ar_stream_speaker_state(self) -> None:
+        self._ar_stream_speaker_id = ""
+        self._ar_stream_speaker_by_key.clear()
+        self._ar_stream_speaker_at_by_key.clear()
+
+    def _expire_stale_ar_stream_speaker(self, payload: dict[str, Any] | None, *, max_age_seconds: float = 12.0) -> None:
+        key = self._ar_stream_key(payload)
+        updated_at = float(self._ar_stream_speaker_at_by_key.get(key, 0.0) or 0.0)
+        if updated_at and time.time() - updated_at <= max_age_seconds:
+            return
+        if key in self._ar_stream_speaker_by_key:
+            self._ar_stream_speaker_by_key.pop(key, None)
+            self._ar_stream_speaker_at_by_key.pop(key, None)
+            if key == "__default__":
+                self._ar_stream_speaker_id = ""
+
+    @staticmethod
+    def _stream_source_index_is_start(payload: dict[str, Any] | None) -> bool:
+        if not isinstance(payload, dict) or "stream_source_index" not in payload:
+            return False
+        try:
+            return int(payload.get("stream_source_index")) == 0
+        except Exception:
+            return str(payload.get("stream_source_index") or "").strip() == "0"
+
+    @staticmethod
+    def _ar_stream_key(payload: dict[str, Any] | None) -> str:
+        data = payload if isinstance(payload, dict) else {}
+        for key in (
+            "response_id",
+            "tts_response_id",
+            "stream_id",
+            "source_id",
+            "request_id",
+            "generation_id",
+            "conversation_id",
+        ):
+            value = str(data.get(key) or "").strip()
+            if value:
+                return f"{key}:{value}"
+        return "__default__"
 
     def _is_alternative_reality(self) -> bool:
         return str(getattr(self.controller.session, "mode", "") or "").strip().lower() == AR_MODE.lower()

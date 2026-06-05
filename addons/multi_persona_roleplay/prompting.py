@@ -7,6 +7,47 @@ from typing import Any
 from .models import AR_MODE, PersonaConfig, RoleplaySessionState, normalize_persona_id
 
 
+_GROK_PROVIDER_ALIASES = {
+    "xai",
+    "x_ai",
+    "grok",
+    "grok_text_to_image",
+    "grok_image",
+    "grok_imagine",
+    "xai_grok",
+    "xai_image",
+    "xai_text_to_image",
+}
+
+
+def normalize_visual_provider_id(provider: Any) -> str:
+    value = str(provider or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if not value:
+        return ""
+    if value in {"inherit", "default", "active"}:
+        return "inherit"
+    if value in _GROK_PROVIDER_ALIASES or "grok" in value:
+        return "xai"
+    if value in {"runware", "runware_ai", "runwareai"}:
+        return "runware"
+    if value in {"comfyui", "comfy_ui", "comfy"}:
+        return "comfyui"
+    if value in {"openai", "open_ai", "gpt_image", "gpt_image_1"}:
+        return "openai"
+    return value
+
+
+def visual_prompt_style(provider: Any) -> str:
+    provider_id = normalize_visual_provider_id(provider)
+    if provider_id == "xai":
+        return "grok"
+    if provider_id == "runware":
+        return "runware"
+    if provider_id == "comfyui":
+        return "comfyui"
+    return "natural"
+
+
 def _compact(text: str, limit: int = 1200) -> str:
     value = re.sub(r"\s+", " ", str(text or "")).strip()
     if len(value) <= limit:
@@ -290,10 +331,11 @@ def build_visual_reply_prompt(
     provider: str = "",
 ) -> str:
     visual = persona.visual
-    provider_id = str(provider or getattr(visual, "provider", "") or "").strip().lower()
+    provider_id = normalize_visual_provider_id(provider or getattr(visual, "provider", "") or "")
+    prompt_style = visual_prompt_style(provider_id)
     pieces = []
     ar_state = getattr(session, "ar_state", None)
-    if provider_id == "comfyui":
+    if prompt_style == "comfyui":
         if visual.include_scene_summary:
             scene_bits = []
             current_scene = _compact(getattr(ar_state, "current_scene", ""), 260) if ar_state is not None else ""
@@ -337,28 +379,92 @@ def build_visual_reply_prompt(
             prompt = _compact(prompt, 760)
         return prompt
 
+    scene_bits = []
+    current_scene = _compact(getattr(ar_state, "current_scene", ""), 320) if ar_state is not None else ""
+    if current_scene:
+        scene_bits.append(current_scene)
+    if session.scene_summary:
+        scene_bits.append(_compact(session.scene_summary, 260))
+    location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
+    location = location or _compact(session.location, 120)
+    mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
+    mood = mood or _compact(session.mood, 120)
+    time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
+    time_of_day = time_of_day or _compact(session.time_of_day, 80)
+    recent = []
+    if ar_state is not None:
+        recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
+    recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
+    recent = [_compact(item, 180) for item in recent if item]
+
+    if prompt_style == "runware":
+        visual_parts = []
+        subject = visual.character_description or ", ".join(
+            item for item in (persona.display_name, persona.description or persona.role) if item
+        )
+        action = current_scene or (recent[-1] if recent else "") or _compact(session.scene_summary, 180)
+        if subject:
+            visual_parts.append(_compact(subject, 160))
+        if action:
+            visual_parts.append(_compact(action, 180))
+        if visual.clothing_props:
+            visual_parts.append(_compact(visual.clothing_props, 120))
+        if location:
+            visual_parts.append(location)
+        if visual.environment_style:
+            visual_parts.append(_compact(visual.environment_style, 140))
+        if mood or time_of_day:
+            visual_parts.append(", ".join(item for item in (time_of_day, mood) if item))
+        if style_prompt:
+            visual_parts.append(_compact(style_prompt, 150))
+        if visual.keep_continuity:
+            visual_parts.append("consistent character identity, scene continuity")
+        if visual.negative_prompt:
+            visual_parts.append("avoid " + _compact(visual.negative_prompt, 120))
+        visual_parts.append("story scene, visible action, no text, no watermark")
+        prompt = ", ".join(item.strip(" ,") for item in visual_parts if item).strip()
+        if len(prompt) > 520:
+            prompt = _compact(prompt, 520)
+        return prompt
+
+    if prompt_style == "grok":
+        pieces.append(
+            "Create a cinematic natural-language image prompt for the current roleplay moment. Show visible story action, not a static portrait."
+        )
+        if visual.include_scene_summary:
+            context = "; ".join(item for item in (location, time_of_day, mood) if item)
+            if context:
+                scene_bits.append(context)
+            if recent:
+                scene_bits.append("Recent visible action: " + "; ".join(recent[-2:]))
+            if scene_bits:
+                pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
+        identity = visual.character_description or f"{persona.display_name}, {persona.description or persona.role}".strip()
+        if identity:
+            pieces.append(f"Active persona identity and appearance: {identity}")
+        if visual.clothing_props:
+            pieces.append(f"Clothing and props: {visual.clothing_props}")
+        if visual.environment_style:
+            pieces.append(f"Scene and environment style: {visual.environment_style}")
+        if not visual.include_scene_summary and (location or mood):
+            pieces.append(f"Scene/location: {'; '.join(item for item in (location, time_of_day, mood) if item)}")
+        if visual.include_active_speaker:
+            pieces.append(f"Active speaker focus: {persona.display_name}")
+        if style_prompt:
+            pieces.append(f"Visual style: {style_prompt}")
+        if visual.keep_continuity:
+            pieces.append("Keep recurring character identity, wardrobe details, location continuity, and story mood consistent.")
+        pieces.append("Avoid UI text, captions, watermarks, hidden planning notes, and JSON.")
+        prompt = ". ".join(item.strip(" .") for item in pieces if item).strip()
+        if len(prompt) > 1300:
+            prompt = _compact(prompt, 1300)
+        return prompt
+
     pieces.append("Story scene image for Visual Reply: show what is happening in the current roleplay moment, not a static character portrait")
     if visual.include_scene_summary:
-        scene_bits = []
-        current_scene = _compact(getattr(ar_state, "current_scene", ""), 260) if ar_state is not None else ""
-        if current_scene:
-            scene_bits.append(current_scene)
-        if session.scene_summary:
-            scene_bits.append(_compact(session.scene_summary, 260))
-        location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
-        location = location or _compact(session.location, 120)
-        mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
-        mood = mood or _compact(session.mood, 120)
-        time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
-        time_of_day = time_of_day or _compact(session.time_of_day, 80)
         context = "; ".join(item for item in (location, time_of_day, mood) if item)
         if context:
             scene_bits.append(context)
-        recent = []
-        if ar_state is not None:
-            recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
-        recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
-        recent = [_compact(item, 180) for item in recent if item]
         if recent:
             scene_bits.append("Recent action: " + "; ".join(recent[-2:]))
         if scene_bits:

@@ -24,6 +24,7 @@
       "area": "top_level",
       "ui_path": "ui/roleplay.ui",
       "placeholder": "multi_persona_roleplay_tab",
+      "icon_path": "../../ui_icons/side_tabs/mp_story_mode.png",
       "order": 126,
       "tooltip": "Configure multi-persona roleplay, persona voices, and persona-aware Visual Reply prompts."
     }

@@ -179,34 +179,40 @@ class _MprcUiBridge(QtCore.QObject):
 
 class _MprcTabButton(QtWidgets.QFrame):
     clicked = QtCore.Signal(int)
+    move_requested = QtCore.Signal(int, int)
 
     def __init__(self, index: int, title: str, icon: QtGui.QIcon, color: str, tooltip: str, parent=None):
         super().__init__(parent)
         self._index = index
         self._color = color
         self._selected = False
+        self._drag_start_pos = QtCore.QPoint()
+        self._dragging = False
+        self._last_move_target_index: int | None = None
         self.setObjectName("mprc_custom_tab_button")
         self.setCursor(QtCore.Qt.PointingHandCursor)
-        self.setToolTip(tooltip)
-        self.setMinimumSize(112, 86)
-        self.setMaximumHeight(86)
+        self.setToolTip((str(tooltip or "").strip() + "\nDrag to move this tab button.").strip())
+        self.setMinimumSize(80, 68)
+        self.setMaximumSize(96, 68)
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(7, 4, 7, 5)
         layout.setSpacing(1)
 
         self._title = QtWidgets.QLabel(title)
         self._title.setObjectName("mprc_custom_tab_title")
+        self._title.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
         self._title.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
         title_font = self._title.font()
         title_font.setBold(True)
         self._title.setFont(title_font)
-        self._title.setMinimumHeight(18)
+        self._title.setMinimumHeight(16)
 
         self._icon = QtWidgets.QLabel()
         self._icon.setObjectName("mprc_custom_tab_icon")
+        self._icon.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
         self._icon.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
-        self._icon.setPixmap(icon.pixmap(QtCore.QSize(50, 50)))
-        self._icon.setFixedHeight(52)
+        self._icon.setPixmap(icon.pixmap(QtCore.QSize(36, 36)))
+        self._icon.setFixedHeight(38)
 
         layout.addWidget(self._title)
         layout.addWidget(self._icon)
@@ -218,23 +224,66 @@ class _MprcTabButton(QtWidgets.QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
-            self.clicked.emit(self._index)
+            self._drag_start_pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            self._dragging = False
+            self._last_move_target_index = None
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & QtCore.Qt.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            if (pos - self._drag_start_pos).manhattanLength() >= QtWidgets.QApplication.startDragDistance():
+                self._dragging = True
+                self.setCursor(QtCore.Qt.ClosedHandCursor)
+                target = self._tab_button_at_event(event)
+                if target is not None and target is not self and target._index != self._last_move_target_index:
+                    self._last_move_target_index = target._index
+                    self.move_requested.emit(self._index, target._index)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            if self._dragging:
+                target = self._tab_button_at_event(event)
+                if target is not None and target is not self and target._index != self._last_move_target_index:
+                    self.move_requested.emit(self._index, target._index)
+            else:
+                self.clicked.emit(self._index)
+            self._dragging = False
+            self._last_move_target_index = None
+            self.setCursor(QtCore.Qt.PointingHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    @staticmethod
+    def _tab_button_at_event(event) -> "_MprcTabButton | None":
+        try:
+            global_pos = event.globalPosition().toPoint()
+        except Exception:
+            global_pos = event.globalPos()
+        widget = QtWidgets.QApplication.widgetAt(global_pos)
+        while widget is not None:
+            if isinstance(widget, _MprcTabButton):
+                return widget
+            widget = widget.parentWidget()
+        return None
 
     def _apply_style(self):
         background = "#1c2d43" if self._selected else "#111b28"
         border = self._color if self._selected else "#36506d"
-        bottom = "#122033" if self._selected else "#36506d"
+        bottom = self._color if self._selected else "#36506d"
         self.setStyleSheet(
             f"""
             QFrame#mprc_custom_tab_button {{
                 background: {background};
                 border: 1px solid {border};
                 border-bottom-color: {bottom};
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
+                border-radius: 9px;
             }}
             QLabel#mprc_custom_tab_title {{
                 color: {self._color};
@@ -262,6 +311,11 @@ class _MprcCurrentPageStack(QtWidgets.QStackedWidget):
     def minimumSizeHint(self):
         current = self.currentWidget()
         return current.minimumSizeHint() if current is not None else super().minimumSizeHint()
+
+
+class _MprcTabNavScrollArea(QtWidgets.QScrollArea):
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 class _MprcFloatingPlayWindow(QtWidgets.QDialog):
@@ -857,6 +911,27 @@ class MultiPersonaRoleplayController:
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return [item[2] for item in scored] + [item[1] for item in rest]
 
+    def _ordered_voice_selector_personas(self) -> list[PersonaConfig]:
+        master = [(self._master_narrator_number(persona), index, persona) for index, persona in enumerate(self.personas) if self._persona_is_master_narrator(persona)]
+        rest = [(index, persona) for index, persona in enumerate(self.personas) if not self._persona_is_master_narrator(persona)]
+        master.sort(key=lambda item: (item[0], item[1]))
+        return [item[2] for item in master] + [item[1] for item in rest]
+
+    def _master_narrator_personas(self) -> list[PersonaConfig]:
+        return [persona for persona in self.personas if self._persona_is_master_narrator(persona)]
+
+    def _master_narrator_number(self, persona: PersonaConfig | None) -> int:
+        if persona is None or not self._persona_is_master_narrator(persona):
+            return 0
+        for index, item in enumerate(self._master_narrator_personas(), start=1):
+            if item.id == persona.id:
+                return index
+        return 0
+
+    @staticmethod
+    def _persona_is_master_narrator(persona: PersonaConfig | None) -> bool:
+        return bool(getattr(persona, "master_narrator", False))
+
     @classmethod
     def _persona_narrator_score(cls, persona: PersonaConfig | None) -> int:
         if persona is None:
@@ -874,6 +949,8 @@ class MultiPersonaRoleplayController:
                 " ".join(tags),
             ]
         ).lower()
+        if cls._persona_is_master_narrator(persona):
+            return 140
         if display == "story narrator":
             return 100
         if behavior == "narrator":
@@ -1623,6 +1700,8 @@ class MultiPersonaRoleplayController:
         reply_text = self._mprc_strip_audio_tags(str(source_text or "").strip())
         if not reply_text or persona is None or self.is_shutdown():
             return ""
+        provider_id = prompting.normalize_visual_provider_id(provider or "inherit") or "inherit"
+        prompt_style = prompting.visual_prompt_style(provider_id)
         try:
             from core.engine_access import engine_module
 
@@ -1659,7 +1738,8 @@ class MultiPersonaRoleplayController:
             visual = persona.visual
             prompt_payload = {
                 "task": "Create one image prompt for the current MPRC story reply.",
-                "provider": str(provider or "inherit").strip().lower(),
+                "provider": provider_id,
+                "prompt_style": prompt_style,
                 "trigger_reason": str(reason or "manual"),
                 "selected_visual_persona": {
                     "id": persona.id,
@@ -1701,6 +1781,23 @@ class MultiPersonaRoleplayController:
                 "Do not invent new characters, props, injuries, weapons, monsters, or location changes unless visible in the current story reply. "
                 "Do not include hidden reasoning."
             )
+            style_rule = {
+                "runware": (
+                    "- Provider style is Runware: return one compact direct positive prompt, preferably comma-separated visual phrases. "
+                    "Keep it under 520 characters and avoid multi-step narrative instructions or hidden metadata."
+                ),
+                "grok": (
+                    "- Provider style is xAI/Grok: return a richer natural-language image prompt with visible action, persona identity, "
+                    "appearance, location, mood/lighting, style, and continuity. Avoid JSON in the final image_prompt."
+                ),
+                "comfyui": (
+                    "- Provider style is ComfyUI: use a direct compact positive prompt without labels like 'Story scene image' or 'Current story moment'."
+                ),
+            }.get(
+                prompt_style,
+                "- Provider style is general Visual Reply: return a clear story-scene prompt under 900 characters.",
+            )
+            prompt_limit_label = "520" if prompt_style == "runware" else "1300" if prompt_style == "grok" else "760" if prompt_style == "comfyui" else "900"
             user_prompt = (
                 "Return this exact JSON shape:\n"
                 '{"image_prompt":"ready image prompt focused on the current visible action","negative_prompt":"optional concise avoid list"}\n\n'
@@ -1708,8 +1805,8 @@ class MultiPersonaRoleplayController:
                 "- image_prompt must describe who is visibly doing what, where, with mood/lighting/camera.\n"
                 "- Prioritize action, body language, object interaction, threat, discovery, movement, or reaction from current_story_reply.\n"
                 "- Keep recurring character identity consistent using active_cast and selected_visual_persona.\n"
-                "- If provider is comfyui, use a direct positive prompt without labels like 'Story scene image' or 'Current story moment'.\n"
-                "- Keep image_prompt under 900 characters.\n\n"
+                f"{style_rule}\n"
+                f"- Keep image_prompt under {prompt_limit_label} characters.\n\n"
                 "Input JSON:\n"
                 f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
             )
@@ -1755,11 +1852,12 @@ class MultiPersonaRoleplayController:
             prompt = str(payload.get("image_prompt") or payload.get("prompt") or "").strip()
             if len(prompt) < 20:
                 return ""
-            prompt = prompting._compact(prompt, 900)
+            prompt_limit = 520 if prompt_style == "runware" else 1300 if prompt_style == "grok" else 760 if prompt_style == "comfyui" else 900
+            prompt = prompting._compact(prompt, prompt_limit)
             self.set_chat_visual_prompt_debug_from_parts(
                 persona=persona,
                 reason=str(reason or "manual"),
-                provider=str(provider or "inherit"),
+                provider=provider_id,
                 stage="hidden LLM current-reply action prompt",
                 final_prompt=prompt,
                 base_prompt=base_prompt,
@@ -1850,11 +1948,16 @@ class MultiPersonaRoleplayController:
         request_payload: dict[str, Any] | None = None,
     ) -> None:
         payload = dict(request_payload or {}) if isinstance(request_payload, dict) else {}
+        provider_info = payload.get("provider_info") if isinstance(payload.get("provider_info"), dict) else {}
+        prompt_style = str(provider_info.get("prompt_style") or prompting.visual_prompt_style(provider or "inherit"))
         lines = [
             "MPRC Visual Prompt Debug",
             f"Stage: {stage or 'base prompt'}",
             f"Reason: {reason or 'manual'}",
-            f"Provider: {provider or 'inherit'}",
+            f"Effective provider: {provider or provider_info.get('effective_provider') or 'inherit'}",
+            f"Prompt style: {prompt_style}",
+            f"Persona provider override: {provider_info.get('persona_provider_override', 'inherit')}",
+            f"Active Visual Reply provider snapshot: {provider_info.get('active_provider_snapshot') or provider_info.get('active_provider_raw') or 'unknown'}",
         ]
         if persona is not None:
             visual = getattr(persona, "visual", None)
@@ -1984,8 +2087,8 @@ class MultiPersonaRoleplayController:
         tabs.setObjectName("mprc_inner_tabs")
         tabs.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         tabs_layout = QtWidgets.QVBoxLayout(tabs)
-        tabs_layout.setContentsMargins(0, 0, 0, 0)
-        tabs_layout.setSpacing(0)
+        tabs_layout.setContentsMargins(5, 5, 5, 5)
+        tabs_layout.setSpacing(4)
         nav_row = QtWidgets.QWidget()
         nav_row.setObjectName("mprc_inner_tab_nav_row")
         nav_row_layout = QtWidgets.QHBoxLayout(nav_row)
@@ -1995,59 +2098,66 @@ class MultiPersonaRoleplayController:
         nav_prev.setObjectName("mprc_inner_tab_prev_button")
         nav_prev.setText("<")
         nav_prev.setToolTip("Show earlier roleplay tabs")
-        nav_prev.setFixedSize(24, 78)
+        nav_prev.setFixedSize(22, 58)
         nav_next = QtWidgets.QToolButton()
         nav_next.setObjectName("mprc_inner_tab_next_button")
         nav_next.setText(">")
         nav_next.setToolTip("Show later roleplay tabs")
-        nav_next.setFixedSize(24, 78)
-        nav_scroll = QtWidgets.QScrollArea()
+        nav_next.setFixedSize(22, 58)
+        nav_scroll = _MprcTabNavScrollArea()
         nav_scroll.setObjectName("mprc_inner_tab_scroll")
-        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setWidgetResizable(False)
         nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        nav_scroll.setFixedHeight(92)
+        nav_scroll.setFixedHeight(84)
+        nav_scroll.setFocusPolicy(QtCore.Qt.NoFocus)
+        nav_scroll.viewport().setAutoFillBackground(False)
         nav = QtWidgets.QWidget()
         nav.setObjectName("mprc_inner_tab_nav")
+        nav.setFixedHeight(80)
         nav_layout = QtWidgets.QHBoxLayout(nav)
-        nav_layout.setContentsMargins(0, 6, 0, 0)
-        nav_layout.setSpacing(6)
+        nav_layout.setContentsMargins(0, 4, 0, 8)
+        nav_layout.setSpacing(5)
         stack = _MprcCurrentPageStack()
         stack.setObjectName("mprc_inner_tab_stack")
         stack.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         buttons: list[_MprcTabButton] = []
         tab_specs = [
-            (self._build_chat_play_tab(), "Play", "MPRC-owned chat and play surface.", "#f97316"),
-            (self._build_guide_tab(), "Guide", "Step-by-step guide and default scenario notes.", "#38bdf8"),
-            (self._build_status_tab(), "Status", "Story runtime status, validation, routing, recovery, and event log.", "#facc15"),
-            (self._build_registry_tab(), "Registry", "Persona Registry", "#60a5fa"),
-            (self._build_editor_tab(), "Editor", "Persona Editor", "#a78bfa"),
-            (self._build_voice_tab(), "Voice", "Voice Per Persona", "#22c55e"),
-            (self._build_session_tab(), "Session", "Roleplay Session", "#f59e0b"),
-            (self._build_ar_tab(), "AR", "AlternativeReality Mode", "#06b6d4"),
-            (self._build_master_story_tab(), "Master", "Master Story Builder", "#e879f9"),
+            ("play", self._build_chat_play_tab(), "Play", "MPRC-owned chat and play surface.", "#f97316"),
+            ("guide", self._build_guide_tab(), "Guide", "Step-by-step guide and default scenario notes.", "#38bdf8"),
+            ("status", self._build_status_tab(), "Status", "Story runtime status, validation, routing, recovery, and event log.", "#facc15"),
+            ("registry", self._build_registry_tab(), "Registry", "Persona Registry", "#60a5fa"),
+            ("editor", self._build_editor_tab(), "Editor", "Persona Editor", "#a78bfa"),
+            ("voice", self._build_voice_tab(), "Voice", "Voice Per Persona", "#22c55e"),
+            ("session", self._build_session_tab(), "Session", "Roleplay Session", "#f59e0b"),
+            ("ar", self._build_ar_tab(), "AR", "AlternativeReality Mode", "#06b6d4"),
+            ("master", self._build_master_story_tab(), "Master", "Master Story Builder", "#e879f9"),
             (
+                "audio",
                 self._build_audio_tab(),
                 "Audio",
                 "Story Sounds and AudioFX Library.\n"
                 "Use this tab to import sound packs, attach local sound files, build audio prompts, preview cues, and make story tags like [AMBIENCE: pub ambient], [MUSIC: ...], [FX: ...], and [STINGER: ...] play in the background instead of being spoken.",
                 "#14b8a6",
             ),
-            (self._build_visual_tab(), "Visual", "Visual Reply Settings", "#fb7185"),
-            (self._build_debug_tab(), "Debug", "Prompt / Debug", "#94a3b8"),
+            ("visual", self._build_visual_tab(), "Visual", "Visual Reply Settings", "#fb7185"),
+            ("debug", self._build_debug_tab(), "Debug", "Prompt / Debug", "#94a3b8"),
         ]
-        for page, title, tooltip, color in tab_specs:
+        for key, page, title, tooltip, color in tab_specs:
             wrapped_page = self._wrap_mprc_tab_page(page, title)
             index = stack.addWidget(wrapped_page)
             if str(getattr(wrapped_page, "objectName", lambda: "")() or "") == "mprc_chat_play_tab":
                 self._chat_play_page = wrapped_page
                 self._chat_play_stack_index = index
             button = _MprcTabButton(index, title, self._tab_icon(title.lower(), color), color, tooltip)
-            button.clicked.connect(lambda tab_index, target=index: self._select_mprc_tab(target))
+            button.setProperty("_mprc_tab_key", key)
+            button.clicked.connect(self._select_mprc_tab)
+            button.move_requested.connect(self._move_mprc_tab_button)
             buttons.append(button)
-            nav_layout.addWidget(button)
-        nav_layout.addStretch(1)
+        self._controls["tab_buttons_all"] = buttons
+        self._controls["tab_button_layout"] = nav_layout
+        self._apply_mprc_tab_button_order(persist=False)
         nav_scroll.setWidget(nav)
         nav_row_layout.addWidget(nav_prev, 0)
         nav_row_layout.addWidget(nav_scroll, 1)
@@ -2057,7 +2167,7 @@ class MultiPersonaRoleplayController:
         root_layout.addWidget(tabs, 1)
         self._controls["tabs"] = tabs
         self._controls["tab_stack"] = stack
-        self._controls["tab_buttons"] = buttons
+        self._controls.setdefault("tab_buttons", buttons)
         self._controls["tab_nav_scroll"] = nav_scroll
         self._controls["tab_nav_prev"] = nav_prev
         self._controls["tab_nav_next"] = nav_next
@@ -2073,6 +2183,7 @@ class MultiPersonaRoleplayController:
         self._select_mprc_tab(0)
         self._assign_control_object_names()
         self._install_tooltips_and_refine()
+        self._install_spellcheck_widgets()
 
         enabled.toggled.connect(self._on_enabled_changed)
         show_character.toggled.connect(self._on_show_character_changed)
@@ -2082,40 +2193,138 @@ class MultiPersonaRoleplayController:
         root.setStyleSheet(
             """
             QWidget#mprc_root { background: #101720; color: #f4f7fb; }
-            QGroupBox { border: 1px solid #36506d; border-radius: 8px; margin-top: 10px; padding: 10px; }
+            QGroupBox { border: 1px solid #36506d; border-radius: 10px; margin-top: 10px; padding: 10px; }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #dbeafe; font-weight: 700; }
             QLabel { color: #f4f7fb; }
             QLabel[muted="true"] { color: #9fb3c8; }
             QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
-                background: #182536; color: #f4f7fb; border: 1px solid #3d5a7c; border-radius: 6px; padding: 4px;
+                background: #182536; color: #f4f7fb; border: 1px solid #3d5a7c; border-radius: 8px; padding: 4px;
             }
-            QPushButton { background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; padding: 6px 10px; font-weight: 600; }
+            QPushButton { background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 8px; padding: 6px 10px; font-weight: 600; }
             QPushButton:hover { background: #243956; }
             QToolButton#mprc_inner_tab_prev_button, QToolButton#mprc_inner_tab_next_button {
-                background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; font-weight: 800;
+                background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 8px; font-weight: 800;
             }
             QToolButton#mprc_inner_tab_prev_button:disabled, QToolButton#mprc_inner_tab_next_button:disabled {
                 color: #6f8298; border-color: #2b4058;
             }
-            QWidget#mprc_inner_tabs { background: #122033; border: 1px solid #36506d; border-radius: 8px; }
-            QScrollArea#mprc_inner_tab_scroll { background: #101720; border: none; }
-            QWidget#mprc_inner_tab_nav { background: #101720; }
-            QStackedWidget#mprc_inner_tab_stack { background: #122033; border-top: 1px solid #36506d; }
+            QWidget#mprc_inner_tabs { background: #101720; border: none; border-radius: 12px; }
+            QScrollArea#mprc_inner_tab_scroll {
+                background: transparent;
+                border: none;
+                border-radius: 10px;
+            }
+            QScrollArea#mprc_inner_tab_scroll > QWidget,
+            QScrollArea#mprc_inner_tab_scroll > QWidget > QWidget {
+                background: transparent;
+                border: none;
+            }
+            QWidget#mprc_inner_tab_nav { background: transparent; }
+            QStackedWidget#mprc_inner_tab_stack {
+                background: #122033;
+                border: 1px solid #2d4561;
+                border-top-color: #36506d;
+                border-radius: 10px;
+                padding: 3px;
+            }
+            QTabWidget::pane {
+                background: #101720;
+                border: 1px solid #2b4059;
+                border-radius: 10px;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #111c28;
+                color: #e8f2ff;
+                border: 1px solid #2b4059;
+                border-radius: 8px;
+                min-height: 22px;
+                padding: 5px 12px;
+                margin-right: 3px;
+            }
+            QTabBar::tab:selected {
+                background: #17263a;
+                border-color: #4f78a2;
+            }
+            QTabBar::tab:hover {
+                background: #1b3048;
+                border-color: #5f8bb8;
+            }
             """
         )
         return root
 
     def _wrap_mprc_tab_page(self, page, title: str):
-        if page is None or str(page.objectName() or "") == "mprc_chat_play_tab":
+        if page is None:
             return page
+        original_name = str(page.objectName() or "")
         scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName(f"mprc_{normalize_persona_id(title)}_tab_scroll")
+        if original_name == "mprc_chat_play_tab":
+            page.setObjectName("mprc_chat_play_content")
+            scroll.setObjectName("mprc_chat_play_tab")
+        else:
+            scroll.setObjectName(f"mprc_{normalize_persona_id(title)}_tab_scroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        scroll.viewport().setAutoFillBackground(False)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
         scroll.setWidget(page)
         return scroll
+
+    def _apply_mprc_tab_button_order(self, *, persist: bool = False, order_keys: list[str] | None = None) -> None:
+        layout = self._controls.get("tab_button_layout")
+        all_buttons = list(self._controls.get("tab_buttons_all") or [])
+        if layout is None or not all_buttons:
+            return
+        by_key = {
+            str(button.property("_mprc_tab_key") or ""): button
+            for button in all_buttons
+            if str(button.property("_mprc_tab_key") or "").strip()
+        }
+        default_order = [str(button.property("_mprc_tab_key") or "") for button in all_buttons]
+        raw_order = order_keys if order_keys is not None else self.settings.get("mprc_tab_button_order")
+        requested = [str(item or "").strip() for item in list(raw_order or []) if str(item or "").strip()]
+        ordered_keys = [key for key in requested if key in by_key]
+        ordered_keys.extend(key for key in default_order if key and key not in ordered_keys)
+        ordered_buttons = [by_key[key] for key in ordered_keys if key in by_key]
+        while layout.count():
+            layout.takeAt(0)
+        for button in ordered_buttons:
+            layout.addWidget(button)
+        layout.addStretch(1)
+        self._controls["tab_buttons"] = ordered_buttons
+        if persist:
+            self.settings["mprc_tab_button_order"] = ordered_keys
+            self.storage.save_settings(self.settings)
+        try:
+            parent = layout.parentWidget()
+            if parent is not None:
+                parent.adjustSize()
+                parent.updateGeometry()
+            nav_scroll = self._controls.get("tab_nav_scroll")
+            if nav_scroll is not None and nav_scroll.widget() is not None:
+                nav_scroll.widget().adjustSize()
+        except Exception:
+            pass
+        current = self._controls.get("tab_stack").currentIndex() if self._controls.get("tab_stack") is not None else 0
+        self._select_mprc_tab(current)
+
+    def _move_mprc_tab_button(self, source_index: int, target_index: int) -> None:
+        buttons = list(self._controls.get("tab_buttons") or [])
+        if source_index == target_index or not buttons:
+            return
+        source_pos = next((index for index, button in enumerate(buttons) if int(getattr(button, "_index", -1)) == int(source_index)), -1)
+        target_pos = next((index for index, button in enumerate(buttons) if int(getattr(button, "_index", -1)) == int(target_index)), -1)
+        if source_pos < 0 or target_pos < 0:
+            return
+        button = buttons.pop(source_pos)
+        insert_pos = target_pos if source_pos > target_pos else target_pos
+        insert_pos = max(0, min(len(buttons), insert_pos))
+        buttons.insert(insert_pos, button)
+        order_keys = [str(item.property("_mprc_tab_key") or "") for item in buttons]
+        self._apply_mprc_tab_button_order(persist=True, order_keys=order_keys)
 
     def _select_mprc_tab(self, index: int):
         stack = self._controls.get("tab_stack")
@@ -2131,9 +2340,9 @@ class MultiPersonaRoleplayController:
                     parent = parent.parentWidget()
             except Exception:
                 pass
-        for offset, button in enumerate(buttons):
+        for button in buttons:
             if hasattr(button, "set_selected"):
-                button.set_selected(offset == index)
+                button.set_selected(int(getattr(button, "_index", -1)) == int(index))
         self._ensure_mprc_tab_button_visible(index)
         self._update_mprc_tab_nav_buttons()
 
@@ -2152,9 +2361,11 @@ class MultiPersonaRoleplayController:
     def _ensure_mprc_tab_button_visible(self, index: int) -> None:
         nav_scroll = self._controls.get("tab_nav_scroll")
         buttons = self._controls.get("tab_buttons") or []
-        if nav_scroll is None or index < 0 or index >= len(buttons):
+        if nav_scroll is None:
             return
-        button = buttons[index]
+        button = next((item for item in buttons if int(getattr(item, "_index", -1)) == int(index)), None)
+        if button is None:
+            return
         try:
             nav_scroll.ensureWidgetVisible(button, 12, 0)
         except Exception:
@@ -2194,21 +2405,13 @@ class MultiPersonaRoleplayController:
                 tabs.setMinimumHeight(520)
                 tabs.setMaximumHeight(16777215)
             return
-        hint = current.sizeHint()
-        minimum = current.minimumSizeHint()
-        height = max(
-            240,
-            int(hint.height() if hint.isValid() else 0),
-            int(minimum.height() if minimum.isValid() else 0),
-            int(current.minimumHeight() or 0),
-        )
-        height = min(height, 1500)
+        height = 620
         stack.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         stack.setMinimumHeight(height)
         stack.setMaximumHeight(16777215)
         if tabs is not None:
             tabs.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-            nav_height = 92
+            nav_height = 84
             try:
                 nav = tabs.findChild(QtWidgets.QScrollArea, "mprc_inner_tab_scroll")
                 if nav is not None:
@@ -2263,10 +2466,20 @@ class MultiPersonaRoleplayController:
         elif key == "guide":
             painter.drawEllipse(14, 10, 22, 22)
             painter.drawLine(25, 32, 25, 39)
+        elif key == "status":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawEllipse(12, 12, 26, 26)
+            painter.drawLine(25, 17, 25, 27)
+            painter.drawLine(25, 32, 25, 33)
         elif key == "registry":
             for y in (13, 24, 35):
                 painter.drawEllipse(12, y, 6, 6)
                 painter.drawLine(23, y + 3, 38, y + 3)
+        elif key == "cast":
+            painter.drawEllipse(15, 13, 9, 9)
+            painter.drawEllipse(27, 13, 9, 9)
+            painter.drawRoundedRect(12, 26, 13, 12, 4, 4)
+            painter.drawRoundedRect(27, 26, 13, 12, 4, 4)
         elif key == "editor":
             painter.drawLine(15, 35, 34, 16)
             painter.drawLine(30, 12, 38, 20)
@@ -2279,6 +2492,18 @@ class MultiPersonaRoleplayController:
             painter.drawEllipse(11, 12, 28, 28)
             painter.drawLine(25, 25, 25, 15)
             painter.drawLine(25, 25, 34, 30)
+        elif key == "events":
+            painter.drawLine(18, 12, 18, 38)
+            for y in (15, 25, 35):
+                painter.drawEllipse(15, y - 3, 6, 6)
+                painter.drawLine(24, y, 37, y)
+        elif key == "ar":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(12, 14, 26, 22, 6, 6)
+            painter.drawLine(18, 14, 18, 10)
+            painter.drawLine(32, 14, 32, 10)
+            painter.drawEllipse(18, 23, 4, 4)
+            painter.drawEllipse(28, 23, 4, 4)
         elif key == "audio":
             painter.drawEllipse(13, 20, 6, 10)
             painter.drawEllipse(29, 20, 6, 10)
@@ -2290,11 +2515,23 @@ class MultiPersonaRoleplayController:
             painter.drawLine(14, 34, 22, 27)
             painter.drawLine(22, 27, 29, 33)
             painter.drawLine(29, 33, 37, 25)
+        elif key == "choices":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(12, 12, 27, 26, 6, 6)
+            painter.drawLine(18, 19, 31, 19)
+            painter.drawLine(18, 27, 31, 27)
+            painter.drawLine(18, 35, 27, 35)
         elif key == "master":
             painter.drawLine(15, 15, 35, 15)
             painter.drawLine(15, 23, 35, 23)
             painter.drawLine(15, 31, 29, 31)
             painter.drawEllipse(31, 29, 7, 7)
+        elif key == "debug":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawEllipse(14, 14, 22, 22)
+            painter.drawEllipse(22, 22, 6, 6)
+            for x1, y1, x2, y2 in ((25, 8, 25, 14), (25, 36, 25, 42), (8, 25, 14, 25), (36, 25, 42, 25)):
+                painter.drawLine(x1, y1, x2, y2)
         else:
             painter.drawRoundedRect(14, 13, 22, 24, 5, 5)
             painter.drawLine(18, 20, 32, 20)
@@ -2302,26 +2539,91 @@ class MultiPersonaRoleplayController:
         painter.end()
         return QtGui.QIcon(pixmap)
 
+    def _story_state_tab_button(self, title: str, icon_key: str, color: str):
+        from PySide6 import QtCore, QtWidgets
+
+        button = QtWidgets.QWidget()
+        button.setObjectName("mprc_story_state_tab_button")
+        button.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        button.setFixedSize(80, 64)
+        layout = QtWidgets.QVBoxLayout(button)
+        layout.setContentsMargins(7, 3, 7, 4)
+        layout.setSpacing(1)
+
+        label = QtWidgets.QLabel(str(title or ""))
+        label.setObjectName("mprc_story_state_tab_title")
+        label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
+        label.setStyleSheet(f"color: {color}; font-weight: 800; background: transparent; border: none;")
+        label.setMinimumHeight(16)
+
+        icon = QtWidgets.QLabel()
+        icon.setObjectName("mprc_story_state_tab_icon")
+        icon.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
+        icon.setPixmap(self._tab_icon(icon_key, color).pixmap(QtCore.QSize(34, 34)))
+        icon.setFixedHeight(36)
+        icon.setStyleSheet("background: transparent; border: none;")
+
+        layout.addWidget(label)
+        layout.addWidget(icon)
+        return button
+
+    @staticmethod
+    def _story_state_tab_stylesheet() -> str:
+        return """
+        QTabWidget#mprc_story_state_tabs {
+            background: #122033;
+            border: none;
+        }
+        QTabWidget#mprc_story_state_tabs::pane {
+            background: #122033;
+            border: 1px solid #2d4561;
+            border-radius: 10px;
+            top: -1px;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar {
+            background: #122033;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab {
+            background: #111b28;
+            border: 1px solid #36506d;
+            border-radius: 9px;
+            min-width: 86px;
+            min-height: 68px;
+            padding: 0px;
+            margin-right: 4px;
+            margin-bottom: 2px;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab:selected {
+            background: #1c2d43;
+            border-color: #4f78a2;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab:hover {
+            background: #17263a;
+            border-color: #5f8bb8;
+        }
+        """
+
     def _build_character_preview_panel(self):
         from PySide6 import QtCore, QtWidgets
 
         panel = QtWidgets.QGroupBox("Current Character")
         panel.setObjectName("mprc_character_preview_panel")
+        panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-        panel.setMinimumHeight(340)
-        panel.setMaximumHeight(380)
+        layout.setSpacing(10)
+        panel.setMinimumHeight(500)
+        panel.setMaximumHeight(16777215)
         current_row = QtWidgets.QHBoxLayout()
-        current_row.setContentsMargins(12, 0, 0, 0)
-        current_row.setSpacing(12)
+        current_row.setContentsMargins(20, 0, 0, 0)
+        current_row.setSpacing(14)
         image = QtWidgets.QLabel()
         image.setObjectName("mprc_current_character_image")
-        image.setFixedSize(96, 124)
-        image.setMinimumSize(96, 124)
-        image.setMaximumSize(96, 124)
-        image.setProperty("_mprc_image_width", 96)
-        image.setProperty("_mprc_image_height", 124)
+        image.setFixedSize(230, 300)
+        image.setMinimumSize(230, 300)
+        image.setMaximumSize(230, 300)
+        image.setProperty("_mprc_image_width", 230)
+        image.setProperty("_mprc_image_height", 300)
         image.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         image.setAlignment(QtCore.Qt.AlignCenter)
         image.setToolTip("The active persona picture. This updates when the active persona changes.")
@@ -2390,38 +2692,45 @@ class MultiPersonaRoleplayController:
         layout.addLayout(current_row)
         roster_frame = QtWidgets.QFrame()
         roster_frame.setObjectName("mprc_character_roster_frame")
-        roster_frame.setMinimumHeight(132)
-        roster_frame.setFixedHeight(132)
+        roster_frame.setMinimumHeight(172)
+        roster_frame.setMaximumHeight(190)
+        roster_frame.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         roster_frame.setStyleSheet(
             """
             QFrame#mprc_character_roster_frame {
                 border: 1px solid #36506d;
+                border-radius: 10px;
                 background: #08111b;
             }
             """
         )
         roster_layout = QtWidgets.QVBoxLayout(roster_frame)
-        roster_layout.setContentsMargins(12, 10, 12, 10)
+        roster_layout.setContentsMargins(14, 12, 14, 14)
         roster_layout.setSpacing(0)
         strip = QtWidgets.QScrollArea()
         strip.setWidgetResizable(False)
-        strip.setMinimumHeight(110)
-        strip.setFixedHeight(110)
+        strip.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        strip.setMinimumHeight(146)
+        strip.setMaximumHeight(154)
+        strip.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         strip.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         strip.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         strip.setFrameShape(QtWidgets.QFrame.NoFrame)
-        strip.setStyleSheet("QScrollArea { background: #08111b; border: 0px; }")
+        strip.setStyleSheet(
+            "QScrollArea { background: transparent; border: 0px; border-radius: 8px; } "
+            "QScrollArea > QWidget > QWidget { background: #08111b; }"
+        )
         strip_content = QtWidgets.QWidget()
         strip_content.setObjectName("mprc_character_roster_content")
-        strip_content.setMinimumHeight(100)
-        strip_content.setFixedHeight(100)
+        strip_content.setMinimumHeight(136)
+        strip_content.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         strip_content.setStyleSheet("QWidget#mprc_character_roster_content { background: #08111b; }")
         strip_layout = QtWidgets.QHBoxLayout(strip_content)
-        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setContentsMargins(0, 0, 0, 2)
         strip_layout.setSpacing(12)
         strip.setWidget(strip_content)
         roster_layout.addWidget(strip)
-        layout.addWidget(roster_frame, 1)
+        layout.addWidget(roster_frame, 0)
         self._controls.update({
             "character_preview_panel": panel,
             "current_character_image": image,
@@ -2512,6 +2821,7 @@ class MultiPersonaRoleplayController:
             "chat_summarize": page.findChild(QtWidgets.QPushButton, "mprc_chat_summarize_button"),
             "chat_repair": page.findChild(QtWidgets.QPushButton, "mprc_chat_repair_button"),
         }
+        controls["chat_input"] = self._replace_chat_play_input(controls.get("chat_input"))
         if controls.get("chat_float") is None:
             toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar")
             if toolbar is not None:
@@ -2549,6 +2859,9 @@ class MultiPersonaRoleplayController:
         send = controls.get("chat_send")
         if send is not None:
             send.clicked.connect(self._on_mprc_chat_send_clicked)
+        chat_input = controls.get("chat_input")
+        if chat_input is not None and hasattr(chat_input, "sendRequested"):
+            chat_input.sendRequested.connect(self._on_mprc_chat_send_clicked)
         clear = controls.get("chat_clear")
         if clear is not None:
             clear.clicked.connect(self._on_mprc_chat_clear_clicked)
@@ -2586,6 +2899,61 @@ class MultiPersonaRoleplayController:
             repair.clicked.connect(lambda: self._on_mprc_director_action("repair"))
         return page
 
+    def _replace_chat_play_input(self, widget):
+        if widget is None:
+            return None
+        try:
+            from ui.runtime.spellcheck import ChatMessageInput
+        except Exception:
+            return widget
+        if isinstance(widget, ChatMessageInput):
+            return widget
+        parent = widget.parentWidget()
+        if parent is None:
+            return widget
+        layout = self._find_layout_containing_widget(parent.layout(), widget)
+        if layout is None:
+            return widget
+        replacement = ChatMessageInput(parent)
+        replacement.setObjectName(str(widget.objectName() or "mprc_chat_input"))
+        replacement.setPlaceholderText(str(getattr(widget, "placeholderText", lambda: "")() or "Type a player action..."))
+        replacement.setToolTip(str(widget.toolTip() or "Type the next player action. Enter sends; Shift+Enter inserts a newline."))
+        replacement.setEnabled(widget.isEnabled())
+        replacement.setHidden(widget.isHidden())
+        replacement.setMinimumWidth(widget.minimumWidth())
+        replacement.setMinimumHeight(max(72, int(widget.minimumHeight() or 0)))
+        maximum_height = int(widget.maximumHeight() or 0)
+        if 0 < maximum_height < 16777215:
+            replacement.setMaximumHeight(max(maximum_height, replacement.minimumHeight()))
+        else:
+            replacement.setMaximumHeight(130)
+        try:
+            replacement.textChanged.disconnect(replacement._sync_height_to_content)
+        except Exception:
+            pass
+        replacement.setStyleSheet(str(widget.styleSheet() or ""))
+        layout.replaceWidget(widget, replacement)
+        widget.setObjectName(f"{replacement.objectName()}_legacy")
+        widget.hide()
+        widget.deleteLater()
+        return replacement
+
+    def _find_layout_containing_widget(self, layout, widget):
+        if layout is None or widget is None:
+            return None
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout
+            nested = item.layout()
+            if nested is not None:
+                found = self._find_layout_containing_widget(nested, widget)
+                if found is not None:
+                    return found
+        return None
+
     def _configure_chat_play_layout(self, page) -> None:
         def widget(name: str):
             try:
@@ -2595,17 +2963,16 @@ class MultiPersonaRoleplayController:
 
         splitter_style = """
         QSplitter::handle {
-            background: #20324a;
-            border: 1px solid #36506d;
-            border-radius: 2px;
+            background: transparent;
+            border: 0;
         }
         QSplitter::handle:hover {
-            background: #2b4565;
+            background: transparent;
         }
         """
 
         page.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        page.setMinimumHeight(0)
+        page.setMinimumHeight(920)
         page.setMaximumHeight(16777215)
 
         root_layout = page.layout()
@@ -2681,7 +3048,7 @@ class MultiPersonaRoleplayController:
             "mprc_player_action_box": (120, 220),
             "mprc_visual_prompt_debug_box": (120, 320),
             "mprc_scene_state_box": (105, 230),
-            "mprc_story_state_tabs": (145, 16777215),
+            "mprc_story_state_tabs": (190, 16777215),
             "mprc_director_box": (165, 230),
         }
         for name, (min_height, max_height) in flexible_heights.items():
@@ -2703,6 +3070,25 @@ class MultiPersonaRoleplayController:
             if item is not None:
                 item.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
                 item.setMaximumHeight(max_height)
+
+        state_tabs = widget("mprc_story_state_tabs")
+        if isinstance(state_tabs, QtWidgets.QTabWidget):
+            state_tab_specs = (
+                (0, "Cast", "cast", "#60a5fa"),
+                (1, "Events", "events", "#facc15"),
+                (2, "Choices", "choices", "#fb7185"),
+            )
+            for tab_index, tab_title, icon_key, icon_color in state_tab_specs:
+                if tab_index < state_tabs.count():
+                    state_tabs.setTabText(tab_index, "")
+                    state_tabs.setTabIcon(tab_index, QtGui.QIcon())
+                    state_tabs.setTabToolTip(tab_index, tab_title)
+                    state_tabs.tabBar().setTabButton(
+                        tab_index,
+                        QtWidgets.QTabBar.LeftSide,
+                        self._story_state_tab_button(tab_title, icon_key, icon_color),
+                    )
+            state_tabs.setStyleSheet(self._story_state_tab_stylesheet())
 
         for name in ("mprc_story_state_sidebar",):
             panel = widget(name)
@@ -3780,6 +4166,7 @@ class MultiPersonaRoleplayController:
             "load_default_scenario": "Load the bundled touch-and-go group scenario with all default personas represented.",
             "persona_id": "Stable local ID for this persona. Keep it short and lowercase. Right-click to refine if needed.",
             "persona_enabled": "Enable or disable this persona without deleting it. Disabled personas are kept in storage but ignored by normal routing and story cast selection.",
+            "master_narrator": "Mark this persona as a favorite Master narrator. Master narrators are numbered in selectors, prioritized for narrator auto-pick, and protected from deletion.",
             "display_name": "Name shown in the Roleplay UI and prompts. Right-click to refine.",
             "role": "Short archetype or role, such as mentor, narrator, technician, or explorer. Right-click to refine.",
             "description": "Compact visible description of who this persona is. Right-click to refine this Short Description field.",
@@ -3883,8 +4270,10 @@ class MultiPersonaRoleplayController:
             "story_clear_log": "Clear the readable skipped-action log.",
             "master_story_prompt": "Describe the full story you want. MPRC asks the current chat provider to draft personas and session state from this.",
             "master_story_visual_direction": "Optional visual art direction for generated persona appearances and avatar portraits.",
+            "master_story_sfw_mode": "Keep generated Master Story drafts non-explicit. Romance and mature emotional themes are allowed, but explicit sexual content is avoided.",
             "master_story_native_persona_count": "Target number of story-native persona profiles the Master generator should draft when the prompt does not already name them.",
             "master_story_max_created_characters": "Hard limit for how many new personas can be created from one Master Story apply.",
+            "master_story_allow_exceed_max_created_characters": "Override the Master Story apply limit and allow more new personas than Maximum created characters.",
             "master_story_use_existing_personas": "Let the Master generator consider your already saved personas and let Apply Draft map story characters onto them.",
             "master_story_use_ar": "Build the story for AlternativeReality mode with AR scene state and AR persona profiles.",
             "master_story_auto_create": "Create missing personas from the story draft when no existing persona matches.",
@@ -4036,12 +4425,75 @@ class MultiPersonaRoleplayController:
         from PySide6 import QtWidgets
 
         menu = widget.createStandardContextMenu() if hasattr(widget, "createStandardContextMenu") else QtWidgets.QMenu(widget)
+        try:
+            from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+            add_spellcheck_suggestions_to_menu(widget, menu, point)
+        except Exception:
+            pass
         menu.addSeparator()
         label = str(widget.property("_mprc_refine_label") or "Field")
         current_text = self._refinable_widget_text(widget)
         action = menu.addAction(f"Refine {label}")
         action.setEnabled(bool(current_text) and not bool(widget.property("_nc_refine_in_flight")))
         action.triggered.connect(lambda _checked=False, edit=widget: self._refine_field(edit))
+        menu.exec(widget.mapToGlobal(point))
+
+    def _install_spellcheck_widgets(self) -> None:
+        spellcheck_keys = (
+            "chat_input",
+            "description",
+            "system_prompt",
+            "ar_description",
+            "ar_system_prompt",
+            "scene_summary",
+            "ar_pending_choices",
+            "audio_sound_description",
+            "audio_prompt_output",
+            "master_story_prompt",
+            "master_story_visual_direction",
+            "visual_character",
+        )
+        for key in spellcheck_keys:
+            self._attach_spellcheck_to_widget(self._controls.get(key))
+
+    def _attach_spellcheck_to_widget(self, widget) -> bool:
+        if widget is None:
+            return False
+        if not isinstance(widget, (QtWidgets.QPlainTextEdit, QtWidgets.QTextEdit)):
+            return False
+        try:
+            if bool(widget.isReadOnly()):
+                return False
+        except Exception:
+            return False
+        try:
+            from ui.runtime.spellcheck import attach_spellcheck
+
+            attached = bool(attach_spellcheck(widget))
+        except Exception:
+            return False
+        if attached and not bool(widget.property("_mprc_refine_label")) and not bool(widget.property("_mprc_spellcheck_menu_installed")):
+            try:
+                widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                widget.customContextMenuRequested.connect(
+                    lambda point, edit=widget: self._show_spellcheck_menu(edit, point)
+                )
+                widget.setProperty("_mprc_spellcheck_menu_installed", True)
+            except Exception:
+                pass
+        return attached
+
+    def _show_spellcheck_menu(self, widget, point) -> None:
+        from PySide6 import QtWidgets
+
+        menu = widget.createStandardContextMenu() if hasattr(widget, "createStandardContextMenu") else QtWidgets.QMenu(widget)
+        try:
+            from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+            add_spellcheck_suggestions_to_menu(widget, menu, point)
+        except Exception:
+            pass
         menu.exec(widget.mapToGlobal(point))
 
     def _refinable_widget_text(self, widget) -> str:
@@ -4386,18 +4838,16 @@ class MultiPersonaRoleplayController:
 
         steps_box, steps_layout = self._group("Quick Start")
         steps = [
-            "1. For the fastest proof path, open Status and press Start Demo / Validate / Continue. This loads a known-good demo, validates it, tests AudioFX and Visual Reply, and queues Continue.",
-            "2. Use the Status tab before long sessions: confirm active story, narrator lock, linked personas, memory snapshot, voice readiness, Visual Reply readiness, and AudioFX readiness.",
-            "3. Try a built-in template from Status when you want a polished starter: fantasy mystery, sci-fi horror, or cozy tavern adventure.",
-            "4. For a custom story, open Master, describe the story, add Avatar visual direction if you want a specific look, optionally enable avatar style sheets if your Visual Reply workflow supports image-to-image, then Generate Story Setup, review the JSON, and press Apply Draft.",
-            "5. Keep Enable roleplay mode checked and use AlternativeReality when you want a directed interactive audiobook with narrator beats, active characters, choices, ambience, and continuity.",
-            "6. In the Apply Draft workflow, review each drafted character, compare existing persona pictures in the gallery, choose Create new persona or reuse an existing persona, then read Apply Result before Apply Story.",
-            "7. If validation reports a problem, use the repair buttons before guessing: choose narrator, browse voice file, disable missing AudioFX, fix image path, create memory snapshot, relink personas, or reset invalid overrides.",
-            "8. Use Preview next AR request and Explain next routing when you want to understand the next Continue turn before running it.",
-            "9. Use Memory Browser / Editor to pin facts, delete a wrong memory, reset character memory only, or reset this story's memory while keeping global settings intact.",
-            "10. Open Voice to assign a local voice sample path for each persona that should speak with a distinct voice. The narrator lock controls [NARRATOR].",
-            "11. Open Visual to enable story-scene images per persona. Open Audio to prepare Story Sounds used by tags like [AMBIENCE: pub ambient], [MUSIC: adventure music], [FX: magic shimmer], and [STINGER: danger stinger].",
-            "12. Export Story Bundle when a story is ready to share or back up. Import Story Bundle restores story, cast, narrator, memory, prompts, AudioFX, visual settings, and routing data.",
+            "1. Open Status first. Press Start Demo / Validate / Continue for the fastest known-good proof path.",
+            "2. In Status, validate the active story, narrator lock, linked personas, memory snapshot, voice readiness, Visual Reply readiness, and AudioFX readiness.",
+            "3. Pick the narrator and story personas. Use Master for a generated story draft, or Registry / Editor for manual persona setup.",
+            "4. Open Voice and assign a local voice sample path for every persona that should sound different. Newly created personas do not get unique voices until they have voice samples.",
+            "5. Confirm the active NC TTS backend supports voice samples. Chatterbox and PocketTTS reference-audio backends can route samples; unsupported backends fall back safely.",
+            "6. Open Visual and choose each persona's Visual Reply behavior. Grok/xAI gets richer natural-language prompts; Runware gets shorter direct prompts; ComfyUI keeps compact prompt behavior.",
+            "7. Test the Response Window or Play mode. Plain AR narration should stay on the narrator voice; voices should switch only on explicit [NARRATOR] or [CHARACTER: Name] sections.",
+            "8. If validation reports a problem, use the repair buttons before guessing: choose narrator, browse voice file, disable missing AudioFX, fix image path, create memory snapshot, relink personas, or reset invalid overrides.",
+            "9. Use Preview next AR request and Explain next routing when you want to understand the next Continue turn before running it.",
+            "10. Export Story Bundle when a story is ready to share or back up. Import Story Bundle restores story, cast, narrator, memory, prompts, AudioFX, visual settings, and routing data.",
         ]
         for step in steps:
             label = QtWidgets.QLabel(step)
@@ -4507,6 +4957,10 @@ class MultiPersonaRoleplayController:
             "3. Fill Character visual description, clothing / props, and environment style so the scene prompt keeps identity and setting consistent.\n"
             "4. Keep Use latest scene summary and Include active speaker enabled when you want images to show what is happening in the story instead of only a portrait.\n"
             "5. Use Preview Image Prompt before generating. Use Generate Visual Reply for a manual test. Auto requests still respect cooldown and max auto images per session.\n\n"
+            "Provider prompt styles:\n"
+            "- Grok/xAI: richer natural-language prompt with current story moment, visible action, persona identity, appearance, scene, mood, lighting, style, and continuity.\n"
+            "- Runware: shorter direct prompt with concrete subject, action, location, style, lighting/mood, and continuity terms. This avoids overloading Runware with long story instructions.\n"
+            "- ComfyUI: compact direct positive prompt, preserving the existing ComfyUI behavior.\n\n"
             "If images do not appear, check that Visual Reply itself has a configured provider, this persona has visual generation enabled, the trigger mode matches the scene, cooldown has expired, and max auto images/session has not been reached."
         )
         visual_text.setToolTip("Explains the difference between character preview and real story-scene Visual Reply generation.")
@@ -4546,6 +5000,7 @@ class MultiPersonaRoleplayController:
         workflow_text.setReadOnly(True)
         workflow_text.setMinimumHeight(135)
         workflow_text.setPlainText(
+            "Play: isolated story feed, Player Action input, Response Window-style speech playback, Focus, choices, and story-scene Visual Reply triggers.\n"
             "Guide: quick start and default scenario overview.\n"
             "Status: production cockpit for demo start, templates, validation, repair, voice routing, memory editing, tests, bundles, and skipped-action logs.\n"
             "Master: build, save, and load complete stories from one prompt, including visual profiles and optional avatar images.\n"
@@ -4556,13 +5011,31 @@ class MultiPersonaRoleplayController:
             "AR: AlternativeReality pacing, story state, active characters, and choices.\n"
             "Visual: per-persona story-image generation, Visual Reply trigger modes, image prompt preview, cooldown, and auto image limits.\n"
             "Audio: saved audio prompts and AudioFX files available to the story. Ready AudioFX cues can be played by [AMBIENCE: description], [MUSIC: description], [FX: description], [STINGER: description], or [AUDIO: description].\n"
-            "Debug: inspect effective prompt, voice route, visual prompt, and compact state."
+            "Debug: inspect effective prompt, voice route, Visual Reply payload, provider prompt style, and compact state."
         )
         workflow_text.setToolTip("Quick map of what each MPRC tab controls.")
         workflow_layout.addWidget(workflow_text)
         guide_sections.append(("Which Tab To Use", workflow_text.toPlainText))
         workflow_layout.addLayout(self._guide_speech_row("Which Tab To Use", workflow_text.toPlainText))
         layout.addWidget(workflow_box)
+
+        troubleshoot_box, troubleshoot_layout = self._group("Troubleshooting")
+        troubleshoot_text = QtWidgets.QPlainTextEdit()
+        troubleshoot_text.setReadOnly(True)
+        troubleshoot_text.setMinimumHeight(180)
+        troubleshoot_text.setPlainText(
+            "Image not generating: open Visual Reply itself and confirm provider, model, API key/base URL, and image size. Then check this persona's Visual tab: enabled, trigger mode, cooldown, and max auto images.\n\n"
+            "Runware image quality drops: use Preview Image Prompt and keep the prompt compact. Runware usually works better with direct concrete visual phrases than with long story instructions.\n\n"
+            "Grok/xAI image is too plain: add richer character appearance, clothing/props, scene, mood, lighting, and style details. Grok/xAI handles natural-language prompts better than Runware.\n\n"
+            "Voice not applying: newly created personas need a voice sample path in the Voice tab, and the active NC TTS backend must support reference audio. Unsupported backends keep speaking with the normal voice.\n\n"
+            "Voice changes during one response: check Debug or Status -> Voice Routing Inspector. A voice should switch only on explicit [NARRATOR], [CHARACTER: Exact Persona Display Name], or supported speaker labels; plain AR narration should stay on the narrator.\n\n"
+            "Narrator/persona mismatch: choose the narrator explicitly in Status or Voice, then validate. The inspector shows route reasons such as explicit_persona, text_speaker_label, ar_narrator_default, ar_stream_speaker, current_speaker, or active_persona."
+        )
+        troubleshoot_text.setToolTip("Common MPRC setup and routing fixes.")
+        troubleshoot_layout.addWidget(troubleshoot_text)
+        guide_sections.append(("Troubleshooting", troubleshoot_text.toPlainText))
+        troubleshoot_layout.addLayout(self._guide_speech_row("Troubleshooting", troubleshoot_text.toPlainText))
+        layout.addWidget(troubleshoot_box)
 
         scenario_box, scenario_layout = self._group("Default Saved Scenario")
         scenario_text = QtWidgets.QPlainTextEdit()
@@ -4620,6 +5093,7 @@ class MultiPersonaRoleplayController:
         controls = {
             "persona_id": QtWidgets.QLineEdit(),
             "persona_enabled": QtWidgets.QCheckBox("Enabled"),
+            "master_narrator": QtWidgets.QCheckBox("Master narrator"),
             "display_name": QtWidgets.QLineEdit(),
             "role": QtWidgets.QLineEdit(),
             "description": QtWidgets.QTextEdit(),
@@ -4647,6 +5121,10 @@ class MultiPersonaRoleplayController:
             self._controls[key] = widget
         form.addRow("Persona ID", controls["persona_id"])
         form.addRow("", controls["persona_enabled"])
+        controls["master_narrator"].setToolTip(
+            "Mark this persona as a favorite Master narrator. Master narrators are numbered in selectors, preferred for AR narrator auto-pick, and protected from deletion."
+        )
+        form.addRow("", controls["master_narrator"])
         form.addRow("Display name", controls["display_name"])
         form.addRow("Role / archetype", controls["role"])
         form.addRow("Short description", controls["description"])
@@ -4721,8 +5199,12 @@ class MultiPersonaRoleplayController:
         backend = QtWidgets.QComboBox()
         backend.addItems(list(VOICE_BACKENDS))
         sample = QtWidgets.QLineEdit()
+        sample.setMinimumWidth(520)
+        sample.setPlaceholderText("Selected voice sample .wav path")
+        sample.setToolTip("Full path to the selected voice sample file.")
         sample_picker = QtWidgets.QComboBox()
-        sample_picker.setMinimumWidth(240)
+        sample_picker.setMinimumWidth(420)
+        sample_picker.setToolTip("Quickly choose an audio file from the project voices folder.")
         sample_picker.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         sample_picker_view = QtWidgets.QTreeView()
         sample_picker_view.setHeaderHidden(True)
@@ -4736,10 +5218,11 @@ class MultiPersonaRoleplayController:
         test = QtWidgets.QPushButton("Test voice")
         sample_row = QtWidgets.QHBoxLayout()
         sample_row.addWidget(test)
-        sample_row.addWidget(sample_picker)
         sample_row.addWidget(sample, 1)
         sample_row.addWidget(browse)
         sample_row.addWidget(clear)
+        sample_picker_row = QtWidgets.QHBoxLayout()
+        sample_picker_row.addWidget(sample_picker, 1)
         preset = QtWidgets.QLineEdit()
         language = QtWidgets.QComboBox()
         language.addItems(["", "en", "fr", "de", "es", "pt", "it", "ja", "ko", "zh"])
@@ -4753,6 +5236,7 @@ class MultiPersonaRoleplayController:
         form.addRow("", enabled)
         form.addRow("Backend override", backend)
         form.addRow("Voice sample path", sample_row)
+        form.addRow("Voice files in \\voices", sample_picker_row)
         form.addRow("Voice preset name", preset)
         form.addRow("Language", language)
         box_layout.addLayout(form)
@@ -5171,12 +5655,20 @@ class MultiPersonaRoleplayController:
             "Optional: describe the avatar art direction, such as fantasy portraits, cinematic realism, "
             "oil-painted nautical adventurers, gothic hotel staff, matching costume language..."
         )
+        sfw_mode = QtWidgets.QCheckBox("SFW mode")
+        sfw_mode.setChecked(bool(self.settings.get("master_story_sfw_mode", True)))
+        sfw_mode.setToolTip(
+            "When enabled, the story generator keeps romance, conflict, horror, prejudice, and mature emotional themes non-explicit. "
+            "It avoids explicit sexual content, erotic descriptions, and graphic nudity."
+        )
         native_count = QtWidgets.QSpinBox()
         native_count.setRange(0, 24)
         native_count.setValue(self._master_story_int_setting("master_story_native_persona_count", 4, 0, 24))
         max_characters = QtWidgets.QSpinBox()
         max_characters.setRange(1, 40)
         max_characters.setValue(self._master_story_int_setting("master_story_max_created_characters", 8, 1, 40))
+        allow_exceed_max = QtWidgets.QCheckBox("Allow exceeding max created characters")
+        allow_exceed_max.setChecked(bool(self.settings.get("master_story_allow_exceed_max_created_characters", False)))
         use_existing = QtWidgets.QCheckBox("Use already created personas")
         use_existing.setChecked(bool(self.settings.get("master_story_use_existing_personas", True)))
         use_ar = QtWidgets.QCheckBox("Build as AlternativeReality story")
@@ -5193,8 +5685,10 @@ class MultiPersonaRoleplayController:
         clear_memory.setChecked(bool(self.settings.get("master_story_clear_memory", True)))
         form.addRow("Story prompt", story_prompt)
         form.addRow("Avatar visual direction", visual_direction)
+        form.addRow("", sfw_mode)
         form.addRow("Native story personas to draft", native_count)
         form.addRow("Maximum created characters", max_characters)
+        form.addRow("", allow_exceed_max)
         form.addRow("", use_existing)
         form.addRow("", use_ar)
         form.addRow("", auto_create)
@@ -5262,8 +5756,10 @@ class MultiPersonaRoleplayController:
         self._controls.update({
             "master_story_prompt": story_prompt,
             "master_story_visual_direction": visual_direction,
+            "master_story_sfw_mode": sfw_mode,
             "master_story_native_persona_count": native_count,
             "master_story_max_created_characters": max_characters,
+            "master_story_allow_exceed_max_created_characters": allow_exceed_max,
             "master_story_use_existing_personas": use_existing,
             "master_story_use_ar": use_ar,
             "master_story_auto_create": auto_create,
@@ -5290,8 +5786,10 @@ class MultiPersonaRoleplayController:
         load.clicked.connect(self._load_selected_master_story)
         delete.clicked.connect(self._delete_selected_master_story)
         story_list.currentIndexChanged.connect(lambda *_args: self._on_master_story_selection_changed())
+        sfw_mode.toggled.connect(lambda *_args: self._commit_master_story_options())
         native_count.valueChanged.connect(lambda *_args: self._commit_master_story_options())
         max_characters.valueChanged.connect(lambda *_args: self._commit_master_story_options())
+        allow_exceed_max.toggled.connect(lambda *_args: self._commit_master_story_options())
         use_existing.toggled.connect(lambda *_args: self._commit_master_story_options())
         use_ar.toggled.connect(lambda *_args: self._commit_master_story_options())
         auto_create.toggled.connect(lambda *_args: self._commit_master_story_options())
@@ -5503,6 +6001,15 @@ class MultiPersonaRoleplayController:
             row = next((i for i, p in enumerate(self.personas) if p.id == active_id), 0)
             persona_list.setCurrentRow(max(0, row))
             persona_list.blockSignals(False)
+        delete_button = self._controls.get("delete_persona")
+        if delete_button is not None and hasattr(delete_button, "setEnabled"):
+            selected = self.active_persona()
+            protected = self._persona_is_master_narrator(selected)
+            delete_button.setEnabled(len(self.personas) > 1 and not protected)
+            if protected:
+                delete_button.setToolTip("Master narrator personas are protected. Uncheck Master narrator in Editor before deleting.")
+            else:
+                delete_button.setToolTip("Delete the selected persona.")
         next_speaker = self._controls.get("next_speaker")
         if next_speaker is not None:
             next_speaker.blockSignals(True)
@@ -5634,8 +6141,8 @@ class MultiPersonaRoleplayController:
             QtCore.Qt.ToolTipRole,
         )
         for persona in self._ordered_narrator_selector_personas():
-            label = self._persona_story_label(persona)
-            if self._persona_looks_like_narrator(persona):
+            label = self._persona_voice_selector_label(persona)
+            if self._persona_looks_like_narrator(persona) and not self._persona_is_master_narrator(persona):
                 label += " [Narrator]"
             combo.addItem(label, persona.id)
             combo.setItemData(
@@ -5679,8 +6186,8 @@ class MultiPersonaRoleplayController:
         combo.blockSignals(True)
         combo.clear()
         narrator_id = self.selected_narrator_persona_id()
-        for persona in self.personas:
-            label = self._persona_story_label(persona)
+        for persona in self._ordered_voice_selector_personas():
+            label = self._persona_voice_selector_label(persona)
             if persona.id == narrator_id:
                 label += " [AR narrator]"
             combo.addItem(label, persona.id)
@@ -5710,6 +6217,9 @@ class MultiPersonaRoleplayController:
 
     def _persona_story_label(self, persona: PersonaConfig) -> str:
         label = str(persona.display_name or persona.id).strip() or persona.id
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            label += f" #{master_number} [Master Narrator]"
         linked = self._master_story_linked_persona_ids()
         created = self._master_story_created_persona_ids()
         auto_chat = self._chat_auto_created_persona_ids()
@@ -5723,8 +6233,18 @@ class MultiPersonaRoleplayController:
             label += " [Story]"
         return label
 
+    def _persona_voice_selector_label(self, persona: PersonaConfig) -> str:
+        label = str(persona.display_name or persona.id).strip() or persona.id
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            return f"{label} #{master_number} ({persona.id} #{master_number}) [Master Narrator]"
+        return f"{label} ({persona.id})"
+
     def _persona_story_tooltip(self, persona: PersonaConfig) -> str:
         pieces = [f"{persona.display_name} ({persona.id})"]
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            pieces.append(f"Master narrator #{master_number}. Protected from deletion and prioritized for narrator voice selection.")
         if persona.id in self._chat_auto_created_persona_ids():
             pieces.append("Auto-created from a [CHARACTER: Name] tag in the active chat. Edit this persona to add voice, prompts, and pictures.")
         if persona.id in self._master_story_linked_persona_ids():
@@ -5752,6 +6272,7 @@ class MultiPersonaRoleplayController:
         widgets = self._controls
         widgets["persona_id"].setText(persona.id)
         widgets["persona_enabled"].setChecked(bool(persona.enabled))
+        widgets["master_narrator"].setChecked(self._persona_is_master_narrator(persona))
         widgets["display_name"].setText(persona.display_name)
         widgets["role"].setText(persona.role)
         widgets["description"].setPlainText(persona.description)
@@ -6660,9 +7181,11 @@ class MultiPersonaRoleplayController:
         old_id = persona.id
         old_display_name = persona.display_name
         old_image_path = persona.character_image_path
+        old_master_narrator = self._persona_is_master_narrator(persona)
         requested_id = unique_persona_id(self._controls["persona_id"].text(), {p.id for p in self.personas if p is not persona})
         persona.id = requested_id
         persona.enabled = self._controls["persona_enabled"].isChecked()
+        persona.master_narrator = bool(self._controls["master_narrator"].isChecked())
         persona.display_name = self._controls["display_name"].text().strip() or persona.id.replace("_", " ").title()
         persona.role = self._controls["role"].text().strip()
         persona.description = self._controls["description"].toPlainText().strip()
@@ -6695,9 +7218,11 @@ class MultiPersonaRoleplayController:
         self.save_state()
         self._notify_changed()
         identity_changed = old_id != persona.id or old_display_name != persona.display_name
-        if identity_changed:
+        if identity_changed or old_master_narrator != self._persona_is_master_narrator(persona):
             self._refresh_persona_selectors()
             self._populate_session()
+            self._refresh_narrator_selector()
+            self._refresh_voice_persona_selector()
         if old_image_path != persona.character_image_path:
             self._set_image_label(self._controls.get("character_image"), persona.character_image_path, fallback_text="No picture")
         self._refresh_character_preview()
@@ -7580,6 +8105,7 @@ class MultiPersonaRoleplayController:
         payload = self._normalize_master_story_payload(self._demo_story_payload(voice_paths))
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         draft_widget = self._controls.get("master_story_draft")
         if draft_widget is not None:
             draft_widget.setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -7793,6 +8319,7 @@ class MultiPersonaRoleplayController:
         payload = self._normalize_master_story_payload(self._story_template_payload(template_id, voice_paths))
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         draft_widget = self._controls.get("master_story_draft")
         if draft_widget is not None:
             draft_widget.setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -8598,9 +9125,12 @@ class MultiPersonaRoleplayController:
             ] if constraints["use_existing_personas"] else []
         return {
             "prompt": str(prompt or "").strip(),
+            "safe_prompt": self._master_story_safety_normalized_prompt(prompt, sfw=bool(constraints.get("sfw_mode", True))),
             "visual_direction": visual_direction,
             "constraints": constraints,
             "generation_notes": self._master_story_generation_constraints_text(constraints),
+            "content_safety": self._master_story_content_safety_payload(bool(constraints.get("sfw_mode", True))),
+            "safety_instruction": self._master_story_safety_instruction(bool(constraints.get("sfw_mode", True))),
             "use_ar": bool(use_ar),
             "roster": roster,
         }
@@ -8613,20 +9143,25 @@ class MultiPersonaRoleplayController:
         model_name = str(getattr(engine, "RUNTIME_CONFIG", {}).get("model_name", "") or "").strip()
         if not model_name:
             raise RuntimeError("Choose a chat model before generating a Master Story.")
-        prompt = str(snapshot.get("prompt") or "").strip()
+        prompt = str(snapshot.get("safe_prompt") or snapshot.get("prompt") or "").strip()
         visual_direction = str(snapshot.get("visual_direction") or "").strip()
         constraints = dict(snapshot.get("constraints") or {})
+        content_safety = dict(snapshot.get("content_safety") or self._master_story_content_safety_payload(bool(constraints.get("sfw_mode", True))))
+        safety_instruction = str(snapshot.get("safety_instruction") or self._master_story_safety_instruction(bool(content_safety.get("sfw", True))))
         roster = list(snapshot.get("roster") or []) if constraints.get("use_existing_personas") else []
         use_ar = bool(snapshot.get("use_ar", True))
         system = (
             "You create compact JSON story setup files for NeuralCompanion's Multi Persona Roleplay addon. "
-            "Return one valid JSON object only, with no markdown. Reuse existing persona IDs when the user's requested "
-            "character clearly matches an existing persona and existing-persona reuse is enabled. Create new persona objects only when needed. Keep all content "
-            "fictional, consensual, adult-safe, non-explicit, and respectful of user agency. For sensual or romantic adventure, "
-            "write suggestive atmosphere and character chemistry without explicit sexual content. Do not use DnD/tabletop rules, "
+            "Return one valid canonical story JSON object only, with no markdown and no wrapper unless the user explicitly asks for an envelope. "
+            "Do not append a second fallback story object. Do not repeat top-level keys. Do not overwrite a populated personas array with an empty one. "
+            "Reuse existing persona IDs when the user's requested character clearly matches an existing persona and existing-persona reuse is enabled. "
+            "Create new persona objects only when needed. Keep all content fictional, consensual, adult-safe, and respectful of user agency. "
+            f"{safety_instruction} "
+            "Do not use DnD/tabletop rules, "
             "dice, stats, or classes unless the user explicitly asks for them. For every persona, create a useful visual profile "
             "for avatar portrait generation. If the story is fantasy, make the visual descriptions read as strong fantasy "
-            "character portraits that still follow the user's story premise. Follow the requested persona counts and character limits."
+            "character portraits that still follow the user's story premise. Follow the requested persona count exactly when possible, "
+            "and respect the configured character creation limit."
         )
         user = {
             "task": "Draft a Master Story setup from the user's prompt.",
@@ -8685,12 +9220,42 @@ class MultiPersonaRoleplayController:
                         },
                     }
                 ],
+                "content_safety": {
+                    "sfw": True,
+                    "allow_romance": True,
+                    "allow_mature_themes": False,
+                    "allow_explicit_sexual_content": False,
+                },
+                "generation": {
+                    "source": "master_story_creator",
+                    "requested_story_native_personas": constraints.get("native_personas_to_draft", 4),
+                    "maximum_new_personas_to_create": constraints.get("maximum_new_personas_to_create", 8),
+                    "use_existing_personas": constraints.get("use_existing_personas", True),
+                    "auto_create_missing_personas": constraints.get("auto_create_missing_personas", True),
+                    "sfw_mode": content_safety.get("sfw", True),
+                },
+                "updated_at": "ISO-8601 timestamp or empty string",
             },
             "existing_personas": roster,
             "generation_constraints": constraints,
+            "content_safety": content_safety,
+            "content_safety_instruction": safety_instruction,
+            "canonical_json_rules": [
+                "Return exactly one story object at the JSON root.",
+                "Do not include a second top-level id/title/summary/personas/session block after the story.",
+                "Do not include duplicate top-level keys.",
+                "Keep generated personas in the single personas array.",
+                "Keep metadata in generation and safety flags in content_safety.",
+            ],
+            "persona_count_contract": {
+                "requested_story_native_personas": constraints.get("native_personas_to_draft", 4),
+                "return_exact_persona_count_when_possible": True,
+                "persona_array_is_validated_against_requested_count": True,
+            },
             "generation_notes": str(snapshot.get("generation_notes") or ""),
             "avatar_visual_direction": visual_direction,
             "user_story_prompt": prompt,
+            "original_user_story_prompt_note": "If SFW mode rewrote prompt wording, preserve the user's adventure intent using non-explicit relationship conflict and emotional stakes.",
         }
         messages = [
             {"role": "system", "content": system},
@@ -8719,6 +9284,12 @@ class MultiPersonaRoleplayController:
             return bool(default)
         return bool(widget.isChecked())
 
+    def _master_story_allow_exceed_max_created_characters(self) -> bool:
+        return self._control_checked("master_story_allow_exceed_max_created_characters", False)
+
+    def _master_story_sfw_mode(self) -> bool:
+        return self._control_checked("master_story_sfw_mode", True)
+
     def _control_int_value(self, key: str, default: int, minimum: int, maximum: int) -> int:
         widget = self._controls.get(key)
         try:
@@ -8739,6 +9310,8 @@ class MultiPersonaRoleplayController:
             return
         self.settings["master_story_native_persona_count"] = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
         self.settings["master_story_max_created_characters"] = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
+        self.settings["master_story_allow_exceed_max_created_characters"] = self._control_checked("master_story_allow_exceed_max_created_characters", False)
+        self.settings["master_story_sfw_mode"] = self._master_story_sfw_mode()
         for key in (
             "master_story_use_existing_personas",
             "master_story_use_ar",
@@ -8757,17 +9330,76 @@ class MultiPersonaRoleplayController:
         return {
             "native_personas_to_draft": native_count,
             "maximum_new_personas_to_create": max_created,
+            "allow_exceed_max_created_characters": self._master_story_allow_exceed_max_created_characters(),
+            "sfw_mode": self._master_story_sfw_mode(),
             "use_existing_personas": self._control_checked("master_story_use_existing_personas", True),
             "auto_create_missing_personas": self._control_checked("master_story_auto_create", True),
         }
 
+    def _master_story_content_safety_payload(self, sfw: bool | None = None) -> dict[str, Any]:
+        sfw_enabled = self._master_story_sfw_mode() if sfw is None else bool(sfw)
+        return {
+            "sfw": sfw_enabled,
+            "allow_romance": True,
+            "allow_mature_themes": not sfw_enabled,
+            "allow_explicit_sexual_content": False,
+        }
+
+    @staticmethod
+    def _master_story_safety_instruction(sfw: bool) -> str:
+        if bool(sfw):
+            return (
+                "Content safety: SFW mode is enabled. Keep the story suitable for general fantasy adventure. "
+                "Romantic tension and mature emotional themes are allowed, but do not generate explicit sexual content, erotic descriptions, or graphic nudity. "
+                "Rephrase sexual prompt elements into non-explicit relationship conflict, taboo, loyalty, intimacy, and emotional stakes."
+            )
+        return (
+            "Content safety: SFW mode is disabled. Mature themes may be included when relevant, but do not generate illegal, underage, "
+            "non-consensual, exploitative, or pornographic content. Keep story output narrative-focused and controllable."
+        )
+
+    @staticmethod
+    def _master_story_safety_normalized_prompt(prompt: str, *, sfw: bool) -> str:
+        text = str(prompt or "").strip()
+        if not bool(sfw) or not text:
+            return text
+        replacements = (
+            (r"\binter[\s-]?racial relationships?\s+and\s+sexual activity\b", "forbidden relationships, cultural taboos, and intimate bonds across enemy lines"),
+            (r"\bsexual activity\b", "non-explicit intimate bonds and emotional stakes"),
+            (r"\bexplicit sex(?:ual)?\b", "romantic tension and private emotional stakes"),
+            (r"\berotic\b", "romantic"),
+            (r"\bfetish(?:es|istic)?\b", "personal taboo"),
+            (r"\bgraphic nudity\b", "vulnerable non-explicit intimacy"),
+        )
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text
+
     def _master_story_generation_constraints_text(self, constraints: dict[str, Any] | None = None) -> str:
         constraints = dict(constraints or self._master_story_generation_constraints())
         existing = "may reuse already created personas" if constraints["use_existing_personas"] else "should not rely on already created personas"
+        native_count = int(constraints.get("native_personas_to_draft", 4) or 0)
+        if native_count <= 0:
+            persona_count_line = "- Do not draft story-native persona objects unless the user's prompt explicitly requires them."
+        else:
+            persona_count_line = (
+                f"- Draft exactly {native_count} story-native persona/character profile(s) in the personas array when possible. "
+                "If you cannot safely reach that count, return the closest complete cast and note the reason in the summary instead of adding weak filler."
+            )
+        max_line = (
+            f"- Apply Draft will create no more than {constraints['maximum_new_personas_to_create']} new persona/character profile(s) by default; "
+            "still keep the requested draft cast visible so the user can review, map, reuse, or enable the override."
+        )
+        if constraints.get("allow_exceed_max_created_characters"):
+            max_line = (
+                f"- The user has enabled the max-created override; Apply Draft may create more than "
+                f"{constraints['maximum_new_personas_to_create']} new persona/character profile(s) when the requested draft cast needs it."
+            )
         return (
             "Master Story generation constraints:\n"
-            f"- Draft about {constraints['native_personas_to_draft']} story-native persona/character profile(s) when the user's prompt does not specify an exact cast.\n"
-            f"- Do not create more than {constraints['maximum_new_personas_to_create']} new persona/character profile(s) for this story.\n"
+            f"{persona_count_line}\n"
+            f"{max_line}\n"
+            f"- {self._master_story_safety_instruction(bool(constraints.get('sfw_mode', True)))}\n"
             f"- Existing personas: {existing}.\n"
             "- When reusing an existing persona, keep a clear separation between using that persona as-is and a story-only alternate profile."
         )
@@ -8784,40 +9416,82 @@ class MultiPersonaRoleplayController:
             self._set_master_story_status(f"Generation failed: {error}")
             self._warn("Generate Story Setup", f"Master Story generation failed:\n\n{error}")
             return
-        from . import prompting
-
-        payload = prompting.parse_json_object(payload_text)
+        payload, parse_errors = self._parse_master_story_json_text(payload_text)
         if not isinstance(payload, dict):
-            self._set_master_story_status("Generation returned text, but not valid JSON. Review the draft before applying.")
+            message = "Generation returned text, but not valid JSON. Review or regenerate before applying."
+            if parse_errors:
+                message += " " + parse_errors[0]
+            self._set_master_story_status(message)
             draft = str(payload_text or "").strip()
             if draft:
                 self._controls["master_story_draft"].setPlainText(draft)
             return
-        normalized = self._normalize_master_story_payload(payload)
+        canonical, canonical_errors = self._canonical_master_story_payload(payload)
+        validation_errors = parse_errors + canonical_errors + self._validate_master_story_payload(canonical)
+        if validation_errors:
+            self._controls["master_story_draft"].setPlainText(str(payload_text or "").strip())
+            self._set_master_story_status(self._master_story_validation_message(validation_errors).replace("\n", " "))
+            return
+        normalized = self._normalize_master_story_payload(canonical)
         normalized = self._sanitize_master_story_overrides_for_options(normalized)
         normalized = self._limit_generated_master_story_personas(normalized)
         self._master_story_draft = normalized
         self._set_master_story_visual_direction(normalized.get("avatar_visual_direction"))
+        self._set_master_story_sfw_from_payload(normalized)
         self._controls["master_story_draft"].setPlainText(json.dumps(normalized, indent=2, ensure_ascii=True))
-        self._set_master_story_status("Story setup generated. Review it, then Apply Draft or Save Story.")
+        status = "Story setup generated. Review it, then Apply Draft or Save Story."
+        count_warning = self._master_story_persona_count_warning(normalized)
+        if count_warning:
+            status += " " + count_warning
+        max_warning = self._master_story_generated_persona_limit_warning(normalized)
+        if max_warning:
+            status += " " + max_warning
+        self._set_master_story_status(status)
 
     def _limit_generated_master_story_personas(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # Keep the full generated draft visible. The max-created setting is enforced during Apply Draft.
+        return payload
+
+    def _master_story_persona_count_warning(self, payload: dict[str, Any]) -> str:
+        requested = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
+        personas = [item for item in list((payload or {}).get("personas") or []) if isinstance(item, dict)]
+        actual = len(personas)
+        if actual == requested:
+            return ""
+        return (
+            f"Requested {requested} story-native persona(s); draft returned {actual}. "
+            "Review or regenerate before applying if the cast count matters."
+        )
+
+    def _master_story_generated_persona_limit_warning(self, payload: dict[str, Any]) -> str:
+        if self._master_story_allow_exceed_max_created_characters():
+            return ""
         max_created = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
-        personas = [item for item in list(payload.get("personas") or []) if isinstance(item, dict)]
+        personas = [item for item in list((payload or {}).get("personas") or []) if isinstance(item, dict)]
         if len(personas) <= max_created:
-            return payload
-        limited = dict(payload)
-        limited["personas"] = personas[:max_created]
-        summary = str(limited.get("summary") or "").strip()
-        note = f"Draft was limited to {max_created} persona(s) by Master Story settings."
-        limited["summary"] = f"{summary} {note}".strip()
-        return limited
+            return ""
+        return (
+            f"This draft contains {len(personas)} personas, but only {max_created} new personas will be created unless override is enabled."
+        )
 
     def _set_master_story_visual_direction(self, value: Any) -> None:
         widget = self._controls.get("master_story_visual_direction")
         text = str(value or "").strip()
         if widget is not None and text and not str(widget.toPlainText() or "").strip():
             widget.setPlainText(text)
+
+    def _set_master_story_sfw_from_payload(self, payload: dict[str, Any]) -> None:
+        widget = self._controls.get("master_story_sfw_mode")
+        if widget is None or not hasattr(widget, "setChecked"):
+            return
+        safety = payload.get("content_safety") if isinstance(payload.get("content_safety"), dict) else {}
+        sfw = bool(safety.get("sfw", True))
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            widget.setChecked(sfw)
+        finally:
+            self._syncing = was_syncing
 
     def _sanitize_master_story_overrides_for_options(self, payload: dict[str, Any]) -> dict[str, Any]:
         raw = dict(payload or {})
@@ -8867,8 +9541,125 @@ class MultiPersonaRoleplayController:
                     ids.add(persona_id)
         return ids
 
-    def _normalize_master_story_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _parse_master_story_json_text(self, text: str) -> tuple[dict[str, Any] | None, list[str]]:
+        raw = str(text or "").strip()
+        if not raw:
+            return None, ["Master Story draft is empty."]
+        errors: list[str] = []
+
+        def reject_duplicates(pairs):
+            obj: dict[str, Any] = {}
+            seen: set[str] = set()
+            for key, value in pairs:
+                key_text = str(key)
+                if key_text in seen:
+                    errors.append(f"Duplicate JSON key '{key_text}' was found. Remove duplicate keys before applying the draft.")
+                seen.add(key_text)
+                obj[key_text] = value
+            return obj
+
+        def load(candidate: str) -> dict[str, Any] | None:
+            try:
+                payload = json.loads(candidate, object_pairs_hook=reject_duplicates)
+            except Exception as exc:
+                errors.append(f"Invalid JSON: {exc}")
+                return None
+            if not isinstance(payload, dict):
+                errors.append("Master Story draft must be a JSON object.")
+                return None
+            return payload
+
+        payload = load(raw)
+        if payload is None and "{" in raw and "}" in raw:
+            errors.clear()
+            start = raw.find("{")
+            end = raw.rfind("}")
+            payload = load(raw[start : end + 1])
+        return payload, errors
+
+    def _canonical_master_story_payload(self, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         raw = dict(payload or {})
+        errors: list[str] = []
+        story_keys = {
+            "id",
+            "title",
+            "summary",
+            "mode",
+            "active_persona_id",
+            "current_speaker_id",
+            "session",
+            "personas",
+            "content_safety",
+        }
+        if isinstance(raw.get("draft"), dict):
+            mixed = sorted(key for key in story_keys if key in raw)
+            if mixed:
+                errors.append(
+                    "Master Story JSON mixes wrapper fields with story fields at the same level: "
+                    + ", ".join(mixed)
+                    + ". Put the story only inside draft or return the story object directly."
+                )
+            draft = dict(raw.get("draft") or {})
+            if isinstance(raw.get("generation_constraints"), dict) and not isinstance(draft.get("generation"), dict):
+                draft["generation"] = dict(raw.get("generation_constraints") or {})
+            return draft, errors
+        return raw, errors
+
+    def _validate_master_story_payload(self, payload: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        required = ("id", "title", "mode", "session", "personas")
+        for key in required:
+            if key not in payload:
+                errors.append(f"Missing required field: {key}.")
+        if "session" in payload and not isinstance(payload.get("session"), dict):
+            errors.append("Field 'session' must be an object.")
+        mode = str(payload.get("mode") or "").strip()
+        if mode and mode not in SESSION_MODES:
+            errors.append(f"Unsupported mode '{mode}'.")
+        personas = payload.get("personas")
+        if not isinstance(personas, list):
+            errors.append("Field 'personas' must be an array.")
+            personas = []
+        requested = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
+        if requested > 0 and isinstance(personas, list) and not personas:
+            errors.append(f"Draft requested {requested} story-native persona(s), but personas is empty.")
+        ids: list[str] = []
+        for index, item in enumerate(list(personas or []), start=1):
+            if not isinstance(item, dict):
+                errors.append(f"Persona {index} must be an object.")
+                continue
+            persona_id = normalize_persona_id(item.get("id"))
+            if not persona_id:
+                errors.append(f"Persona {index} is missing id.")
+            else:
+                ids.append(persona_id)
+            if not str(item.get("display_name") or "").strip():
+                errors.append(f"Persona {index} is missing display_name.")
+            if not str(item.get("role") or "").strip():
+                errors.append(f"Persona {index} is missing role.")
+            if not str(item.get("system_prompt") or item.get("ar_system_prompt") or "").strip():
+                errors.append(f"Persona {index} must include system_prompt or ar_system_prompt.")
+        duplicates = sorted({persona_id for persona_id in ids if ids.count(persona_id) > 1})
+        if duplicates:
+            errors.append("Duplicate persona id(s) in draft: " + ", ".join(duplicates) + ".")
+        known_ids = {persona.id for persona in self.personas}
+        known_ids.update(ids)
+        narrator_id = normalize_persona_id(payload.get("narrator_persona_id"))
+        if narrator_id:
+            known_ids.add(narrator_id)
+        session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+        for key in ("active_persona_id", "current_speaker_id"):
+            value = normalize_persona_id(payload.get(key) or session.get(key))
+            if value and value not in known_ids:
+                errors.append(f"{key} '{value}' does not match a draft persona, existing persona, or narrator id.")
+        return errors
+
+    def _master_story_validation_message(self, errors: list[str]) -> str:
+        return "Master Story draft validation failed:\n\n" + "\n".join(f"- {item}" for item in errors[:12])
+
+    def _normalize_master_story_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        raw, _errors = self._canonical_master_story_payload(payload)
+        raw = dict(raw or {})
         title = str(raw.get("title") or raw.get("id") or "Master Story").strip() or "Master Story"
         story_id = self.storage.story_id(raw.get("id") or title)
         session = dict(raw.get("session") or {}) if isinstance(raw.get("session"), dict) else {}
@@ -8920,24 +9711,48 @@ class MultiPersonaRoleplayController:
         raw["current_speaker_id"] = speaker_id
         session["mode"] = mode
         raw["session"] = session
+        content_safety = raw.get("content_safety") if isinstance(raw.get("content_safety"), dict) else {}
+        sfw = bool(content_safety.get("sfw", True))
+        raw["content_safety"] = {
+            **self._master_story_content_safety_payload(sfw),
+            **{key: value for key, value in content_safety.items() if key in {"sfw", "allow_romance", "allow_mature_themes", "allow_explicit_sexual_content"}},
+        }
+        raw["content_safety"]["allow_explicit_sexual_content"] = False
+        generation = raw.get("generation") if isinstance(raw.get("generation"), dict) else {}
+        raw["generation"] = {
+            "source": "master_story_creator",
+            "requested_story_native_personas": self._control_int_value("master_story_native_persona_count", 4, 0, 24),
+            "maximum_new_personas_to_create": self._control_int_value("master_story_max_created_characters", 8, 1, 40),
+            "use_existing_personas": self._control_checked("master_story_use_existing_personas", True),
+            "auto_create_missing_personas": self._control_checked("master_story_auto_create", True),
+            "sfw_mode": bool(raw["content_safety"].get("sfw", True)),
+            **generation,
+        }
         raw["updated_at"] = QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate)
         return raw
 
     def _parse_master_story_draft(self) -> dict[str, Any] | None:
-        from . import prompting
-
         draft = str(self._controls.get("master_story_draft").toPlainText() if self._controls.get("master_story_draft") is not None else "").strip()
         if not draft and self._master_story_draft:
             return self._normalize_master_story_payload(self._master_story_draft)
-        payload = prompting.parse_json_object(draft)
+        payload, parse_errors = self._parse_master_story_json_text(draft)
         if not isinstance(payload, dict):
+            if parse_errors:
+                self._set_master_story_status(self._master_story_validation_message(parse_errors).replace("\n", " "))
             return None
-        return self._normalize_master_story_payload(payload)
+        canonical, canonical_errors = self._canonical_master_story_payload(payload)
+        errors = parse_errors + canonical_errors + self._validate_master_story_payload(canonical)
+        if errors:
+            self._set_master_story_status(self._master_story_validation_message(errors).replace("\n", " "))
+            return None
+        normalized = self._normalize_master_story_payload(canonical)
+        self._set_master_story_sfw_from_payload(normalized)
+        return normalized
 
     def _apply_master_story_draft(self):
         payload = self._parse_master_story_draft()
         if not isinstance(payload, dict):
-            self._warn("Apply Draft", "The Master Story draft is not valid JSON.")
+            self._warn("Apply Draft", "The Master Story draft is not valid or does not match the required story schema. Check the Master Story status message.")
             return
         payload = self._sanitize_master_story_overrides_for_options(payload)
         apply_plan = self._show_master_story_apply_dialog(payload)
@@ -8972,6 +9787,12 @@ class MultiPersonaRoleplayController:
         guide.setWordWrap(True)
         guide.setProperty("muted", True)
         layout.addWidget(guide)
+        count_warning = self._master_story_generated_persona_limit_warning(payload)
+        if count_warning:
+            warning = QtWidgets.QLabel(count_warning)
+            warning.setWordWrap(True)
+            warning.setStyleSheet("color: #facc15; font-weight: 700;")
+            layout.addWidget(warning)
 
         options_box, options_layout = self._group("Workflow Options")
         options_row = QtWidgets.QHBoxLayout()
@@ -8983,6 +9804,12 @@ class MultiPersonaRoleplayController:
         auto_avatars.setChecked(self._control_checked("master_story_auto_avatars", True))
         avatar_style_sheets = QtWidgets.QCheckBox("Request avatar style sheets")
         avatar_style_sheets.setChecked(self._control_checked("master_story_avatar_style_sheets", False))
+        allow_exceed_max = QtWidgets.QCheckBox("Allow exceeding max created characters")
+        allow_exceed_max.setChecked(self._master_story_allow_exceed_max_created_characters())
+        allow_exceed_max.setToolTip(
+            "Default off. When off, Apply Story creates no more new personas than Maximum created characters. "
+            "Enable only when this draft intentionally needs a larger new cast."
+        )
         avatar_style_sheets.setToolTip(
             "Optional. Requests a character reference sheet after a new persona has an avatar image. "
             "Best used with Visual Reply providers or workflows that support image-to-image/reference input."
@@ -8991,6 +9818,7 @@ class MultiPersonaRoleplayController:
         options_row.addWidget(update_existing)
         options_row.addWidget(auto_avatars)
         options_row.addWidget(avatar_style_sheets)
+        options_row.addWidget(allow_exceed_max)
         options_row.addStretch(1)
         options_layout.addLayout(options_row)
         layout.addWidget(options_box)
@@ -9240,6 +10068,7 @@ class MultiPersonaRoleplayController:
                     clean_start=bool(clean_start.isChecked()),
                     auto_avatars=bool(auto_avatars.isChecked()),
                     avatar_style_sheets=bool(avatar_style_sheets.isChecked()),
+                    allow_exceed_max=bool(allow_exceed_max.isChecked()),
                 )
             )
             prompt_preview = self._draft_avatar_prompt_preview(item, payload)
@@ -9333,7 +10162,7 @@ class MultiPersonaRoleplayController:
         persona_gallery.itemClicked.connect(on_gallery_clicked)
         draft_avatar_generate.clicked.connect(lambda *_args: request_draft_avatar(False))
         draft_avatar_regenerate.clicked.connect(lambda *_args: request_draft_avatar(True))
-        for widget in (clean_start, update_existing, auto_avatars, avatar_style_sheets):
+        for widget in (clean_start, update_existing, auto_avatars, avatar_style_sheets, allow_exceed_max):
             widget.toggled.connect(lambda *_args: refresh_current_row(int(active_row.get("value", -1))))
         if personas:
             draft_list.setCurrentRow(0)
@@ -9373,6 +10202,7 @@ class MultiPersonaRoleplayController:
             "update_existing": bool(update_existing.isChecked()),
             "auto_avatars": bool(auto_avatars.isChecked()),
             "avatar_style_sheets": bool(avatar_style_sheets.isChecked()),
+            "allow_exceed_max_created_characters": bool(allow_exceed_max.isChecked()),
         }
 
     def _apply_dialog_initial_icon(self, text: str, size: int = 64):
@@ -9502,6 +10332,7 @@ class MultiPersonaRoleplayController:
         clean_start: bool,
         auto_avatars: bool,
         avatar_style_sheets: bool = False,
+        allow_exceed_max: bool = False,
     ) -> str:
         action = str(action or ("__create__" if str(choice or "") in {"", "__create__"} else "story_profile")).strip()
         selected = self.persona_by_id(choice) if action != "__create__" and str(choice or "") not in {"", "__create__"} else None
@@ -9554,6 +10385,11 @@ class MultiPersonaRoleplayController:
         story_title = str(payload.get("title") or payload.get("id") or "this Master Story").strip()
         lines.append(f"Story link: character will be linked to {story_title}.")
         lines.append(f"Memory: {'old MPRC story memory will be cleared first' if clean_start else 'existing MPRC memory will be kept'} before applying.")
+        if action == "__create__" or selected is None:
+            max_created = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
+            lines.append(
+                f"Creation limit: {'override enabled' if allow_exceed_max else f'max {max_created} new persona(s)'} for this apply."
+            )
         return "\n".join(lines)
 
     def _draft_avatar_prompt_preview(self, persona_payload: dict[str, Any], payload: dict[str, Any]) -> str:
@@ -9682,6 +10518,7 @@ class MultiPersonaRoleplayController:
         update_existing = bool(apply_plan.get("update_existing", self._control_checked("master_story_update_existing", True)))
         auto_avatars = bool(apply_plan.get("auto_avatars", self._control_checked("master_story_auto_avatars", True)))
         avatar_style_sheets = bool(apply_plan.get("avatar_style_sheets", self._control_checked("master_story_avatar_style_sheets", False)))
+        allow_exceed_max = bool(apply_plan.get("allow_exceed_max_created_characters", self._master_story_allow_exceed_max_created_characters()))
         if bool(apply_plan.get("clear_memory", self._control_checked("master_story_clear_memory", True))):
             self._clear_master_story_runtime_state(clear_long_memory=True, enabled=True)
         persona_choices = dict(apply_plan.get("persona_choices") or {})
@@ -9743,7 +10580,7 @@ class MultiPersonaRoleplayController:
             if not create_allowed:
                 skipped.append(str(item.get("display_name") or item.get("id") or "persona"))
                 continue
-            if created >= max_created:
+            if not allow_exceed_max and created >= max_created:
                 skipped.append(f"{str(item.get('display_name') or item.get('id') or 'persona')} (creation limit)")
                 continue
             persona_payload = dict(item)
@@ -9862,8 +10699,16 @@ class MultiPersonaRoleplayController:
             message += " " + avatar_result
         if style_sheet_result:
             message += " " + style_sheet_result
+        limit_skipped = [item for item in skipped if "(creation limit)" in item]
+        other_skipped = [item for item in skipped if "(creation limit)" not in item]
+        if limit_skipped:
+            message += (
+                f" Creation limit {max_created} skipped {len(limit_skipped)} draft persona(s). "
+                "Enable Allow exceeding max created characters to create more."
+            )
+        if other_skipped:
+            message += f" Skipped personas: {', '.join(other_skipped[:5])}."
         if skipped:
-            message += f" Skipped missing personas: {', '.join(skipped[:5])}."
             self._record_story_event(f"persona skipped: {', '.join(skipped[:8])}", severity="warning", kind="persona", persist=True)
         self._set_master_story_status(message)
         logger = getattr(self.context, "logger", None)
@@ -10418,6 +11263,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         payload = self._ensure_master_story_image(payload)
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         self._controls["master_story_draft"].setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
         if self.storage.story_id(self.settings.get("last_master_story_id") or "") == story_id:
             self._save_story_memory_snapshot(story_id)
@@ -10444,6 +11290,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         payload = self._ensure_master_story_image(payload, save_story=True)
         self._master_story_draft = payload
         self._set_master_story_visual_direction(payload.get("avatar_visual_direction"))
+        self._set_master_story_sfw_from_payload(payload)
         self._controls["master_story_draft"].setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
         self._apply_master_story_payload(payload, apply_plan={"clear_memory": True})
         restored = self._restore_story_memory_snapshot(story_id)
@@ -10987,6 +11834,12 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         persona = self._selected_persona()
         if persona is None:
             return
+        if self._persona_is_master_narrator(persona):
+            self._warn(
+                "Delete persona",
+                "This persona is marked as a Master narrator and is protected from deletion. Uncheck Master narrator in the Editor tab before deleting it.",
+            )
+            return
         self.personas = [item for item in self.personas if item.id != persona.id]
         self.session.active_persona_id = self.personas[0].id
         self.session.current_speaker_id = self.session.active_persona_id
@@ -11067,7 +11920,13 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             self.storage.export_personas_to_path(path, self.personas)
 
     def _browse_voice_sample(self):
-        path = self._open_file("Choose voice sample", str(Path.home()), "Audio files (*.wav *.mp3 *.flac *.ogg);;All files (*.*)")
+        voices_dir = self._voice_sample_folder()
+        start = voices_dir if voices_dir.exists() and voices_dir.is_dir() else Path(__file__).resolve().parents[2]
+        path = self._open_file(
+            "Choose voice sample",
+            str(start),
+            "WAV files (*.wav);;Audio files (*.wav *.mp3 *.flac *.ogg *.m4a);;All files (*.*)",
+        )
         if path:
             self._controls["voice_sample"].setText(path)
             self._populate_voice_sample_picker()
@@ -11488,9 +12347,9 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             return
         visible = bool(self.settings.get("show_current_character_visual", True))
         if visible:
-            panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
-            panel.setMinimumHeight(340)
-            panel.setMaximumHeight(380)
+            panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+            panel.setMinimumHeight(500)
+            panel.setMaximumHeight(16777215)
         else:
             panel.setMinimumHeight(0)
             panel.setMaximumHeight(0)
@@ -11695,9 +12554,9 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 child.setParent(None)
                 child.deleteLater()
         active_id = str(self.session.current_speaker_id or self.session.active_persona_id or "")
-        tile_width = 118
-        tile_height = 100
-        tile_spacing = 14
+        tile_width = 132
+        tile_height = 134
+        tile_spacing = 12
         count = 0
         for persona in self.personas:
             count += 1
@@ -11728,17 +12587,25 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 """
             )
             tile_layout = QtWidgets.QVBoxLayout(tile)
-            tile_layout.setContentsMargins(5, 5, 5, 5)
-            tile_layout.setSpacing(0)
+            tile_layout.setContentsMargins(5, 5, 5, 6)
+            tile_layout.setSpacing(4)
             preview = QtWidgets.QLabel()
-            preview.setFixedSize(108, 90)
-            preview.setMinimumSize(108, 90)
-            preview.setMaximumSize(108, 90)
-            preview.setProperty("_mprc_image_width", 108)
-            preview.setProperty("_mprc_image_height", 90)
+            preview.setFixedSize(120, 96)
+            preview.setMinimumSize(120, 96)
+            preview.setMaximumSize(120, 96)
+            preview.setProperty("_mprc_image_width", 120)
+            preview.setProperty("_mprc_image_height", 96)
             preview.setAlignment(QtCore.Qt.AlignCenter)
             self._set_image_label(preview, persona.character_image_path, fallback_text="No picture")
             tile_layout.addWidget(preview, 0, QtCore.Qt.AlignCenter)
+            name = QtWidgets.QLabel(str(persona.display_name or persona.id).strip() or persona.id)
+            name.setObjectName("mprc_character_roster_name")
+            name.setAlignment(QtCore.Qt.AlignCenter)
+            name.setWordWrap(False)
+            name.setToolTip(str(persona.display_name or persona.id))
+            name.setStyleSheet("QLabel#mprc_character_roster_name { color: #dbeafe; background: transparent; border: none; font-weight: 700; }")
+            name.setFixedHeight(20)
+            tile_layout.addWidget(name, 0)
             tile.mousePressEvent = lambda _event, pid=persona.id: self._select_persona_id(pid)
             layout.addWidget(tile, 0, QtCore.Qt.AlignTop)
         content = self._controls.get("character_roster_content")
@@ -11747,6 +12614,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             content.setMinimumWidth(total_width)
             content.setFixedWidth(total_width)
             content.setFixedHeight(tile_height)
+            content.setMinimumHeight(tile_height)
         layout.setSpacing(tile_spacing)
 
     def _character_thumbnail_icon(self, persona: PersonaConfig):

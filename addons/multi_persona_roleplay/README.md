@@ -75,6 +75,10 @@ The Voice Routing Inspector shows exactly how `[NARRATOR]` and `[CHARACTER: Name
 
 Each persona has its own visual profile. The Preview button shows the effective image prompt. Generate Visual Reply sends that prompt to the existing Visual Reply service when the first-party Visual Reply addon is enabled and configured.
 
+MPRC changes prompt style by provider. Grok/xAI uses a richer natural-language prompt with story moment, visible action, persona identity, appearance, scene, mood, lighting, visual style, and continuity. Runware uses a shorter direct prompt with concrete visual phrases so the provider is not overloaded by long story instructions. ComfyUI keeps the existing compact positive-prompt behavior.
+
+If a persona provider is set to `inherit`, MPRC resolves the active Visual Reply provider snapshot when available and builds the prompt for that provider. The Debug tab and Visual Prompt Debug panel show the effective provider, persona override, active provider snapshot, and final prompt style.
+
 MPRC does not duplicate Visual Reply history or image storage. Generated images still flow through the existing Visual Reply state and dock.
 
 ## Audio
@@ -116,6 +120,8 @@ This JSON backend is the stable local memory shape. A PostgreSQL or vector backe
 ## Backend Limits
 
 - Per-message backend switching is not performed. NC loads one active TTS backend, and MPRC routes voice samples only when the persona backend is `inherit` or matches the active backend.
+- MPRC can route distinct voices per persona only when the active NC TTS backend supports reference audio. Newly created personas need voice samples before they can sound different.
+- During one TTS response, voices should switch only on explicit speaker segments such as `[NARRATOR]`, `[CHARACTER: Exact Persona Display Name]`, or supported speaker/persona labels. Explicit payload `persona_id`, `speaker_id`, or `current_speaker_id` wins over text labels.
 - Some backends ignore language hints. PocketTTS accepts per-request language hints; other backends may require changing their normal runtime setting.
 - Visual Reply generation requires the existing Visual Reply provider to be configured with the needed API key, base URL, or workflow.
 
@@ -123,7 +129,9 @@ This JSON backend is the stable local memory shape. A PostgreSQL or vector backe
 
 - If the Roleplay tab is missing, confirm the addon is enabled in the Addons UI and restart NC.
 - If a voice does not apply, check that roleplay mode is enabled, the persona voice toggle is on, the file path exists, and the active TTS backend supports voice samples.
-- If image generation does not start, use Preview Image Prompt first, then check the Visual Reply provider settings.
+- If a voice changes unexpectedly during one response, open Status or Debug and inspect Voice Routing. The route reason should explain whether the segment came from `explicit_persona`, `text_speaker_label`, `ar_narrator_default`, `ar_stream_speaker`, `current_speaker`, or `active_persona`.
+- If image generation does not start, use Preview Image Prompt first, then check the Visual Reply provider settings, persona visual enablement, trigger mode, cooldown, and max auto images.
+- If Runware results get worse, shorten the prompt and keep concrete visual phrases. If Grok/xAI results are too plain, add richer natural-language visual detail.
 - If a persona feels too repetitive, lower the repetition threshold in `settings.json` or edit the persona prompt to ask for more varied responses.
 - If AR mode feels too chatty, set pacing to `Slow / Audiobook` and interaction frequency to `Continue until important choice`.
 

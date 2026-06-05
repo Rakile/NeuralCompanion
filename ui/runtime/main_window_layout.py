@@ -24,7 +24,7 @@ class MainWindowLayoutMixin:
         self.system_shaping_panel, self.workspace_tabs_panel = self._build_left_panel()
         self.right_panel = self._build_right_panel()
 
-        self.system_shaping_dock = QtWidgets.QDockWidget("System Shaping", self)
+        self.system_shaping_dock = QtWidgets.QDockWidget("HOST", self)
         self.system_shaping_dock.setObjectName("SystemShapingDock")
         self.system_shaping_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea
@@ -37,7 +37,7 @@ class MainWindowLayoutMixin:
         self._register_workspace_dock(self.system_shaping_dock)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
 
-        self.workspace_tabs_dock = QtWidgets.QDockWidget("Workspace Tabs", self)
+        self.workspace_tabs_dock = QtWidgets.QDockWidget("ADDONS", self)
         self.workspace_tabs_dock.setObjectName("WorkspaceTabsDock")
         self.workspace_tabs_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea
@@ -55,7 +55,7 @@ class MainWindowLayoutMixin:
             pass
         self.workspace_tabs_dock.raise_()
 
-        self.operational_dock = QtWidgets.QDockWidget("Operational View", self)
+        self.operational_dock = QtWidgets.QDockWidget("CHAT INTERFACE", self)
         self.operational_dock.setObjectName("OperationalViewDock")
         self.operational_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea

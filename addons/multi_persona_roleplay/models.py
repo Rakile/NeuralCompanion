@@ -87,6 +87,22 @@ def _choice(value: Any, choices: tuple[str, ...], default: str) -> str:
     text = _text(value, default)
     if choices is SESSION_MODES and text.strip().lower() in {"ar", "alternative reality", "alternative_reality"}:
         return AR_MODE
+    if choices is VISUAL_PROVIDERS:
+        visual_aliases = {
+            "xai": "xai",
+            "x_ai": "xai",
+            "grok": "xai",
+            "grok_text_to_image": "xai",
+            "grok_image": "xai",
+            "grok_imagine": "xai",
+            "runware_ai": "runware",
+            "runwareai": "runware",
+            "comfy_ui": "comfyui",
+            "comfy": "comfyui",
+        }
+        alias_key = text.strip().lower().replace("-", "_").replace(" ", "_")
+        if alias_key in visual_aliases:
+            return visual_aliases[alias_key]
     lowered = {item.lower(): item for item in choices}
     return lowered.get(text.lower(), default)
 
@@ -224,6 +240,7 @@ class PersonaConfig:
     temperature_hint: str = ""
     memory_scope: str = "persona-only"
     behavior_mode: str = "normal companion"
+    master_narrator: bool = False
     tags: list[str] = field(default_factory=list)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     visual: VisualProfile = field(default_factory=VisualProfile)
@@ -250,6 +267,7 @@ class PersonaConfig:
             temperature_hint=_text(data.get("temperature_hint")),
             memory_scope=_choice(data.get("memory_scope"), MEMORY_SCOPES, "persona-only"),
             behavior_mode=_choice(data.get("behavior_mode"), BEHAVIOR_MODES, "normal companion"),
+            master_narrator=_bool(data.get("master_narrator"), False),
             tags=_tags(data.get("tags")),
             voice=VoiceConfig.from_dict(data.get("voice") if isinstance(data.get("voice"), dict) else {}),
             visual=VisualProfile.from_dict(data.get("visual") if isinstance(data.get("visual"), dict) else {}),

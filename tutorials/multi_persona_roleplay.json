@@ -1,0 +1,58 @@
+{
+  "id": "multi_persona_roleplay",
+  "order": 14,
+  "title": "14. Multi Persona Roleplay",
+  "description": "Status-first setup for MPRC, AlternativeReality stories, Master Story drafts, Visual Reply provider styles, and persona voice routing.",
+  "steps": [
+    {
+      "title": "Open Roleplay",
+      "body": "Enable the Multi Persona Roleplay addon if needed, then open the Roleplay workspace tab. The addon has its own Guide tab for quick local reference while you work.",
+      "target": "main_window"
+    },
+    {
+      "title": "Start With Status",
+      "body": "Use Status as the first stop. Start Demo / Validate / Continue loads a known-good demo, validates narrator, voices, Visual Reply, AudioFX, memory, and then queues a Continue turn.",
+      "target": "main_window"
+    },
+    {
+      "title": "Pick Narrator and Personas",
+      "body": "Choose the narrator and active story personas before long sessions. Registry manages the cast, Editor changes persona prompts and AR profiles, and Status shows whether story personas are linked correctly.",
+      "target": "main_window"
+    },
+    {
+      "title": "Create a Master Story",
+      "body": "Use the Master Story flow in the Master tab when you want one prompt to draft a full story setup. Generate Story Setup creates a JSON draft with session state, AR state, personas, content safety, and generation metadata. Review the draft, then Apply Draft.",
+      "target": "main_window"
+    },
+    {
+      "title": "Configure Voices",
+      "body": "Open Voice and assign a local voice sample path to every persona that should sound different. Newly created personas need voice samples, and the active NC TTS backend must support reference audio such as Chatterbox or PocketTTS.",
+      "target": "main_window"
+    },
+    {
+      "title": "Test Play and Response Speech",
+      "body": "Use Play or the Response Window path to test one story response. Plain AR narration should stay on the narrator voice. Voices should switch only on explicit labels such as [NARRATOR] or [CHARACTER: Exact Persona Display Name], while explicit payload persona IDs always win.",
+      "target": "main_window"
+    },
+    {
+      "title": "Inspect Voice Routing",
+      "body": "Use Debug or Status -> Voice Routing Inspector when a voice sounds wrong. Route reasons include explicit_persona, text_speaker_label, ar_narrator_default, ar_stream_speaker, current_speaker, and active_persona.",
+      "target": "main_window"
+    },
+    {
+      "title": "Configure Visual Reply",
+      "body": "Open Visual for per-persona story images. Grok/xAI uses richer natural-language prompts with story context and character appearance. Runware uses shorter direct prompts with concrete visual phrases. ComfyUI keeps compact positive prompts.",
+      "target": "main_window"
+    },
+    {
+      "title": "Troubleshoot Images",
+      "body": "If images do not generate, check the main Visual Reply provider, model, API key or base URL, then check the persona visual toggle, trigger mode, cooldown, and max auto images. Use Preview Image Prompt before spending provider calls.",
+      "target": "main_window"
+    },
+    {
+      "title": "Use Audio and Debug",
+      "body": "Audio prepares Story Sounds for tags such as [AMBIENCE], [MUSIC], [FX], and [STINGER]. Debug shows prompt context, Visual Reply payloads, provider prompt style, voice route results, and compact state.",
+      "target": "main_window"
+    }
+  ]
+}
