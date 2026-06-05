@@ -112,6 +112,18 @@ class Addon(BaseAddon):
                     {"id": "min_p", "label": "Min P", "kind": "float", "min": 0.0, "max": 1.0, "step": 0.01, "decimals": 2, "default": 0.05, "request_location": "additional_params"},
                     {"id": "repeat_penalty", "label": "Repetition Penalty", "kind": "float", "min": 0.0, "max": 2.0, "step": 0.01, "decimals": 2, "default": 1.1, "request_location": "additional_params"},
                     {
+                        "id": "reasoning",
+                        "label": "Enable Thinking",
+                        "kind": "bool",
+                        "default": True,
+                        "request_location": "params",
+                        "request_key": "reasoning_effort",
+                        "true_value": "medium",
+                        "false_value": "none",
+                        "requires_model_support": "reasoning_toggle",
+                        "description": "Shown when Ollama reports the selected model has the thinking capability. Sends reasoning_effort=medium when enabled and reasoning_effort=none when disabled.",
+                    },
+                    {
                         "id": "max_tokens",
                         "label": "Max Tokens (-1 = provider default)",
                         "kind": "int",
@@ -220,6 +232,20 @@ class Addon(BaseAddon):
                 names.append(name)
         return names
 
+    def _model_capabilities(self, model_name: str) -> set[str]:
+        model = str(model_name or "").strip()
+        if not model:
+            return set()
+        payload = self._native_json_request("api/show", {"model": model}, timeout=5.0)
+        capabilities = payload.get("capabilities") if isinstance(payload, dict) else None
+        if not isinstance(capabilities, list):
+            return set()
+        return {
+            str(item or "").strip().lower()
+            for item in capabilities
+            if str(item or "").strip()
+        }
+
     def _unload_model(self, model_name: str) -> bool:
         model = str(model_name or "").strip()
         if not model:
@@ -283,7 +309,27 @@ class Addon(BaseAddon):
                     if str(getattr(model, "id", "") or "").strip()
                 }
             )
-            return ids
+            catalog: list[Any] = []
+            for model_id in ids:
+                try:
+                    capabilities = self._model_capabilities(model_id)
+                except Exception as exc:
+                    if not quiet:
+                        print(f"Error fetching Ollama model capabilities for {model_id}: {exc}")
+                    catalog.append(model_id)
+                    continue
+                supports_thinking = "thinking" in capabilities
+                catalog.append(
+                    {
+                        "id": model_id,
+                        "supports_images": "vision" in capabilities,
+                        "supports_reasoning": supports_thinking,
+                        "supports_reasoning_toggle": supports_thinking,
+                        "capabilities": sorted(capabilities),
+                        "source": "ollama_show",
+                    }
+                )
+            return catalog
         except Exception as exc:
             if not quiet:
                 print(f"Error fetching Ollama models: {exc}")
