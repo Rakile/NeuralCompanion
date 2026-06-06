@@ -1,0 +1,25 @@
+{
+  "id": "nc.scenic_avatar",
+  "name": "Scenic Avatar",
+  "category": "avatar",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Simple tag-to-image avatar engine using portable Scenic Packs.",
+  "permissions": [
+    "ui.tabs"
+  ],
+  "runtime_defaults": {
+    "scenic_pack_id": ""
+  },
+  "services": [
+    {
+      "id": "avatar_provider_registry",
+      "provider_id": "scenic",
+      "metadata": {
+        "kind": "avatar",
+        "real_ui_bridge_module": "addons.scenic_avatar.real_ui_bridge"
+      }
+    }
+  ],
+  "enabled": true
+}

@@ -36,6 +36,8 @@ SYSTEM_SHAPING_TOOLTIPS = {
     "musetalk_use_frame_cache_checkbox": "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames.",
     "musetalk_avatar_pack_combo": "Prepared MuseTalk avatar pack and variant used for rendering visual speech.",
     "btn_musetalk_avatar_pack_refresh": "Rescan installed MuseTalk avatar packs under avatar_packs/.",
+    "scenic_pack_combo": "Portable Scenic Pack used by the Scenic avatar engine to map tags to still images.",
+    "btn_scenic_pack_refresh": "Rescan ScenicPacks/ for portable Scenic Pack folders.",
     "preset_combo": "Saved companion preset. Presets store persona/runtime choices such as model, voice, avatar, and generation settings.",
     "btn_preset_refresh": "Reload the preset list from disk.",
 }
@@ -116,9 +118,6 @@ class BackendSystemShapingBuilderMixin:
 
     def _invoke_avatar_legacy_capability(self, provider_id, capability, payload=None, default=None):
         provider = str(provider_id or "").strip().lower()
-        addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
-        if not addon_id:
-            return default
         result = self._invoke_addon_service_capability(
             "avatar_provider_registry",
             capability,
@@ -128,6 +127,9 @@ class BackendSystemShapingBuilderMixin:
         )
         if result is not None:
             return result
+        addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
+        if not addon_id:
+            return default
         return self._invoke_initialized_addon_capability(addon_id, capability, payload, default=default)
 
     def _invoke_visual_reply_capability(self, capability, payload=None, default=None):
@@ -169,6 +171,10 @@ class BackendSystemShapingBuilderMixin:
         self.musetalk_avatar_label = QtWidgets.QLabel("MuseTalk Avatar")
         _set_tooltip(self.musetalk_avatar_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_avatar_pack_combo"])
         form.addRow(self.musetalk_avatar_label, self.musetalk_avatar_pack_row_widget)
+        if hasattr(self, "scenic_pack_row_widget"):
+            self.scenic_pack_label = QtWidgets.QLabel("Scenic Pack")
+            _set_tooltip(self.scenic_pack_label, SYSTEM_SHAPING_TOOLTIPS["scenic_pack_combo"])
+            form.addRow(self.scenic_pack_label, self.scenic_pack_row_widget)
         form.addRow("Preset", self.preset_row_widget if hasattr(self, "preset_row_widget") else self.preset_combo)
         layout.addLayout(form)
         self._refresh_musetalk_vram_visibility()
@@ -812,6 +818,12 @@ class BackendSystemShapingBuilderMixin:
         )
         if not built:
             ensure_musetalk_legacy_placeholders(self, runtime_config)
+        self._invoke_avatar_legacy_capability(
+            "scenic",
+            "legacy.build_runtime_widgets",
+            {"backend": self, "runtime_config": runtime_config},
+            default=False,
+        )
         built = self._invoke_visual_reply_capability(
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},

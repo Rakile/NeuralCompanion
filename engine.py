@@ -1802,18 +1802,29 @@ def get_available_emotion_names(force_refresh=False):
 
     avatars_root = os.path.abspath(os.path.join("MuseTalk", "results", "v15", "avatars"))
     try:
-        names = _invoke_musetalk_pack_capability(
-            "runtime.available_pack_emotion_names",
-            {
-                "runtime_config": RUNTIME_CONFIG,
-                "default_names": list(DEFAULT_EMOTION_NAMES),
-                "avatar_profile": AVATAR_PROFILE,
-                "legacy_map": MUSE_EMOTION_AVATAR_MAP,
-                "legacy_transitions": MUSE_AVATAR_TRANSITIONS,
-                "avatars_dir": Path(avatars_root),
-            },
-            default=None,
-        )
+        payload = {
+            "runtime_config": RUNTIME_CONFIG,
+            "default_names": list(DEFAULT_EMOTION_NAMES),
+            "avatar_profile": AVATAR_PROFILE,
+            "legacy_map": MUSE_EMOTION_AVATAR_MAP,
+            "legacy_transitions": MUSE_AVATAR_TRANSITIONS,
+            "avatars_dir": Path(avatars_root),
+        }
+        avatar_mode = str(RUNTIME_CONFIG.get("avatar_mode", "") or "").strip().lower()
+        names = None
+        if avatar_mode:
+            names = _invoke_avatar_addon_capability(
+                avatar_mode,
+                "runtime.available_pack_emotion_names",
+                payload,
+                default=None,
+            )
+        if names is None:
+            names = _invoke_musetalk_pack_capability(
+                "runtime.available_pack_emotion_names",
+                payload,
+                default=None,
+            )
         if names is None:
             raise RuntimeError("MuseTalk pack runtime unavailable.")
     except Exception:
@@ -3679,6 +3690,36 @@ def parse_text_segments(text):
 
 def get_last_emotion_tag(text):
     return text_tags.get_last_emotion_tag(text, get_available_emotion_names())
+
+
+def _first_emotion_tag_in_text(text):
+    for match in re.findall(r"(\[[^\]]+\])", str(text or "")):
+        normalized = normalize_bracket_tag(match)
+        if is_emotion_tag(normalized):
+            return str(normalized or "").strip().lower()
+    return ""
+
+
+def _carry_streaming_segment_emotion(segments, piece_text, active_emotion):
+    active = str(active_emotion or "neutral").strip().lower() or "neutral"
+    first_tag = _first_emotion_tag_in_text(piece_text)
+    carried = []
+    carrying = active != "neutral" and first_tag != "neutral"
+    for emotion, seg_text in list(segments or []):
+        clean_emotion = str(emotion or "neutral").strip().lower() or "neutral"
+        if carrying and clean_emotion == "neutral":
+            clean_emotion = active
+        else:
+            carrying = False
+        carried.append((clean_emotion, seg_text))
+    if carried:
+        active = str(carried[-1][0] or active).strip().lower() or active
+    return carried, active
+
+
+def _current_avatar_emotion(default="neutral"):
+    tag = str(getattr(avatar_gui, "current_tag", "") or "").strip().lower()
+    return tag or str(default or "neutral").strip().lower() or "neutral"
 
 
 StreamingReplyState = streaming_text.StreamingReplyState
@@ -5978,6 +6019,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
         first_piece_logged = False
         first_subchunk_logged = False
         first_wav_logged = False
+        stream_segment_emotion = _current_avatar_emotion() if avatar_mode == "scenic" else "neutral"
         for source_offset, source_item in enumerate(source_iterable):
             if stop_playback.is_set() or ctrl.cancel_requested.is_set(): break
             source_meta = {}
@@ -6048,6 +6090,18 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                 )
                 first_piece_logged = True
             segments = parse_text_segments(str(piece_text))
+            if avatar_mode == "scenic":
+                segments, stream_segment_emotion = _carry_streaming_segment_emotion(
+                    segments,
+                    str(piece_text),
+                    stream_segment_emotion,
+                )
+            elif text_iterable is not None:
+                segments, stream_segment_emotion = _carry_streaming_segment_emotion(
+                    segments,
+                    str(piece_text),
+                    stream_segment_emotion,
+                )
             if avatar_mode == "musetalk":
                 segments = coalesce_musetalk_leading_segments(segments)
             for emotion, seg_text in segments:
@@ -6248,7 +6302,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                 chunk_result = {"ok": True, "kind": "audio"}
 
                 if avatar_gui:
-                    avatar_gui.set_emotion(emotion)
+                    if avatar_mode == "scenic" and hasattr(avatar_gui, "prepare_emotion"):
+                        try:
+                            avatar_gui.prepare_emotion(emotion)
+                        except Exception:
+                            pass
+                    else:
+                        avatar_gui.set_emotion(emotion)
                     if avatar_mode == "musetalk":
                         musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
@@ -6333,7 +6393,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             expected_frame_count=int(chunk_result.get("expected_frame_count", 0) or 0),
                             chunk_id=str(chunk_result.get("chunk_id", "") or ""),
                         )
-                    elif avatar_mode == "none":
+                    elif avatar_mode in {"none", "scenic"}:
                         musetalk_state.update_musetalk_pipeline_chunk(
                             chunk_sequence,
                             reply_id=pipeline_reply_id,
@@ -6805,8 +6865,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         f"(initial buffer {len(frame_paths)} frame(s), ~{len(frame_paths) / max(fps, 1):.2f}s ready)"
                     )
                     time.sleep(0.01)
-                elif kind in {"vam", "none"}:
-                    delegated_label = "VaM" if kind == "vam" else "None"
+                elif kind in {"vam", "none", "scenic"}:
+                    delegated_label = {"vam": "VaM", "none": "None", "scenic": "Scenic"}.get(kind, kind)
                     current_sequence = int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0)
                     delegated_duration_seconds = max(
                         0.0,
@@ -6817,10 +6877,13 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         int(chunk_result.get("expected_frame_count", 0) or 0),
                         int(round(delegated_duration_seconds * 50.0)) if delegated_duration_seconds > 0 else 2,
                     )
+                    delegated_frame_paths = list(chunk_result.get("frame_paths", []) or [])
+                    delegated_frame_dir = str(chunk_result.get("frame_dir", "") or "")
+                    delegated_fps = max(1, int(chunk_result.get("fps", 50) or 50))
                     musetalk_state.set_current_musetalk_frame_data({
-                        "frame_paths": [],
-                        "frame_dir": "",
-                        "fps": 50,
+                        "frame_paths": delegated_frame_paths,
+                        "frame_dir": delegated_frame_dir,
+                        "fps": delegated_fps,
                         "sync_time": 0.0,
                         "duration_seconds": delegated_duration_seconds,
                         "expected_frame_count": expected_frame_count,
@@ -6835,8 +6898,21 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         "preview_chunk_id": chunk_result.get("chunk_id"),
                         "preview_frame_index": 0,
                         "preview_source_index": 0,
-                        "avatar_id": kind,
+                        "avatar_id": chunk_result.get("avatar_id") or kind,
                     })
+                    if delegated_frame_paths:
+                        musetalk_state.write_musetalk_preview_frame(
+                            {
+                                "chunk_id": chunk_result.get("chunk_id"),
+                                "frame_path": delegated_frame_paths[0],
+                                "frame_index": 0,
+                                "source_index": 0,
+                                "fps": delegated_fps,
+                                "status": "ready",
+                                "loop": False,
+                                "emitted_at": time.time(),
+                            }
+                        )
                     musetalk_state.update_musetalk_pipeline_chunk(
                         current_sequence,
                         reply_id=pipeline_reply_id,
@@ -6931,7 +7007,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                                 round(float(current_state.get("duration_seconds", 0.0) or 0.0), 3),
                             )
                             dry_run.finalize_reply(dry_run_reply_id)
-                    elif kind in {"vam", "none"}:
+                    elif kind in {"vam", "none", "scenic"}:
                         if kind == "vam" and _is_vam_avatar_adapter(avatar_gui):
                             skip_local_playback = bool(avatar_gui.begin_chunk_playback(chunk_result))
                         audio_start_time = time.time()
@@ -7002,12 +7078,12 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         current_avatar_id = chunk_result.get("avatar_id")
                         if not maybe_transition_musetalk_avatar_back_to_default(current_avatar_id):
                             transition_musetalk_to_local_idle(advance_to_next_frame=True)
-                elif kind in {"vam", "none"} and not stop_flag.is_set():
+                elif kind in {"vam", "none", "scenic"} and not stop_flag.is_set():
                     pass
                 else:
                     clear_avatar_stream_state()
                 safe_delete_with_retry(path)
-                if kind in {"musetalk", "vam", "none"}:
+                if kind in {"musetalk", "vam", "none", "scenic"}:
                     musetalk_state.update_musetalk_pipeline_chunk(
                         int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
                         reply_id=pipeline_reply_id,
@@ -7017,18 +7093,41 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     if kind == "musetalk":
                         print(f"⏹️ [MuseTalk] Finished chunk {chunk_result.get('chunk_id')}")
                     else:
+                        if kind == "scenic":
+                            preview_frame_index = 0
+                            preview_source_index = 0
+                        else:
+                            preview_frame_index = max(
+                                0,
+                                int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
+                            )
+                            preview_source_index = preview_frame_index
                         musetalk_state.update_current_musetalk_frame_data(
-                            preview_frame_index=max(
-                                0,
-                                int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
-                            ),
-                            preview_source_index=max(
-                                0,
-                                int(chunk_result.get("expected_frame_count", 0) or 0) - 1,
-                            ),
+                            preview_frame_index=preview_frame_index,
+                            preview_source_index=preview_source_index,
                         )
+                        if kind == "scenic":
+                            final_frame_paths = list(chunk_result.get("frame_paths", []) or [])
+                            if final_frame_paths:
+                                musetalk_state.write_musetalk_preview_frame(
+                                    {
+                                        "chunk_id": chunk_result.get("chunk_id"),
+                                        "frame_path": final_frame_paths[0],
+                                        "frame_index": 0,
+                                        "source_index": 0,
+                                        "fps": max(1, int(chunk_result.get("fps", 1) or 1)),
+                                        "status": "ready",
+                                        "loop": False,
+                                        "emitted_at": time.time(),
+                                        "avatar_id": chunk_result.get("avatar_id") or "scenic",
+                                        "scenic_tag": chunk_result.get("scenic_tag"),
+                                        "force_repaint": True,
+                                    }
+                                )
                         if kind == "vam":
                             print(f"⏹️ [VaM] Finished delegated chunk {chunk_result.get('chunk_id')}")
+                        elif kind == "scenic":
+                            print(f"⏹️ [Scenic] Finished delegated chunk {chunk_result.get('chunk_id')}")
                         else:
                             print(f"⏹️ [None] Finished audio-only chunk {chunk_result.get('chunk_id')}")
                     last_chunk_end_time = time.time()

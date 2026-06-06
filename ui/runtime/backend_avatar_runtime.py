@@ -68,7 +68,8 @@ class BackendAvatarRuntimeMixin:
         return self._avatar_mode_value_from_label(combo.currentText())
 
     def _refresh_musetalk_runtime_visibility(self):
-        visible = self._current_avatar_mode_value() == "musetalk"
+        mode = self._current_avatar_mode_value()
+        visible = mode == "musetalk"
         for name in (
             "musetalk_vram_label",
             "musetalk_vram_combo",
@@ -87,6 +88,16 @@ class BackendAvatarRuntimeMixin:
             widget = getattr(self, name, None)
             if widget is not None and hasattr(widget, "setToolTip"):
                 widget.setToolTip(self._MUSETALK_VRAM_TOOLTIP)
+        scenic_visible = mode == "scenic"
+        for name in (
+            "scenic_pack_label",
+            "scenic_pack_combo",
+            "btn_scenic_pack_refresh",
+            "scenic_pack_row_widget",
+        ):
+            widget = getattr(self, name, None)
+            if widget is not None and hasattr(widget, "setVisible"):
+                widget.setVisible(scenic_visible)
 
     def _refresh_musetalk_vram_visibility(self):
         self._refresh_musetalk_runtime_visibility()

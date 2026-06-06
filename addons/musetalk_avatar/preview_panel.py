@@ -1248,18 +1248,19 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     next_chunk_id = latest.get("chunk_id", self.last_chunk_id)
                     next_frame_index = int(latest.get("frame_index", 0) or 0)
                     next_source_index = int(latest.get("source_index", next_frame_index) or next_frame_index)
+                    force_repaint = bool(latest.get("force_repaint", False))
                     is_feed_rollback = (
                         not bool(state.get("loop", False))
                         and next_chunk_id == self.last_chunk_id
                         and self.last_presented_source_index is not None
                         and next_source_index < int(self.last_presented_source_index)
                     )
-                    if is_feed_rollback:
+                    if is_feed_rollback and not force_repaint:
                         return
                     if not (
                         next_chunk_id == self.last_presented_chunk_id
                         and next_source_index == self.last_presented_source_index
-                    ):
+                    ) or force_repaint:
                         self.last_chunk_id = next_chunk_id
                         self.current_frame_index = next_frame_index
                         self.last_start_index = next_source_index - next_frame_index
