@@ -466,6 +466,12 @@ class MainUiRealBindingMixin:
             long_term_memory_retrieval_max_items_spin = self._ui_object("long_term_memory_retrieval_max_items_spin")
             if long_term_memory_retrieval_max_items_spin is not None and hasattr(long_term_memory_retrieval_max_items_spin, "valueChanged"):
                 long_term_memory_retrieval_max_items_spin.valueChanged.connect(self._on_frontend_long_term_memory_retrieval_max_items_changed)
+            continuity_memory_auto_turns_spin = self._ui_object("continuity_memory_auto_turns_spin")
+            if continuity_memory_auto_turns_spin is not None and hasattr(continuity_memory_auto_turns_spin, "valueChanged"):
+                continuity_memory_auto_turns_spin.valueChanged.connect(self._on_frontend_continuity_memory_auto_turns_changed)
+            long_term_memory_archive_batch_turns_spin = self._ui_object("long_term_memory_archive_batch_turns_spin")
+            if long_term_memory_archive_batch_turns_spin is not None and hasattr(long_term_memory_archive_batch_turns_spin, "valueChanged"):
+                long_term_memory_archive_batch_turns_spin.valueChanged.connect(self._on_frontend_long_term_memory_archive_batch_turns_changed)
             long_term_memory_embedding_enabled_checkbox = self._ui_object("long_term_memory_embedding_enabled_checkbox")
             if long_term_memory_embedding_enabled_checkbox is not None and hasattr(long_term_memory_embedding_enabled_checkbox, "toggled"):
                 long_term_memory_embedding_enabled_checkbox.toggled.connect(self._on_frontend_long_term_memory_embedding_enabled_changed)

@@ -59,7 +59,8 @@ CHAT_TAB_TOOLTIPS = {
     "btn_install_spellcheck_dependency": "Install only the PyEnchant package into the active NC Python environment when spellcheck is unavailable after an update.",
     "spellcheck_dependency_hint": "Shows whether the optional PyEnchant spellcheck package and dictionaries are available in the active NC Python environment.",
     "long_term_memory_enabled_checkbox": "Maintain a compact Continuity Memory summary for this saved chat context.",
-    "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after 120-239 new saved-chat messages have accumulated.",
+    "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after the configured number of new saved-chat messages has accumulated.",
+    "continuity_memory_auto_turns_spin": "Number of new chat messages required before automatic Continuity Memory summarization runs. Save Chat Context flushes all pending messages immediately, even one.",
     "long_term_memory_inject_checkbox": "Include the Continuity Memory summary in normal model requests so the assistant can remember older context.",
     "long_term_memory_max_chars_spin": "Maximum character budget for the Continuity Memory summary.",
     "btn_review_long_term_memory": "Open the current Continuity Memory summary for inspection.",
@@ -70,6 +71,7 @@ CHAT_TAB_TOOLTIPS = {
     "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
+    "long_term_memory_archive_batch_turns_spin": "Number of new chat messages required before automatic Long-Term Memory archive storage runs. Save Chat Context archives all pending messages immediately, even one.",
     "long_term_memory_embedding_enabled_checkbox": "Use LM Studio embeddings for semantic Long-Term Memory archive retrieval. Keyword search remains available as fallback.",
     "long_term_memory_embedding_model_edit": "Embedding model served by LM Studio. Use Refresh after starting or changing the LM Studio embedding server.",
     "btn_long_term_memory_embedding_model_refresh": "Refresh LM Studio embedding models.",
@@ -622,6 +624,7 @@ class BackendSystemShapingBuilderMixin:
         memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
         memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        memory_form.addRow("Auto summary interval (msgs)", self.continuity_memory_auto_turns_spin)
         memory_form.addRow("Summary budget (chars)", self.long_term_memory_max_chars_spin)
         memory_layout.addLayout(memory_form)
         memory_button_row = QtWidgets.QHBoxLayout()
@@ -638,7 +641,7 @@ class BackendSystemShapingBuilderMixin:
         archive_layout = QtWidgets.QVBoxLayout(archive_box)
         archive_layout.setContentsMargins(12, 14, 12, 12)
         archive_layout.setSpacing(8)
-        archive_hint = QtWidgets.QLabel("Manual archive extraction stores structured memory records. Retrieval can inject matching archive recall into chat requests.")
+        archive_hint = QtWidgets.QLabel("Long-Term Memory stores raw chat archive chunks on Save Chat Context or after the archive interval. Retrieval can inject matching archive recall into chat requests.")
         archive_hint.setWordWrap(True)
         archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         archive_layout.addWidget(archive_hint)
@@ -647,6 +650,7 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
         retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        retrieval_form.addRow("Archive interval (msgs)", self.long_term_memory_archive_batch_turns_spin)
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
         embedding_model_row = QtWidgets.QHBoxLayout()
         embedding_model_row.setSpacing(8)
@@ -1041,7 +1045,7 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_enabled_checkbox.setChecked(bool(runtime_config.get("continuity_memory_enabled", runtime_config.get("long_term_memory_enabled", False))))
         self.long_term_memory_enabled_checkbox.toggled.connect(self.on_long_term_memory_enabled_changed)
 
-        self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize after 120 new messages")
+        self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize at interval")
         self.long_term_memory_update_on_save_checkbox.setObjectName("long_term_memory_update_on_save_checkbox")
         self.long_term_memory_update_on_save_checkbox.setChecked(bool(runtime_config.get("continuity_memory_auto_summarize", runtime_config.get("continuity_memory_update_on_save", runtime_config.get("long_term_memory_update_on_save", False)))))
         self.long_term_memory_update_on_save_checkbox.toggled.connect(self.on_long_term_memory_update_on_save_changed)
@@ -1050,6 +1054,15 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_inject_checkbox.setObjectName("long_term_memory_inject_checkbox")
         self.long_term_memory_inject_checkbox.setChecked(bool(runtime_config.get("continuity_memory_inject", runtime_config.get("long_term_memory_inject", False))))
         self.long_term_memory_inject_checkbox.toggled.connect(self.on_long_term_memory_inject_changed)
+
+        self.continuity_memory_auto_turns_spin = ContextTokenStepper()
+        self.continuity_memory_auto_turns_spin.setObjectName("continuity_memory_auto_turns_spin")
+        self.continuity_memory_auto_turns_spin.setRange(1, 10000)
+        self.continuity_memory_auto_turns_spin.setSingleStep(10)
+        self.continuity_memory_auto_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("continuity_memory_auto_turns", 120) or 120))))
+        self.continuity_memory_auto_turns_spin.valueChanged.connect(self.on_continuity_memory_auto_turns_changed)
+        self.continuity_memory_auto_turns_spin.setMinimumWidth(112)
+        self.continuity_memory_auto_turns_spin.setMaximumWidth(132)
 
         self.long_term_memory_max_chars_spin = ContextTokenStepper()
         self.long_term_memory_max_chars_spin.setObjectName("long_term_memory_max_chars_spin")
@@ -1099,6 +1112,15 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_retrieval_max_items_spin.valueChanged.connect(self.on_long_term_memory_retrieval_max_items_changed)
         self.long_term_memory_retrieval_max_items_spin.setMinimumWidth(112)
         self.long_term_memory_retrieval_max_items_spin.setMaximumWidth(132)
+
+        self.long_term_memory_archive_batch_turns_spin = ContextTokenStepper()
+        self.long_term_memory_archive_batch_turns_spin.setObjectName("long_term_memory_archive_batch_turns_spin")
+        self.long_term_memory_archive_batch_turns_spin.setRange(1, 10000)
+        self.long_term_memory_archive_batch_turns_spin.setSingleStep(10)
+        self.long_term_memory_archive_batch_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))))
+        self.long_term_memory_archive_batch_turns_spin.valueChanged.connect(self.on_long_term_memory_archive_batch_turns_changed)
+        self.long_term_memory_archive_batch_turns_spin.setMinimumWidth(112)
+        self.long_term_memory_archive_batch_turns_spin.setMaximumWidth(132)
 
         self.long_term_memory_embedding_enabled_checkbox = QtWidgets.QCheckBox("Use LM Studio embeddings for semantic retrieval")
         self.long_term_memory_embedding_enabled_checkbox.setObjectName("long_term_memory_embedding_enabled_checkbox")

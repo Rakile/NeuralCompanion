@@ -184,7 +184,7 @@ class MainUiRealSurfacesMixin:
                 archive_layout.setContentsMargins(12, 14, 12, 12)
                 archive_layout.setSpacing(8)
                 archive_intro = QtWidgets.QLabel(
-                    "Manual archive extraction stores structured memory records. Retrieval can inject matching archive recall into chat requests.",
+                    "Long-Term Memory stores raw chat archive chunks on Save Chat Context or after the archive interval. Retrieval can inject matching archive recall into chat requests.",
                     archive_box,
                 )
                 archive_intro.setWordWrap(True)
@@ -203,10 +203,18 @@ class MainUiRealSurfacesMixin:
                 retrieval_max_items.setValue(max(1, min(12, _backend_archive_value("long_term_memory_retrieval_max_items_spin", 6))))
                 retrieval_max_items.setMinimumWidth(112)
                 retrieval_max_items.setMaximumWidth(132)
+                archive_batch_turns = QtWidgets.QSpinBox(archive_box)
+                archive_batch_turns.setObjectName("long_term_memory_archive_batch_turns_spin")
+                archive_batch_turns.setRange(1, 10000)
+                archive_batch_turns.setSingleStep(10)
+                archive_batch_turns.setValue(max(1, min(10000, _backend_archive_value("long_term_memory_archive_batch_turns_spin", 120))))
+                archive_batch_turns.setMinimumWidth(112)
+                archive_batch_turns.setMaximumWidth(132)
                 retrieval_form = QtWidgets.QFormLayout()
                 retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
                 retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+                retrieval_form.addRow("Archive interval (msgs)", archive_batch_turns)
                 retrieval_form.addRow("Max recall items", retrieval_max_items)
                 embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
@@ -269,7 +277,7 @@ class MainUiRealSurfacesMixin:
             if self._ui_object("long_term_memory_enabled_checkbox") is not None:
                 auto_checkbox = self._ui_object("long_term_memory_update_on_save_checkbox")
                 if auto_checkbox is not None and hasattr(auto_checkbox, "setText"):
-                    auto_checkbox.setText("Auto summarize after 120 new messages")
+                    auto_checkbox.setText("Auto summarize at interval")
                 update_button = self._ui_object("btn_update_long_term_memory")
                 if update_button is not None:
                     update_button.setVisible(False)
@@ -315,7 +323,7 @@ class MainUiRealSurfacesMixin:
             enabled.setChecked(_backend_checked("long_term_memory_enabled_checkbox", False))
             memory_layout.addWidget(enabled)
 
-            update_on_save = QtWidgets.QCheckBox("Auto summarize after 120 new messages", memory_box)
+            update_on_save = QtWidgets.QCheckBox("Auto summarize at interval", memory_box)
             update_on_save.setObjectName("long_term_memory_update_on_save_checkbox")
             update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", False))
             memory_layout.addWidget(update_on_save)
@@ -332,10 +340,18 @@ class MainUiRealSurfacesMixin:
             max_chars.setValue(max(500, min(20000, _backend_value("long_term_memory_max_chars_spin", 3000))))
             max_chars.setMinimumWidth(112)
             max_chars.setMaximumWidth(132)
+            auto_turns = QtWidgets.QSpinBox(memory_box)
+            auto_turns.setObjectName("continuity_memory_auto_turns_spin")
+            auto_turns.setRange(1, 10000)
+            auto_turns.setSingleStep(10)
+            auto_turns.setValue(max(1, min(10000, _backend_value("continuity_memory_auto_turns_spin", 120))))
+            auto_turns.setMinimumWidth(112)
+            auto_turns.setMaximumWidth(132)
             memory_form = QtWidgets.QFormLayout()
             memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
             memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
             memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+            memory_form.addRow("Auto summary interval (msgs)", auto_turns)
             memory_form.addRow("Summary budget (chars)", max_chars)
             memory_layout.addLayout(memory_form)
 
@@ -482,6 +498,7 @@ class MainUiRealSurfacesMixin:
                 "long_term_memory_enabled_checkbox": self._ui_object("long_term_memory_enabled_checkbox"),
                 "long_term_memory_update_on_save_checkbox": self._ui_object("long_term_memory_update_on_save_checkbox"),
                 "long_term_memory_inject_checkbox": self._ui_object("long_term_memory_inject_checkbox"),
+                "continuity_memory_auto_turns_spin": self._ui_object("continuity_memory_auto_turns_spin"),
                 "long_term_memory_max_chars_spin": self._ui_object("long_term_memory_max_chars_spin"),
                 "long_term_memory_hint": self._ui_object("long_term_memory_hint"),
                 "btn_review_long_term_memory": self._ui_object("btn_review_long_term_memory"),
@@ -491,6 +508,7 @@ class MainUiRealSurfacesMixin:
                 "btn_review_long_term_memory_archive": self._ui_object("btn_review_long_term_memory_archive"),
                 "long_term_memory_retrieval_enabled_checkbox": self._ui_object("long_term_memory_retrieval_enabled_checkbox"),
                 "long_term_memory_retrieval_max_items_spin": self._ui_object("long_term_memory_retrieval_max_items_spin"),
+                "long_term_memory_archive_batch_turns_spin": self._ui_object("long_term_memory_archive_batch_turns_spin"),
                 "long_term_memory_embedding_enabled_checkbox": self._ui_object("long_term_memory_embedding_enabled_checkbox"),
                 "long_term_memory_embedding_model_edit": self._ui_object("long_term_memory_embedding_model_edit"),
                 "btn_long_term_memory_embedding_model_refresh": self._ui_object("btn_long_term_memory_embedding_model_refresh"),
@@ -578,9 +596,11 @@ class MainUiRealSurfacesMixin:
             _copy_checked(backend_widgets.get("long_term_memory_enabled_checkbox"), frontend_widgets.get("long_term_memory_enabled_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_update_on_save_checkbox"), frontend_widgets.get("long_term_memory_update_on_save_checkbox"))
             _copy_checked(backend_widgets.get("long_term_memory_inject_checkbox"), frontend_widgets.get("long_term_memory_inject_checkbox"))
+            _copy_value(backend_widgets.get("continuity_memory_auto_turns_spin"), frontend_widgets.get("continuity_memory_auto_turns_spin"))
             _copy_value(backend_widgets.get("long_term_memory_max_chars_spin"), frontend_widgets.get("long_term_memory_max_chars_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_retrieval_enabled_checkbox"), frontend_widgets.get("long_term_memory_retrieval_enabled_checkbox"))
             _copy_value(backend_widgets.get("long_term_memory_retrieval_max_items_spin"), frontend_widgets.get("long_term_memory_retrieval_max_items_spin"))
+            _copy_value(backend_widgets.get("long_term_memory_archive_batch_turns_spin"), frontend_widgets.get("long_term_memory_archive_batch_turns_spin"))
             _copy_checked(backend_widgets.get("long_term_memory_embedding_enabled_checkbox"), frontend_widgets.get("long_term_memory_embedding_enabled_checkbox"))
             _copy_text(backend_widgets.get("long_term_memory_embedding_model_edit"), frontend_widgets.get("long_term_memory_embedding_model_edit"))
             _copy_value(backend_widgets.get("long_term_memory_embedding_context_length_spin"), frontend_widgets.get("long_term_memory_embedding_context_length_spin"))

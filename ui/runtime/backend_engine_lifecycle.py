@@ -111,10 +111,12 @@ class BackendEngineLifecycleMixin:
         _update_runtime_config("spellcheck_language", str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(runtime_config.get("spellcheck_language", "en_US") or "en_US"))
         _update_runtime_config("continuity_memory_enabled", bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else False)
         _update_runtime_config("continuity_memory_auto_summarize", bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else False)
+        _update_runtime_config("continuity_memory_auto_turns", max(1, min(10000, int(self.continuity_memory_auto_turns_spin.value()))) if hasattr(self, "continuity_memory_auto_turns_spin") else int(runtime_config.get("continuity_memory_auto_turns", 120) or 120))
         _update_runtime_config("continuity_memory_inject", bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else False)
         _update_runtime_config("continuity_memory_max_chars", max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000)
         _update_runtime_config("long_term_memory_retrieval_enabled", bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False)
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6)
+        _update_runtime_config("long_term_memory_archive_batch_turns", max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))
         _update_runtime_config("long_term_memory_embedding_enabled", bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False)
         embedding_model_widget = getattr(self, "long_term_memory_embedding_model_edit", None)
         if embedding_model_widget is not None and hasattr(embedding_model_widget, "currentText"):
@@ -164,8 +166,14 @@ class BackendEngineLifecycleMixin:
             "min_p": self.brain_sliders["min_p"].value(),
             "limit_response_length": self.limit_response_checkbox.isChecked(),
             "max_response_tokens": int(self.max_response_tokens_spin.value()),
+            "continuity_memory_enabled": bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else False,
+            "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else False,
+            "continuity_memory_auto_turns": max(1, min(10000, int(self.continuity_memory_auto_turns_spin.value()))) if hasattr(self, "continuity_memory_auto_turns_spin") else int(runtime_config.get("continuity_memory_auto_turns", 120) or 120),
+            "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else False,
+            "continuity_memory_max_chars": max(500, int(self.long_term_memory_max_chars_spin.value())) if hasattr(self, "long_term_memory_max_chars_spin") else 3000,
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else False,
             "long_term_memory_retrieval_max_items": max(1, min(12, int(self.long_term_memory_retrieval_max_items_spin.value()))) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else 6,
+            "long_term_memory_archive_batch_turns": max(1, min(10000, int(self.long_term_memory_archive_batch_turns_spin.value()))) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else False,
             "long_term_memory_embedding_model": embedding_model,
             "long_term_memory_embedding_context_length": max(512, min(262144, int(self.long_term_memory_embedding_context_length_spin.value()))) if hasattr(self, "long_term_memory_embedding_context_length_spin") else int(runtime_config.get("long_term_memory_embedding_context_length", 8192) or 8192),

@@ -702,10 +702,12 @@ RUNTIME_CONFIG = {
     "continuity_memory_enabled": False,
     "continuity_memory_update_on_save": False,
     "continuity_memory_auto_summarize": False,
+    "continuity_memory_auto_turns": continuity_memory.DEFAULT_UPDATE_BATCH_TURNS,
     "continuity_memory_inject": False,
     "continuity_memory_max_chars": continuity_memory.DEFAULT_MAX_CHARS,
     "long_term_memory_retrieval_enabled": False,
     "long_term_memory_retrieval_max_items": 6,
+    "long_term_memory_archive_batch_turns": long_term_memory.DEFAULT_EXTRACTION_TURNS,
     "long_term_memory_embedding_enabled": False,
     "long_term_memory_embedding_base_url": "http://127.0.0.1:1234/v1",
     "long_term_memory_embedding_model": "text-embedding-bge-m3",
@@ -4280,10 +4282,12 @@ def export_chat_session_state():
         "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
         "continuity_memory_enabled": bool(RUNTIME_CONFIG.get("continuity_memory_enabled", False)),
         "continuity_memory_auto_summarize": bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", False))),
+        "continuity_memory_auto_turns": int(RUNTIME_CONFIG.get("continuity_memory_auto_turns", continuity_memory.DEFAULT_UPDATE_BATCH_TURNS) or continuity_memory.DEFAULT_UPDATE_BATCH_TURNS),
         "continuity_memory_inject": bool(RUNTIME_CONFIG.get("continuity_memory_inject", False)),
         "continuity_memory_max_chars": int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS),
         "long_term_memory_retrieval_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
         "long_term_memory_retrieval_max_items": int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+        "long_term_memory_archive_batch_turns": int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS),
         "long_term_memory_embedding_enabled": bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
         "long_term_memory_embedding_model": str(RUNTIME_CONFIG.get("long_term_memory_embedding_model", "text-embedding-bge-m3") or "text-embedding-bge-m3"),
         "long_term_memory_embedding_context_length": int(RUNTIME_CONFIG.get("long_term_memory_embedding_context_length", 8192) or 8192),
@@ -4352,6 +4356,14 @@ def _notify_continuity_memory_updated(payload=None):
 def _continuity_memory_auto_source_turn_count(memory_payload, total_turns):
     memory_count = int((memory_payload or {}).get("source_turn_count", 0) or 0)
     return max(0, min(int(total_turns or 0), memory_count))
+
+
+def _continuity_memory_auto_turns():
+    try:
+        value = int(RUNTIME_CONFIG.get("continuity_memory_auto_turns", continuity_memory.DEFAULT_UPDATE_BATCH_TURNS) or continuity_memory.DEFAULT_UPDATE_BATCH_TURNS)
+    except Exception:
+        value = continuity_memory.DEFAULT_UPDATE_BATCH_TURNS
+    return max(1, min(10000, value))
 
 
 def _save_active_chat_context_snapshot():
@@ -4431,7 +4443,7 @@ def maybe_start_continuity_memory_auto_update():
     existing = continuity_memory.load_memory(memory_id)
     source_count = _continuity_memory_auto_source_turn_count(existing, total_turns)
     new_turn_count = total_turns - source_count
-    batch_size = int(continuity_memory.DEFAULT_UPDATE_BATCH_TURNS)
+    batch_size = _continuity_memory_auto_turns()
     if new_turn_count < batch_size or new_turn_count >= (batch_size * 2):
         return False
     model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
@@ -4483,10 +4495,11 @@ def continuity_memory_snapshot():
     return continuity_memory.load_memory(_active_continuity_memory_id())
 
 
-def update_continuity_memory_from_current_chat():
+def update_continuity_memory_from_current_chat(history=None):
     memory_id = _active_continuity_memory_id()
     max_chars = int(RUNTIME_CONFIG.get("continuity_memory_max_chars", continuity_memory.DEFAULT_MAX_CHARS) or continuity_memory.DEFAULT_MAX_CHARS)
-    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    source_history = conversation_history if history is None else history
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(source_history or [])) if turn]
     existing = continuity_memory.load_memory(memory_id)
     previous_count = max(0, min(len(sanitized_history), int(existing.get("source_turn_count", 0) or 0)))
     new_turns = continuity_memory.unsummarized_turns(sanitized_history, existing)
@@ -4502,7 +4515,7 @@ def update_continuity_memory_from_current_chat():
     model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
     if _is_model_catalog_placeholder(model_name):
         raise RuntimeError("Choose a chat model before updating Continuity Memory.")
-    batch_turns = continuity_memory.update_batch_turns(new_turns)
+    batch_turns = continuity_memory.update_batch_turns(new_turns, max_turns=_continuity_memory_auto_turns())
     segment = continuity_memory.format_turn_segment(batch_turns)
     messages = continuity_memory.build_summary_update_messages(
         str(existing.get("summary", "") or ""),
@@ -4539,7 +4552,7 @@ def update_continuity_memory_from_current_chat():
     }
 
 
-def batch_update_continuity_memory_from_current_chat(max_batches=1000):
+def batch_update_continuity_memory_from_current_chat(max_batches=1000, history=None):
     try:
         batch_limit = max(1, int(max_batches or 1000))
     except Exception:
@@ -4548,7 +4561,7 @@ def batch_update_continuity_memory_from_current_chat(max_batches=1000):
     processed_turns = 0
     last_result = None
     while batch_count < batch_limit:
-        result = update_continuity_memory_from_current_chat()
+        result = update_continuity_memory_from_current_chat(history=history)
         last_result = result
         if not bool(result.get("updated", False)):
             break
@@ -4596,7 +4609,7 @@ def summarize_recent_continuity_memory_from_current_chat(turn_count=500):
         raise RuntimeError("Choose a chat model before updating Continuity Memory.")
     existing = continuity_memory.load_memory(memory_id)
     running_summary = str(existing.get("summary", "") or "")
-    batch_size = int(continuity_memory.DEFAULT_UPDATE_BATCH_TURNS)
+    batch_size = _continuity_memory_auto_turns()
     batch_count = 0
     for start in range(0, len(tail_turns), batch_size):
         batch_turns = tail_turns[start:start + batch_size]
@@ -5193,6 +5206,14 @@ def _long_term_memory_archive_enabled():
     return bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)) or bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False))
 
 
+def _long_term_memory_archive_batch_turns():
+    try:
+        value = int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", long_term_memory.DEFAULT_EXTRACTION_TURNS) or long_term_memory.DEFAULT_EXTRACTION_TURNS)
+    except Exception:
+        value = long_term_memory.DEFAULT_EXTRACTION_TURNS
+    return max(1, min(10000, value))
+
+
 def _long_term_memory_last_archived_turn(source_chat_id):
     source = long_term_memory.normalize_memory_id(source_chat_id, fallback="unsaved_chat")
     last = 0
@@ -5204,10 +5225,11 @@ def _long_term_memory_last_archived_turn(source_chat_id):
     return last
 
 
-def sync_long_term_memory_archive_from_current_chat(*, batch_size=long_term_memory.DEFAULT_EXTRACTION_TURNS, source_chat_id=""):
+def sync_long_term_memory_archive_from_current_chat(*, batch_size=None, source_chat_id="", flush_partial=False, history=None):
     if not _long_term_memory_archive_enabled():
         return {"enabled": False, "archived_chunks": 0, "embedded": 0, "pending_turns": 0}
-    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    source_history = conversation_history if history is None else history
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(source_history or [])) if turn]
     turns = long_term_memory.sanitize_history_turns(sanitized_history)
     if not turns:
         return {"enabled": True, "archived_chunks": 0, "embedded": 0, "pending_turns": 0}
@@ -5226,10 +5248,10 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=long_term_memo
             "pending_turns": 0,
         }
     try:
-        size = max(1, int(batch_size))
+        size = _long_term_memory_archive_batch_turns() if batch_size is None else max(1, min(10000, int(batch_size)))
     except Exception:
-        size = long_term_memory.DEFAULT_EXTRACTION_TURNS
-    ready_count = (len(pending_turns) // size) * size
+        size = _long_term_memory_archive_batch_turns()
+    ready_count = len(pending_turns) if flush_partial else (len(pending_turns) // size) * size
     ready_turns = pending_turns[:ready_count]
     deferred_count = len(pending_turns) - ready_count
     if not ready_turns:
@@ -5283,6 +5305,59 @@ def sync_long_term_memory_archive_from_current_chat(*, batch_size=long_term_memo
         "next_batch_turns": (size - deferred_count) if deferred_count else 0,
         "chunks": archived_chunks,
     }
+
+
+_long_term_memory_auto_archive_lock = threading.Lock()
+_long_term_memory_auto_archive_running = False
+
+
+def _run_long_term_memory_auto_archive(batch_size):
+    global _long_term_memory_auto_archive_running
+    try:
+        result = sync_long_term_memory_archive_from_current_chat(batch_size=batch_size, flush_partial=False)
+        if result and result.get("enabled"):
+            print(
+                f"🧠 [Memory] Auto Long-Term archive sync complete: "
+                f"{int(result.get('archived_chunks', 0) or 0)} chunk(s), "
+                f"{int(result.get('embedded', 0) or 0)} embedding target(s), "
+                f"{int(result.get('pending_turns', 0) or 0)} pending."
+            )
+            _notify_continuity_memory_updated({"long_term_memory_archive": True})
+    except Exception as exc:
+        print(f"⚠️ [Memory] Auto Long-Term archive sync failed: {exc}")
+    finally:
+        with _long_term_memory_auto_archive_lock:
+            _long_term_memory_auto_archive_running = False
+
+
+def maybe_start_long_term_memory_auto_archive():
+    global _long_term_memory_auto_archive_running
+    if not _long_term_memory_archive_enabled():
+        return False
+    if bool(RUNTIME_CONFIG.get("quick_chat_context_active", False)):
+        return False
+    if not str(RUNTIME_CONFIG.get("active_chat_context_path", "") or "").strip():
+        return False
+    source_chat_id = _active_long_term_memory_source_chat_id()
+    archived_through = _long_term_memory_last_archived_turn(source_chat_id)
+    sanitized_history = [turn for turn in (_sanitize_chat_turn(item) for item in list(conversation_history or [])) if turn]
+    turns = long_term_memory.sanitize_history_turns(sanitized_history)
+    pending_count = sum(1 for turn in turns if int((turn or {}).get("index") or 0) > archived_through)
+    threshold = _long_term_memory_archive_batch_turns()
+    if pending_count < threshold:
+        return False
+    with _long_term_memory_auto_archive_lock:
+        if _long_term_memory_auto_archive_running:
+            return False
+        _long_term_memory_auto_archive_running = True
+    threading.Thread(
+        target=_run_long_term_memory_auto_archive,
+        args=(threshold,),
+        name="nc-long-term-memory-auto-archive",
+        daemon=True,
+    ).start()
+    print(f"🧠 [Memory] Auto Long-Term archive queued: {pending_count}/{threshold} pending turn(s).")
+    return True
 
 
 def _long_term_memory_extraction_payload(response_text):
@@ -8336,6 +8411,7 @@ def run_conversation_flow(source):
                     assistant_history_added = True
                     _apply_stored_chat_history_limit()
                     maybe_start_continuity_memory_auto_update()
+                    maybe_start_long_term_memory_auto_archive()
                     _clear_active_hidden_proactive_candidate()
 
                     if is_proactive:
@@ -8415,6 +8491,7 @@ def run_conversation_flow(source):
                         conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                         _apply_stored_chat_history_limit()
                         maybe_start_continuity_memory_auto_update()
+                        maybe_start_long_term_memory_auto_archive()
                         assistant_history_added = True
                     _clear_active_hidden_proactive_candidate()
                     if is_proactive:
@@ -8554,6 +8631,7 @@ def run_conversation_flow(source):
                         elif final_assistant.strip():
                             conversation_history.append({"role": "assistant", "content": final_assistant, "origin": "assistant_reply"})
                             maybe_start_continuity_memory_auto_update()
+                            maybe_start_long_term_memory_auto_archive()
                             assistant_history_added = True
 
                         discard_assistant_history = True
@@ -8609,6 +8687,7 @@ def run_conversation_flow(source):
                         conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
                         _apply_stored_chat_history_limit()
                         maybe_start_continuity_memory_auto_update()
+                        maybe_start_long_term_memory_auto_archive()
                         assistant_history_added = True
 
             conversation_controller.on_speaking_finished()
@@ -8797,3 +8876,4 @@ if __name__ == "__main__":
         run_companion()
     except KeyboardInterrupt:
         stop_flag.set()
+

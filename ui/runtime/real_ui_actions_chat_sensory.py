@@ -137,6 +137,12 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_continuity_memory_auto_turns_changed(self, value):
+            try:
+                self.backend.on_continuity_memory_auto_turns_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _on_frontend_long_term_memory_retrieval_enabled_changed(self, checked):
             try:
                 self.backend.on_long_term_memory_retrieval_enabled_changed(bool(checked))
@@ -146,6 +152,12 @@ class RealUiActionsChatSensoryMixin:
     def _on_frontend_long_term_memory_retrieval_max_items_changed(self, value):
             try:
                 self.backend.on_long_term_memory_retrieval_max_items_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_archive_batch_turns_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_archive_batch_turns_changed(int(value))
             finally:
                 self._refresh_chat_session_runtime_frontend()
 

@@ -1,5 +1,6 @@
 import json
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -9,6 +10,10 @@ from core.addons.qt_host_services import QtDialogService
 
 
 from ui.runtime.engine_access import engine_module as _engine
+
+
+class _ChatContextMemoryFlushBridge(QtCore.QObject):
+    finished = QtCore.Signal(object, object)
 
 
 def _replace_chat_conversation_history(entries, *, allow_pending_loaded_user):
@@ -646,8 +651,10 @@ class BackendConsoleChatMixin:
         if isinstance(config, dict):
             config.update(memory_settings)
             config["continuity_memory_update_on_save"] = memory_settings["continuity_memory_auto_summarize"]
+            config["continuity_memory_auto_turns"] = max(1, min(10000, int(data.get("continuity_memory_auto_turns", config.get("continuity_memory_auto_turns", 120)) or 120)))
             config["continuity_memory_max_chars"] = max(500, min(20000, int(data.get("continuity_memory_max_chars", data.get("long_term_memory_max_chars", config.get("continuity_memory_max_chars", 3000))) or 3000)))
             config["long_term_memory_retrieval_max_items"] = max(1, min(12, int(data.get("long_term_memory_retrieval_max_items", config.get("long_term_memory_retrieval_max_items", 6)) or 6)))
+            config["long_term_memory_archive_batch_turns"] = max(1, min(10000, int(data.get("long_term_memory_archive_batch_turns", config.get("long_term_memory_archive_batch_turns", 120)) or 120)))
             config["long_term_memory_embedding_model"] = str(data.get("long_term_memory_embedding_model", config.get("long_term_memory_embedding_model", "text-embedding-bge-m3")) or "text-embedding-bge-m3")
             config["long_term_memory_embedding_context_length"] = max(512, min(262144, int(data.get("long_term_memory_embedding_context_length", config.get("long_term_memory_embedding_context_length", 8192)) or 8192)))
             config["long_term_memory_embedding_base_url"] = str(data.get("long_term_memory_embedding_base_url", config.get("long_term_memory_embedding_base_url", "http://127.0.0.1:1234/v1")) or "http://127.0.0.1:1234/v1")
@@ -656,10 +663,14 @@ class BackendConsoleChatMixin:
         self._set_memory_checkbox_checked("long_term_memory_inject_checkbox", memory_settings["continuity_memory_inject"])
         self._set_memory_checkbox_checked("long_term_memory_retrieval_enabled_checkbox", memory_settings["long_term_memory_retrieval_enabled"])
         self._set_memory_checkbox_checked("long_term_memory_embedding_enabled_checkbox", memory_settings["long_term_memory_embedding_enabled"])
+        if hasattr(self, "continuity_memory_auto_turns_spin") and isinstance(config, dict):
+            self.continuity_memory_auto_turns_spin.setValue(int(config.get("continuity_memory_auto_turns", 120) or 120))
         if hasattr(self, "long_term_memory_max_chars_spin") and isinstance(config, dict):
             self.long_term_memory_max_chars_spin.setValue(int(config.get("continuity_memory_max_chars", 3000) or 3000))
         if hasattr(self, "long_term_memory_retrieval_max_items_spin") and isinstance(config, dict):
             self.long_term_memory_retrieval_max_items_spin.setValue(int(config.get("long_term_memory_retrieval_max_items", 6) or 6))
+        if hasattr(self, "long_term_memory_archive_batch_turns_spin") and isinstance(config, dict):
+            self.long_term_memory_archive_batch_turns_spin.setValue(int(config.get("long_term_memory_archive_batch_turns", 120) or 120))
         if hasattr(self, "long_term_memory_embedding_model_edit") and isinstance(config, dict):
             widget = self.long_term_memory_embedding_model_edit
             value = str(config.get("long_term_memory_embedding_model", "") or "")
@@ -697,13 +708,76 @@ class BackendConsoleChatMixin:
             data["continuity_memory_id"] = file_stem
         return data
 
-    def _maybe_update_continuity_memory_on_save(self):
+    def _set_chat_context_memory_flush_locked(self, locked):
+        setter = getattr(self, "_set_continuity_memory_batch_controls_locked", None)
+        if callable(setter):
+            setter(bool(locked))
+
+    def _start_chat_context_memory_flush(self, history_snapshot, *, label="Chat context"):
+        if bool(getattr(self, "_chat_context_memory_flush_running", False)):
+            print("[QtGUI] Memory flush already running; skipped duplicate save-triggered flush.")
+            return
+        config = getattr(_engine(), "RUNTIME_CONFIG", {}) or {}
+        continuity_enabled = bool(config.get("continuity_memory_enabled", False))
+        archive_enabled = bool(config.get("long_term_memory_retrieval_enabled", False)) or bool(config.get("long_term_memory_embedding_enabled", False))
+        if not continuity_enabled and not archive_enabled:
+            return
+        self._chat_context_memory_flush_running = True
+        self._set_chat_context_memory_flush_locked(True)
+        if hasattr(self, "long_term_memory_hint"):
+            self.long_term_memory_hint.setText(f"{self.long_term_memory_hint.text()}\nSaving memory in background...")
+        if hasattr(self, "long_term_memory_archive_hint"):
+            self.long_term_memory_archive_hint.setText(f"{self.long_term_memory_archive_hint.text()}\nSaving archive in background...")
+
+        bridge = _ChatContextMemoryFlushBridge()
+        bridge.finished.connect(self._on_chat_context_memory_flush_finished)
+        self._chat_context_memory_flush_bridge = bridge
+        snapshot = list(history_snapshot or [])
+
+        def worker():
+            result = {"continuity": None, "archive": None}
+            error = None
+            try:
+                if continuity_enabled:
+                    updater = getattr(_engine(), "batch_update_continuity_memory_from_current_chat", None)
+                    if callable(updater):
+                        result["continuity"] = updater(max_batches=1000, history=snapshot)
+                if archive_enabled:
+                    sync_archive = getattr(_engine(), "sync_long_term_memory_archive_from_current_chat", None)
+                    if callable(sync_archive):
+                        result["archive"] = sync_archive(flush_partial=True, history=snapshot)
+            except Exception as exc:
+                error = exc
+            bridge.finished.emit(result, error)
+
+        threading.Thread(target=worker, name="nc-chat-context-memory-save", daemon=True).start()
+        print(f"[QtGUI] {label} memory flush queued in background.")
+
+    @QtCore.Slot(object, object)
+    def _on_chat_context_memory_flush_finished(self, result, error):
+        self._chat_context_memory_flush_running = False
+        self._set_chat_context_memory_flush_locked(False)
+        self._chat_context_memory_flush_bridge = None
         refresh = getattr(self, "_refresh_continuity_memory_hint", None)
         if callable(refresh):
             refresh()
-
-    def _maybe_update_long_term_memory_on_save(self):
-        self._maybe_update_continuity_memory_on_save()
+        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
+        if callable(refresh_archive):
+            refresh_archive()
+        if error is not None:
+            print(f"[QtGUI] Memory flush after save failed: {error}")
+            return
+        result = result or {}
+        continuity = result.get("continuity") or {}
+        archive = result.get("archive") or {}
+        if continuity.get("updated"):
+            print(f"[QtGUI] Continuity Memory flushed on save: {int(continuity.get('processed_turns', 0) or 0)} message(s).")
+        if archive.get("enabled"):
+            print(
+                f"[QtGUI] Long-Term Memory archive flushed on save: "
+                f"{int(archive.get('archived_chunks', 0) or 0)} chunk(s), "
+                f"{int(archive.get('embedded', 0) or 0)} embedding target(s)."
+            )
 
     def _write_chat_context_to_path(
         self,
@@ -730,17 +804,7 @@ class BackendConsoleChatMixin:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(json.dumps(payload, indent=2), encoding="utf-8")
         if sync_memory:
-            self._maybe_update_continuity_memory_on_save()
-            sync_archive = getattr(_engine(), "sync_long_term_memory_archive_from_current_chat", None)
-            if callable(sync_archive):
-                try:
-                    result = sync_archive()
-                    if result and result.get("enabled"):
-                        refresh_archive = getattr(self, "_refresh_long_term_memory_archive_hint", None)
-                        if callable(refresh_archive):
-                            refresh_archive()
-                except Exception as exc:
-                    print(f"[QtGUI] Long-Term Memory archive sync on save failed: {exc}")
+            self._start_chat_context_memory_flush(payload.get("conversation_history", []), label=label)
         print(f"[QtGUI] {label} saved: {target}")
 
     def save_chat_context(self):

@@ -169,10 +169,12 @@ class MainWindowSessionMixin:
             "active_chat_context_name": str(RUNTIME_CONFIG.get("active_chat_context_name", "") or ""),
             "continuity_memory_enabled": bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_enabled", RUNTIME_CONFIG.get("long_term_memory_enabled", False))),
             "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", RUNTIME_CONFIG.get("long_term_memory_update_on_save", False)))),
+            "continuity_memory_auto_turns": int(self.continuity_memory_auto_turns_spin.value()) if hasattr(self, "continuity_memory_auto_turns_spin") else int(RUNTIME_CONFIG.get("continuity_memory_auto_turns", 120) or 120),
             "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_inject", RUNTIME_CONFIG.get("long_term_memory_inject", False))),
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+            "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", 120) or 120),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
             "long_term_memory_embedding_model": (
                 str(self.long_term_memory_embedding_model_edit.currentText() or "").strip()
@@ -544,6 +546,11 @@ class MainWindowSessionMixin:
             if continuity_memory_auto_summarize is not None and hasattr(self, "long_term_memory_update_on_save_checkbox"):
                 self.long_term_memory_update_on_save_checkbox.setChecked(bool(continuity_memory_auto_summarize))
                 self.on_continuity_memory_update_on_save_changed(bool(continuity_memory_auto_summarize))
+            continuity_memory_auto_turns = session.get("continuity_memory_auto_turns")
+            if continuity_memory_auto_turns is not None and hasattr(self, "continuity_memory_auto_turns_spin"):
+                auto_turns = max(1, min(10000, int(continuity_memory_auto_turns or 120)))
+                self.continuity_memory_auto_turns_spin.setValue(auto_turns)
+                self.on_continuity_memory_auto_turns_changed(auto_turns)
             continuity_memory_inject = session.get("continuity_memory_inject", session.get("long_term_memory_inject"))
             if continuity_memory_inject is not None and hasattr(self, "long_term_memory_inject_checkbox"):
                 self.long_term_memory_inject_checkbox.setChecked(bool(continuity_memory_inject))
@@ -562,6 +569,11 @@ class MainWindowSessionMixin:
                 max_items = max(1, min(12, int(retrieval_max_items)))
                 self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
                 self.on_long_term_memory_retrieval_max_items_changed(max_items)
+            archive_batch_turns = session.get("long_term_memory_archive_batch_turns")
+            if archive_batch_turns is not None and hasattr(self, "long_term_memory_archive_batch_turns_spin"):
+                batch_turns = max(1, min(10000, int(archive_batch_turns or 120)))
+                self.long_term_memory_archive_batch_turns_spin.setValue(batch_turns)
+                self.on_long_term_memory_archive_batch_turns_changed(batch_turns)
             embedding_enabled = session.get("long_term_memory_embedding_enabled")
             if embedding_enabled is not None and hasattr(self, "long_term_memory_embedding_enabled_checkbox"):
                 self.long_term_memory_embedding_enabled_checkbox.setChecked(bool(embedding_enabled))
