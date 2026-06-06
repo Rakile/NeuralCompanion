@@ -22,6 +22,8 @@ class RoleplayEngine:
         session: RoleplaySessionState = self.controller.session
         if not session.enabled:
             return None
+        if getattr(self.controller, "mprc_play_isolated_active", lambda: False)():
+            return None
         latest_user = self._latest_user_text(payload.get("messages"))
         self._latest_user_input_text = latest_user
         prompt_personas = self.controller.story_prompt_personas() if hasattr(self.controller, "story_prompt_personas") else self.controller.personas
