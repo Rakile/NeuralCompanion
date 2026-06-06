@@ -32,7 +32,7 @@ class ScenicController(QtCore.QObject):
         pack_layout = QtWidgets.QGridLayout(pack_box)
         pack_layout.setColumnStretch(1, 1)
         self.pack_combo = QtWidgets.QComboBox()
-        self.pack_combo.setObjectName("scenic_pack_combo")
+        self.pack_combo.setObjectName("scenic_editor_pack_combo")
         self.pack_combo.currentIndexChanged.connect(self._on_pack_changed)
         self.new_pack_button = QtWidgets.QPushButton("New Pack")
         self.new_pack_button.clicked.connect(self._create_pack)
