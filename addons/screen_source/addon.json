@@ -6,6 +6,7 @@
   "entry_point": "main.py",
   "description": "Screen-backed hidden Vision source for attaching screenshots as ambient sensory context.",
   "runtime_defaults": {
+    "screen_source_capture_screen_index": -1,
     "screen_source_auto_attach_next_user_turn": false
   },
   "permissions": [

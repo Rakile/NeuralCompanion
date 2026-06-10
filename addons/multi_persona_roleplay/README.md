@@ -38,13 +38,13 @@ Gemini TTS Preview does not currently support voice samples, so MPRC warns and f
 
 The session panel supports:
 
-- Single active persona
-- Multi-character group chat
-- Narrator + characters
-- RPG / Game Master mode
-- AlternativeReality
+- `Single active persona`: only the active persona is framed to respond. Use it for one-on-one roleplay or testing one profile/voice.
+- `Multi-character group chat`: the active cast is treated as a conversation group. Characters can speak as participants, but there is no dedicated narrator layer.
+- `Narrator + characters`: adds a narrator/story voice plus character dialogue. Use it for prose scenes that still include named character responses.
+- `RPG / Game Master mode`: frames the assistant as a game master who describes the world, adjudicates actions, and offers tabletop-style outcomes.
+- `AlternativeReality`: narrator-led interactive story mode with persistent scene state, active characters, pacing controls, choices, and story audio tags.
 
-The active persona controls the immediate prompt. Multi-character modes add a compact roster and current-speaker instruction without exposing hidden planning.
+The active persona controls the immediate prompt in simple modes. Multi-character modes add a compact roster and current-speaker instruction without exposing hidden planning.
 
 AlternativeReality, or AR, is a directed interactive audiobook/adventure mode. It uses compact AR session state, a narrator-first prompt layer, active characters, pacing settings, interaction-frequency settings, and structured sections such as `[NARRATOR]`, `[CHARACTER: Name]`, `[AMBIENCE]`, and `[CHOICES]`. Existing non-AR modes keep their normal prompt behavior.
 

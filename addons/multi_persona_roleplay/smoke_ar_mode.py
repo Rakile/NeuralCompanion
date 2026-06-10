@@ -18,7 +18,7 @@ from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayControl
 from addons.multi_persona_roleplay.long_memory import RoleplayLongMemory
 from addons.multi_persona_roleplay.audio_prompts import create_audio_prompt, infer_audio_type
 from addons.multi_persona_roleplay import prompting
-from addons.multi_persona_roleplay.models import AR_MODE, SESSION_MODES, VISUAL_MODES, PersonaConfig, RoleplaySessionState
+from addons.multi_persona_roleplay.models import AR_MODE, SESSION_MODES, SESSION_MODE_DESCRIPTIONS, VISUAL_MODES, PersonaConfig, RoleplaySessionState
 from addons.multi_persona_roleplay.roleplay_engine import RoleplayEngine
 from addons.multi_persona_roleplay.storage import RoleplayStorage
 from addons.multi_persona_roleplay.voice_routing import PersonaVoiceRouter
@@ -34,6 +34,7 @@ def _personas() -> list[PersonaConfig]:
 
 def run_smoke() -> None:
     assert AR_MODE in SESSION_MODES
+    assert set(SESSION_MODES).issubset(set(SESSION_MODE_DESCRIPTIONS))
     personas = _personas()
     normal = RoleplaySessionState.from_dict({"enabled": True, "mode": "Narrator + characters"})
     normal_prompt = prompting.build_persona_system_prompt(personas[0], normal)
@@ -946,6 +947,12 @@ def _smoke_tab_text_inputs_commit_quietly() -> None:
             controller._populate_visual(persona)
         finally:
             controller._syncing = False
+
+        mode_note = controller._controls.get("session_mode_note")
+        assert mode_note is not None
+        controller._controls["session_mode"].setCurrentText(AR_MODE)
+        app.processEvents()
+        assert "Narrator-led interactive story mode" in mode_note.text()
 
         controller._controls["voice_sample"].setText("Q:/quiet/voice.wav")
         app.processEvents()

@@ -1,0 +1,25 @@
+{
+  "id": "nc.ai_presence_mode",
+  "name": "AI Presence Mode",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Configure the native fullscreen and floating AI Presence visualizer for thinking and spoken audio.",
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write",
+    "events.publish"
+  ],
+  "ui": [
+    {
+      "id": "ai_presence_mode_tab",
+      "title": "AI Presence",
+      "area": "top_level",
+      "icon_path": "../../ui_icons/side_tabs/visuals.png",
+      "order": 124,
+      "tooltip": "Configure AI Presence fullscreen, floating window, visual styles, transparency, and audio sync."
+    }
+  ],
+  "enabled": true
+}

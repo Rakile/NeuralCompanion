@@ -8,6 +8,13 @@ MEMORY_SCOPES = ("shared", "persona-only", "session-only", "disabled")
 BEHAVIOR_MODES = ("normal companion", "RPG character", "narrator", "game master", "group participant")
 AR_MODE = "AlternativeReality"
 SESSION_MODES = ("Single active persona", "Multi-character group chat", "Narrator + characters", "RPG / Game Master mode", AR_MODE)
+SESSION_MODE_DESCRIPTIONS = {
+    "Single active persona": "Only the active persona is framed to respond. Best for one-on-one roleplay or testing one voice/profile.",
+    "Multi-character group chat": "Uses the active cast as a conversation group. Characters may speak as participants, but there is no dedicated narrator layer.",
+    "Narrator + characters": "Adds a narrator/story voice plus character dialogue. Best for prose scenes that still include named character responses.",
+    "RPG / Game Master mode": "Frames the assistant as a game master who describes the world, adjudicates actions, and offers tabletop-style outcomes.",
+    AR_MODE: "Narrator-led interactive story mode with persistent scene state, active characters, pacing controls, choices, and story audio tags.",
+}
 AR_PACING_MODES = ("Slow / Audiobook", "Balanced", "Fast / Game-like")
 AR_INTERACTION_FREQUENCIES = ("Ask often", "Ask sometimes", "Continue until important choice")
 VOICE_BACKENDS = ("inherit", "chatterbox", "chatterbox_multilingual", "pockettts", "pockettts_multilingual", "gemini_tts_preview")

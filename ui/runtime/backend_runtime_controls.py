@@ -10,6 +10,31 @@ def _update_runtime_config(key, value):
     return update_runtime_config(key, value)
 
 
+_AI_PRESENCE_DISPLAY_MODES = {"off", "fullscreen", "floating", "both"}
+_AI_PRESENCE_VISUAL_STYLES = {
+    "classic_neural_orb",
+    "breathing_orb",
+    "neural_network_pulse",
+    "vector_voice_orb",
+    "circular_audio_waveform",
+    "halo_rings",
+    "minimal_dot",
+    "hologram_core",
+    "signal_bloom",
+    "crystal_prism",
+}
+
+
+def _normalize_ai_presence_display_mode(value):
+    mode = str(value or "fullscreen").strip().lower()
+    return mode if mode in _AI_PRESENCE_DISPLAY_MODES else "fullscreen"
+
+
+def _normalize_ai_presence_visual_style(value):
+    style = str(value or "breathing_orb").strip().lower()
+    return style if style in _AI_PRESENCE_VISUAL_STYLES else "breathing_orb"
+
+
 def _audio_device_labels(*, show_all_inputs=False, include_input_mode_actions=False):
     from qt_app import _ui_shell_audio_device_labels
 
@@ -153,3 +178,203 @@ class BackendRuntimeControlsMixin:
             button = getattr(self, name, None)
             if button is not None:
                 button.setEnabled((running and not dry_run_active and not offline_replay_only) or replay_runtime_enabled)
+
+    def _apply_ai_presence_runtime_config(self):
+        controller = getattr(self, "visual_presence_controller", None)
+        if controller is not None and hasattr(controller, "apply_runtime_config"):
+            try:
+                controller.apply_runtime_config(dict(_runtime_config()))
+            except Exception:
+                pass
+
+    def _set_ai_presence_combo_value(self, attr, value):
+        combo = getattr(self, attr, None)
+        if combo is None or not hasattr(combo, "count"):
+            return
+        try:
+            combo.blockSignals(True)
+            target = str(value or "").strip().lower()
+            for index in range(combo.count()):
+                data = str(combo.itemData(index) or "").strip().lower()
+                if data == target:
+                    combo.setCurrentIndex(index)
+                    return
+        finally:
+            try:
+                combo.blockSignals(False)
+            except Exception:
+                pass
+
+    def _current_ai_presence_combo_data(self, attr, fallback):
+        combo = getattr(self, attr, None)
+        if combo is not None and hasattr(combo, "currentData"):
+            try:
+                data = combo.currentData()
+                if data:
+                    return data
+            except Exception:
+                pass
+        return fallback
+
+    def _set_ai_presence_checked(self, attr, checked):
+        widget = getattr(self, attr, None)
+        if widget is None or not hasattr(widget, "setChecked"):
+            return
+        try:
+            widget.blockSignals(True)
+            widget.setChecked(bool(checked))
+        finally:
+            try:
+                widget.blockSignals(False)
+            except Exception:
+                pass
+
+    def on_ai_presence_enabled_changed(self, checked):
+        _update_runtime_config("ai_presence_enabled", bool(checked))
+        if bool(checked) and _normalize_ai_presence_display_mode(_runtime_config().get("ai_presence_display_mode", "fullscreen")) == "off":
+            _update_runtime_config("ai_presence_display_mode", "fullscreen")
+            self._set_ai_presence_combo_value("ai_presence_display_mode_combo", "fullscreen")
+        self._apply_ai_presence_runtime_config()
+        self.save_session()
+
+    def on_ai_presence_preview_requested(self):
+        _update_runtime_config("ai_presence_enabled", True)
+        _update_runtime_config("ai_presence_display_mode", "fullscreen")
+        _update_runtime_config("ai_presence_fullscreen", True)
+        self._set_ai_presence_combo_value("ai_presence_display_mode_combo", "fullscreen")
+        for attr in ("ai_presence_enabled_checkbox", "ai_presence_fullscreen_checkbox"):
+            widget = getattr(self, attr, None)
+            if widget is not None and hasattr(widget, "setChecked"):
+                try:
+                    widget.blockSignals(True)
+                    widget.setChecked(True)
+                finally:
+                    try:
+                        widget.blockSignals(False)
+                    except Exception:
+                        pass
+        if getattr(self, "visual_presence_controller", None) is None and hasattr(self, "_install_visual_presence_overlay"):
+            try:
+                self._install_visual_presence_overlay()
+            except Exception:
+                pass
+        self._apply_ai_presence_runtime_config()
+        try:
+            from PySide6 import QtCore
+            from visual_presence import runtime as visual_presence_runtime
+
+            visual_presence_runtime.apply_settings(_runtime_config())
+            visual_presence_runtime.set_ai_state("speaking")
+            visual_presence_runtime.set_audio_level(0.58)
+
+            def _finish_preview():
+                try:
+                    visual_presence_runtime.set_audio_level(0.0)
+                    visual_presence_runtime.set_ai_state("idle")
+                except Exception:
+                    pass
+
+            QtCore.QTimer.singleShot(7000, _finish_preview)
+        except Exception as exc:
+            label = getattr(self, "ai_presence_status_label", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(f"AI Presence preview failed: {exc}")
+        self.save_session()
+
+    def on_ai_presence_show_floating_requested(self):
+        _update_runtime_config("ai_presence_enabled", True)
+        _update_runtime_config("ai_presence_display_mode", "floating")
+        self._set_ai_presence_checked("ai_presence_enabled_checkbox", True)
+        self._set_ai_presence_combo_value("ai_presence_display_mode_combo", "floating")
+        if getattr(self, "visual_presence_controller", None) is None and hasattr(self, "_install_visual_presence_overlay"):
+            try:
+                self._install_visual_presence_overlay()
+            except Exception:
+                pass
+        self._apply_ai_presence_runtime_config()
+        try:
+            from visual_presence import runtime as visual_presence_runtime
+
+            visual_presence_runtime.apply_settings(_runtime_config())
+            visual_presence_runtime.set_ai_state("idle")
+            visual_presence_runtime.set_audio_level(0.0)
+        except Exception as exc:
+            label = getattr(self, "ai_presence_status_label", None)
+            if label is not None and hasattr(label, "setText"):
+                label.setText(f"AI Presence floating window failed: {exc}")
+        self.save_session()
+
+    def on_ai_presence_display_mode_changed(self, value):
+        raw_value = self._current_ai_presence_combo_data("ai_presence_display_mode_combo", value)
+        mode = _normalize_ai_presence_display_mode(raw_value)
+        _update_runtime_config("ai_presence_display_mode", mode)
+        enabled = mode != "off"
+        _update_runtime_config("ai_presence_enabled", enabled)
+        self._set_ai_presence_checked("ai_presence_enabled_checkbox", enabled)
+        self._apply_ai_presence_runtime_config()
+        self.save_session()
+
+    def on_ai_presence_visual_style_changed(self, value):
+        raw_value = self._current_ai_presence_combo_data("ai_presence_visual_style_combo", value)
+        style = _normalize_ai_presence_visual_style(raw_value)
+        _update_runtime_config("ai_presence_visual_style", style)
+        self._apply_ai_presence_runtime_config()
+        self.save_session()
+
+    def on_ai_presence_setting_changed(self, key, value):
+        key = str(key or "").strip()
+        if key == "ai_presence_display_mode":
+            self.on_ai_presence_display_mode_changed(value)
+            return
+        if key == "ai_presence_visual_style":
+            self.on_ai_presence_visual_style_changed(value)
+            return
+        if key not in {
+            "ai_presence_fullscreen",
+            "ai_presence_overlay_opacity",
+            "ai_presence_floating_opacity",
+            "ai_presence_floating_always_on_top",
+            "ai_presence_remember_floating_geometry",
+            "ai_presence_transparent_background",
+            "ai_presence_thinking_pulse",
+            "ai_presence_speaking_reactivity",
+            "ai_presence_audio_refresh_hz",
+            "ai_presence_node_density",
+            "ai_presence_particle_density",
+            "ai_presence_reduced_effects",
+            "ai_presence_shaders_enabled",
+            "ai_presence_particles_enabled",
+            "ai_presence_space_closes_fullscreen",
+            "ai_presence_music_reactivity_enabled",
+            "ai_presence_music_reactivity",
+        }:
+            return
+        if key in {
+            "ai_presence_fullscreen",
+            "ai_presence_floating_always_on_top",
+            "ai_presence_remember_floating_geometry",
+            "ai_presence_transparent_background",
+            "ai_presence_reduced_effects",
+            "ai_presence_shaders_enabled",
+            "ai_presence_particles_enabled",
+            "ai_presence_space_closes_fullscreen",
+            "ai_presence_music_reactivity_enabled",
+        }:
+            normalized = bool(value)
+        elif key == "ai_presence_audio_refresh_hz":
+            normalized = max(5, min(30, int(value)))
+        elif key == "ai_presence_node_density":
+            normalized = max(8, min(96, int(value)))
+        elif key == "ai_presence_particle_density":
+            normalized = max(0, min(120, int(value)))
+        elif key == "ai_presence_speaking_reactivity":
+            normalized = max(0.10, min(1.50, float(value)))
+        elif key == "ai_presence_music_reactivity":
+            normalized = max(0.00, min(1.50, float(value)))
+        elif key == "ai_presence_floating_opacity":
+            normalized = max(0.35, min(1.00, float(value)))
+        else:
+            normalized = max(0.10, min(1.00, float(value)))
+        _update_runtime_config(key, normalized)
+        self._apply_ai_presence_runtime_config()
+        self.save_session()

@@ -11,6 +11,10 @@ def _sensory():
 
     return sensory
 
+
+COMPANION_ORB_PROVIDER_ID = "companion_orb_target"
+
+
 class BackendSensoryConfigMixin:
     def _sensory_provider_summaries(self):
         return [provider.to_summary() for provider in _sensory().list_providers()]
@@ -52,6 +56,25 @@ class BackendSensoryConfigMixin:
         combo.addItem(summary_label, summary_value)
         combo.setCurrentIndex(0)
         combo.blockSignals(previous)
+
+    def _sync_companion_orb_sensory_target_controls(self, selected_values=None):
+        checkbox = getattr(self, "companion_orb_sensory_target_checkbox", None)
+        if checkbox is None:
+            return
+        selected = set(
+            self._parse_sensory_feedback_source_values(
+                selected_values if selected_values is not None else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
+            )
+        )
+        enabled = bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)) or COMPANION_ORB_PROVIDER_ID in selected
+        try:
+            checkbox.blockSignals(True)
+            checkbox.setChecked(enabled)
+        finally:
+            checkbox.blockSignals(False)
+        button = getattr(self, "btn_companion_orb_clear_sensory_target", None)
+        if button is not None:
+            button.setEnabled(enabled)
 
     def _refresh_sensory_feedback_hint(self):
         runtime_config = _engine().RUNTIME_CONFIG
@@ -95,10 +118,35 @@ class BackendSensoryConfigMixin:
                 )
             else:
                 summary += " Hidden PING/PONG is off, so sensory updates are only attached during normal visible requests."
+            if COMPANION_ORB_PROVIDER_ID in sources:
+                target_enabled = bool(runtime_config.get("companion_orb_sensory_target_enabled", False))
+                full_context = bool(runtime_config.get("companion_orb_full_screen_context_enabled", False))
+                process_names = bool(runtime_config.get("companion_orb_include_process_name", True))
+                if target_enabled:
+                    if full_context:
+                        summary += (
+                            " Companion Orb Target is using Full-screen context map, so it captures a desktop-wide map "
+                            "and can guide orb movement toward regions through focus metadata."
+                        )
+                    else:
+                        summary += (
+                            " Companion Orb Target captures only the selected orb window/region; when no target is selected "
+                            "or the target is lost, it reports a warning instead of falling back to full-screen capture."
+                        )
+                    if not process_names:
+                        summary += " Window process names are hidden from target labels and sensory metadata."
+                else:
+                    summary += " Companion Orb Target is selected but disabled in AI Presence, so it will only report a warning until enabled."
         self.sensory_feedback_hint.setText(summary)
 
     def on_sensory_feedback_source_changed(self, choice):
         selected = self._parse_sensory_feedback_source_values(choice)
+        if (
+            not selected
+            and hasattr(self, "sensory_feedback_source_combo")
+            and self.sensory_feedback_source_combo.count()
+        ):
+            selected = self._parse_sensory_feedback_source_values(self.sensory_feedback_source_combo.currentData())
         checkboxes = getattr(self, "_sensory_feedback_source_checkboxes", {}) or {}
         for provider_id, checkbox in checkboxes.items():
             desired = provider_id in set(selected)
@@ -110,6 +158,9 @@ class BackendSensoryConfigMixin:
         config_value = self._sensory_feedback_config_value(selected)
         self._sync_sensory_feedback_source_summary(selected)
         _engine().update_runtime_config("sensory_feedback_source", config_value)
+        orb_enabled = COMPANION_ORB_PROVIDER_ID in set(selected)
+        _engine().update_runtime_config("companion_orb_sensory_target_enabled", orb_enabled)
+        self._sync_companion_orb_sensory_target_controls(selected)
         self._refresh_sensory_feedback_hint()
         self.emit_tutorial_event("ui_changed", {"field": "sensory_feedback_source", "value": config_value})
         self.save_session()
@@ -140,6 +191,41 @@ class BackendSensoryConfigMixin:
         _engine().update_runtime_config("sensory_allow_hidden_visual_generation", enabled)
         self._refresh_sensory_feedback_hint()
         self.emit_tutorial_event("ui_changed", {"field": "sensory_allow_hidden_visual_generation", "value": enabled})
+        self.save_session()
+
+    def on_companion_orb_sensory_target_changed(self, checked):
+        enabled = bool(checked)
+        _engine().update_runtime_config("companion_orb_sensory_target_enabled", enabled)
+        selected = self._parse_sensory_feedback_source_values(
+            self.sensory_feedback_source_combo.currentData()
+            if hasattr(self, "sensory_feedback_source_combo") and self.sensory_feedback_source_combo.count()
+            else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
+        )
+        selected_set = set(selected)
+        if enabled:
+            if _sensory().get_provider(COMPANION_ORB_PROVIDER_ID) is not None:
+                selected_set.add(COMPANION_ORB_PROVIDER_ID)
+        else:
+            selected_set.discard(COMPANION_ORB_PROVIDER_ID)
+        ordered = [provider_id for provider_id in selected if provider_id in selected_set]
+        if enabled and COMPANION_ORB_PROVIDER_ID in selected_set and COMPANION_ORB_PROVIDER_ID not in ordered:
+            ordered.append(COMPANION_ORB_PROVIDER_ID)
+        config_value = self._sensory_feedback_config_value(ordered)
+        _engine().update_runtime_config("sensory_feedback_source", config_value)
+        self.refresh_sensory_feedback_source_options(selected_value=config_value)
+        self._refresh_sensory_feedback_hint()
+        self.emit_tutorial_event("ui_changed", {"field": "companion_orb_sensory_target_enabled", "value": enabled})
+        self.save_session()
+
+    def clear_companion_orb_sensory_target(self):
+        callback = getattr(self, "_invoke_addon_capability", None)
+        if callable(callback):
+            result = callback("nc.companion_orb_overlay", "companion_orb.clear_target", {}, default=None)
+            if result is None:
+                callback("nc.ai_presence_mode", "companion_orb.clear_target", {}, default=None)
+        _engine().update_runtime_config("companion_orb_target_info", {})
+        self._refresh_sensory_feedback_hint()
+        self.emit_tutorial_event("ui_changed", {"field": "companion_orb_target_info", "value": "cleared"})
         self.save_session()
 
     def on_sensory_pingpong_history_depth_changed(self, value):
@@ -173,6 +259,13 @@ class BackendSensoryConfigMixin:
                     break
         source_value = selected_value if selected_value is not None else _engine().RUNTIME_CONFIG.get("sensory_feedback_source", "off")
         requested = self._parse_sensory_feedback_source_values(source_value)
+        if (
+            bool(_engine().RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False))
+            and _sensory().get_provider(COMPANION_ORB_PROVIDER_ID) is not None
+            and COMPANION_ORB_PROVIDER_ID not in requested
+        ):
+            requested.append(COMPANION_ORB_PROVIDER_ID)
+            _engine().update_runtime_config("sensory_feedback_source", self._sensory_feedback_config_value(requested))
         entries = []
         for provider in self._sensory_provider_summaries():
             provider_id = str(provider.get("id", "") or "").strip()
@@ -198,6 +291,7 @@ class BackendSensoryConfigMixin:
                 self._sensory_feedback_source_checkboxes[provider_id] = checkbox
             layout.addStretch(1)
         self._sync_sensory_feedback_source_summary(requested)
+        self._sync_companion_orb_sensory_target_controls(requested)
         self._refresh_sensory_feedback_hint()
         self._refresh_sensory_feedback_source_tabs(selected_provider_id=target_provider_id)
         self._sync_tab_widget_height(getattr(self, "sensory_feedback_tabs", None))
@@ -230,6 +324,9 @@ class BackendSensoryConfigMixin:
         config_value = self._sensory_feedback_config_value(selected)
         self._sync_sensory_feedback_source_summary(selected)
         _engine().update_runtime_config("sensory_feedback_source", config_value)
+        orb_enabled = COMPANION_ORB_PROVIDER_ID in set(selected)
+        _engine().update_runtime_config("companion_orb_sensory_target_enabled", orb_enabled)
+        self._sync_companion_orb_sensory_target_controls(selected)
         self._refresh_sensory_feedback_hint()
         self._refresh_sensory_feedback_source_tabs()
         self.emit_tutorial_event("ui_changed", {"field": "sensory_feedback_source", "value": config_value})

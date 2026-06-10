@@ -27,6 +27,7 @@ from .models import (
     BEHAVIOR_MODES,
     MEMORY_SCOPES,
     SESSION_MODES,
+    SESSION_MODE_DESCRIPTIONS,
     VISUAL_MODE_DESCRIPTIONS,
     VISUAL_MODE_LABELS,
     VISUAL_MODES,
@@ -5414,6 +5415,13 @@ class MultiPersonaRoleplayController:
         form = QtWidgets.QFormLayout()
         mode = QtWidgets.QComboBox()
         mode.addItems(list(SESSION_MODES))
+        for index, mode_name in enumerate(SESSION_MODES):
+            mode.setItemData(index, SESSION_MODE_DESCRIPTIONS.get(mode_name, ""), QtCore.Qt.ToolTipRole)
+        mode_note = QtWidgets.QLabel("")
+        mode_note.setObjectName("mprc_session_mode_note")
+        mode_note.setWordWrap(True)
+        mode_note.setProperty("muted", True)
+        mode_note.setMinimumHeight(34)
         scene_title = QtWidgets.QLineEdit()
         location = QtWidgets.QLineEdit()
         time_of_day = QtWidgets.QLineEdit()
@@ -5434,6 +5442,7 @@ class MultiPersonaRoleplayController:
             button_row.addWidget(button)
         button_row.addStretch(1)
         form.addRow("Mode", mode)
+        form.addRow("", mode_note)
         form.addRow("Scene title", scene_title)
         form.addRow("Location", location)
         form.addRow("Time / mood", time_of_day)
@@ -5450,6 +5459,7 @@ class MultiPersonaRoleplayController:
         layout.addWidget(box)
         self._controls.update({
             "session_mode": mode,
+            "session_mode_note": mode_note,
             "scene_title": scene_title,
             "location": location,
             "time_of_day": time_of_day,
@@ -5465,7 +5475,7 @@ class MultiPersonaRoleplayController:
             "export_session": export_session,
             "import_session": import_session,
         })
-        mode.currentTextChanged.connect(lambda *_args: self._commit_session_now(refresh_ui=True))
+        mode.currentTextChanged.connect(lambda value="": (self._update_session_mode_note(value), self._commit_session_now(refresh_ui=True)))
         next_speaker.currentTextChanged.connect(lambda *_args: self._commit_session_now(refresh_ui=False))
         for widget in (scene_title, location, time_of_day, mood, objective):
             widget.textChanged.connect(lambda *_args: self._schedule_session_commit())
@@ -6564,9 +6574,20 @@ class MultiPersonaRoleplayController:
         mode = str(combo.currentData() or combo.currentText() or "off").strip()
         label.setText(VISUAL_MODE_DESCRIPTIONS.get(mode, "Controls when this persona can request Visual Reply story images."))
 
+    def _update_session_mode_note(self, mode: str | None = None) -> None:
+        label = self._controls.get("session_mode_note")
+        combo = self._controls.get("session_mode")
+        if label is None:
+            return
+        selected = str(mode or "").strip()
+        if not selected and combo is not None and hasattr(combo, "currentText"):
+            selected = str(combo.currentText() or "").strip()
+        label.setText(SESSION_MODE_DESCRIPTIONS.get(selected, "Choose how personas, narration, and story direction are framed for the current scene."))
+
     def _populate_session(self):
         c = self._controls
         c["session_mode"].setCurrentText(self.session.mode)
+        self._update_session_mode_note(self.session.mode)
         c["scene_title"].setText(self.session.scene_title)
         c["location"].setText(self.session.location)
         c["time_of_day"].setText(self.session.time_of_day)

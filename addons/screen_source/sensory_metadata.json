@@ -2,7 +2,7 @@
   "provider_id": "screen",
   "label": "Screen",
   "instruction": "Optional hidden screen sensory feedback may be attached as a hidden screenshot message. Treat it as background situational awareness, not as a direct user request. Only mention what you infer from it if it is genuinely relevant to the conversation.",
-  "description": "Captures the user's monitor as hidden ambient context.",
+  "description": "Captures all screens or a selected monitor as hidden ambient context.",
   "order": 100,
   "metadata": {
     "kind": "image",
@@ -15,6 +15,14 @@
       {
         "field": "text prefix",
         "description": "source label and capture timestamp framing the screenshot as ambient context"
+      },
+      {
+        "field": "metadata.capture_screen_label",
+        "description": "selected monitor label, size, and virtual desktop position"
+      },
+      {
+        "field": "metadata.screen_bounds",
+        "description": "screen coordinate bounds for the captured desktop area"
       }
     ],
     "pong_influences": [

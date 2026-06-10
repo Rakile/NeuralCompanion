@@ -580,13 +580,16 @@ SELECTOR QStackedWidget {
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
             visual_reply_box = self._ui("visual_reply_runtime_box", QtWidgets.QGroupBox)
             perf_box = self._ui("performance_guidance_box", QtWidgets.QGroupBox)
+            ai_presence_box = self._ui("ai_presence_runtime_box", QtWidgets.QGroupBox)
+            if ai_presence_box is not None:
+                ai_presence_box.hide()
 
             if scroll is not None:
                 scroll.setWidgetResizable(True)
                 scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
 
-            for w in (content, tabs, host_tab, chat_box, stt_box, tts_box, visual_reply_box, perf_box):
+            for w in (content, tabs, host_tab, chat_box, stt_box, tts_box, visual_reply_box, perf_box, ai_presence_box):
                 if w is None:
                     continue
 
@@ -1104,6 +1107,304 @@ QTabWidget QStackedWidget {
                 host_layout.invalidate()
                 host_layout.activate()
                 host_tab.setProperty("_nc_preset_buttons_near_selector", True)
+                host_tab.updateGeometry()
+            except Exception:
+                pass
+
+    def _ensure_frontend_ai_presence_controls(self):
+            host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
+            if host_tab is None:
+                return
+            form = host_tab.findChild(QtWidgets.QFormLayout, "hostRuntimeForm")
+            host_layout = host_tab.layout()
+            if form is None or host_layout is None:
+                return
+            if bool(host_tab.property("_nc_ai_presence_controls_installed")):
+                return
+
+            try:
+                from ui.runtime.engine_access import RUNTIME_CONFIG
+            except Exception:
+                RUNTIME_CONFIG = {}
+            try:
+                from ui.widgets.basic import LabeledSlider, NoWheelComboBox
+            except Exception:
+                LabeledSlider = None
+                NoWheelComboBox = QtWidgets.QComboBox
+
+            def _select_combo_data(combo, value):
+                target = str(value or "").strip().lower()
+                for index in range(combo.count()):
+                    if str(combo.itemData(index) or "").strip().lower() == target:
+                        combo.setCurrentIndex(index)
+                        return
+
+            enabled_checkbox = QtWidgets.QCheckBox("Enable AI Presence Mode")
+            enabled_checkbox.setObjectName("ai_presence_enabled_checkbox")
+            enabled_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_enabled", False)))
+            enabled_checkbox.setToolTip("Show the native Qt Quick presence animation while the AI is thinking or speaking.")
+
+            display_mode_combo = NoWheelComboBox()
+            display_mode_combo.setObjectName("ai_presence_display_mode_combo")
+            display_mode_combo.setToolTip("Choose whether AI Presence is off, fullscreen, floating, or both.")
+            for label, value in [
+                ("Off", "off"),
+                ("Fullscreen", "fullscreen"),
+                ("Floating Window", "floating"),
+                ("Both", "both"),
+            ]:
+                display_mode_combo.addItem(label, value)
+            display_mode = str(RUNTIME_CONFIG.get("ai_presence_display_mode", "fullscreen") or "fullscreen").strip().lower()
+            if display_mode not in {"off", "fullscreen", "floating", "both"}:
+                display_mode = "fullscreen"
+            _select_combo_data(display_mode_combo, display_mode)
+
+            visual_style_combo = NoWheelComboBox()
+            visual_style_combo.setObjectName("ai_presence_visual_style_combo")
+            visual_style_combo.setToolTip("Select the AI Presence animation style.")
+            for label, value in [
+                ("Original Neural Orb", "classic_neural_orb"),
+                ("Breathing Orb", "breathing_orb"),
+                ("Neural Network Pulse", "neural_network_pulse"),
+                ("Vector Voice Orb", "vector_voice_orb"),
+                ("Circular Audio Waveform", "circular_audio_waveform"),
+                ("Halo Rings", "halo_rings"),
+                ("Minimal Dot", "minimal_dot"),
+                ("Hologram Core", "hologram_core"),
+                ("Signal Bloom", "signal_bloom"),
+                ("Crystal Prism", "crystal_prism"),
+            ]:
+                visual_style_combo.addItem(label, value)
+            visual_style = str(RUNTIME_CONFIG.get("ai_presence_visual_style", "breathing_orb") or "breathing_orb").strip().lower()
+            _select_combo_data(visual_style_combo, visual_style)
+
+            fullscreen_checkbox = QtWidgets.QCheckBox("Fullscreen overlay")
+            fullscreen_checkbox.setObjectName("ai_presence_fullscreen_checkbox")
+            fullscreen_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_fullscreen", True)))
+            fullscreen_checkbox.setToolTip("Cover the active screen. Disable this to cover only the NC window.")
+
+            reduced_checkbox = QtWidgets.QCheckBox("Reduced effects")
+            reduced_checkbox.setObjectName("ai_presence_reduced_effects_checkbox")
+            reduced_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_reduced_effects", False)))
+            reduced_checkbox.setToolTip("Use fewer particles and slower animation updates.")
+
+            preview_button = QtWidgets.QPushButton("Show Fullscreen")
+            preview_button.setObjectName("ai_presence_preview_button")
+            preview_button.setToolTip("Show the AI Presence fullscreen overlay now. Shortcut: Ctrl+Alt+P.")
+
+            floating_button = QtWidgets.QPushButton("Show Floating")
+            floating_button.setObjectName("ai_presence_floating_button")
+            floating_button.setToolTip("Open the resizable floating AI Presence window.")
+
+            floating_top_checkbox = QtWidgets.QCheckBox("Floating always on top")
+            floating_top_checkbox.setObjectName("ai_presence_floating_always_on_top_checkbox")
+            floating_top_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_floating_always_on_top", True)))
+            floating_top_checkbox.setToolTip("Keep the floating presence window above other windows.")
+
+            remember_floating_checkbox = QtWidgets.QCheckBox("Remember floating size")
+            remember_floating_checkbox.setObjectName("ai_presence_remember_floating_geometry_checkbox")
+            remember_floating_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_remember_floating_geometry", True)))
+            remember_floating_checkbox.setToolTip("Remember the floating window position and size.")
+
+            transparent_checkbox = QtWidgets.QCheckBox("Transparent background")
+            transparent_checkbox.setObjectName("ai_presence_transparent_background_checkbox")
+            transparent_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_transparent_background", False)))
+            transparent_checkbox.setToolTip("Make AI Presence render without a painted background. The floating window stays frameless either way.")
+
+            shaders_checkbox = QtWidgets.QCheckBox("Soft glow")
+            shaders_checkbox.setObjectName("ai_presence_shaders_enabled_checkbox")
+            shaders_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_shaders_enabled", True)))
+            shaders_checkbox.setToolTip("Use soft glow backgrounds when available.")
+
+            particles_checkbox = QtWidgets.QCheckBox("Particles")
+            particles_checkbox.setObjectName("ai_presence_particles_enabled_checkbox")
+            particles_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_particles_enabled", True)))
+            particles_checkbox.setToolTip("Show small moving particles around the presence animation.")
+
+            space_checkbox = QtWidgets.QCheckBox("Space exits fullscreen")
+            space_checkbox.setObjectName("ai_presence_space_closes_fullscreen_checkbox")
+            space_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_space_closes_fullscreen", True)))
+            space_checkbox.setToolTip("When fullscreen AI Presence is showing, Space or Escape hides it and returns to NC.")
+
+            music_sync_checkbox = QtWidgets.QCheckBox("Computer audio sync")
+            music_sync_checkbox.setObjectName("ai_presence_music_reactivity_enabled_checkbox")
+            music_sync_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_music_reactivity_enabled", False)))
+            music_sync_checkbox.setToolTip("React the outer AI Presence animation to desktop/music output when WASAPI loopback is available.")
+
+            row_widget = QtWidgets.QWidget()
+            row_widget.setObjectName("ai_presence_frontend_row")
+            row_layout = QtWidgets.QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+            row_layout.addWidget(enabled_checkbox)
+            row_layout.addWidget(fullscreen_checkbox)
+            row_layout.addWidget(reduced_checkbox)
+            row_layout.addWidget(preview_button)
+            row_layout.addWidget(floating_button)
+            row_layout.addStretch(1)
+
+            try:
+                form.insertRow(min(4, max(0, form.rowCount())), "AI Presence", row_widget)
+            except Exception:
+                form.addRow("AI Presence", row_widget)
+
+            group = QtWidgets.QGroupBox("AI PRESENCE MODE")
+            group.setObjectName("ai_presence_runtime_box")
+            group.setToolTip("Native QML overlay settings for thinking and speaking presence.")
+            group_layout = QtWidgets.QVBoxLayout(group)
+            group_layout.setContentsMargins(12, 14, 12, 12)
+            group_layout.setSpacing(8)
+
+            selector_grid = QtWidgets.QGridLayout()
+            selector_grid.setContentsMargins(0, 0, 0, 0)
+            selector_grid.setHorizontalSpacing(10)
+            selector_grid.setVerticalSpacing(6)
+            selector_grid.addWidget(QtWidgets.QLabel("Display"), 0, 0)
+            selector_grid.addWidget(display_mode_combo, 0, 1)
+            selector_grid.addWidget(QtWidgets.QLabel("Style"), 0, 2)
+            selector_grid.addWidget(visual_style_combo, 0, 3)
+            selector_grid.setColumnStretch(1, 1)
+            selector_grid.setColumnStretch(3, 1)
+            group_layout.addLayout(selector_grid)
+
+            options_row = QtWidgets.QHBoxLayout()
+            options_row.setSpacing(10)
+            options_row.addWidget(floating_top_checkbox)
+            options_row.addWidget(remember_floating_checkbox)
+            options_row.addWidget(transparent_checkbox)
+            options_row.addWidget(shaders_checkbox)
+            options_row.addWidget(particles_checkbox)
+            options_row.addWidget(music_sync_checkbox)
+            options_row.addWidget(space_checkbox)
+            options_row.addStretch(1)
+            group_layout.addLayout(options_row)
+
+            sliders = []
+            if LabeledSlider is not None:
+                opacity_slider = LabeledSlider("Opacity", 0.10, 1.00, float(RUNTIME_CONFIG.get("ai_presence_overlay_opacity", 0.72) or 0.72))
+                opacity_slider.setObjectName("ai_presence_opacity_slider")
+                thinking_slider = LabeledSlider("Thinking Pulse", 0.10, 1.00, float(RUNTIME_CONFIG.get("ai_presence_thinking_pulse", 0.55) or 0.55))
+                thinking_slider.setObjectName("ai_presence_thinking_slider")
+                speaking_slider = LabeledSlider("Speaking Reactivity", 0.10, 1.50, float(RUNTIME_CONFIG.get("ai_presence_speaking_reactivity", 0.85) or 0.85))
+                speaking_slider.setObjectName("ai_presence_speaking_slider")
+                audio_refresh_slider = LabeledSlider("Audio Sync Rate", 5, 30, int(RUNTIME_CONFIG.get("ai_presence_audio_refresh_hz", 30) or 30), is_int=True)
+                audio_refresh_slider.setObjectName("ai_presence_audio_refresh_slider")
+                audio_refresh_slider.setToolTip("How many audio-level updates per second are sent to AI Presence while speech is playing.")
+                density_slider = LabeledSlider("Neural Node Density", 8, 96, int(RUNTIME_CONFIG.get("ai_presence_node_density", 32) or 32), is_int=True)
+                density_slider.setObjectName("ai_presence_density_slider")
+                floating_opacity_slider = LabeledSlider("Floating Opacity", 0.35, 1.00, float(RUNTIME_CONFIG.get("ai_presence_floating_opacity", 0.92) or 0.92))
+                floating_opacity_slider.setObjectName("ai_presence_floating_opacity_slider")
+                particle_density_slider = LabeledSlider("Particle Density", 0, 120, int(RUNTIME_CONFIG.get("ai_presence_particle_density", 28) or 28), is_int=True)
+                particle_density_slider.setObjectName("ai_presence_particle_density_slider")
+                music_reactivity_slider = LabeledSlider("Music Reactivity", 0.00, 1.50, float(RUNTIME_CONFIG.get("ai_presence_music_reactivity", 0.65)))
+                music_reactivity_slider.setObjectName("ai_presence_music_reactivity_slider")
+                music_reactivity_slider.setToolTip("How strongly computer/music output moves the outer AI Presence animation.")
+                sliders = [
+                    ("ai_presence_overlay_opacity", opacity_slider, float),
+                    ("ai_presence_thinking_pulse", thinking_slider, float),
+                    ("ai_presence_speaking_reactivity", speaking_slider, float),
+                    ("ai_presence_audio_refresh_hz", audio_refresh_slider, int),
+                    ("ai_presence_node_density", density_slider, int),
+                    ("ai_presence_floating_opacity", floating_opacity_slider, float),
+                    ("ai_presence_particle_density", particle_density_slider, int),
+                    ("ai_presence_music_reactivity", music_reactivity_slider, float),
+                ]
+                grid = QtWidgets.QGridLayout()
+                grid.setContentsMargins(0, 0, 0, 0)
+                grid.setHorizontalSpacing(12)
+                grid.setVerticalSpacing(8)
+                grid.addWidget(opacity_slider, 0, 0)
+                grid.addWidget(thinking_slider, 0, 1)
+                grid.addWidget(speaking_slider, 1, 0)
+                grid.addWidget(audio_refresh_slider, 1, 1)
+                grid.addWidget(density_slider, 2, 0)
+                grid.addWidget(particle_density_slider, 2, 1)
+                grid.addWidget(floating_opacity_slider, 3, 0)
+                grid.addWidget(music_reactivity_slider, 3, 1)
+                group_layout.addLayout(grid)
+
+            status = QtWidgets.QLabel("Fullscreen appears during thinking/speaking. Space or Escape hides fullscreen. Floating Window can be resized.")
+            status.setObjectName("ai_presence_status_label")
+            status.setWordWrap(True)
+            status.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            group_layout.addWidget(status)
+
+            try:
+                insert_index = 0
+                for index in range(host_layout.count()):
+                    item = host_layout.itemAt(index)
+                    if item is not None and item.layout() is form:
+                        insert_index = index + 1
+                        break
+                host_layout.insertWidget(insert_index, group)
+            except Exception:
+                host_layout.addWidget(group)
+
+            backend = getattr(self, "backend", None)
+            if backend is not None:
+                try:
+                    backend.ai_presence_enabled_checkbox = enabled_checkbox
+                    backend.ai_presence_display_mode_combo = display_mode_combo
+                    backend.ai_presence_visual_style_combo = visual_style_combo
+                    backend.ai_presence_fullscreen_checkbox = fullscreen_checkbox
+                    backend.ai_presence_reduced_effects_checkbox = reduced_checkbox
+                    backend.ai_presence_preview_button = preview_button
+                    backend.ai_presence_floating_button = floating_button
+                    backend.ai_presence_floating_always_on_top_checkbox = floating_top_checkbox
+                    backend.ai_presence_remember_floating_geometry_checkbox = remember_floating_checkbox
+                    backend.ai_presence_transparent_background_checkbox = transparent_checkbox
+                    backend.ai_presence_shaders_enabled_checkbox = shaders_checkbox
+                    backend.ai_presence_particles_enabled_checkbox = particles_checkbox
+                    backend.ai_presence_space_closes_fullscreen_checkbox = space_checkbox
+                    backend.ai_presence_music_reactivity_enabled_checkbox = music_sync_checkbox
+                    backend.ai_presence_status_label = status
+                    if sliders:
+                        backend.ai_presence_opacity_slider = sliders[0][1]
+                        backend.ai_presence_thinking_slider = sliders[1][1]
+                        backend.ai_presence_speaking_slider = sliders[2][1]
+                        backend.ai_presence_audio_refresh_slider = sliders[3][1]
+                        backend.ai_presence_density_slider = sliders[4][1]
+                        backend.ai_presence_floating_opacity_slider = sliders[5][1]
+                        backend.ai_presence_particle_density_slider = sliders[6][1]
+                        backend.ai_presence_music_reactivity_slider = sliders[7][1]
+                    if hasattr(backend, "on_ai_presence_enabled_changed"):
+                        enabled_checkbox.toggled.connect(backend.on_ai_presence_enabled_changed)
+                    if hasattr(backend, "on_ai_presence_preview_requested"):
+                        preview_button.clicked.connect(backend.on_ai_presence_preview_requested)
+                        shortcut_parent = host_tab.window()
+                        if shortcut_parent is not None and getattr(shortcut_parent, "_ai_presence_preview_shortcut", None) is None:
+                            try:
+                                shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Alt+P"), shortcut_parent)
+                                shortcut.setObjectName("ai_presence_preview_shortcut")
+                                shortcut.activated.connect(backend.on_ai_presence_preview_requested)
+                                shortcut_parent._ai_presence_preview_shortcut = shortcut
+                            except Exception:
+                                pass
+                    if hasattr(backend, "on_ai_presence_show_floating_requested"):
+                        floating_button.clicked.connect(backend.on_ai_presence_show_floating_requested)
+                    if hasattr(backend, "on_ai_presence_display_mode_changed"):
+                        display_mode_combo.currentIndexChanged.connect(lambda _index: backend.on_ai_presence_display_mode_changed(display_mode_combo.currentData()))
+                    if hasattr(backend, "on_ai_presence_visual_style_changed"):
+                        visual_style_combo.currentIndexChanged.connect(lambda _index: backend.on_ai_presence_visual_style_changed(visual_style_combo.currentData()))
+                    if hasattr(backend, "on_ai_presence_setting_changed"):
+                        fullscreen_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_fullscreen", bool(checked)))
+                        reduced_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_reduced_effects", bool(checked)))
+                        floating_top_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_floating_always_on_top", bool(checked)))
+                        remember_floating_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_remember_floating_geometry", bool(checked)))
+                        transparent_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_transparent_background", bool(checked)))
+                        shaders_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_shaders_enabled", bool(checked)))
+                        particles_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_particles_enabled", bool(checked)))
+                        music_sync_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_music_reactivity_enabled", bool(checked)))
+                        space_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_space_closes_fullscreen", bool(checked)))
+                        for key, slider, caster in sliders:
+                            slider.value_changed.connect(lambda value, setting_key=key, value_type=caster: backend.on_ai_presence_setting_changed(setting_key, value_type(value)))
+                except Exception:
+                    pass
+
+            host_tab.setProperty("_nc_ai_presence_controls_installed", True)
+            try:
+                host_layout.invalidate()
+                host_layout.activate()
                 host_tab.updateGeometry()
             except Exception:
                 pass

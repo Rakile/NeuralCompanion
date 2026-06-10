@@ -1,0 +1,39 @@
+{
+  "id": "nc.companion_orb_overlay",
+  "name": "Companion Orb Overlay",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Configure and run the Companion Orb Overlay from its own addon tab.",
+  "runtime_defaults": {
+    "companion_orb_response_style": "friendly"
+  },
+  "permissions": [
+    "ui.tabs",
+    "storage.read",
+    "storage.write",
+    "services.register",
+    "events.subscribe"
+  ],
+  "ui": [
+    {
+      "id": "companion_orb_overlay_tab",
+      "title": "Companion Orb",
+      "area": "top_level",
+      "icon_path": "../../ui_icons/side_tabs/brain.png",
+      "order": 126,
+      "tooltip": "Configure the Companion Orb Overlay, movement, particles, voice sync, sensory target, and hotkeys."
+    }
+  ],
+  "services": [
+    {
+      "id": "visual_overlay",
+      "provider_id": "companion_orb_overlay",
+      "metadata": {
+        "kind": "visual_overlay",
+        "target_provider": "companion_orb_target"
+      }
+    }
+  ],
+  "enabled": true
+}

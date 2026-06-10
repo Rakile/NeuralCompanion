@@ -1,6 +1,11 @@
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
+import subprocess
+import sys
+import time
 import urllib.error
 from typing import Any, Iterable
 from urllib.request import Request, urlopen
@@ -8,6 +13,7 @@ from urllib.request import Request, urlopen
 from openai import OpenAI
 
 from core.addons.base import BaseAddon
+from core import lmstudio_runtime
 
 
 PROVIDER_ID = "lmstudio"
@@ -18,6 +24,28 @@ _THINK_TOKEN = "<|think|>"
 _CHANNEL_START = "<|channel>"
 _CHANNEL_END = "<channel|>"
 _PROMPT_TOKEN_REASONING_FRAGMENTS = ("gemma-4",)
+
+
+def _ui_yield_seconds() -> float:
+    try:
+        return max(0.0, min(0.03, float(os.environ.get("NC_LMSTUDIO_UI_YIELD_SECONDS", "0.002") or "0.002")))
+    except Exception:
+        return 0.002
+
+
+def _yield_ui():
+    delay = _ui_yield_seconds()
+    if delay <= 0:
+        time.sleep(0)
+    else:
+        time.sleep(delay)
+
+
+def _worker_timeout_seconds() -> float:
+    try:
+        return max(30.0, min(3600.0, float(os.environ.get("NC_LMSTUDIO_WORKER_TIMEOUT_SECONDS", "900") or "900")))
+    except Exception:
+        return 900.0
 
 
 def _strip_channel_blocks(text: Any) -> str:
@@ -104,6 +132,7 @@ def _extract_text(response: Any) -> str:
 
 def _raw_stream_text(stream: Iterable[Any]):
     for event in stream:
+        _yield_ui()
         choices = getattr(event, "choices", None) or []
         if not choices:
             continue
@@ -132,6 +161,7 @@ def _stream_text(stream: Iterable[Any]):
 
 def _native_chat_delta_stream(response: Iterable[bytes]):
     for raw_line in response:
+        _yield_ui()
         line = raw_line.decode("utf-8", errors="replace").strip()
         if not line.startswith("data:"):
             continue
@@ -286,6 +316,143 @@ class Addon(BaseAddon):
         context.logger.info("LM Studio chat provider addon initialized.")
         return None
 
+    def _responsiveness_guard(self):
+        return lmstudio_runtime.local_inference_responsiveness_guard(logger=print)
+
+    def _worker_enabled(self) -> bool:
+        value = str(os.environ.get("NC_LMSTUDIO_HELPER_PROCESS", "1") or "1").strip().lower()
+        return value not in {"0", "false", "no", "off"}
+
+    def _worker_path(self) -> Path:
+        return Path(__file__).resolve().with_name("worker.py")
+
+    def _worker_creation_flags(self) -> int:
+        return getattr(subprocess, "CREATE_NO_WINDOW", 0)
+
+    def _openai_chat_url(self) -> str:
+        return f"{self._base_url().rstrip('/')}/chat/completions"
+
+    def _native_chat_url(self) -> str:
+        return f"{self._native_api_base_url()}/api/v1/chat"
+
+    def _worker_request_config(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None, *, emit_chunks: bool = False) -> dict[str, Any]:
+        if self._should_use_native_chat(params, additional_params):
+            payload = self._native_chat_payload(params, additional_params, stream=True)
+            fallback_payload = None
+            if "reasoning" in dict(additional_params or {}):
+                control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
+                retry_params = additional_params if control else _without_reasoning(additional_params)
+                fallback_payload = self._native_chat_payload(
+                    params,
+                    retry_params,
+                    stream=True,
+                    reasoning_control=control or None,
+                )
+            return {
+                "url": self._native_chat_url(),
+                "api_key": self._api_key(),
+                "native": True,
+                "payload": payload,
+                "fallback_payload": fallback_payload,
+                "emit_chunks": bool(emit_chunks),
+            }
+        force_non_stream = bool(isinstance(params, dict) and params.get("response_format") is not None)
+        payload = self._request_kwargs(params, additional_params, stream=not force_non_stream)
+        return {
+            "url": self._openai_chat_url(),
+            "api_key": self._api_key(),
+            "native": False,
+            "payload": payload,
+            "emit_chunks": bool(emit_chunks) and not force_non_stream,
+            "force_non_stream": force_non_stream,
+        }
+
+    def _start_worker(self) -> subprocess.Popen:
+        worker_path = self._worker_path()
+        if not worker_path.exists():
+            raise RuntimeError(f"LM Studio helper process is missing: {worker_path}")
+        return subprocess.Popen(
+            [sys.executable, "-u", str(worker_path)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            creationflags=self._worker_creation_flags(),
+        )
+
+    def _send_worker_config(self, process: subprocess.Popen, config: dict[str, Any]) -> None:
+        if process.stdin is None:
+            raise RuntimeError("LM Studio helper process did not expose stdin.")
+        process.stdin.write(json.dumps(dict(config or {}), ensure_ascii=False))
+        process.stdin.close()
+
+    def _complete_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        process = self._start_worker()
+        config_text = json.dumps(
+            self._worker_request_config(params, additional_params, emit_chunks=False),
+            ensure_ascii=False,
+        )
+        try:
+            stdout, stderr = process.communicate(input=config_text, timeout=_worker_timeout_seconds())
+        except subprocess.TimeoutExpired:
+            process.kill()
+            stdout, stderr = process.communicate(timeout=5)
+            raise RuntimeError("LM Studio helper process timed out.")
+        payload = self._last_worker_payload(stdout)
+        if payload.get("ok"):
+            return str(payload.get("text") or "").strip()
+        error = str(payload.get("error") or stderr or "LM Studio helper process failed.").strip()
+        raise RuntimeError(error)
+
+    def _stream_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
+        process = self._start_worker()
+        self._send_worker_config(process, self._worker_request_config(params, additional_params, emit_chunks=True))
+        final_payload: dict[str, Any] = {}
+        return_code = None
+        try:
+            if process.stdout is None:
+                raise RuntimeError("LM Studio helper process did not expose stdout.")
+            for line in process.stdout:
+                payload = self._parse_worker_line(line)
+                if not payload:
+                    continue
+                if "chunk" in payload:
+                    chunk = str(payload.get("chunk") or "")
+                    if chunk:
+                        yield chunk
+                    continue
+                final_payload = payload
+            return_code = process.wait(timeout=5)
+        finally:
+            if process.poll() is None:
+                process.kill()
+        stderr = ""
+        try:
+            stderr = process.stderr.read() if process.stderr is not None else ""
+        except Exception:
+            stderr = ""
+        if final_payload.get("ok"):
+            return
+        error = str(final_payload.get("error") or stderr or f"LM Studio helper process exited with code {return_code}.").strip()
+        raise RuntimeError(error)
+
+    def _parse_worker_line(self, line: str) -> dict[str, Any]:
+        try:
+            payload = json.loads(str(line or "").strip())
+            return dict(payload or {}) if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def _last_worker_payload(self, stdout: str) -> dict[str, Any]:
+        last_payload: dict[str, Any] = {}
+        for line in str(stdout or "").splitlines():
+            payload = self._parse_worker_line(line)
+            if payload:
+                last_payload = payload
+        return last_payload
+
     def shutdown(self):
         chat_service = getattr(self, "_chat_service", None)
         if chat_service is not None:
@@ -437,6 +604,17 @@ class Addon(BaseAddon):
         return urlopen(request, timeout=300.0)
 
     def _complete_native_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
+        parts: list[str] = []
+        try:
+            for chunk in self._stream_native_chat(params, additional_params):
+                if chunk:
+                    parts.append(str(chunk))
+            text = _strip_channel_blocks("".join(parts))
+            if text:
+                return text
+        except Exception:
+            if parts:
+                return _strip_channel_blocks("".join(parts))
         try:
             with self._native_chat_request(params, additional_params, stream=False) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="replace"))
@@ -552,15 +730,40 @@ class Addon(BaseAddon):
             }
 
     def _complete_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None) -> str:
-        if self._should_use_native_chat(params, additional_params):
-            return self._complete_native_chat(params, additional_params)
-        client = self._client()
-        response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
-        return _extract_text(response)
+        with self._responsiveness_guard():
+            if self._worker_enabled():
+                return self._complete_chat_via_worker(params, additional_params)
+            if self._should_use_native_chat(params, additional_params):
+                return self._complete_native_chat(params, additional_params)
+            parts: list[str] = []
+            if not (isinstance(params, dict) and params.get("response_format") is not None):
+                try:
+                    client = self._client()
+                    stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
+                    for chunk in _stream_text(stream):
+                        if chunk:
+                            parts.append(str(chunk))
+                    text = _strip_channel_blocks("".join(parts))
+                    if text:
+                        return text
+                except Exception:
+                    if parts:
+                        return _strip_channel_blocks("".join(parts))
+            client = self._client()
+            response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
+            return _extract_text(response)
 
     def _stream_chat(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
-        if self._should_use_native_chat(params, additional_params):
-            return self._stream_native_chat(params, additional_params)
-        client = self._client()
-        stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
-        return _stream_text(stream)
+        def guarded_stream():
+            with self._responsiveness_guard():
+                if self._worker_enabled():
+                    yield from self._stream_chat_via_worker(params, additional_params)
+                    return
+                if self._should_use_native_chat(params, additional_params):
+                    yield from self._stream_native_chat(params, additional_params)
+                    return
+                client = self._client()
+                stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
+                yield from _stream_text(stream)
+
+        return guarded_stream()
