@@ -18,7 +18,7 @@ class Addon(BaseAddon):
             area="top_level",
             order=124,
             tooltip="Configure AI Presence fullscreen, floating window, visual styles, transparency, and audio sync.",
-            icon_path="../../ui_icons/side_tabs/visuals.png",
+            icon_path="../../ui_icons/side_tabs/ai_presence.png",
             metadata={"runtime_role": "ai_presence"},
         )
         context.logger.info("[AIPresence] AI Presence Mode addon initialized.")

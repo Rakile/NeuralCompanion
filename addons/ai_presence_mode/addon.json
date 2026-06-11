@@ -16,7 +16,7 @@
       "id": "ai_presence_mode_tab",
       "title": "AI Presence",
       "area": "top_level",
-      "icon_path": "../../ui_icons/side_tabs/visuals.png",
+      "icon_path": "../../ui_icons/side_tabs/ai_presence.png",
       "order": 124,
       "tooltip": "Configure AI Presence fullscreen, floating window, visual styles, transparency, and audio sync."
     }

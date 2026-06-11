@@ -20,7 +20,7 @@ class Addon(BaseAddon):
             area="top_level",
             order=126,
             tooltip="Configure the Companion Orb Overlay, movement, particles, voice sync, sensory target, and hotkeys.",
-            icon_path="../../ui_icons/side_tabs/brain.png",
+            icon_path="../../ui_icons/side_tabs/companion_orb.png",
             metadata={"runtime_role": "companion_orb_overlay"},
         )
         context.services.register(

@@ -17,7 +17,7 @@
       "id": "spotify_sense_tab",
       "title": "Spotify Sense",
       "area": "top_level",
-      "icon_path": "../../ui_icons/side_tabs/chat_player.png",
+      "icon_path": "../../ui_icons/side_tabs/spotisense.png",
       "order": 126,
       "tooltip": "Connect Spotify, control playback safely, and expose optional music awareness tools."
     }

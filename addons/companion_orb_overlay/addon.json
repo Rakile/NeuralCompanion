@@ -20,7 +20,7 @@
       "id": "companion_orb_overlay_tab",
       "title": "Companion Orb",
       "area": "top_level",
-      "icon_path": "../../ui_icons/side_tabs/brain.png",
+      "icon_path": "../../ui_icons/side_tabs/companion_orb.png",
       "order": 126,
       "tooltip": "Configure the Companion Orb Overlay, movement, particles, voice sync, sensory target, and hotkeys."
     }

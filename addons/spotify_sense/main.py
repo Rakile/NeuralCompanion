@@ -18,7 +18,7 @@ class Addon(BaseAddon):
             area="top_level",
             order=126,
             tooltip="Connect Spotify, control playback safely, and expose optional music awareness tools.",
-            icon_path="../../ui_icons/side_tabs/chat_player.png",
+            icon_path="../../ui_icons/side_tabs/spotisense.png",
             metadata={"runtime_role": "spotify_sense"},
         )
         context.services.register(
