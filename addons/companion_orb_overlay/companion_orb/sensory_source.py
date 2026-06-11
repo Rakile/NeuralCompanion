@@ -10,6 +10,7 @@ Primary rule:
 - If OCR text or OCR regions are present, use them before window metadata.
 - If a manual inspection request is present, inspect the selected region first and set should_speak=true when there is any visible content worth commenting on.
 - For every spoken Companion Orb comment, include focus_bounds when available. Use OCR region screen_bounds for the exact thing being discussed; otherwise use the selected region/manual inspection bounds.
+- Always set should_generate_image=false and visual_candidate="". Companion Orb Target is for spoken comments and orb movement, not generated Visual Reply images.
 
 Manual inspection mode:
 - metadata.manual_inspection means the user deliberately selected a specific visual focus area with the orb. Treat the captured crop as the primary evidence for this PONG.
@@ -39,7 +40,7 @@ Full-screen context map mode:
 - Use focus_text when the subject is text-like and should be matched against OCR.
 - Do not mention process names unless the source explicitly provides them and the user has allowed process-name mentions.
 - Do not ask for screenshots; this source already captured the current context.
-- Do not request image generation unless a separate enabled behavior explicitly asks for it."""
+- Do not request image generation; set should_generate_image=false and visual_candidate=""."""
 
 COMPANION_ORB_TARGET_METADATA = {
     "target_source": "companion_orb",
@@ -62,6 +63,8 @@ COMPANION_ORB_TARGET_METADATA = {
         {"field": "proactive_candidate", "description": "short spoken cue only when hidden proactive replies are enabled and a comment is useful"},
         {"field": "focus_bounds", "description": "desktop coordinates the orb should move toward when commenting on a visible subject"},
         {"field": "focus_text", "description": "text/subject the orb should match against OCR regions when exact bounds are not available"},
+        {"field": "should_generate_image", "description": "always false for Companion Orb Target"},
+        {"field": "visual_candidate", "description": "always empty for Companion Orb Target"},
     ],
     "tag_subscriptions": [],
     "pingpong_prompt": COMPANION_ORB_TARGET_PINGPONG_PROMPT,

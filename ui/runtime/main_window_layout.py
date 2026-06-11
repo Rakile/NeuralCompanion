@@ -6,13 +6,17 @@ contents still come from the existing backend/addon mixins.
 
 from PySide6 import QtCore, QtWidgets
 
-from ui.theme_support import build_app_stylesheet_for_preset as _build_app_stylesheet_for_preset
+from ui.theme_support import (
+    build_app_stylesheet_for_preset as _build_app_stylesheet_for_preset,
+    install_app_wide_slider_styling as _install_app_wide_slider_styling,
+)
 
 
 class MainWindowLayoutMixin:
     def _build_ui(self):
         self.setDockNestingEnabled(True)
         self.setStyleSheet(_build_app_stylesheet_for_preset(self.current_app_theme_preset()))
+        _install_app_wide_slider_styling(self)
 
         central = QtWidgets.QWidget()
         central.setObjectName("workspace_central")

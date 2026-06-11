@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import math
 import random
+import re
 import threading
 import time
 from pathlib import Path
@@ -43,6 +44,8 @@ OCR_MAX_BACKGROUND_JOBS = 2
 OCR_BUSY_DEFER_SECONDS = 0.25
 OCR_BUSY_DEFER_ATTEMPTS = 24
 OCR_MAX_REGIONS = 36
+FOCUS_GRID_COLUMNS = 12
+FOCUS_GRID_ROWS = 8
 FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE = (1920, 1440)
 DROP_ACK_MESSAGES = (
     "Okay, there is something else to look at.",
@@ -148,6 +151,7 @@ class CompanionOrbController(QtCore.QObject):
         self._comment_focus_bounds: list[int] = []
         self._comment_focus_until = 0.0
         self._comment_focus_label = ""
+        self._comment_focus_grid: dict[str, Any] = {}
         self._last_comment_focus_signature = ""
         self._last_comment_focus_set_at = 0.0
         self._last_snapshot_ocr_regions: list[dict[str, Any]] = []
@@ -739,6 +743,7 @@ class CompanionOrbController(QtCore.QObject):
                 text=text,
             )
             normalized = clipped
+        focus_grid = self._focus_grid_for_bounds(normalized)
         try:
             duration = float(data.get("duration_seconds", COMMENT_FOCUS_DEFAULT_SECONDS) or COMMENT_FOCUS_DEFAULT_SECONDS)
         except Exception:
@@ -755,6 +760,8 @@ class CompanionOrbController(QtCore.QObject):
                 self._comment_focus_until,
                 now + max(2.0, min(45.0, duration)),
             )
+            if focus_grid:
+                self._comment_focus_grid = dict(focus_grid)
             self._debug_event(
                 "focus_extended",
                 bounds=normalized,
@@ -762,9 +769,11 @@ class CompanionOrbController(QtCore.QObject):
                 source=focus_source,
                 duration_seconds=duration,
                 text=text,
+                focus_grid=focus_grid,
             )
             return
         self._comment_focus_bounds = normalized
+        self._comment_focus_grid = dict(focus_grid or {})
         self._comment_focus_until = now + max(2.0, min(45.0, duration))
         self._comment_focus_label = label[:120]
         self._last_comment_focus_signature = signature
@@ -779,6 +788,7 @@ class CompanionOrbController(QtCore.QObject):
             source=focus_source,
             duration_seconds=duration,
             text=text,
+            focus_grid=focus_grid,
             snapshot_bounds=list(self._last_snapshot_bounds or []),
             ocr_region_count=len(self._last_snapshot_ocr_regions or []),
         )
@@ -1021,6 +1031,10 @@ class CompanionOrbController(QtCore.QObject):
             self._debug_event("ocr_focus_miss", text=text, reason="no_regions_or_fallback")
             return []
         match = snapshot_ocr.best_region_for_text(text, regions, fallback_bounds=fallback)
+        if isinstance(match, dict) and str(match.get("kind") or "") == "fallback" and regions:
+            visual_match = self._visual_focus_region_for_text(text, regions, fallback_bounds=fallback)
+            if visual_match:
+                match = visual_match
         bounds = self._normalize_bounds(match.get("screen_bounds") if isinstance(match, dict) else None)
         self._debug_event(
             "ocr_focus_resolved" if bounds else "ocr_focus_miss",
@@ -1032,6 +1046,7 @@ class CompanionOrbController(QtCore.QObject):
             match_kind=str(match.get("kind") or "") if isinstance(match, dict) else "",
             match_backend=str(match.get("backend") or "") if isinstance(match, dict) else "",
             match_score=match.get("match_score") if isinstance(match, dict) else None,
+            focus_grid=self._focus_grid_for_bounds(bounds) if bounds else {},
             region_count=len(regions),
         )
         return bounds or fallback
@@ -1062,6 +1077,7 @@ class CompanionOrbController(QtCore.QObject):
         previous_bounds = list(self._comment_focus_bounds or [])
         previous_label = str(self._comment_focus_label or "")
         self._comment_focus_bounds = []
+        self._comment_focus_grid = {}
         self._comment_focus_until = 0.0
         self._comment_focus_label = ""
         self._last_comment_focus_signature = ""
@@ -1094,19 +1110,267 @@ class CompanionOrbController(QtCore.QObject):
         label = " ".join(str(text or "").strip().lower().split())[:180]
         return f"{','.join(str(value) for value in snapped)}|{label}"
 
+    def _screen_rect_for_bounds(self, bounds) -> QtCore.QRect:
+        normalized = self._normalize_bounds(bounds)
+        if normalized:
+            left, top, width, height = normalized
+            center = QtCore.QPoint(int(round(left + width * 0.5)), int(round(top + height * 0.5)))
+            top_left = QtCore.QPoint(int(left), int(top))
+        else:
+            center = QtGui.QCursor.pos()
+            top_left = center
+        app = QtWidgets.QApplication.instance()
+        screen = None
+        if app is not None:
+            screen = (
+                QtWidgets.QApplication.screenAt(center)
+                or QtWidgets.QApplication.screenAt(top_left)
+                or (self._window.screen() if self._window is not None else None)
+                or QtWidgets.QApplication.primaryScreen()
+            )
+        if screen is not None:
+            geometry = screen.availableGeometry()
+            if geometry.width() > 0 and geometry.height() > 0:
+                return QtCore.QRect(geometry)
+        virtual_rect = self._virtual_desktop_rect()
+        if virtual_rect is not None and virtual_rect.width() > 0 and virtual_rect.height() > 0:
+            return QtCore.QRect(virtual_rect)
+        return QtCore.QRect(0, 0, 1280, 720)
+
+    def _focus_grid_for_bounds(self, bounds) -> dict[str, Any]:
+        normalized = self._normalize_bounds(bounds)
+        if not normalized:
+            return {}
+        screen_rect = self._screen_rect_for_bounds(normalized)
+        if screen_rect.width() <= 0 or screen_rect.height() <= 0:
+            return {}
+        columns = FOCUS_GRID_COLUMNS
+        rows = FOCUS_GRID_ROWS
+        left, top, width, height = normalized
+        center_x = float(left) + float(width) * 0.5
+        center_y = float(top) + float(height) * 0.5
+        rel_x = max(0.0, min(float(screen_rect.width()) - 1.0, center_x - float(screen_rect.left())))
+        rel_y = max(0.0, min(float(screen_rect.height()) - 1.0, center_y - float(screen_rect.top())))
+        col = max(0, min(columns - 1, int(rel_x / max(1.0, float(screen_rect.width()) / columns))))
+        row = max(0, min(rows - 1, int(rel_y / max(1.0, float(screen_rect.height()) / rows))))
+        cell_left = int(round(screen_rect.left() + (screen_rect.width() * col / columns)))
+        cell_top = int(round(screen_rect.top() + (screen_rect.height() * row / rows)))
+        cell_right = int(round(screen_rect.left() + (screen_rect.width() * (col + 1) / columns)))
+        cell_bottom = int(round(screen_rect.top() + (screen_rect.height() * (row + 1) / rows)))
+        lanes = self._focus_grid_lane_order(col, row, columns, rows, center_x, screen_rect)
+        return {
+            "columns": columns,
+            "rows": rows,
+            "cell": [col + 1, row + 1],
+            "cell_index": [col, row],
+            "cell_bounds": [cell_left, cell_top, max(1, cell_right - cell_left), max(1, cell_bottom - cell_top)],
+            "screen_bounds": [int(screen_rect.left()), int(screen_rect.top()), int(screen_rect.width()), int(screen_rect.height())],
+            "focus_bounds": list(normalized),
+            "target_center": [round(center_x, 2), round(center_y, 2)],
+            "lane_order": lanes,
+        }
+
+    def _focus_grid_lane_order(self, col: int, row: int, columns: int, rows: int, center_x: float, screen_rect: QtCore.QRect) -> list[str]:
+        lanes: list[str] = []
+
+        def add(value: str):
+            if value not in lanes:
+                lanes.append(value)
+
+        if col <= 1:
+            add("right")
+        elif col >= columns - 2:
+            add("left")
+        elif row <= 0:
+            add("below")
+        elif row >= rows - 1:
+            add("above")
+        elif bool(self._last_runtime_config.get("companion_orb_avoid_center", True)):
+            screen_center_x = float(screen_rect.left()) + float(screen_rect.width()) * 0.5
+            add("left" if center_x >= screen_center_x else "right")
+        else:
+            add("right")
+        if row <= 1:
+            add("below")
+        if row >= rows - 2:
+            add("above")
+        if col < columns // 2:
+            add("right")
+            add("left")
+        else:
+            add("left")
+            add("right")
+        add("below")
+        add("above")
+        return lanes
+
+    def _clamp_top_left_to_rect(self, point: QtCore.QPointF, rect: QtCore.QRect) -> QtCore.QPointF:
+        window = self._window
+        if window is None or rect.width() <= 0 or rect.height() <= 0:
+            return QtCore.QPointF(point)
+        max_x = float(rect.right() - window.width())
+        max_y = float(rect.bottom() - window.height())
+        x = max(float(rect.left()), min(float(point.x()), max_x))
+        y = max(float(rect.top()), min(float(point.y()), max_y))
+        return QtCore.QPointF(x, y)
+
+    def _bounds_overlap_area(self, left_bounds, right_bounds) -> float:
+        left = self._normalize_bounds(left_bounds)
+        right = self._normalize_bounds(right_bounds)
+        if not left or not right:
+            return 0.0
+        ax, ay, aw, ah = left
+        bx, by, bw, bh = right
+        overlap_w = max(0, min(ax + aw, bx + bw) - max(ax, bx))
+        overlap_h = max(0, min(ay + ah, by + bh) - max(ay, by))
+        return float(overlap_w * overlap_h)
+
+    def _comment_focus_grid_target(self, grid: dict[str, Any]) -> QtCore.QPointF:
+        window = self._window
+        if window is None:
+            return self._clamp_top_left_to_screen(QtCore.QPointF(0.0, 0.0))
+        focus_bounds = self._normalize_bounds(grid.get("focus_bounds")) or self._normalize_bounds(self._comment_focus_bounds)
+        cell_bounds = self._normalize_bounds(grid.get("cell_bounds")) or focus_bounds
+        screen_bounds = self._normalize_bounds(grid.get("screen_bounds"))
+        screen_rect = QtCore.QRect(*screen_bounds) if screen_bounds else self._screen_rect_for_bounds(focus_bounds)
+        left, top, width, height = focus_bounds
+        cell_left, cell_top, cell_width, cell_height = cell_bounds
+        focus_center_x = float(left) + float(width) * 0.5
+        focus_center_y = float(top) + float(height) * 0.5
+        screen_area = max(1.0, float(screen_rect.width()) * float(screen_rect.height()))
+        focus_area = max(1.0, float(width) * float(height))
+        if focus_area / screen_area > 0.28:
+            anchor_x = float(cell_left) + float(cell_width) * 0.5
+            anchor_y = float(cell_top) + float(cell_height) * 0.5
+        else:
+            anchor_x = focus_center_x
+            anchor_y = focus_center_y
+        gap = max(20.0, min(72.0, float(window.width()) * 0.16))
+        candidates: list[tuple[str, QtCore.QPointF, QtCore.QPointF, float]] = []
+        lane_order = list(grid.get("lane_order") or ["right", "left", "below", "above"])
+        for index, lane in enumerate(lane_order):
+            if lane == "right":
+                raw = QtCore.QPointF(max(float(left + width) + gap, float(cell_left + cell_width) + gap), anchor_y - window.height() * 0.5)
+            elif lane == "left":
+                raw = QtCore.QPointF(min(float(left) - window.width() - gap, float(cell_left) - window.width() - gap), anchor_y - window.height() * 0.5)
+            elif lane == "below":
+                raw = QtCore.QPointF(anchor_x - window.width() * 0.5, max(float(top + height) + gap, float(cell_top + cell_height) + gap))
+            else:
+                raw = QtCore.QPointF(anchor_x - window.width() * 0.5, min(float(top) - window.height() - gap, float(cell_top) - window.height() - gap))
+            clamped = self._clamp_top_left_to_rect(raw, screen_rect)
+            orb_bounds = [int(round(clamped.x())), int(round(clamped.y())), int(window.width()), int(window.height())]
+            overlap = self._bounds_overlap_area(orb_bounds, focus_bounds)
+            clamp_distance = math.hypot(raw.x() - clamped.x(), raw.y() - clamped.y())
+            target_distance = math.hypot(
+                (clamped.x() + window.width() * 0.5) - focus_center_x,
+                (clamped.y() + window.height() * 0.5) - focus_center_y,
+            )
+            score = index * 80.0 + clamp_distance * 2.4 + overlap * 0.04 + target_distance * 0.025
+            candidates.append((str(lane), raw, clamped, score))
+        if not candidates:
+            return self._clamp_top_left_to_screen(QtCore.QPointF(anchor_x - window.width() * 0.5, anchor_y - window.height() * 0.5))
+        lane, raw, point, score = min(candidates, key=lambda item: item[3])
+        phase = 0.0
+        try:
+            col, row = [int(value) for value in list(grid.get("cell_index") or [0, 0])[:2]]
+            phase = (col + row * FOCUS_GRID_COLUMNS) * 0.73
+        except Exception:
+            pass
+        t = time.monotonic()
+        wobble_x = math.sin(t * 0.72 + phase) * min(10.0, max(3.0, float(cell_width) * 0.025))
+        wobble_y = math.cos(t * 0.64 + phase) * min(8.0, max(2.0, float(cell_height) * 0.025))
+        point = self._clamp_top_left_to_rect(QtCore.QPointF(point.x() + wobble_x, point.y() + wobble_y), screen_rect)
+        self._debug_event(
+            "focus_grid_target",
+            grid=grid,
+            chosen_lane=lane,
+            raw_target=raw,
+            target=point,
+            score=round(float(score), 3),
+        )
+        return point
+
     def _comment_focus_target(self) -> QtCore.QPointF:
         window = self._window
         if window is None or not self._comment_focus_bounds:
             return self._clamp_top_left_to_screen(QtCore.QPointF(0.0, 0.0))
+        grid = dict(self._comment_focus_grid or {})
+        if not grid:
+            grid = self._focus_grid_for_bounds(self._comment_focus_bounds)
+            self._comment_focus_grid = dict(grid or {})
+        if grid:
+            return self._comment_focus_grid_target(grid)
         left, top, width, height = self._comment_focus_bounds
         center_x = float(left) + float(width) * 0.5
         center_y = float(top) + float(height) * 0.5
-        t = time.monotonic()
-        orbit_radius = max(42.0, min(120.0, min(float(width), float(height)) * 0.34))
         side_bias = -1.0 if center_x > self._virtual_desktop_center_x() else 1.0
-        x = center_x + side_bias * orbit_radius + math.sin(t * 1.15) * 20.0 - window.width() * 0.5
-        y = center_y + math.cos(t * 0.92) * max(18.0, orbit_radius * 0.42) - window.height() * 0.5
+        x = center_x + side_bias * 58.0 - window.width() * 0.5
+        y = center_y - window.height() * 0.5
         return self._clamp_top_left_to_screen(QtCore.QPointF(x, y))
+
+    def _visual_focus_region_for_text(self, text: str, regions, fallback_bounds=None) -> dict[str, Any]:
+        fallback = self._normalize_bounds(fallback_bounds) or list(self._last_snapshot_bounds or [])
+        candidates = []
+        fallback_center = None
+        fallback_area = 0.0
+        if fallback:
+            fallback_center = (float(fallback[0]) + fallback[2] * 0.5, float(fallback[1]) + fallback[3] * 0.5)
+            fallback_area = float(fallback[2]) * float(fallback[3])
+        text_tokens = set(re.findall(r"[a-z0-9_./:-]{3,}", str(text or "").lower()))
+        visual_cues = {
+            "alert",
+            "button",
+            "chart",
+            "control",
+            "diagram",
+            "document",
+            "icon",
+            "image",
+            "map",
+            "panel",
+            "photo",
+            "picture",
+            "thumbnail",
+            "video",
+            "window",
+        }
+        screen_rect = self._screen_rect_for_bounds(fallback)
+        screen_area = max(1.0, float(screen_rect.width()) * float(screen_rect.height()))
+        allow_broad_visual_pick = bool(text_tokens.intersection(visual_cues))
+        allow_region_pick = bool(
+            self._manual_inspection_active()
+            or (fallback and fallback_area / screen_area <= 0.55)
+            or allow_broad_visual_pick
+        )
+        if not allow_region_pick:
+            return {}
+        for region in list(regions or []):
+            if not isinstance(region, dict):
+                continue
+            bounds = self._normalize_bounds(region.get("screen_bounds"))
+            if not bounds:
+                continue
+            if fallback and self._bounds_overlap_area(bounds, fallback) <= 0.0:
+                continue
+            area = float(bounds[2]) * float(bounds[3])
+            if area <= 0.0:
+                continue
+            center_x = float(bounds[0]) + bounds[2] * 0.5
+            center_y = float(bounds[1]) + bounds[3] * 0.5
+            distance = 0.0
+            if fallback_center is not None:
+                distance = math.hypot(center_x - fallback_center[0], center_y - fallback_center[1])
+            kind = str(region.get("kind") or "")
+            blank_region_bonus = 160.0 if kind == "text_region" and not str(region.get("text") or "").strip() else 0.0
+            score = blank_region_bonus + min(120.0, area / 1800.0) - min(140.0, distance / 5.0)
+            candidates.append((score, dict(region)))
+        if not candidates:
+            return {}
+        best = max(candidates, key=lambda item: item[0])[1]
+        best["match_score"] = round(float(max(candidates, key=lambda item: item[0])[0]), 3)
+        best["backend"] = str(best.get("backend") or "grid_visual_region")
+        best["kind"] = str(best.get("kind") or "visual_region")
+        return best
 
     def _virtual_desktop_center_x(self) -> float:
         rect = self._virtual_desktop_rect()
@@ -1174,6 +1438,7 @@ class CompanionOrbController(QtCore.QObject):
             smoothing=round(float(smoothing), 4),
             distance_to_target=round(float(distance_to_target), 2),
             focus_bounds=list(self._comment_focus_bounds or []),
+            focus_grid=dict(self._comment_focus_grid or {}) if str(kind) == "comment" else {},
             focus_label=str(self._comment_focus_label or ""),
             window_geometry=geometry,
         )
@@ -1986,8 +2251,8 @@ class CompanionOrbController(QtCore.QObject):
         title = self._target_title_from_info(target if isinstance(target, dict) else None)
         message = random.choice(DROP_ACK_MESSAGES)
         if title and random.random() < 0.35:
-            return f"{message} I am checking {title[:80]}."
-        return message
+            message = f"{message} I am checking {title[:80]}."
+        return self._style_orb_canned_message(message, kind="drop", target_title=title)
 
     def _speak_drop_ack_message(self, message: str):
         if not self._tts_runtime_ready():
@@ -2050,10 +2315,37 @@ class CompanionOrbController(QtCore.QObject):
         title = str(target_title or "").strip()
         if title:
             try:
-                return random.choice(HARASSMENT_CONTEXT_MESSAGES).format(target=title[:80])
+                message = random.choice(HARASSMENT_CONTEXT_MESSAGES).format(target=title[:80])
+                return self._style_orb_canned_message(message, kind="harassment", target_title=title)
             except Exception:
                 pass
-        return random.choice(HARASSMENT_MESSAGES)
+        return self._style_orb_canned_message(random.choice(HARASSMENT_MESSAGES), kind="harassment", target_title=title)
+
+    def _current_response_style(self) -> str:
+        return _normalize_orb_response_style(self._last_runtime_config.get("companion_orb_response_style", "friendly"))
+
+    def _response_style_label(self) -> str:
+        current = self._current_response_style()
+        return next((label for label, value in ORB_RESPONSE_STYLES if value == current), "Very friendly")
+
+    def _style_orb_canned_message(self, message: str, *, kind: str = "message", target_title: str = "") -> str:
+        text = str(message or "").strip()
+        if not text:
+            return ""
+        style = self._current_response_style()
+        if style == "loving":
+            suffix = " I am right here with you."
+        elif style == "sarcastic":
+            suffix = " Naturally, this is all extremely normal."
+        elif style == "roast":
+            suffix = " The evidence is doing its best, which is frankly brave."
+        elif style == "sensual_non_explicit":
+            suffix = " Lead me closer, slowly. I will keep it tasteful."
+        else:
+            return text
+        if text.endswith(suffix.strip()):
+            return text
+        return f"{text}{suffix}"
 
     def _pointer_target_title(self) -> str:
         return self._target_title_from_info(self._pointer_target_info())
@@ -2095,8 +2387,9 @@ class CompanionOrbController(QtCore.QObject):
                     "target_title": str(target_title or ""),
                     "source": "companion_orb",
                     "llm_instruction": (
-                        "If responding, create one brief playful, sarcastic, or ironic line relevant to the "
-                        "current user activity. Keep it friendly and non-disruptive."
+                        f"If responding, create one brief line relevant to the current user activity. "
+                        f"Use the Companion Orb response style '{self._response_style_label()}'. "
+                        "Keep it non-disruptive and grounded in the visible context."
                     ),
                 },
             )
@@ -3018,6 +3311,9 @@ class CompanionOrbController(QtCore.QObject):
         return {"regions": [], "text": "", "backend": "pending", "sidecar": ""}
 
     def _virtual_desktop_rect(self):
+        app = QtWidgets.QApplication.instance()
+        if app is None:
+            return None
         screens = list(QtWidgets.QApplication.screens() or [])
         if not screens:
             return None

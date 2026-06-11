@@ -8,6 +8,7 @@ from ui.theme_support import (
     app_theme_palette as _app_theme_palette,
     apply_engine_action_button_accents as _theme_apply_engine_action_button_accents,
     apply_inline_theme_styles as _theme_apply_inline_theme_styles,
+    install_app_wide_slider_styling as _theme_install_app_wide_slider_styling,
     apply_readable_input_palettes as _theme_apply_readable_input_palettes,
     build_app_stylesheet_for_preset as _build_app_stylesheet_for_preset,
     canonical_theme_base_stylesheet as _canonical_theme_base_stylesheet,
@@ -37,6 +38,10 @@ def _apply_engine_action_button_accents(root):
     _theme_apply_engine_action_button_accents(root)
 
 
+def _install_app_wide_slider_styling(root=None):
+    _theme_install_app_wide_slider_styling(root)
+
+
 def _split_collapsible_section_text(text, fallback_title):
     return _theme_split_collapsible_section_text(text, fallback_title)
 
@@ -48,6 +53,7 @@ def _apply_combo_popup_palette(combo):
 def configure_main_window_theme_support():
     configure_theme_support(RUNTIME_CONFIG)
     set_combo_popup_palette_callback(_apply_combo_popup_palette)
+    _install_app_wide_slider_styling()
 
 
 class MainWindowThemeMixin:
@@ -70,6 +76,7 @@ class MainWindowThemeMixin:
             _apply_inline_theme_styles(self, _app_theme_palette(resolved_preset))
             _apply_readable_input_palettes(self, _app_theme_palette(resolved_preset))
             _apply_engine_action_button_accents(self)
+            _install_app_wide_slider_styling(self)
             self._apply_legacy_dock_title_widgets()
             for widget in (
                 getattr(self, "embedded_musetalk_preview", None),

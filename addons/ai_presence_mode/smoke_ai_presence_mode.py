@@ -28,6 +28,8 @@ from addons.companion_orb_overlay.companion_orb.companion_orb_controller import 
     CompanionOrbController,
     DROP_ACK_MESSAGES,
     DROP_FOCUS_SECONDS,
+    FOCUS_GRID_COLUMNS,
+    FOCUS_GRID_ROWS,
     FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE,
     MANUAL_INSPECTION_SECONDS,
     ORB_COMMAND_MENU_ACTIONS,
@@ -75,6 +77,8 @@ def main():
     assert any("something else to look at" in message for message in DROP_ACK_MESSAGES)
     assert DROP_FOCUS_SECONDS > 20.0
     assert MANUAL_INSPECTION_SECONDS >= 45.0
+    assert FOCUS_GRID_COLUMNS == 12
+    assert FOCUS_GRID_ROWS == 8
     assert FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE[0] >= 1920
     assert FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE[1] >= 1440
     assert "focus_bounds" in COMPANION_ORB_TARGET_METADATA["pingpong_prompt"]
@@ -205,6 +209,8 @@ def main():
     assert "Visual Tuning" in ai_presence_controller_source
     companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")
     companion_overlay_main_source = (ROOT / "addons" / "companion_orb_overlay" / "main.py").read_text(encoding="utf-8")
+    companion_orb_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "sensory_source.py").read_text(encoding="utf-8")
+    engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
     assert "companion_orb_slider_responsive_grid" in companion_overlay_controller_source
     assert "companion_orb_toggle_groups_grid" in companion_overlay_controller_source
     assert "companion_orb_hotkey_responsive_grid" in companion_overlay_controller_source
@@ -217,6 +223,9 @@ def main():
     assert "Full-screen context map" in companion_overlay_controller_source
     assert "Mention process names" in companion_overlay_controller_source
     assert "Orb Tuning" in companion_overlay_controller_source
+    assert 'Always set should_generate_image=false and visual_candidate=""' in companion_orb_source
+    assert "_hidden_sensory_snapshots_include_source" in engine_source
+    assert "Suppressed Companion Orb Target visual generation request" in engine_source
     assert "orb.request_comment_focus" in companion_overlay_main_source
     assert "\"focus_bounds\": data.get(\"focus_bounds\")" in companion_overlay_main_source
     for style_name in (
@@ -281,6 +290,11 @@ def main():
     assert "bounds_were_clipped" in companion_orb_source
     assert "movement_step" in companion_orb_source
     assert "screenAt(target_center)" in companion_orb_source
+    assert "def _focus_grid_for_bounds" in companion_orb_source
+    assert "def _comment_focus_grid_target" in companion_orb_source
+    assert "focus_grid_target" in companion_orb_source
+    assert "focus_grid=dict(self._comment_focus_grid" in companion_orb_source
+    assert "def _visual_focus_region_for_text" in companion_orb_source
     assert "def _announce_drop_inspection" in companion_orb_source
     assert "drop_ack_started" in companion_orb_source
     assert "drop_ack_speech_skipped" in companion_orb_source
@@ -297,6 +311,8 @@ def main():
     assert "thumbnail_limit" in companion_orb_source
     assert "def _populate_response_style_menu" in companion_orb_source
     assert "companion_orb_response_style" in companion_orb_source
+    assert "def _style_orb_canned_message" in companion_orb_source
+    assert "Use the Companion Orb response style" in companion_orb_source
     assert "def _screen_source_capture_index" in companion_orb_source
     assert "capture_mode = \"selected_screen\"" in companion_orb_source
     assert "screen_source_capture_screen_index" in companion_orb_source
@@ -311,8 +327,12 @@ def main():
     assert "\"focus_bounds\": [number, number, number, number]" in engine_source
     assert "companion_orb_include_process_name" in engine_source
     assert "def _companion_orb_response_style_instruction" in engine_source
+    assert "def _companion_orb_response_style_label" in engine_source
+    assert "def _companion_orb_source_uses_response_style" in engine_source
+    assert "hard style instruction" in engine_source
+    assert "Make the style clearly recognizable" in engine_source
     assert "sensual_non_explicit" in engine_source
-    assert "Companion Orb verbal style" in engine_source
+    assert "Selected response style" in engine_source
     assert "manual_inspection" in engine_source
     assert "def _manual_priority_sensory_snapshots" in engine_source
     assert "def _manual_companion_orb_focus_from_snapshots" in engine_source
@@ -342,6 +362,9 @@ def main():
         {"target_type": "window", "title": "Story Window", "process_name": "nc.exe", "bounds": [1, 2, 3, 4]},
     )
     assert sanitized_target["process_name"] == ""
+    target_probe._last_runtime_config["companion_orb_response_style"] = "sarcastic"
+    styled_message = CompanionOrbController._style_orb_canned_message(target_probe, "Hello, are you there?")
+    assert "extremely normal" in styled_message
     assert CompanionOrbController._target_requires_confirmation(
         target_probe,
         {"target_type": "window", "window_id": "0x1234", "title": "Other", "bounds": [1, 2, 3, 4]},
@@ -351,6 +374,29 @@ def main():
         {"target_type": "region", "title": "Region around Companion Orb", "bounds": [1, 2, 300, 240]},
     )
     target_probe._window = None
+    target_probe._last_runtime_config = {"companion_orb_avoid_center": True}
+    target_probe._last_snapshot_ocr_regions = [
+        {"text": "", "kind": "text_region", "screen_bounds": [220, 100, 160, 120], "backend": "opencv_text_regions"}
+    ]
+    target_probe._last_snapshot_bounds = [0, 0, 640, 480]
+    target_probe._manual_inspection_bounds = []
+    target_probe._manual_inspection_until = 0.0
+    target_probe._debug_event = lambda *_args, **_kwargs: None
+    grid = CompanionOrbController._focus_grid_for_bounds(target_probe, [100, 100, 120, 80])
+    assert grid["columns"] == FOCUS_GRID_COLUMNS
+    assert grid["rows"] == FOCUS_GRID_ROWS
+    assert len(grid["cell"]) == 2
+    assert len(grid["cell_bounds"]) == 4
+    target_probe._window = type("FakeOrbWindow", (), {"width": lambda self: 180, "height": lambda self: 180})()
+    grid_target = CompanionOrbController._comment_focus_grid_target(target_probe, grid)
+    assert isinstance(grid_target, QtCore.QPointF)
+    target_probe._window = None
+    visual_focus = CompanionOrbController._ocr_focus_bounds_for_text(
+        target_probe,
+        "comment on the image in this area",
+        fallback_bounds=[180, 70, 260, 180],
+    )
+    assert visual_focus == [220, 100, 160, 120]
     target_probe._drift_target_point = None
     target_probe._drift_target_kind = ""
     first_target = CompanionOrbController._stable_drift_target(

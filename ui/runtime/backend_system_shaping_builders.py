@@ -842,6 +842,7 @@ class BackendSystemShapingBuilderMixin:
         core_layout.addWidget(sensory_box)
         self.sensory_feedback_tabs.addTab(core_tab, "Core")
         self._refresh_sensory_feedback_source_tabs()
+        self._update_sensory_feedback_tab_bar_visibility()
         layout.addWidget(self.sensory_feedback_tabs, 0, QtCore.Qt.AlignTop)
         return tab
 

@@ -58,6 +58,7 @@ def apply_inline_theme_styles(root, palette, *, theme_preset_widgets, canonicali
 def apply_readable_input_palettes(root, palette):
     if root is None or not hasattr(root, "findChildren"):
         return
+    window_bg = QtGui.QColor(str(palette.get("window_bg", "#11161d") or "#11161d"))
     text = QtGui.QColor(str(palette.get("text_strong", palette.get("text", "#f2f5f9")) or "#f2f5f9"))
     soft_text = QtGui.QColor(str(palette.get("text", "#e5e9f0") or "#e5e9f0"))
     disabled_text = QtGui.QColor(str(palette.get("text_muted", palette.get("text_disabled", "#b7c1ce")) or "#b7c1ce"))
@@ -84,6 +85,34 @@ def apply_readable_input_palettes(root, palette):
         f"background: {hover}; color: {highlighted_text.name()}; "
         "}"
     )
+    chrome_widgets = []
+    try:
+        chrome_widgets.extend(root.findChildren(QtWidgets.QMenuBar))
+        chrome_widgets.extend(root.findChildren(QtWidgets.QMenu))
+        chrome_widgets.extend(root.findChildren(QtWidgets.QStatusBar))
+    except Exception:
+        chrome_widgets = []
+    for widget in chrome_widgets:
+        try:
+            is_popup_menu = isinstance(widget, QtWidgets.QMenu)
+            bg = menu_bg if is_popup_menu else window_bg
+            pal = widget.palette()
+            for group in (QtGui.QPalette.Active, QtGui.QPalette.Inactive):
+                pal.setColor(group, QtGui.QPalette.Window, bg)
+                pal.setColor(group, QtGui.QPalette.Base, bg)
+                pal.setColor(group, QtGui.QPalette.Button, bg)
+                pal.setColor(group, QtGui.QPalette.Text, text)
+                pal.setColor(group, QtGui.QPalette.WindowText, text)
+                pal.setColor(group, QtGui.QPalette.ButtonText, text)
+                pal.setColor(group, QtGui.QPalette.Highlight, highlight)
+                pal.setColor(group, QtGui.QPalette.HighlightedText, highlighted_text)
+            for role in (QtGui.QPalette.Text, QtGui.QPalette.WindowText, QtGui.QPalette.ButtonText):
+                pal.setColor(QtGui.QPalette.Disabled, role, disabled_text)
+            widget.setPalette(pal)
+            if hasattr(widget, "setAutoFillBackground"):
+                widget.setAutoFillBackground(True)
+        except Exception:
+            continue
     widgets = []
     try:
         widgets.extend(root.findChildren(QtWidgets.QComboBox))
@@ -175,6 +204,7 @@ def split_collapsible_section_text(text, fallback_title):
 
 
 _runtime_config = {}
+_slider_behavior_filter = None
 
 def configure_theme_support(runtime_config=None):
     global _runtime_config
@@ -186,9 +216,524 @@ def _runtime_config_get(key, default=None):
     except Exception:
         return default
 
+
+SLIDER_HANDLE_COLOR_DEFAULT = "#39d98a"
+SLIDER_HANDLE_COLOR_PRESETS = (
+    "#39d98a",
+    "#82f06b",
+    "#4d8dff",
+    "#8b5cf6",
+    "#ff9f1c",
+    "#ff4d5e",
+    "#00e5ff",
+    "#f2d16b",
+    "#f472b6",
+    "#d8dee9",
+)
+
+
+def _normalize_slider_handle_color(value, fallback=SLIDER_HANDLE_COLOR_DEFAULT):
+    color = QtGui.QColor(str(value or "").strip())
+    if not color.isValid():
+        color = QtGui.QColor(str(fallback or SLIDER_HANDLE_COLOR_DEFAULT))
+    return color.name()
+
+
+def _slider_handle_colors(handle_color):
+    color = QtGui.QColor(str(handle_color or SLIDER_HANDLE_COLOR_DEFAULT))
+    if not color.isValid():
+        color = QtGui.QColor(SLIDER_HANDLE_COLOR_DEFAULT)
+    return {
+        "base": color.name(),
+        "top": color.lighter(145).name(),
+        "bottom": color.darker(135).name(),
+        "border": color.lighter(165).name(),
+        "pressed_top": color.lighter(125).name(),
+        "pressed_bottom": color.darker(150).name(),
+    }
+
+
+def _slider_handle_color_for(slider):
+    try:
+        value = slider.property("nc_slider_handle_color")
+    except Exception:
+        value = None
+    return _normalize_slider_handle_color(value, SLIDER_HANDLE_COLOR_DEFAULT)
+
+
+def app_slider_stylesheet(handle_color=None):
+    colors = _slider_handle_colors(_normalize_slider_handle_color(handle_color, SLIDER_HANDLE_COLOR_DEFAULT))
+    return f"""
+QSlider {{
+    background: transparent;
+    min-height: 26px;
+}}
+QSlider:vertical {{
+    min-width: 26px;
+}}
+QSlider::groove:horizontal {{
+    height: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}}
+QSlider::sub-page:horizontal {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}}
+QSlider::add-page:horizontal {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}}
+QSlider::handle:horizontal {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 {colors["top"]}, stop: 0.48 {colors["base"]}, stop: 1 {colors["bottom"]});
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 10px;
+}}
+QSlider::handle:horizontal:hover {{
+    border: 1px solid #ffffff;
+}}
+QSlider::handle:horizontal:pressed {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 {colors["pressed_top"]}, stop: 1 {colors["pressed_bottom"]});
+    border: 1px solid #ffffff;
+}}
+QSlider::groove:vertical {{
+    width: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}}
+QSlider::sub-page:vertical {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}}
+QSlider::add-page:vertical {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}}
+QSlider::handle:vertical {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 {colors["top"]}, stop: 0.48 {colors["base"]}, stop: 1 {colors["bottom"]});
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: 0 -6px;
+    border-radius: 10px;
+}}
+QSlider::handle:vertical:hover {{
+    border: 1px solid #ffffff;
+}}
+QSlider::handle:vertical:pressed {{
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 {colors["pressed_top"]}, stop: 1 {colors["pressed_bottom"]});
+    border: 1px solid #ffffff;
+}}
+QSlider:disabled {{
+    background: transparent;
+}}
+QSlider::sub-page:horizontal:disabled,
+QSlider::sub-page:vertical:disabled {{
+    background: #35445a;
+    border-color: #40506a;
+}}
+QSlider::add-page:horizontal:disabled,
+QSlider::add-page:vertical:disabled {{
+    background: #1a2028;
+    border-color: #27303b;
+}}
+QSlider::handle:horizontal:disabled,
+QSlider::handle:vertical:disabled {{
+    background: #5b6675;
+    border-color: #7f8791;
+}}
+""".strip()
+
+
+def apply_app_slider_style(slider, handle_color=None):
+    if slider is None or not isinstance(slider, QtWidgets.QSlider):
+        return
+    try:
+        color = _normalize_slider_handle_color(handle_color, _slider_handle_color_for(slider))
+        next_style = app_slider_stylesheet(color)
+        if str(slider.styleSheet() or "") != next_style:
+            slider.setStyleSheet(next_style)
+    except Exception:
+        return
+
+
+def apply_app_slider_styles(root):
+    if root is None:
+        return
+    sliders = []
+    if isinstance(root, QtWidgets.QSlider):
+        sliders.append(root)
+    if not hasattr(root, "findChildren"):
+        for slider in sliders:
+            apply_app_slider_style(slider)
+        return
+    try:
+        sliders.extend(list(root.findChildren(QtWidgets.QSlider)))
+    except Exception:
+        return
+    for slider in sliders:
+        apply_app_slider_style(slider)
+
+
+def _app_sliders_for_root(root):
+    if root is None:
+        return []
+    sliders = []
+    if isinstance(root, QtWidgets.QSlider):
+        sliders.append(root)
+    if hasattr(root, "findChildren"):
+        try:
+            sliders.extend(list(root.findChildren(QtWidgets.QSlider)))
+        except Exception:
+            pass
+    return sliders
+
+
+def _slider_display_value(slider):
+    try:
+        value = int(slider.sliderPosition())
+    except Exception:
+        try:
+            value = int(slider.value())
+        except Exception:
+            value = 0
+    suffix = ""
+    try:
+        name = str(slider.objectName() or "").lower()
+    except Exception:
+        name = ""
+    if "percent" in name or "volume" in name or "strength" in name or "continuity" in name:
+        suffix = "%"
+    return f"{value}{suffix}"
+
+
+def _slider_handle_rect(slider):
+    option = QtWidgets.QStyleOptionSlider()
+    slider.initStyleOption(option)
+    return slider.style().subControlRect(
+        QtWidgets.QStyle.CC_Slider,
+        option,
+        QtWidgets.QStyle.SC_SliderHandle,
+        slider,
+    )
+
+
+def _show_slider_value_tip(slider):
+    rect = _slider_handle_rect(slider)
+    point = rect.center()
+    if slider.orientation() == QtCore.Qt.Horizontal:
+        point.setY(rect.top() - 22)
+    else:
+        point.setX(rect.right() + 14)
+    QtWidgets.QToolTip.showText(slider.mapToGlobal(point), _slider_display_value(slider), slider)
+
+
+def _slider_handle_hit(slider, position):
+    return _slider_handle_rect(slider).adjusted(-4, -4, 4, 4).contains(position.toPoint())
+
+
+def _apply_slider_handle_color_to_slider(slider, color):
+    normalized = _normalize_slider_handle_color(color)
+    if slider is None or not isinstance(slider, QtWidgets.QSlider):
+        return normalized
+    try:
+        slider.setProperty("nc_slider_handle_color", normalized)
+    except Exception:
+        pass
+    apply_app_slider_style(slider, normalized)
+    return normalized
+
+
+def _open_slider_color_dialog(slider):
+    dialog = QtWidgets.QDialog(slider)
+    dialog.setWindowTitle("Slider Handle Color")
+    dialog.setModal(True)
+    layout = QtWidgets.QVBoxLayout(dialog)
+    layout.setContentsMargins(14, 14, 14, 14)
+    layout.setSpacing(10)
+
+    swatches = QtWidgets.QGridLayout()
+    color_input = QtWidgets.QLineEdit(_slider_handle_color_for(slider))
+    color_input.setPlaceholderText("#39d98a")
+
+    def set_color_text(color):
+        color_input.setText(_normalize_slider_handle_color(color))
+
+    for index, color in enumerate(SLIDER_HANDLE_COLOR_PRESETS):
+        button = QtWidgets.QPushButton()
+        button.setFixedSize(30, 30)
+        button.setToolTip(color)
+        button.setStyleSheet(
+            f"QPushButton {{ background: {color}; border: 1px solid #d8dee9; border-radius: 15px; }}"
+            "QPushButton:hover { border: 2px solid #ffffff; }"
+        )
+        button.clicked.connect(lambda _checked=False, value=color: set_color_text(value))
+        swatches.addWidget(button, index // 5, index % 5)
+    layout.addLayout(swatches)
+    layout.addWidget(color_input)
+
+    buttons = QtWidgets.QHBoxLayout()
+    buttons.addStretch(1)
+    apply_button = QtWidgets.QPushButton("Apply")
+    cancel_button = QtWidgets.QPushButton("Cancel")
+    buttons.addWidget(apply_button)
+    buttons.addWidget(cancel_button)
+    layout.addLayout(buttons)
+
+    def apply_color():
+        color = QtGui.QColor(color_input.text().strip())
+        if not color.isValid():
+            color_input.setFocus()
+            return
+        _apply_slider_handle_color_to_slider(slider, color.name())
+        dialog.accept()
+
+    apply_button.clicked.connect(apply_color)
+    cancel_button.clicked.connect(dialog.reject)
+    dialog.exec()
+
+
+class _AppSliderBehaviorFilter(QtCore.QObject):
+    def eventFilter(self, obj, event):
+        try:
+            if isinstance(obj, QtWidgets.QSlider):
+                if event.type() in (QtCore.QEvent.Polish, QtCore.QEvent.Show, QtCore.QEvent.EnabledChange):
+                    self._attach_slider(obj)
+                elif event.type() == QtCore.QEvent.MouseButtonDblClick and _slider_handle_hit(obj, event.position()):
+                    _open_slider_color_dialog(obj)
+                    return True
+            elif event.type() == QtCore.QEvent.ChildAdded:
+                child = event.child()
+                if isinstance(child, QtWidgets.QSlider):
+                    self._attach_slider(child)
+        except Exception:
+            pass
+        return False
+
+    def _attach_slider(self, slider):
+        if slider is None:
+            return
+        try:
+            slider.setTracking(False)
+            if not bool(slider.property("nc_app_slider_behavior_connected")):
+                slider.sliderMoved.connect(lambda _value, target=slider: _show_slider_value_tip(target))
+                slider.sliderPressed.connect(lambda target=slider: _show_slider_value_tip(target))
+                slider.sliderReleased.connect(lambda: QtWidgets.QToolTip.hideText())
+                slider.setProperty("nc_app_slider_behavior_connected", True)
+            apply_app_slider_style(slider)
+        except Exception:
+            pass
+
+
+def install_app_wide_slider_styling(root=None):
+    global _slider_behavior_filter
+    app = QtWidgets.QApplication.instance()
+    if app is None:
+        return
+    if _slider_behavior_filter is None:
+        _slider_behavior_filter = _AppSliderBehaviorFilter(app)
+        app.installEventFilter(_slider_behavior_filter)
+    if root is not None:
+        for slider in _app_sliders_for_root(root):
+            _slider_behavior_filter._attach_slider(slider)
+    for widget in app.topLevelWidgets():
+        for slider in _app_sliders_for_root(widget):
+            _slider_behavior_filter._attach_slider(slider)
+
 APP_STYLESHEET_FALLBACK = """
 QMainWindow { background: #11161d; }
 QWidget { color: #e5e9f0; font-family: "Segoe UI"; font-size: 12px; }
+QMenuBar {
+    background: #11161d;
+    color: #f2f5f9;
+    border-bottom: 1px solid #273342;
+    padding: 2px 6px;
+}
+QMenuBar::item {
+    background: transparent;
+    color: #f2f5f9;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+QMenuBar::item:selected {
+    background: #223247;
+    color: #f2f5f9;
+}
+QMenuBar::item:pressed {
+    background: #233245;
+    border: 1px solid #4d8dff;
+}
+QMenu {
+    background: #16202b;
+    color: #f2f5f9;
+    border: 1px solid #273342;
+    border-radius: 8px;
+    padding: 6px;
+}
+QMenu::item {
+    background: transparent;
+    color: #f2f5f9;
+    padding: 6px 24px 6px 10px;
+    border-radius: 6px;
+}
+QMenu::item:selected {
+    background: #223247;
+    color: #f2f5f9;
+}
+QMenu::separator {
+    height: 1px;
+    background: #2c3a4b;
+    margin: 6px 4px;
+}
+QStatusBar {
+    background: #11161d;
+    color: #8ea3b8;
+    border-top: 1px solid #273342;
+}
+QCheckBox {
+    color: #f2f5f9;
+    spacing: 9px;
+    min-height: 24px;
+}
+QCheckBox:disabled {
+    color: #b7c1ce;
+}
+QCheckBox::indicator {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:hover {
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked:hover {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:disabled {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked:disabled {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QSlider {
+    background: transparent;
+    min-height: 26px;
+}
+QSlider:vertical {
+    min-width: 26px;
+}
+QSlider::groove:horizontal {
+    height: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}
+QSlider::add-page:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::handle:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #76f4b1, stop: 0.48 #39d98a, stop: 1 #218f59);
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 10px;
+}
+QSlider::handle:horizontal:hover {
+    border: 1px solid #ffffff;
+}
+QSlider::handle:horizontal:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #55e699, stop: 1 #1b7549);
+    border: 1px solid #ffffff;
+}
+QSlider::groove:vertical {
+    width: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::sub-page:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}
+QSlider::add-page:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::handle:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #76f4b1, stop: 0.48 #39d98a, stop: 1 #218f59);
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: 0 -6px;
+    border-radius: 10px;
+}
+QSlider::handle:vertical:hover {
+    border: 1px solid #ffffff;
+}
+QSlider::handle:vertical:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #55e699, stop: 1 #1b7549);
+    border: 1px solid #ffffff;
+}
+QSlider:disabled {
+    background: transparent;
+}
+QSlider::sub-page:horizontal:disabled,
+QSlider::sub-page:vertical:disabled {
+    background: #35445a;
+    border-color: #40506a;
+}
+QSlider::add-page:horizontal:disabled,
+QSlider::add-page:vertical:disabled {
+    background: #1a2028;
+    border-color: #27303b;
+}
+QSlider::handle:horizontal:disabled,
+QSlider::handle:vertical:disabled {
+    background: #5b6675;
+    border-color: #7f8791;
+}
 QFrame#Panel { background: #18202a; border: 1px solid #283342; border-radius: 14px; padding: 8px; }
 QFrame#HeaderCard { background: #131a23; border: 1px solid #243244; border-radius: 12px; padding: 4px; }
 QScrollArea { background: #18202a; border: 1px solid #273342; border-radius: 10px; padding: 6px; }

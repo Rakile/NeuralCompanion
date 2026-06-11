@@ -904,6 +904,12 @@ QTabWidget QScrollArea > QWidget > QWidget {
             if tabs is None:
                 return
             try:
+                tab_bar = tabs.tabBar()
+                if tab_bar is not None:
+                    tab_bar.setVisible(int(tabs.count()) > 1)
+            except Exception:
+                pass
+            try:
                 if bool(tabs.property("_nc_sensory_feedback_tabs_alignment_applied")):
                     return
             except Exception:

@@ -12,6 +12,21 @@ def _sensory():
     return sensory
 
 class BackendSensoryTabsMixin:
+    def _update_sensory_feedback_tab_bar_visibility(self):
+        tabs = getattr(self, "sensory_feedback_tabs", None)
+        if tabs is None or not hasattr(tabs, "tabBar"):
+            return
+        try:
+            tab_bar = tabs.tabBar()
+        except Exception:
+            tab_bar = None
+        if tab_bar is None:
+            return
+        try:
+            tab_bar.setVisible(int(tabs.count()) > 1)
+        except Exception:
+            pass
+
     def _screen_source_auto_attach_enabled(self):
         try:
             return bool(_engine().RUNTIME_CONFIG.get("screen_source_auto_attach_next_user_turn", False))
@@ -367,5 +382,6 @@ class BackendSensoryTabsMixin:
                     if tabs.widget(index) is target_widget:
                         tabs.setCurrentIndex(index)
                         break
+        self._update_sensory_feedback_tab_bar_visibility()
         self._sync_tab_widget_height(getattr(self, "sensory_feedback_tabs", None))
         self._sync_host_settings_tabs_height()

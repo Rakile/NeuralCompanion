@@ -47,6 +47,63 @@ from .visual_reply import PersonaVisualReply
 from .voice_routing import PersonaVoiceRouter, VOICE_REFERENCE_BACKENDS, normalize_tts_backend
 
 
+def _mprc_checkbox_stylesheet(text_color: str = "#f4f7fb", font_weight: str = "600") -> str:
+    return f"""
+    QCheckBox {{
+        color: {text_color};
+        font-weight: {font_weight};
+        spacing: 9px;
+        min-height: 24px;
+    }}
+    QCheckBox:disabled {{
+        color: #7f8fa3;
+    }}
+    QCheckBox::indicator {{
+        width: 20px;
+        height: 20px;
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+    }}
+    QCheckBox::indicator:hover {{
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+    }}
+    QCheckBox::indicator:checked {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:checked:hover {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:disabled {{
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:checked:disabled {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    """
+
+
+MPRC_CHECKBOX_STYLESHEET = _mprc_checkbox_stylesheet()
+
+
 class _MprcRefineBridge(QtCore.QObject):
     finished = QtCore.Signal(str, str, str, str)
 
@@ -2198,7 +2255,7 @@ class MultiPersonaRoleplayController:
         active.currentIndexChanged.connect(lambda *_args: self._on_active_persona_changed())
 
         root.setStyleSheet(
-            """
+            MPRC_CHECKBOX_STYLESHEET + """
             QWidget#mprc_root { background: #101720; color: #f4f7fb; }
             QGroupBox { border: 1px solid #36506d; border-radius: 10px; margin-top: 10px; padding: 10px; }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #dbeafe; font-weight: 700; }
@@ -8946,9 +9003,9 @@ class MultiPersonaRoleplayController:
             count = int(info.get("count") or 0)
             checkbox.setToolTip(f"{label}\n{'Available' if available else 'No data detected'}" + (f": {detail}" if detail else ""))
             checkbox.setStyleSheet(
-                "QCheckBox { color: #22c55e; font-weight: 700; }"
+                _mprc_checkbox_stylesheet("#22c55e", "700")
                 if available
-                else "QCheckBox { color: #9fb3c8; font-weight: 600; }"
+                else _mprc_checkbox_stylesheet("#9fb3c8", "600")
             )
             checkbox.setText(f"{label} ({count})" if available and count > 1 else label)
         if status is not None:

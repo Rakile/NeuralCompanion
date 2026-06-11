@@ -1289,10 +1289,12 @@ class AudioStoryModeController(QtCore.QObject):
             disabled_text=disabled_text,
         )
         checkbox_style = (
-            "QCheckBox {{ color: {text}; spacing: 6px; }}"
+            "QCheckBox {{ color: {text}; spacing: 9px; min-height: 24px; }}"
             "QCheckBox:disabled {{ color: {disabled_text}; }}"
-            "QCheckBox::indicator {{ width: 14px; height: 14px; border-radius: 4px; border: 1px solid {border}; background: {field_bg}; }}"
-            "QCheckBox::indicator:checked {{ background: {accent}; border: 1px solid {accent_border}; }}"
+            "QCheckBox::indicator {{ width: 20px; height: 20px; image: url(ui/assets/checkbox_round_inactive.svg); background: transparent; border: 0px; }}"
+            "QCheckBox::indicator:hover {{ width: 20px; height: 20px; image: url(ui/assets/checkbox_round_inactive.svg); background: transparent; border: 0px; }}"
+            "QCheckBox::indicator:checked {{ width: 20px; height: 20px; image: url(ui/assets/checkbox_round_active.svg); background: transparent; border: 0px; }}"
+            "QCheckBox::indicator:checked:hover {{ width: 20px; height: 20px; image: url(ui/assets/checkbox_round_active.svg); background: transparent; border: 0px; }}"
         ).format(text=text, disabled_text=disabled_text, border=border, field_bg=field_bg, accent=accent, accent_border=accent_border)
         try:
             _set_style_if_changed(root, _style_with_designer_override(root, root_style))
@@ -1360,8 +1362,9 @@ class AudioStoryModeController(QtCore.QObject):
                     _set_style_if_changed(label, _style_with_designer_override(label, f"background: transparent; color: {text};"))
             for checkbox in root.findChildren(QtWidgets.QCheckBox):
                 _set_style_if_changed(checkbox, _style_with_designer_override(checkbox, checkbox_style))
+            from ui.theme_support import apply_app_slider_style
             for slider in root.findChildren(QtWidgets.QSlider):
-                _set_style_if_changed(slider, _style_with_designer_override(slider, "QSlider { background: transparent; }"))
+                apply_app_slider_style(slider)
             for button in root.findChildren(QtWidgets.QPushButton):
                 if button is getattr(self, "audio_story_play_button", None):
                     _set_style_if_changed(button, _style_with_designer_override(button, self._audio_story_playback_button_style("play", disabled_bg=disabled_bg, disabled_text=disabled_text)))

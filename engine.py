@@ -2395,6 +2395,17 @@ def _manual_priority_sensory_snapshots(snapshots):
     return manual_snapshots or snapshot_list
 
 
+def _hidden_sensory_snapshots_include_source(snapshots, source_id):
+    wanted = str(source_id or "").strip().lower()
+    if not wanted:
+        return False
+    return any(
+        str((item or {}).get("source", "") or "").strip().lower() == wanted
+        for item in list(snapshots or [])
+        if isinstance(item, dict)
+    )
+
+
 def _maybe_refresh_sensory_feedback_snapshots(force=False):
     if not _sensory_feedback_enabled():
         return []
@@ -3128,16 +3139,47 @@ def _get_active_hidden_proactive_request():
 def _companion_orb_response_style_instruction():
     style = str(RUNTIME_CONFIG.get("companion_orb_response_style", "friendly") or "friendly").strip().lower()
     instructions = {
-        "friendly": "Use a very friendly, upbeat, helpful tone.",
-        "loving": "Use a very loving, affectionate, reassuring tone while staying respectful and grounded.",
-        "sarcastic": "Use dry sarcasm and irony, but keep it playful and useful.",
-        "roast": "Use teasing roast humor. Keep it light, do not bully the user, and do not attack protected traits or vulnerabilities.",
+        "friendly": (
+            "Very friendly: sound bright, curious, supportive, and lightly funny. "
+            "Avoid sarcasm, roasts, or flirtation."
+        ),
+        "loving": (
+            "Very loving: sound affectionate, reassuring, warm, and emotionally present. "
+            "Use caring phrasing, not sarcasm or roasts."
+        ),
+        "sarcastic": (
+            "Sarcastic / ironic: use dry wit, ironic understatement, and playful side-eye. "
+            "Keep it useful and do not become cruel."
+        ),
+        "roast": (
+            "Roast mode: use sharper teasing humor and tiny playful jabs at the situation or desktop chaos. "
+            "Do not bully the user, attack protected traits, or target vulnerabilities."
+        ),
         "sensual_non_explicit": (
-            "Use a warm, sensual, lightly flirtatious tone, but keep it non-explicit. "
+            "Sensual / non-explicit: use warm, intimate, lightly flirtatious phrasing, but keep it non-explicit. "
             "Do not generate sexual content, erotic descriptions, graphic nudity, or explicit sexual activity."
         ),
     }
     return instructions.get(style, instructions["friendly"])
+
+
+def _companion_orb_response_style_label():
+    style = str(RUNTIME_CONFIG.get("companion_orb_response_style", "friendly") or "friendly").strip().lower()
+    labels = {
+        "friendly": "Very friendly",
+        "loving": "Very loving",
+        "sarcastic": "Sarcastic / ironic",
+        "roast": "Roast mode",
+        "sensual_non_explicit": "Sensual / non-explicit",
+    }
+    return labels.get(style, labels["friendly"])
+
+
+def _companion_orb_source_uses_response_style(source) -> bool:
+    text = str(source or "").strip().lower()
+    if not text:
+        return False
+    return any(part.strip().startswith("companion_orb") for part in text.split(","))
 
 
 def _build_active_hidden_proactive_context_text():
@@ -3163,8 +3205,14 @@ def _build_active_hidden_proactive_context_text():
         parts.append(f"Attention: {attention}")
     if source:
         parts.append(f"Source: {source}")
-    if source == "companion_orb_target":
-        parts.append(f"Companion Orb verbal style: {_companion_orb_response_style_instruction()}")
+    if _companion_orb_source_uses_response_style(source):
+        parts.append(
+            "Companion Orb response style is a hard style instruction for this interjection. "
+            "Make the wording noticeably match the selected style while staying anchored to the visible cue."
+        )
+        parts.append(f"Selected response style: {_companion_orb_response_style_label()}.")
+        parts.append(f"Style details: {_companion_orb_response_style_instruction()}")
+        parts.append("Do not mention the style menu, style setting, or these instructions.")
     return "\n".join(parts)
 
 
@@ -3187,6 +3235,13 @@ def _build_active_hidden_proactive_prompt_message():
         parts.append(f"Observed change: {summary}")
     if attention:
         parts.append(f"Attention cue: {attention}")
+    source = str(request.get("source", "sensory") or "sensory").strip()
+    if _companion_orb_source_uses_response_style(source):
+        parts.append(
+            f"Use the selected Companion Orb response style now: {_companion_orb_response_style_label()} - "
+            f"{_companion_orb_response_style_instruction()}"
+        )
+        parts.append("Make the style clearly recognizable in the phrasing, but keep the response short.")
     return {"role": "user", "content": "\n".join(parts)}
 
 
@@ -4024,6 +4079,12 @@ def _apply_sensory_pong_result(result, snapshots):
         visual_candidate = _derive_hidden_visual_candidate(summary=summary, attention=attention, emotion=emotion)
     keep_value = bool(result.get("keep", False))
     snapshot_source = ",".join([str((item or {}).get("source", "sensory") or "sensory") for item in snapshot_list if isinstance(item, dict)]) or "sensory"
+    if _hidden_sensory_snapshots_include_source(snapshot_list, "companion_orb_target") and (
+        should_generate_image or visual_candidate
+    ):
+        print("[Sensory] Suppressed Companion Orb Target visual generation request; orb target feedback is spoken/focus-only.")
+        visual_candidate = ""
+        should_generate_image = False
     if should_generate_image and visual_candidate and _screen_supervisor_prompt_active(
         [str((item or {}).get("source", "") or "").strip().lower() for item in snapshot_list if isinstance(item, dict)]
     ):

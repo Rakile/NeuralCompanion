@@ -28,6 +28,190 @@
   <property name="styleSheet">
    <string notr="true">QMainWindow { background: #11161d; }
 QWidget { color: #e5e9f0; font-family: &quot;Segoe UI&quot;; font-size: 12px; }
+QMenuBar {
+    background: #11161d;
+    color: #f2f5f9;
+    border-bottom: 1px solid #273342;
+    padding: 2px 6px;
+}
+QMenuBar::item {
+    background: transparent;
+    color: #f2f5f9;
+    padding: 4px 10px;
+    border-radius: 6px;
+}
+QMenuBar::item:selected {
+    background: #223247;
+    color: #f2f5f9;
+}
+QMenuBar::item:pressed {
+    background: #233245;
+    border: 1px solid #4d8dff;
+}
+QMenu {
+    background: #16202b;
+    color: #f2f5f9;
+    border: 1px solid #273342;
+    border-radius: 8px;
+    padding: 6px;
+}
+QMenu::item {
+    background: transparent;
+    color: #f2f5f9;
+    padding: 6px 24px 6px 10px;
+    border-radius: 6px;
+}
+QMenu::item:selected {
+    background: #223247;
+    color: #f2f5f9;
+}
+QMenu::separator {
+    height: 1px;
+    background: #2c3a4b;
+    margin: 6px 4px;
+}
+QStatusBar {
+    background: #11161d;
+    color: #8ea3b8;
+    border-top: 1px solid #273342;
+}
+QCheckBox {
+    color: #f2f5f9;
+    spacing: 9px;
+    min-height: 24px;
+}
+QCheckBox:disabled {
+    color: #b7c1ce;
+}
+QCheckBox::indicator {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:hover {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked:hover {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:disabled {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
+}
+QCheckBox::indicator:checked:disabled {
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
+}
+QSlider {
+    background: transparent;
+    min-height: 26px;
+}
+QSlider:vertical {
+    min-width: 26px;
+}
+QSlider::groove:horizontal {
+    height: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::sub-page:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}
+QSlider::add-page:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::handle:horizontal {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #76f4b1, stop: 0.48 #39d98a, stop: 1 #218f59);
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: -6px 0;
+    border-radius: 10px;
+}
+QSlider::handle:horizontal:hover {
+    border: 1px solid #ffffff;
+}
+QSlider::handle:horizontal:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #55e699, stop: 1 #1b7549);
+    border: 1px solid #ffffff;
+}
+QSlider::groove:vertical {
+    width: 8px;
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::sub-page:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #1b4f86, stop: 0.5 #164274, stop: 1 #0f2e52);
+    border: 1px solid #2f6fc8;
+    border-radius: 4px;
+}
+QSlider::add-page:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0, stop: 0 #0c1118, stop: 0.45 #202833, stop: 1 #111923);
+    border: 1px solid #303a47;
+    border-radius: 4px;
+}
+QSlider::handle:vertical {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #76f4b1, stop: 0.48 #39d98a, stop: 1 #218f59);
+    border: 1px solid #07111f;
+    width: 18px;
+    height: 18px;
+    margin: 0 -6px;
+    border-radius: 10px;
+}
+QSlider::handle:vertical:hover {
+    border: 1px solid #ffffff;
+}
+QSlider::handle:vertical:pressed {
+    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #55e699, stop: 1 #1b7549);
+    border: 1px solid #ffffff;
+}
+QSlider:disabled {
+    background: transparent;
+}
+QSlider::sub-page:horizontal:disabled,
+QSlider::sub-page:vertical:disabled {
+    background: #35445a;
+    border-color: #40506a;
+}
+QSlider::add-page:horizontal:disabled,
+QSlider::add-page:vertical:disabled {
+    background: #1a2028;
+    border-color: #27303b;
+}
+QSlider::handle:horizontal:disabled,
+QSlider::handle:vertical:disabled {
+    background: #5b6675;
+    border-color: #7f8791;
+}
 QFrame#Panel { background: #18202a; border: 1px solid #283342; border-radius: 14px; padding: 8px; }
 QFrame#HeaderCard { background: #131a23; border: 1px solid #243244; border-radius: 12px; padding: 4px; }
 QScrollArea { background: #18202a; border: 1px solid #273342; border-radius: 10px; padding: 6px; }
@@ -3821,15 +4005,18 @@ QCheckBox#use_wav_file_checkbox:hover {
     background: #241a35;
 }
 QCheckBox#use_wav_file_checkbox::indicator {
-    width: 14px;
-    height: 14px;
-    border: 1px solid #3a91ad;
-    border-radius: 3px;
-    background: #0d1220;
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_inactive.svg);
+    background: transparent;
+    border: 0px;
 }
 QCheckBox#use_wav_file_checkbox::indicator:checked {
-    background: #8a4cc4;
-    border-color: #c07038;
+    width: 20px;
+    height: 20px;
+    image: url(ui/assets/checkbox_round_active.svg);
+    background: transparent;
+    border: 0px;
 }</string>
               </property>
               <property name="text">
