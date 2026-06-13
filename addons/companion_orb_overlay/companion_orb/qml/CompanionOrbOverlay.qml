@@ -7,7 +7,7 @@ Item {
     property var orbBridge: companionOrbBridge
     property string aiState: orbBridge ? orbBridge.aiState : "idle"
     property real audioLevel: orbBridge ? orbBridge.audioLevel : 0.0
-    property string visualStyle: orbBridge ? orbBridge.visualStyle : "soft_plasma"
+    property string visualStyle: orbBridge ? orbBridge.visualStyle : "neural_spark"
     property real orbOpacity: orbBridge ? orbBridge.orbOpacity : 0.82
     property int orbSize: orbBridge ? orbBridge.orbSize : 92
     property bool editMode: orbBridge ? orbBridge.editMode : false
@@ -20,6 +20,7 @@ Item {
     property bool fallingParticlesEnabled: orbBridge ? orbBridge.fallingParticlesEnabled : false
     property bool shadersEnabled: orbBridge ? orbBridge.shadersEnabled : true
     property real speakingReactivity: orbBridge ? orbBridge.speakingReactivity : 0.85
+    property int frameRate: orbBridge ? orbBridge.frameRate : 60
     property bool voiceSyncEnabled: orbBridge ? orbBridge.voiceSyncEnabled : true
     property real glowStrength: orbBridge ? orbBridge.glowStrength : 1.0
     property real trailLength: orbBridge ? orbBridge.trailLength : 0.55
@@ -28,11 +29,21 @@ Item {
     property real fallingParticleLifetime: orbBridge ? orbBridge.fallingParticleLifetime : 3.8
     property real smokeIntensity: orbBridge ? orbBridge.smokeIntensity : 0.35
     property real moodColorIntensity: orbBridge ? orbBridge.moodColorIntensity : 0.85
+    property bool customColorsEnabled: orbBridge ? orbBridge.customColorsEnabled : false
+    property bool stateColorsEnabled: orbBridge ? orbBridge.stateColorsEnabled : false
+    property bool stateAnimationEnabled: orbBridge ? orbBridge.stateAnimationEnabled : false
     property color primaryColor: orbBridge ? orbBridge.primaryColor : "#38bdf8"
     property color secondaryColor: orbBridge ? orbBridge.secondaryColor : "#22d3ee"
     property color accentColor: orbBridge ? orbBridge.accentColor : "#a78bfa"
     property color glowColor: orbBridge ? orbBridge.glowColor : "#67e8f9"
+    property color idleColor: orbBridge ? orbBridge.idleColor : "#38bdf8"
+    property color thinkingColor: orbBridge ? orbBridge.thinkingColor : "#a78bfa"
+    property color speakingColor: orbBridge ? orbBridge.speakingColor : "#f472b6"
+    property string idleAnimation: orbBridge ? orbBridge.idleAnimation : "calm_breathe"
+    property string thinkingAnimation: orbBridge ? orbBridge.thinkingAnimation : "thinking_swirl"
+    property string speakingAnimation: orbBridge ? orbBridge.speakingAnimation : "voice_ripple"
     property real tick: 0.0
+    property real lastTickMs: 0.0
 
     function hexByte(value) {
         var number = Math.max(0, Math.min(255, Math.round(value)))
@@ -68,27 +79,47 @@ Item {
     }
 
     function stylePrimary() {
-        if (visualStyle === "neural_spark") return root.hexColor("#38bdf8")
-        if (visualStyle === "smoke_wisp") return root.hexColor("#94a3b8")
-        if (visualStyle === "hologram_drone") return root.hexColor("#67e8f9")
-        if (visualStyle === "mood_orb") return root.hexColor("#a78bfa")
-        return root.hexColor("#22d3ee")
-    }
-
-    function styleSecondary() {
-        if (visualStyle === "neural_spark") return root.hexColor("#22d3ee")
-        if (visualStyle === "smoke_wisp") return root.hexColor("#64748b")
-        if (visualStyle === "hologram_drone") return root.hexColor("#22d3ee")
-        if (visualStyle === "mood_orb") return root.hexColor("#f472b6")
         return root.hexColor("#38bdf8")
     }
 
+    function styleSecondary() {
+        return root.hexColor("#22d3ee")
+    }
+
     function styleAccent() {
-        if (visualStyle === "neural_spark") return root.hexColor("#f59e0b")
-        if (visualStyle === "smoke_wisp") return root.hexColor("#c4b5fd")
-        if (visualStyle === "hologram_drone") return root.hexColor("#a78bfa")
-        if (visualStyle === "mood_orb") return root.hexColor("#f0abfc")
-        return root.hexColor("#a78bfa")
+        return root.hexColor("#f59e0b")
+    }
+
+    function stateTintColor() {
+        if (aiState === "speaking") return root.speakingColor
+        if (aiState === "thinking") return root.thinkingColor
+        return root.idleColor
+    }
+
+    function activeStateAnimation() {
+        if (!stateAnimationEnabled) return "style_default"
+        if (aiState === "speaking") return root.speakingAnimation
+        if (aiState === "thinking") return root.thinkingAnimation
+        return root.idleAnimation
+    }
+
+    function animationPulse(mode, level) {
+        if (mode === "calm_breathe") return 0.36 + 0.64 * (0.5 + Math.sin(tick * 0.78) * 0.5)
+        if (mode === "slow_orbit") return 0.18 + 0.18 * Math.sin(tick * 0.52)
+        if (mode === "focused_pulse") return Math.pow(Math.abs(Math.sin(tick * 2.15)), 1.6) * 0.95
+        if (mode === "thinking_swirl") return 0.34 + 0.30 * Math.sin(tick * 1.45)
+        if (mode === "voice_ripple") return Math.max(0.08, Math.min(1.0, level * 1.35))
+        if (mode === "energetic_sparkle") return 0.28 + 0.72 * Math.abs(Math.sin(tick * 4.1))
+        return 0.0
+    }
+
+    function stateOrbitSpeed(mode) {
+        if (mode === "slow_orbit") return 0.38
+        if (mode === "thinking_swirl") return 2.25
+        if (mode === "voice_ripple") return 1.35
+        if (mode === "energetic_sparkle") return 2.9
+        if (mode === "focused_pulse") return 1.15
+        return 1.0
     }
 
     function levelBoost() {
@@ -104,13 +135,27 @@ Item {
         return 0.055 + Math.sin(tick * 0.62) * 0.018
     }
 
+    function frameIntervalMs() {
+        var fps = Math.max(30, Math.min(120, Number(root.frameRate) || 60))
+        if (root.reducedEffects) {
+            fps = Math.min(fps, 30)
+        }
+        return Math.max(8, Math.floor(1000 / fps))
+    }
+
     Timer {
         id: animationTimer
-        interval: reducedEffects ? 50 : 33
+        interval: root.frameIntervalMs()
         repeat: true
         running: true
         onTriggered: {
-            tick += interval / 1000.0
+            var now = Date.now()
+            if (lastTickMs <= 0) {
+                lastTickMs = now
+            }
+            var elapsed = Math.max(0.0, Math.min(0.12, (now - lastTickMs) / 1000.0))
+            lastTickMs = now
+            tick += elapsed
             orbCanvas.requestPaint()
         }
     }
@@ -129,19 +174,22 @@ Item {
             var cx = w / 2
             var cy = h / 2
             var level = Math.max(0.0, Math.min(1.0, root.levelBoost()))
+            var stateAnimation = root.activeStateAnimation()
+            var statePulse = root.animationPulse(stateAnimation, level)
             var size = Math.max(20, root.orbSize)
-            var radius = size * (0.38 + level * 0.08)
-            var outer = radius * (1.55 + root.glowStrength * 0.45 + level * 0.35)
-            var primary = root.blendColor(root.stylePrimary(), root.primaryColor, root.moodColorIntensity)
-            var secondary = root.blendColor(root.styleSecondary(), root.secondaryColor, root.moodColorIntensity)
-            var accent = root.blendColor(root.styleAccent(), root.accentColor, root.moodColorIntensity)
-            var glow = root.blendColor(primary, root.glowColor, Math.max(0.25, root.moodColorIntensity))
+            var radius = size * (0.38 + level * 0.08 + statePulse * 0.026)
+            var outer = radius * (1.55 + root.glowStrength * 0.45 + level * 0.35 + statePulse * 0.26)
+            var stateColor = root.stateTintColor()
+            var primary = root.stateColorsEnabled ? stateColor : (root.customColorsEnabled ? root.primaryColor : root.blendColor(root.stylePrimary(), root.primaryColor, root.moodColorIntensity))
+            var secondary = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.30) : (root.customColorsEnabled ? root.secondaryColor : root.blendColor(root.styleSecondary(), root.secondaryColor, root.moodColorIntensity))
+            var accent = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#020617"), 0.26) : (root.customColorsEnabled ? root.accentColor : root.blendColor(root.styleAccent(), root.accentColor, root.moodColorIntensity))
+            var glow = root.stateColorsEnabled ? root.blendColor(stateColor, root.hexColor("#ffffff"), 0.42) : (root.customColorsEnabled ? root.glowColor : root.blendColor(primary, root.glowColor, Math.max(0.25, root.moodColorIntensity)))
 
             ctx.globalAlpha = root.orbOpacity
             if (root.shadersEnabled) {
                 var glowGradient = ctx.createRadialGradient(cx, cy, radius * 0.15, cx, cy, outer)
-                glowGradient.addColorStop(0.0, root.rgba(glow, 0.32 + level * 0.22))
-                glowGradient.addColorStop(0.42, root.rgba(primary, 0.16 + level * 0.12))
+                glowGradient.addColorStop(0.0, root.rgba(glow, 0.32 + level * 0.22 + statePulse * 0.10))
+                glowGradient.addColorStop(0.42, root.rgba(primary, 0.16 + level * 0.12 + statePulse * 0.06))
                 glowGradient.addColorStop(1.0, "rgba(0,0,0,0)")
                 ctx.fillStyle = glowGradient
                 ctx.beginPath()
@@ -153,17 +201,7 @@ Item {
                 drawParticles(ctx, cx, cy, radius, primary, secondary, accent, level)
             }
 
-            if (root.visualStyle === "neural_spark") {
-                drawNeuralSpark(ctx, cx, cy, radius, primary, secondary, accent, level)
-            } else if (root.visualStyle === "smoke_wisp") {
-                drawSmokeWisp(ctx, cx, cy, radius, primary, secondary, accent, level)
-            } else if (root.visualStyle === "hologram_drone") {
-                drawHologram(ctx, cx, cy, radius, primary, secondary, accent, level)
-            } else if (root.visualStyle === "mood_orb") {
-                drawMoodOrb(ctx, cx, cy, radius, primary, secondary, accent, level)
-            } else {
-                drawPlasma(ctx, cx, cy, radius, primary, secondary, accent, level)
-            }
+            drawNeuralSpark(ctx, cx, cy, radius, primary, secondary, accent, level)
 
             if (root.fallingParticlesEnabled && !root.reducedEffects) {
                 drawFallingParticles(ctx, cx, cy, radius, primary, secondary, accent, level)
@@ -183,16 +221,19 @@ Item {
 
         function drawParticles(ctx, cx, cy, radius, primary, secondary, accent, level) {
             var count = Math.max(0, Math.min(120, root.particleDensity))
+            var mode = root.activeStateAnimation()
+            var speed = root.stateOrbitSpeed(mode)
+            var sparkleBoost = mode === "energetic_sparkle" ? Math.abs(Math.sin(root.tick * 5.2)) : 0.0
             for (var i = 0; i < count; i++) {
                 var lane = i % 5
-                var angle = (i / Math.max(1, count)) * Math.PI * 2 + root.tick * (0.08 + lane * 0.018)
-                var drift = Math.sin(root.tick * 0.7 + i * 2.1) * radius * (0.06 + root.trailLength * 0.18)
+                var angle = (i / Math.max(1, count)) * Math.PI * 2 + root.tick * (0.08 + lane * 0.018) * speed
+                var drift = Math.sin(root.tick * (0.7 + speed * 0.08) + i * 2.1) * radius * (0.06 + root.trailLength * 0.18 + sparkleBoost * 0.05)
                 var dist = radius * (0.92 + lane * (0.10 + root.trailLength * 0.10)) + drift
                 var x = cx + Math.cos(angle) * dist
                 var y = cy + Math.sin(angle) * dist * 0.82
-                ctx.fillStyle = root.rgba(i % 3 === 0 ? accent : (i % 2 ? secondary : primary), 0.16 + root.trailLength * 0.18 + level * 0.32)
+                ctx.fillStyle = root.rgba(i % 3 === 0 ? accent : (i % 2 ? secondary : primary), 0.16 + root.trailLength * 0.18 + level * 0.32 + sparkleBoost * 0.16)
                 ctx.beginPath()
-                ctx.arc(x, y, 1.0 + root.trailLength * 0.9 + level * 2.0 + lane * 0.18, 0, Math.PI * 2)
+                ctx.arc(x, y, 1.0 + root.trailLength * 0.9 + level * 2.0 + lane * 0.18 + sparkleBoost * 1.8, 0, Math.PI * 2)
                 ctx.fill()
             }
         }
@@ -282,48 +323,6 @@ Item {
             }
         }
 
-        function drawSmokeWisp(ctx, cx, cy, radius, primary, secondary, accent, level) {
-            var wisps = root.reducedEffects ? 3 : 7
-            for (var i = 0; i < wisps; i++) {
-                var phase = root.tick * (0.35 + i * 0.03) + i
-                ctx.strokeStyle = root.rgba(i % 2 ? secondary : accent, 0.12 + root.smokeIntensity * 0.24 + level * 0.12)
-                ctx.lineWidth = 6 + i * 1.4 + level * 5
-                ctx.beginPath()
-                ctx.arc(cx + Math.sin(phase) * radius * 0.2, cy + Math.cos(phase * 0.9) * radius * 0.14, radius * (0.78 + i * 0.09), phase, phase + Math.PI * 1.2)
-                ctx.stroke()
-            }
-            drawPlasma(ctx, cx, cy, radius * 0.86, primary, secondary, accent, level)
-        }
-
-        function drawHologram(ctx, cx, cy, radius, primary, secondary, accent, level) {
-            ctx.strokeStyle = root.rgba(primary, 0.35 + level * 0.26)
-            ctx.lineWidth = 2
-            ctx.beginPath()
-            ctx.ellipse(cx, cy, radius * 1.18, radius * 0.58, 0, 0, Math.PI * 2)
-            ctx.stroke()
-            ctx.beginPath()
-            ctx.ellipse(cx, cy, radius * 0.58, radius * 1.18, 0, 0, Math.PI * 2)
-            ctx.stroke()
-            ctx.strokeStyle = root.rgba(accent, 0.42 + level * 0.34)
-            ctx.beginPath()
-            ctx.moveTo(cx - radius * 0.85, cy)
-            ctx.lineTo(cx + radius * 0.85, cy)
-            ctx.moveTo(cx, cy - radius * 0.85)
-            ctx.lineTo(cx, cy + radius * 0.85)
-            ctx.stroke()
-            drawPlasma(ctx, cx, cy, radius * 0.58, primary, secondary, accent, level)
-        }
-
-        function drawMoodOrb(ctx, cx, cy, radius, primary, secondary, accent, level) {
-            for (var i = 4; i >= 1; i--) {
-                ctx.strokeStyle = root.rgba(i % 2 ? primary : accent, 0.12 + level * 0.16)
-                ctx.lineWidth = 1.4
-                ctx.beginPath()
-                ctx.arc(cx, cy, radius * (0.65 + i * 0.22 + Math.sin(root.tick * 0.5 + i) * 0.02), 0, Math.PI * 2)
-                ctx.stroke()
-            }
-            drawPlasma(ctx, cx, cy, radius * 0.82, primary, secondary, accent, level)
-        }
     }
 
     Text {

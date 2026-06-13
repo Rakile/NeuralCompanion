@@ -17,6 +17,7 @@ except Exception:  # pragma: no cover
     QQuickWidget = None
 
 from .companion_orb_bridge import CompanionOrbBridge
+from .external_runtime_client import ExternalOrbRuntimeClient
 from . import snapshot_ocr
 from .sensory_source import COMPANION_ORB_TARGET_METADATA, COMPANION_ORB_TARGET_PINGPONG_PROMPT, PROVIDER_ID
 from .window_target_resolver import resolve_target_at, target_bounds, target_is_available
@@ -24,6 +25,7 @@ from .window_target_resolver import resolve_target_at, target_bounds, target_is_
 
 VALID_DISPLAY_MODES = {"off", "docked", "interaction", "always"}
 ORB_COMMAND_MENU_ACTIONS = ("Change Voice", "Response Style", "Chat text input")
+VOICE_FILE_SUFFIXES = (".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aac", ".wma")
 ORB_RESPONSE_STYLES = (
     ("Very friendly", "friendly"),
     ("Very loving", "loving"),
@@ -38,6 +40,7 @@ DROP_INSPECTION_COOLDOWN_SECONDS = 1.5
 HARASSMENT_SPEECH_COOLDOWN_SECONDS = 18.0
 COMMENT_FOCUS_DEFAULT_SECONDS = 14.0
 DROP_FOCUS_SECONDS = 32.0
+DROP_ANCHOR_HOVER_SECONDS = 18.0
 DROP_ACK_COOLDOWN_SECONDS = 4.0
 MANUAL_INSPECTION_SECONDS = 45.0
 OCR_MAX_BACKGROUND_JOBS = 2
@@ -129,6 +132,7 @@ class CompanionOrbController(QtCore.QObject):
         self._drift_current_point: QtCore.QPointF | None = None
         self._drift_target_point: QtCore.QPointF | None = None
         self._drift_target_kind = ""
+        self._last_drift_tick_at = 0.0
         self._last_user_interaction_at = time.monotonic()
         self._harassment_active = False
         self._menu_open = False
@@ -146,6 +150,12 @@ class CompanionOrbController(QtCore.QObject):
         self._manual_inspection_until = 0.0
         self._manual_inspection_bounds: list[int] = []
         self._manual_inspection_reason = ""
+        self._manual_inspection_id = 0
+        self._manual_drop_anchor_point: QtCore.QPoint | None = None
+        self._manual_drop_anchor_until = 0.0
+        self._active_snapshot_inspection_id = 0
+        self._active_drop_trace_id = ""
+        self._drop_trace_starts: dict[str, float] = {}
         self._last_harassment_message_at = 0.0
         self._last_drop_ack_at = 0.0
         self._comment_focus_bounds: list[int] = []
@@ -169,6 +179,7 @@ class CompanionOrbController(QtCore.QObject):
         self._pending_comment_focus_label = ""
         self._target_info: dict[str, Any] = {}
         self._last_target_warning = ""
+        self._external_runtime: ExternalOrbRuntimeClient | None = None
         self._proxy = _OrbCommandProxy(self)
         self._proxy.state_requested.connect(self._set_ai_state, QtCore.Qt.QueuedConnection)
         self._proxy.level_requested.connect(self._set_audio_level, QtCore.Qt.QueuedConnection)
@@ -190,15 +201,15 @@ class CompanionOrbController(QtCore.QObject):
         self._return_home_timer.timeout.connect(self._return_home)
 
         self._drift_timer = QtCore.QTimer(self)
-        self._drift_timer.setInterval(33)
+        self._drift_timer.setInterval(16)
         self._drift_timer.timeout.connect(self._on_drift_tick)
 
         self._motion_timer = QtCore.QTimer(self)
-        self._motion_timer.setInterval(33)
+        self._motion_timer.setInterval(16)
         self._motion_timer.timeout.connect(self._on_motion_tick)
 
         self._menu_poll_timer = QtCore.QTimer(self)
-        self._menu_poll_timer.setInterval(33)
+        self._menu_poll_timer.setInterval(16)
         self._menu_poll_timer.timeout.connect(self._poll_right_double_click)
 
         self._save_timer = QtCore.QTimer(self)
@@ -329,6 +340,18 @@ class CompanionOrbController(QtCore.QObject):
         except Exception:
             pass
 
+    def _new_drop_trace_id(self, inspection_id: int) -> str:
+        return f"drop-{int(inspection_id)}-{int(time.time() * 1000)}"
+
+    def _drop_trace_event(self, event: str, trace_id: str = "", *, console: bool = False, **fields):
+        trace = str(trace_id or self._active_drop_trace_id or "").strip()
+        if trace:
+            start = float(self._drop_trace_starts.get(trace, 0.0) or 0.0)
+            if start > 0.0:
+                fields.setdefault("elapsed_ms", round((time.monotonic() - start) * 1000.0, 1))
+            fields.setdefault("drop_trace_id", trace)
+        self._debug_event(event, console=console, **fields)
+
     def _window_flags(self):
         flags = QtCore.Qt.Tool | QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowDoesNotAcceptFocus | _no_shadow_window_hint()
         if bool(self._last_runtime_config.get("companion_orb_always_on_top", True)):
@@ -421,9 +444,54 @@ class CompanionOrbController(QtCore.QObject):
     def request_snapshot_context(self, payload):
         self._proxy.snapshot_context_requested.emit(dict(payload or {}))
 
+    def _external_runtime_enabled(self) -> bool:
+        return bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", False))
+
+    def _ensure_external_runtime(self) -> bool:
+        if self._external_runtime is None:
+            root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
+            self._external_runtime = ExternalOrbRuntimeClient(root, logger=self._log)
+        return self._external_runtime.start()
+
+    def _stop_external_runtime(self) -> None:
+        runtime = self._external_runtime
+        self._external_runtime = None
+        if runtime is not None:
+            runtime.stop()
+
+    def _send_external_runtime(self, payload: dict[str, Any]) -> bool:
+        if not self._external_runtime_enabled():
+            return False
+        if not self._ensure_external_runtime():
+            return False
+        runtime = self._external_runtime
+        return bool(runtime is not None and runtime.send(dict(payload or {})))
+
+    def _send_external_runtime_snapshot(self) -> None:
+        if not self._external_runtime_enabled():
+            return
+        self._send_external_runtime({"type": "settings", "settings": dict(self._last_runtime_config or {})})
+        self._send_external_runtime({"type": "state", "state": str(self.bridge.aiState or "idle")})
+        self._send_external_runtime({"type": "audio_level", "level": float(self.bridge.audioLevel or 0.0)})
+        self._send_external_runtime({"type": "mood", "mood": str(self.bridge.moodName or "neutral")})
+        self._send_external_runtime(
+            {
+                "type": "modes",
+                "edit_mode": bool(self.bridge.editMode),
+                "placement_mode": bool(self.bridge.placementMode),
+                "click_through": bool(self.bridge.clickThrough),
+            }
+        )
+        self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
+
     @QtCore.Slot(str)
     def _set_ai_state(self, state):
         self.bridge.setAiState(state)
+        self._send_external_runtime({"type": "state", "state": str(state or "idle")})
+        if self._external_runtime_enabled():
+            if str(state or "").strip().lower() == "idle":
+                self._schedule_return_home()
+            return
         self._refresh_visibility()
         if str(state or "").strip().lower() == "idle":
             self._schedule_return_home()
@@ -431,12 +499,16 @@ class CompanionOrbController(QtCore.QObject):
     @QtCore.Slot(float)
     def _set_audio_level(self, level):
         self.bridge.setAudioLevel(level)
+        self._send_external_runtime({"type": "audio_level", "level": float(level or 0.0)})
+        if self._external_runtime_enabled():
+            return
         if float(level or 0.0) > 0.025:
             self._refresh_visibility()
 
     @QtCore.Slot(str)
     def _set_presence_mood(self, mood):
         self.bridge.setPresenceMood(mood)
+        self._send_external_runtime({"type": "mood", "mood": str(mood or "neutral")})
 
     @QtCore.Slot(dict)
     def apply_runtime_config(self, runtime_config):
@@ -444,6 +516,11 @@ class CompanionOrbController(QtCore.QObject):
         previous_debug_enabled = bool(self._last_runtime_config.get("companion_orb_debug_enabled", False))
         self._last_runtime_config = dict(runtime_config or {})
         self.bridge.apply_settings(self._last_runtime_config)
+        self._apply_timer_intervals()
+        if self._external_runtime_enabled():
+            self._send_external_runtime_snapshot()
+        else:
+            self._stop_external_runtime()
         if bool(self._last_runtime_config.get("companion_orb_debug_enabled", False)) and not previous_debug_enabled:
             self._debug_event("debug_enabled", console=True, log_path=str(self._debug_log_path()))
         target = self._last_runtime_config.get("companion_orb_target_info", {})
@@ -454,6 +531,7 @@ class CompanionOrbController(QtCore.QObject):
             or bool(self._last_runtime_config.get("companion_orb_include_process_name", True)) != previous_include_process_name
         ):
             self.bridge.set_target_info(self._target_for_output(self._target_info))
+            self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
         self._apply_window_settings()
         self._refresh_visibility()
         self._sync_drift_timer()
@@ -461,6 +539,11 @@ class CompanionOrbController(QtCore.QObject):
     def _apply_window_settings(self):
         window = self._window
         if window is None:
+            return
+        if self._external_runtime_enabled():
+            if window.isVisible():
+                window.hide()
+            self._apply_click_through(True)
             return
         size = self._window_size()
         if window.width() != size or window.height() != size:
@@ -488,18 +571,29 @@ class CompanionOrbController(QtCore.QObject):
         screen = QtWidgets.QApplication.screenAt(QtGui.QCursor.pos()) or QtWidgets.QApplication.primaryScreen()
         geometry = screen.availableGeometry() if screen is not None else QtCore.QRect(0, 0, 1280, 720)
         margin = 28
-        position = str(self._last_runtime_config.get("companion_orb_position", "bottom-right") or "bottom-right").strip().lower()
+        position = str(self._last_runtime_config.get("companion_orb_position", "top-center") or "top-center").strip().lower()
+        if position in {"top-center", "bottom-right"}:
+            return QtCore.QPoint(geometry.center().x() - int(window_size / 2), geometry.top() + margin)
         if position == "bottom-left":
             return QtCore.QPoint(geometry.left() + margin, geometry.bottom() - window_size - margin)
         if position == "top-left":
             return QtCore.QPoint(geometry.left() + margin, geometry.top() + margin)
         if position == "top-right":
             return QtCore.QPoint(geometry.right() - window_size - margin, geometry.top() + margin)
-        return QtCore.QPoint(geometry.right() - window_size - margin, geometry.bottom() - window_size - margin)
+        return QtCore.QPoint(geometry.center().x() - int(window_size / 2), geometry.top() + margin)
 
     def _refresh_visibility(self):
         window = self._window
         if window is None:
+            return
+        if self._external_runtime_enabled():
+            if window.isVisible():
+                window.hide()
+            self._drift_timer.stop()
+            self._motion_timer.stop()
+            self._menu_poll_timer.stop()
+            self._last_drift_tick_at = 0.0
+            self._send_external_runtime_snapshot()
             return
         if self._snapshot_cloak_count > 0:
             if window.isVisible():
@@ -570,9 +664,87 @@ class CompanionOrbController(QtCore.QObject):
         except Exception:
             return 0.65
 
+    def _orb_frame_rate(self) -> int:
+        try:
+            fps = int(self._last_runtime_config.get("companion_orb_frame_rate", 60) or 60)
+        except Exception:
+            fps = 60
+        return min((30, 60, 90, 120), key=lambda candidate: abs(candidate - fps))
+
+    def _timer_interval_ms(self) -> int:
+        return max(8, min(33, int(1000 / max(30, self._orb_frame_rate()))))
+
+    def _apply_timer_intervals(self):
+        interval = self._timer_interval_ms()
+        for timer in (self._drift_timer, self._motion_timer, self._menu_poll_timer):
+            if timer.interval() != interval:
+                timer.setInterval(interval)
+        self._debug_event("timer_interval_applied", frame_rate=self._orb_frame_rate(), interval_ms=interval)
+
+    def _time_scaled_blend(self, blend: float, frame_scale: float) -> float:
+        base = max(0.0, min(0.98, float(blend)))
+        scale = max(0.10, min(6.0, float(frame_scale)))
+        return max(0.0, min(0.98, 1.0 - pow(1.0 - base, scale)))
+
     def _reset_drift_target(self):
         self._drift_target_point = None
         self._drift_target_kind = ""
+
+    def _set_manual_drop_anchor(self, point: QtCore.QPoint | QtCore.QPointF, *, duration_seconds: float = DROP_ANCHOR_HOVER_SECONDS):
+        anchor = self._clamp_top_left_to_screen(QtCore.QPointF(point))
+        self._manual_drop_anchor_point = QtCore.QPoint(int(round(anchor.x())), int(round(anchor.y())))
+        self._manual_drop_anchor_until = time.monotonic() + max(2.0, min(60.0, float(duration_seconds)))
+        self._debug_event(
+            "drop_anchor_set",
+            console=True,
+            anchor=self._manual_drop_anchor_point,
+            duration_seconds=round(float(duration_seconds), 2),
+        )
+        self._send_external_runtime(
+            {
+                "type": "drop_anchor",
+                "point": [int(self._manual_drop_anchor_point.x()), int(self._manual_drop_anchor_point.y())],
+                "duration_seconds": duration_seconds,
+            }
+        )
+
+    def _manual_drop_anchor_ready(self) -> bool:
+        if self._manual_drop_anchor_point is None:
+            return False
+        if time.monotonic() <= float(self._manual_drop_anchor_until or 0.0):
+            return True
+        self._manual_drop_anchor_point = None
+        self._manual_drop_anchor_until = 0.0
+        return False
+
+    def _clear_manual_drop_anchor(self):
+        self._manual_drop_anchor_point = None
+        self._manual_drop_anchor_until = 0.0
+
+    def _manual_drop_anchor_target(self) -> QtCore.QPointF:
+        anchor = self._manual_drop_anchor_point
+        if anchor is None:
+            return self._clamp_top_left_to_screen(QtCore.QPointF(self._home_position()))
+        amount = min(18.0, max(4.0, float(self._movement_range()) * 0.35))
+        t = time.monotonic() * max(0.2, self._movement_speed())
+        x = float(anchor.x()) + math.sin(t * 0.47) * amount + math.sin(t * 0.19 + 1.3) * amount * 0.35
+        y = float(anchor.y()) + math.cos(t * 0.41 + 0.6) * amount * 0.55 + math.sin(t * 0.21 + 2.0) * amount * 0.25
+        return self._clamp_top_left_to_screen(QtCore.QPointF(x, y))
+
+    def _comment_focus_matches_manual_drop_region(self) -> bool:
+        if not self._manual_drop_anchor_ready() or not self._manual_inspection_active():
+            return False
+        focus = self._normalize_bounds(self._comment_focus_bounds)
+        manual = self._normalize_bounds(self._manual_inspection_bounds)
+        if not focus or not manual:
+            return False
+        focus_area = max(1.0, float(focus[2]) * float(focus[3]))
+        manual_area = max(1.0, float(manual[2]) * float(manual[3]))
+        overlap = self._bounds_overlap_area(focus, manual)
+        # The broad initial drop-focus uses the full manual crop. Keep that anchored
+        # so the orb hovers where the user released it; tighter OCR/object bounds
+        # are still allowed to pull the orb toward the detail being discussed.
+        return bool(overlap / manual_area >= 0.72 and focus_area >= manual_area * 0.55)
 
     def _stable_drift_target(
         self,
@@ -581,6 +753,7 @@ class CompanionOrbController(QtCore.QObject):
         *,
         deadzone: float,
         blend: float,
+        frame_scale: float = 1.0,
     ) -> QtCore.QPointF:
         desired_point = self._clamp_top_left_to_screen(QtCore.QPointF(desired))
         current = self._drift_target_point
@@ -592,7 +765,7 @@ class CompanionOrbController(QtCore.QObject):
         distance = math.hypot(desired_point.x() - current.x(), desired_point.y() - current.y())
         if distance <= max(0.0, float(deadzone)):
             return QtCore.QPointF(current)
-        factor = max(0.04, min(0.85, float(blend)))
+        factor = max(0.04, min(0.85, self._time_scaled_blend(float(blend), frame_scale)))
         if distance > 420.0 and normalized_kind in {"comment", "harassment"}:
             factor = max(factor, 0.34)
         next_point = QtCore.QPointF(
@@ -605,6 +778,7 @@ class CompanionOrbController(QtCore.QObject):
     def _sync_drift_timer(self):
         if self._window is None:
             self._drift_timer.stop()
+            self._last_drift_tick_at = 0.0
             return
         harassment_enabled = bool(self._last_runtime_config.get("companion_orb_harassment_enabled", False))
         comment_focus_enabled = self._comment_focus_ready()
@@ -645,9 +819,11 @@ class CompanionOrbController(QtCore.QObject):
                 top_left = self._window.frameGeometry().topLeft()
                 self._drift_current_point = QtCore.QPointF(float(top_left.x()), float(top_left.y()))
             if not self._drift_timer.isActive():
+                self._last_drift_tick_at = time.monotonic()
                 self._drift_timer.start()
         else:
             self._drift_timer.stop()
+            self._last_drift_tick_at = 0.0
             self._reset_drift_target()
             self._harassment_active = False
             if not comment_focus_enabled:
@@ -792,6 +968,21 @@ class CompanionOrbController(QtCore.QObject):
             snapshot_bounds=list(self._last_snapshot_bounds or []),
             ocr_region_count=len(self._last_snapshot_ocr_regions or []),
         )
+        self._send_external_runtime(
+            {
+                "type": "comment_focus",
+                "payload": {
+                    "bounds": list(normalized),
+                    "focus_bounds": list(normalized),
+                    "label": label[:120],
+                    "focus_text": focus_text,
+                    "duration_seconds": duration,
+                    "manual_drop": bool(data.get("manual_drop", False)),
+                    "drop_anchor": list(data.get("drop_anchor") or []),
+                    "drop_trace_id": str(data.get("drop_trace_id") or self._active_drop_trace_id or ""),
+                },
+            }
+        )
         self._sync_drift_timer()
 
     def _clip_bounds_to_virtual_desktop(self, bounds, *, virtual_rect=None, image_size=None) -> list[int]:
@@ -834,10 +1025,31 @@ class CompanionOrbController(QtCore.QObject):
         best_image_path = ""
         ocr_image_path = ""
         ocr_bounds: list[int] = []
+        found_context = False
+        active_inspection_id = int(self._active_snapshot_inspection_id or 0)
         for snapshot in reversed(snapshots):
             if not isinstance(snapshot, dict):
                 continue
             metadata = dict(snapshot.get("metadata") or {})
+            try:
+                snapshot_inspection_id = int(metadata.get("manual_inspection_id") or snapshot.get("manual_inspection_id") or 0)
+            except Exception:
+                snapshot_inspection_id = 0
+            if active_inspection_id and not snapshot_inspection_id and self._manual_inspection_active():
+                self._debug_event(
+                    "snapshot_context_untracked_ignored",
+                    active_inspection_id=active_inspection_id,
+                    image_path=str(snapshot.get("image_path") or metadata.get("image_path") or ""),
+                )
+                continue
+            if snapshot_inspection_id and active_inspection_id and snapshot_inspection_id < active_inspection_id:
+                self._debug_event(
+                    "snapshot_context_stale_ignored",
+                    snapshot_inspection_id=snapshot_inspection_id,
+                    active_inspection_id=active_inspection_id,
+                    image_path=str(snapshot.get("image_path") or metadata.get("image_path") or ""),
+                )
+                continue
             regions = list(metadata.get("ocr_regions") or snapshot.get("ocr_regions") or [])
             image_path = str(snapshot.get("image_path") or metadata.get("image_path") or "").strip()
             bounds = self._normalize_bounds(
@@ -856,7 +1068,11 @@ class CompanionOrbController(QtCore.QObject):
                     ocr_image_path = image_path
                     ocr_bounds = list(bounds)
                 best_image_path = str(image_path or "")
+                found_context = True
                 break
+        if not found_context:
+            self._debug_event("snapshot_context_empty", active_inspection_id=active_inspection_id)
+            return
         self._last_snapshot_ocr_regions = best_regions
         self._last_snapshot_bounds = best_bounds
         self._last_snapshot_text = best_text.strip()
@@ -868,6 +1084,7 @@ class CompanionOrbController(QtCore.QObject):
             bounds=best_bounds,
             ocr_region_count=len(best_regions),
             ocr_text=best_text.strip(),
+            active_inspection_id=active_inspection_id,
         )
         if ocr_image_path and ocr_bounds:
             self._start_snapshot_ocr_worker(ocr_image_path, ocr_bounds)
@@ -1085,6 +1302,18 @@ class CompanionOrbController(QtCore.QObject):
         if had_focus:
             self._debug_event("focus_cleared", bounds=previous_bounds, label=previous_label)
 
+    def _clear_snapshot_context(self, *, reason: str = "manual_inspection"):
+        had_context = bool(self._last_snapshot_bounds or self._last_snapshot_ocr_regions or self._last_snapshot_image_path)
+        previous_image = str(self._last_snapshot_image_path or "")
+        self._last_snapshot_ocr_regions = []
+        self._last_snapshot_bounds = []
+        self._last_snapshot_text = ""
+        self._last_snapshot_image_path = ""
+        self._pending_comment_focus_text = ""
+        self._pending_comment_focus_label = ""
+        if had_context:
+            self._debug_event("snapshot_context_cleared", reason=reason, previous_image_path=previous_image)
+
     def _comment_focus_ready(self) -> bool:
         if not self._comment_focus_bounds:
             return False
@@ -1294,6 +1523,8 @@ class CompanionOrbController(QtCore.QObject):
         window = self._window
         if window is None or not self._comment_focus_bounds:
             return self._clamp_top_left_to_screen(QtCore.QPointF(0.0, 0.0))
+        if self._comment_focus_matches_manual_drop_region():
+            return self._manual_drop_anchor_target()
         grid = dict(self._comment_focus_grid or {})
         if not grid:
             grid = self._focus_grid_for_bounds(self._comment_focus_bounds)
@@ -1411,6 +1642,8 @@ class CompanionOrbController(QtCore.QObject):
         next_point: QtCore.QPointF,
         smoothing: float,
         moved: bool,
+        elapsed: float = 0.0,
+        frame_scale: float = 1.0,
     ):
         if not self._debug_enabled():
             return
@@ -1436,6 +1669,8 @@ class CompanionOrbController(QtCore.QObject):
             next=next_point,
             moved=bool(moved),
             smoothing=round(float(smoothing), 4),
+            elapsed=round(float(elapsed), 4),
+            frame_scale=round(float(frame_scale), 3),
             distance_to_target=round(float(distance_to_target), 2),
             focus_bounds=list(self._comment_focus_bounds or []),
             focus_grid=dict(self._comment_focus_grid or {}) if str(kind) == "comment" else {},
@@ -1493,13 +1728,21 @@ class CompanionOrbController(QtCore.QObject):
         window = self._window
         if window is None or self.bridge.editMode or self.bridge.placementMode or self._motion_timer.isActive():
             self._drift_timer.stop()
+            self._last_drift_tick_at = 0.0
             return
         if self._drag_offset is not None or self._poll_drag_active:
             self._drift_timer.stop()
+            self._last_drift_tick_at = 0.0
             return
         if not window.isVisible():
             self._drift_timer.stop()
+            self._last_drift_tick_at = 0.0
             return
+        now = time.monotonic()
+        previous_tick = self._last_drift_tick_at or now
+        elapsed = max(0.0, min(0.12, now - previous_tick))
+        self._last_drift_tick_at = now
+        frame_scale = max(0.25, min(5.0, elapsed / (1.0 / 60.0))) if elapsed > 0.0 else 1.0
         base = self._base_position or self._home_position()
         self._base_position = QtCore.QPoint(base)
         movement_enabled = bool(self._last_runtime_config.get("companion_orb_movement_enabled", True))
@@ -1557,6 +1800,7 @@ class CompanionOrbController(QtCore.QObject):
             QtCore.QPointF(target_x, target_y),
             deadzone=target_deadzone,
             blend=target_blend,
+            frame_scale=frame_scale,
         )
         desired_target = QtCore.QPointF(float(target_x), float(target_y))
         target_x = stable_target.x()
@@ -1565,6 +1809,7 @@ class CompanionOrbController(QtCore.QObject):
         if current is None:
             current = QtCore.QPointF(float(window.x()), float(window.y()))
         smoothing = 0.14 if comment_focus_ready else (0.11 if harassment_ready else max(0.055, min(0.18, 0.055 + speed * 0.055)))
+        smoothing = self._time_scaled_blend(smoothing, frame_scale)
         next_x = current.x() + (target_x - current.x()) * smoothing
         next_y = current.y() + (target_y - current.y()) * smoothing
         self._drift_current_point = QtCore.QPointF(next_x, next_y)
@@ -1579,6 +1824,8 @@ class CompanionOrbController(QtCore.QObject):
                 current=current,
                 next_point=QtCore.QPointF(next_x, next_y),
                 smoothing=smoothing,
+                elapsed=round(float(elapsed), 4),
+                frame_scale=round(float(frame_scale), 3),
                 moved=should_move,
             )
         if harassment_ready:
@@ -1655,6 +1902,14 @@ class CompanionOrbController(QtCore.QObject):
             self._drift_timer.stop()
             self._motion_timer.stop()
         self.bridge.set_modes(edit_mode=enabled, placement_mode=False if enabled else self.bridge.placementMode)
+        self._send_external_runtime(
+            {
+                "type": "modes",
+                "edit_mode": enabled,
+                "placement_mode": False if enabled else bool(self.bridge.placementMode),
+                "click_through": bool(self.bridge.clickThrough),
+            }
+        )
         self._apply_window_settings()
         self._refresh_visibility()
         self._log(f"Edit mode {'enabled' if enabled else 'disabled'}.")
@@ -1666,6 +1921,14 @@ class CompanionOrbController(QtCore.QObject):
             self._drift_timer.stop()
             self._motion_timer.stop()
         self.bridge.set_modes(placement_mode=enabled, edit_mode=False if enabled else self.bridge.editMode)
+        self._send_external_runtime(
+            {
+                "type": "modes",
+                "placement_mode": enabled,
+                "edit_mode": False if enabled else bool(self.bridge.editMode),
+                "click_through": bool(self.bridge.clickThrough),
+            }
+        )
         self._apply_window_settings()
         self._refresh_visibility()
         self._log(f"Placement mode {'enabled' if enabled else 'disabled'}.")
@@ -1674,6 +1937,14 @@ class CompanionOrbController(QtCore.QObject):
     def set_click_through(self, enabled):
         self._last_runtime_config["companion_orb_click_through_default"] = bool(enabled)
         self.bridge.set_modes(click_through=bool(enabled))
+        self._send_external_runtime(
+            {
+                "type": "modes",
+                "edit_mode": bool(self.bridge.editMode),
+                "placement_mode": bool(self.bridge.placementMode),
+                "click_through": bool(enabled),
+            }
+        )
         self._apply_click_through(bool(enabled))
         self._save_runtime_setting("companion_orb_click_through_default", bool(enabled))
 
@@ -1712,6 +1983,8 @@ class CompanionOrbController(QtCore.QObject):
     def clear_target(self):
         self._target_info = {}
         self.bridge.set_target_info({})
+        self._send_external_runtime({"type": "clear_target"})
+        self._clear_manual_drop_anchor()
         self._save_runtime_setting("companion_orb_target_info", {})
         self._publish_target_event({}, cleared=True)
         self._log("Companion Orb target cleared.")
@@ -1722,6 +1995,8 @@ class CompanionOrbController(QtCore.QObject):
         self._last_runtime_config["companion_orb_custom_position"] = []
         self._save_runtime_setting("companion_orb_custom_position", [])
         self._base_position = self._dock_position()
+        self._clear_manual_drop_anchor()
+        self._send_external_runtime({"type": "reset_position"})
         self._return_home(animate=True)
 
     def target_info(self) -> dict[str, Any]:
@@ -1931,6 +2206,7 @@ class CompanionOrbController(QtCore.QObject):
             if label == "Change Voice":
                 submenu = menu.addMenu(label)
                 submenu.setObjectName("companion_orb_voice_menu")
+                submenu.aboutToShow.connect(lambda submenu=submenu: self._populate_voice_menu(submenu))
                 self._populate_voice_menu(submenu)
                 continue
             if label == "Response Style":
@@ -2167,25 +2443,34 @@ class CompanionOrbController(QtCore.QObject):
                 pass
 
     def _populate_voice_menu(self, menu: QtWidgets.QMenu):
+        menu.clear()
         voices = self._available_voice_files()
         if not voices:
-            action = menu.addAction("No .wav voices found")
+            action = menu.addAction("No voice files found")
             action.setEnabled(False)
             return
-        current_name = Path(str(self._last_runtime_config.get("voice_path", "") or "")).name
+        current_path = self._normalized_voice_config_path(self._last_runtime_config.get("voice_path", ""))
         for voice_file in voices:
-            action = menu.addAction(voice_file.stem)
+            relative = self._voice_config_path(voice_file)
+            label = self._voice_menu_label(voice_file)
+            action = menu.addAction(label)
             action.setToolTip(str(voice_file))
             action.setCheckable(True)
-            action.setChecked(voice_file.name == current_name)
+            action.setChecked(self._normalized_voice_config_path(relative) == current_path)
             action.triggered.connect(lambda _checked=False, path=voice_file: self._select_voice_file(path))
 
     def _available_voice_files(self) -> list[Path]:
         voices_dir = self._voices_dir()
         try:
+            if not voices_dir.exists():
+                return []
             return sorted(
-                (path for path in voices_dir.glob("*.wav") if path.is_file()),
-                key=lambda path: path.name.lower(),
+                (
+                    path
+                    for path in voices_dir.rglob("*")
+                    if path.is_file() and path.suffix.lower() in VOICE_FILE_SUFFIXES
+                ),
+                key=lambda path: self._voice_menu_label(path).lower(),
             )
         except Exception:
             return []
@@ -2194,12 +2479,40 @@ class CompanionOrbController(QtCore.QObject):
         root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
         return root / "voices"
 
+    def _voice_config_path(self, voice_file: Path) -> str:
+        path = Path(voice_file)
+        try:
+            relative = path.resolve().relative_to(self._voices_dir().resolve())
+        except Exception:
+            relative = Path(path.name)
+        return str(Path("voices") / relative)
+
+    def _normalized_voice_config_path(self, value) -> str:
+        raw = str(value or "").strip()
+        if not raw:
+            return ""
+        try:
+            path = Path(raw)
+            if path.is_absolute():
+                raw = self._voice_config_path(path)
+        except Exception:
+            pass
+        return raw.replace("\\", "/").lower()
+
+    def _voice_menu_label(self, voice_file: Path) -> str:
+        path = Path(voice_file)
+        try:
+            relative = path.resolve().relative_to(self._voices_dir().resolve())
+        except Exception:
+            relative = Path(path.name)
+        return str(relative.with_suffix("")).replace("\\", " / ")
+
     def _select_voice_file(self, voice_file: Path):
         path = Path(voice_file)
         if not path.exists():
             self._log(f"Voice file is missing: {path}")
             return
-        relative = str(Path("voices") / path.name)
+        relative = self._voice_config_path(path)
         updates = {
             "voice_path": relative,
             "tts_use_cloned_voice": True,
@@ -2459,25 +2772,35 @@ class CompanionOrbController(QtCore.QObject):
     def _capture_pointer_snapshot(self, cursor: QtCore.QPoint):
         self._capture_pointer_snapshot_async(cursor, reason="pointer_reached")
 
-    def _capture_pointer_snapshot_async(self, cursor: QtCore.QPoint, *, reason: str = "pointer_reached"):
+    def _capture_pointer_snapshot_async(
+        self,
+        cursor: QtCore.QPoint,
+        *,
+        reason: str = "pointer_reached",
+        inspection_id: int | None = None,
+        trace_id: str = "",
+    ):
         cursor_point = QtCore.QPoint(cursor)
-        self._debug_event("snapshot_pointer_queued", console=True, cursor=cursor_point, reason=reason)
+        trace = str(trace_id or self._active_drop_trace_id or "").strip()
+        self._drop_trace_event("snapshot_pointer_queued", trace, console=True, cursor=cursor_point, reason=reason, inspection_id=inspection_id or 0)
 
         def worker():
             try:
                 width = int(self._last_runtime_config.get("companion_orb_target_region_width", 640) or 640)
                 height = int(self._last_runtime_config.get("companion_orb_target_region_height", 420) or 420)
                 target = resolve_target_at(cursor_point.x(), cursor_point.y(), region_width=width, region_height=height, mode="region")
-                self._debug_event(
+                self._drop_trace_event(
                     "snapshot_pointer_resolved",
+                    trace,
                     cursor=cursor_point,
                     reason=reason,
                     target=self._target_for_output(target if isinstance(target, dict) else {}),
                     bounds=target_bounds(target if isinstance(target, dict) else None),
+                    inspection_id=inspection_id or 0,
                 )
-                self._capture_inspection_snapshot(target, reason=reason)
+                self._capture_inspection_snapshot(target, reason=reason, inspection_id=inspection_id, trace_id=trace)
             except Exception as exc:
-                self._debug_event("snapshot_pointer_failed", console=True, cursor=cursor_point, reason=reason, error=str(exc))
+                self._drop_trace_event("snapshot_pointer_failed", trace, console=True, cursor=cursor_point, reason=reason, error=str(exc))
                 self._log(f"Companion Orb pointer snapshot failed: {exc}")
 
         threading.Thread(target=worker, daemon=True, name="companion-orb-pointer-snapshot").start()
@@ -2494,12 +2817,26 @@ class CompanionOrbController(QtCore.QObject):
         if not bounds:
             self._debug_event("drop_inspection_rejected", console=True, point=point, reason=reason, width=width, height=height)
             return
-        self._debug_event("drop_inspection_started", console=True, point=point, reason=reason, bounds=bounds)
+        self._manual_inspection_id += 1
+        inspection_id = int(self._manual_inspection_id)
+        self._active_snapshot_inspection_id = inspection_id
+        trace_id = self._new_drop_trace_id(inspection_id)
+        self._active_drop_trace_id = trace_id
+        self._drop_trace_starts[trace_id] = time.monotonic()
+        for stale_trace, started_at in list(self._drop_trace_starts.items()):
+            if stale_trace != trace_id and (time.monotonic() - float(started_at or 0.0)) > 300.0:
+                self._drop_trace_starts.pop(stale_trace, None)
+        self._clear_snapshot_context(reason=reason)
+        self._clear_comment_focus()
+        self._drop_trace_event("drop_inspection_started", trace_id, console=True, point=point, reason=reason, bounds=bounds)
+        if self._window is not None:
+            self._set_manual_drop_anchor(self._window.frameGeometry().topLeft(), duration_seconds=DROP_ANCHOR_HOVER_SECONDS)
         self._target_info = dict(target)
         self.bridge.set_target_info(self._target_for_output(self._target_info))
+        self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
         self._save_runtime_setting("companion_orb_target_info", dict(self._target_info))
         self._publish_target_event(self._target_for_output(self._target_info))
-        self._set_manual_inspection(target, reason=reason)
+        self._set_manual_inspection(target, reason=reason, inspection_id=inspection_id)
         self._interrupt_audio_for_drop_comment(reason=reason)
         self.request_comment_focus(
             {
@@ -2507,13 +2844,23 @@ class CompanionOrbController(QtCore.QObject):
                 "label": "selected content",
                 "text": "inspect the visible content inside the selected focus area",
                 "duration_seconds": DROP_FOCUS_SECONDS,
+                "manual_drop": True,
+                "drop_trace_id": trace_id,
+                "drop_anchor": [
+                    int(self._manual_drop_anchor_point.x()),
+                    int(self._manual_drop_anchor_point.y()),
+                ]
+                if self._manual_drop_anchor_point is not None
+                else [],
             }
         )
         self._announce_drop_inspection(target, reason=reason)
-        self._capture_pointer_snapshot_async(point, reason=reason)
+        self._capture_pointer_snapshot_async(point, reason=reason, inspection_id=inspection_id, trace_id=trace_id)
 
-    def _set_manual_inspection(self, target: dict[str, Any] | None, *, reason: str):
+    def _set_manual_inspection(self, target: dict[str, Any] | None, *, reason: str, inspection_id: int | None = None):
         bounds = self._normalize_bounds(target_bounds(target if isinstance(target, dict) else None))
+        if inspection_id:
+            self._active_snapshot_inspection_id = int(inspection_id)
         self._manual_inspection_bounds = list(bounds or [])
         self._manual_inspection_reason = str(reason or "manual_inspection")
         self._manual_inspection_until = time.monotonic() + MANUAL_INSPECTION_SECONDS
@@ -2523,6 +2870,7 @@ class CompanionOrbController(QtCore.QObject):
             reason=self._manual_inspection_reason,
             bounds=bounds,
             target=self._target_for_output(target if isinstance(target, dict) else {}),
+            inspection_id=int(self._active_snapshot_inspection_id or 0),
         )
 
     def _manual_inspection_payload(self) -> dict[str, Any]:
@@ -2538,11 +2886,13 @@ class CompanionOrbController(QtCore.QObject):
                 self._pending_comment_focus_label = ""
             self._manual_inspection_bounds = []
             self._manual_inspection_reason = ""
+            self._active_snapshot_inspection_id = 0
             return {}
         bounds = self._normalize_bounds(self._manual_inspection_bounds)
         return {
             "reason": str(self._manual_inspection_reason or "manual_inspection"),
             "primary": True,
+            "inspection_id": int(self._active_snapshot_inspection_id or 0),
             "focus_bounds": list(bounds),
             "instruction": (
                 "The user deliberately placed the Companion Orb on this point of interest. Inspect the actual visible "
@@ -2552,48 +2902,122 @@ class CompanionOrbController(QtCore.QObject):
             "required_response_focus": "visible_content_inside_drop_crop",
         }
 
-    def _request_hidden_pingpong_cycle_async(self, *, reason: str = "manual_inspection", snapshots=None):
-        self._debug_event("hidden_ping_requested", console=True, reason=reason)
+    def _request_hidden_pingpong_cycle_async(self, *, reason: str = "manual_inspection", snapshots=None, trace_id: str = ""):
+        trace = str(trace_id or self._active_drop_trace_id or "").strip()
         snapshot_payload = [dict(item) for item in list(snapshots or []) if isinstance(item, dict)]
-        max_attempts = 40 if snapshot_payload else 8
-        retry_delay = 0.25 if snapshot_payload else 0.75
+        manual_priority = any(
+            bool(((item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {}).get("manual_inspection_primary"))
+            for item in snapshot_payload
+        )
+        max_attempts = 80 if manual_priority else (16 if snapshot_payload else 6)
+        retry_delay = 0.12 if manual_priority else (0.18 if snapshot_payload else 0.5)
+        self._drop_trace_event(
+            "hidden_ping_requested",
+            trace,
+            console=True,
+            reason=reason,
+            snapshot_count=len(snapshot_payload),
+            manual_priority=bool(manual_priority),
+            max_attempts=max_attempts,
+            retry_delay_seconds=retry_delay,
+        )
 
         def worker():
             try:
-                time.sleep(0.02 if snapshot_payload else 0.05)
+                if not snapshot_payload:
+                    time.sleep(0.03)
                 import engine
 
                 runner = getattr(engine, "run_hidden_sensory_pingpong_cycle", None)
                 if not callable(runner):
-                    self._debug_event("hidden_ping_unavailable", console=True, reason=reason)
+                    self._drop_trace_event("hidden_ping_unavailable", trace, console=True, reason=reason)
                     return
                 for attempt in range(max_attempts):
                     try:
                         if snapshot_payload:
-                            accepted = bool(runner(force=True, snapshots_override=snapshot_payload))
+                            accepted = bool(
+                                runner(
+                                    force=True,
+                                    snapshots_override=snapshot_payload,
+                                    priority=bool(manual_priority),
+                                    priority_source="companion_orb_drop" if manual_priority else "",
+                                    trace_id=trace,
+                                )
+                            )
                         else:
                             accepted = bool(runner(force=True))
                     except TypeError:
                         accepted = bool(runner(force=True))
-                    self._debug_event("hidden_ping_attempt", reason=reason, attempt=attempt + 1, accepted=accepted)
+                    self._drop_trace_event("hidden_ping_attempt", trace, reason=reason, attempt=attempt + 1, accepted=accepted)
                     if accepted:
-                        self._debug_event("hidden_ping_accepted", console=True, reason=reason, attempt=attempt + 1)
+                        self._drop_trace_event("hidden_ping_accepted", trace, console=True, reason=reason, attempt=attempt + 1)
                         return
                     time.sleep(retry_delay)
-                self._debug_event("hidden_ping_gave_up", console=True, reason=reason, attempts=max_attempts)
+                self._drop_trace_event("hidden_ping_gave_up", trace, console=True, reason=reason, attempts=max_attempts)
             except Exception as exc:
-                self._debug_event("hidden_ping_failed", console=True, reason=reason, error=str(exc))
+                self._drop_trace_event("hidden_ping_failed", trace, console=True, reason=reason, error=str(exc))
                 self._log(f"Companion Orb could not request hidden sensory inspection ({reason}): {exc}")
 
         threading.Thread(target=worker, daemon=True, name="companion-orb-hidden-inspection").start()
 
-    def _capture_inspection_snapshot(self, target: dict[str, Any], *, reason: str):
+    def _deliver_drop_snapshot_immediately(self, image_path: str, *, reason: str, trace_id: str = "") -> bool:
+        path = str(image_path or "").strip()
+        trace = str(trace_id or self._active_drop_trace_id or "").strip()
+        if not path or not Path(path).is_file():
+            self._drop_trace_event("drop_immediate_image_skipped", trace, reason=reason, image_path=path, skipped_reason="missing_image")
+            return False
+        service = None
         try:
+            service = self.context.get_service("qt.user_image_turns") if getattr(self, "context", None) is not None else None
+        except Exception:
+            service = None
+        if service is None or not callable(getattr(service, "queue_image_turn", None)):
+            self._drop_trace_event("drop_immediate_image_skipped", trace, reason=reason, image_path=path, skipped_reason="service_unavailable")
+            return False
+        content = (
+            "React through the Companion Orb to this fresh selected snapshot. "
+            "Focus only on the visible content inside the crop. "
+            "Do not describe the drag/drop action or the upload itself. Keep the reply short."
+        )
+        try:
+            service.queue_image_turn(
+                path,
+                content=content,
+                source="companion_orb_target",
+            )
+        except Exception as exc:
+            self._drop_trace_event("drop_immediate_image_failed", trace, console=True, reason=reason, image_path=path, error=str(exc))
+            return False
+        self._drop_trace_event("drop_immediate_image_queued", trace, console=True, reason=reason, image_path=path)
+        return True
+
+    def _capture_inspection_snapshot(self, target: dict[str, Any], *, reason: str, inspection_id: int | None = None, trace_id: str = ""):
+        try:
+            inspection_id = int(inspection_id or self._active_snapshot_inspection_id or 0)
+            trace = str(trace_id or self._active_drop_trace_id or "").strip()
+            if inspection_id and self._active_snapshot_inspection_id and inspection_id < int(self._active_snapshot_inspection_id):
+                self._drop_trace_event(
+                    "snapshot_inspection_stale_skipped",
+                    trace,
+                    console=True,
+                    reason=reason,
+                    inspection_id=inspection_id,
+                    active_inspection_id=int(self._active_snapshot_inspection_id or 0),
+                )
+                return
             bounds = target_bounds(target)
             if not bounds:
-                self._debug_event("snapshot_inspection_rejected", console=True, reason=reason, target=target if isinstance(target, dict) else {})
+                self._drop_trace_event("snapshot_inspection_rejected", trace, console=True, reason=reason, target=target if isinstance(target, dict) else {})
                 return
-            self._debug_event("snapshot_inspection_start", console=True, reason=reason, bounds=bounds, target=self._target_for_output(target))
+            self._drop_trace_event(
+                "snapshot_inspection_start",
+                trace,
+                console=True,
+                reason=reason,
+                bounds=bounds,
+                target=self._target_for_output(target),
+                inspection_id=inspection_id,
+            )
             output_root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd()) / "runtime" / "companion_orb" / "pointer_snapshots"
             result = self._capture_target_region(
                 bounds,
@@ -2603,20 +3027,42 @@ class CompanionOrbController(QtCore.QObject):
                     "eager_ocr": True,
                     "manual_inspection": self._manual_inspection_payload(),
                     "inspection_reason": str(reason or "manual_inspection"),
+                    "manual_inspection_id": inspection_id,
+                    "drop_trace_id": trace,
+                    "priority_drop": True,
+                    "snapshot_cloak_delay_seconds": 0.035,
                 },
             )
             image_path = str(result.get("image_path") or "")
             metadata = dict(result.get("metadata") or {})
+            metadata["manual_inspection_id"] = inspection_id
+            metadata["drop_trace_id"] = trace
+            metadata["priority_drop"] = True
+            immediate_delivery = self._deliver_drop_snapshot_immediately(image_path, reason=reason, trace_id=trace)
+            metadata["immediate_image_delivery"] = bool(immediate_delivery)
+            metadata["suppress_hidden_proactive"] = bool(immediate_delivery)
+            result["metadata"] = metadata
             self.request_snapshot_context({"snapshots": [dict(result)]})
-            self.request_comment_focus({"target": target, "label": "snapshot", "duration_seconds": COMMENT_FOCUS_DEFAULT_SECONDS})
-            self._request_hidden_pingpong_cycle_async(reason=reason, snapshots=[dict(result)])
+            self.request_comment_focus(
+                {
+                    "target": target,
+                    "bounds": list(bounds),
+                    "label": "current snapshot",
+                    "text": "comment on the visible content in this fresh drop snapshot",
+                    "duration_seconds": COMMENT_FOCUS_DEFAULT_SECONDS,
+                    "drop_trace_id": trace,
+                }
+            )
+            self._request_hidden_pingpong_cycle_async(reason=reason, snapshots=[dict(result)], trace_id=trace)
             self._log(f"Companion Orb pointer snapshot saved: {image_path}")
-            self._debug_event(
+            self._drop_trace_event(
                 "snapshot_inspection_saved",
+                trace,
                 console=True,
                 reason=reason,
                 image_path=image_path,
                 bounds=bounds,
+                inspection_id=inspection_id,
                 ocr_backend=str(metadata.get("ocr_backend") or ""),
                 ocr_region_count=len(metadata.get("ocr_regions") or []),
                 ocr_text=str(metadata.get("ocr_text") or ""),
@@ -2631,6 +3077,8 @@ class CompanionOrbController(QtCore.QObject):
                         "ocr_regions": list(metadata.get("ocr_regions") or []),
                         "ocr_text": str(metadata.get("ocr_text") or ""),
                         "ocr_backend": str(metadata.get("ocr_backend") or ""),
+                        "manual_inspection_id": inspection_id,
+                        "drop_trace_id": trace,
                         "focus": {"bounds": list(bounds or []), "label": "snapshot"},
                         "source": "companion_orb",
                     },
@@ -2638,7 +3086,7 @@ class CompanionOrbController(QtCore.QObject):
             except Exception:
                 pass
         except Exception as exc:
-            self._debug_event("snapshot_inspection_failed", console=True, reason=reason, error=str(exc))
+            self._drop_trace_event("snapshot_inspection_failed", trace_id, console=True, reason=reason, error=str(exc))
             self._log(f"Companion Orb pointer snapshot failed: {exc}")
 
     def _interrupt_audio_for_drop_comment(self, *, reason: str = "manual_inspection"):
@@ -2673,6 +3121,7 @@ class CompanionOrbController(QtCore.QObject):
             return
         self._target_info = dict(target)
         self.bridge.set_target_info(self._target_for_output(self._target_info))
+        self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
         self._save_runtime_setting("companion_orb_target_info", dict(self._target_info))
         self._publish_target_event(self._target_for_output(self._target_info))
         title = str(target.get("title") or target.get("target_type") or "target")
@@ -2861,12 +3310,22 @@ class CompanionOrbController(QtCore.QObject):
             self._debug_event("snapshot_cloak_failed", console=True, enabled=bool(enabled), error=str(exc))
             return False
 
-    def _grab_desktop_without_orb(self, image_grab):
+    def _grab_desktop_without_orb(self, image_grab, *, cloak_delay_seconds: float = 0.08, trace_id: str = ""):
+        started_at = time.monotonic()
         cloaked = self._apply_snapshot_cloak_blocking(True)
         if cloaked:
-            time.sleep(0.08)
+            time.sleep(max(0.0, min(0.15, float(cloak_delay_seconds))))
         try:
-            return image_grab.grab(all_screens=True).convert("RGB")
+            image = image_grab.grab(all_screens=True).convert("RGB")
+            self._drop_trace_event(
+                "desktop_grabbed",
+                trace_id,
+                cloaked=bool(cloaked),
+                cloak_delay_seconds=round(float(cloak_delay_seconds), 3),
+                grab_elapsed_ms=round((time.monotonic() - started_at) * 1000.0, 1),
+                image_size=[int(image.width), int(image.height)],
+            )
+            return image
         finally:
             if cloaked:
                 self._apply_snapshot_cloak_blocking(False)
@@ -3009,7 +3468,8 @@ class CompanionOrbController(QtCore.QObject):
         timestamp = int(time.time() * 1000)
         output_path = output_root / f"companion_orb_full_screen_{timestamp}.jpg"
         self._debug_event("snapshot_full_screen_start", console=True, image_path=str(output_path))
-        image = self._grab_desktop_without_orb(ImageGrab)
+        trace_id = str((capture_context or {}).get("drop_trace_id") or self._active_drop_trace_id or "")
+        image = self._grab_desktop_without_orb(ImageGrab, trace_id=trace_id)
         desktop_image_size = [int(image.width), int(image.height)]
         virtual_rect = self._virtual_desktop_rect()
         if virtual_rect is not None and virtual_rect.width() > 0 and virtual_rect.height() > 0:
@@ -3036,13 +3496,14 @@ class CompanionOrbController(QtCore.QObject):
         original_size = [int(image.width), int(image.height)]
         image.thumbnail(FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE)
         image.save(output_path, format="JPEG", quality=82, optimize=True)
+        manual_inspection = self._manual_inspection_payload()
+        manual_inspection_id = int(manual_inspection.get("inspection_id") or 0) if isinstance(manual_inspection, dict) else 0
         target = {
             "target_type": "screen",
             "title": target_title,
             "process_name": "",
             "bounds": list(screen_bounds),
         }
-        manual_inspection = self._manual_inspection_payload()
         ocr_result = self._extract_snapshot_ocr(output_path, screen_bounds, eager=True)
         context_scope = "the selected monitor" if capture_mode == "selected_screen" else "the desktop"
         content_text = (
@@ -3076,6 +3537,7 @@ class CompanionOrbController(QtCore.QObject):
                 "screen_bounds": list(screen_bounds),
                 "crop": list(crop),
                 "manual_inspection": dict(manual_inspection or {}),
+                "manual_inspection_id": manual_inspection_id,
                 "manual_inspection_primary": bool(manual_inspection),
                 "drop_focus_bounds": list(manual_inspection.get("focus_bounds") or []) if manual_inspection else [],
                 "ocr_backend": str(ocr_result.get("backend") or "none"),
@@ -3168,15 +3630,22 @@ class CompanionOrbController(QtCore.QObject):
         output_root.mkdir(parents=True, exist_ok=True)
         timestamp = int(time.time() * 1000)
         output_path = output_root / f"companion_orb_target_{timestamp}.jpg"
-        self._debug_event(
+        trace_id = str((capture_context or {}).get("drop_trace_id") or self._active_drop_trace_id or "")
+        capture_started_at = time.monotonic()
+        self._drop_trace_event(
             "snapshot_target_start",
+            trace_id,
             console=True,
             image_path=str(output_path),
             bounds=bounds,
             target=self._target_for_output(target if isinstance(target, dict) else {}),
             capture_context={key: value for key, value in dict(capture_context or {}).items() if key != "output_dir"},
         )
-        image = self._grab_desktop_without_orb(ImageGrab)
+        image = self._grab_desktop_without_orb(
+            ImageGrab,
+            cloak_delay_seconds=float((capture_context or {}).get("snapshot_cloak_delay_seconds", 0.08) or 0.08),
+            trace_id=trace_id,
+        )
         desktop_image_size = [int(image.width), int(image.height)]
         requested_bounds = [int(value) for value in bounds]
         virtual_rect = self._virtual_desktop_rect()
@@ -3205,8 +3674,14 @@ class CompanionOrbController(QtCore.QObject):
             raise RuntimeError("target crop is outside the available desktop capture")
         image = image.crop(crop)
         image.thumbnail((960, 720))
+        save_started_at = time.monotonic()
         image.save(output_path, format="JPEG", quality=85, optimize=True)
+        save_elapsed_ms = round((time.monotonic() - save_started_at) * 1000.0, 1)
         manual_inspection = dict((capture_context or {}).get("manual_inspection") or self._manual_inspection_payload() or {})
+        try:
+            manual_inspection_id = int((capture_context or {}).get("manual_inspection_id") or manual_inspection.get("inspection_id") or 0)
+        except Exception:
+            manual_inspection_id = 0
         eager_ocr = bool((capture_context or {}).get("eager_ocr", True))
         ocr_result = self._extract_snapshot_ocr(output_path, capture_bounds, eager=eager_ocr)
         content_text = (
@@ -3234,6 +3709,9 @@ class CompanionOrbController(QtCore.QObject):
                 "screen_bounds": [int(value) for value in capture_bounds],
                 "requested_screen_bounds": [int(value) for value in requested_bounds],
                 "manual_inspection": dict(manual_inspection or {}),
+                "manual_inspection_id": manual_inspection_id,
+                "drop_trace_id": trace_id,
+                "priority_drop": bool((capture_context or {}).get("priority_drop", False)),
                 "manual_inspection_primary": bool(manual_inspection),
                 "drop_focus_bounds": [int(value) for value in capture_bounds] if manual_inspection else [],
                 "ocr_backend": str(ocr_result.get("backend") or "none"),
@@ -3242,8 +3720,9 @@ class CompanionOrbController(QtCore.QObject):
                 "ocr_sidecar": str(ocr_result.get("sidecar") or ""),
             },
         }
-        self._debug_event(
+        self._drop_trace_event(
             "snapshot_target_saved",
+            trace_id,
             console=True,
             image_path=str(output_path),
             screen_bounds=[int(value) for value in capture_bounds],
@@ -3255,6 +3734,10 @@ class CompanionOrbController(QtCore.QObject):
             saved_size=[int(image.width), int(image.height)],
             target=self._target_for_output(target if isinstance(target, dict) else {}),
             manual_inspection=manual_inspection,
+            manual_inspection_id=manual_inspection_id,
+            drop_trace_id=trace_id,
+            total_elapsed_ms=round((time.monotonic() - capture_started_at) * 1000.0, 1),
+            save_elapsed_ms=save_elapsed_ms,
             ocr_backend=str(ocr_result.get("backend") or "none"),
             ocr_region_count=len(ocr_result.get("regions") or []),
             ocr_text=str(ocr_result.get("text") or ""),
@@ -3263,9 +3746,11 @@ class CompanionOrbController(QtCore.QObject):
 
     def _extract_snapshot_ocr(self, image_path: Path, bounds, *, eager: bool = False) -> dict[str, Any]:
         screen_bounds = self._normalize_bounds(bounds)
+        trace_id = str(self._active_drop_trace_id or "")
         if eager and screen_bounds:
             try:
-                self._debug_event("ocr_extract_start", image_path=str(image_path), bounds=screen_bounds, eager=True)
+                started_at = time.monotonic()
+                self._drop_trace_event("ocr_extract_start", trace_id, image_path=str(image_path), bounds=screen_bounds, eager=True)
                 result = snapshot_ocr.extract_snapshot_regions(image_path, screen_bounds=screen_bounds, max_regions=OCR_MAX_REGIONS)
                 sidecar = snapshot_ocr.write_sidecar(image_path, result)
                 if sidecar:
@@ -3279,23 +3764,26 @@ class CompanionOrbController(QtCore.QObject):
                             "ocr_backend": str(result.get("backend") or "none"),
                             "ocr_regions": list(result.get("regions") or []),
                             "ocr_text": str(result.get("text") or ""),
+                            "drop_trace_id": trace_id,
                         },
                     }
                 )
-                self._debug_event(
+                self._drop_trace_event(
                     "ocr_extract_finished",
+                    trace_id,
                     image_path=str(image_path),
                     bounds=screen_bounds,
                     backend=str(result.get("backend") or "none"),
                     region_count=len(result.get("regions") or []),
                     sidecar=str(result.get("sidecar") or ""),
                     text=str(result.get("text") or ""),
+                    ocr_elapsed_ms=round((time.monotonic() - started_at) * 1000.0, 1),
                 )
                 return dict(result or {})
             except Exception as exc:
-                self._debug_event("ocr_extract_failed", console=True, image_path=str(image_path), bounds=screen_bounds, error=str(exc))
+                self._drop_trace_event("ocr_extract_failed", trace_id, console=True, image_path=str(image_path), bounds=screen_bounds, error=str(exc))
                 self._log(f"Companion Orb eager OCR failed: {exc}")
-        self._debug_event("ocr_extract_pending", image_path=str(image_path), bounds=screen_bounds, eager=bool(eager))
+        self._drop_trace_event("ocr_extract_pending", trace_id, image_path=str(image_path), bounds=screen_bounds, eager=bool(eager))
         self.request_snapshot_context(
             {
                 "image_path": str(image_path),
@@ -3305,6 +3793,7 @@ class CompanionOrbController(QtCore.QObject):
                     "ocr_backend": "pending",
                     "ocr_regions": [],
                     "ocr_text": "",
+                    "drop_trace_id": trace_id,
                 },
             }
         )
@@ -3333,6 +3822,7 @@ class CompanionOrbController(QtCore.QObject):
         if isinstance(target, dict):
             self._target_info = dict(target)
             self.bridge.set_target_info(self._target_for_output(self._target_info))
+            self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
             self._save_runtime_setting("companion_orb_target_info", dict(self._target_info))
         return None
 
@@ -3342,6 +3832,7 @@ class CompanionOrbController(QtCore.QObject):
         self._return_home_timer.stop()
         self._menu_poll_timer.stop()
         self._save_timer.stop()
+        self._stop_external_runtime()
         self._unregister_sensory_provider()
         try:
             from visual_presence import runtime as presence_runtime

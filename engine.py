@@ -2389,6 +2389,78 @@ def _snapshot_is_manual_companion_orb_inspection(snapshot):
     )
 
 
+def _manual_companion_orb_trace_id_from_snapshots(snapshots):
+    for snapshot in list(snapshots or []):
+        if not isinstance(snapshot, dict):
+            continue
+        if str(snapshot.get("source", "") or "").strip().lower() != "companion_orb_target":
+            continue
+        metadata = dict(snapshot.get("metadata") or {}) if isinstance(snapshot.get("metadata"), dict) else {}
+        trace_id = str(metadata.get("drop_trace_id") or "").strip()
+        if trace_id:
+            return trace_id
+    return ""
+
+
+def _companion_orb_snapshot_suppresses_hidden_proactive(snapshots):
+    for snapshot in list(snapshots or []):
+        if not isinstance(snapshot, dict):
+            continue
+        if str(snapshot.get("source", "") or "").strip().lower() != "companion_orb_target":
+            continue
+        metadata = dict(snapshot.get("metadata") or {}) if isinstance(snapshot.get("metadata"), dict) else {}
+        if metadata.get("suppress_hidden_proactive") or metadata.get("immediate_image_delivery"):
+            return True
+    return False
+
+
+def _companion_orb_debug_log_enabled():
+    return bool(RUNTIME_CONFIG.get("companion_orb_debug_enabled", False))
+
+
+def _companion_orb_debug_log_path():
+    return Path(__file__).resolve().parent / "runtime" / "companion_orb" / "debug" / "companion_orb_debug.log"
+
+
+def _log_companion_orb_debug_event(event, *, trace_id="", **fields):
+    if not _companion_orb_debug_log_enabled():
+        return
+    try:
+        payload = {
+            "event": str(event or "engine_event"),
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "monotonic": round(float(time.monotonic()), 3),
+            "source": "engine",
+        }
+        if trace_id:
+            payload["drop_trace_id"] = str(trace_id)
+        for key, value in fields.items():
+            if isinstance(value, Path):
+                payload[str(key)] = str(value)
+            elif isinstance(value, str):
+                payload[str(key)] = value if len(value) <= 500 else value[:497] + "..."
+            elif isinstance(value, (list, tuple)):
+                payload[str(key)] = list(value)[:40]
+            elif isinstance(value, dict):
+                payload[str(key)] = {str(k): v for k, v in list(value.items())[:30]}
+            else:
+                payload[str(key)] = value
+        path = _companion_orb_debug_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and path.stat().st_size > 2_000_000:
+            backup = path.with_name(path.stem + ".1" + path.suffix)
+            try:
+                if backup.exists():
+                    backup.unlink()
+                path.replace(backup)
+            except Exception:
+                path.write_text("", encoding="utf-8")
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(payload, ensure_ascii=True, sort_keys=True, default=str) + "\n")
+    except Exception:
+        pass
+
+
 def _manual_priority_sensory_snapshots(snapshots):
     snapshot_list = [dict(item) for item in list(snapshots or []) if isinstance(item, dict)]
     manual_snapshots = [item for item in snapshot_list if _snapshot_is_manual_companion_orb_inspection(item)]
@@ -2700,15 +2772,26 @@ def _sensory_pingpong_enabled():
 
 def _hidden_sensory_pingpong_blocked(*, allow_audio_playback=False):
     """Hidden PING/PONG should not run while chat playback is paused mid-reply."""
-    return bool(
-        microphone_active.is_set()
-        or (audio_playing.is_set() and not bool(allow_audio_playback))
-        or _llm_request_active.is_set()
-        or manual_pause_active.is_set()
-        or pause_after_chunk.is_set()
-        or playback_paused.is_set()
-        or bool(RUNTIME_CONFIG.get("offline_replay_only", False))
-    )
+    return bool(_hidden_sensory_pingpong_block_reasons(allow_audio_playback=allow_audio_playback))
+
+
+def _hidden_sensory_pingpong_block_reasons(*, allow_audio_playback=False):
+    reasons = []
+    if microphone_active.is_set():
+        reasons.append("microphone_active")
+    if audio_playing.is_set() and not bool(allow_audio_playback):
+        reasons.append("audio_playing")
+    if _llm_request_active.is_set():
+        reasons.append("llm_request_active")
+    if manual_pause_active.is_set():
+        reasons.append("manual_pause_active")
+    if pause_after_chunk.is_set():
+        reasons.append("pause_after_chunk")
+    if playback_paused.is_set():
+        reasons.append("playback_paused")
+    if bool(RUNTIME_CONFIG.get("offline_replay_only", False)):
+        reasons.append("offline_replay_only")
+    return reasons
 
 
 def _sensory_pingpong_history_depth():
@@ -2947,6 +3030,7 @@ def _sanitize_hidden_proactive_request(entry):
     attention = _sanitize_hidden_action_text(entry.get("attention", ""), limit=80, lower=True)
     source = _sanitize_hidden_action_text(entry.get("source", "sensory"), limit=40, lower=True) or "sensory"
     created_at = float(entry.get("created_at", time.time()) or time.time())
+    trace_id = _sanitize_hidden_action_text(entry.get("trace_id", ""), limit=80)
     request = {
         "candidate": candidate,
         "summary": summary,
@@ -2954,6 +3038,8 @@ def _sanitize_hidden_proactive_request(entry):
         "source": source,
         "created_at": created_at,
     }
+    if trace_id:
+        request["trace_id"] = trace_id
     focus_bounds = _normalize_hidden_focus_bounds(entry.get("focus_bounds"))
     focus_text = _sanitize_hidden_action_text(entry.get("focus_text", ""), limit=160)
     if focus_text:
@@ -3018,6 +3104,7 @@ def _queue_hidden_proactive_candidate(
     focus_label="",
     focus_text="",
     focus_duration_seconds=14.0,
+    trace_id="",
 ):
     if tts_model is None:
         print("🤫 [Sensory] Suppressed proactive candidate because TTS is not initialized yet.")
@@ -3033,6 +3120,7 @@ def _queue_hidden_proactive_candidate(
             "focus_label": focus_label,
             "focus_text": focus_text,
             "focus_duration_seconds": focus_duration_seconds,
+            "trace_id": trace_id,
         }
     )
     if not request:
@@ -3080,6 +3168,18 @@ def _queue_hidden_proactive_candidate(
         sensory_hidden_action_state["last_proactive_candidate_at"] = now
     print(f"🗣️ [Sensory] Queued proactive candidate: {request.get('candidate')}")
     return True
+
+
+def _wake_hidden_proactive_reply(*, reason="", trace_id=""):
+    global PENDING_GUI_ACTION, LAST_INPUT_TIME
+    PENDING_GUI_ACTION = "hidden_proactive_reply"
+    LAST_INPUT_TIME = 0
+    _log_companion_orb_debug_event(
+        "engine_hidden_proactive_wake_requested",
+        trace_id=trace_id,
+        reason=str(reason or ""),
+        listening=bool(listening_active.is_set()),
+    )
 
 
 def _consume_hidden_proactive_candidate():
@@ -3885,8 +3985,10 @@ def _compose_sensory_pingpong_prompt(source_ids, emotion_text):
     return prompt_text
 
 
-def _build_sensory_pingpong_messages(snapshots, *, allow_images=None):
+def _build_sensory_pingpong_messages(snapshots, *, allow_images=None, priority=False):
     snapshots = _manual_priority_sensory_snapshots(snapshots)
+    manual_priority = bool(priority) and any(_snapshot_is_manual_companion_orb_inspection(item) for item in list(snapshots or []))
+    suppress_hidden_proactive = _companion_orb_snapshot_suppresses_hidden_proactive(snapshots)
     if allow_images is None:
         allow_images = _current_model_supports_images()
     allow_images = bool(allow_images)
@@ -3913,15 +4015,34 @@ def _build_sensory_pingpong_messages(snapshots, *, allow_images=None):
     provider_instruction = _sensory_feedback_instruction()
     if provider_instruction:
         messages.append({"role": "system", "content": provider_instruction})
-    visible_context = _visible_history_summary_for_sensory(limit=6)
-    if visible_context:
-        messages.append({
-            "role": "system",
-            "content": "Recent visible conversation context:\n" + visible_context,
-        })
-    retained_context = _build_retained_sensory_context_text()
-    if retained_context:
-        messages.append({"role": "system", "content": retained_context})
+    if manual_priority:
+        focus_only_text = (
+            " A normal immediate image turn already handles the spoken Companion Orb reply, "
+            "so keep this hidden PONG focus/movement-only: set should_speak=false and still provide attention, summary, focus_text, and focus_bounds when visible."
+            if suppress_hidden_proactive
+            else ""
+        )
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    "Priority manual Companion Orb drop: answer from the fresh selected crop only. "
+                    "Ignore previous screenshots, older sensory memory, and broad desktop/window context unless the fresh crop directly shows it. "
+                    "Keep the PONG short, set should_speak=true only for visible crop content, and include focus_bounds."
+                    + focus_only_text
+                ),
+            }
+        )
+    else:
+        visible_context = _visible_history_summary_for_sensory(limit=6)
+        if visible_context:
+            messages.append({
+                "role": "system",
+                "content": "Recent visible conversation context:\n" + visible_context,
+            })
+        retained_context = _build_retained_sensory_context_text()
+        if retained_context:
+            messages.append({"role": "system", "content": retained_context})
     messages.extend(ping_messages)
     return messages
 
@@ -3939,6 +4060,8 @@ def _apply_sensory_pong_result(result, snapshots):
     focus_label = _sanitize_hidden_action_text(result.get("focus_label", ""), limit=80)
     focus_text = _sanitize_hidden_action_text(result.get("focus_text", ""), limit=180)
     snapshot_list = list(snapshots or [])
+    manual_trace_id = _manual_companion_orb_trace_id_from_snapshots(snapshot_list)
+    suppress_hidden_proactive = _companion_orb_snapshot_suppresses_hidden_proactive(snapshot_list)
     snapshot_source_ids = [
         str((item or {}).get("source", "") or "").strip().lower()
         for item in snapshot_list
@@ -3967,6 +4090,15 @@ def _apply_sensory_pong_result(result, snapshots):
                 focus_label = str(manual_orb_focus.get("focus_label") or "selected content")
             if not focus_text:
                 focus_text = str(manual_orb_focus.get("focus_text") or proactive_candidate or summary or attention or "")
+    if suppress_hidden_proactive and manual_orb_bounds and (should_speak or proactive_candidate):
+        print("[Sensory] Companion Orb immediate image turn will handle speech; hidden PONG remains focus-only.")
+        _log_companion_orb_debug_event(
+            "engine_hidden_pong_speech_suppressed_for_immediate_image",
+            trace_id=manual_trace_id,
+            candidate=str(proactive_candidate or "")[:220],
+        )
+        should_speak = False
+        proactive_candidate = ""
     screen_subject_identity = ""
     screen_supervisor_repeat_key = ""
     screen_supervisor_new_meaningful_subject = False
@@ -4224,8 +4356,11 @@ def _apply_sensory_pong_result(result, snapshots):
             focus_bounds=focus_bounds,
             focus_label=focus_label or attention,
             focus_text=focus_text or proactive_candidate or summary,
+            trace_id=manual_trace_id,
         )
         if proactive_queued:
+            if manual_orb_bounds:
+                _wake_hidden_proactive_reply(reason="manual_companion_orb_drop", trace_id=manual_trace_id)
             if screen_subject_identity:
                 with sensory_pingpong_lock:
                     sensory_hidden_action_state["last_screen_subject_comment_key"] = screen_subject_identity
@@ -4322,8 +4457,10 @@ def _remember_hidden_sensory_fallback_request(source_text, *, seconds=300.0):
         sensory_pingpong_state["fallback_request_until"] = time.time() + max(30.0, float(seconds or 300.0))
 
 
-def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None):
+def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, priority=False, priority_source="", trace_id=""):
+    cycle_started_at = time.monotonic()
     if not _sensory_pingpong_enabled():
+        _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="disabled")
         return False
     if snapshots_override is not None:
         snapshots = [
@@ -4334,29 +4471,58 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None):
         snapshots = _manual_priority_sensory_snapshots(snapshots)
         manual_override = any(_snapshot_is_manual_companion_orb_inspection(item) for item in snapshots)
     else:
+        snapshots = []
         manual_override = False
-    if stop_flag.is_set() or _hidden_sensory_pingpong_blocked(allow_audio_playback=manual_override):
+    trace_id = str(trace_id or _manual_companion_orb_trace_id_from_snapshots(snapshots) or "").strip()
+    priority = bool(priority or manual_override)
+    block_reasons = _hidden_sensory_pingpong_block_reasons(allow_audio_playback=manual_override)
+    if stop_flag.is_set():
+        block_reasons.append("stop_flag")
+    if block_reasons:
+        _log_companion_orb_debug_event(
+            "engine_hidden_ping_blocked",
+            trace_id=trace_id,
+            priority=bool(priority),
+            priority_source=str(priority_source or ""),
+            reasons=list(block_reasons),
+            elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+        )
         return False
     if snapshots_override is None:
         snapshots = _maybe_refresh_sensory_feedback_snapshots(force=bool(force))
+        trace_id = str(trace_id or _manual_companion_orb_trace_id_from_snapshots(snapshots) or "").strip()
     if not snapshots:
+        _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="no_snapshots")
         return False
     sources = [str((item or {}).get("source", "sensory") or "sensory") for item in snapshots if isinstance(item, dict)]
     _publish_addon_runtime_event("sensory.hidden_ping", {"snapshots": [dict(item or {}) for item in snapshots if isinstance(item, dict)], "sources": list(sources)})
     source_text = ", ".join(sources) if sources else "sensory"
     use_fallback_request = _hidden_sensory_should_use_fallback_request(source_text)
-    messages = _build_sensory_pingpong_messages(snapshots, allow_images=False if use_fallback_request else None)
+    messages_started_at = time.monotonic()
+    messages = _build_sensory_pingpong_messages(snapshots, allow_images=False if use_fallback_request else None, priority=priority)
     if not messages:
+        _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="no_messages")
         return False
     print(f"📡 [Sensory] Hidden PING from {source_text}...")
+    _log_companion_orb_debug_event(
+        "engine_hidden_ping_start",
+        trace_id=trace_id,
+        source_text=source_text,
+        priority=bool(priority),
+        priority_source=str(priority_source or ""),
+        snapshot_count=len(snapshots),
+        message_count=len(messages),
+        build_messages_ms=round((time.monotonic() - messages_started_at) * 1000.0, 1),
+        image_mode=bool(_current_model_supports_images() and not use_fallback_request),
+    )
     _mark_hidden_sensory_ping_attempt(source_text)
     _llm_request_active.set()
     params = {
         "model": RUNTIME_CONFIG["model_name"],
         "messages": messages,
-        "temperature": 0.2,
+        "temperature": 0.12 if priority else 0.2,
         "top_p": min(0.8, float(RUNTIME_CONFIG.get("top_p", 0.8) or 0.8)),
-        "max_tokens": 220,
+        "max_tokens": 150 if priority else 220,
     }
     if not use_fallback_request:
         params["response_format"] = {"type": "json_object"}
@@ -4366,11 +4532,12 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None):
         "repeat_penalty": float(RUNTIME_CONFIG.get("repeat_penalty", 1.1) or 1.1),
     }
     retried_text_only = False
+    llm_started_at = time.monotonic()
     try:
         try:
             payload_text = _chat_completion_create(params, additional_params)
         except Exception as exc:
-            fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False)
+            fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False, priority=priority)
             fallback_params = dict(params)
             fallback_params["messages"] = fallback_messages or messages
             fallback_params.pop("response_format", None)
@@ -4379,13 +4546,28 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None):
             retried_text_only = fallback_messages != messages
             if retried_text_only:
                 print("📡 [Sensory] Hidden PONG retrying with text-only sensory context for provider compatibility.")
+            llm_started_at = time.monotonic()
             payload_text = _chat_completion_create(fallback_params, additional_params)
             _remember_hidden_sensory_fallback_request(source_text)
     except Exception as exc:
         _log_hidden_sensory_pong_failure(exc, source_text=source_text, retried_text_only=retried_text_only)
+        _log_companion_orb_debug_event(
+            "engine_hidden_pong_failed",
+            trace_id=trace_id,
+            error=str(exc),
+            retried_text_only=bool(retried_text_only),
+            elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+        )
         return False
     finally:
         _llm_request_active.clear()
+    _log_companion_orb_debug_event(
+        "engine_hidden_pong_received",
+        trace_id=trace_id,
+        payload_chars=len(str(payload_text or "")),
+        llm_elapsed_ms=round((time.monotonic() - llm_started_at) * 1000.0, 1),
+        elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+    )
     result = _parse_sensory_pong(payload_text)
     if not result:
         print("⚠️ [Sensory] Hidden PONG was not valid JSON; ignoring.")
@@ -4395,7 +4577,17 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None):
         return False
     if bool(result.pop("_repaired_json", False)):
         print("🛠️ [Sensory] Repaired near-JSON hidden PONG automatically.")
-    return _apply_sensory_pong_result(result, snapshots)
+    applied = _apply_sensory_pong_result(result, snapshots)
+    _log_companion_orb_debug_event(
+        "engine_hidden_pong_applied",
+        trace_id=trace_id,
+        applied=bool(applied),
+        should_speak=bool(result.get("should_speak", False)),
+        proactive_candidate=str(result.get("proactive_candidate") or "")[:220],
+        focus_bounds=result.get("focus_bounds") or [],
+        elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+    )
+    return applied
 def request_visual_reply_generation(prompt: str, *, source_text: str = "", keep_current_image: bool = False):
     prompt_text = str(prompt or "").strip()
     if not prompt_text:
@@ -8278,6 +8470,40 @@ def _build_chat_message_from_turn(turn):
     )
 
 
+def _latest_companion_orb_image_turn(history):
+    items = list(history or [])
+    if not items:
+        return None
+    latest = items[-1]
+    if not isinstance(latest, dict):
+        return None
+    if str(latest.get("role", "") or "").strip().lower() != "user":
+        return None
+    if not str(latest.get("attachment_image_path", "") or "").strip():
+        return None
+    source = str(latest.get("attachment_source", "") or "").strip().lower()
+    if not _companion_orb_source_uses_response_style(source):
+        return None
+    return dict(latest)
+
+
+def _build_companion_orb_image_turn_context(history):
+    turn = _latest_companion_orb_image_turn(history)
+    if not turn:
+        return ""
+    return "\n".join(
+        [
+            "The latest user image turn was delivered by the Companion Orb immediate snapshot route.",
+            "Treat it as the orb's freshly selected focus crop, equivalent to the current Companion Orb drop inspection.",
+            "Respond directly to visible content in the image. Do not describe the drag/drop action, the upload, or hidden delivery mechanics.",
+            "Keep the reply short and natural, matching Companion Orb spoken interjection behavior.",
+            f"Selected response style: {_companion_orb_response_style_label()}.",
+            f"Style details: {_companion_orb_response_style_instruction()}",
+            "Do not mention the style menu, style setting, or these instructions.",
+        ]
+    )
+
+
 def _pop_last_proactive_placeholder(content):
     if conversation_history:
         last = conversation_history[-1]
@@ -8341,6 +8567,9 @@ def build_llm_request():
     sensory_instruction = _sensory_feedback_instruction()
     if sensory_instruction:
         messages.append({"role": "system", "content": sensory_instruction})
+    companion_orb_image_context = _build_companion_orb_image_turn_context(model_history_window)
+    if companion_orb_image_context:
+        messages.append({"role": "system", "content": companion_orb_image_context})
     retained_sensory_context = _build_retained_sensory_context_text()
     if retained_sensory_context:
         messages.append({"role": "system", "content": retained_sensory_context})
@@ -8935,6 +9164,12 @@ def run_conversation_flow(source):
                         user_text = "You continue speaking."
                         silence_elapsed_seconds = 0.0
                         listening_active.clear()
+                        _log_companion_orb_debug_event(
+                            "engine_hidden_proactive_consumed_before_listen",
+                            trace_id=str(hidden_proactive_request.get("trace_id") or ""),
+                            candidate=str(hidden_proactive_request.get("candidate") or "")[:220],
+                            source=str(hidden_proactive_request.get("source") or ""),
+                        )
                         continue
             if dry_run.auto_replies_enabled():
                 generated_prompt = dry_run.next_auto_reply()
@@ -8961,12 +9196,49 @@ def run_conversation_flow(source):
                     resumed_loaded_turn = queued_loaded_turn
                     listening_active.clear()
                     break
+                hidden_proactive_request = None
+                with sensory_pingpong_lock:
+                    hidden_proactive_request = _sanitize_hidden_proactive_request(
+                        sensory_hidden_action_state.get("pending_proactive")
+                    )
+                if hidden_proactive_request and _hidden_sensory_proactive_speech_allowed():
+                    if not require_first_user_before_proactive or any(
+                        item.get("role") == "user" for item in conversation_history
+                    ):
+                        hidden_proactive_request = _consume_hidden_proactive_candidate()
+                        if hidden_proactive_request:
+                            print("\n[Sensory] Hidden PONG requested an immediate proactive reply...")
+                            user_text = "You continue speaking."
+                            silence_elapsed_seconds = 0.0
+                            listening_active.clear()
+                            _log_companion_orb_debug_event(
+                                "engine_hidden_proactive_consumed_during_listen",
+                                trace_id=str(hidden_proactive_request.get("trace_id") or ""),
+                                candidate=str(hidden_proactive_request.get("candidate") or "")[:220],
+                                source=str(hidden_proactive_request.get("source") or ""),
+                            )
+                            break
                 status = check_interaction_status(source)
 
                 if status == "regenerate_response":
                     print("\n🎲 Regenerating last response...")
                     regenerating = True
                     break
+                elif status == "hidden_proactive_reply":
+                    hidden_proactive_request = _consume_hidden_proactive_candidate()
+                    if hidden_proactive_request:
+                        print("\n[Sensory] Hidden PONG wake-up consumed.")
+                        user_text = "You continue speaking."
+                        silence_elapsed_seconds = 0.0
+                        listening_active.clear()
+                        _log_companion_orb_debug_event(
+                            "engine_hidden_proactive_wake_consumed",
+                            trace_id=str(hidden_proactive_request.get("trace_id") or ""),
+                            candidate=str(hidden_proactive_request.get("candidate") or "")[:220],
+                            source=str(hidden_proactive_request.get("source") or ""),
+                        )
+                        break
+                    continue
                 elif status == "retry_user_input":
                     print("\n↺ Retrying listening...")
                     start_wait = time.time()

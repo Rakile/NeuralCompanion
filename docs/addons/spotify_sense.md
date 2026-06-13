@@ -1,6 +1,6 @@
 # Spotify Sense
 
-Spotify Sense is an optional NeuralCompanion addon that connects to Spotify through the official Spotify Web API. It can read the current track, expose safe LLM-callable music tools, control playback when explicitly enabled, duck music while NC speaks, and emit simple song-change or music-mood events for other addons.
+Spotify Sense is an optional NeuralCompanion addon that connects to Spotify through the official Spotify Web API. It can read the current track, expose safe LLM-callable music tools, control playback when explicitly enabled, duck music while NC speaks, emit simple song-change or music-mood events for other addons, and provide hidden music awareness context to normal chat.
 
 ## Setup
 
@@ -29,6 +29,8 @@ Spotify Sense starts disabled. LLM control is off, autonomous music is off, and 
 
 Tokens are stored only in local addon runtime storage. Do not commit runtime files or real Spotify credentials.
 
+When music awareness is enabled, Spotify Sense sends only compact playback metadata to chat context. It never injects the Spotify access token, refresh token, Client ID, or other credentials into prompts.
+
 ## Tools And Hooks
 
 The addon exposes these capabilities through the NC addon capability system:
@@ -48,6 +50,7 @@ The addon exposes these capabilities through the NC addon capability system:
 - `spotify.add_to_queue`
 - `spotify.commentary`
 - `spotify.route_intent`
+- `spotify.music_context`
 - `spotify.duck.start`
 - `spotify.duck.end`
 - `spotify.story_hook`
@@ -60,12 +63,41 @@ If **Duck music while NC speaks** is enabled, `spotify.duck.start` stores the cu
 
 Story hooks are optional and respect **Story mode background music**, **Allow autonomous music**, and confirmation settings. Spotify Sense does not depend on the Multi Persona Roleplay addon and does not force music if there is no connected account or active device.
 
+## Music Awareness In Chat
+
+When **Enable music awareness in chat** is enabled, Spotify Sense keeps a small cached snapshot of the current Spotify playback and contributes it through NC's addon chat-context system. This lets the LLM know what is playing during normal replies without the user asking "what song is this?"
+
+The hidden context can include:
+
+- track name
+- artists
+- album
+- play/pause state
+- progress and duration
+- active Spotify device
+- playlist/context URI
+- metadata-based mood hint
+
+The LLM is instructed to treat this as ambient context, not as a direct user request. It should not mention the music every turn, and it should not claim to hear or analyze raw audio. Spotify Sense uses Spotify metadata only; it does not listen to the computer's audio stream.
+
+The **Music response mode** controls how strongly NC uses the context:
+
+- **Off**: no hidden music context is contributed.
+- **Subtle**: quiet mood awareness; mention music only when useful.
+- **Companion**: the music can become a small companion signal in suitable replies.
+- **DJ / Music Critic**: allows a more playful music-commentary flavor when relevant.
+- **Story soundtrack**: treats the current music as atmosphere for story, roleplay, and scene pacing.
+
+**Include paused Spotify track context** allows the last paused track to stay visible to the LLM. Leave it off if paused music should be ignored.
+
 ## Song Change Awareness
 
 When **Song-change monitor** is enabled, the addon polls current playback every seven seconds. On a track change it emits:
 
 - `spotify_track_changed`
 - `spotify_music_mood_changed`
+
+If **Comment on song changes** is enabled, the next chat context may include a short optional song-change acknowledgement. The **Song-change comment cooldown** prevents repeated comments from becoming noisy.
 
 The mood is inferred from Spotify metadata text only. Spotify Sense does not analyze raw audio.
 

@@ -16,6 +16,8 @@ from addons.ai_presence_mode.controller import (
     COMPANION_ORB_SESSION_KEYS,
     DEFAULT_SETTINGS,
     NEURAL_FACE_SESSION_KEYS,
+    ORB_POSITIONS,
+    ORB_VISUAL_STYLES,
     ORB_RESPONSE_STYLES,
     VISUAL_STYLES,
     AIPresenceModeController,
@@ -33,6 +35,7 @@ from addons.companion_orb_overlay.companion_orb.companion_orb_controller import 
     FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE,
     MANUAL_INSPECTION_SECONDS,
     ORB_COMMAND_MENU_ACTIONS,
+    VOICE_FILE_SUFFIXES,
 )
 from addons.companion_orb_overlay.companion_orb import snapshot_ocr
 from addons.companion_orb_overlay.companion_orb.snapshot_ocr import best_region_for_text
@@ -62,6 +65,25 @@ def main():
     assert "companion_orb_full_screen_context_enabled" in orb_keys
     assert "companion_orb_include_process_name" in orb_keys
     assert "companion_orb_response_style" in orb_keys
+    assert "companion_orb_supervisor_enabled" in orb_keys
+    assert "companion_orb_supervisor_prompt_template" in orb_keys
+    assert "companion_orb_supervisor_personas" in orb_keys
+    assert "companion_orb_supervisor_selected_persona_id" in orb_keys
+    assert "companion_orb_external_runtime_enabled" in orb_keys
+    assert "companion_orb_custom_colors_enabled" in orb_keys
+    assert "companion_orb_primary_color" in orb_keys
+    assert "companion_orb_secondary_color" in orb_keys
+    assert "companion_orb_accent_color" in orb_keys
+    assert "companion_orb_glow_color" in orb_keys
+    assert "companion_orb_state_colors_enabled" in orb_keys
+    assert "companion_orb_idle_color" in orb_keys
+    assert "companion_orb_thinking_color" in orb_keys
+    assert "companion_orb_speaking_color" in orb_keys
+    assert "companion_orb_state_animation_enabled" in orb_keys
+    assert "companion_orb_idle_animation" in orb_keys
+    assert "companion_orb_thinking_animation" in orb_keys
+    assert "companion_orb_speaking_animation" in orb_keys
+    assert "companion_orb_frame_rate" in orb_keys
     assert DEFAULT_SETTINGS["companion_orb_harassment_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_harassment_timer_seconds"] == 45
     assert DEFAULT_SETTINGS["companion_orb_snapshot_on_pointer_reached"] is False
@@ -69,10 +91,34 @@ def main():
     assert DEFAULT_SETTINGS["companion_orb_full_screen_context_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_include_process_name"] is True
     assert DEFAULT_SETTINGS["companion_orb_response_style"] == "friendly"
+    assert DEFAULT_SETTINGS["companion_orb_supervisor_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_supervisor_prompt_template"] == ""
+    assert DEFAULT_SETTINGS["companion_orb_supervisor_personas"] == []
+    assert DEFAULT_SETTINGS["companion_orb_external_runtime_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_position"] == "top-center"
+    assert ("Top center", "top-center") in ORB_POSITIONS
+    assert DEFAULT_SETTINGS["companion_orb_visual_style"] == "neural_spark"
+    assert ORB_VISUAL_STYLES == [("Neural Spark Orb", "neural_spark")]
+    assert DEFAULT_SETTINGS["companion_orb_custom_colors_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_primary_color"] == "#22d3ee"
+    assert DEFAULT_SETTINGS["companion_orb_secondary_color"] == "#38bdf8"
+    assert DEFAULT_SETTINGS["companion_orb_accent_color"] == "#a78bfa"
+    assert DEFAULT_SETTINGS["companion_orb_glow_color"] == "#67e8f9"
+    assert DEFAULT_SETTINGS["companion_orb_state_colors_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_idle_color"] == "#38bdf8"
+    assert DEFAULT_SETTINGS["companion_orb_thinking_color"] == "#a78bfa"
+    assert DEFAULT_SETTINGS["companion_orb_speaking_color"] == "#f472b6"
+    assert DEFAULT_SETTINGS["companion_orb_state_animation_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_idle_animation"] == "calm_breathe"
+    assert DEFAULT_SETTINGS["companion_orb_thinking_animation"] == "thinking_swirl"
+    assert DEFAULT_SETTINGS["companion_orb_speaking_animation"] == "voice_ripple"
+    assert DEFAULT_SETTINGS["companion_orb_frame_rate"] == 60
     assert ("Sensual / non-explicit", "sensual_non_explicit") in ORB_RESPONSE_STYLES
     assert ORB_COMMAND_MENU_ACTIONS == ("Change Voice", "Response Style", "Chat text input")
     assert "INITIALIZE" not in ORB_COMMAND_MENU_ACTIONS
     assert "TERMINATE" not in ORB_COMMAND_MENU_ACTIONS
+    assert ".wav" in VOICE_FILE_SUFFIXES
+    assert ".mp3" in VOICE_FILE_SUFFIXES
     assert DROP_ACK_MESSAGES
     assert any("something else to look at" in message for message in DROP_ACK_MESSAGES)
     assert DROP_FOCUS_SECONDS > 20.0
@@ -210,6 +256,7 @@ def main():
     companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")
     companion_overlay_main_source = (ROOT / "addons" / "companion_orb_overlay" / "main.py").read_text(encoding="utf-8")
     companion_orb_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "sensory_source.py").read_text(encoding="utf-8")
+    companion_orb_qml = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "qml" / "CompanionOrbOverlay.qml").read_text(encoding="utf-8")
     engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
     assert "companion_orb_slider_responsive_grid" in companion_overlay_controller_source
     assert "companion_orb_toggle_groups_grid" in companion_overlay_controller_source
@@ -220,9 +267,58 @@ def main():
     assert "companion_orb_supervisor_settings_grid" in companion_overlay_controller_source
     assert "companion_orb_debug_enabled_checkbox" in companion_overlay_controller_source
     assert "companion_orb_debug_log_path_preview" in companion_overlay_controller_source
+    assert "Enable Companion Orb Target source" in companion_overlay_controller_source
+    assert "Run hidden PING/PONG loop" in companion_overlay_controller_source
     assert "Full-screen context map" in companion_overlay_controller_source
+    assert "not the separate HOST Screen source" in companion_overlay_controller_source
+    assert "Companion Orb Target Supervisor" in companion_overlay_controller_source
+    assert "companion_orb_supervisor_behavior_designer" in companion_overlay_controller_source
+    assert "btn_companion_orb_supervisor_add_behavior" in companion_overlay_controller_source
+    assert "COMPANION_ORB_SUPERVISOR_CONTRIBUTOR_ID" in companion_overlay_controller_source
+    assert "source_id=COMPANION_ORB_PROVIDER_ID" in companion_overlay_controller_source
+    assert "companion_orb_supervisor_enabled_checkbox" in companion_overlay_controller_source
+    assert "companion_orb_supervisor_preview_edit" in companion_overlay_controller_source
+    assert "[companion_orb_supervisor_match]" in companion_overlay_controller_source
+    assert "def _set_companion_orb_source_included" in companion_overlay_controller_source
+    assert "sensory_feedback_source" in companion_overlay_controller_source
+    assert "COMPANION_ORB_PROVIDER_ID" in companion_overlay_controller_source
     assert "Mention process names" in companion_overlay_controller_source
+    assert "External runtime for orb animation" in companion_overlay_controller_source
+    assert "companion_orb_external_runtime_enabled_checkbox" in companion_overlay_controller_source
     assert "Orb Tuning" in companion_overlay_controller_source
+    assert "Custom Colors" in companion_overlay_controller_source
+    assert "State Overrides" in companion_overlay_controller_source
+    assert "ORB_STATE_ANIMATIONS" in companion_overlay_controller_source
+    assert "companion_orb_custom_colors_enabled_checkbox" in companion_overlay_controller_source
+    assert "companion_orb_custom_color_grid" in companion_overlay_controller_source
+    assert "companion_orb_state_colors_enabled_checkbox" in companion_overlay_controller_source
+    assert "companion_orb_state_animation_enabled_checkbox" in companion_overlay_controller_source
+    assert "companion_orb_state_animation_grid" in companion_overlay_controller_source
+    assert "companion_orb_frame_rate_slider" in companion_overlay_controller_source
+    assert "COMPANION_ORB_TOOLTIPS" in companion_overlay_controller_source
+    assert "companion_orb_show_button" in companion_overlay_controller_source
+    assert "companion_orb_target_mode_combo" in companion_overlay_controller_source
+    assert "companion_orb_primary_color_pick_button" in companion_overlay_controller_source
+    assert companion_overlay_controller_source.index('self._section_group("Orb Tuning"') < companion_overlay_controller_source.index("layout.addWidget(self._build_companion_orb_sensory_tabs())")
+    assert "property bool customColorsEnabled" in companion_orb_qml
+    assert "property bool stateColorsEnabled" in companion_orb_qml
+    assert "property bool stateAnimationEnabled" in companion_orb_qml
+    assert "function stateTintColor" in companion_orb_qml
+    assert "function activeStateAnimation" in companion_orb_qml
+    assert "function drawNeuralSpark" in companion_orb_qml
+    assert "function drawSmokeWisp" not in companion_orb_qml
+    assert "function drawHologram" not in companion_orb_qml
+    assert "function drawMoodOrb" not in companion_orb_qml
+    assert "drawStateAnimationOverlay" not in companion_orb_qml
+    assert "root.customColorsEnabled ? root.primaryColor" in companion_orb_qml
+    assert "root.stateColorsEnabled ? stateColor" in companion_orb_qml
+    assert 'property string visualStyle: orbBridge ? orbBridge.visualStyle : "neural_spark"' in companion_orb_qml
+    assert "root.customColorsEnabled ? root.secondaryColor" in companion_orb_qml
+    assert "root.customColorsEnabled ? root.accentColor" in companion_orb_qml
+    assert "root.customColorsEnabled ? root.glowColor" in companion_orb_qml
+    assert "property int frameRate" in companion_orb_qml
+    assert "function frameIntervalMs" in companion_orb_qml
+    assert "property real lastTickMs" in companion_orb_qml
     assert 'Always set should_generate_image=false and visual_candidate=""' in companion_orb_source
     assert "_hidden_sensory_snapshots_include_source" in engine_source
     assert "Suppressed Companion Orb Target visual generation request" in engine_source
@@ -257,6 +353,20 @@ def main():
             "companion_orb_falling_particles_enabled": True,
             "companion_orb_falling_particle_density": 22,
             "companion_orb_falling_particle_lifetime": 4.6,
+            "companion_orb_custom_colors_enabled": True,
+            "companion_orb_primary_color": "#ff3366",
+            "companion_orb_secondary_color": "#33ffaa",
+            "companion_orb_accent_color": "#ffaa33",
+            "companion_orb_glow_color": "#6633ff",
+            "companion_orb_state_colors_enabled": True,
+            "companion_orb_idle_color": "#112233",
+            "companion_orb_thinking_color": "#445566",
+            "companion_orb_speaking_color": "#778899",
+            "companion_orb_state_animation_enabled": True,
+            "companion_orb_idle_animation": "slow_orbit",
+            "companion_orb_thinking_animation": "focused_pulse",
+            "companion_orb_speaking_animation": "energetic_sparkle",
+            "companion_orb_frame_rate": 90,
         }
     )
     bridge.setAiState("listening")
@@ -270,12 +380,30 @@ def main():
     assert bridge.fallingParticlesEnabled is True
     assert bridge.fallingParticleDensity == 22
     assert bridge.fallingParticleLifetime > 4.5
+    assert bridge.customColorsEnabled is True
+    assert bridge.stateColorsEnabled is True
+    assert bridge.idleColor == "#112233"
+    assert bridge.thinkingColor == "#445566"
+    assert bridge.speakingColor == "#778899"
+    assert bridge.stateAnimationEnabled is True
+    assert bridge.idleAnimation == "slow_orbit"
+    assert bridge.thinkingAnimation == "focused_pulse"
+    assert bridge.speakingAnimation == "energetic_sparkle"
+    assert bridge.primaryColor == "#ff3366"
+    assert bridge.secondaryColor == "#33ffaa"
+    assert bridge.accentColor == "#ffaa33"
+    assert bridge.glowColor == "#6633ff"
+    assert bridge.frameRate == 90
+    bridge.setPresenceMood("happy")
+    assert bridge.primaryColor == "#ff3366"
     bridge.set_target_info({"target_type": "window", "title": "Story Window", "process_name": "nc.exe", "bounds": [1, 2, 300, 240]})
     assert bridge.targetTitle == "Story Window - nc.exe"
     bridge.apply_settings({"companion_orb_voice_sync_enabled": False})
     bridge.setAudioLevel(0.9)
     assert bridge.audioLevel == 0.0
     companion_orb_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "companion_orb_controller.py").read_text(encoding="utf-8")
+    external_client_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "external_runtime_client.py").read_text(encoding="utf-8")
+    external_runtime_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "external_orb_runtime.py").read_text(encoding="utf-8")
     assert "def _show_chat_input_popup" in companion_orb_source
     assert "def _send_orb_chat_message" in companion_orb_source
     assert "companion_orb_chat_input_popup" in companion_orb_source
@@ -299,9 +427,28 @@ def main():
     assert "drop_ack_started" in companion_orb_source
     assert "drop_ack_speech_skipped" in companion_orb_source
     assert "snapshots_override" in companion_orb_source
-    assert "max_attempts = 40 if snapshot_payload else 8" in companion_orb_source
+    assert "position in {\"top-center\", \"bottom-right\"}" in companion_orb_source
+    assert "def _clear_snapshot_context" in companion_orb_source
+    assert "snapshot_context_stale_ignored" in companion_orb_source
+    assert "snapshot_context_untracked_ignored" in companion_orb_source
+    assert "manual_inspection_id" in companion_orb_source
+    assert "manual_priority = any(" in companion_orb_source
+    assert "max_attempts = 80 if manual_priority else" in companion_orb_source
+    assert "retry_delay = 0.12 if manual_priority else" in companion_orb_source
+    assert "priority_source=\"companion_orb_drop\"" in companion_orb_source
+    assert "drop_trace_id" in companion_orb_source
+    assert "hidden_ping_requested" in companion_orb_source
+    assert "def _deliver_drop_snapshot_immediately" in companion_orb_source
+    assert "queue_image_turn" in companion_orb_source
+    assert "source=\"companion_orb_target\"" in companion_orb_source
+    assert "immediate_image_delivery" in companion_orb_source
+    assert "suppress_hidden_proactive" in companion_orb_source
     assert "drop_audio_interrupted" in companion_orb_source
     assert "inspect the visible content inside the selected focus area" in companion_orb_source
+    assert "DROP_ANCHOR_HOVER_SECONDS" in companion_orb_source
+    assert "drop_anchor_set" in companion_orb_source
+    assert "def _comment_focus_matches_manual_drop_region" in companion_orb_source
+    assert '"type": "drop_anchor"' in companion_orb_source
     assert "manual_drop_region" in companion_orb_source
     assert "stale_drop_inspection_text" in companion_orb_source
     assert "def _grab_desktop_without_orb" in companion_orb_source
@@ -316,6 +463,24 @@ def main():
     assert "def _screen_source_capture_index" in companion_orb_source
     assert "capture_mode = \"selected_screen\"" in companion_orb_source
     assert "screen_source_capture_screen_index" in companion_orb_source
+    assert "self._drift_timer.setInterval(16)" in companion_orb_source
+    assert "self._motion_timer.setInterval(16)" in companion_orb_source
+    assert "def _timer_interval_ms" in companion_orb_source
+    assert "def _time_scaled_blend" in companion_orb_source
+    assert "frame_scale = max(0.25" in companion_orb_source
+    assert "ExternalOrbRuntimeClient" in companion_orb_source
+    assert "def _external_runtime_enabled" in companion_orb_source
+    assert "def _send_external_runtime_snapshot" in companion_orb_source
+    assert '"type": "comment_focus"' in companion_orb_source
+    assert "external_orb_runtime.py" in external_client_source
+    assert "NC_COMPANION_ORB_PYTHON" in external_client_source
+    assert "class ExternalCompanionOrb" in external_runtime_source
+    assert "CompanionOrbBridge" in external_runtime_source
+    assert "message_received = QtCore.Signal(dict)" in external_runtime_source
+    assert "def _read_stdin" in external_runtime_source
+    assert "def _focus_matches_drop_region" in external_runtime_source
+    assert "selected_target_bounds" in external_runtime_source
+    assert "drop_anchor_point" in external_runtime_source
     qt_host_services_source = (ROOT / "core" / "addons" / "qt_host_services.py").read_text(encoding="utf-8")
     assert "def send_typed_chat_message" in qt_host_services_source
     engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
@@ -341,6 +506,17 @@ def main():
     assert "def _sanitize_companion_orb_manual_candidate" in engine_source
     assert "Move me a little closer to the detail" in engine_source
     assert "manual_inspection_primary" in engine_source
+    assert "def _manual_companion_orb_trace_id_from_snapshots" in engine_source
+    assert "Priority manual Companion Orb drop" in engine_source
+    assert "engine_hidden_ping_start" in engine_source
+    assert "engine_hidden_pong_received" in engine_source
+    assert "engine_hidden_proactive_wake_requested" in engine_source
+    assert "hidden_proactive_reply" in engine_source
+    assert "engine_hidden_proactive_consumed_during_listen" in engine_source
+    assert "def _build_companion_orb_image_turn_context" in engine_source
+    assert "Companion Orb immediate snapshot route" in engine_source
+    assert "def _companion_orb_snapshot_suppresses_hidden_proactive" in engine_source
+    assert "engine_hidden_pong_speech_suppressed_for_immediate_image" in engine_source
     assert "\"focus_bounds\": list(focus_bounds)" in engine_source
     assert "\"focus_text\": focus_text or proactive_candidate or summary" in engine_source
 

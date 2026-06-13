@@ -69,7 +69,7 @@ ORB_DISPLAY_MODES = [
 ]
 
 ORB_POSITIONS = [
-    ("Bottom right", "bottom-right"),
+    ("Top center", "top-center"),
     ("Bottom left", "bottom-left"),
     ("Top right", "top-right"),
     ("Top left", "top-left"),
@@ -77,11 +77,7 @@ ORB_POSITIONS = [
 ]
 
 ORB_VISUAL_STYLES = [
-    ("Soft Plasma Orb", "soft_plasma"),
     ("Neural Spark Orb", "neural_spark"),
-    ("Smoke Wisp Orb", "smoke_wisp"),
-    ("Hologram Drone Orb", "hologram_drone"),
-    ("Mood Orb", "mood_orb"),
 ]
 
 ORB_TARGET_MODES = [
@@ -133,6 +129,7 @@ BOOL_SETTINGS = {
     "companion_orb_click_through_default",
     "companion_orb_right_drag_focus_enabled",
     "companion_orb_remember_position",
+    "companion_orb_external_runtime_enabled",
     "companion_orb_movement_enabled",
     "companion_orb_harassment_enabled",
     "companion_orb_snapshot_on_pointer_reached",
@@ -145,8 +142,12 @@ BOOL_SETTINGS = {
     "companion_orb_reduced_effects",
     "companion_orb_particles_enabled",
     "companion_orb_shaders_enabled",
+    "companion_orb_custom_colors_enabled",
+    "companion_orb_state_colors_enabled",
+    "companion_orb_state_animation_enabled",
     "companion_orb_sensory_target_enabled",
     "companion_orb_full_screen_context_enabled",
+    "companion_orb_supervisor_enabled",
     "companion_orb_show_target_label",
     "companion_orb_include_process_name",
     "companion_orb_require_target_confirmation",
@@ -223,10 +224,12 @@ AI_PRESENCE_SESSION_KEYS = [
     "companion_orb_click_through_default",
     "companion_orb_right_drag_focus_enabled",
     "companion_orb_remember_position",
+    "companion_orb_external_runtime_enabled",
     "companion_orb_custom_position",
     "companion_orb_movement_enabled",
     "companion_orb_movement_speed",
     "companion_orb_movement_range",
+    "companion_orb_frame_rate",
     "companion_orb_return_home_delay",
     "companion_orb_harassment_enabled",
     "companion_orb_response_style",
@@ -247,6 +250,19 @@ AI_PRESENCE_SESSION_KEYS = [
     "companion_orb_smoke_intensity",
     "companion_orb_glow_strength",
     "companion_orb_mood_color_intensity",
+    "companion_orb_custom_colors_enabled",
+    "companion_orb_primary_color",
+    "companion_orb_secondary_color",
+    "companion_orb_accent_color",
+    "companion_orb_glow_color",
+    "companion_orb_state_colors_enabled",
+    "companion_orb_idle_color",
+    "companion_orb_thinking_color",
+    "companion_orb_speaking_color",
+    "companion_orb_state_animation_enabled",
+    "companion_orb_idle_animation",
+    "companion_orb_thinking_animation",
+    "companion_orb_speaking_animation",
     "companion_orb_speaking_reactivity",
     "companion_orb_voice_sync_enabled",
     "companion_orb_audio_refresh_hz",
@@ -255,6 +271,10 @@ AI_PRESENCE_SESSION_KEYS = [
     "companion_orb_shaders_enabled",
     "companion_orb_sensory_target_enabled",
     "companion_orb_full_screen_context_enabled",
+    "companion_orb_supervisor_enabled",
+    "companion_orb_supervisor_prompt_template",
+    "companion_orb_supervisor_personas",
+    "companion_orb_supervisor_selected_persona_id",
     "companion_orb_target_mode",
     "companion_orb_target_region_width",
     "companion_orb_target_region_height",
@@ -350,17 +370,19 @@ DEFAULT_SETTINGS = {
     "ai_presence_female_depth_enabled": True,
     "companion_orb_enabled": False,
     "companion_orb_display_mode": "off",
-    "companion_orb_position": "bottom-right",
+    "companion_orb_position": "top-center",
     "companion_orb_size": 92,
     "companion_orb_opacity": 0.82,
     "companion_orb_always_on_top": True,
     "companion_orb_click_through_default": True,
     "companion_orb_right_drag_focus_enabled": False,
     "companion_orb_remember_position": True,
+    "companion_orb_external_runtime_enabled": False,
     "companion_orb_custom_position": [],
     "companion_orb_movement_enabled": True,
     "companion_orb_movement_speed": 0.65,
     "companion_orb_movement_range": 18,
+    "companion_orb_frame_rate": 60,
     "companion_orb_return_home_delay": 2.5,
     "companion_orb_harassment_enabled": False,
     "companion_orb_response_style": "friendly",
@@ -372,7 +394,7 @@ DEFAULT_SETTINGS = {
     "companion_orb_mouse_near_fade": False,
     "companion_orb_mouse_near_fade_distance": 120,
     "companion_orb_mouse_near_opacity": 0.28,
-    "companion_orb_visual_style": "soft_plasma",
+    "companion_orb_visual_style": "neural_spark",
     "companion_orb_trail_length": 0.55,
     "companion_orb_particle_density": 30,
     "companion_orb_falling_particles_enabled": False,
@@ -381,6 +403,19 @@ DEFAULT_SETTINGS = {
     "companion_orb_smoke_intensity": 0.35,
     "companion_orb_glow_strength": 1.0,
     "companion_orb_mood_color_intensity": 0.85,
+    "companion_orb_custom_colors_enabled": False,
+    "companion_orb_primary_color": "#22d3ee",
+    "companion_orb_secondary_color": "#38bdf8",
+    "companion_orb_accent_color": "#a78bfa",
+    "companion_orb_glow_color": "#67e8f9",
+    "companion_orb_state_colors_enabled": False,
+    "companion_orb_idle_color": "#38bdf8",
+    "companion_orb_thinking_color": "#a78bfa",
+    "companion_orb_speaking_color": "#f472b6",
+    "companion_orb_state_animation_enabled": False,
+    "companion_orb_idle_animation": "calm_breathe",
+    "companion_orb_thinking_animation": "thinking_swirl",
+    "companion_orb_speaking_animation": "voice_ripple",
     "companion_orb_speaking_reactivity": 0.85,
     "companion_orb_voice_sync_enabled": True,
     "companion_orb_audio_refresh_hz": 24,
@@ -389,6 +424,10 @@ DEFAULT_SETTINGS = {
     "companion_orb_shaders_enabled": True,
     "companion_orb_sensory_target_enabled": False,
     "companion_orb_full_screen_context_enabled": False,
+    "companion_orb_supervisor_enabled": False,
+    "companion_orb_supervisor_prompt_template": "",
+    "companion_orb_supervisor_personas": [],
+    "companion_orb_supervisor_selected_persona_id": "",
     "companion_orb_target_mode": "window",
     "companion_orb_target_region_width": 640,
     "companion_orb_target_region_height": 420,
@@ -862,9 +901,9 @@ class AIPresenceModeController(QtCore.QObject):
         selector_grid.addWidget(self._compact_label("Display"), 0, 2)
         selector_grid.addWidget(self._combo("companion_orb_display_mode_combo", ORB_DISPLAY_MODES, "companion_orb_display_mode", "off"), 0, 3)
         selector_grid.addWidget(self._compact_label("Style"), 1, 0)
-        selector_grid.addWidget(self._combo("companion_orb_visual_style_combo", ORB_VISUAL_STYLES, "companion_orb_visual_style", "soft_plasma"), 1, 1)
+        selector_grid.addWidget(self._combo("companion_orb_visual_style_combo", ORB_VISUAL_STYLES, "companion_orb_visual_style", "neural_spark"), 1, 1)
         selector_grid.addWidget(self._compact_label("Position"), 1, 2)
-        selector_grid.addWidget(self._combo("companion_orb_position_combo", ORB_POSITIONS, "companion_orb_position", "bottom-right"), 1, 3)
+        selector_grid.addWidget(self._combo("companion_orb_position_combo", ORB_POSITIONS, "companion_orb_position", "top-center"), 1, 3)
         selector_grid.setColumnStretch(1, 1)
         selector_grid.setColumnStretch(3, 1)
         display_layout.addLayout(selector_grid)
@@ -970,6 +1009,7 @@ class AIPresenceModeController(QtCore.QObject):
             ("companion_orb_opacity", "companion_orb_opacity_slider", "Orb Opacity", 0.10, 1.00, 0.82, False),
             ("companion_orb_movement_speed", "companion_orb_movement_speed_slider", "Movement Speed", 0.10, 1.50, 0.65, False),
             ("companion_orb_movement_range", "companion_orb_movement_range_slider", "Movement Range", 0, 90, 18, True),
+            ("companion_orb_frame_rate", "companion_orb_frame_rate_slider", "Orb Frame Rate", 30, 120, 60, True),
             ("companion_orb_return_home_delay", "companion_orb_return_delay_slider", "Return-home Delay", 0.25, 30.00, 2.5, False),
             ("companion_orb_harassment_timer_seconds", "companion_orb_harassment_timer_slider", "Harassment Timer", 5, 300, 45, True),
             ("companion_orb_mouse_near_fade_distance", "companion_orb_mouse_fade_distance_slider", "Mouse Fade Distance", 24, 420, 120, True),
@@ -1054,11 +1094,10 @@ class AIPresenceModeController(QtCore.QObject):
             mode = str(value or "off").strip().lower()
             return mode if mode in {item[1] for item in ORB_DISPLAY_MODES} else "off"
         if key == "companion_orb_position":
-            position = str(value or "bottom-right").strip().lower()
-            return position if position in {item[1] for item in ORB_POSITIONS} else "bottom-right"
+            position = str(value or "top-center").strip().lower()
+            return position if position in {item[1] for item in ORB_POSITIONS} else "top-center"
         if key == "companion_orb_visual_style":
-            style = str(value or "soft_plasma").strip().lower()
-            return style if style in {item[1] for item in ORB_VISUAL_STYLES} else "soft_plasma"
+            return "neural_spark"
         if key == "companion_orb_target_mode":
             mode = str(value or "window").strip().lower()
             return mode if mode in {item[1] for item in ORB_TARGET_MODES} else "window"
@@ -1117,6 +1156,12 @@ class AIPresenceModeController(QtCore.QObject):
             return max(0.80, min(8.00, float(value)))
         if key == "companion_orb_movement_range":
             return max(0, min(90, int(value)))
+        if key == "companion_orb_frame_rate":
+            try:
+                fps = int(value)
+            except Exception:
+                fps = int(DEFAULT_SETTINGS.get(key, 60))
+            return min((30, 60, 90, 120), key=lambda candidate: abs(candidate - fps))
         if key == "companion_orb_audio_refresh_hz":
             return max(5, min(30, int(value)))
         if key == "companion_orb_mouse_near_fade_distance":
@@ -1129,6 +1174,30 @@ class AIPresenceModeController(QtCore.QObject):
             return max(0.25, min(30.00, float(value)))
         if key == "companion_orb_harassment_timer_seconds":
             return max(5, min(300, int(value)))
+        if key in {
+            "companion_orb_primary_color",
+            "companion_orb_secondary_color",
+            "companion_orb_accent_color",
+            "companion_orb_glow_color",
+            "companion_orb_idle_color",
+            "companion_orb_thinking_color",
+            "companion_orb_speaking_color",
+        }:
+            text = str(value or DEFAULT_SETTINGS.get(key, "#38bdf8") or "#38bdf8").strip()
+            if not text.startswith("#"):
+                text = "#" + text
+            text = text[:7]
+            if len(text) != 7:
+                return DEFAULT_SETTINGS.get(key, "#38bdf8")
+            try:
+                int(text[1:], 16)
+            except ValueError:
+                return DEFAULT_SETTINGS.get(key, "#38bdf8")
+            return text.lower()
+        if key in {"companion_orb_idle_animation", "companion_orb_thinking_animation", "companion_orb_speaking_animation"}:
+            animation = str(value or DEFAULT_SETTINGS.get(key, "style_default")).strip().lower()
+            allowed = {"style_default", "calm_breathe", "slow_orbit", "focused_pulse", "thinking_swirl", "voice_ripple", "energetic_sparkle"}
+            return animation if animation in allowed else DEFAULT_SETTINGS.get(key, "style_default")
         if key.endswith("_hotkey"):
             return str(value or DEFAULT_SETTINGS.get(key, "") or "").strip()
         if key == "companion_orb_custom_position":
@@ -1275,6 +1344,8 @@ class AIPresenceModeController(QtCore.QObject):
                     widget.setChecked(bool(value))
                 elif isinstance(widget, QtWidgets.QComboBox):
                     self._set_combo_value(widget, value)
+                elif isinstance(widget, QtWidgets.QLineEdit):
+                    widget.setText(str(value if value is not None else ""))
                 elif hasattr(widget, "set_value"):
                     widget.set_value(value)
             finally:

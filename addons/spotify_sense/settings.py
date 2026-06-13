@@ -25,6 +25,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "duck_volume_percent": 15,
     "restore_volume_after_speech": True,
     "comment_on_song_changes": False,
+    "music_awareness_enabled": True,
+    "include_paused_track_context": False,
+    "music_response_mode": "subtle",
+    "music_awareness_relevance_only": True,
+    "proactive_comment_cooldown_seconds": 120,
+    "music_context_cache_seconds": 45,
     "allow_playlist_changes": False,
     "allow_queue_changes": False,
     "story_mode_background_music": False,
@@ -82,10 +88,15 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
     data["require_confirmation"] = bool(data.get("require_confirmation", True))
     mode = str(data.get("autonomous_music", "off") or "off").strip().lower()
     data["autonomous_music"] = mode if mode in {"off", "routines", "full"} else "off"
+    response_mode = str(data.get("music_response_mode", "subtle") or "subtle").strip().lower().replace(" ", "_").replace("/", "_")
+    data["music_response_mode"] = response_mode if response_mode in {"off", "subtle", "companion", "dj_critic", "story_soundtrack"} else "subtle"
     for key in (
         "duck_while_speaking",
         "restore_volume_after_speech",
         "comment_on_song_changes",
+        "music_awareness_enabled",
+        "include_paused_track_context",
+        "music_awareness_relevance_only",
         "allow_playlist_changes",
         "allow_queue_changes",
         "story_mode_background_music",
@@ -95,6 +106,8 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
     for key, default, minimum, maximum in (
         ("default_volume", 30, 0, 100),
         ("duck_volume_percent", 15, 0, 100),
+        ("proactive_comment_cooldown_seconds", 120, 15, 3600),
+        ("music_context_cache_seconds", 45, 5, 300),
     ):
         try:
             data[key] = max(minimum, min(maximum, int(data.get(key, default))))

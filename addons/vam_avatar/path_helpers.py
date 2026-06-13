@@ -16,6 +16,7 @@ def detect_default_root(*, app_root: Path, environ=None) -> str:
 
     root = Path(app_root)
     candidates = [
+        Path(r"I:\wam\VaM 1.20.0.6"),
         root.parent / "VaM 1.20.0.6",
         root.parent / "VaM",
     ]

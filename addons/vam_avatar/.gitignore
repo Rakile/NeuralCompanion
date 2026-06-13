@@ -1,0 +1,10 @@
+.venv-hymotion/
+tools/hy_motion/HY-Motion-1.0/
+models/hy_motion/
+cache/hy_motion/
+outputs/hy_motion/
+*.fbx
+*.bvh
+*.npz
+*.npy
+*.pkl

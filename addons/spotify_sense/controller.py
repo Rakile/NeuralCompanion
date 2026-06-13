@@ -39,6 +39,14 @@ CONTROL_TOOLS = {
 }
 
 TOOL_NAMES = READ_TOOLS | CONTROL_TOOLS
+SENSORY_PROVIDER_ID = "spotify_sense"
+MUSIC_RESPONSE_MODES = (
+    ("Off", "off"),
+    ("Subtle", "subtle"),
+    ("Companion", "companion"),
+    ("DJ / Music Critic", "dj_critic"),
+    ("Story soundtrack", "story_soundtrack"),
+)
 
 
 class _OAuthHTTPServer(http.server.ThreadingHTTPServer):
@@ -61,15 +69,57 @@ class SpotifySenseController(QtCore.QObject):
         self._last_track_id = ""
         self._last_track_comment_at = 0.0
         self._remembered_volume: int | None = None
+        self._cached_music_context: dict[str, Any] = {}
+        self._cached_music_context_at = 0.0
+        self._last_context_refresh_request_at = 0.0
+        self._context_refresh_in_flight = False
+        self._pending_track_change_context: dict[str, Any] | None = None
+        self._sensory_provider_registered = False
 
         self.oauth_callback_received.connect(self._handle_oauth_callback, QtCore.Qt.QueuedConnection)
         self.async_result_ready.connect(self._handle_async_result, QtCore.Qt.QueuedConnection)
         self.status_message.connect(self._set_status, QtCore.Qt.QueuedConnection)
 
+        self._register_sensory_provider()
         self._track_monitor_timer = QtCore.QTimer(self)
         self._track_monitor_timer.setInterval(7000)
         self._track_monitor_timer.timeout.connect(self._poll_track_change)
         self._sync_monitor_timer()
+
+    def _register_sensory_provider(self):
+        service = self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
+        if service is None:
+            return
+        try:
+            service.register_provider(
+                provider_id=SENSORY_PROVIDER_ID,
+                label="Spotify Sense",
+                instruction=(
+                    "Hidden music awareness from Spotify metadata. Treat it as ambient context only; "
+                    "do not claim to hear raw audio."
+                ),
+                description="Current Spotify track metadata for music-aware chat and optional hidden sensory feedback.",
+                order=340,
+                capture_handler=self.capture_sensory_snapshot,
+                metadata={"kind": "music", "provider": "spotify", "text_only": True},
+            )
+            self._sensory_provider_registered = True
+        except Exception as exc:
+            try:
+                self.context.logger.warning("[SpotifySense] Could not register sensory provider: %s", exc)
+            except Exception:
+                pass
+
+    def _unregister_sensory_provider(self):
+        if not self._sensory_provider_registered:
+            return
+        service = self.context.get_service("qt.sensory") if getattr(self, "context", None) is not None else None
+        if service is not None:
+            try:
+                service.unregister_provider(SENSORY_PROVIDER_ID)
+            except Exception:
+                pass
+        self._sensory_provider_registered = False
 
     def build_tab(self):
         scroll = QtWidgets.QScrollArea()
@@ -167,6 +217,9 @@ class SpotifySenseController(QtCore.QObject):
         self.playlist_checkbox = self._checkbox("Allow playlist changes", "allow_playlist_changes")
         self.story_checkbox = self._checkbox("Story mode background music", "story_mode_background_music")
         self.monitor_checkbox = self._checkbox("Song-change monitor", "song_change_monitor_enabled")
+        self.awareness_checkbox = self._checkbox("Enable music awareness in chat", "music_awareness_enabled")
+        self.paused_context_checkbox = self._checkbox("Include paused Spotify track context", "include_paused_track_context")
+        self.relevance_checkbox = self._checkbox("Only mention music when relevant", "music_awareness_relevance_only")
 
         self.autonomy_combo = QtWidgets.QComboBox()
         self.autonomy_combo.setObjectName("spotify_sense_autonomous_music")
@@ -175,6 +228,14 @@ class SpotifySenseController(QtCore.QObject):
         self._set_combo_value(self.autonomy_combo, self.settings.data.get("autonomous_music", "off"))
         self.autonomy_combo.currentIndexChanged.connect(lambda _index: self._update_setting("autonomous_music", self.autonomy_combo.currentData()))
 
+        self.response_mode_combo = QtWidgets.QComboBox()
+        self.response_mode_combo.setObjectName("spotify_sense_music_response_mode")
+        for label, value in MUSIC_RESPONSE_MODES:
+            self.response_mode_combo.addItem(label, value)
+        self._set_combo_value(self.response_mode_combo, self.settings.data.get("music_response_mode", "subtle"))
+        self.response_mode_combo.currentIndexChanged.connect(lambda _index: self._update_setting("music_response_mode", self.response_mode_combo.currentData()))
+        self._controls["music_response_mode"] = self.response_mode_combo
+
         self.default_device_combo = QtWidgets.QComboBox()
         self.default_device_combo.setObjectName("spotify_sense_default_device")
         self.default_device_combo.addItem("Active device / default", "")
@@ -182,6 +243,7 @@ class SpotifySenseController(QtCore.QObject):
 
         self.default_volume_spin = self._spinbox("default_volume", 0, 100)
         self.duck_volume_spin = self._spinbox("duck_volume_percent", 0, 100)
+        self.comment_cooldown_spin = self._spinbox("proactive_comment_cooldown_seconds", 15, 3600, suffix="s")
 
         self.coding_query_edit = QtWidgets.QLineEdit()
         self.coding_query_edit.setObjectName("spotify_sense_coding_query")
@@ -194,6 +256,8 @@ class SpotifySenseController(QtCore.QObject):
             (self.duck_checkbox, self.restore_checkbox),
             (self.comment_checkbox, self.queue_checkbox),
             (self.playlist_checkbox, self.story_checkbox),
+            (self.awareness_checkbox, self.paused_context_checkbox),
+            (self.relevance_checkbox, QtWidgets.QWidget()),
         ]
         row_index = 0
         for left, right in rows:
@@ -202,13 +266,18 @@ class SpotifySenseController(QtCore.QObject):
             row_index += 1
         settings_grid.addWidget(QtWidgets.QLabel("Autonomous music"), row_index, 0)
         settings_grid.addWidget(self.autonomy_combo, row_index, 1)
-        settings_grid.addWidget(QtWidgets.QLabel("Default device"), row_index, 2)
-        settings_grid.addWidget(self.default_device_combo, row_index, 3)
+        settings_grid.addWidget(QtWidgets.QLabel("Music response mode"), row_index, 2)
+        settings_grid.addWidget(self.response_mode_combo, row_index, 3)
         row_index += 1
         settings_grid.addWidget(QtWidgets.QLabel("Default volume"), row_index, 0)
         settings_grid.addWidget(self.default_volume_spin, row_index, 1)
         settings_grid.addWidget(QtWidgets.QLabel("Duck volume"), row_index, 2)
         settings_grid.addWidget(self.duck_volume_spin, row_index, 3)
+        row_index += 1
+        settings_grid.addWidget(QtWidgets.QLabel("Song-change comment cooldown"), row_index, 0)
+        settings_grid.addWidget(self.comment_cooldown_spin, row_index, 1)
+        settings_grid.addWidget(QtWidgets.QLabel("Default device"), row_index, 2)
+        settings_grid.addWidget(self.default_device_combo, row_index, 3)
         row_index += 1
         settings_grid.addWidget(QtWidgets.QLabel("Coding mode search"), row_index, 0)
         settings_grid.addWidget(self.coding_query_edit, row_index, 1, 1, 3)
@@ -264,11 +333,11 @@ class SpotifySenseController(QtCore.QObject):
         self._controls[key] = checkbox
         return checkbox
 
-    def _spinbox(self, key: str, minimum: int, maximum: int):
+    def _spinbox(self, key: str, minimum: int, maximum: int, *, suffix: str = "%"):
         spinbox = QtWidgets.QSpinBox()
         spinbox.setObjectName(f"spotify_sense_{key}")
         spinbox.setRange(int(minimum), int(maximum))
-        spinbox.setSuffix("%")
+        spinbox.setSuffix(str(suffix or ""))
         spinbox.setValue(int(self.settings.data.get(key, DEFAULT_SETTINGS.get(key, minimum)) or minimum))
         spinbox.valueChanged.connect(lambda value, setting_key=key: self._update_setting(setting_key, int(value)))
         self._controls[key] = spinbox
@@ -295,8 +364,9 @@ class SpotifySenseController(QtCore.QObject):
 
     def _update_setting(self, key: str, value: Any):
         self.settings.update(**{str(key): value})
-        if str(key) == "song_change_monitor_enabled":
+        if str(key) in {"enabled", "song_change_monitor_enabled", "music_awareness_enabled", "include_paused_track_context", "music_response_mode"}:
             self._sync_monitor_timer()
+            self._request_music_context_refresh(force=True)
         self._refresh_connection_status()
 
     def _refresh_connection_status(self):
@@ -396,6 +466,9 @@ class SpotifySenseController(QtCore.QObject):
             account_id="",
         )
         self._last_track_id = ""
+        self._cached_music_context = {}
+        self._cached_music_context_at = 0.0
+        self._pending_track_change_context = None
         self._refresh_connection_status()
         self._set_status("Disconnected from Spotify Sense. Local tokens were cleared.")
 
@@ -464,12 +537,17 @@ class SpotifySenseController(QtCore.QObject):
                 self._sync_control_values()
                 self._refresh_connection_status()
                 self._on_refresh_devices()
+                self._sync_monitor_timer()
                 self.context.logger.info("[SpotifySense] Spotify OAuth connection completed.")
             else:
                 self._set_status(str(result.get("error") or "Spotify authorization failed."))
             return
         if kind == "devices":
             self._update_devices(result)
+            return
+        if kind == "music_context_refresh":
+            self._context_refresh_in_flight = False
+            self._update_current_track(result, from_monitor=True)
             return
         if kind in {"current_track", "track_monitor"}:
             self._update_current_track(result, from_monitor=(kind == "track_monitor"))
@@ -488,6 +566,8 @@ class SpotifySenseController(QtCore.QObject):
                     widget.setChecked(bool(value))
                 elif isinstance(widget, QtWidgets.QSpinBox):
                     widget.setValue(int(value or 0))
+                elif isinstance(widget, QtWidgets.QComboBox):
+                    self._set_combo_value(widget, value)
             finally:
                 try:
                     widget.blockSignals(False)
@@ -527,9 +607,12 @@ class SpotifySenseController(QtCore.QObject):
             return
         compact = self._compact_track(result)
         if not compact.get("id"):
+            self._cached_music_context = {}
+            self._cached_music_context_at = time.time()
             if not from_monitor:
                 self.current_track_label.setText("Current track: nothing is currently playing.")
             return
+        self._cache_music_context(compact)
         label = self._track_sentence(compact)
         if getattr(self, "current_track_label", None) is not None:
             self.current_track_label.setText(label)
@@ -550,8 +633,14 @@ class SpotifySenseController(QtCore.QObject):
             self.context.events.publish("spotify_track_changed", payload)
         except Exception:
             pass
-        if bool(self.settings.data.get("comment_on_song_changes", False)) and now - self._last_track_comment_at >= 30.0:
+        cooldown = int(self.settings.data.get("proactive_comment_cooldown_seconds", 120) or 120)
+        if bool(self.settings.data.get("comment_on_song_changes", False)) and now - self._last_track_comment_at >= cooldown:
             self._last_track_comment_at = now
+            self._pending_track_change_context = {
+                "changed_at": now,
+                "track": self._music_context_payload_from_track(track),
+                "commentary": self._commentary_for_track(track),
+            }
             self._set_status(self._commentary_for_track(track))
 
     def _compact_track(self, result: dict[str, Any]) -> dict[str, Any]:
@@ -579,6 +668,149 @@ class SpotifySenseController(QtCore.QObject):
             "context": str((data.get("context") or {}).get("uri") or ""),
         }
 
+    def _cache_music_context(self, track: dict[str, Any]):
+        payload = self._music_context_payload_from_track(track)
+        self._cached_music_context = dict(payload)
+        self._cached_music_context_at = time.time()
+
+    def _music_context_payload_from_track(self, track: dict[str, Any]) -> dict[str, Any]:
+        compact = dict(track or {})
+        return {
+            "source": SENSORY_PROVIDER_ID,
+            "is_playing": bool(compact.get("is_playing", False)),
+            "track": str(compact.get("name") or ""),
+            "artists": [str(item) for item in list(compact.get("artists") or []) if str(item or "").strip()],
+            "album": str(compact.get("album") or ""),
+            "progress_ms": int(compact.get("progress_ms") or 0),
+            "duration_ms": int(compact.get("duration_ms") or 0),
+            "device": str(compact.get("device") or ""),
+            "context": str(compact.get("context") or ""),
+            "uri": str(compact.get("uri") or ""),
+            "mood_hint": infer_music_mood(compact),
+            "metadata_only": True,
+        }
+
+    def _music_context_enabled(self) -> bool:
+        if not bool(self.settings.data.get("enabled", False)):
+            return False
+        if not bool(self.settings.data.get("music_awareness_enabled", True)):
+            return False
+        if str(self.settings.data.get("music_response_mode", "subtle") or "subtle").strip().lower() == "off":
+            return False
+        return self.client.is_connected()
+
+    def _current_music_context_payload(self) -> dict[str, Any]:
+        if not self._music_context_enabled():
+            return {}
+        payload = dict(self._cached_music_context or {})
+        if not payload.get("track"):
+            self._request_music_context_refresh(force=False)
+            return {}
+        max_age = int(self.settings.data.get("music_context_cache_seconds", 45) or 45)
+        age = time.time() - float(self._cached_music_context_at or 0.0)
+        if age > max_age:
+            self._request_music_context_refresh(force=False)
+        if age > max(max_age * 4, 90):
+            return {}
+        if not bool(payload.get("is_playing")) and not bool(self.settings.data.get("include_paused_track_context", False)):
+            return {}
+        payload["cache_age_seconds"] = max(0, int(age))
+        return payload
+
+    def _request_music_context_refresh(self, *, force: bool = False):
+        if not self.client.is_connected():
+            return
+        now = time.time()
+        if self._context_refresh_in_flight:
+            return
+        if not force and now - self._last_context_refresh_request_at < 5.0:
+            return
+        self._last_context_refresh_request_at = now
+        self._context_refresh_in_flight = True
+        self._run_async("music_context_refresh", self.client.get_current_track)
+
+    def _music_mode_instruction(self) -> str:
+        mode = str(self.settings.data.get("music_response_mode", "subtle") or "subtle").strip().lower()
+        if mode == "companion":
+            return "Use the music as a companion mood signal. Briefly acknowledge it when it genuinely fits the conversation."
+        if mode == "dj_critic":
+            return "You may use a playful DJ/music-critic flavor when the user is talking about music, but keep it concise."
+        if mode == "story_soundtrack":
+            return "Use the music as soundtrack context for story, roleplay, scene pacing, and atmosphere when relevant."
+        return "Use the music quietly as ambient mood context. Do not mention it unless it helps the current reply."
+
+    def _build_music_context_text(self, payload: dict[str, Any], *, consume_pending: bool = False) -> str:
+        if not payload:
+            return ""
+        artists = ", ".join(payload.get("artists") or []) or "Unknown artist"
+        progress = int(payload.get("progress_ms") or 0)
+        duration = int(payload.get("duration_ms") or 0)
+        progress_text = f"{progress}/{duration} ms" if duration > 0 else f"{progress} ms"
+        mention_rule = (
+            "Only mention the music when it is relevant to the user's message or the current creative task."
+            if bool(self.settings.data.get("music_awareness_relevance_only", True))
+            else "You may naturally mention the music, but avoid repeating it every turn."
+        )
+        lines = [
+            "Hidden Spotify music awareness only, not a user request.",
+            "Spotify metadata is available; do not claim to hear or analyze raw audio.",
+            f"Now playing: {payload.get('track') or 'Unknown track'} by {artists}.",
+            f"Album: {payload.get('album') or 'Unknown album'}.",
+            f"Playback: {'playing' if payload.get('is_playing') else 'paused'}; progress: {progress_text}.",
+            f"Device: {payload.get('device') or 'unknown'}; context: {payload.get('context') or 'none'}.",
+            f"Mood hint from metadata: {payload.get('mood_hint') or 'neutral'}.",
+            f"Music response mode: {self.settings.data.get('music_response_mode', 'subtle')}. {self._music_mode_instruction()}",
+            mention_rule,
+        ]
+        pending = dict(self._pending_track_change_context or {})
+        if pending and bool(self.settings.data.get("comment_on_song_changes", False)):
+            pending_track = dict(pending.get("track") or {})
+            lines.append(
+                "Recent Spotify track change: "
+                f"{pending_track.get('track') or payload.get('track') or 'Unknown track'}; "
+                f"optional short acknowledgement: {pending.get('commentary') or self._commentary_for_track({'name': payload.get('track'), 'artists': payload.get('artists')})}"
+            )
+            if consume_pending:
+                self._pending_track_change_context = None
+        return "\n".join(lines)
+
+    def collect_chat_context(self, _payload: dict[str, Any] | None = None):
+        payload = self._current_music_context_payload()
+        if not payload:
+            return None
+        context_text = self._build_music_context_text(payload, consume_pending=True)
+        if not context_text:
+            return None
+        return {
+            "context": context_text,
+            "debug": {
+                "matches": 1,
+                "sources": [SENSORY_PROVIDER_ID],
+                "mood": payload.get("mood_hint", "neutral"),
+                "track": payload.get("track", ""),
+            },
+        }
+
+    def capture_sensory_snapshot(self, _capture_context=None):
+        payload = self._current_music_context_payload()
+        if not payload:
+            return None
+        return {
+            "source": SENSORY_PROVIDER_ID,
+            "captured_at": time.time(),
+            "content_text": self._build_music_context_text(payload, consume_pending=False),
+            "metadata": {
+                "kind": "music",
+                "provider": "spotify",
+                "track": str(payload.get("track") or ""),
+                "artists": list(payload.get("artists") or []),
+                "album": str(payload.get("album") or ""),
+                "is_playing": bool(payload.get("is_playing", False)),
+                "mood_hint": str(payload.get("mood_hint") or "neutral"),
+                "metadata_only": True,
+            },
+        }
+
     def _track_sentence(self, track: dict[str, Any]) -> str:
         artists = ", ".join(track.get("artists") or []) or "Unknown artist"
         mood = infer_music_mood(track)
@@ -599,20 +831,40 @@ class SpotifySenseController(QtCore.QObject):
             pass
 
     def _sync_monitor_timer(self):
-        should_run = bool(self.settings.data.get("song_change_monitor_enabled", False)) and self.client.is_connected()
+        should_run = (
+            self.client.is_connected()
+            and bool(self.settings.data.get("enabled", False))
+            and (
+                bool(self.settings.data.get("song_change_monitor_enabled", False))
+                or bool(self.settings.data.get("music_awareness_enabled", True))
+            )
+        )
         if should_run and not self._track_monitor_timer.isActive():
             self._track_monitor_timer.start()
+            self._request_music_context_refresh(force=True)
         elif not should_run and self._track_monitor_timer.isActive():
             self._track_monitor_timer.stop()
 
     def _poll_track_change(self):
-        if not bool(self.settings.data.get("song_change_monitor_enabled", False)) or not self.client.is_connected():
+        if (
+            not self.client.is_connected()
+            or not bool(self.settings.data.get("enabled", False))
+            or not (
+                bool(self.settings.data.get("song_change_monitor_enabled", False))
+                or bool(self.settings.data.get("music_awareness_enabled", True))
+            )
+        ):
             self._sync_monitor_timer()
             return
         self._run_async("track_monitor", self.client.get_current_track)
 
     def invoke_capability(self, capability: str, payload: dict[str, Any] | None = None):
         capability_name = str(capability or "").strip().lower()
+        if capability_name == "chat_context.collect":
+            return self.collect_chat_context(dict(payload or {}))
+        if capability_name in {"spotify.music_context", "spotify.context"}:
+            context_payload = self._current_music_context_payload()
+            return {"ok": bool(context_payload), "tool": capability_name, "context": context_payload}
         if capability_name not in TOOL_NAMES:
             return None
         request = dict(payload or {})
@@ -789,6 +1041,7 @@ class SpotifySenseController(QtCore.QObject):
             label.setText(str(text or ""))
 
     def shutdown(self):
+        self._unregister_sensory_provider()
         if self._track_monitor_timer.isActive():
             self._track_monitor_timer.stop()
         if self._oauth_server is not None:

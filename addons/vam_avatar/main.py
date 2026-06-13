@@ -90,6 +90,37 @@ class Addon(BaseAddon):
                 "default_emotion_preset_map": vam_config.DEFAULT_EMOTION_PRESET_MAP,
                 "default_timeline_clip_map": vam_config.DEFAULT_TIMELINE_CLIP_MAP,
             }
+        if capability == "runtime.hy_motion_config":
+            from addons.vam_avatar import hymotion_config
+
+            return hymotion_config.default_runtime_payload()
+        if capability == "runtime.hy_motion_prompt_to_motion":
+            from addons.vam_avatar import hymotion_runner
+
+            return hymotion_runner.run_prompt_to_motion(
+                str(payload.get("prompt") or ""),
+                runtime_config=runtime_config or payload.get("runtime_config"),
+                overrides=payload.get("overrides") or payload,
+                dry_run=bool(payload.get("dry_run", False)),
+                timeout_seconds=payload.get("timeout_seconds"),
+            )
+        if capability == "runtime.hy_motion_build_vam_bridge_payload":
+            from addons.vam_avatar import hymotion_runner
+
+            return hymotion_runner.build_vam_bridge_payload(
+                payload.get("motion_result") or {},
+                runtime_config=runtime_config or payload.get("runtime_config"),
+                overrides=payload.get("overrides") or payload,
+            )
+        if capability == "runtime.hy_motion_write_vam_bridge_command":
+            from addons.vam_avatar import hymotion_runner
+
+            return hymotion_runner.write_vam_bridge_command(
+                payload.get("bridge_root") or payload.get("vam_bridge_root") or "",
+                str(payload.get("action") or "hy_motion_generated"),
+                dict(payload.get("bridge_payload") or payload.get("payload") or {}),
+                dry_run=bool(payload.get("dry_run", True)),
+            )
         from addons.vam_avatar import real_ui_bridge
 
         if capability == "runtime.estimate_overhead_gib":
