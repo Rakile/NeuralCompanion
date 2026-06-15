@@ -10,6 +10,21 @@ from .models import AR_MODE, PersonaConfig, RoleplaySessionState, normalize_pers
 
 
 VOICE_REFERENCE_BACKENDS = {"chatterbox", "chatterbox_multilingual", "pockettts", "pockettts_multilingual"}
+AR_DIALOGUE_QUOTE_RE = re.compile(
+    r"(?:[*_]{1,3}\s*)?"
+    r"(?:"
+    r'"[^"\n]*(?:"|$)'
+    r"|\u201c[^\u201d\n]*(?:\u201d|$)"
+    r"|\u2018[^\u2019\n]*(?:\u2019|$)"
+    r")"
+    r"(?:\s*[*_]{1,3})?"
+)
+AR_STORY_TAG_PATTERN = (
+    r"\[(?:CHARACTER\s*:\s*[^\]]+|NARRATOR\s*:?\s*|CHOICES\s*:?\s*|"
+    r"AMBIENCE(?:\s*:\s*[^\]]+)?|AMBIENT(?:\s*:\s*[^\]]+)?|"
+    r"MUSIC(?:\s*:\s*[^\]]+)?|FX(?:\s*:\s*[^\]]+)?|SFX(?:\s*:\s*[^\]]+)?|"
+    r"STINGER(?:\s*:\s*[^\]]+)?|AUDIO(?:\s*:\s*[^\]]+)?|SOUND(?:\s*:\s*[^\]]+)?)\]"
+)
 
 
 def normalize_tts_backend(value: Any) -> str:
@@ -195,7 +210,7 @@ class PersonaVoiceRouter:
             text = self._normalize_ar_story_tags(text)
         explicit_persona = self._explicit_persona_for_payload(payload)
         if explicit_persona is not None:
-            segment_text = self._strip_known_speaker_labels_for_explicit_route(text)
+            segment_text = self._clean_tts_markdown(self._strip_known_speaker_labels_for_explicit_route(text))
             if not segment_text.strip():
                 return finish({"segments": [], "suppress_original": bool(audio_changed)})
             route_payload = dict(payload)
@@ -252,7 +267,7 @@ class PersonaVoiceRouter:
         saw_label = False
 
         def append_segment(persona: PersonaConfig, segment_text: str, *, route_reason: str = "", story_cues: list[str] | None = None) -> None:
-            segment_text = str(segment_text or "").strip()
+            segment_text = self._clean_tts_markdown(segment_text)
             if not segment_text:
                 return
             route_payload = dict(payload)
@@ -530,13 +545,47 @@ class PersonaVoiceRouter:
             self._pending_story_audio_cues.extend(fresh)
 
     def _normalize_ar_story_tags(self, text: str) -> str:
-        value = str(text or "")
-        return re.sub(
-            r"(?<!^)(?<!\n)\s*(\[(?:CHARACTER\s*:\s*[^\]]+|NARRATOR|CHOICES|AMBIENCE\s*:\s*[^\]]+|AMBIENT\s*:\s*[^\]]+|MUSIC\s*:\s*[^\]]+|FX\s*:\s*[^\]]+|SFX\s*:\s*[^\]]+|STINGER\s*:\s*[^\]]+|AUDIO\s*:\s*[^\]]+|SOUND\s*:\s*[^\]]+)\])",
+        value = self._unwrap_markdown_ar_story_tags(str(text or ""))
+        value = re.sub(
+            r"(?m)^\s*[-*+\u2022]\s*(?=" + AR_STORY_TAG_PATTERN + r")",
+            "",
+            value,
+            flags=re.IGNORECASE,
+        )
+        value = re.sub(
+            r"(?<!^)(?<!\n)\s*(" + AR_STORY_TAG_PATTERN + r")",
             r"\n\1",
             value,
             flags=re.IGNORECASE,
         )
+        return self._strip_ar_story_envelope(value)
+
+    @staticmethod
+    def _unwrap_markdown_ar_story_tags(text: str) -> str:
+        return re.sub(
+            r"(?<!\w)([*_]{1,3})\s*(" + AR_STORY_TAG_PATTERN + r")\s*\1(?!\w)",
+            r"\2",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+
+    @staticmethod
+    def _strip_ar_story_envelope(text: str) -> str:
+        value = str(text or "")
+        value = re.sub(
+            r"(?im)^\s*Narrator\s*(?:#\s*\d+)?\s*(?:\[[^\]]+\]\s*){1,4}:\s*[^\n]*(?:\n|$)",
+            "",
+            value,
+            count=1,
+        )
+        value = re.sub(
+            r"(?im)^\s*Story\s*:\s*(?=\n?\s*" + AR_STORY_TAG_PATTERN + r")",
+            "",
+            value,
+            count=1,
+        )
+        value = re.sub(r"(?im)^\s*Story\s*:\s*$\n?", "", value, count=1)
+        return value
 
     @staticmethod
     def _strip_assistant_prefix_before_ar_tag(text: str) -> str:
@@ -553,7 +602,14 @@ class PersonaVoiceRouter:
         value = str(text or "").strip()
         if not value:
             return []
-        matches = list(re.finditer(r'"[^"\n]*(?:"|$)|“[^”\n]*(?:”|$)', value))
+        matches = list(AR_DIALOGUE_QUOTE_RE.finditer(value))
+        self._voice_route_debug(
+            "dialogue_quote_scan",
+            base_persona_id=persona.id,
+            narrator_id=narrator.id,
+            quote_count=len(matches),
+            text_excerpt=self._voice_route_log_excerpt(value),
+        )
         if persona.id == narrator.id:
             return self._split_ar_narrator_attributed_dialogue(value, narrator, matches)
         if not matches:
@@ -563,7 +619,7 @@ class PersonaVoiceRouter:
         cursor = 0
         for match in matches:
             before = value[cursor : match.start()].strip()
-            dialogue = match.group(0).strip()
+            dialogue = self._clean_dialogue_quote(match.group(0))
             if before:
                 if re.fullmatch(r"(?:\[[^\]]{1,40}\]\s*)+", before):
                     dialogue = f"{before} {dialogue}".strip()
@@ -595,7 +651,13 @@ class PersonaVoiceRouter:
             before = value[cursor : match.start()].strip()
             if before:
                 fragments.append((narrator, before))
-            dialogue = match.group(0).strip()
+            dialogue = self._clean_dialogue_quote(match.group(0))
+            self._voice_route_debug(
+                "dialogue_quote",
+                dialogue_excerpt=self._voice_route_log_excerpt(dialogue),
+                before_excerpt=self._voice_route_log_excerpt(before),
+                after_excerpt=self._voice_route_log_excerpt(value[match.end() : min(len(value), match.end() + 240)]),
+            )
             speaker = self._infer_attributed_dialogue_speaker(
                 value[max(0, cursor) : match.start()],
                 value[match.end() : min(len(value), match.end() + 240)],
@@ -623,8 +685,8 @@ class PersonaVoiceRouter:
         previous_speaker: PersonaConfig | None,
         narrator: PersonaConfig,
     ) -> PersonaConfig | None:
-        after_text = str(after or "")[:240]
-        before_text = str(before or "")[-240:]
+        after_text = self._clean_attribution_context(str(after or "")[:240])
+        before_text = self._clean_attribution_context(str(before or "")[-240:])
         for persona, names in self._dialogue_speaker_name_candidates(narrator):
             if self._context_names_dialogue_speaker(after_text, names, after_quote=True):
                 self._voice_route_debug(
@@ -677,7 +739,7 @@ class PersonaVoiceRouter:
         return None
 
     def _recent_named_persona_from_context(self, context: str, narrator: PersonaConfig) -> PersonaConfig | None:
-        text = str(context or "")[-360:]
+        text = self._clean_attribution_context(str(context or "")[-360:])
         best_index = -1
         best_persona: PersonaConfig | None = None
         for persona, names in self._dialogue_speaker_name_candidates(narrator):
@@ -691,6 +753,23 @@ class PersonaVoiceRouter:
 
     def _dialogue_speaker_name_candidates(self, narrator: PersonaConfig) -> list[tuple[PersonaConfig, list[str]]]:
         candidates: list[tuple[PersonaConfig, list[str]]] = []
+        token_owner: dict[str, PersonaConfig | None] = {}
+        for persona in self.controller.personas:
+            if persona.id == narrator.id or not bool(getattr(persona, "enabled", True)):
+                continue
+            for source in (persona.display_name, str(persona.id or "").replace("_", " ")):
+                for token in re.findall(r"[A-Za-z][A-Za-z0-9'-]{2,}", str(source or "")):
+                    key = token.lower()
+                    if key in {"the", "and", "but", "with", "from", "lord", "lady", "sir"}:
+                        continue
+                    if key in token_owner and token_owner[key] is not persona:
+                        token_owner[key] = None
+                    else:
+                        token_owner[key] = persona
+        unique_tokens_by_persona: dict[str, list[str]] = {}
+        for token, persona in token_owner.items():
+            if persona is not None:
+                unique_tokens_by_persona.setdefault(persona.id, []).append(token)
         for persona in self.controller.personas:
             if persona.id == narrator.id or not bool(getattr(persona, "enabled", True)):
                 continue
@@ -701,6 +780,7 @@ class PersonaVoiceRouter:
             first_name = raw_names[0].split(" ", 1)[0].strip() if raw_names[0] else ""
             if len(first_name) >= 2:
                 raw_names.append(first_name)
+            raw_names.extend(unique_tokens_by_persona.get(persona.id, []))
             names = sorted({name for name in raw_names if len(name) >= 2}, key=len, reverse=True)
             if names:
                 candidates.append((persona, names))
@@ -712,7 +792,8 @@ class PersonaVoiceRouter:
             r"says?|said|asks?|asked|answers?|answered|replies?|replied|responds?|responded|"
             r"murmurs?|murmured|mutters?|muttered|whispers?|whispered|calls?|called|"
             r"continues?|continued|adds?|added|pauses?|paused|teases?|teased|remarks?|remarked|"
-            r"offers?|offered|snaps?|snapped|grumbles?|grumbled|laughs?|laughed|smiles?|smiled|sighs?|sighed"
+            r"offers?|offered|snaps?|snapped|grumbles?|grumbled|rumbles?|rumbled|"
+            r"cuts?|cut|laughs?|laughed|smiles?|smiled|sighs?|sighed"
         )
 
     def _context_names_dialogue_speaker(self, context: str, names: list[str], *, after_quote: bool) -> bool:
@@ -722,14 +803,15 @@ class PersonaVoiceRouter:
         verbs = self._dialogue_attribution_verbs()
         for name in names:
             escaped = re.escape(name)
+            name_ref = escaped + r"(?:['\u2019]s\b|\b)"
             if after_quote:
-                if re.match(r"^\s*[,.;:!?-]*\s*" + escaped + r"\b(?:\s+\w+){0,3}\s+(?:" + verbs + r")\b", text, re.IGNORECASE):
+                if re.match(r"^\s*[,.;:!?-]*\s*" + name_ref + r"(?:\s+\w+){0,3}\s+(?:" + verbs + r")\b", text, re.IGNORECASE):
                     return True
                 if re.match(r"^\s*[,.;:!?-]*\s*(?:" + verbs + r")\s+" + escaped + r"\b", text, re.IGNORECASE):
                     return True
             else:
                 tail = text[-220:]
-                if re.search(r"\b" + escaped + r"\b(?:\s+\w+){0,6}\s+(?:" + verbs + r")\b[^\n]*$", tail, re.IGNORECASE):
+                if re.search(r"\b" + name_ref + r"(?:\s+\w+){0,6}\s+(?:" + verbs + r")\b[^\n]*$", tail, re.IGNORECASE):
                     return True
                 if re.search(r"\b" + escaped + r"\b[^.!?\n]{0,220}$", tail, re.IGNORECASE):
                     return True
@@ -746,8 +828,51 @@ class PersonaVoiceRouter:
 
     @staticmethod
     def _is_direction_only_dialogue(text: str) -> bool:
-        value = str(text or "").strip().strip('"“”').strip()
+        value = PersonaVoiceRouter._clean_dialogue_quote(text).strip('"\'\u201c\u201d\u2018\u2019').strip()
         return bool(re.fullmatch(r"\[[^\]]{1,40}\]", value))
+
+    @staticmethod
+    def _clean_attribution_context(text: str) -> str:
+        value = str(text or "")
+        value = re.sub(r"(?<!\w)([*_]{1,3})(?=\S)(.*?)(?<=\S)\1(?!\w)", r"\2", value)
+        value = re.sub(r"(^|[\s,.;:!?-])[*_]{1,3}(?=\s|$|[A-Za-z\"'\u201c\u2018])", r"\1", value)
+        value = re.sub(r"[*_]{1,3}($|[\s,.;:!?-])", r"\1", value)
+        return value.strip()
+
+    @staticmethod
+    def _clean_tts_markdown(text: str) -> str:
+        value = str(text or "").strip()
+        if not value:
+            return ""
+        value = PersonaVoiceRouter._clean_dialogue_quote(value)
+        value = PersonaVoiceRouter._strip_orphan_ar_story_tags(value)
+        value = re.sub(r"(?<!\w)([*_]{1,3})(?=\S)(.*?)(?<=\S)\1(?!\w)", r"\2", value)
+        value = re.sub(r"(^|[\s,.;:!?-])[*_]{1,3}(?=\s|$|[A-Za-z0-9\"'\u201c\u2018])", r"\1", value)
+        value = re.sub(r"[*_]{1,3}($|[\s,.;:!?-])", r"\1", value)
+        return re.sub(r"\s+", " ", value).strip()
+
+    @staticmethod
+    def _strip_orphan_ar_story_tags(text: str) -> str:
+        return re.sub(
+            AR_STORY_TAG_PATTERN + r"\s*:?",
+            "",
+            str(text or ""),
+            flags=re.IGNORECASE,
+        )
+
+    @staticmethod
+    def _clean_dialogue_quote(text: str) -> str:
+        value = str(text or "").strip()
+        for _ in range(3):
+            changed = False
+            for marker in ("***", "**", "*", "___", "__", "_"):
+                if value.startswith(marker) and value.endswith(marker) and len(value) >= len(marker) * 2:
+                    value = value[len(marker) : -len(marker)].strip()
+                    changed = True
+                    break
+            if not changed:
+                break
+        return value
 
     def _looks_like_character_direct_speech(self, text: str, persona: PersonaConfig) -> bool:
         value = str(text or "").strip()
@@ -772,7 +897,7 @@ class PersonaVoiceRouter:
             return True
         if re.match(r"(?i)^(?:yes|no|yeah|yep|nah|hey|hello|well|oh|ah|mmm|mm|hmm|listen|look|come here|shut up|great|fine|okay|ok)\b", visible):
             return True
-        if len(visible) <= 90 and not re.search(r"(?i)\b(?:steps|leans|turns|walks|moves|stares|grins|smiles|laughs|cackles|grunts|sighs|gestures|points|watches|looks|frowns|snarls|tail|eyes|hands|voice)\b", visible):
+        if len(visible) <= 90 and not re.search(r"(?i)\b(?:attacks?|casts?|channels?|steps|leans|turns|walks|moves|raises?|stares|grins|smiles|laughs|cackles|grunts|sighs|gestures|points|watches|looks|frowns|snarls|tail|eyes|hands|voice)\b", visible):
             return True
         return False
 
@@ -820,7 +945,9 @@ class PersonaVoiceRouter:
         return None
 
     def _split_speaker_prefix(self, line: str) -> tuple[PersonaConfig | None, str, bool]:
-        text = str(line or "")
+        text = self._unwrap_markdown_ar_story_tags(str(line or ""))
+        if self._is_alternative_reality():
+            text = self._strip_ar_unordered_marker_before_tag(text)
         assistant_prefixed = re.match(
             r"^\s*(?:[^\w\[]+\s*)?(?:assistant|ai|bot)\s*:\s*(\[(?:CHARACTER\s*:[^\]]+|NARRATOR|CHOICES|AMBIENCE(?:\s*:[^\]]+)?|AMBIENT(?:\s*:[^\]]+)?|MUSIC\s*:[^\]]+|FX\s*:[^\]]+|SFX\s*:[^\]]+|STINGER\s*:[^\]]+|AUDIO\s*:[^\]]+|SOUND\s*:[^\]]+)\].*)$",
             text,
@@ -828,14 +955,23 @@ class PersonaVoiceRouter:
         )
         if assistant_prefixed:
             text = assistant_prefixed.group(1)
-        ar_character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+)\]\s*(.*)$", text, re.IGNORECASE)
+        if self._is_alternative_reality():
+            narrator_label = self._split_ar_narrator_text_label(text)
+            if narrator_label is not None:
+                body = narrator_label.strip()
+                if re.match(r"^\s*" + AR_STORY_TAG_PATTERN, body, re.IGNORECASE):
+                    text = body
+                else:
+                    return self._narrator_persona() or self.controller.active_persona(), body, True
+
+        ar_character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+?)\]\s*:?\s*(.*)$", text, re.IGNORECASE)
         if ar_character:
             persona = self._resolve_persona(ar_character.group(1))
             if persona is None:
                 persona = self._ensure_character_persona(ar_character.group(1), text)
             return persona, ar_character.group(2), True
 
-        ar_section = re.match(r"^\s*\[(NARRATOR|AMBIENCE|CHOICES)\]\s*(.*)$", text, re.IGNORECASE)
+        ar_section = re.match(r"^\s*\[(NARRATOR|AMBIENCE|CHOICES)\s*:?\]\s*:?\s*(.*)$", text, re.IGNORECASE)
         if ar_section:
             return self._narrator_persona() or self.controller.active_persona(), ar_section.group(2), True
 
@@ -860,14 +996,14 @@ class PersonaVoiceRouter:
             leading_tags += tag.group(1).strip() + " "
             remaining = tag.group(2)
 
-        ar_character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+)\]\s*(.*)$", remaining, re.IGNORECASE)
+        ar_character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+?)\]\s*:?\s*(.*)$", remaining, re.IGNORECASE)
         if ar_character:
             persona = self._resolve_persona(ar_character.group(1))
             if persona is None:
                 persona = self._ensure_character_persona(ar_character.group(1), remaining)
             return persona, (leading_tags + ar_character.group(2)).strip(), True
 
-        ar_section = re.match(r"^\s*\[(NARRATOR|AMBIENCE|CHOICES)\]\s*(.*)$", remaining, re.IGNORECASE)
+        ar_section = re.match(r"^\s*\[(NARRATOR|AMBIENCE|CHOICES)\s*:?\]\s*:?\s*(.*)$", remaining, re.IGNORECASE)
         if ar_section:
             return self._narrator_persona() or self.controller.active_persona(), (leading_tags + ar_section.group(2)).strip(), True
 
@@ -877,19 +1013,104 @@ class PersonaVoiceRouter:
 
         label = re.match(r"^\s*(?:\*\*)?([A-Za-z][A-Za-z0-9 _.'-]{0,80})(?:\*\*)?\s*:\s*(.*)$", remaining)
         if label:
-            persona = self._resolve_persona(label.group(1))
-            if persona is None and self._is_alternative_reality() and self._looks_like_dialogue(label.group(2)):
-                persona = self._ensure_character_persona(label.group(1), remaining)
+            label_name = str(label.group(1) or "").strip()
+            body = str(label.group(2) or "").strip()
+            if self._is_alternative_reality() and self._is_ar_control_text_label(label_name):
+                return self._narrator_persona() or self.controller.active_persona(), (leading_tags + body).strip(), True
+            if self._is_alternative_reality() and self._looks_like_choice_option_label(label_name):
+                return None, text, False
+            persona = self._resolve_persona(label_name)
+            if persona is None and self._is_alternative_reality() and self._looks_like_dialogue(body):
+                persona = self._ensure_character_persona(label_name, remaining)
             if persona is not None:
-                body = label.group(2)
-                if self._is_alternative_reality() and not self._looks_like_dialogue(body):
-                    return None, text, False
+                if self._is_alternative_reality() and not self._looks_like_character_direct_speech(body, persona):
+                    narrator_text = self._character_label_body_as_narration(persona, body)
+                    return self._narrator_persona() or self.controller.active_persona(), (leading_tags + narrator_text).strip(), True
                 return persona, (leading_tags + body).strip(), True
         if not self._is_alternative_reality():
             persona = self._resolve_persona_line_prefix(remaining)
             if persona is not None:
                 return persona, (leading_tags + remaining).strip(), True
         return None, text, False
+
+    @staticmethod
+    def _strip_ar_unordered_marker_before_tag(text: str) -> str:
+        return re.sub(r"^\s*[-*+\u2022]\s+(?=\[[^\]]+\])", "", str(text or ""))
+
+    @staticmethod
+    def _is_ar_control_text_label(label: str) -> bool:
+        normalized = re.sub(r"\s+", " ", str(label or "").strip().lower())
+        return normalized in {
+            "narrator",
+            "story narrator",
+            "master narrator",
+            "story",
+            "scene",
+            "choices",
+            "choice",
+            "options",
+            "option",
+        }
+
+    @staticmethod
+    def _split_ar_narrator_text_label(text: str) -> str | None:
+        match = re.match(
+            r"^\s*(?:\*\*)?(?:narrator|story narrator|master narrator|story|scene)"
+            r"(?:\s*#\s*\d+)?(?:\s*\[[^\]]+\]){0,4}(?:\*\*)?\s*:\s*(.*)$",
+            str(text or ""),
+            re.IGNORECASE,
+        )
+        return str(match.group(1) or "") if match else None
+
+    @staticmethod
+    def _looks_like_choice_option_label(label: str) -> bool:
+        tokens = re.findall(r"[a-z]+", str(label or "").lower())
+        if not tokens:
+            return False
+        choice_heads = {
+            "attack",
+            "strike",
+            "target",
+            "channel",
+            "defend",
+            "block",
+            "run",
+            "flee",
+            "ask",
+            "tell",
+            "say",
+            "open",
+            "close",
+            "wait",
+            "continue",
+            "inspect",
+            "search",
+            "follow",
+            "help",
+            "leave",
+            "approach",
+            "retreat",
+            "use",
+            "cast",
+            "try",
+            "choose",
+        }
+        return tokens[0] in choice_heads
+
+    @staticmethod
+    def _character_label_body_as_narration(persona: PersonaConfig, body: str) -> str:
+        text = str(body or "").strip()
+        name = str(getattr(persona, "display_name", "") or getattr(persona, "id", "") or "").strip()
+        if not text or not name:
+            return text or name
+        possessive = re.match(r"(?i)^(?:his|her|their|its)\s+(.+)$", text)
+        if possessive:
+            return f"{name}'s {possessive.group(1).strip()}"
+        if re.match(r"(?i)^(?:he|she|they|it|the|a|an)\b", text):
+            return text
+        if re.match(r"(?i)^" + re.escape(name) + r"(?:\b|['\u2019]s\b)", text):
+            return text
+        return f"{name} {text}"
 
     def _explicit_persona_for_payload(self, payload: dict[str, Any] | None) -> PersonaConfig | None:
         data = payload if isinstance(payload, dict) else {}
@@ -907,12 +1128,12 @@ class PersonaVoiceRouter:
             )
             if assistant_prefixed:
                 line = assistant_prefixed.group(1)
-            character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+)\]\s*(.*)$", line, re.IGNORECASE)
+            character = re.match(r"^\s*\[CHARACTER\s*:\s*([^\]]+?)\]\s*:?\s*(.*)$", line, re.IGNORECASE)
             if character:
                 if str(character.group(2) or "").strip():
                     lines.append(str(character.group(2) or "").strip())
                 continue
-            section = re.match(r"^\s*\[(NARRATOR|CHOICES)\]\s*(.*)$", line, re.IGNORECASE)
+            section = re.match(r"^\s*\[(NARRATOR|CHOICES)\s*:?\]\s*:?\s*(.*)$", line, re.IGNORECASE)
             if section:
                 if str(section.group(2) or "").strip():
                     lines.append(str(section.group(2) or "").strip())
@@ -947,6 +1168,13 @@ class PersonaVoiceRouter:
         value = str(text or "").strip()
         if not value:
             return False
+        visible = re.sub(r"^(?:\[[^\]]{1,40}\]\s*)+", "", value).strip()
+        if re.match(r"(?i)^(?:i|i'm|im|i've|i'll|i'd|me|my|mine|we|we're|we've|we'll|our|ours)\b", visible):
+            return True
+        if re.search(r"(?i)\b(?:you|your|yours|traveler|mortal|friend|darling|honey|boss|partner)\b", visible):
+            return True
+        if re.search(r"[?!]", visible) and not re.match(r"(?i)^(?:the|a|an|he|she|they|it|his|her|their|its)\b", visible):
+            return True
         if value.startswith(('"', "'", "“", "‘")):
             return True
         return bool(re.match(r"^(?:\[[^\]]{1,40}\]\s*)?[\"'“‘]", value))

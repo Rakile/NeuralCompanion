@@ -73,8 +73,12 @@ def run_smoke() -> None:
     _smoke_audio_prompts()
     _smoke_long_memory(personas, ar_session)
     _smoke_master_story_persona_count_controls()
+    _smoke_master_story_apply_voice_and_avatar_prompt()
+    _smoke_master_story_apply_dialog_builds()
+    _smoke_master_story_persona_activation()
     _smoke_master_narrator_controls()
     _smoke_master_story_json_validation_and_sfw()
+    _smoke_master_story_generation_provider_fallback()
     _smoke_story_library_export_package()
     _smoke_persona_editor_identity_commit_is_quiet()
     _smoke_tab_text_inputs_commit_quietly()
@@ -255,14 +259,20 @@ class _FakeController:
 def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
+        routing_personas = list(personas) + [
+            PersonaConfig.from_dict({"id": "daemon_groot", "display_name": "Daemon Groot", "role": "ancient guardian"}),
+            PersonaConfig.from_dict({"id": "otilia", "display_name": "Otilia", "role": "creation mage"}),
+        ]
         voice_paths = {
             "story_narrator": root / "narrator.wav",
             "mentor": root / "mentor.wav",
             "friend": root / "friend.wav",
+            "daemon_groot": root / "groot.wav",
+            "otilia": root / "otilia.wav",
         }
         for path in voice_paths.values():
             path.write_bytes(b"RIFF0000WAVE")
-        for persona in personas:
+        for persona in routing_personas:
             if persona.id in voice_paths:
                 persona.voice.enabled = True
                 persona.voice.backend = "chatterbox"
@@ -272,7 +282,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         session.mode = AR_MODE
         session.active_persona_id = "mentor"
         session.current_speaker_id = "mentor"
-        controller = _FakeController(personas, session)
+        controller = _FakeController(routing_personas, session)
         controller.settings["mprc_voice_volume"] = 42
         router = PersonaVoiceRouter(controller)
 
@@ -325,6 +335,49 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "friend.wav",
             "narrator.wav",
         ]
+
+        italic_attributed_dialogue = router.split_text_by_persona(
+            {
+                "text": "[NARRATOR]\n*“We are close,”* Groot rumbles",
+                "tts_backend": "chatterbox",
+            }
+        )
+        italic_attributed_segments = italic_attributed_dialogue.get("segments") or []
+        assert [item.get("persona_id") for item in italic_attributed_segments] == ["daemon_groot", "story_narrator"]
+        assert [item.get("text") for item in italic_attributed_segments] == [
+            "“We are close,”",
+            "Groot rumbles",
+        ]
+        assert [Path(item.get("voice_path", "")).name for item in italic_attributed_segments] == [
+            "groot.wav",
+            "narrator.wav",
+        ]
+
+        pronoun_markdown_attributed_dialogue = router.split_text_by_persona(
+            {
+                "text": (
+                    "[NARRATOR]\n"
+                    "Daemon Groot rumbles beside you, his bark-shifting form settling into a protective crouch. "
+                    '*"Growth... flows,"* he murmurs, the sound like dry leaves skittering over stone. '
+                    '*"No fear... only roots."*'
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        pronoun_markdown_segments = pronoun_markdown_attributed_dialogue.get("segments") or []
+        assert [item.get("persona_id") for item in pronoun_markdown_segments] == [
+            "story_narrator",
+            "daemon_groot",
+            "story_narrator",
+            "daemon_groot",
+        ]
+        assert [item.get("text") for item in pronoun_markdown_segments] == [
+            "Daemon Groot rumbles beside you, his bark-shifting form settling into a protective crouch.",
+            '"Growth... flows,"',
+            "he murmurs, the sound like dry leaves skittering over stone.",
+            '"No fear... only roots."',
+        ]
+        assert not any("*" in str(item.get("text") or "") for item in pronoun_markdown_segments)
 
         pronoun_dialogue = router.split_text_by_persona(
             {
@@ -393,6 +446,71 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "story_narrator",
         ]
 
+        wrapped_story = router.split_text_by_persona(
+            {
+                "text": (
+                    "Narrator #1 [Master Narrator] [Act]: attack\n"
+                    "Story: [NARRATOR] The air in the Twilight Grove snaps.\n"
+                    "Otilia raises both hands, palms open.\n"
+                    '"You think to strike me?" Otilia\'s voice cuts through the ozone smell.\n'
+                    "**[MUSIC: adventure music]** swells into something darker.\n"
+                    'Otilia closes her eyes. **"Strike me,"** she whispers.\n'
+                    "**[CHOICES]**\n"
+                    "1. **Strike Otilia:** Force the assault."
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        wrapped_segments = wrapped_story.get("segments") or []
+        wrapped_text = "\n".join(str(item.get("text") or "") for item in wrapped_segments)
+        assert "Narrator #1" not in wrapped_text
+        assert "Story:" not in wrapped_text
+        assert "[MUSIC" not in wrapped_text
+        assert "[CHOICES" not in wrapped_text
+        assert "*" not in wrapped_text
+        assert [
+            item.get("persona_id")
+            for item in wrapped_segments
+            if "You think to strike me?" in str(item.get("text") or "")
+            or "Strike me," in str(item.get("text") or "")
+        ] == ["otilia", "otilia"]
+        assert [
+            Path(item.get("voice_path", "")).name
+            for item in wrapped_segments
+            if item.get("persona_id") == "otilia"
+        ] == ["otilia.wav", "otilia.wav"]
+
+        hardened_labels = router.split_text_by_persona(
+            {
+                "text": (
+                    "[NARRATOR]: The grove waits.\n"
+                    "[CHARACTER: Otilia]: You should run.\n"
+                    "Narrator: The mist thickens.\n"
+                    "Otilia: raises both hands.\n"
+                    "Otilia: You cannot stop this.\n"
+                    "[CHOICES]\n"
+                    "Strike Otilia: Force the assault.\n"
+                    "- **[CHARACTER: Otilia]** \"Enough.\""
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        hardened_segments = hardened_labels.get("segments") or []
+        hardened_pairs = [(item.get("persona_id"), item.get("text")) for item in hardened_segments]
+        assert ("otilia", "You should run.") in hardened_pairs
+        assert ("otilia", "You cannot stop this.") in hardened_pairs
+        assert ("otilia", '"Enough."') in hardened_pairs
+        assert ("story_narrator", "Otilia raises both hands.") in hardened_pairs
+        assert any(
+            item.get("persona_id") == "story_narrator" and "Strike Otilia: Force the assault." in str(item.get("text") or "")
+            for item in hardened_segments
+        )
+        assert not any(
+            item.get("persona_id") == "otilia" and "raises both hands" in str(item.get("text") or "")
+            for item in hardened_segments
+        )
+        assert not any("[CHARACTER" in str(item.get("text") or "") or "[NARRATOR" in str(item.get("text") or "") for item in hardened_segments)
+
         stream_chunks = [
             "[CHARACTER: Friend]\n",
             "We should ",
@@ -451,7 +569,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
 
         explicit_wins = router.split_text_by_persona(
             {
-                "text": "[CHARACTER: Friend]\nThis label should not override the payload speaker.",
+                "text": "**[CHARACTER: Friend]**\n**This label** should not override the payload speaker.",
                 "persona_id": "mentor",
                 "tts_backend": "chatterbox",
             }
@@ -459,6 +577,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         explicit_segments = explicit_wins.get("segments") or []
         assert [item.get("persona_id") for item in explicit_segments] == ["mentor"]
         assert "[CHARACTER" not in explicit_segments[0].get("text", "")
+        assert "*" not in explicit_segments[0].get("text", "")
         assert explicit_segments[0].get("voice_route", {}).get("route_reason") == "explicit_persona"
 
         from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
@@ -656,6 +775,69 @@ def _smoke_master_story_persona_count_controls() -> None:
     assert not override_result["skipped"]
 
 
+def _smoke_master_story_apply_voice_and_avatar_prompt() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        voice_path = Path(tmp) / "story_voice.wav"
+        voice_path.write_bytes(b"RIFF0000WAVE")
+        prompt_override = "single avatar portrait of Draft One, copper coat, lantern light, no text"
+        controller = _master_story_apply_probe(max_created=2, allow_exceed=True)
+        payload = _story_payload_with_personas(1)
+        plan = _apply_plan()
+        plan["draft_voice_paths_by_row"] = {"0": str(voice_path)}
+        plan["draft_avatar_prompts_by_row"] = {"0": prompt_override}
+        result = controller._apply_master_story_payload(payload, apply_plan=plan)
+        assert result["created"] == 1
+        assert result["linked"] == [controller.personas[0].id]
+        persona = controller.personas[0]
+        assert persona.voice.enabled is True
+        assert persona.voice.sample_path == str(voice_path)
+        saved_persona = controller._master_story_draft["personas"][0]
+        assert saved_persona["voice"]["sample_path"] == str(voice_path)
+        assert saved_persona["avatar_prompt_override"] == prompt_override
+        assert controller._story_avatar_prompt(persona, controller._master_story_draft) == prompt_override
+
+
+def _smoke_master_story_apply_dialog_builds() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        payload = _valid_master_story_payload(1)
+        original_exec = QtWidgets.QDialog.exec
+        QtWidgets.QDialog.exec = lambda self: QtWidgets.QDialog.Rejected
+        try:
+            result = controller._show_master_story_apply_dialog(payload)
+            app.processEvents()
+        finally:
+            QtWidgets.QDialog.exec = original_exec
+        assert result is None
+
+
+def _smoke_master_story_persona_activation() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        voice_path = Path(tmp) / "draft_voice.wav"
+        voice_path.write_bytes(b"RIFF0000WAVE")
+        controller = _master_story_apply_probe(max_created=4, allow_exceed=True)
+        extra = PersonaConfig.from_dict({"id": "outside_cast", "display_name": "Outside Cast"})
+        extra.enabled = True
+        controller.personas = [extra]
+        payload = _story_payload_with_personas(1)
+        payload["personas"][0]["voice"] = {"enabled": False, "backend": "chatterbox", "sample_path": str(voice_path)}
+        result = controller._apply_master_story_payload(payload, apply_plan=_apply_plan())
+        assert result["linked"] == ["draft_1"]
+        story_persona = controller.persona_by_id("draft_1")
+        assert story_persona is not None
+        assert story_persona.enabled is True
+        assert story_persona.voice.enabled is True
+        assert story_persona.voice.sample_path == str(voice_path)
+        assert extra.enabled is False
+        assert controller.settings.get("current_character_view_mode") == "active_story"
+        assert [persona.id for persona in controller._current_character_roster_personas()] == ["draft_1"]
+        controller.settings["current_character_view_mode"] = "all"
+        assert [persona.id for persona in controller._current_character_roster_personas()] == ["outside_cast", "draft_1"]
+
+
 def _smoke_master_narrator_controls() -> None:
     from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
 
@@ -741,6 +923,69 @@ def _smoke_master_story_json_validation_and_sfw() -> None:
     invalid_probe._apply_master_story_draft()
     assert warnings
     assert not applied
+
+
+def _smoke_master_story_generation_provider_fallback() -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+    from core import engine_access
+
+    class FakeEngine:
+        RUNTIME_CONFIG = {"model_name": "fake-model"}
+
+        def __init__(self) -> None:
+            self.calls: list[tuple[dict, dict]] = []
+
+        def _apply_chat_provider_generation_fields(self, params: dict, additional_params: dict) -> None:
+            params["max_tokens"] = -1
+            additional_params["top_k"] = 40
+
+        def _chat_completion_create(self, params: dict, additional_params: dict) -> str:
+            self.calls.append((dict(params or {}), dict(additional_params or {})))
+            if params.get("response_format") is not None:
+                raise RuntimeError("HTTP Error 400: Bad Request")
+            if additional_params:
+                raise RuntimeError("HTTP Error 400: Bad Request")
+            return json.dumps(_valid_master_story_payload(1))
+
+    fake = FakeEngine()
+    original_engine_module = engine_access.engine_module
+    engine_access.engine_module = lambda: fake
+    try:
+        probe = object.__new__(MultiPersonaRoleplayController)
+        probe.context = SimpleNamespace(logger=None)
+        payload_text = probe._generate_master_story_payload(
+            {
+                "prompt": "Create a small mystery setup.",
+                "safe_prompt": "Create a small mystery setup.",
+                "visual_direction": "",
+                "constraints": {
+                    "native_personas_to_draft": 1,
+                    "maximum_new_personas_to_create": 2,
+                    "use_existing_personas": False,
+                    "auto_create_missing_personas": True,
+                    "sfw_mode": True,
+                },
+                "content_safety": {
+                    "sfw": True,
+                    "allow_romance": True,
+                    "allow_mature_themes": False,
+                    "allow_explicit_sexual_content": False,
+                },
+                "safety_instruction": MultiPersonaRoleplayController._master_story_safety_instruction(True),
+                "roster": [],
+                "use_ar": True,
+            }
+        )
+    finally:
+        engine_access.engine_module = original_engine_module
+
+    assert json.loads(payload_text)["id"] == "story_one"
+    assert len(fake.calls) == 3
+    assert fake.calls[0][0].get("response_format") == {"type": "json_object"}
+    assert "response_format" not in fake.calls[1][0]
+    assert fake.calls[1][1].get("top_k") == 40
+    assert "response_format" not in fake.calls[2][0]
+    assert fake.calls[2][1] == {}
 
 
 def _smoke_story_library_export_package() -> None:
@@ -995,14 +1240,19 @@ def _smoke_chat_play_voice_volume() -> None:
         assert page is not None
         slider = controller._controls.get("chat_voice_volume")
         value = controller._controls.get("chat_voice_volume_value")
+        colors = controller._controls.get("chat_voice_colors")
         assert slider is not None
         assert value is not None
+        assert colors is not None
         assert slider.value() == 100
         slider.setValue(37)
         app.processEvents()
         assert controller.settings.get("mprc_voice_volume") == 37
         assert value.text() == "37%"
         assert controller.mprc_voice_volume_percent() == 37
+        colors.setChecked(True)
+        app.processEvents()
+        assert controller.settings.get("chat_play_voice_route_colors") is True
         controller.personas = _personas()
         controller.session.enabled = True
         controller.session.mode = AR_MODE
@@ -1012,6 +1262,9 @@ def _smoke_chat_play_voice_volume() -> None:
         assert segments[0].get("voice_volume_percent") == 37
         assert segments[0].get("voice_volume") == 0.37
         assert segments[0].get("voice_route", {}).get("volume_percent") == 37
+        preview_html = controller._chat_play_voice_colored_html("[NARRATOR]\nThe lantern speaks.", segments)
+        assert "<span" in preview_html
+        assert "Story Narrator" in preview_html
 
         class _FakeEngine:
             tts_model = object()
