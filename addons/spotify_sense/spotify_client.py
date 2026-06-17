@@ -149,18 +149,33 @@ class SpotifySenseClient:
             return _error("invalid_device", "device_id is required.")
         return self.api("PUT", "/me/player", {"device_ids": [str(device_id)], "play": bool(play)})
 
-    def play(self, context_uri=None, uris=None, query=None, device_id=None):
+    def play(self, context_uri=None, uris=None, query=None, device_id=None, preferred_type=None):
+        selected_item = {}
         if query:
-            search = self.search(str(query), types=["track", "playlist"], limit=1)
+            preference = str(preferred_type or "auto").strip().lower()
+            requested_types = ["playlist", "track"] if preference == "playlist" else ["track", "playlist"]
+            search = self.search(str(query), types=requested_types, limit=5)
             if not search.get("ok"):
                 return search
             data = search.get("data") or {}
             playlists = ((data.get("playlists") or {}).get("items") or [])
             tracks = ((data.get("tracks") or {}).get("items") or [])
-            if playlists:
-                context_uri = playlists[0].get("uri")
-            elif tracks:
-                uris = [tracks[0].get("uri")]
+            playlist_item = _first_spotify_item(playlists)
+            track_item = _first_spotify_item(tracks)
+            if preference == "track" and track_item:
+                track_uri = str(track_item.get("uri") or "")
+                uris = [track_uri]
+                selected_item = _spotify_item_summary(track_item, "track")
+            elif playlist_item:
+                context_uri = str(playlist_item.get("uri") or "")
+                selected_item = _spotify_item_summary(playlist_item, "playlist")
+            elif track_item:
+                track_uri = str(track_item.get("uri") or "")
+                uris = [track_uri]
+                selected_item = _spotify_item_summary(track_item, "track")
+            elif playlist_item:
+                context_uri = str(playlist_item.get("uri") or "")
+                selected_item = _spotify_item_summary(playlist_item, "playlist")
             else:
                 return _error("not_found", f"No Spotify result found for '{query}'.")
         body = {}
@@ -170,7 +185,15 @@ class SpotifySenseClient:
             body["uris"] = [str(item) for item in list(uris or []) if str(item or "").strip()]
         path = "/me/player/play"
         query_params = {"device_id": device_id} if device_id else None
-        return self.api("PUT", path, body, query_params)
+        result = self.api("PUT", path, body, query_params)
+        if isinstance(result, dict):
+            if query:
+                result["query"] = str(query)
+            if preferred_type:
+                result["preferred_type"] = str(preferred_type)
+            if selected_item:
+                result["selected_item"] = dict(selected_item)
+        return result
 
     def pause(self, device_id=None):
         return self.api("PUT", "/me/player/pause", {}, {"device_id": device_id} if device_id else None)
@@ -234,8 +257,8 @@ class SpotifySenseClient:
     def spotify_transfer_device(self, device_id, play=False):
         return self.transfer_device(device_id, play=play)
 
-    def spotify_play(self, context_uri=None, uris=None, query=None, device_id=None):
-        return self.play(context_uri=context_uri, uris=uris, query=query, device_id=device_id)
+    def spotify_play(self, context_uri=None, uris=None, query=None, device_id=None, preferred_type=None):
+        return self.play(context_uri=context_uri, uris=uris, query=query, device_id=device_id, preferred_type=preferred_type)
 
     def spotify_pause(self, device_id=None):
         return self.pause(device_id=device_id)
@@ -262,12 +285,47 @@ class SpotifySenseClient:
         return self.add_to_queue(uri, device_id=device_id)
 
 
+def _first_spotify_item(items) -> dict[str, Any]:
+    for item in list(items or []):
+        if not isinstance(item, dict):
+            continue
+        uri = str(item.get("uri") or "").strip()
+        if uri:
+            return dict(item)
+    return {}
+
+
+def _spotify_item_summary(item: dict[str, Any], item_type: str) -> dict[str, Any]:
+    payload = dict(item or {})
+    artists = []
+    for artist in list(payload.get("artists") or []):
+        if isinstance(artist, dict):
+            name = str(artist.get("name") or "").strip()
+            if name:
+                artists.append(name)
+    album = payload.get("album") if isinstance(payload.get("album"), dict) else {}
+    owner = payload.get("owner") if isinstance(payload.get("owner"), dict) else {}
+    return {
+        "type": str(item_type or "").strip(),
+        "id": str(payload.get("id") or ""),
+        "name": str(payload.get("name") or ""),
+        "uri": str(payload.get("uri") or ""),
+        "artists": artists,
+        "album": str(album.get("name") or ""),
+        "owner": str(owner.get("display_name") or owner.get("id") or ""),
+    }
+
+
 def _read_json_request(request) -> dict[str, Any]:
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
             status = int(getattr(response, "status", 200) or 200)
             raw = response.read()
-            data = json.loads(raw.decode("utf-8")) if raw else {}
+            text = raw.decode("utf-8", errors="replace").strip() if raw else ""
+            try:
+                data = json.loads(text) if text else {}
+            except json.JSONDecodeError:
+                data = {"raw_text": text[:1000]} if text else {}
             return {"ok": 200 <= status < 300, "status_code": status, "data": data}
     except urllib.error.HTTPError as exc:
         raw = exc.read()

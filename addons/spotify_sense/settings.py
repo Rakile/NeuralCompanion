@@ -23,19 +23,25 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "default_volume": 30,
     "duck_while_speaking": False,
     "duck_volume_percent": 15,
+    "duck_fade_down_ms": 650,
+    "duck_fade_up_ms": 900,
     "restore_volume_after_speech": True,
     "comment_on_song_changes": False,
     "music_awareness_enabled": True,
+    "album_art_thumbnail_enabled": True,
     "include_paused_track_context": False,
     "music_response_mode": "subtle",
     "music_awareness_relevance_only": True,
     "proactive_comment_cooldown_seconds": 120,
+    "hidden_response_cooldown_seconds": 300,
+    "user_music_change_cooldown_seconds": 120,
     "music_context_cache_seconds": 45,
     "allow_playlist_changes": False,
     "allow_queue_changes": False,
     "story_mode_background_music": False,
     "coding_mode_query": "relaxing focus music",
     "song_change_monitor_enabled": False,
+    "debug_logging_enabled": False,
 }
 
 TOKEN_KEYS = {"access_token", "refresh_token"}
@@ -95,18 +101,24 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
         "restore_volume_after_speech",
         "comment_on_song_changes",
         "music_awareness_enabled",
+        "album_art_thumbnail_enabled",
         "include_paused_track_context",
         "music_awareness_relevance_only",
         "allow_playlist_changes",
         "allow_queue_changes",
         "story_mode_background_music",
         "song_change_monitor_enabled",
+        "debug_logging_enabled",
     ):
         data[key] = bool(data.get(key, DEFAULT_SETTINGS[key]))
     for key, default, minimum, maximum in (
         ("default_volume", 30, 0, 100),
         ("duck_volume_percent", 15, 0, 100),
+        ("duck_fade_down_ms", 650, 0, 5000),
+        ("duck_fade_up_ms", 900, 0, 5000),
         ("proactive_comment_cooldown_seconds", 120, 15, 3600),
+        ("hidden_response_cooldown_seconds", 300, 15, 7200),
+        ("user_music_change_cooldown_seconds", 120, 0, 3600),
         ("music_context_cache_seconds", 45, 5, 300),
     ):
         try:
