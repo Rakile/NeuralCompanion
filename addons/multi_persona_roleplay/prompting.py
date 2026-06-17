@@ -193,9 +193,11 @@ def build_alternative_reality_prompt(
         _block("AR output format", "[NARRATOR]\nScene narration, character actions, expressions, movement, consequences, and descriptive ambience.\n\n[CHARACTER: Exact Persona Display Name]\nOnly that character's direct spoken dialogue.\n\n[NARRATOR]\nContinue narration after the character speaks.\n\n[AMBIENCE: exact listed activation text only]\n[MUSIC: exact listed activation text only]\n[FX: exact listed activation text only]\n[STINGER: exact listed activation text only]\n\n[CHOICES]\nOptional concise choices."),
         "Use [NARRATOR], [CHARACTER: Name], and [CHOICES] for story text. Put each tag on its own line, with no markdown around the tag and no extra wrapper headings such as Narrator #1, Story:, Scene:, or Speaker:. Use [AMBIENCE: ...], [MUSIC: ...], [FX: ...], [STINGER: ...], or [AUDIO: ...] only as playback commands for exact listed sounds.",
         "New character rule: if the scene introduces a new named speaking character that is not in the roster, describe their visible role/appearance/personality in [NARRATOR] prose, then use [CHARACTER: New Name] only for their direct dialogue. This lets MPRC create an editable persona from the active chat.",
-        "Voice routing rule: [NARRATOR] tells the story, including character actions, expressions, movement, scene framing, consequences, and choices. Use [CHARACTER: Exact Persona Display Name] only for direct spoken dialogue or explicit first-person thought from that character. Do not write quoted dialogue inside [NARRATOR] prose, such as \"Line,\" Elara says; split it into [CHARACTER: Elara] for the spoken words, then return to [NARRATOR]. Do not use character tags for narration such as Snik cackles, Grasha leans forward, Vexa steps closer, or she squints. Put [CHARACTER: Name] on its own line before the spoken/first-person words, then return to [NARRATOR] for narration.",
+        "Voice routing rule: [NARRATOR] tells the story, including character actions, expressions, movement, scene framing, and consequences. Use [CHARACTER: Exact Persona Display Name] only for direct spoken dialogue or explicit first-person thought from that character. Never wrap third-person character action or description in a [CHARACTER] tag. Wrong: [CHARACTER: Terrax] Terrax looms beside you. Correct: [NARRATOR] Terrax looms beside you. Do not write quoted dialogue inside [NARRATOR] prose, such as \"Line,\" Elara says; split it into [CHARACTER: Elara] for the spoken words, then return to [NARRATOR]. Do not use character tags for narration such as Snik cackles, Grasha leans forward, Vexa steps closer, or she squints. Put [CHARACTER: Name] on its own line before the spoken/first-person words, then return to [NARRATOR] for narration.",
         "Strict Story Sounds rule: the only valid story audio tags are the activate= values in Available story audio cues. Copy one exactly, including spelling. If no listed cue fits, omit the audio tag. Never write descriptive ambience, mood, invented sounds, new filenames, or summarized cue names inside audio tags.",
         "Continue the story unless the player must make an important decision.",
+        "Progression rule: the latest player action overrides older scene memory. If the player leaves, enters, travels, opens a door, or moves to a new place, advance the scene to that new visible place unless an immediate concrete obstacle blocks it. Do not keep the story in the opening location just because the scene summary mentions it.",
+        "Location rule: after visible movement, write the new location clearly in narration and continue from there on later turns.",
         "Preserve player agency. Do not decide major player actions.",
         _block("Pacing", f"{pacing}. {pacing_rule}"),
         _block("Interaction frequency", f"{interaction}. {interaction_rule}"),
@@ -304,6 +306,19 @@ def _looks_like_continue(text: str) -> bool:
     return cleaned in {"continue", "go on", "keep going", "let the narrator continue", "continue the story", "next"}
 
 
+def _visible_story_action(text: str, limit: int = 700) -> str:
+    value = str(text or "")
+    value = re.sub(
+        r"\[(?:AMBIENCE|AMBIENT|MUSIC|FX|SFX|STINGER|AUDIO):[^\]]+\]",
+        " ",
+        value,
+        flags=re.IGNORECASE,
+    )
+    value = re.sub(r"(?is)\[CHOICES\].*$", " ", value)
+    value = re.sub(r"\[(?:/?NARRATOR|CHARACTER:\s*[^\]]+)\]", " ", value, flags=re.IGNORECASE)
+    return _compact(value, limit)
+
+
 def build_scene_update_prompt(session: RoleplaySessionState, assistant_text: str) -> str:
     state = session.ar_state
     return "\n".join(
@@ -314,6 +329,8 @@ def build_scene_update_prompt(session: RoleplaySessionState, assistant_text: str
             "If a field did not visibly change, repeat the previous value for that field.",
             "Exception: pending_choices must describe only choices offered in the latest assistant reply. Return [] when the latest reply offers no current choices.",
             "Keep current_scene focused on the newest visible beat, not the opening premise.",
+            "The latest assistant reply is the source of truth for current_scene and location. If it shows the player leaving, entering, arriving, or moving somewhere new, update location to that new visible place even if the previous summary mentioned an older location.",
+            "Do not anchor the story to the opening location after visible movement has happened.",
             "Keep scene_summary as compact continuity across the story so far.",
             "Use persona IDs, not display names, as character_state_summaries keys.",
             _block("Previous scene summary", _compact(session.scene_summary, 900)),
@@ -329,44 +346,50 @@ def build_visual_reply_prompt(
     style_prompt: str = "",
     reason: str = "manual",
     provider: str = "",
+    source_text: str = "",
 ) -> str:
     visual = persona.visual
     provider_id = normalize_visual_provider_id(provider or getattr(visual, "provider", "") or "")
     prompt_style = visual_prompt_style(provider_id)
     pieces = []
     ar_state = getattr(session, "ar_state", None)
+    latest_action = _visible_story_action(source_text, 520)
+    location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
+    location = location or _compact(session.location, 120)
+    mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
+    mood = mood or _compact(session.mood, 120)
+    time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
+    time_of_day = time_of_day or _compact(session.time_of_day, 80)
     if prompt_style == "comfyui":
+        scene_bits = []
+        if latest_action:
+            scene_bits.append("Latest visible story action: " + latest_action)
+        current_scene = _compact(getattr(ar_state, "current_scene", ""), 260) if ar_state is not None else ""
+        if current_scene:
+            scene_bits.append(current_scene)
+        scene_bits.extend(item for item in (location, time_of_day, mood) if item)
         if visual.include_scene_summary:
-            scene_bits = []
-            current_scene = _compact(getattr(ar_state, "current_scene", ""), 260) if ar_state is not None else ""
-            if current_scene:
-                scene_bits.append(current_scene)
             if session.scene_summary:
-                scene_bits.append(_compact(session.scene_summary, 260))
-            location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
-            location = location or _compact(session.location, 120)
-            mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
-            mood = mood or _compact(session.mood, 120)
-            time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
-            time_of_day = time_of_day or _compact(session.time_of_day, 80)
-            scene_bits.extend(item for item in (location, time_of_day, mood) if item)
+                scene_bits.append(_compact(session.scene_summary, 220))
             recent = []
             if ar_state is not None:
                 recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
             recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
-            scene_bits.extend(_compact(item, 180) for item in recent[-2:] if item)
-            if scene_bits:
-                pieces.append(", ".join(scene_bits))
+            scene_bits.extend(_compact(item, 160) for item in recent[-2:] if item)
+        if scene_bits:
+            pieces.append(", ".join(scene_bits))
         if visual.character_description:
-            pieces.append(visual.character_description)
+            pieces.append("show this character in the current scene: " + visual.character_description)
         else:
-            pieces.append(", ".join(item for item in (persona.display_name, persona.description or persona.role) if item))
+            subject = ", ".join(item for item in (persona.display_name, persona.description or persona.role) if item)
+            if subject:
+                pieces.append("show this character in the current scene: " + subject)
         if visual.clothing_props:
             pieces.append(visual.clothing_props)
         if visual.environment_style:
-            pieces.append(visual.environment_style)
-        if not visual.include_scene_summary and (session.location or session.mood):
-            pieces.append(", ".join(item for item in (session.location, session.mood) if item))
+            pieces.append("environment/style reference only, do not override latest location: " + visual.environment_style)
+        if not visual.include_scene_summary and (location or mood):
+            pieces.append(", ".join(item for item in (location, mood) if item))
         if visual.include_active_speaker:
             pieces.append(persona.display_name)
         if style_prompt:
@@ -380,21 +403,18 @@ def build_visual_reply_prompt(
         return prompt
 
     scene_bits = []
+    if latest_action:
+        scene_bits.append("Latest visible story action: " + latest_action)
     current_scene = _compact(getattr(ar_state, "current_scene", ""), 320) if ar_state is not None else ""
     if current_scene:
         scene_bits.append(current_scene)
-    if session.scene_summary:
+    if visual.include_scene_summary and session.scene_summary:
         scene_bits.append(_compact(session.scene_summary, 260))
-    location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
-    location = location or _compact(session.location, 120)
-    mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
-    mood = mood or _compact(session.mood, 120)
-    time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
-    time_of_day = time_of_day or _compact(session.time_of_day, 80)
     recent = []
-    if ar_state is not None:
-        recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
-    recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
+    if visual.include_scene_summary:
+        if ar_state is not None:
+            recent.extend(str(item or "").strip() for item in list(getattr(ar_state, "recent_events", []) or [])[-2:])
+        recent.extend(str(item or "").strip() for item in list(session.recent_events or [])[-2:])
     recent = [_compact(item, 180) for item in recent if item]
 
     if prompt_style == "runware":
@@ -402,26 +422,28 @@ def build_visual_reply_prompt(
         subject = visual.character_description or ", ".join(
             item for item in (persona.display_name, persona.description or persona.role) if item
         )
-        action = current_scene or (recent[-1] if recent else "") or _compact(session.scene_summary, 180)
-        if subject:
-            visual_parts.append(_compact(subject, 160))
+        action = latest_action or current_scene or (recent[-1] if recent else "")
+        if not action and visual.include_scene_summary:
+            action = _compact(session.scene_summary, 180)
         if action:
-            visual_parts.append(_compact(action, 180))
-        if visual.clothing_props:
-            visual_parts.append(_compact(visual.clothing_props, 120))
+            visual_parts.append(_compact("story scene, not a portrait, current story moment: " + action, 220))
         if location:
-            visual_parts.append(location)
-        if visual.environment_style:
-            visual_parts.append(_compact(visual.environment_style, 140))
+            visual_parts.append(_compact("current setting: " + location, 150))
         if mood or time_of_day:
-            visual_parts.append(", ".join(item for item in (time_of_day, mood) if item))
+            visual_parts.append(_compact(", ".join(item for item in (time_of_day, mood) if item), 120))
+        if subject:
+            visual_parts.append(_compact("show the character in this scene: " + subject, 180))
+        if visual.clothing_props:
+            visual_parts.append(_compact("visible clothing and props: " + visual.clothing_props, 130))
+        if visual.environment_style:
+            visual_parts.append("style reference only, not current location: " + _compact(visual.environment_style, 110))
         if style_prompt:
             visual_parts.append(_compact(style_prompt, 150))
         if visual.keep_continuity:
             visual_parts.append("consistent character identity, scene continuity")
         if visual.negative_prompt:
             visual_parts.append("avoid " + _compact(visual.negative_prompt, 120))
-        visual_parts.append("story scene, visible action, no text, no watermark")
+        visual_parts.append("not a portrait, story scene, visible action, no text, no watermark")
         prompt = ", ".join(item.strip(" ,") for item in visual_parts if item).strip()
         if len(prompt) > 520:
             prompt = _compact(prompt, 520)
@@ -431,21 +453,21 @@ def build_visual_reply_prompt(
         pieces.append(
             "Create a cinematic natural-language image prompt for the current roleplay moment. Show visible story action, not a static portrait."
         )
+        context = "; ".join(item for item in (location, time_of_day, mood) if item)
+        if context:
+            scene_bits.append(context)
         if visual.include_scene_summary:
-            context = "; ".join(item for item in (location, time_of_day, mood) if item)
-            if context:
-                scene_bits.append(context)
             if recent:
                 scene_bits.append("Recent visible action: " + "; ".join(recent[-2:]))
-            if scene_bits:
-                pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
+        if scene_bits:
+            pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
         identity = visual.character_description or f"{persona.display_name}, {persona.description or persona.role}".strip()
         if identity:
-            pieces.append(f"Active persona identity and appearance: {identity}")
+            pieces.append(f"Character appearance to place inside that moment: {identity}")
         if visual.clothing_props:
             pieces.append(f"Clothing and props: {visual.clothing_props}")
         if visual.environment_style:
-            pieces.append(f"Scene and environment style: {visual.environment_style}")
+            pieces.append(f"Scene and environment style reference only, unless the latest story moved elsewhere: {visual.environment_style}")
         if not visual.include_scene_summary and (location or mood):
             pieces.append(f"Scene/location: {'; '.join(item for item in (location, time_of_day, mood) if item)}")
         if visual.include_active_speaker:
@@ -461,24 +483,24 @@ def build_visual_reply_prompt(
         return prompt
 
     pieces.append("Story scene image for Visual Reply: show what is happening in the current roleplay moment, not a static character portrait")
+    context = "; ".join(item for item in (location, time_of_day, mood) if item)
+    if context:
+        scene_bits.append(context)
     if visual.include_scene_summary:
-        context = "; ".join(item for item in (location, time_of_day, mood) if item)
-        if context:
-            scene_bits.append(context)
         if recent:
             scene_bits.append("Recent action: " + "; ".join(recent[-2:]))
-        if scene_bits:
-            pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
+    if scene_bits:
+        pieces.append(f"Current story moment: {'; '.join(scene_bits)}")
     if visual.character_description:
-        pieces.append(f"Relevant persona appearance: {visual.character_description}")
+        pieces.append(f"Character appearance to place inside that moment: {visual.character_description}")
     else:
-        pieces.append(f"Relevant persona: {persona.display_name}, {persona.description or persona.role}".strip())
+        pieces.append(f"Character to place inside that moment: {persona.display_name}, {persona.description or persona.role}".strip())
     if visual.clothing_props:
         pieces.append(f"Clothing and props: {visual.clothing_props}")
     if visual.environment_style:
-        pieces.append(f"Environment: {visual.environment_style}")
-    if not visual.include_scene_summary and (session.location or session.mood):
-        pieces.append(f"Scene: {'; '.join(item for item in (session.location, session.mood) if item)}")
+        pieces.append(f"Environment/style reference only, unless the latest story moved elsewhere: {visual.environment_style}")
+    if not visual.include_scene_summary and (location or mood):
+        pieces.append(f"Scene: {'; '.join(item for item in (location, time_of_day, mood) if item)}")
     if visual.include_active_speaker:
         pieces.append(f"Active speaker: {persona.display_name}")
     if style_prompt:

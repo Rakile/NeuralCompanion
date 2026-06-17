@@ -311,7 +311,12 @@ class PersonaVoiceRouter:
             if persona is None:
                 return
             story_cues = self._consume_pending_story_audio_cues()
-            split_fragments = self._split_ar_character_dialogue(segment_text, persona)
+            explicit_speaker_label = bool(current_reason == "text_speaker_label")
+            split_fragments = self._split_ar_character_dialogue(
+                segment_text,
+                persona,
+                explicit_speaker_label=explicit_speaker_label,
+            )
             self._voice_route_debug(
                 "flush",
                 base_persona_id=persona.id,
@@ -595,7 +600,13 @@ class PersonaVoiceRouter:
             str(text or ""),
         )
 
-    def _split_ar_character_dialogue(self, text: str, persona: PersonaConfig) -> list[tuple[PersonaConfig, str]]:
+    def _split_ar_character_dialogue(
+        self,
+        text: str,
+        persona: PersonaConfig,
+        *,
+        explicit_speaker_label: bool = False,
+    ) -> list[tuple[PersonaConfig, str]]:
         narrator = self._narrator_persona() or self.controller.active_persona()
         if narrator is None or not self._is_alternative_reality():
             return []
@@ -613,6 +624,12 @@ class PersonaVoiceRouter:
         if persona.id == narrator.id:
             return self._split_ar_narrator_attributed_dialogue(value, narrator, matches)
         if not matches:
+            if (
+                explicit_speaker_label
+                and not self._is_direction_only_dialogue(value)
+                and self._looks_like_character_direct_speech(value, persona)
+            ):
+                return [(persona, value)]
             target = persona if self._looks_like_character_direct_speech(value, persona) else narrator
             return [(target, value)]
         fragments: list[tuple[PersonaConfig, str]] = []
@@ -882,6 +899,9 @@ class PersonaVoiceRouter:
         if not visible:
             return False
         if visible.startswith(('"', "'", "“", "‘")):
+            return True
+        first_person_anywhere = re.search(r"(?i)\b(?:i|i'm|im|i.ve|i've|i.ll|i'll|i.d|i'd|me|my|mine|we|we're|we.ve|we've|we.ll|we'll|us|our|ours)\b", visible)
+        if first_person_anywhere:
             return True
         if self._starts_like_third_person_narration(visible, persona):
             return False

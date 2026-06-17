@@ -70,6 +70,7 @@ class PersonaVisualReply:
             style_prompt=self.style_prompt(persona.visual.style_preset),
             reason=reason,
             provider=provider,
+            source_text=source_text,
         )
         debugger = getattr(self.controller, "set_chat_visual_prompt_debug_from_parts", None)
         if callable(debugger):
@@ -173,7 +174,7 @@ class PersonaVisualReply:
         source_text: str = "",
     ) -> dict[str, Any]:
         persona = persona or self.controller.current_speaker_persona() or self.controller.active_persona()
-        payload = self.build_prompt(persona, reason=reason, use_action_prompt=False)
+        payload = self.build_prompt(persona, reason=reason, source_text=source_text, use_action_prompt=False)
         if not payload.get("should_generate"):
             self._record_debug("persona_visual_reply", reason, persona, False, "No visual prompt was generated.", payload)
             return {"accepted": False, "message": "No visual prompt was generated.", "payload": payload}

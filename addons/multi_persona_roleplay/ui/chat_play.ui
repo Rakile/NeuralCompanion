@@ -479,7 +479,7 @@
          <property name="maximumSize">
           <size>
            <width>16777215</width>
-           <height>165</height>
+           <height>190</height>
           </size>
          </property>
          <property name="title">
@@ -516,7 +516,17 @@
           <item row="2" column="1">
            <widget class="QComboBox" name="mprc_chat_director_agency_combo"/>
           </item>
-          <item row="3" column="0" colspan="2">
+          <item row="3" column="0">
+           <widget class="QLabel" name="mprc_director_choice_mode_label">
+            <property name="text">
+             <string>Choices</string>
+            </property>
+           </widget>
+          </item>
+          <item row="3" column="1">
+           <widget class="QComboBox" name="mprc_chat_director_choice_mode_combo"/>
+          </item>
+          <item row="4" column="0" colspan="2">
            <layout class="QHBoxLayout" name="mprc_director_button_row">
             <item>
              <widget class="QPushButton" name="mprc_chat_advance_scene_button">

@@ -1144,6 +1144,28 @@ def _invoke_addon_capability(capability, payload=None):
         return None
 
 
+def _maybe_handle_addon_user_text_command(text, *, input_role="user"):
+    role = str(input_role or "user").strip().lower() or "user"
+    if role != "user":
+        return None
+    content = str(text or "").strip()
+    if not content or content in {CONTINUE_ASSISTANT_SENTINEL, "You continue speaking."}:
+        return None
+    result = _invoke_addon_capability(
+        "chat.user_text_command",
+        {
+            "text": content,
+            "role": role,
+        },
+    )
+    if not isinstance(result, dict) or not bool(result.get("handled", False)):
+        return None
+    response_text = str(result.get("response_text") or "").strip()
+    if not response_text:
+        return None
+    return result
+
+
 def _addon_voice_route(payload=None):
     route = _invoke_addon_capability("tts.voice_route", payload or {})
     return dict(route or {}) if isinstance(route, dict) else {}
@@ -1276,6 +1298,23 @@ def _play_addon_story_audio_cues(cue_ids) -> bool:
 
 def _notify_addon_tts_segment_started(payload=None) -> bool:
     result = _invoke_addon_capability("tts.segment_started", payload or {})
+    return result is not None
+
+
+def _notify_addon_tts_audio_chunk_ready(payload=None) -> bool:
+    result = _invoke_addon_capability("tts.audio_chunk_ready", payload or {})
+    return result is not None
+
+
+def _notify_addon_tts_duck_start(payload=None) -> bool:
+    result = _invoke_addon_capability("tts.duck.start", payload or {})
+    if isinstance(result, dict):
+        return bool(result.get("ducked", False))
+    return False
+
+
+def _notify_addon_tts_duck_end(payload=None) -> bool:
+    result = _invoke_addon_capability("tts.duck.end", payload or {})
     return result is not None
 
 
@@ -3236,6 +3275,75 @@ def _get_active_hidden_proactive_request():
         return _sanitize_hidden_proactive_request(sensory_hidden_action_state.get("active_proactive"))
 
 
+COMPANION_ORB_RESPONSE_STYLE_EXAMPLES = {
+    "friendly": (
+        "That bit looks interesting. I am checking it now.",
+        "Nice find, I can focus on that with you.",
+        "I see the thing you mean. Let us inspect it.",
+        "Fresh clue spotted. I am on it.",
+        "That area has useful details. I will stay with it.",
+        "Good target. I can help read what is happening there.",
+        "This looks worth a closer look.",
+        "I am hovering near the useful part now.",
+        "That caught my attention too.",
+        "Let us make sense of this little corner.",
+    ),
+    "loving": (
+        "I see it. I am right here with you.",
+        "Let us look at that together, one detail at a time.",
+        "That matters to you, so I will stay with it.",
+        "I am close by and focused on the same thing.",
+        "We can take this gently and notice what is there.",
+        "I have your focus point. I will keep it steady.",
+        "I am here, watching that detail with you.",
+        "That looks like the right place to pause.",
+        "Let us be patient with this and read it carefully.",
+        "I will keep my attention warm and close to that.",
+    ),
+    "sarcastic": (
+        "Ah yes, the important bit has revealed itself.",
+        "That area is clearly auditioning for attention.",
+        "I see it. The pixels are being very dramatic.",
+        "A suspicious little detail. Naturally, I am intrigued.",
+        "This window is trying to tell us something, probably loudly.",
+        "That looks clickable enough to have opinions.",
+        "Fine, I admit it, that part is interesting.",
+        "The plot thickens by approximately one interface element.",
+        "I am focusing there, with the seriousness it apparently deserves.",
+        "This is either a clue or a very confident distraction.",
+    ),
+    "roast": (
+        "That part looks guilty of something.",
+        "I am inspecting this brave little mess.",
+        "These pixels have chosen chaos, but I will try.",
+        "That section is doing its best. Questionable, but brave.",
+        "I see the suspect. It is not beating the allegations.",
+        "This detail has main-character confusion.",
+        "I will interrogate that area before it gets worse.",
+        "That window has the confidence of a bad plan.",
+        "This is either useful or aggressively weird.",
+        "I found the issue-shaped object. Let us poke it.",
+    ),
+    "sensual_non_explicit": (
+        "I see it. I will move in softly and keep focus there.",
+        "Let me stay close to that detail for a moment.",
+        "That area has a quiet pull. I will follow it.",
+        "I am leaning my attention toward that now.",
+        "We can look at this slowly and keep it clear.",
+        "I will hover near that point and let the details settle.",
+        "That focus feels right. I will keep it gentle.",
+        "I am close enough to notice the small things now.",
+        "Let us follow that thread without rushing it.",
+        "I will hold the focus there, calm and careful.",
+    ),
+}
+
+
+def _companion_orb_response_style_examples(style: str) -> str:
+    examples = COMPANION_ORB_RESPONSE_STYLE_EXAMPLES.get(style, COMPANION_ORB_RESPONSE_STYLE_EXAMPLES["friendly"])
+    return " | ".join(examples)
+
+
 def _companion_orb_response_style_instruction():
     style = str(RUNTIME_CONFIG.get("companion_orb_response_style", "friendly") or "friendly").strip().lower()
     instructions = {
@@ -3260,7 +3368,11 @@ def _companion_orb_response_style_instruction():
             "Do not generate sexual content, erotic descriptions, graphic nudity, or explicit sexual activity."
         ),
     }
-    return instructions.get(style, instructions["friendly"])
+    detail = instructions.get(style, instructions["friendly"])
+    return (
+        f"{detail} Vary the wording and avoid repeating the same opener. "
+        f"Example style lines: {_companion_orb_response_style_examples(style)}"
+    )
 
 
 def _companion_orb_response_style_label():
@@ -7230,6 +7342,19 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     if ctrl.cancel_requested.is_set() or stop_playback.is_set():
                         safe_delete_with_retry(path)
                         break
+                    _notify_addon_tts_audio_chunk_ready(
+                        {
+                            "audio_path": path,
+                            "text": str(sub or ""),
+                            "emotion": str(emotion or ""),
+                            "sequence_index": int(chunk_sequence or 0),
+                            "duration_seconds": float(estimated_duration_seconds or 0.0),
+                            "sample_rate": int(sample_rate or 0),
+                            "source_meta": dict(chunk_meta),
+                            "tts_backend": str(RUNTIME_CONFIG.get("tts_backend", "") or ""),
+                            "created_at": time.time(),
+                        }
+                    )
                     if not _put_unless_stopping(playback_queue, (path, emotion, sub, chunk_sequence, chunk_meta)):
                         safe_delete_with_retry(path)
                         break
@@ -7443,6 +7568,35 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
         if avatar_gui:
             avatar_gui.set_speaking_state(True)
         last_chunk_end_time = None
+        tts_duck_active = False
+
+        def start_tts_duck_once(chunk_result=None, source_meta=None, text="", emotion=""):
+            nonlocal tts_duck_active
+            if tts_duck_active:
+                return
+            payload = {
+                "source": "tts_playback",
+                "text": str(text or ""),
+                "emotion": str(emotion or ""),
+                "chunk_id": (chunk_result or {}).get("chunk_id") if isinstance(chunk_result, dict) else "",
+                "sequence_index": int((chunk_result or {}).get("sequence_index", 0) or 0) if isinstance(chunk_result, dict) else 0,
+                "persona_id": str((source_meta or {}).get("persona_id", "") or ""),
+                "display_name": str((source_meta or {}).get("display_name", "") or ""),
+            }
+            try:
+                tts_duck_active = bool(_notify_addon_tts_duck_start(payload))
+            except Exception:
+                tts_duck_active = False
+
+        def end_tts_duck(reason="completed"):
+            nonlocal tts_duck_active
+            if not tts_duck_active:
+                return
+            try:
+                _notify_addon_tts_duck_end({"source": "tts_playback", "reason": str(reason or "completed")})
+            except Exception:
+                pass
+            tts_duck_active = False
 
         try:
             while not stop_playback.is_set() and not ctrl.cancel_requested.is_set():
@@ -7964,6 +8118,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                                     "sequence_index": int(chunk_result.get("sequence_index", chunk_sequence) or chunk_sequence or 0),
                                 }
                             )
+                    start_tts_duck_once(chunk_result, source_meta, txt, emotion)
                     if kind == "musetalk":
                         audio_start_time = time.time()
                         _queue_story_visual_reply(txt, emotion)
@@ -8150,6 +8305,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
 
                 if pause_after_chunk.is_set() and not stop_playback.is_set():
                     pause_after_chunk.clear()
+                    end_tts_duck("pause_after_chunk")
                     manual_pause_active.set()
                     playback_paused.set()
                     if avatar_gui:
@@ -8202,6 +8358,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                 pass
             else:
                 clear_avatar_stream_state()
+            end_tts_duck("playback_worker_finished")
             audio_playing.clear()
             _presence_set_audio_level(0.0)
             _presence_set_state("idle")
@@ -8627,7 +8784,40 @@ def chat_with_llm():
         _llm_request_active.clear()
 
 
-def refine_system_prompt_text(system_prompt):
+_PLAIN_TEXT_STRUCTURED_REQUEST_KEYS = {
+    "response_format",
+    "json_schema",
+    "guided_json",
+    "guided_schema",
+    "guided_regex",
+    "guided_choice",
+    "guided_grammar",
+    "grammar",
+}
+
+
+def _apply_plain_text_chat_provider_generation_fields(params, additional_params, *, max_tokens=1200):
+    _apply_chat_provider_generation_fields(params, additional_params)
+    for target in (params, additional_params):
+        if not isinstance(target, dict):
+            continue
+        for key in _PLAIN_TEXT_STRUCTURED_REQUEST_KEYS:
+            target.pop(key, None)
+    token_cap = max(1, int(max_tokens or 1200))
+    for key in ("max_tokens", "max_completion_tokens"):
+        if key not in params:
+            continue
+        try:
+            value = int(params.get(key))
+        except Exception:
+            value = token_cap
+        if value < 0 or value > token_cap:
+            params[key] = token_cap
+        return
+    params["max_tokens"] = token_cap
+
+
+def refine_system_prompt_text(system_prompt, *, allow_nsfw=False):
     """Refine a system prompt through the currently selected chat provider."""
     original = str(system_prompt or "").strip()
     if not original:
@@ -8651,6 +8841,15 @@ def refine_system_prompt_text(system_prompt):
     model_name = str(RUNTIME_CONFIG.get("model_name", "") or "").strip()
     if _is_model_catalog_placeholder(model_name):
         raise RuntimeError("Choose a chat model before refining the system prompt.")
+    try:
+        from ui.runtime.system_prompt_library import refinement_guidance
+
+        safety_guidance = refinement_guidance(bool(allow_nsfw))
+    except Exception:
+        safety_guidance = (
+            "Keep the refined system prompt clear and controllable. Do not add illegal, underage, "
+            "non-consensual, exploitative, hateful, or pornographic instructions."
+        )
     messages = [
         {
             "role": "system",
@@ -8658,8 +8857,9 @@ def refine_system_prompt_text(system_prompt):
                 "You refine system prompts for a local desktop AI companion. "
                 "Preserve the user's intended persona, behavioral constraints, and safety boundaries. "
                 "Improve clarity, structure, instruction hierarchy, and wording. "
+                f"{safety_guidance} "
                 "Return only the refined system prompt text. Do not include commentary, titles, "
-                "markdown fences, before/after notes, or explanations."
+                "markdown fences, before/after notes, explanations, JSON, schemas, or structured story output."
             ),
         },
         {
@@ -8669,7 +8869,7 @@ def refine_system_prompt_text(system_prompt):
     ]
     params = {"model": model_name, "messages": messages}
     additional_params = {}
-    _apply_chat_provider_generation_fields(params, additional_params)
+    _apply_plain_text_chat_provider_generation_fields(params, additional_params, max_tokens=1600)
     response = str(_chat_completion_create(params, additional_params) or "").strip()
     if not response:
         raise RuntimeError("The provider returned an empty refined prompt.")
@@ -8716,7 +8916,7 @@ def refine_instruction_text(text, *, label="Instruction", guidance=""):
                 "summarize, or include them in the answer. The user message contains only the "
                 "original text to refine. Return only the refined version of that original text. "
                 "Do not include commentary, titles, markdown fences, before/after notes, "
-                "explanations, or prompt-wrapper labels."
+                "explanations, prompt-wrapper labels, JSON, schemas, or structured story output."
             ),
         },
         {
@@ -8726,7 +8926,7 @@ def refine_instruction_text(text, *, label="Instruction", guidance=""):
     ]
     params = {"model": model_name, "messages": messages}
     additional_params = {}
-    _apply_chat_provider_generation_fields(params, additional_params)
+    _apply_plain_text_chat_provider_generation_fields(params, additional_params, max_tokens=1200)
     response = str(_chat_completion_create(params, additional_params) or "").strip()
     if not response:
         raise RuntimeError("The provider returned empty refined text.")
@@ -9376,6 +9576,19 @@ def run_conversation_flow(source):
             thinking_actions = _plan_phase2_actions(user_text, input_role_override=input_role_override)
             is_proactive = bool(conversation_controller.state.is_proactive_turn)
             preserve_proactive_placeholder = bool(conversation_controller.state.preserve_proactive_placeholder)
+            input_role_for_addon_commands = input_role_override if input_role_override in {"user", "system", "assistant"} else "user"
+            addon_user_text_command = None
+            addon_user_text_command_consumed = False
+            addon_user_text_command_uses_llm = False
+            if not is_proactive:
+                addon_user_text_command = _maybe_handle_addon_user_text_command(
+                    user_text,
+                    input_role=input_role_for_addon_commands,
+                )
+                addon_user_text_command_uses_llm = bool(
+                    isinstance(addon_user_text_command, dict)
+                    and addon_user_text_command.get("use_llm_response")
+                )
             dry_run_reply_id = dry_run.begin_reply(
                 RUNTIME_CONFIG,
                 streamed=bool(RUNTIME_CONFIG.get("stream_mode", False)),
@@ -9411,6 +9624,22 @@ def run_conversation_flow(source):
                     conversation_history.append(input_turn)
 
                 elif action.type == ConversationActionType.START_LLM_STREAM:
+                    if addon_user_text_command and not addon_user_text_command_uses_llm and not addon_user_text_command_consumed:
+                        response_text = finalize_assistant_reply(str(addon_user_text_command.get("response_text") or ""))
+                        addon_user_text_command_consumed = True
+                        reply_actions = conversation_controller.on_assistant_reply(response_text)
+                        for reply_action in reply_actions:
+                            if reply_action.type == ConversationActionType.POP_LAST_HISTORY:
+                                _pop_last_proactive_placeholder(user_text)
+                        if response_text:
+                            last_assistant_text = response_text
+                            conversation_history.append({"role": "assistant", "content": response_text, "origin": "assistant_reply"})
+                            assistant_history_added = True
+                            _apply_stored_chat_history_limit()
+                            maybe_start_continuity_memory_auto_update()
+                            maybe_start_long_term_memory_auto_archive()
+                        _clear_active_hidden_proactive_candidate()
+                        continue
                     print("⚡ Stream mode enabled...")
                     stream_text_queue = queue.Queue()
                     stream_state = start_streamed_llm_reply(stream_text_queue, dry_run_reply_id=dry_run_reply_id)
@@ -9420,7 +9649,11 @@ def run_conversation_flow(source):
 
                 elif action.type == ConversationActionType.START_LLM_REQUEST:
                     try:
-                        response_text = finalize_assistant_reply(chat_with_llm())
+                        if addon_user_text_command and not addon_user_text_command_uses_llm and not addon_user_text_command_consumed:
+                            response_text = finalize_assistant_reply(str(addon_user_text_command.get("response_text") or ""))
+                            addon_user_text_command_consumed = True
+                        else:
+                            response_text = finalize_assistant_reply(chat_with_llm())
                     except Exception:
                         _presence_set_state("idle")
                         _presence_set_audio_level(0.0)

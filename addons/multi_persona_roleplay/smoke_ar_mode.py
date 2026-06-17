@@ -3,9 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 import json
 import os
+import socket
 import sys
 import tempfile
+import threading
 import time
+import urllib.error
+import urllib.request
 import zipfile
 from types import SimpleNamespace
 
@@ -21,6 +25,7 @@ from addons.multi_persona_roleplay import prompting
 from addons.multi_persona_roleplay.models import AR_MODE, SESSION_MODES, SESSION_MODE_DESCRIPTIONS, VISUAL_MODES, PersonaConfig, RoleplaySessionState
 from addons.multi_persona_roleplay.roleplay_engine import RoleplayEngine
 from addons.multi_persona_roleplay.storage import RoleplayStorage
+from addons.multi_persona_roleplay.structured_output import STRUCTURED_STORY_SCHEMA_VERSION, build_structured_story_output_schema
 from addons.multi_persona_roleplay.voice_routing import PersonaVoiceRouter
 
 
@@ -64,11 +69,20 @@ def run_smoke() -> None:
     assert "[AMBIENCE:" in prompt
     assert "[CHOICES]" in prompt
     assert "Do not make every persona respond every turn" in prompt
+    assert "Progression rule" in prompt
     assert "The user asked to continue" in prompt
     assert "Story Narrator" in prompt
     _smoke_voice_routing(personas, ar_session)
     _smoke_story_only_persona_overrides(personas, ar_session)
+    _smoke_current_character_view_mode(personas)
     _smoke_visual_reply(personas, ar_session)
+    _smoke_manual_visual_requests_are_threaded(personas)
+    _smoke_tts_character_image_does_not_auto_show(personas)
+    _smoke_structured_output_request_scoping(personas)
+    _smoke_structured_output_partial_recovery()
+    _smoke_chat_choice_mode_finalizer(personas, ar_session)
+    _smoke_remote_backend_api()
+    _smoke_remote_install_is_opt_in()
     _smoke_ar_scene_state_update(personas)
     _smoke_audio_prompts()
     _smoke_long_memory(personas, ar_session)
@@ -80,6 +94,7 @@ def run_smoke() -> None:
     _smoke_master_story_json_validation_and_sfw()
     _smoke_master_story_generation_provider_fallback()
     _smoke_story_library_export_package()
+    _smoke_refine_rejects_structured_story_output()
     _smoke_persona_editor_identity_commit_is_quiet()
     _smoke_tab_text_inputs_commit_quietly()
     _smoke_chat_play_voice_volume()
@@ -309,6 +324,35 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "text_speaker_label",
             "text_speaker_label",
         ]
+
+        unquoted_it_dialogue = router.split_text_by_persona(
+            {
+                "text": (
+                    "[CHARACTER: Friend]\n"
+                    "It feels different from what I sensed before. Something old is waking up."
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        unquoted_it_segments = unquoted_it_dialogue.get("segments") or []
+        assert [item.get("persona_id") for item in unquoted_it_segments] == ["friend"]
+        assert [Path(item.get("voice_path", "")).name for item in unquoted_it_segments] == ["friend.wav"]
+        assert unquoted_it_segments[0].get("voice_route", {}).get("route_reason") == "text_speaker_label"
+
+        mislabeled_action = router.split_text_by_persona(
+            {
+                "text": (
+                    "[CHARACTER: Friend]\n"
+                    "A low rumble vibrates through your chest, a sound like distant thunder. "
+                    "Friend's massive form looms beside you, scanning the perimeter.\n\n"
+                    "[CHARACTER: Friend]\n"
+                    "She moves silently beside you, her hair flowing through the rain."
+                ),
+                "tts_backend": "chatterbox",
+            }
+        )
+        mislabeled_segments = mislabeled_action.get("segments") or []
+        assert [item.get("persona_id") for item in mislabeled_segments] == ["story_narrator", "story_narrator"]
 
         narrated_dialogue = router.split_text_by_persona(
             {
@@ -569,7 +613,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
 
         explicit_wins = router.split_text_by_persona(
             {
-                "text": "**[CHARACTER: Friend]**\n**This label** should not override the payload speaker.",
+                "text": "[CHARACTER: Friend]\nThis label should not override the payload speaker.",
                 "persona_id": "mentor",
                 "tts_backend": "chatterbox",
             }
@@ -577,10 +621,93 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         explicit_segments = explicit_wins.get("segments") or []
         assert [item.get("persona_id") for item in explicit_segments] == ["mentor"]
         assert "[CHARACTER" not in explicit_segments[0].get("text", "")
-        assert "*" not in explicit_segments[0].get("text", "")
         assert explicit_segments[0].get("voice_route", {}).get("route_reason") == "explicit_persona"
 
         from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+        strict_cast = {
+            "friend": {"speaker_name": "Friend"},
+        }
+        schema = build_structured_story_output_schema(strict_cast)
+        assert schema["type"] == "object"
+        assert schema["additionalProperties"] is False
+        segment_schema = schema["properties"]["segments"]["items"]
+        assert segment_schema["additionalProperties"] is False
+        assert "delivery" not in segment_schema["properties"]
+        assert "timing" not in segment_schema["properties"]
+        assert schema["properties"]["segments"]["maxItems"] == 6
+        assert "speaker_name" not in segment_schema["required"]
+        assert "speaker_name" not in segment_schema["properties"]
+        assert "segment_id" not in segment_schema["properties"]
+        assert "sfx_tags" not in segment_schema["properties"]
+        assert segment_schema["properties"]["text"]["maxLength"] == 1600
+        assert schema["properties"]["choices"]["items"]["additionalProperties"] is False
+        assert "choice_id" not in schema["properties"]["choices"]["items"]["properties"]
+        assert "metadata" not in schema["properties"]
+        assert segment_schema["properties"]["speaker_id"]["enum"] == [
+            "narrator",
+            "friend",
+            "unknown_speaker",
+        ]
+        strict_reply = json.dumps(
+            {
+                "schema_version": STRUCTURED_STORY_SCHEMA_VERSION,
+                "response_type": "story_turn",
+                "turn_id": "turn_smoke",
+                "language": "en",
+                "segments": [
+                    {
+                        "segment_id": 1,
+                        "speaker_id": "narrator",
+                        "speaker_name": "Narrator",
+                        "role": "narrator",
+                        "text": "The archive tightens around the lantern light.",
+                        "sfx_tags": [],
+                    },
+                    {
+                        "segment_id": 2,
+                        "speaker_id": "friend",
+                        "speaker_name": "Friend",
+                        "role": "character",
+                        "text": "Hold the lantern steady before the seal opens.",
+                        "sfx_tags": [],
+                    },
+                    {
+                        "segment_id": 3,
+                        "speaker_id": "narrator",
+                        "speaker_name": "Narrator",
+                        "role": "sfx",
+                        "text": "A ring of blue sparks opens at their feet.",
+                        "sfx_tags": ["magic_spark"],
+                    },
+                ],
+                "choices": [{"choice_id": "hold_lantern", "label": "Hold the lantern steady"}],
+                "metadata": {
+                    "scene_id": "archive",
+                    "scene_state_hash": "archive_smoke_1",
+                    "visual_key": "friend_archive_lantern",
+                    "notes": None,
+                },
+            },
+            ensure_ascii=False,
+        )
+        strict_converted = MultiPersonaRoleplayController._normalize_mprc_structured_reply(strict_reply, cast=strict_cast)
+        assert "[NARRATOR]" in strict_converted
+        assert "[CHARACTER: Friend]" in strict_converted
+        assert "[FX: magic_spark]" in strict_converted
+        assert "1. Hold the lantern steady" in strict_converted
+        strict_routed = router.split_text_by_persona(
+            {
+                "text": strict_converted,
+                "tts_backend": "chatterbox",
+            }
+        )
+        strict_segments = strict_routed.get("segments") or []
+        assert [
+            item.get("persona_id")
+            for item in strict_segments
+            if "before the seal opens" in str(item.get("text") or "")
+        ] == ["friend"]
 
         probe = object.__new__(MultiPersonaRoleplayController)
         probe.personas = personas
@@ -623,11 +750,43 @@ def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionS
     assert prompting.normalize_visual_provider_id("grok_text_to_image") == "xai"
     assert "natural-language image prompt" in grok_prompt
     assert "Current story moment" in grok_prompt
-    assert "Active persona identity" in grok_prompt
+    assert "Character appearance to place inside that moment" in grok_prompt
     assert "Current story moment" not in runware_prompt
     assert "Hidden LLM" not in runware_prompt
     assert len(runware_prompt) < len(grok_prompt)
     assert len(runware_prompt) <= 520
+    session.location = "The Amber Cup tavern"
+    session.scene_summary = "The story opened inside the warm tavern."
+    session.ar_state.location = "Rain-slick street outside the tavern"
+    session.ar_state.current_scene = "The group has pushed through the tavern door into the rain."
+    outside_reply = "[NARRATOR]\nYou step outside the tavern into cold rain, boots splashing on the street stones."
+    outside_prompt = prompting.build_visual_reply_prompt(
+        personas[0],
+        session,
+        reason="assistant_reply",
+        source_text=outside_reply,
+    )
+    assert "Latest visible story action" in outside_prompt
+    assert "step outside the tavern" in outside_prompt
+    assert "Rain-slick street outside the tavern" in outside_prompt
+    assert outside_prompt.find("Latest visible story action") < outside_prompt.find("Environment/style reference")
+    personas[0].visual.include_active_speaker = False
+    personas[0].visual.include_scene_summary = False
+    outside_runware_prompt = prompting.build_visual_reply_prompt(
+        personas[0],
+        session,
+        reason="assistant_reply",
+        provider="runware",
+        source_text=outside_reply,
+    )
+    assert "current story moment" in outside_runware_prompt
+    assert "step outside the tavern" in outside_runware_prompt
+    assert "show the character in this scene" in outside_runware_prompt
+    assert outside_runware_prompt.find("current story moment") < outside_runware_prompt.find("show the character in this scene")
+    assert "Active speaker" not in outside_runware_prompt
+    assert "not a portrait" in outside_runware_prompt
+    personas[0].visual.include_active_speaker = True
+    personas[0].visual.include_scene_summary = True
 
     visual_service = _FakeVisualGenerationService("runware")
     visual_controller = _FakeController(personas, session)
@@ -653,6 +812,374 @@ def _smoke_visual_reply(personas: list[PersonaConfig], session: RoleplaySessionS
     assert controller.visual_reply.calls == [
         ("mentor", "choices_present", "[NARRATOR] The lantern door opens.\n[CHOICES]\n- Enter\n- Wait")
     ]
+
+
+def _smoke_manual_visual_requests_are_threaded(personas: list[PersonaConfig]) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    persona = personas[0]
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe._state_lock = threading.RLock()
+    probe._manual_character_image_inflight = set()
+    probe._debug_visual_prompt = ""
+    probe._selected_persona = lambda: persona
+    probe._character_picture_prompt = lambda _persona: "single character portrait prompt"
+    probe._run_manual_character_image_request = lambda _persona_id: None
+    probe._run_manual_visual_reply_request = lambda _persona_id, *, kind: None
+    debug_entries: list[dict] = []
+    warnings: list[tuple[str, str]] = []
+    queued: list[tuple[str, object]] = []
+    probe._record_visual_debug = lambda **kwargs: debug_entries.append(dict(kwargs))
+    probe._warn = lambda title, message: warnings.append((str(title), str(message)))
+    probe._refresh_debug = lambda: None
+    probe._queue_visual_worker = lambda prefix, target: queued.append((str(prefix), target)) or True
+
+    probe._generate_character_image()
+    assert warnings == []
+    assert queued and queued[-1][0] == "mprc_manual_character_image"
+    assert persona.id in probe._manual_character_image_inflight
+    assert any("background worker" in str(item.get("message") or "") for item in debug_entries)
+
+    queued.clear()
+    probe._generate_visual_reply()
+    assert queued and queued[-1][0] == "mprc_manual_visual_reply"
+    assert '"queued": true' in probe._debug_visual_prompt.lower()
+
+    queued.clear()
+    probe.visual_reply_service = SimpleNamespace(request_generation=lambda **_kwargs: True)
+    result = MultiPersonaRoleplayController._queue_story_avatar_generation(
+        probe,
+        ["mentor"],
+        {"id": "story"},
+        avatar_enabled=True,
+        style_sheet_enabled=True,
+    )
+    assert queued and queued[-1][0] == "mprc_story_avatar_batch"
+    assert "background" in result
+
+
+def _smoke_tts_character_image_does_not_auto_show(personas: list[PersonaConfig]) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    persona = personas[0]
+    persona.character_image_path = ""
+    persona.visual.auto_show_dock = True
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = [persona]
+    probe._state_lock = threading.RLock()
+    probe._tts_persona_visual_inflight = {persona.id}
+    probe.context = SimpleNamespace(logger=None)
+    probe.is_shutdown = lambda: False
+    probe.persona_by_id = lambda persona_id: persona if persona_id == persona.id else None
+    requests: list[dict] = []
+
+    def request_character_image(received_persona, *, auto_show: bool, source: str):
+        requests.append({"persona_id": received_persona.id, "auto_show": auto_show, "source": source})
+        return {"ok": True}
+
+    probe._request_character_image_generation = request_character_image
+    MultiPersonaRoleplayController._run_tts_character_image_request(probe, persona.id)
+    assert requests == [
+        {
+            "persona_id": persona.id,
+            "auto_show": False,
+            "source": "nc.multi_persona_roleplay.tts_character_picture",
+        }
+    ]
+    assert persona.id not in probe._tts_persona_visual_inflight
+
+
+def _smoke_structured_output_request_scoping(personas: list[PersonaConfig]) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = list(personas)
+    probe.story_prompt_personas = lambda: list(personas)
+    probe._persona_looks_like_narrator = lambda persona: str(getattr(persona, "id", "") or "") == "story_narrator"
+    probe.settings = {}
+
+    params: dict = {}
+    assert probe._apply_mprc_chat_structured_response_format(params, full_setup=False) is True
+    assert params["response_format"]["type"] == "json_schema"
+    schema_payload = params["response_format"]["json_schema"]
+    assert schema_payload["name"] == "mprc_story_turn"
+    assert schema_payload["strict"] is True
+    assert schema_payload["schema"]["properties"]["response_type"]["const"] == "story_turn"
+    assert "turn_id" not in schema_payload["schema"]["required"]
+    assert "language" not in schema_payload["schema"]["required"]
+    assert "metadata" not in schema_payload["schema"]["required"]
+    assert "speaker_name" not in schema_payload["schema"]["properties"]["segments"]["items"]["required"]
+    assert "speaker_name" not in schema_payload["schema"]["properties"]["segments"]["items"]["properties"]
+    assert "metadata" not in schema_payload["schema"]["properties"]
+    assert schema_payload["schema"]["properties"]["choices"]["minItems"] == 2
+    assert schema_payload["schema"]["properties"]["choices"]["maxItems"] == 4
+    assert params["max_tokens"] == 2400
+
+    probe.settings = {"chat_choice_mode": "ask_next_move"}
+    params = {}
+    assert probe._apply_mprc_chat_structured_response_format(params, full_setup=False) is True
+    assert params["response_format"]["json_schema"]["schema"]["properties"]["choices"]["maxItems"] == 0
+
+    probe.settings = {"chat_structured_output_enabled": False}
+    params = {}
+    assert probe._apply_mprc_chat_structured_response_format(params, full_setup=True) is False
+    assert "response_format" not in params
+
+    probe.settings = {"chat_structured_output_enabled": True, "chat_structured_output_scope": "first_turn"}
+    params = {}
+    assert probe._apply_mprc_chat_structured_response_format(params, full_setup=False) is False
+    assert "response_format" not in params
+    assert probe._apply_mprc_chat_structured_response_format(params, full_setup=True) is True
+    assert params["max_tokens"] == 2400
+
+
+def _smoke_structured_output_partial_recovery() -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    cast = {"friend": {"speaker_name": "Friend"}}
+    segment_one = json.dumps(
+        {
+            "segment_id": 1,
+            "speaker_id": "narrator",
+            "speaker_name": "Narrator",
+            "role": "narrator",
+            "text": "The archive door shivers under the lantern light.",
+            "sfx_tags": [],
+        }
+    )
+    segment_two = json.dumps(
+        {
+            "segment_id": 2,
+            "speaker_id": "friend",
+            "speaker_name": "Friend",
+            "role": "character",
+            "text": "Hold it steady. The seal is listening.",
+            "sfx_tags": [],
+        }
+    )
+    truncated = (
+        f'Story: {{"schema_version":"{STRUCTURED_STORY_SCHEMA_VERSION}",'
+        f'"response_type":"story_turn","segments":[{segment_one},{segment_two},'
+        '{"segment_id":3,"speaker_id":"friend","speaker_name":"Friend","role":"character","text":"'
+    )
+    recovered = MultiPersonaRoleplayController._normalize_mprc_structured_reply(truncated, cast=cast)
+    assert "[NARRATOR]" in recovered
+    assert "[CHARACTER: Friend]" in recovered
+    assert "The archive door shivers" in recovered
+    assert "Hold it steady" in recovered
+    assert "schema_version" not in recovered
+    assert "response_type" not in recovered
+    assert "cut off" in recovered
+
+    unrecoverable = MultiPersonaRoleplayController._normalize_mprc_structured_reply(
+        f'Story: {{"schema_version":"{STRUCTURED_STORY_SCHEMA_VERSION}","segments":[{{"segment_id":1,',
+        cast=cast,
+    )
+    assert unrecoverable.startswith("[NARRATOR]")
+    assert "schema_version" not in unrecoverable
+    attributed_character = MultiPersonaRoleplayController._normalize_mprc_structured_reply(
+        json.dumps(
+            {
+                "schema_version": STRUCTURED_STORY_SCHEMA_VERSION,
+                "response_type": "story_turn",
+                "segments": [
+                    {
+                        "speaker_id": "friend",
+                        "role": "character",
+                        "text": '"Hold it steady," Friend whispered, raising one hand.',
+                    }
+                ],
+                "choices": [{"label": "Keep holding the lantern"}, {"label": "Step back"}],
+            }
+        ),
+        cast=cast,
+    )
+    assert "[CHARACTER: Friend]\nHold it steady," in attributed_character
+    assert "Friend whispered" not in attributed_character
+
+
+def _smoke_chat_choice_mode_finalizer(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = list(personas)
+    probe.session = session
+    probe.settings = {}
+    session.current_speaker_id = "friend"
+    session.active_persona_id = "friend"
+    session.objective = "Open the lantern door."
+    session.ar_state.story_goal = "Open the lantern door."
+
+    finalized = probe._finalize_mprc_chat_reply_choice_mode("[NARRATOR]\nThe seal starts to glow.")
+    assert "[CHOICES]" in finalized
+    assert "Pursue objective: Open the lantern door." in finalized
+    assert len(probe._extract_ar_choices(finalized)) >= 2
+
+    probe.settings = {"chat_choice_mode": "ask_next_move"}
+    freeform = probe._finalize_mprc_chat_reply_choice_mode(
+        "[NARRATOR]\nThe seal starts to glow.\n\n[CHOICES]\n1. Open it\n2. Wait"
+    )
+    assert "[CHOICES]" not in freeform
+    assert freeform.endswith("What's your next move?")
+    assert probe._extract_ar_choices(freeform) == []
+
+
+def _free_tcp_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _remote_json_request(url: str, *, code: str = "", payload: dict | None = None) -> dict:
+    data = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(url, data=data, method="POST" if payload is not None else "GET")
+    request.add_header("Accept", "application/json")
+    if payload is not None:
+        request.add_header("Content-Type", "application/json")
+    if code:
+        request.add_header("X-MPRC-Code", code)
+    with urllib.request.urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _smoke_remote_backend_api() -> None:
+    from addons.multi_persona_roleplay.remote_backend import MPRCRemoteBackend
+
+    class _Probe:
+        def __init__(self):
+            self.settings = {"remote_enabled": True}
+            self.context = SimpleNamespace(logger=None)
+            self.sent: list[tuple[str, str, str]] = []
+            self.choices: list[str] = []
+            self.audio_path = Path(tempfile.gettempdir()) / "mprc_remote_audio_smoke.wav"
+            self.audio_path.write_bytes(b"RIFF0000WAVE")
+
+        def remote_status_snapshot(self):
+            return {"running": True}
+
+        def remote_snapshot(self):
+            return {"session": {"mode": AR_MODE}, "choices": [{"id": "1", "text": "Continue"}]}
+
+        def remote_personas_snapshot(self):
+            return [{"id": "mentor", "display_name": "Mentor"}]
+
+        def remote_session_snapshot(self):
+            return {"mode": AR_MODE}
+
+        def remote_update_session(self, payload):
+            return {"updated": dict(payload or {})}
+
+        def remote_send_user_text(self, text, *, intent="Auto", speaker_id=""):
+            self.sent.append((text, intent, speaker_id))
+            return self.remote_snapshot()
+
+        def remote_select_choice(self, choice):
+            self.choices.append(choice)
+            return self.remote_snapshot()
+
+        def remote_play(self):
+            return self.remote_snapshot()
+
+        def remote_pause(self):
+            return self.remote_snapshot()
+
+        def remote_request_visual(self):
+            return self.remote_snapshot()
+
+        def audio_settings_snapshot(self):
+            return {"enabled": True}
+
+        def remote_speech_audio_snapshot(self):
+            return {
+                "available": True,
+                "status": "ready",
+                "generation": 1,
+                "items": [{"id": "chunk1", "url_path": "/api/speech-audio/file/chunk1"}],
+            }
+
+        def remote_speech_audio_file_path(self, audio_id):
+            if str(audio_id or "") == "chunk1":
+                return self.audio_path
+            raise FileNotFoundError("speech audio chunk not found")
+
+    code = "123456"
+    port = _free_tcp_port()
+    probe = _Probe()
+    backend = MPRCRemoteBackend(probe, host="127.0.0.1", port=port, code=code)
+    try:
+        backend.start()
+        base = f"http://127.0.0.1:{port}"
+        health = _remote_json_request(base + "/health")
+        assert health["ok"] is True
+        try:
+            _remote_json_request(base + "/api/state")
+        except urllib.error.HTTPError as exc:
+            assert exc.code == 401
+        else:
+            raise AssertionError("remote state without pairing code should fail")
+        state = _remote_json_request(base + "/api/state", code=code)
+        assert state["ok"] is True
+        assert state["state"]["session"]["mode"] == AR_MODE
+        bad_send_failed = False
+        try:
+            _remote_json_request(base + "/api/send", code=code, payload={})
+        except urllib.error.HTTPError as exc:
+            bad_send_failed = exc.code == 400
+        assert bad_send_failed
+        sent = _remote_json_request(base + "/api/send", code=code, payload={"text": "Open the door", "intent": "Act"})
+        assert sent["ok"] is True
+        assert probe.sent[-1] == ("Open the door", "Act", "")
+        choice = _remote_json_request(base + "/api/choice", code=code, payload={"choice": "1"})
+        assert choice["ok"] is True
+        assert probe.choices[-1] == "1"
+        audio = _remote_json_request(base + "/api/speech-audio", code=code)
+        assert audio["ok"] is True
+        assert audio["speech_audio"]["items"][0]["id"] == "chunk1"
+        audio_request = urllib.request.Request(base + f"/api/speech-audio/file/chunk1?code={code}")
+        with urllib.request.urlopen(audio_request, timeout=5) as response:
+            assert response.headers.get_content_type() == "audio/wav"
+            assert response.read() == b"RIFF0000WAVE"
+    finally:
+        backend.stop()
+        audio_path = getattr(probe, "audio_path", None)
+        if audio_path is not None:
+            try:
+                Path(audio_path).unlink()
+            except Exception:
+                pass
+
+
+def _smoke_remote_install_is_opt_in() -> None:
+    probe = object.__new__(MultiPersonaRoleplayController)
+    saved: list[dict] = []
+    status_lines: list[str] = []
+    probe.settings = {"remote_enabled": True, "remote_token": "legacy-token"}
+    probe.storage = SimpleNamespace(save_settings=lambda settings: saved.append(dict(settings)))
+    probe._remote_backend = None
+    probe._controls = {}
+    probe._syncing = False
+    probe._set_chat_play_status = lambda text: status_lines.append(str(text or ""))
+
+    probe._ensure_remote_settings_defaults()
+    assert probe.settings["remote_server_installed"] is False
+    assert probe.settings["remote_enabled"] is False
+    assert "remote_token" not in probe.settings
+    assert "remote_code" not in probe.settings
+    assert probe.remote_status_snapshot()["installed"] is False
+    probe._sync_remote_backend_from_settings()
+    assert probe._remote_backend is None
+
+    probe._on_mprc_remote_install_clicked()
+    assert probe.settings["remote_server_installed"] is True
+    assert probe.settings["remote_enabled"] is False
+    assert probe.settings["remote_host"] == "0.0.0.0"
+    assert probe.settings["remote_port"] == 8765
+    assert probe._normalized_remote_code(probe.settings.get("remote_code"))
+    status = probe.remote_status_snapshot()
+    assert status["installed"] is True
+    assert status["running"] is False
+    assert status["pairing_code"] == probe.settings["remote_code"]
+    assert any("Remote controls installed" in line for line in status_lines)
 
 
 def _smoke_ar_scene_state_update(personas: list[PersonaConfig]) -> None:
@@ -711,6 +1238,17 @@ def _smoke_ar_scene_state_update(personas: list[PersonaConfig]) -> None:
     )
     assert changed
     assert session.ar_state.pending_choices == []
+    session.ar_state.current_scene = "The party is still in the tavern."
+    session.ar_state.location = "The Amber Cup tavern"
+    session.ar_state.player_intent = "Act: Leave the tavern and go outside."
+    moved = probe._apply_ar_progression_fallback(
+        "[NARRATOR]\n"
+        "You push open the tavern door and step outside into the rain. "
+        "The street stones shine under the lanternlight as the tavern door swings shut behind you."
+    )
+    assert moved
+    assert "step outside" in session.ar_state.current_scene.lower()
+    assert session.ar_state.location in {"Outside the tavern", "Street outside the tavern"}
 
 
 def _smoke_story_only_persona_overrides(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
@@ -739,6 +1277,37 @@ def _smoke_story_only_persona_overrides(personas: list[PersonaConfig], session: 
     assert "patient oracle" in effective.system_prompt
     assert personas[0].display_name == "Mentor"
     assert probe.resolve_story_persona_alias("Gate Oracle").id == "mentor"
+
+
+def _smoke_current_character_view_mode(personas: list[PersonaConfig]) -> None:
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    outside = PersonaConfig.from_dict({"id": "outside_cast", "display_name": "Outside Cast"})
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = list(personas) + [outside]
+    probe.session = RoleplaySessionState.from_dict(
+        {
+            "enabled": True,
+            "mode": AR_MODE,
+            "active_persona_id": "mentor",
+            "current_speaker_id": "mentor",
+            "ar_state": {"active_characters": ["mentor", "friend"]},
+        }
+    )
+    probe.settings = {
+        "master_story_linked_persona_ids": ["friend"],
+        "current_character_view_mode": "active_story",
+    }
+    assert [persona.id for persona in probe._current_character_roster_personas()] == ["friend"]
+    probe.settings["master_story_linked_persona_ids"] = []
+    assert [persona.id for persona in probe._current_character_roster_personas()] == ["mentor", "friend"]
+    probe.settings["current_character_view_mode"] = "all"
+    assert [persona.id for persona in probe._current_character_roster_personas()] == [
+        "mentor",
+        "friend",
+        "story_narrator",
+        "outside_cast",
+    ]
 
 
 def _smoke_master_story_persona_count_controls() -> None:
@@ -1125,6 +1694,38 @@ def _smoke_story_library_export_package() -> None:
         assert partial_result["warnings"] == []
 
 
+def _smoke_refine_rejects_structured_story_output() -> None:
+    from PySide6 import QtWidgets
+    from addons.multi_persona_roleplay.controller import MultiPersonaRoleplayController
+
+    app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+    widget = QtWidgets.QPlainTextEdit()
+    widget.setPlainText("Original story prompt")
+    warnings: list[tuple[str, str]] = []
+    original_warning = QtWidgets.QMessageBox.warning
+    QtWidgets.QMessageBox.warning = lambda _parent, title, message: warnings.append((str(title), str(message)))
+    try:
+        probe = object.__new__(MultiPersonaRoleplayController)
+        probe._refine_widgets = {"refine_test": lambda: widget}
+        probe._finish_worker_token = lambda _token: True
+        structured = json.dumps(
+            {
+                "schema_version": "mprc.story_output.v1",
+                "response_type": "story_turn",
+                "segments": [{"role": "narrator", "text": "This is not a refined prompt."}],
+            }
+        )
+        probe._on_field_refined("refine_test", "Master Story Prompt", structured, "")
+        app.processEvents()
+    finally:
+        QtWidgets.QMessageBox.warning = original_warning
+        widget.deleteLater()
+
+    assert widget.toPlainText() == "Original story prompt"
+    assert warnings
+    assert "structured MPRC story response" in warnings[0][1]
+
+
 def _smoke_persona_editor_identity_commit_is_quiet() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         from PySide6 import QtWidgets
@@ -1240,19 +1841,14 @@ def _smoke_chat_play_voice_volume() -> None:
         assert page is not None
         slider = controller._controls.get("chat_voice_volume")
         value = controller._controls.get("chat_voice_volume_value")
-        colors = controller._controls.get("chat_voice_colors")
         assert slider is not None
         assert value is not None
-        assert colors is not None
         assert slider.value() == 100
         slider.setValue(37)
         app.processEvents()
         assert controller.settings.get("mprc_voice_volume") == 37
         assert value.text() == "37%"
         assert controller.mprc_voice_volume_percent() == 37
-        colors.setChecked(True)
-        app.processEvents()
-        assert controller.settings.get("chat_play_voice_route_colors") is True
         controller.personas = _personas()
         controller.session.enabled = True
         controller.session.mode = AR_MODE
@@ -1262,9 +1858,6 @@ def _smoke_chat_play_voice_volume() -> None:
         assert segments[0].get("voice_volume_percent") == 37
         assert segments[0].get("voice_volume") == 0.37
         assert segments[0].get("voice_route", {}).get("volume_percent") == 37
-        preview_html = controller._chat_play_voice_colored_html("[NARRATOR]\nThe lantern speaks.", segments)
-        assert "<span" in preview_html
-        assert "Story Narrator" in preview_html
 
         class _FakeEngine:
             tts_model = object()
@@ -1466,6 +2059,7 @@ def _master_story_apply_probe(*, max_created: int, allow_exceed: bool):
     probe._save_pre_apply_backup = lambda *_args, **_kwargs: None
     probe._clear_master_story_runtime_state = lambda *_args, **_kwargs: None
     probe._story_character_summaries = lambda linked_ids: {persona_id: "" for persona_id in linked_ids}
+    probe._queue_story_avatar_generation = lambda *_args, **_kwargs: ""
     probe._generate_story_avatar_images = lambda *_args, **_kwargs: ""
     probe._generate_story_avatar_style_sheets = lambda *_args, **_kwargs: ""
     probe.refresh_ui = lambda: None
