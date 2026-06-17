@@ -8,6 +8,13 @@ MEMORY_SCOPES = ("shared", "persona-only", "session-only", "disabled")
 BEHAVIOR_MODES = ("normal companion", "RPG character", "narrator", "game master", "group participant")
 AR_MODE = "AlternativeReality"
 SESSION_MODES = ("Single active persona", "Multi-character group chat", "Narrator + characters", "RPG / Game Master mode", AR_MODE)
+SESSION_MODE_DESCRIPTIONS = {
+    "Single active persona": "Only the active persona is framed to respond. Best for one-on-one roleplay or testing one voice/profile.",
+    "Multi-character group chat": "Uses the active cast as a conversation group. Characters may speak as participants, but there is no dedicated narrator layer.",
+    "Narrator + characters": "Adds a narrator/story voice plus character dialogue. Best for prose scenes that still include named character responses.",
+    "RPG / Game Master mode": "Frames the assistant as a game master who describes the world, adjudicates actions, and offers tabletop-style outcomes.",
+    AR_MODE: "Narrator-led interactive story mode with persistent scene state, active characters, pacing controls, choices, and story audio tags.",
+}
 AR_PACING_MODES = ("Slow / Audiobook", "Balanced", "Fast / Game-like")
 AR_INTERACTION_FREQUENCIES = ("Ask often", "Ask sometimes", "Continue until important choice")
 VOICE_BACKENDS = ("inherit", "chatterbox", "chatterbox_multilingual", "pockettts", "pockettts_multilingual", "gemini_tts_preview")
@@ -87,6 +94,22 @@ def _choice(value: Any, choices: tuple[str, ...], default: str) -> str:
     text = _text(value, default)
     if choices is SESSION_MODES and text.strip().lower() in {"ar", "alternative reality", "alternative_reality"}:
         return AR_MODE
+    if choices is VISUAL_PROVIDERS:
+        visual_aliases = {
+            "xai": "xai",
+            "x_ai": "xai",
+            "grok": "xai",
+            "grok_text_to_image": "xai",
+            "grok_image": "xai",
+            "grok_imagine": "xai",
+            "runware_ai": "runware",
+            "runwareai": "runware",
+            "comfy_ui": "comfyui",
+            "comfy": "comfyui",
+        }
+        alias_key = text.strip().lower().replace("-", "_").replace(" ", "_")
+        if alias_key in visual_aliases:
+            return visual_aliases[alias_key]
     lowered = {item.lower(): item for item in choices}
     return lowered.get(text.lower(), default)
 
@@ -224,6 +247,7 @@ class PersonaConfig:
     temperature_hint: str = ""
     memory_scope: str = "persona-only"
     behavior_mode: str = "normal companion"
+    master_narrator: bool = False
     tags: list[str] = field(default_factory=list)
     voice: VoiceConfig = field(default_factory=VoiceConfig)
     visual: VisualProfile = field(default_factory=VisualProfile)
@@ -250,6 +274,7 @@ class PersonaConfig:
             temperature_hint=_text(data.get("temperature_hint")),
             memory_scope=_choice(data.get("memory_scope"), MEMORY_SCOPES, "persona-only"),
             behavior_mode=_choice(data.get("behavior_mode"), BEHAVIOR_MODES, "normal companion"),
+            master_narrator=_bool(data.get("master_narrator"), False),
             tags=_tags(data.get("tags")),
             voice=VoiceConfig.from_dict(data.get("voice") if isinstance(data.get("voice"), dict) else {}),
             visual=VisualProfile.from_dict(data.get("visual") if isinstance(data.get("visual"), dict) else {}),

@@ -11,6 +11,7 @@ Multi Persona Roleplay Companion, or MPRC, adds a Roleplay tab to NeuralCompanio
 - Builds persona-aware Visual Reply prompts and can request generation through the existing Visual Reply addon when available.
 - Adds an Audio tab with a persistent Story Sounds toggle and a local Suno-style prompt builder for music, ambience, FX, and stingers.
 - Adds a Master Story tab that can turn one story prompt into linked personas, session state, and saved reusable story setups.
+- Adds Story Library Export for portable zip story packages with selectable sections, green availability rows, copied avatar/voice/audio assets, and safe import remapping.
 - Adds a Status cockpit for first-run demo, validation, repair actions, voice routing inspection, Visual Reply/AudioFX tests, story bundles, and memory editing.
 
 ## Add A Persona
@@ -37,13 +38,13 @@ Gemini TTS Preview does not currently support voice samples, so MPRC warns and f
 
 The session panel supports:
 
-- Single active persona
-- Multi-character group chat
-- Narrator + characters
-- RPG / Game Master mode
-- AlternativeReality
+- `Single active persona`: only the active persona is framed to respond. Use it for one-on-one roleplay or testing one profile/voice.
+- `Multi-character group chat`: the active cast is treated as a conversation group. Characters can speak as participants, but there is no dedicated narrator layer.
+- `Narrator + characters`: adds a narrator/story voice plus character dialogue. Use it for prose scenes that still include named character responses.
+- `RPG / Game Master mode`: frames the assistant as a game master who describes the world, adjudicates actions, and offers tabletop-style outcomes.
+- `AlternativeReality`: narrator-led interactive story mode with persistent scene state, active characters, pacing controls, choices, and story audio tags.
 
-The active persona controls the immediate prompt. Multi-character modes add a compact roster and current-speaker instruction without exposing hidden planning.
+The active persona controls the immediate prompt in simple modes. Multi-character modes add a compact roster and current-speaker instruction without exposing hidden planning.
 
 AlternativeReality, or AR, is a directed interactive audiobook/adventure mode. It uses compact AR session state, a narrator-first prompt layer, active characters, pacing settings, interaction-frequency settings, and structured sections such as `[NARRATOR]`, `[CHARACTER: Name]`, `[AMBIENCE]`, and `[CHOICES]`. Existing non-AR modes keep their normal prompt behavior.
 
@@ -55,9 +56,15 @@ Open `Roleplay > Master` to describe a whole story in one prompt. `Generate Stor
 
 When you apply or load a story, MPRC links personas by existing persona ID first, then by display name. If a story contains a persona that does not exist yet, `Auto-create missing personas` creates it and links it to the story session. `Update matching existing personas` fills non-empty story prompt fields into matched personas while preserving voice samples and pictures unless the story explicitly includes those fields.
 
+`Apply Draft` opens an Apply Master Story workflow before anything is written. The left Draft Characters list shows each generated character; when you generate a draft avatar, that row immediately switches from initials to the generated thumbnail. The Draft Avatar / Visual Prompt field is editable, and its right-click `Refine Avatar Visual Prompt` action uses the current chat provider to clean up the image prompt before you send it to Visual Reply. The Draft Voice section lets you choose a `.wav` file from the project `voices` folder, edit the emotional preview text, and press `Preview Voice` to load the active NC TTS runtime and hear that sample before applying. Selected voice samples are assigned to the resulting linked persona during Apply Story.
+
 Personas linked to the current Master Story are marked in the persona selectors as `[Story]`, `[Active Story]`, or `[New Story]` so you can see which characters belong to the loaded setup. The Master tab can also request avatar pictures for newly created personas through the existing Visual Reply service. Use `Avatar visual direction` to steer the image style; generated story drafts include persona visual profiles such as character appearance, clothing/props, environment style, and negative prompt guidance. `Create avatar style sheets for new personas` is optional and default off; enable it only for Visual Reply providers/workflows that can use an avatar image as a reference for character reference-sheet generation.
 
 `Save Story` stores the reviewed draft in addon storage. `Load Story` loads and applies it, so saved stories can quickly switch scene state, active speaker, AR settings, and linked persona roster. The Story Library sits above the builder and shows a framed 180x180 story image beside the saved-story selector. If a saved story has no image path, MPRC creates a local fallback cover image in story storage.
+
+`Story Library Export` sits directly below Story Library. It creates a portable `.mprcstory.zip` package with selectable sections for session state, story metadata, linked personas, visual settings, avatar image files, voice settings, voice files, story memory, recent events, AudioFX settings, AudioFX files, visual styles, Master Story draft data, and templates/prompts. Green rows mean data exists for that section. When avatar, voice, or AudioFX files are selected, MPRC copies those files into the package instead of requiring the original absolute paths on restore.
+
+Imported story packages are validated through `manifest.json`, saved through the existing recovery-backup path, and restored into the addon's runtime asset folder. Avatar image, voice sample, and AudioFX paths are remapped to extracted local files under `runtime/addons/nc.multi_persona_roleplay/assets/story_packages/imported/<story_id>/`. Re-importing the same story package reuses that story asset folder instead of creating a new timestamped folder. Existing personas and stories are protected by creating unique imported IDs when a package would collide with saved data.
 
 MPRC stores active long memory and session state per loaded Master Story. When a story is loaded again, the addon restores that story's memory so AR state, recent events, long-memory context, and story-linked audio prompt data continue with the loaded story instead of leaking from another story.
 
@@ -69,11 +76,15 @@ The Status tab is the recommended first stop before a serious AR session. `Start
 
 The Voice Routing Inspector shows exactly how `[NARRATOR]` and `[CHARACTER: Name]` sections map to personas and voice files. The next-turn inspector can preview the next AR request or explain the narrator, active character, voice, memory, Visual Reply, and AudioFX routing before the next Continue.
 
-`Export Story Bundle` creates a portable JSON bundle containing story metadata, linked cast, narrator lock, memory snapshot, prompts, AudioFX links/descriptions, visual settings, voice routing info, and `schema_version`. `Import Story Bundle` restores a bundle after saving a recovery backup.
+`Export Story Bundle` creates a compact JSON bundle containing story metadata, linked cast, narrator lock, memory snapshot, prompts, AudioFX links/descriptions, visual settings, voice routing info, and `schema_version`. `Import Story Bundle` restores a bundle after saving a recovery backup. For a complete movable package with copied voice/audio assets, use `Story Library Export` in the Master tab.
 
 ## Visual Reply
 
 Each persona has its own visual profile. The Preview button shows the effective image prompt. Generate Visual Reply sends that prompt to the existing Visual Reply service when the first-party Visual Reply addon is enabled and configured.
+
+MPRC changes prompt style by provider. Grok/xAI uses a richer natural-language prompt with story moment, visible action, persona identity, appearance, scene, mood, lighting, visual style, and continuity. Runware uses a shorter direct prompt with concrete visual phrases so the provider is not overloaded by long story instructions. ComfyUI keeps the existing compact positive-prompt behavior.
+
+If a persona provider is set to `inherit`, MPRC resolves the active Visual Reply provider snapshot when available and builds the prompt for that provider. The Debug tab and Visual Prompt Debug panel show the effective provider, persona override, active provider snapshot, and final prompt style.
 
 MPRC does not duplicate Visual Reply history or image storage. Generated images still flow through the existing Visual Reply state and dock.
 
@@ -100,10 +111,11 @@ runtime/addons/nc.multi_persona_roleplay/
   sessions/current_session.json
   stories/index.json
   stories/*.json
+  assets/story_packages/imported/
   memory/long_memory.json
 ```
 
-Voice sample paths are stored as paths only.
+Normal avatar, voice sample, and AudioFX paths are stored as paths only. Story Library Export packages can copy selected avatar, voice, and AudioFX files into the zip and remap them into the addon's runtime asset folder during import, so restored voices and sound effects play from `runtime/addons/nc.multi_persona_roleplay/assets/...`.
 
 ## Long Memory
 
@@ -116,6 +128,8 @@ This JSON backend is the stable local memory shape. A PostgreSQL or vector backe
 ## Backend Limits
 
 - Per-message backend switching is not performed. NC loads one active TTS backend, and MPRC routes voice samples only when the persona backend is `inherit` or matches the active backend.
+- MPRC can route distinct voices per persona only when the active NC TTS backend supports reference audio. Newly created personas need voice samples before they can sound different.
+- During one TTS response, voices should switch only on explicit speaker segments such as `[NARRATOR]`, `[CHARACTER: Exact Persona Display Name]`, or supported speaker/persona labels. Explicit payload `persona_id`, `speaker_id`, or `current_speaker_id` wins over text labels.
 - Some backends ignore language hints. PocketTTS accepts per-request language hints; other backends may require changing their normal runtime setting.
 - Visual Reply generation requires the existing Visual Reply provider to be configured with the needed API key, base URL, or workflow.
 
@@ -123,7 +137,9 @@ This JSON backend is the stable local memory shape. A PostgreSQL or vector backe
 
 - If the Roleplay tab is missing, confirm the addon is enabled in the Addons UI and restart NC.
 - If a voice does not apply, check that roleplay mode is enabled, the persona voice toggle is on, the file path exists, and the active TTS backend supports voice samples.
-- If image generation does not start, use Preview Image Prompt first, then check the Visual Reply provider settings.
+- If a voice changes unexpectedly during one response, open Status or Debug and inspect Voice Routing. The route reason should explain whether the segment came from `explicit_persona`, `text_speaker_label`, `ar_narrator_default`, `ar_stream_speaker`, `current_speaker`, or `active_persona`.
+- If image generation does not start, use Preview Image Prompt first, then check the Visual Reply provider settings, persona visual enablement, trigger mode, cooldown, and max auto images.
+- If Runware results get worse, shorten the prompt and keep concrete visual phrases. If Grok/xAI results are too plain, add richer natural-language visual detail.
 - If a persona feels too repetitive, lower the repetition threshold in `settings.json` or edit the persona prompt to ask for more varied responses.
 - If AR mode feels too chatty, set pacing to `Slow / Audiobook` and interaction frequency to `Continue until important choice`.
 

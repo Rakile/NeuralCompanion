@@ -12,6 +12,7 @@ import threading
 import time
 import weakref
 import wave
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from .models import (
     BEHAVIOR_MODES,
     MEMORY_SCOPES,
     SESSION_MODES,
+    SESSION_MODE_DESCRIPTIONS,
     VISUAL_MODE_DESCRIPTIONS,
     VISUAL_MODE_LABELS,
     VISUAL_MODES,
@@ -39,10 +41,69 @@ from .models import (
     unique_persona_id,
 )
 from .long_memory import RoleplayLongMemory
+from .remote_backend import DEFAULT_REMOTE_PORT, MPRCRemoteBackend, generate_remote_code, lan_ip_address
 from .roleplay_engine import RoleplayEngine
 from .storage import RoleplayStorage
+from .structured_output import STRUCTURED_STORY_SCHEMA_VERSION, build_structured_story_output_schema
 from .visual_reply import PersonaVisualReply
 from .voice_routing import PersonaVoiceRouter, VOICE_REFERENCE_BACKENDS, normalize_tts_backend
+
+
+def _mprc_checkbox_stylesheet(text_color: str = "#f4f7fb", font_weight: str = "600") -> str:
+    return f"""
+    QCheckBox {{
+        color: {text_color};
+        font-weight: {font_weight};
+        spacing: 9px;
+        min-height: 24px;
+    }}
+    QCheckBox:disabled {{
+        color: #7f8fa3;
+    }}
+    QCheckBox::indicator {{
+        width: 20px;
+        height: 20px;
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+    }}
+    QCheckBox::indicator:hover {{
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+    }}
+    QCheckBox::indicator:checked {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:checked:hover {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:disabled {{
+        image: url(ui/assets/checkbox_round_inactive.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    QCheckBox::indicator:checked:disabled {{
+        image: url(ui/assets/checkbox_round_active.svg);
+        background: transparent;
+        border: 0px;
+        width: 20px;
+        height: 20px;
+    }}
+    """
+
+
+MPRC_CHECKBOX_STYLESHEET = _mprc_checkbox_stylesheet()
 
 
 class _MprcRefineBridge(QtCore.QObject):
@@ -90,6 +151,36 @@ class _MprcChatTurnBridge(QtCore.QObject):
             controller._on_mprc_chat_turn_finished(str(token or ""), str(reply_text or ""), str(error or ""))
 
 
+class _MprcVoicePreviewBridge(QtCore.QObject):
+    finished = QtCore.Signal(str, str)
+
+    def __init__(self, controller):
+        super().__init__()
+        self.controller = controller
+        self.finished.connect(self._on_finished)
+
+    @QtCore.Slot(str, str)
+    def _on_finished(self, token: str, error: str):
+        controller = getattr(self, "controller", None)
+        if controller is not None:
+            controller._on_voice_preview_finished(str(token or ""), str(error or ""))
+
+
+class _MprcObjectResultBridge(QtCore.QObject):
+    finished = QtCore.Signal(object, object)
+
+    def __init__(self, callback, parent=None):
+        super().__init__(parent)
+        self._callback = callback
+        self.finished.connect(self._on_finished)
+
+    @QtCore.Slot(object, object)
+    def _on_finished(self, key, result):
+        callback = getattr(self, "_callback", None)
+        if callable(callback):
+            callback(key, result)
+
+
 class _MprcStoryAudioBridge(QtCore.QObject):
     play_requested = QtCore.Signal(object)
 
@@ -112,6 +203,8 @@ class _MprcUiBridge(QtCore.QObject):
     visual_reply_requested = QtCore.Signal(str, str)
     tts_character_image_requested = QtCore.Signal(str)
     tts_visual_reply_requested = QtCore.Signal(str, str)
+    manual_visual_finished = QtCore.Signal(str, str, object)
+    remote_request = QtCore.Signal(object)
     shutdown_requested = QtCore.Signal()
 
     def __init__(self, controller):
@@ -123,6 +216,8 @@ class _MprcUiBridge(QtCore.QObject):
         self.visual_reply_requested.connect(self._on_visual_reply_requested)
         self.tts_character_image_requested.connect(self._on_tts_character_image_requested)
         self.tts_visual_reply_requested.connect(self._on_tts_visual_reply_requested)
+        self.manual_visual_finished.connect(self._on_manual_visual_finished)
+        self.remote_request.connect(self._on_remote_request)
         self.shutdown_requested.connect(self._on_shutdown_requested)
 
     @QtCore.Slot()
@@ -170,6 +265,18 @@ class _MprcUiBridge(QtCore.QObject):
                 lambda: controller._run_tts_visual_reply_request(str(persona_id or ""), str(spoken_text or "")),
             )
 
+    @QtCore.Slot(str, str, object)
+    def _on_manual_visual_finished(self, kind: str, persona_id: str, result):
+        controller = getattr(self, "controller", None)
+        if controller is not None and not controller.is_shutdown():
+            controller._on_manual_visual_finished(str(kind or ""), str(persona_id or ""), result)
+
+    @QtCore.Slot(object)
+    def _on_remote_request(self, payload):
+        controller = getattr(self, "controller", None)
+        if controller is not None and not controller.is_shutdown():
+            controller._handle_remote_thread_request(payload)
+
     @QtCore.Slot()
     def _on_shutdown_requested(self):
         controller = getattr(self, "controller", None)
@@ -179,34 +286,40 @@ class _MprcUiBridge(QtCore.QObject):
 
 class _MprcTabButton(QtWidgets.QFrame):
     clicked = QtCore.Signal(int)
+    move_requested = QtCore.Signal(int, int)
 
     def __init__(self, index: int, title: str, icon: QtGui.QIcon, color: str, tooltip: str, parent=None):
         super().__init__(parent)
         self._index = index
         self._color = color
         self._selected = False
+        self._drag_start_pos = QtCore.QPoint()
+        self._dragging = False
+        self._last_move_target_index: int | None = None
         self.setObjectName("mprc_custom_tab_button")
         self.setCursor(QtCore.Qt.PointingHandCursor)
-        self.setToolTip(tooltip)
-        self.setMinimumSize(112, 86)
-        self.setMaximumHeight(86)
+        self.setToolTip((str(tooltip or "").strip() + "\nDrag to move this tab button.").strip())
+        self.setMinimumSize(80, 68)
+        self.setMaximumSize(96, 68)
         layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(8, 4, 8, 4)
+        layout.setContentsMargins(7, 4, 7, 5)
         layout.setSpacing(1)
 
         self._title = QtWidgets.QLabel(title)
         self._title.setObjectName("mprc_custom_tab_title")
+        self._title.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
         self._title.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
         title_font = self._title.font()
         title_font.setBold(True)
         self._title.setFont(title_font)
-        self._title.setMinimumHeight(18)
+        self._title.setMinimumHeight(16)
 
         self._icon = QtWidgets.QLabel()
         self._icon.setObjectName("mprc_custom_tab_icon")
+        self._icon.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
         self._icon.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
-        self._icon.setPixmap(icon.pixmap(QtCore.QSize(50, 50)))
-        self._icon.setFixedHeight(52)
+        self._icon.setPixmap(icon.pixmap(QtCore.QSize(36, 36)))
+        self._icon.setFixedHeight(38)
 
         layout.addWidget(self._title)
         layout.addWidget(self._icon)
@@ -218,23 +331,66 @@ class _MprcTabButton(QtWidgets.QFrame):
 
     def mousePressEvent(self, event):
         if event.button() == QtCore.Qt.LeftButton:
-            self.clicked.emit(self._index)
+            self._drag_start_pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            self._dragging = False
+            self._last_move_target_index = None
+            event.accept()
+            return
         super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & QtCore.Qt.LeftButton:
+            pos = event.position().toPoint() if hasattr(event, "position") else event.pos()
+            if (pos - self._drag_start_pos).manhattanLength() >= QtWidgets.QApplication.startDragDistance():
+                self._dragging = True
+                self.setCursor(QtCore.Qt.ClosedHandCursor)
+                target = self._tab_button_at_event(event)
+                if target is not None and target is not self and target._index != self._last_move_target_index:
+                    self._last_move_target_index = target._index
+                    self.move_requested.emit(self._index, target._index)
+                event.accept()
+                return
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == QtCore.Qt.LeftButton:
+            if self._dragging:
+                target = self._tab_button_at_event(event)
+                if target is not None and target is not self and target._index != self._last_move_target_index:
+                    self.move_requested.emit(self._index, target._index)
+            else:
+                self.clicked.emit(self._index)
+            self._dragging = False
+            self._last_move_target_index = None
+            self.setCursor(QtCore.Qt.PointingHandCursor)
+            event.accept()
+            return
+        super().mouseReleaseEvent(event)
+
+    @staticmethod
+    def _tab_button_at_event(event) -> "_MprcTabButton | None":
+        try:
+            global_pos = event.globalPosition().toPoint()
+        except Exception:
+            global_pos = event.globalPos()
+        widget = QtWidgets.QApplication.widgetAt(global_pos)
+        while widget is not None:
+            if isinstance(widget, _MprcTabButton):
+                return widget
+            widget = widget.parentWidget()
+        return None
 
     def _apply_style(self):
         background = "#1c2d43" if self._selected else "#111b28"
         border = self._color if self._selected else "#36506d"
-        bottom = "#122033" if self._selected else "#36506d"
+        bottom = self._color if self._selected else "#36506d"
         self.setStyleSheet(
             f"""
             QFrame#mprc_custom_tab_button {{
                 background: {background};
                 border: 1px solid {border};
                 border-bottom-color: {bottom};
-                border-top-left-radius: 8px;
-                border-top-right-radius: 8px;
-                border-bottom-left-radius: 0;
-                border-bottom-right-radius: 0;
+                border-radius: 9px;
             }}
             QLabel#mprc_custom_tab_title {{
                 color: {self._color};
@@ -262,6 +418,11 @@ class _MprcCurrentPageStack(QtWidgets.QStackedWidget):
     def minimumSizeHint(self):
         current = self.currentWidget()
         return current.minimumSizeHint() if current is not None else super().minimumSizeHint()
+
+
+class _MprcTabNavScrollArea(QtWidgets.QScrollArea):
+    def wheelEvent(self, event):
+        event.ignore()
 
 
 class _MprcFloatingPlayWindow(QtWidgets.QDialog):
@@ -300,6 +461,7 @@ class MultiPersonaRoleplayController:
         self.session: RoleplaySessionState = self.storage.load_session()
         self.visual_styles = self.storage.load_visual_styles()
         self.settings = self.storage.load_settings()
+        self._ensure_remote_settings_defaults()
         self.long_memory = RoleplayLongMemory(self.storage, logger=getattr(context, "logger", None))
         self.voice_router = PersonaVoiceRouter(self)
         self.roleplay_engine = RoleplayEngine(self)
@@ -330,10 +492,17 @@ class MultiPersonaRoleplayController:
         self._refine_bridge = _MprcRefineBridge(self)
         self._story_bridge = _MprcStoryBridge(self)
         self._chat_turn_bridge = _MprcChatTurnBridge(self)
+        self._voice_preview_bridge = _MprcVoicePreviewBridge(self)
         self._story_audio_bridge = _MprcStoryAudioBridge(self)
         self._ui_bridge = _MprcUiBridge(self)
         self._adopt_qobject_bridges(self._qt_application_instance())
+        self._editor_commit_timer = QtCore.QTimer()
+        self._editor_commit_timer.setSingleShot(True)
+        self._editor_commit_timer.timeout.connect(self._commit_scheduled_editor)
+        self._editor_commit_include_identity = False
+        self._commit_timers: dict[str, QtCore.QTimer] = {}
         self._master_story_draft: dict[str, Any] = {}
+        self._manual_character_image_inflight: set[str] = set()
         self._tts_persona_visual_inflight: set[str] = set()
         self._tts_visual_reply_inflight: set[str] = set()
         self._last_tts_visual_reply_at: dict[str, float] = {}
@@ -342,19 +511,71 @@ class MultiPersonaRoleplayController:
         self._mprc_tts_state_lock = threading.RLock()
         self._mprc_tts_controller = None
         self._mprc_tts_token = ""
+        self._voice_preview_status_widgets: dict[str, weakref.ReferenceType[Any]] = {}
         self._mprc_chat_history: list[dict[str, str]] = []
         self._mprc_pending_chat_users: dict[str, dict[str, str]] = {}
+        self._remote_backend: MPRCRemoteBackend | None = None
+        self._remote_latest_reply_text = ""
+        self._remote_audio_lock = threading.RLock()
+        self._remote_audio_generation = 0
+        self._remote_audio_capture_until = 0.0
+        self._remote_audio_items: list[dict[str, Any]] = []
+        self._remote_audio_status = "idle"
+        self._remote_audio_source_excerpt = ""
         self._chat_play_page = None
         self._chat_play_placeholder = None
         self._chat_play_floating_window = None
         self._chat_play_stack_index = -1
         self._ensure_session_persona()
+        self._sync_remote_backend_from_settings()
 
     def _host_service(self, name: str):
         try:
             return self.context.get_service(name)
         except Exception:
             return None
+
+    def _remote_server_installed(self) -> bool:
+        return bool(self.settings.get("remote_server_installed", False))
+
+    def _ensure_remote_settings_defaults(self, *, installed: bool | None = None) -> None:
+        changed = False
+        installed = self._remote_server_installed() if installed is None else bool(installed)
+        if self.settings.get("remote_server_installed") != installed:
+            self.settings["remote_server_installed"] = installed
+            changed = True
+        if self.settings.pop("remote_token", None) is not None:
+            changed = True
+        if not installed:
+            if bool(self.settings.get("remote_enabled", False)):
+                self.settings["remote_enabled"] = False
+                changed = True
+            if changed:
+                self.storage.save_settings(self.settings)
+            return
+        if "remote_enabled" not in self.settings:
+            self.settings["remote_enabled"] = False
+            changed = True
+        if not str(self.settings.get("remote_host") or "").strip():
+            self.settings["remote_host"] = "0.0.0.0"
+            changed = True
+        try:
+            port = int(self.settings.get("remote_port", DEFAULT_REMOTE_PORT) or DEFAULT_REMOTE_PORT)
+        except Exception:
+            port = DEFAULT_REMOTE_PORT
+        port = max(1, min(65535, port))
+        if self.settings.get("remote_port") != port:
+            self.settings["remote_port"] = port
+            changed = True
+        code = self._normalized_remote_code(self.settings.get("remote_code"))
+        if not code:
+            self.settings["remote_code"] = generate_remote_code()
+            changed = True
+        elif self.settings.get("remote_code") != code:
+            self.settings["remote_code"] = code
+            changed = True
+        if changed:
+            self.storage.save_settings(self.settings)
 
     def is_shutdown(self) -> bool:
         with self._state_lock:
@@ -415,7 +636,8 @@ class MultiPersonaRoleplayController:
                 self._active_worker_tokens.discard(str(token or ""))
                 return False
             self._active_worker_tokens.discard(token)
-            return True
+        self._request_ui_refresh()
+        return True
 
     def _cancel_worker_token(self, token: str) -> None:
         with self._state_lock:
@@ -432,6 +654,7 @@ class MultiPersonaRoleplayController:
                 return False
             self._worker_threads[token] = thread
         thread.start()
+        self._request_ui_refresh()
         return True
 
     def invoke_capability_threadsafe(self, capability: str, payload: dict[str, Any] | None = None):
@@ -452,6 +675,8 @@ class MultiPersonaRoleplayController:
                     str(data.get("text") or ""),
                 )
                 return True
+            if name == "tts.audio_chunk_ready":
+                return self.handle_tts_audio_chunk_ready(data)
             if name == "roleplay.assistant_reply":
                 self.roleplay_engine.record_assistant_text(str(data.get("text") or ""))
                 return True
@@ -462,6 +687,7 @@ class MultiPersonaRoleplayController:
         return None
 
     def shutdown(self) -> None:
+        self._stop_remote_backend()
         with self._state_lock:
             if self._shutting_down:
                 return
@@ -519,7 +745,7 @@ class MultiPersonaRoleplayController:
         self._chat_play_placeholder = None
         self._chat_play_page = None
         self._chat_play_stack_index = -1
-        for attr in ("_refine_bridge", "_story_bridge", "_story_audio_bridge", "_ui_bridge"):
+        for attr in ("_refine_bridge", "_story_bridge", "_chat_turn_bridge", "_voice_preview_bridge", "_story_audio_bridge", "_ui_bridge"):
             bridge = getattr(self, attr, None)
             if bridge is None:
                 continue
@@ -551,6 +777,551 @@ class MultiPersonaRoleplayController:
                 return
             self.storage.save_personas(self.personas)
             self.storage.save_session(self.session)
+
+    def _remote_host(self) -> str:
+        return str(self.settings.get("remote_host") or "0.0.0.0").strip() or "0.0.0.0"
+
+    def _remote_port(self) -> int:
+        try:
+            port = int(self.settings.get("remote_port", DEFAULT_REMOTE_PORT) or DEFAULT_REMOTE_PORT)
+        except Exception:
+            port = DEFAULT_REMOTE_PORT
+        return max(1, min(65535, port))
+
+    @staticmethod
+    def _normalized_remote_code(value: Any) -> str:
+        digits = re.sub(r"\D+", "", str(value or ""))
+        if not digits:
+            return ""
+        try:
+            numeric = int(digits)
+        except Exception:
+            return ""
+        return f"{numeric:06d}" if 100000 <= numeric <= 999999 else ""
+
+    def _remote_code(self) -> str:
+        code = self._normalized_remote_code(self.settings.get("remote_code"))
+        if code:
+            return code
+        code = generate_remote_code()
+        self.settings["remote_code"] = code
+        self.settings.pop("remote_token", None)
+        self.storage.save_settings(self.settings)
+        return code
+
+    def _sync_remote_backend_from_settings(self) -> None:
+        if not self._remote_server_installed():
+            if bool(self.settings.get("remote_enabled", False)):
+                self.settings["remote_enabled"] = False
+                self.storage.save_settings(self.settings)
+            self._stop_remote_backend()
+            self._refresh_remote_controls()
+            return
+        self._ensure_remote_settings_defaults(installed=True)
+        if bool(self.settings.get("remote_enabled", False)):
+            self._start_remote_backend()
+        else:
+            self._stop_remote_backend()
+        self._refresh_remote_controls()
+
+    def _start_remote_backend(self) -> None:
+        if not self._remote_server_installed():
+            return
+        host = self._remote_host()
+        port = self._remote_port()
+        code = self._remote_code()
+        backend = getattr(self, "_remote_backend", None)
+        if backend is not None and backend.running and backend.host == host and backend.port == port and backend.code == code:
+            return
+        if backend is not None:
+            backend.stop()
+        try:
+            backend = MPRCRemoteBackend(self, host=host, port=port, code=code)
+            backend.start()
+            self._remote_backend = backend
+            self._record_story_event(f"remote backend started at {backend.display_url}", severity="info", kind="runtime", persist=True)
+        except Exception as exc:
+            self._remote_backend = None
+            self.settings["remote_enabled"] = False
+            self.storage.save_settings(self.settings)
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC Remote] Could not start remote backend: %s", exc)
+            self._record_story_event(f"remote backend failed to start: {exc}", severity="warning", kind="runtime", persist=True)
+
+    def _stop_remote_backend(self) -> None:
+        backend = getattr(self, "_remote_backend", None)
+        self._remote_backend = None
+        if backend is not None:
+            backend.stop()
+
+    def remote_status_snapshot(self) -> dict[str, Any]:
+        if not self._remote_server_installed():
+            return {
+                "installed": False,
+                "enabled": False,
+                "running": False,
+                "host": "",
+                "port": int(DEFAULT_REMOTE_PORT),
+                "url": "",
+                "code_configured": False,
+                "pairing_code": "",
+                "connected_clients": 0,
+                "clients": [],
+                "started_at": 0.0,
+            }
+        backend = getattr(self, "_remote_backend", None)
+        if backend is not None:
+            status = backend.status_snapshot()
+        else:
+            status = {
+                "installed": True,
+                "enabled": bool(self.settings.get("remote_enabled", False)),
+                "running": False,
+                "host": self._remote_host(),
+                "port": self._remote_port(),
+                "url": f"http://{lan_ip_address() if self._remote_host() in {'', '0.0.0.0', '::'} else self._remote_host()}:{self._remote_port()}",
+                "code_configured": bool(self._normalized_remote_code(self.settings.get("remote_code"))),
+                "connected_clients": 0,
+                "clients": [],
+                "started_at": 0.0,
+            }
+        status["installed"] = True
+        status["pairing_code"] = self._remote_code()
+        status.update(self._engine_speech_status())
+        return status
+
+    def _engine_speech_status(self) -> dict[str, Any]:
+        try:
+            from core.engine_access import engine_module
+
+            engine = engine_module()
+            audio_playing = getattr(engine, "audio_playing", None)
+            playback_paused = getattr(engine, "playback_paused", None)
+            pause_after_chunk = getattr(engine, "pause_after_chunk", None)
+            manual_pause_active = getattr(engine, "manual_pause_active", None)
+            return {
+                "speech_playing": bool(audio_playing is not None and hasattr(audio_playing, "is_set") and audio_playing.is_set()),
+                "speech_paused": bool(
+                    (playback_paused is not None and hasattr(playback_paused, "is_set") and playback_paused.is_set())
+                    or (pause_after_chunk is not None and hasattr(pause_after_chunk, "is_set") and pause_after_chunk.is_set())
+                    or (manual_pause_active is not None and hasattr(manual_pause_active, "is_set") and manual_pause_active.is_set())
+                ),
+            }
+        except Exception:
+            return {"speech_playing": False, "speech_paused": False}
+
+    def _set_engine_speech_paused(self, paused: bool) -> bool:
+        try:
+            from core.engine_access import engine_module
+
+            engine = engine_module()
+            playback_paused = getattr(engine, "playback_paused", None)
+            pause_after_chunk = getattr(engine, "pause_after_chunk", None)
+            manual_pause_active = getattr(engine, "manual_pause_active", None)
+            if paused:
+                if manual_pause_active is not None and hasattr(manual_pause_active, "set"):
+                    manual_pause_active.set()
+                if pause_after_chunk is not None and hasattr(pause_after_chunk, "set"):
+                    pause_after_chunk.set()
+                return True
+            if manual_pause_active is not None and hasattr(manual_pause_active, "clear"):
+                manual_pause_active.clear()
+            if pause_after_chunk is not None and hasattr(pause_after_chunk, "clear"):
+                pause_after_chunk.clear()
+            if playback_paused is not None and hasattr(playback_paused, "clear"):
+                playback_paused.clear()
+            try:
+                engine.last_resume_requested_at = time.time()
+            except Exception:
+                pass
+            return True
+        except Exception:
+            return False
+
+    def _remote_audio_cache_dir(self) -> Path:
+        root = Path(__file__).resolve().parents[2] / "runtime" / "mprc_remote_audio"
+        root.mkdir(parents=True, exist_ok=True)
+        return root
+
+    def _begin_remote_speech_audio_capture(self, reply_text: str) -> None:
+        if not self._remote_server_installed() or not bool(self.settings.get("remote_enabled", False)):
+            return
+        with self._remote_audio_lock:
+            self._remote_audio_generation += 1
+            old_items = list(self._remote_audio_items or [])
+            self._remote_audio_items = []
+            self._remote_audio_status = "rendering"
+            self._remote_audio_capture_until = time.time() + 900.0
+            self._remote_audio_source_excerpt = self._mprc_compact(str(reply_text or ""), 240)
+        for item in old_items:
+            path = Path(str(item.get("_file_path") or ""))
+            if path.exists():
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+
+    def handle_tts_audio_chunk_ready(self, payload: dict[str, Any] | None = None):
+        if not self._remote_server_installed() or not bool(self.settings.get("remote_enabled", False)):
+            return None
+        data = dict(payload or {})
+        source_path = Path(str(data.get("audio_path") or ""))
+        if not source_path.exists() or source_path.suffix.lower() != ".wav":
+            return None
+        now = time.time()
+        with self._remote_audio_lock:
+            if now > float(self._remote_audio_capture_until or 0.0):
+                return None
+            generation = int(self._remote_audio_generation or 0)
+            index = len(self._remote_audio_items) + 1
+        target_id = f"g{generation:04d}_{index:03d}_{int(now * 1000)}"
+        target_path = self._remote_audio_cache_dir() / f"{target_id}.wav"
+        try:
+            shutil.copy2(source_path, target_path)
+        except Exception as exc:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC Remote] Could not copy TTS chunk for phone audio: %s", exc)
+            return None
+        duration = self._wav_duration_seconds(target_path)
+        meta = dict(data.get("source_meta") or {}) if isinstance(data.get("source_meta"), dict) else {}
+        item = {
+            "id": target_id,
+            "_file_path": str(target_path),
+            "url_path": f"/api/speech-audio/file/{target_id}",
+            "index": index,
+            "text": str(data.get("text") or "").strip(),
+            "persona_id": str(meta.get("persona_id") or ""),
+            "speaker": str(meta.get("display_name") or meta.get("persona_id") or "Narrator").strip() or "Narrator",
+            "duration_seconds": duration,
+            "created_at": now,
+        }
+        with self._remote_audio_lock:
+            if generation != int(self._remote_audio_generation or 0):
+                try:
+                    target_path.unlink()
+                except Exception:
+                    pass
+                return None
+            self._remote_audio_items.append(item)
+            self._remote_audio_items = self._remote_audio_items[-48:]
+            self._remote_audio_status = "ready"
+        return True
+
+    @staticmethod
+    def _wav_duration_seconds(path: Path) -> float:
+        try:
+            with wave.open(str(path), "rb") as handle:
+                frames = int(handle.getnframes() or 0)
+                rate = int(handle.getframerate() or 0)
+            return round(frames / rate, 3) if rate > 0 else 0.0
+        except Exception:
+            return 0.0
+
+    def remote_speech_audio_snapshot(self) -> dict[str, Any]:
+        with self._remote_audio_lock:
+            items = [
+                {key: value for key, value in dict(item).items() if not str(key).startswith("_")}
+                for item in list(self._remote_audio_items or [])
+            ]
+            status = str(self._remote_audio_status or "idle")
+            capture_active = time.time() <= float(self._remote_audio_capture_until or 0.0)
+            generation = int(self._remote_audio_generation or 0)
+            source_excerpt = str(self._remote_audio_source_excerpt or "")
+        if not items and not capture_active:
+            status = "idle"
+        return {
+            "available": bool(items),
+            "status": status,
+            "generation": generation,
+            "capture_active": bool(capture_active),
+            "source_excerpt": source_excerpt,
+            "items": items,
+        }
+
+    def remote_speech_audio_file_path(self, audio_id: str) -> Path:
+        wanted = re.sub(r"[^A-Za-z0-9_.-]+", "", str(audio_id or ""))
+        if not wanted:
+            raise FileNotFoundError("speech audio id is required")
+        with self._remote_audio_lock:
+            for item in list(self._remote_audio_items or []):
+                if str(item.get("id") or "") == wanted:
+                    path = Path(str(item.get("_file_path") or ""))
+                    if path.exists() and path.is_file():
+                        return path
+        raise FileNotFoundError("speech audio chunk not found")
+
+    def _handle_remote_thread_request(self, payload) -> None:
+        data = payload if isinstance(payload, dict) else {}
+        event = data.get("event")
+        try:
+            func = data.get("func")
+            if not callable(func):
+                raise RuntimeError("remote request is missing callable")
+            data["result"] = func()
+        except Exception as exc:
+            data["error"] = str(exc) or repr(exc)
+        finally:
+            if event is not None and hasattr(event, "set"):
+                event.set()
+
+    def _run_remote_on_ui_thread(self, func, *, timeout: float = 30.0):
+        if not callable(func):
+            raise RuntimeError("remote UI request is not callable")
+        if self._is_ui_thread():
+            return func()
+        bridge = getattr(self, "_ui_bridge", None)
+        if bridge is None:
+            raise RuntimeError("MPRC UI bridge is unavailable")
+        event = threading.Event()
+        payload: dict[str, Any] = {"func": func, "event": event, "result": None, "error": ""}
+        try:
+            bridge.remote_request.emit(payload)
+        except RuntimeError as exc:
+            raise RuntimeError(f"MPRC UI bridge rejected remote request: {exc}") from exc
+        if not event.wait(max(1.0, float(timeout or 30.0))):
+            raise RuntimeError("MPRC remote request timed out waiting for UI thread")
+        if payload.get("error"):
+            raise RuntimeError(str(payload.get("error") or "MPRC remote request failed"))
+        return payload.get("result")
+
+    def remote_personas_snapshot(self) -> list[dict[str, Any]]:
+        active_id = str(self.session.active_persona_id or "")
+        current_id = str(self.session.current_speaker_id or "")
+        narrator_id = self.selected_narrator_persona_id()
+        items: list[dict[str, Any]] = []
+        for persona in list(self.personas or []):
+            items.append(
+                {
+                    "id": persona.id,
+                    "display_name": persona.display_name,
+                    "role": persona.role or persona.behavior_mode,
+                    "enabled": bool(persona.enabled),
+                    "active": persona.id == active_id,
+                    "current_speaker": persona.id == current_id,
+                    "narrator": persona.id == narrator_id,
+                    "description": self._mprc_compact(persona.ar_description or persona.description, 400),
+                    "visual_enabled": bool(persona.visual.enabled),
+                    "voice_enabled": bool(persona.voice.enabled),
+                }
+            )
+        return items
+
+    def remote_session_snapshot(self) -> dict[str, Any]:
+        state = self.session.ar_state
+        return {
+            "enabled": bool(self.session.enabled),
+            "mode": self.session.mode,
+            "turn_index": int(self.session.turn_index or 0),
+            "active_persona_id": self.session.active_persona_id,
+            "current_speaker_id": self.session.current_speaker_id,
+            "scene_title": self.session.scene_title,
+            "location": state.location or self.session.location,
+            "time_of_day": state.time_of_day or self.session.time_of_day,
+            "mood": state.mood or self.session.mood,
+            "objective": state.story_goal or self.session.objective,
+            "scene_summary": self.session.scene_summary,
+            "ar_state": state.to_dict(),
+            "character_state_summaries": dict(self.session.character_state_summaries or {}),
+        }
+
+    def remote_snapshot(self) -> dict[str, Any]:
+        latest_reply = self._remote_latest_reply()
+        choices = self._extract_ar_choices(latest_reply) or [
+            str(item)
+            for item in list(self.session.ar_state.pending_choices or [])
+            if str(item or "").strip()
+        ]
+        return {
+            "schema_version": 1,
+            "remote": self.remote_status_snapshot(),
+            "session": self.remote_session_snapshot(),
+            "personas": self.remote_personas_snapshot(),
+            "latest_reply": latest_reply,
+            "segments": self._remote_story_segments(latest_reply),
+            "choices": [
+                {"id": str(index), "text": choice}
+                for index, choice in enumerate(choices[:6], start=1)
+            ],
+            "speech_audio": self.remote_speech_audio_snapshot(),
+            "audio_cues": self.available_story_audio_files(),
+            "visual": {
+                "latest_prompt": str(self._debug_visual_prompt or self._chat_visual_prompt_debug or ""),
+                "last_visual_reply_at": float(self.session.last_visual_reply_at or 0.0),
+                "auto_image_count": int(self.session.auto_image_count or 0),
+            },
+        }
+
+    def _remote_latest_reply(self) -> str:
+        if str(self._remote_latest_reply_text or "").strip():
+            return str(self._remote_latest_reply_text or "").strip()
+        for message in reversed(list(self._mprc_chat_history or [])):
+            if str((message or {}).get("role") or "").strip().lower() == "assistant":
+                return str((message or {}).get("content") or "").strip()
+        return ""
+
+    def _remote_story_segments(self, text: str) -> list[dict[str, Any]]:
+        raw = str(text or "").strip()
+        if not raw:
+            return []
+        tag_pattern = re.compile(
+            r"\[(NARRATOR|CHARACTER:\s*[^\]]+|AMBIENCE:\s*[^\]]+|AMBIENT:\s*[^\]]+|MUSIC:\s*[^\]]+|FX:\s*[^\]]+|SFX:\s*[^\]]+|STINGER:\s*[^\]]+|AUDIO:\s*[^\]]+|CHOICES)\]",
+            flags=re.IGNORECASE,
+        )
+        matches = list(tag_pattern.finditer(raw))
+        if not matches:
+            return [{"segment_id": 1, "speaker_id": "narrator", "speaker_name": "Narrator", "role": "narrator", "text": raw}]
+        segments: list[dict[str, Any]] = []
+        for index, match in enumerate(matches):
+            tag = str(match.group(1) or "").strip()
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(raw)
+            body = raw[start:end].strip()
+            lowered = tag.lower()
+            if lowered == "choices":
+                continue
+            role = "narrator"
+            speaker_name = "Narrator"
+            speaker_id = "narrator"
+            if lowered.startswith("character:"):
+                role = "character"
+                speaker_name = re.sub(r"^character:\s*", "", tag, flags=re.IGNORECASE).strip()
+                speaker_id = self._remote_persona_id_for_name(speaker_name)
+            elif ":" in tag:
+                role = "audio"
+                speaker_name = tag.split(":", 1)[0].strip().upper()
+                speaker_id = "audio"
+                body = f"[{tag}] {body}".strip()
+            if body:
+                segments.append(
+                    {
+                        "segment_id": len(segments) + 1,
+                        "speaker_id": speaker_id,
+                        "speaker_name": speaker_name,
+                        "role": role,
+                        "text": body,
+                    }
+                )
+        return segments
+
+    def _remote_persona_id_for_name(self, name: str) -> str:
+        wanted = str(name or "").strip().lower()
+        for persona in list(self.personas or []):
+            if wanted in {persona.id.lower(), persona.display_name.strip().lower()}:
+                return persona.id
+        return normalize_persona_id(name) or "unknown_speaker"
+
+    def remote_update_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        def apply_update():
+            data = dict(payload or {})
+            state = self.session.ar_state
+            for key in ("scene_title", "location", "time_of_day", "mood", "objective", "scene_summary"):
+                if key in data:
+                    setattr(self.session, key, str(data.get(key) or "").strip())
+            ar_payload = data.get("ar_state") if isinstance(data.get("ar_state"), dict) else data
+            for key, attr in (
+                ("current_scene", "current_scene"),
+                ("location", "location"),
+                ("time_of_day", "time_of_day"),
+                ("mood", "mood"),
+                ("story_goal", "story_goal"),
+                ("player_intent", "player_intent"),
+            ):
+                if key in ar_payload:
+                    setattr(state, attr, str(ar_payload.get(key) or "").strip())
+            if "active_characters" in ar_payload and isinstance(ar_payload.get("active_characters"), list):
+                state.active_characters = [
+                    normalize_persona_id(item)
+                    for item in ar_payload.get("active_characters")
+                    if str(item or "").strip()
+                ][:8]
+            if "pending_choices" in ar_payload and isinstance(ar_payload.get("pending_choices"), list):
+                state.pending_choices = [str(item or "").strip() for item in ar_payload.get("pending_choices") if str(item or "").strip()][:6]
+            if "enabled" in data:
+                self.session.enabled = bool(data.get("enabled"))
+            if "mode" in data:
+                mode = str(data.get("mode") or "").strip()
+                if mode in SESSION_MODES:
+                    self.session.mode = mode
+            self.save_state()
+            self._request_ui_refresh()
+            return self.remote_snapshot()
+
+        return self._run_remote_on_ui_thread(apply_update)
+
+    def remote_send_user_text(self, text: str, *, intent: str = "Auto", speaker_id: str = "") -> dict[str, Any]:
+        def send():
+            player_text = str(text or "").strip()
+            if not player_text:
+                raise RuntimeError("text is required")
+            if self._mprc_pending_chat_users:
+                raise RuntimeError("MPRC turn is already running")
+            self._stop_mprc_chat_speech()
+            intent_text = self._infer_mprc_chat_intent(player_text, intent)
+            latest_user_text = f"{intent_text}: {player_text}"
+            self.session.ar_state.player_intent = latest_user_text
+            speaker = self.persona_by_id(str(speaker_id or "").strip())
+            if speaker is not None:
+                self.session.current_speaker_id = speaker.id
+            self.session.enabled = True
+            if self.session.mode == AR_MODE:
+                self.ensure_ar_state(latest_user_text)
+            self.save_state()
+            self._append_chat_play_line("Remote [{0}]".format(intent_text), player_text, role="user")
+            self._start_mprc_chat_turn(intent=intent_text, player_text=player_text, speaker_id=str(speaker_id or "").strip())
+            return self.remote_snapshot()
+
+        return self._run_remote_on_ui_thread(send)
+
+    def remote_select_choice(self, choice: str) -> dict[str, Any]:
+        text = str(choice or "").strip()
+        if text.isdigit():
+            index = int(text) - 1
+            choices = [str(item or "").strip() for item in list(self.session.ar_state.pending_choices or []) if str(item or "").strip()]
+            if 0 <= index < len(choices):
+                text = choices[index]
+        return self.remote_send_user_text(text, intent="Auto")
+
+    def remote_play(self) -> dict[str, Any]:
+        def play():
+            was_paused = bool(self._engine_speech_status().get("speech_paused", False))
+            if was_paused and self._set_engine_speech_paused(False):
+                self._append_chat_play_line("Remote", "Speech resume requested.", role="system")
+                self._set_chat_play_status("MPRC Remote speech resume requested.")
+                return self.remote_snapshot()
+            self.session.enabled = True
+            if self.session.mode == AR_MODE:
+                self.ensure_ar_state("Continue")
+            self.save_state()
+            if int(getattr(self.session, "turn_index", 0) or 0) <= 0 and not self._mprc_pending_chat_users:
+                self._start_mprc_opening_turn()
+            else:
+                self._append_chat_play_line("Remote", "Play/resume requested.", role="system")
+                self._set_chat_play_status("MPRC Remote play/resume requested.")
+            return self.remote_snapshot()
+
+        return self._run_remote_on_ui_thread(play)
+
+    def remote_pause(self) -> dict[str, Any]:
+        def pause():
+            self._set_engine_speech_paused(True)
+            self._append_chat_play_line("Remote", "Speech pause requested.", role="system")
+            self._set_chat_play_status("MPRC Remote speech pause requested. Current speech can resume from the remote app or PC Pause / Resume.")
+            return self.remote_snapshot()
+
+        return self._run_remote_on_ui_thread(pause)
+
+    def remote_request_visual(self) -> dict[str, Any]:
+        def request():
+            persona = self.current_speaker_persona() or self.active_persona()
+            if persona is None:
+                raise RuntimeError("No active persona for Visual Reply")
+            self.request_auto_visual_reply(persona.id, "manual", self._remote_latest_reply())
+            self._set_chat_play_status("MPRC Remote Visual Reply requested.")
+            return self.remote_snapshot()
+
+        return self._run_remote_on_ui_thread(request)
 
     def export_session_state(self) -> dict[str, Any]:
         with self._state_lock:
@@ -857,6 +1628,27 @@ class MultiPersonaRoleplayController:
         scored.sort(key=lambda item: (item[0], item[1]), reverse=True)
         return [item[2] for item in scored] + [item[1] for item in rest]
 
+    def _ordered_voice_selector_personas(self) -> list[PersonaConfig]:
+        master = [(self._master_narrator_number(persona), index, persona) for index, persona in enumerate(self.personas) if self._persona_is_master_narrator(persona)]
+        rest = [(index, persona) for index, persona in enumerate(self.personas) if not self._persona_is_master_narrator(persona)]
+        master.sort(key=lambda item: (item[0], item[1]))
+        return [item[2] for item in master] + [item[1] for item in rest]
+
+    def _master_narrator_personas(self) -> list[PersonaConfig]:
+        return [persona for persona in self.personas if self._persona_is_master_narrator(persona)]
+
+    def _master_narrator_number(self, persona: PersonaConfig | None) -> int:
+        if persona is None or not self._persona_is_master_narrator(persona):
+            return 0
+        for index, item in enumerate(self._master_narrator_personas(), start=1):
+            if item.id == persona.id:
+                return index
+        return 0
+
+    @staticmethod
+    def _persona_is_master_narrator(persona: PersonaConfig | None) -> bool:
+        return bool(getattr(persona, "master_narrator", False))
+
     @classmethod
     def _persona_narrator_score(cls, persona: PersonaConfig | None) -> int:
         if persona is None:
@@ -874,6 +1666,8 @@ class MultiPersonaRoleplayController:
                 " ".join(tags),
             ]
         ).lower()
+        if cls._persona_is_master_narrator(persona):
+            return 140
         if display == "story narrator":
             return 100
         if behavior == "narrator":
@@ -958,8 +1752,10 @@ class MultiPersonaRoleplayController:
         event = str(assistant_text or "").strip()
         if not event:
             return
+        self._remote_latest_reply_text = event
         previous_choices = list(state.pending_choices or [])
         changed = self._update_ar_state_from_reply(event)
+        changed = self._apply_ar_progression_fallback(event) or changed
         extracted_choices = self._extract_ar_choices(event)
         if extracted_choices and list(state.pending_choices or []) == previous_choices:
             state.pending_choices = extracted_choices
@@ -1103,6 +1899,91 @@ class MultiPersonaRoleplayController:
             if changed:
                 self.session.character_state_summaries = current
         return changed
+
+    def _apply_ar_progression_fallback(self, assistant_text: str) -> bool:
+        visible = self._mprc_latest_visible_story_beat(assistant_text)
+        if not visible:
+            return False
+        state = self.session.ar_state
+        changed = False
+        compact_scene = prompting._compact(visible, 360)
+        current_scene = str(getattr(state, "current_scene", "") or "").strip()
+        if compact_scene and compact_scene.lower() != current_scene.lower():
+            state.current_scene = compact_scene
+            changed = True
+        visible_reply = self._strip_mprc_choices_block(self._mprc_strip_audio_tags(str(assistant_text or "")))
+        inferred_location = self._infer_mprc_progression_location(
+            "\n".join(
+                part
+                for part in (
+                    str(getattr(state, "player_intent", "") or ""),
+                    visible_reply,
+                    visible,
+                )
+                if part.strip()
+            )
+        )
+        current_location = str(getattr(state, "location", "") or "").strip()
+        if inferred_location and inferred_location.lower() != current_location.lower():
+            state.location = inferred_location
+            changed = True
+        recent_event = prompting._compact(visible, 260)
+        if recent_event:
+            events = [str(item or "").strip() for item in list(state.recent_events or []) if str(item or "").strip()]
+            if not events or events[-1] != recent_event:
+                events.append(recent_event)
+                state.recent_events = events[-12:]
+                changed = True
+        return changed
+
+    @staticmethod
+    def _mprc_latest_visible_story_beat(text: str) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        raw = re.sub(
+            r"\[(?:AMBIENCE|AMBIENT|MUSIC|FX|SFX|STINGER|AUDIO):[^\]]+\]",
+            " ",
+            raw,
+            flags=re.IGNORECASE,
+        )
+        raw = re.sub(r"(?is)\[CHOICES\].*$", " ", raw)
+        raw = re.sub(r"\[(?:/?NARRATOR|CHARACTER:\s*[^\]]+)\]", "\n", raw, flags=re.IGNORECASE)
+        raw = re.sub(r"\b(?:Story|Assistant)\s*:\s*", " ", raw, flags=re.IGNORECASE)
+        paragraphs = [
+            re.sub(r"\s+", " ", part).strip(" -")
+            for part in re.split(r"\n{2,}|\r?\n", raw)
+        ]
+        blocked_starts = ("what do you do", "what's your next move", "whats your next move")
+        for paragraph in reversed(paragraphs):
+            lowered = paragraph.lower()
+            if len(paragraph) < 24 or lowered.startswith(blocked_starts):
+                continue
+            return prompting._compact(paragraph, 700)
+        compact = re.sub(r"\s+", " ", raw).strip()
+        return prompting._compact(compact, 700)
+
+    def _infer_mprc_progression_location(self, text: str) -> str:
+        value = re.sub(r"\s+", " ", str(text or "").strip().lower())
+        if not value:
+            return ""
+        if re.search(r"\b(forest|woods|woodland|wilds|wilderness|grove|tree line|treeline)\b", value):
+            return "Wilds outside the tavern" if re.search(r"\b(tavern|inn)\b", value) else "Forest"
+        if re.search(r"\b(street|road|lane|alley|market|square|courtyard|stable yard)\b", value):
+            return "Street outside the tavern" if re.search(r"\b(tavern|inn)\b", value) else "Street"
+        if re.search(r"\b(outside|outdoors|open air|threshold|through the door|out the door|leaves? the tavern|leaves? the inn|leaving the tavern|leaving the inn|steps? out|walks? out|push(?:es)? .*door open)\b", value):
+            return "Outside the tavern" if re.search(r"\b(tavern|inn)\b", value) else "Outside"
+        for pattern in (
+            r"\b(?:enter|enters|entered|step into|steps into|walk into|walks into|move into|moves into)\s+the\s+([a-z][a-z0-9 '\-]{2,42})",
+            r"\b(?:arrive at|arrives at|reach|reaches|reached)\s+the\s+([a-z][a-z0-9 '\-]{2,42})",
+        ):
+            match = re.search(pattern, value)
+            if match:
+                location = re.split(r"\b(?:and|as|while|where|before|with)\b|[,.]", match.group(1))[0].strip(" ',-")
+                words = [word for word in location.split() if word]
+                if 1 <= len(words) <= 6:
+                    return " ".join(word.capitalize() for word in words)
+        return ""
 
     def ensure_personas_from_assistant_text(self, assistant_text: str, *, source: str = "assistant_reply") -> list[str]:
         text = str(assistant_text or "")
@@ -1587,6 +2468,62 @@ class MultiPersonaRoleplayController:
         self._cancel_worker_token(token)
         return False
 
+    def _emit_manual_visual_finished(self, kind: str, persona_id: str, result: Any) -> None:
+        bridge = getattr(self, "_ui_bridge", None)
+        if bridge is None:
+            return
+        try:
+            bridge.manual_visual_finished.emit(str(kind or ""), str(persona_id or ""), result)
+        except RuntimeError:
+            pass
+
+    def _on_manual_visual_finished(self, kind: str, persona_id: str, result: Any) -> None:
+        result_dict = dict(result or {}) if isinstance(result, dict) else {"message": str(result or "")}
+        key = str(persona_id or "").strip()
+        if kind == "character_picture":
+            with self._state_lock:
+                self._manual_character_image_inflight.discard(key)
+            if not bool(result_dict.get("ok")):
+                self._warn("Create Character Picture", result_dict.get("message") or "Character picture generation was not accepted.")
+            return
+        if kind in {"manual_visual_reply", "status_visual_reply"}:
+            self._debug_visual_prompt = json.dumps(result_dict, indent=2, ensure_ascii=True)
+            self._refresh_debug()
+        if kind == "status_visual_reply":
+            persona = self.persona_by_id(key)
+            persona_name = str(getattr(persona, "display_name", "") or key or "selected persona")
+            accepted = bool(result_dict.get("accepted"))
+            message = str(result_dict.get("message") or "submitted")
+            self._record_story_event(
+                f"visual test {'accepted' if accepted else 'skipped'} for {persona_name}: {message}",
+                severity="info" if accepted else "warning",
+                kind="visual",
+                persist=True,
+            )
+            self._set_master_story_status(f"Visual Reply test for {persona_name}: {message}.")
+        if kind == "story_avatar_batch":
+            message = str(result_dict.get("message") or "").strip() or "Story avatar generation finished."
+            accepted = bool(result_dict.get("accepted", True))
+            lowered = message.lower()
+            severity = "warning" if not accepted or any(word in lowered for word in ("failed", "skipped", "unavailable")) else "info"
+            self._record_story_event(
+                f"avatar generation batch: {message}",
+                severity=severity,
+                kind="visual",
+                persist=True,
+            )
+            self._set_master_story_status(f"Story avatar generation finished: {message}")
+            self._request_ui_refresh()
+
+    def _run_manual_visual_reply_request(self, persona_id: str, *, kind: str) -> None:
+        result: dict[str, Any]
+        try:
+            persona = self.persona_by_id(str(persona_id or "").strip()) if str(persona_id or "").strip() else None
+            result = self.visual_reply.request_generation(persona=persona, reason="manual")
+        except Exception as exc:
+            result = {"accepted": False, "message": f"Visual Reply request failed: {exc}"}
+        self._emit_manual_visual_finished(kind, str(persona_id or ""), result)
+
     def _run_auto_visual_reply_request(self, persona_id: str, reason: str, source_text: str = "") -> None:
         if self.is_shutdown():
             return
@@ -1623,6 +2560,8 @@ class MultiPersonaRoleplayController:
         reply_text = self._mprc_strip_audio_tags(str(source_text or "").strip())
         if not reply_text or persona is None or self.is_shutdown():
             return ""
+        provider_id = prompting.normalize_visual_provider_id(provider or "inherit") or "inherit"
+        prompt_style = prompting.visual_prompt_style(provider_id)
         try:
             from core.engine_access import engine_module
 
@@ -1659,7 +2598,8 @@ class MultiPersonaRoleplayController:
             visual = persona.visual
             prompt_payload = {
                 "task": "Create one image prompt for the current MPRC story reply.",
-                "provider": str(provider or "inherit").strip().lower(),
+                "provider": provider_id,
+                "prompt_style": prompt_style,
                 "trigger_reason": str(reason or "manual"),
                 "selected_visual_persona": {
                     "id": persona.id,
@@ -1669,6 +2609,7 @@ class MultiPersonaRoleplayController:
                     "clothing_props": visual.clothing_props,
                     "environment_style": visual.environment_style,
                     "negative_prompt": visual.negative_prompt,
+                    "include_active_speaker_focus": bool(visual.include_active_speaker),
                 },
                 "scene_state": {
                     "title": self.session.scene_title,
@@ -1698,18 +2639,40 @@ class MultiPersonaRoleplayController:
                 "Return strict JSON only, no markdown and no prose. "
                 "Focus on the visible action happening in current_story_reply. "
                 "Use scene_state and active_cast only to keep identity, setting, and continuity grounded. "
+                "current_story_reply overrides older scene_state summary, selected_visual_persona environment_style, and stale location memory. "
+                "Use selected_visual_persona as character identity inside the current scene, not as a static portrait subject. "
+                "If selected_visual_persona.include_active_speaker_focus is false, do not make the active speaker name or face the main composition unless the current story reply visibly requires it. "
                 "Do not invent new characters, props, injuries, weapons, monsters, or location changes unless visible in the current story reply. "
                 "Do not include hidden reasoning."
             )
+            style_rule = {
+                "runware": (
+                    "- Provider style is Runware: return one compact direct positive prompt, preferably comma-separated visual phrases. "
+                    "Keep it under 520 characters and avoid multi-step narrative instructions or hidden metadata."
+                ),
+                "grok": (
+                    "- Provider style is xAI/Grok: return a richer natural-language image prompt with visible action, persona identity, "
+                    "appearance, location, mood/lighting, style, and continuity. Avoid JSON in the final image_prompt."
+                ),
+                "comfyui": (
+                    "- Provider style is ComfyUI: use a direct compact positive prompt without labels like 'Story scene image' or 'Current story moment'."
+                ),
+            }.get(
+                prompt_style,
+                "- Provider style is general Visual Reply: return a clear story-scene prompt under 900 characters.",
+            )
+            prompt_limit_label = "520" if prompt_style == "runware" else "1300" if prompt_style == "grok" else "760" if prompt_style == "comfyui" else "900"
             user_prompt = (
                 "Return this exact JSON shape:\n"
                 '{"image_prompt":"ready image prompt focused on the current visible action","negative_prompt":"optional concise avoid list"}\n\n'
                 "Rules:\n"
                 "- image_prompt must describe who is visibly doing what, where, with mood/lighting/camera.\n"
+                "- Start from current_story_reply/current scene action, then add character appearance as continuity detail.\n"
                 "- Prioritize action, body language, object interaction, threat, discovery, movement, or reaction from current_story_reply.\n"
-                "- Keep recurring character identity consistent using active_cast and selected_visual_persona.\n"
-                "- If provider is comfyui, use a direct positive prompt without labels like 'Story scene image' or 'Current story moment'.\n"
-                "- Keep image_prompt under 900 characters.\n\n"
+                "- Keep recurring character identity consistent using active_cast and selected_visual_persona, but never replace the scene with a character-card description.\n"
+                "- If no concrete action is visible, show the current scene state and atmosphere instead of a portrait.\n"
+                f"{style_rule}\n"
+                f"- Keep image_prompt under {prompt_limit_label} characters.\n\n"
                 "Input JSON:\n"
                 f"{json.dumps(prompt_payload, ensure_ascii=False, indent=2)}"
             )
@@ -1755,11 +2718,12 @@ class MultiPersonaRoleplayController:
             prompt = str(payload.get("image_prompt") or payload.get("prompt") or "").strip()
             if len(prompt) < 20:
                 return ""
-            prompt = prompting._compact(prompt, 900)
+            prompt_limit = 520 if prompt_style == "runware" else 1300 if prompt_style == "grok" else 760 if prompt_style == "comfyui" else 900
+            prompt = prompting._compact(prompt, prompt_limit)
             self.set_chat_visual_prompt_debug_from_parts(
                 persona=persona,
                 reason=str(reason or "manual"),
-                provider=str(provider or "inherit"),
+                provider=provider_id,
                 stage="hidden LLM current-reply action prompt",
                 final_prompt=prompt,
                 base_prompt=base_prompt,
@@ -1850,11 +2814,16 @@ class MultiPersonaRoleplayController:
         request_payload: dict[str, Any] | None = None,
     ) -> None:
         payload = dict(request_payload or {}) if isinstance(request_payload, dict) else {}
+        provider_info = payload.get("provider_info") if isinstance(payload.get("provider_info"), dict) else {}
+        prompt_style = str(provider_info.get("prompt_style") or prompting.visual_prompt_style(provider or "inherit"))
         lines = [
             "MPRC Visual Prompt Debug",
             f"Stage: {stage or 'base prompt'}",
             f"Reason: {reason or 'manual'}",
-            f"Provider: {provider or 'inherit'}",
+            f"Effective provider: {provider or provider_info.get('effective_provider') or 'inherit'}",
+            f"Prompt style: {prompt_style}",
+            f"Persona provider override: {provider_info.get('persona_provider_override', 'inherit')}",
+            f"Active Visual Reply provider snapshot: {provider_info.get('active_provider_snapshot') or provider_info.get('active_provider_raw') or 'unknown'}",
         ]
         if persona is not None:
             visual = getattr(persona, "visual", None)
@@ -1984,8 +2953,8 @@ class MultiPersonaRoleplayController:
         tabs.setObjectName("mprc_inner_tabs")
         tabs.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         tabs_layout = QtWidgets.QVBoxLayout(tabs)
-        tabs_layout.setContentsMargins(0, 0, 0, 0)
-        tabs_layout.setSpacing(0)
+        tabs_layout.setContentsMargins(5, 5, 5, 5)
+        tabs_layout.setSpacing(4)
         nav_row = QtWidgets.QWidget()
         nav_row.setObjectName("mprc_inner_tab_nav_row")
         nav_row_layout = QtWidgets.QHBoxLayout(nav_row)
@@ -1995,59 +2964,66 @@ class MultiPersonaRoleplayController:
         nav_prev.setObjectName("mprc_inner_tab_prev_button")
         nav_prev.setText("<")
         nav_prev.setToolTip("Show earlier roleplay tabs")
-        nav_prev.setFixedSize(24, 78)
+        nav_prev.setFixedSize(22, 58)
         nav_next = QtWidgets.QToolButton()
         nav_next.setObjectName("mprc_inner_tab_next_button")
         nav_next.setText(">")
         nav_next.setToolTip("Show later roleplay tabs")
-        nav_next.setFixedSize(24, 78)
-        nav_scroll = QtWidgets.QScrollArea()
+        nav_next.setFixedSize(22, 58)
+        nav_scroll = _MprcTabNavScrollArea()
         nav_scroll.setObjectName("mprc_inner_tab_scroll")
-        nav_scroll.setWidgetResizable(True)
+        nav_scroll.setWidgetResizable(False)
         nav_scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         nav_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
-        nav_scroll.setFixedHeight(92)
+        nav_scroll.setFixedHeight(84)
+        nav_scroll.setFocusPolicy(QtCore.Qt.NoFocus)
+        nav_scroll.viewport().setAutoFillBackground(False)
         nav = QtWidgets.QWidget()
         nav.setObjectName("mprc_inner_tab_nav")
+        nav.setFixedHeight(80)
         nav_layout = QtWidgets.QHBoxLayout(nav)
-        nav_layout.setContentsMargins(0, 6, 0, 0)
-        nav_layout.setSpacing(6)
+        nav_layout.setContentsMargins(0, 4, 0, 8)
+        nav_layout.setSpacing(5)
         stack = _MprcCurrentPageStack()
         stack.setObjectName("mprc_inner_tab_stack")
         stack.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         buttons: list[_MprcTabButton] = []
         tab_specs = [
-            (self._build_chat_play_tab(), "Play", "MPRC-owned chat and play surface.", "#f97316"),
-            (self._build_guide_tab(), "Guide", "Step-by-step guide and default scenario notes.", "#38bdf8"),
-            (self._build_status_tab(), "Status", "Story runtime status, validation, routing, recovery, and event log.", "#facc15"),
-            (self._build_registry_tab(), "Registry", "Persona Registry", "#60a5fa"),
-            (self._build_editor_tab(), "Editor", "Persona Editor", "#a78bfa"),
-            (self._build_voice_tab(), "Voice", "Voice Per Persona", "#22c55e"),
-            (self._build_session_tab(), "Session", "Roleplay Session", "#f59e0b"),
-            (self._build_ar_tab(), "AR", "AlternativeReality Mode", "#06b6d4"),
-            (self._build_master_story_tab(), "Master", "Master Story Builder", "#e879f9"),
+            ("play", self._build_chat_play_tab(), "Play", "MPRC-owned chat and play surface.", "#f97316"),
+            ("guide", self._build_guide_tab(), "Guide", "Step-by-step guide and default scenario notes.", "#38bdf8"),
+            ("status", self._build_status_tab(), "Status", "Story runtime status, validation, routing, recovery, and event log.", "#facc15"),
+            ("registry", self._build_registry_tab(), "Registry", "Persona Registry", "#60a5fa"),
+            ("editor", self._build_editor_tab(), "Editor", "Persona Editor", "#a78bfa"),
+            ("voice", self._build_voice_tab(), "Voice", "Voice Per Persona", "#22c55e"),
+            ("session", self._build_session_tab(), "Session", "Roleplay Session", "#f59e0b"),
+            ("ar", self._build_ar_tab(), "AR", "AlternativeReality Mode", "#06b6d4"),
+            ("master", self._build_master_story_tab(), "Master", "Master Story Builder", "#e879f9"),
             (
+                "audio",
                 self._build_audio_tab(),
                 "Audio",
                 "Story Sounds and AudioFX Library.\n"
                 "Use this tab to import sound packs, attach local sound files, build audio prompts, preview cues, and make story tags like [AMBIENCE: pub ambient], [MUSIC: ...], [FX: ...], and [STINGER: ...] play in the background instead of being spoken.",
                 "#14b8a6",
             ),
-            (self._build_visual_tab(), "Visual", "Visual Reply Settings", "#fb7185"),
-            (self._build_debug_tab(), "Debug", "Prompt / Debug", "#94a3b8"),
+            ("visual", self._build_visual_tab(), "Visual", "Visual Reply Settings", "#fb7185"),
+            ("debug", self._build_debug_tab(), "Debug", "Prompt / Debug", "#94a3b8"),
         ]
-        for page, title, tooltip, color in tab_specs:
+        for key, page, title, tooltip, color in tab_specs:
             wrapped_page = self._wrap_mprc_tab_page(page, title)
             index = stack.addWidget(wrapped_page)
             if str(getattr(wrapped_page, "objectName", lambda: "")() or "") == "mprc_chat_play_tab":
                 self._chat_play_page = wrapped_page
                 self._chat_play_stack_index = index
             button = _MprcTabButton(index, title, self._tab_icon(title.lower(), color), color, tooltip)
-            button.clicked.connect(lambda tab_index, target=index: self._select_mprc_tab(target))
+            button.setProperty("_mprc_tab_key", key)
+            button.clicked.connect(self._select_mprc_tab)
+            button.move_requested.connect(self._move_mprc_tab_button)
             buttons.append(button)
-            nav_layout.addWidget(button)
-        nav_layout.addStretch(1)
+        self._controls["tab_buttons_all"] = buttons
+        self._controls["tab_button_layout"] = nav_layout
+        self._apply_mprc_tab_button_order(persist=False)
         nav_scroll.setWidget(nav)
         nav_row_layout.addWidget(nav_prev, 0)
         nav_row_layout.addWidget(nav_scroll, 1)
@@ -2057,7 +3033,7 @@ class MultiPersonaRoleplayController:
         root_layout.addWidget(tabs, 1)
         self._controls["tabs"] = tabs
         self._controls["tab_stack"] = stack
-        self._controls["tab_buttons"] = buttons
+        self._controls.setdefault("tab_buttons", buttons)
         self._controls["tab_nav_scroll"] = nav_scroll
         self._controls["tab_nav_prev"] = nav_prev
         self._controls["tab_nav_next"] = nav_next
@@ -2073,6 +3049,7 @@ class MultiPersonaRoleplayController:
         self._select_mprc_tab(0)
         self._assign_control_object_names()
         self._install_tooltips_and_refine()
+        self._install_spellcheck_widgets()
 
         enabled.toggled.connect(self._on_enabled_changed)
         show_character.toggled.connect(self._on_show_character_changed)
@@ -2080,42 +3057,140 @@ class MultiPersonaRoleplayController:
         active.currentIndexChanged.connect(lambda *_args: self._on_active_persona_changed())
 
         root.setStyleSheet(
-            """
+            MPRC_CHECKBOX_STYLESHEET + """
             QWidget#mprc_root { background: #101720; color: #f4f7fb; }
-            QGroupBox { border: 1px solid #36506d; border-radius: 8px; margin-top: 10px; padding: 10px; }
+            QGroupBox { border: 1px solid #36506d; border-radius: 10px; margin-top: 10px; padding: 10px; }
             QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 4px; color: #dbeafe; font-weight: 700; }
             QLabel { color: #f4f7fb; }
             QLabel[muted="true"] { color: #9fb3c8; }
             QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
-                background: #182536; color: #f4f7fb; border: 1px solid #3d5a7c; border-radius: 6px; padding: 4px;
+                background: #182536; color: #f4f7fb; border: 1px solid #3d5a7c; border-radius: 8px; padding: 4px;
             }
-            QPushButton { background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; padding: 6px 10px; font-weight: 600; }
+            QPushButton { background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 8px; padding: 6px 10px; font-weight: 600; }
             QPushButton:hover { background: #243956; }
             QToolButton#mprc_inner_tab_prev_button, QToolButton#mprc_inner_tab_next_button {
-                background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 6px; font-weight: 800;
+                background: #1b2b40; color: #f4f7fb; border: 1px solid #416184; border-radius: 8px; font-weight: 800;
             }
             QToolButton#mprc_inner_tab_prev_button:disabled, QToolButton#mprc_inner_tab_next_button:disabled {
                 color: #6f8298; border-color: #2b4058;
             }
-            QWidget#mprc_inner_tabs { background: #122033; border: 1px solid #36506d; border-radius: 8px; }
-            QScrollArea#mprc_inner_tab_scroll { background: #101720; border: none; }
-            QWidget#mprc_inner_tab_nav { background: #101720; }
-            QStackedWidget#mprc_inner_tab_stack { background: #122033; border-top: 1px solid #36506d; }
+            QWidget#mprc_inner_tabs { background: #101720; border: none; border-radius: 12px; }
+            QScrollArea#mprc_inner_tab_scroll {
+                background: transparent;
+                border: none;
+                border-radius: 10px;
+            }
+            QScrollArea#mprc_inner_tab_scroll > QWidget,
+            QScrollArea#mprc_inner_tab_scroll > QWidget > QWidget {
+                background: transparent;
+                border: none;
+            }
+            QWidget#mprc_inner_tab_nav { background: transparent; }
+            QStackedWidget#mprc_inner_tab_stack {
+                background: #122033;
+                border: 1px solid #2d4561;
+                border-top-color: #36506d;
+                border-radius: 10px;
+                padding: 3px;
+            }
+            QTabWidget::pane {
+                background: #101720;
+                border: 1px solid #2b4059;
+                border-radius: 10px;
+                top: -1px;
+            }
+            QTabBar::tab {
+                background: #111c28;
+                color: #e8f2ff;
+                border: 1px solid #2b4059;
+                border-radius: 8px;
+                min-height: 22px;
+                padding: 5px 12px;
+                margin-right: 3px;
+            }
+            QTabBar::tab:selected {
+                background: #17263a;
+                border-color: #4f78a2;
+            }
+            QTabBar::tab:hover {
+                background: #1b3048;
+                border-color: #5f8bb8;
+            }
             """
         )
         return root
 
     def _wrap_mprc_tab_page(self, page, title: str):
-        if page is None or str(page.objectName() or "") == "mprc_chat_play_tab":
+        if page is None:
             return page
+        original_name = str(page.objectName() or "")
         scroll = QtWidgets.QScrollArea()
-        scroll.setObjectName(f"mprc_{normalize_persona_id(title)}_tab_scroll")
+        if original_name == "mprc_chat_play_tab":
+            page.setObjectName("mprc_chat_play_content")
+            scroll.setObjectName("mprc_chat_play_tab")
+        else:
+            scroll.setObjectName(f"mprc_{normalize_persona_id(title)}_tab_scroll")
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
+        scroll.viewport().setAutoFillBackground(False)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; } QScrollArea > QWidget > QWidget { background: transparent; }")
         scroll.setWidget(page)
         return scroll
+
+    def _apply_mprc_tab_button_order(self, *, persist: bool = False, order_keys: list[str] | None = None) -> None:
+        layout = self._controls.get("tab_button_layout")
+        all_buttons = list(self._controls.get("tab_buttons_all") or [])
+        if layout is None or not all_buttons:
+            return
+        by_key = {
+            str(button.property("_mprc_tab_key") or ""): button
+            for button in all_buttons
+            if str(button.property("_mprc_tab_key") or "").strip()
+        }
+        default_order = [str(button.property("_mprc_tab_key") or "") for button in all_buttons]
+        raw_order = order_keys if order_keys is not None else self.settings.get("mprc_tab_button_order")
+        requested = [str(item or "").strip() for item in list(raw_order or []) if str(item or "").strip()]
+        ordered_keys = [key for key in requested if key in by_key]
+        ordered_keys.extend(key for key in default_order if key and key not in ordered_keys)
+        ordered_buttons = [by_key[key] for key in ordered_keys if key in by_key]
+        while layout.count():
+            layout.takeAt(0)
+        for button in ordered_buttons:
+            layout.addWidget(button)
+        layout.addStretch(1)
+        self._controls["tab_buttons"] = ordered_buttons
+        if persist:
+            self.settings["mprc_tab_button_order"] = ordered_keys
+            self.storage.save_settings(self.settings)
+        try:
+            parent = layout.parentWidget()
+            if parent is not None:
+                parent.adjustSize()
+                parent.updateGeometry()
+            nav_scroll = self._controls.get("tab_nav_scroll")
+            if nav_scroll is not None and nav_scroll.widget() is not None:
+                nav_scroll.widget().adjustSize()
+        except Exception:
+            pass
+        current = self._controls.get("tab_stack").currentIndex() if self._controls.get("tab_stack") is not None else 0
+        self._select_mprc_tab(current)
+
+    def _move_mprc_tab_button(self, source_index: int, target_index: int) -> None:
+        buttons = list(self._controls.get("tab_buttons") or [])
+        if source_index == target_index or not buttons:
+            return
+        source_pos = next((index for index, button in enumerate(buttons) if int(getattr(button, "_index", -1)) == int(source_index)), -1)
+        target_pos = next((index for index, button in enumerate(buttons) if int(getattr(button, "_index", -1)) == int(target_index)), -1)
+        if source_pos < 0 or target_pos < 0:
+            return
+        button = buttons.pop(source_pos)
+        insert_pos = target_pos if source_pos > target_pos else target_pos
+        insert_pos = max(0, min(len(buttons), insert_pos))
+        buttons.insert(insert_pos, button)
+        order_keys = [str(item.property("_mprc_tab_key") or "") for item in buttons]
+        self._apply_mprc_tab_button_order(persist=True, order_keys=order_keys)
 
     def _select_mprc_tab(self, index: int):
         stack = self._controls.get("tab_stack")
@@ -2131,9 +3206,9 @@ class MultiPersonaRoleplayController:
                     parent = parent.parentWidget()
             except Exception:
                 pass
-        for offset, button in enumerate(buttons):
+        for button in buttons:
             if hasattr(button, "set_selected"):
-                button.set_selected(offset == index)
+                button.set_selected(int(getattr(button, "_index", -1)) == int(index))
         self._ensure_mprc_tab_button_visible(index)
         self._update_mprc_tab_nav_buttons()
 
@@ -2152,9 +3227,11 @@ class MultiPersonaRoleplayController:
     def _ensure_mprc_tab_button_visible(self, index: int) -> None:
         nav_scroll = self._controls.get("tab_nav_scroll")
         buttons = self._controls.get("tab_buttons") or []
-        if nav_scroll is None or index < 0 or index >= len(buttons):
+        if nav_scroll is None:
             return
-        button = buttons[index]
+        button = next((item for item in buttons if int(getattr(item, "_index", -1)) == int(index)), None)
+        if button is None:
+            return
         try:
             nav_scroll.ensureWidgetVisible(button, 12, 0)
         except Exception:
@@ -2194,21 +3271,13 @@ class MultiPersonaRoleplayController:
                 tabs.setMinimumHeight(520)
                 tabs.setMaximumHeight(16777215)
             return
-        hint = current.sizeHint()
-        minimum = current.minimumSizeHint()
-        height = max(
-            240,
-            int(hint.height() if hint.isValid() else 0),
-            int(minimum.height() if minimum.isValid() else 0),
-            int(current.minimumHeight() or 0),
-        )
-        height = min(height, 1500)
+        height = 620
         stack.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         stack.setMinimumHeight(height)
         stack.setMaximumHeight(16777215)
         if tabs is not None:
             tabs.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-            nav_height = 92
+            nav_height = 84
             try:
                 nav = tabs.findChild(QtWidgets.QScrollArea, "mprc_inner_tab_scroll")
                 if nav is not None:
@@ -2263,10 +3332,20 @@ class MultiPersonaRoleplayController:
         elif key == "guide":
             painter.drawEllipse(14, 10, 22, 22)
             painter.drawLine(25, 32, 25, 39)
+        elif key == "status":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawEllipse(12, 12, 26, 26)
+            painter.drawLine(25, 17, 25, 27)
+            painter.drawLine(25, 32, 25, 33)
         elif key == "registry":
             for y in (13, 24, 35):
                 painter.drawEllipse(12, y, 6, 6)
                 painter.drawLine(23, y + 3, 38, y + 3)
+        elif key == "cast":
+            painter.drawEllipse(15, 13, 9, 9)
+            painter.drawEllipse(27, 13, 9, 9)
+            painter.drawRoundedRect(12, 26, 13, 12, 4, 4)
+            painter.drawRoundedRect(27, 26, 13, 12, 4, 4)
         elif key == "editor":
             painter.drawLine(15, 35, 34, 16)
             painter.drawLine(30, 12, 38, 20)
@@ -2279,6 +3358,18 @@ class MultiPersonaRoleplayController:
             painter.drawEllipse(11, 12, 28, 28)
             painter.drawLine(25, 25, 25, 15)
             painter.drawLine(25, 25, 34, 30)
+        elif key == "events":
+            painter.drawLine(18, 12, 18, 38)
+            for y in (15, 25, 35):
+                painter.drawEllipse(15, y - 3, 6, 6)
+                painter.drawLine(24, y, 37, y)
+        elif key == "ar":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(12, 14, 26, 22, 6, 6)
+            painter.drawLine(18, 14, 18, 10)
+            painter.drawLine(32, 14, 32, 10)
+            painter.drawEllipse(18, 23, 4, 4)
+            painter.drawEllipse(28, 23, 4, 4)
         elif key == "audio":
             painter.drawEllipse(13, 20, 6, 10)
             painter.drawEllipse(29, 20, 6, 10)
@@ -2290,11 +3381,23 @@ class MultiPersonaRoleplayController:
             painter.drawLine(14, 34, 22, 27)
             painter.drawLine(22, 27, 29, 33)
             painter.drawLine(29, 33, 37, 25)
+        elif key == "choices":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawRoundedRect(12, 12, 27, 26, 6, 6)
+            painter.drawLine(18, 19, 31, 19)
+            painter.drawLine(18, 27, 31, 27)
+            painter.drawLine(18, 35, 27, 35)
         elif key == "master":
             painter.drawLine(15, 15, 35, 15)
             painter.drawLine(15, 23, 35, 23)
             painter.drawLine(15, 31, 29, 31)
             painter.drawEllipse(31, 29, 7, 7)
+        elif key == "debug":
+            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.drawEllipse(14, 14, 22, 22)
+            painter.drawEllipse(22, 22, 6, 6)
+            for x1, y1, x2, y2 in ((25, 8, 25, 14), (25, 36, 25, 42), (8, 25, 14, 25), (36, 25, 42, 25)):
+                painter.drawLine(x1, y1, x2, y2)
         else:
             painter.drawRoundedRect(14, 13, 22, 24, 5, 5)
             painter.drawLine(18, 20, 32, 20)
@@ -2302,26 +3405,91 @@ class MultiPersonaRoleplayController:
         painter.end()
         return QtGui.QIcon(pixmap)
 
+    def _story_state_tab_button(self, title: str, icon_key: str, color: str):
+        from PySide6 import QtCore, QtWidgets
+
+        button = QtWidgets.QWidget()
+        button.setObjectName("mprc_story_state_tab_button")
+        button.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+        button.setFixedSize(80, 64)
+        layout = QtWidgets.QVBoxLayout(button)
+        layout.setContentsMargins(7, 3, 7, 4)
+        layout.setSpacing(1)
+
+        label = QtWidgets.QLabel(str(title or ""))
+        label.setObjectName("mprc_story_state_tab_title")
+        label.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
+        label.setStyleSheet(f"color: {color}; font-weight: 800; background: transparent; border: none;")
+        label.setMinimumHeight(16)
+
+        icon = QtWidgets.QLabel()
+        icon.setObjectName("mprc_story_state_tab_icon")
+        icon.setAlignment(QtCore.Qt.AlignHCenter | QtCore.Qt.AlignTop)
+        icon.setPixmap(self._tab_icon(icon_key, color).pixmap(QtCore.QSize(34, 34)))
+        icon.setFixedHeight(36)
+        icon.setStyleSheet("background: transparent; border: none;")
+
+        layout.addWidget(label)
+        layout.addWidget(icon)
+        return button
+
+    @staticmethod
+    def _story_state_tab_stylesheet() -> str:
+        return """
+        QTabWidget#mprc_story_state_tabs {
+            background: #122033;
+            border: none;
+        }
+        QTabWidget#mprc_story_state_tabs::pane {
+            background: #122033;
+            border: 1px solid #2d4561;
+            border-radius: 10px;
+            top: -1px;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar {
+            background: #122033;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab {
+            background: #111b28;
+            border: 1px solid #36506d;
+            border-radius: 9px;
+            min-width: 86px;
+            min-height: 68px;
+            padding: 0px;
+            margin-right: 4px;
+            margin-bottom: 2px;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab:selected {
+            background: #1c2d43;
+            border-color: #4f78a2;
+        }
+        QTabWidget#mprc_story_state_tabs QTabBar::tab:hover {
+            background: #17263a;
+            border-color: #5f8bb8;
+        }
+        """
+
     def _build_character_preview_panel(self):
         from PySide6 import QtCore, QtWidgets
 
         panel = QtWidgets.QGroupBox("Current Character")
         panel.setObjectName("mprc_character_preview_panel")
+        panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
         layout = QtWidgets.QVBoxLayout(panel)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
-        panel.setMinimumHeight(340)
-        panel.setMaximumHeight(380)
+        layout.setSpacing(10)
+        panel.setMinimumHeight(500)
+        panel.setMaximumHeight(16777215)
         current_row = QtWidgets.QHBoxLayout()
-        current_row.setContentsMargins(12, 0, 0, 0)
-        current_row.setSpacing(12)
+        current_row.setContentsMargins(20, 0, 0, 0)
+        current_row.setSpacing(14)
         image = QtWidgets.QLabel()
         image.setObjectName("mprc_current_character_image")
-        image.setFixedSize(96, 124)
-        image.setMinimumSize(96, 124)
-        image.setMaximumSize(96, 124)
-        image.setProperty("_mprc_image_width", 96)
-        image.setProperty("_mprc_image_height", 124)
+        image.setFixedSize(230, 300)
+        image.setMinimumSize(230, 300)
+        image.setMaximumSize(230, 300)
+        image.setProperty("_mprc_image_width", 230)
+        image.setProperty("_mprc_image_height", 300)
         image.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         image.setAlignment(QtCore.Qt.AlignCenter)
         image.setToolTip("The active persona picture. This updates when the active persona changes.")
@@ -2365,6 +3533,18 @@ class MultiPersonaRoleplayController:
         quick_status.setObjectName("mprc_current_character_quick_status")
         quick_status.setWordWrap(True)
         quick_status.setProperty("muted", True)
+        view_row = QtWidgets.QHBoxLayout()
+        view_label = QtWidgets.QLabel("Show")
+        view_label.setObjectName("mprc_current_character_view_label")
+        view_label.setProperty("muted", True)
+        view_mode = QtWidgets.QComboBox()
+        view_mode.setObjectName("mprc_current_character_view_mode")
+        view_mode.addItem("Active story personas", "active_story")
+        view_mode.addItem("All personas", "all")
+        view_mode.setToolTip("Choose whether the Current Character card shows only the loaded story roster or every saved persona.")
+        view_row.addWidget(view_label)
+        view_row.addWidget(view_mode, 0)
+        view_row.addStretch(1)
         button_row = QtWidgets.QHBoxLayout()
         change_avatar = QtWidgets.QPushButton("Change Avatar Image")
         save_persona = QtWidgets.QPushButton("Save Persona")
@@ -2382,6 +3562,7 @@ class MultiPersonaRoleplayController:
         info_text_layout.addWidget(story)
         info_text_layout.addStretch(1)
         info_scroll.setWidget(info_text)
+        info.addLayout(view_row)
         info.addWidget(info_scroll, 1)
         info.addLayout(button_row)
         info.addWidget(quick_status)
@@ -2390,38 +3571,45 @@ class MultiPersonaRoleplayController:
         layout.addLayout(current_row)
         roster_frame = QtWidgets.QFrame()
         roster_frame.setObjectName("mprc_character_roster_frame")
-        roster_frame.setMinimumHeight(132)
-        roster_frame.setFixedHeight(132)
+        roster_frame.setMinimumHeight(172)
+        roster_frame.setMaximumHeight(190)
+        roster_frame.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         roster_frame.setStyleSheet(
             """
             QFrame#mprc_character_roster_frame {
                 border: 1px solid #36506d;
+                border-radius: 10px;
                 background: #08111b;
             }
             """
         )
         roster_layout = QtWidgets.QVBoxLayout(roster_frame)
-        roster_layout.setContentsMargins(12, 10, 12, 10)
+        roster_layout.setContentsMargins(14, 12, 14, 14)
         roster_layout.setSpacing(0)
         strip = QtWidgets.QScrollArea()
         strip.setWidgetResizable(False)
-        strip.setMinimumHeight(110)
-        strip.setFixedHeight(110)
+        strip.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter)
+        strip.setMinimumHeight(146)
+        strip.setMaximumHeight(154)
+        strip.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         strip.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
         strip.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
         strip.setFrameShape(QtWidgets.QFrame.NoFrame)
-        strip.setStyleSheet("QScrollArea { background: #08111b; border: 0px; }")
+        strip.setStyleSheet(
+            "QScrollArea { background: transparent; border: 0px; border-radius: 8px; } "
+            "QScrollArea > QWidget > QWidget { background: #08111b; }"
+        )
         strip_content = QtWidgets.QWidget()
         strip_content.setObjectName("mprc_character_roster_content")
-        strip_content.setMinimumHeight(100)
-        strip_content.setFixedHeight(100)
+        strip_content.setMinimumHeight(136)
+        strip_content.setSizePolicy(QtWidgets.QSizePolicy.Fixed, QtWidgets.QSizePolicy.Fixed)
         strip_content.setStyleSheet("QWidget#mprc_character_roster_content { background: #08111b; }")
         strip_layout = QtWidgets.QHBoxLayout(strip_content)
-        strip_layout.setContentsMargins(0, 0, 0, 0)
+        strip_layout.setContentsMargins(0, 0, 0, 2)
         strip_layout.setSpacing(12)
         strip.setWidget(strip_content)
         roster_layout.addWidget(strip)
-        layout.addWidget(roster_frame, 1)
+        layout.addWidget(roster_frame, 0)
         self._controls.update({
             "character_preview_panel": panel,
             "current_character_image": image,
@@ -2430,6 +3618,8 @@ class MultiPersonaRoleplayController:
             "current_character_meta": meta,
             "current_character_story": story,
             "current_character_quick_status": quick_status,
+            "current_character_view_label": view_label,
+            "current_character_view_mode": view_mode,
             "quick_change_avatar": change_avatar,
             "quick_save_persona": save_persona,
             "quick_import_persona": import_persona,
@@ -2447,6 +3637,7 @@ class MultiPersonaRoleplayController:
         export_personas.clicked.connect(self._export_personas)
         duplicate_persona.clicked.connect(self._quick_duplicate_persona)
         edit_persona.clicked.connect(self._quick_edit_persona)
+        view_mode.currentIndexChanged.connect(lambda *_args: self._on_current_character_view_mode_changed())
         return panel
 
     def _guide(self, text: str):
@@ -2479,6 +3670,19 @@ class MultiPersonaRoleplayController:
             "chat_restart": page.findChild(QtWidgets.QPushButton, "mprc_chat_restart_button"),
             "chat_clear": page.findChild(QtWidgets.QPushButton, "mprc_chat_clear_button"),
             "chat_float": page.findChild(QtWidgets.QPushButton, "mprc_chat_float_button"),
+            "chat_export_structured_output": page.findChild(QtWidgets.QPushButton, "mprc_chat_export_structured_output_button"),
+            "chat_story_font_size_label": page.findChild(QtWidgets.QLabel, "mprc_chat_story_font_size_label"),
+            "chat_story_font_size": page.findChild(QtWidgets.QSpinBox, "mprc_chat_story_font_size_spin"),
+            "chat_remote_install": page.findChild(QtWidgets.QPushButton, "mprc_chat_remote_install_button"),
+            "chat_remote_enabled": page.findChild(QtWidgets.QCheckBox, "mprc_chat_remote_enabled_checkbox"),
+            "chat_remote_host": page.findChild(QtWidgets.QLineEdit, "mprc_chat_remote_host_input"),
+            "chat_remote_port": page.findChild(QtWidgets.QSpinBox, "mprc_chat_remote_port_spin"),
+            "chat_remote_code": page.findChild(QtWidgets.QSpinBox, "mprc_chat_remote_code_spin"),
+            "chat_remote_regenerate_token": page.findChild(QtWidgets.QPushButton, "mprc_chat_remote_regenerate_token_button"),
+            "chat_remote_status": page.findChild(QtWidgets.QLabel, "mprc_chat_remote_status_label"),
+            "chat_voice_volume_label": page.findChild(QtWidgets.QLabel, "mprc_chat_voice_volume_label"),
+            "chat_voice_volume": page.findChild(QtWidgets.QSlider, "mprc_chat_voice_volume_slider"),
+            "chat_voice_volume_value": page.findChild(QtWidgets.QLabel, "mprc_chat_voice_volume_value"),
             "chat_runtime_splitter": page.findChild(QtWidgets.QSplitter, "mprc_story_runtime_splitter"),
             "chat_story_feed_box": page.findChild(QtWidgets.QGroupBox, "mprc_story_feed_box"),
             "chat_player_action_box": page.findChild(QtWidgets.QGroupBox, "mprc_player_action_box"),
@@ -2508,10 +3712,13 @@ class MultiPersonaRoleplayController:
             "chat_director_tone": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_tone_combo"),
             "chat_director_agency_label": page.findChild(QtWidgets.QLabel, "mprc_director_agency_label"),
             "chat_director_agency": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_agency_combo"),
+            "chat_director_choice_mode_label": page.findChild(QtWidgets.QLabel, "mprc_director_choice_mode_label"),
+            "chat_director_choice_mode": page.findChild(QtWidgets.QComboBox, "mprc_chat_director_choice_mode_combo"),
             "chat_advance_scene": page.findChild(QtWidgets.QPushButton, "mprc_chat_advance_scene_button"),
             "chat_summarize": page.findChild(QtWidgets.QPushButton, "mprc_chat_summarize_button"),
             "chat_repair": page.findChild(QtWidgets.QPushButton, "mprc_chat_repair_button"),
         }
+        controls["chat_input"] = self._replace_chat_play_input(controls.get("chat_input"))
         if controls.get("chat_float") is None:
             toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar")
             if toolbar is not None:
@@ -2519,6 +3726,11 @@ class MultiPersonaRoleplayController:
                 float_button.setObjectName("mprc_chat_float_button")
                 toolbar.insertWidget(min(4, toolbar.count()), float_button)
                 controls["chat_float"] = float_button
+        self._ensure_chat_play_voice_volume_controls(page, controls)
+        self._ensure_chat_play_structured_output_controls(page, controls)
+        self._ensure_chat_play_story_font_controls(page, controls)
+        self._ensure_chat_play_remote_controls(page, controls)
+        self._ensure_chat_play_buffer_race_controls(page, controls)
         self._controls.update({key: widget for key, widget in controls.items() if widget is not None})
         self._configure_chat_play_layout(page)
 
@@ -2536,12 +3748,18 @@ class MultiPersonaRoleplayController:
         agency = controls.get("chat_director_agency")
         if agency is not None:
             agency.addItems(["Guided", "Open", "Strict consequences"])
+        choice_mode = controls.get("chat_director_choice_mode")
+        if choice_mode is not None:
+            choice_mode.addItem("Offer choices", "choices")
+            choice_mode.addItem("Ask next move", "ask_next_move")
+            choice_mode.currentIndexChanged.connect(lambda *_args: self._on_mprc_chat_choice_mode_changed())
 
         transcript = controls.get("chat_transcript")
         if transcript is not None:
             transcript.setHtml(
                 "<div style='color:#9fb3c8;'>MPRC Play transcript is separate from normal chat.</div>"
             )
+            self._apply_chat_play_story_font_size(self._chat_story_font_size(), transcript=transcript)
             self._restore_chat_play_feed_from_state()
         status = controls.get("chat_status")
         if status is not None:
@@ -2549,12 +3767,48 @@ class MultiPersonaRoleplayController:
         send = controls.get("chat_send")
         if send is not None:
             send.clicked.connect(self._on_mprc_chat_send_clicked)
+        chat_input = controls.get("chat_input")
+        if chat_input is not None and hasattr(chat_input, "sendRequested"):
+            chat_input.sendRequested.connect(self._on_mprc_chat_send_clicked)
         clear = controls.get("chat_clear")
         if clear is not None:
             clear.clicked.connect(self._on_mprc_chat_clear_clicked)
         float_button = controls.get("chat_float")
         if float_button is not None:
             float_button.clicked.connect(self._toggle_chat_play_floating)
+        export_structured = controls.get("chat_export_structured_output")
+        if export_structured is not None:
+            export_structured.clicked.connect(self._on_export_mprc_structured_output_clicked)
+        structured_output = controls.get("chat_structured_output")
+        if structured_output is not None:
+            structured_output.toggled.connect(self._on_mprc_chat_structured_output_changed)
+        structured_scope = controls.get("chat_structured_output_scope")
+        if structured_scope is not None:
+            structured_scope.currentIndexChanged.connect(lambda *_args: self._on_mprc_chat_structured_output_scope_changed())
+        story_font_size = controls.get("chat_story_font_size")
+        if story_font_size is not None:
+            story_font_size.valueChanged.connect(lambda value: self._on_mprc_story_font_size_changed(value))
+        remote_install = controls.get("chat_remote_install")
+        if remote_install is not None:
+            remote_install.clicked.connect(self._on_mprc_remote_install_clicked)
+        remote_enabled = controls.get("chat_remote_enabled")
+        if remote_enabled is not None:
+            remote_enabled.toggled.connect(self._on_mprc_remote_enabled_changed)
+        remote_host = controls.get("chat_remote_host")
+        if remote_host is not None:
+            remote_host.editingFinished.connect(self._on_mprc_remote_endpoint_changed)
+        remote_port = controls.get("chat_remote_port")
+        if remote_port is not None:
+            remote_port.valueChanged.connect(lambda *_args: self._on_mprc_remote_endpoint_changed())
+        remote_code = controls.get("chat_remote_code")
+        if remote_code is not None:
+            remote_code.valueChanged.connect(lambda *_args: self._on_mprc_remote_code_changed())
+        remote_regen = controls.get("chat_remote_regenerate_token")
+        if remote_regen is not None:
+            remote_regen.clicked.connect(self._on_mprc_remote_regenerate_token)
+        volume_slider = controls.get("chat_voice_volume")
+        if volume_slider is not None:
+            volume_slider.valueChanged.connect(self._on_mprc_voice_volume_changed)
         start = controls.get("chat_start")
         if start is not None:
             start.clicked.connect(self._on_mprc_chat_start_clicked)
@@ -2584,7 +3838,498 @@ class MultiPersonaRoleplayController:
         repair = controls.get("chat_repair")
         if repair is not None:
             repair.clicked.connect(lambda: self._on_mprc_director_action("repair"))
+        self._sync_chat_play_story_font_controls()
+        self._refresh_remote_controls()
         return page
+
+    def _ensure_chat_play_structured_output_controls(self, page, controls: dict[str, Any]) -> None:
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar") if page is not None else None
+        if toolbar is None:
+            return
+        button = controls.get("chat_export_structured_output")
+        if button is None:
+            button = QtWidgets.QPushButton("Export Structured LLM Output")
+            button.setObjectName("mprc_chat_export_structured_output_button")
+            button.setToolTip("Export the current MPRC cast as a strict JSON Schema for provider Structured Output.")
+            insert_at = toolbar.count()
+            float_button = controls.get("chat_float")
+            if float_button is not None:
+                for index in range(toolbar.count()):
+                    item = toolbar.itemAt(index)
+                    if item is not None and item.widget() is float_button:
+                        insert_at = index + 1
+                        break
+            toolbar.insertWidget(insert_at, button)
+            controls["chat_export_structured_output"] = button
+        structured_toggle = controls.get("chat_structured_output")
+        if structured_toggle is None:
+            structured_toggle = QtWidgets.QCheckBox("Structured JSON")
+            structured_toggle.setObjectName("mprc_chat_structured_output_checkbox")
+            structured_toggle.setToolTip("Send the MPRC story JSON Schema only with MPRC Play chat requests.")
+            insert_at = toolbar.count()
+            if button is not None:
+                for index in range(toolbar.count()):
+                    item = toolbar.itemAt(index)
+                    if item is not None and item.widget() is button:
+                        insert_at = index + 1
+                        break
+            toolbar.insertWidget(insert_at, structured_toggle)
+            controls["chat_structured_output"] = structured_toggle
+        structured_scope = controls.get("chat_structured_output_scope")
+        if structured_scope is None:
+            structured_scope = QtWidgets.QComboBox()
+            structured_scope.setObjectName("mprc_chat_structured_output_scope_combo")
+            structured_scope.addItem("Every turn", "every_turn")
+            structured_scope.addItem("First turn only", "first_turn")
+            structured_scope.setToolTip("Choose when MPRC Play attaches the structured-output JSON Schema to chat requests.")
+            insert_at = toolbar.count()
+            if structured_toggle is not None:
+                for index in range(toolbar.count()):
+                    item = toolbar.itemAt(index)
+                    if item is not None and item.widget() is structured_toggle:
+                        insert_at = index + 1
+                        break
+            toolbar.insertWidget(insert_at, structured_scope)
+            controls["chat_structured_output_scope"] = structured_scope
+
+    def _ensure_chat_play_story_font_controls(self, page, controls: dict[str, Any]) -> None:
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar") if page is not None else None
+        if toolbar is None:
+            return
+        label = controls.get("chat_story_font_size_label")
+        if label is None:
+            label = QtWidgets.QLabel("Story Font")
+            label.setObjectName("mprc_chat_story_font_size_label")
+            label.setToolTip("Font size for the MPRC Story Feed response window.")
+            toolbar.addWidget(label)
+            controls["chat_story_font_size_label"] = label
+        spin = controls.get("chat_story_font_size")
+        if spin is None:
+            spin = QtWidgets.QSpinBox()
+            spin.setObjectName("mprc_chat_story_font_size_spin")
+            spin.setRange(9, 28)
+            spin.setSuffix(" pt")
+            spin.setMaximumWidth(82)
+            spin.setToolTip("Set the font size used by the MPRC Story Feed response window.")
+            toolbar.addWidget(spin)
+            controls["chat_story_font_size"] = spin
+        self._sync_chat_play_story_font_controls(spin=spin)
+
+    def _ensure_chat_play_remote_controls(self, page, controls: dict[str, Any]) -> None:
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar") if page is not None else None
+        if toolbar is None:
+            return
+        remote_install = controls.get("chat_remote_install")
+        if remote_install is None:
+            remote_install = QtWidgets.QPushButton("Install Remote")
+            remote_install.setObjectName("mprc_chat_remote_install_button")
+            remote_install.setToolTip("Install optional LAN Remote controls for the Android companion app. The server remains off until LAN Remote is enabled.")
+            toolbar.addWidget(remote_install)
+            controls["chat_remote_install"] = remote_install
+        remote_enabled = controls.get("chat_remote_enabled")
+        if remote_enabled is None:
+            remote_enabled = QtWidgets.QCheckBox("LAN Remote")
+            remote_enabled.setObjectName("mprc_chat_remote_enabled_checkbox")
+            remote_enabled.setToolTip("Enable the local-network MPRC remote backend for the Android companion app.")
+            toolbar.addWidget(remote_enabled)
+            controls["chat_remote_enabled"] = remote_enabled
+        remote_host = controls.get("chat_remote_host")
+        if remote_host is None:
+            remote_host = QtWidgets.QLineEdit()
+            remote_host.setObjectName("mprc_chat_remote_host_input")
+            remote_host.setPlaceholderText("0.0.0.0")
+            remote_host.setMaximumWidth(95)
+            remote_host.setToolTip("Remote bind host. 0.0.0.0 accepts LAN clients; requests are still limited to local-network addresses.")
+            toolbar.addWidget(remote_host)
+            controls["chat_remote_host"] = remote_host
+        remote_port = controls.get("chat_remote_port")
+        if remote_port is None:
+            remote_port = QtWidgets.QSpinBox()
+            remote_port.setObjectName("mprc_chat_remote_port_spin")
+            remote_port.setRange(1, 65535)
+            remote_port.setMaximumWidth(82)
+            remote_port.setToolTip("Remote backend TCP port.")
+            toolbar.addWidget(remote_port)
+            controls["chat_remote_port"] = remote_port
+        remote_code = controls.get("chat_remote_code")
+        if remote_code is None:
+            remote_code = QtWidgets.QSpinBox()
+            remote_code.setObjectName("mprc_chat_remote_code_spin")
+            remote_code.setRange(100000, 999999)
+            remote_code.setMaximumWidth(92)
+            remote_code.setToolTip("Six-digit pairing code for the Android remote app. You can type your own number.")
+            toolbar.addWidget(remote_code)
+            controls["chat_remote_code"] = remote_code
+        remote_regen = controls.get("chat_remote_regenerate_token")
+        if remote_regen is None:
+            remote_regen = QtWidgets.QPushButton("Random Code")
+            remote_regen.setObjectName("mprc_chat_remote_regenerate_token_button")
+            remote_regen.setToolTip("Generate a new six-digit MPRC remote pairing code. Android clients must reconnect with the new code.")
+            toolbar.addWidget(remote_regen)
+            controls["chat_remote_regenerate_token"] = remote_regen
+        else:
+            remote_regen.setText("Random Code")
+            remote_regen.setToolTip("Generate a new six-digit MPRC remote pairing code. Android clients must reconnect with the new code.")
+        remote_status = controls.get("chat_remote_status")
+        if remote_status is None:
+            remote_status = QtWidgets.QLabel()
+            remote_status.setObjectName("mprc_chat_remote_status_label")
+            remote_status.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
+            remote_status.setToolTip("MPRC remote LAN URL, pairing code, and client status.")
+            remote_status.setMinimumWidth(220)
+            toolbar.addWidget(remote_status)
+            controls["chat_remote_status"] = remote_status
+
+    def _ensure_chat_play_voice_volume_controls(self, page, controls: dict[str, Any]) -> None:
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar") if page is not None else None
+        if toolbar is None:
+            return
+        slider = controls.get("chat_voice_volume")
+        label = controls.get("chat_voice_volume_label")
+        value = controls.get("chat_voice_volume_value")
+        if slider is not None and label is not None and value is not None:
+            self._sync_chat_play_voice_volume_controls(slider=slider, value_label=value)
+            return
+
+        label = QtWidgets.QLabel("Voice")
+        label.setObjectName("mprc_chat_voice_volume_label")
+        label.setToolTip("Volume for MPRC-routed story voice in the Play tab.")
+        slider = QtWidgets.QSlider(QtCore.Qt.Horizontal)
+        slider.setObjectName("mprc_chat_voice_volume_slider")
+        slider.setRange(0, 100)
+        slider.setMinimumWidth(120)
+        slider.setMaximumWidth(170)
+        slider.setToolTip("Set the volume for addon-routed Play voice. This does not change AudioFX/background sound volume.")
+        value = QtWidgets.QLabel("")
+        value.setObjectName("mprc_chat_voice_volume_value")
+        value.setMinimumWidth(42)
+        value.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
+        value.setToolTip("Current MPRC Play voice volume percentage.")
+        self._sync_chat_play_voice_volume_controls(slider=slider, value_label=value)
+
+        insert_at = toolbar.count()
+        float_button = controls.get("chat_float")
+        if float_button is not None:
+            for index in range(toolbar.count()):
+                item = toolbar.itemAt(index)
+                if item is not None and item.widget() is float_button:
+                    insert_at = index + 1
+                    break
+        toolbar.insertWidget(insert_at, label)
+        toolbar.insertWidget(insert_at + 1, slider)
+        toolbar.insertWidget(insert_at + 2, value)
+        controls["chat_voice_volume_label"] = label
+        controls["chat_voice_volume"] = slider
+        controls["chat_voice_volume_value"] = value
+
+    def _ensure_chat_play_buffer_race_controls(self, page, controls: dict[str, Any]) -> None:
+        if page is None:
+            return
+        box = page.findChild(QtWidgets.QGroupBox, "mprc_buffer_race_box")
+        if box is not None:
+            controls["chat_buffer_race_box"] = box
+            controls["chat_buffer_race_summary"] = page.findChild(QtWidgets.QLabel, "mprc_buffer_race_summary")
+            controls["chat_buffer_race_render"] = page.findChild(QtWidgets.QProgressBar, "mprc_buffer_race_render_bar")
+            controls["chat_buffer_race_playback"] = page.findChild(QtWidgets.QProgressBar, "mprc_buffer_race_playback_bar")
+            return
+
+        box = QtWidgets.QGroupBox("Buffer Race", page)
+        box.setObjectName("mprc_buffer_race_box")
+        box.setToolTip("Shows whether story/render work or TTS/playback work is currently waiting or running.")
+        box.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        layout = QtWidgets.QVBoxLayout(box)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+
+        summary = QtWidgets.QLabel("Idle: render and playback buffers are clear.")
+        summary.setObjectName("mprc_buffer_race_summary")
+        summary.setProperty("muted", True)
+        summary.setWordWrap(True)
+
+        render_bar = self._build_chat_play_buffer_bar("mprc_buffer_race_render_bar")
+        playback_bar = self._build_chat_play_buffer_bar("mprc_buffer_race_playback_bar")
+        render_bar.setFormat("Render Ready: idle")
+        playback_bar.setFormat("Preview / Playback: idle")
+
+        layout.addWidget(summary)
+        layout.addWidget(render_bar)
+        layout.addWidget(playback_bar)
+        controls.update({
+            "chat_buffer_race_box": box,
+            "chat_buffer_race_summary": summary,
+            "chat_buffer_race_render": render_bar,
+            "chat_buffer_race_playback": playback_bar,
+        })
+
+    def _build_chat_play_buffer_bar(self, object_name: str):
+        bar = QtWidgets.QProgressBar()
+        bar.setObjectName(object_name)
+        bar.setRange(0, 100)
+        bar.setValue(100)
+        bar.setTextVisible(True)
+        bar.setMinimumHeight(18)
+        bar.setMaximumHeight(20)
+        bar.setStyleSheet(
+            """
+            QProgressBar {
+                border: 1px solid #24384f;
+                border-radius: 5px;
+                background: #08111b;
+                color: #dbeafe;
+                text-align: center;
+                font-weight: 600;
+            }
+            QProgressBar::chunk {
+                border-radius: 4px;
+                background: #22c55e;
+            }
+            """
+        )
+        return bar
+
+    def _configure_chat_play_toolbar_rows(self, page) -> None:
+        if page is None or page.findChild(QtWidgets.QWidget, "mprc_chat_play_toolbar_panel") is not None:
+            return
+        root_layout = page.layout()
+        toolbar = page.findChild(QtWidgets.QHBoxLayout, "mprc_chat_play_toolbar")
+        if root_layout is None or toolbar is None:
+            return
+
+        toolbar_index = -1
+        for index in range(root_layout.count()):
+            item = root_layout.itemAt(index)
+            if item is not None and item.layout() is toolbar:
+                toolbar_index = index
+                break
+        if toolbar_index < 0:
+            return
+
+        old_widgets = []
+        while toolbar.count():
+            item = toolbar.takeAt(0)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                old_widgets.append(widget)
+
+        panel = QtWidgets.QFrame(page)
+        panel.setObjectName("mprc_chat_play_toolbar_panel")
+        panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        panel.setStyleSheet(
+            """
+            QFrame#mprc_chat_play_toolbar_panel {
+                background: #101923;
+                border: 1px solid #273342;
+                border-radius: 8px;
+            }
+            QFrame#mprc_chat_play_toolbar_advanced {
+                background: #0b121a;
+                border: 1px solid #1f3042;
+                border-radius: 6px;
+            }
+            QToolButton#mprc_chat_play_toolbar_advanced_toggle {
+                background: #122033;
+                border: 1px solid #36506d;
+                border-radius: 6px;
+                color: #dbeafe;
+                font-weight: 700;
+                min-height: 26px;
+                padding: 3px 10px;
+            }
+            QToolButton#mprc_chat_play_toolbar_advanced_toggle:checked {
+                border-color: #39d98a;
+                color: #f4f7fb;
+            }
+            """
+        )
+        rows_layout = QtWidgets.QVBoxLayout(panel)
+        rows_layout.setObjectName("mprc_chat_play_toolbar_rows")
+        rows_layout.setContentsMargins(10, 8, 10, 8)
+        rows_layout.setSpacing(6)
+
+        rows: dict[str, QtWidgets.QHBoxLayout] = {}
+        actions_row = QtWidgets.QHBoxLayout()
+        actions_row.setObjectName("mprc_chat_play_toolbar_actions_row")
+        actions_row.setContentsMargins(0, 0, 0, 0)
+        actions_row.setSpacing(8)
+        rows_layout.addLayout(actions_row)
+        rows["actions"] = actions_row
+
+        advanced = QtWidgets.QFrame(panel)
+        advanced.setObjectName("mprc_chat_play_toolbar_advanced")
+        advanced.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
+        advanced_layout = QtWidgets.QVBoxLayout(advanced)
+        advanced_layout.setContentsMargins(8, 7, 8, 8)
+        advanced_layout.setSpacing(6)
+        for key in ("voice", "systems"):
+            row = QtWidgets.QHBoxLayout()
+            row.setObjectName(f"mprc_chat_play_toolbar_{key}_row")
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(8)
+            advanced_layout.addLayout(row)
+            rows[key] = row
+        rows_layout.addWidget(advanced)
+
+        advanced_toggle = QtWidgets.QToolButton(panel)
+        advanced_toggle.setObjectName("mprc_chat_play_toolbar_advanced_toggle")
+        advanced_toggle.setCheckable(True)
+        advanced_toggle.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
+        advanced_toggle.setAutoRaise(False)
+        advanced_toggle.setToolTip("Show or hide the extra Play controls: voice, focus, structured output, and LAN remote.")
+
+        root_layout.takeAt(toolbar_index)
+        root_layout.insertWidget(toolbar_index, panel)
+
+        widget_map: dict[str, QtWidgets.QWidget] = {}
+        for widget in old_widgets:
+            name = str(widget.objectName() or "")
+            if name:
+                widget_map[name] = widget
+        for widget in self._controls.values():
+            if isinstance(widget, QtWidgets.QWidget):
+                name = str(widget.objectName() or "")
+                if name and name not in widget_map:
+                    widget_map[name] = widget
+
+        moved: set[int] = set()
+
+        def add(name: str, row_key: str, stretch: int = 0) -> None:
+            widget = widget_map.get(name)
+            row = rows.get(row_key)
+            if widget is None or row is None or id(widget) in moved:
+                return
+            row.addWidget(widget, stretch)
+            moved.add(id(widget))
+
+        for name in (
+            "mprc_chat_start_button",
+            "mprc_chat_pause_button",
+            "mprc_chat_restart_button",
+            "mprc_chat_clear_button",
+            "mprc_chat_float_button",
+        ):
+            add(name, "actions")
+        rows["actions"].addWidget(advanced_toggle)
+        rows["actions"].addStretch(1)
+
+        for name, stretch in (
+            ("mprc_chat_voice_volume_label", 0),
+            ("mprc_chat_voice_volume_slider", 0),
+            ("mprc_chat_voice_volume_value", 0),
+            ("mprc_chat_mode_label", 0),
+            ("mprc_chat_intent_combo", 0),
+            ("mprc_chat_speaker_label", 0),
+            ("mprc_chat_speaker_combo", 1),
+        ):
+            add(name, "voice", stretch)
+
+        for name, stretch in (
+            ("mprc_chat_export_structured_output_button", 0),
+            ("mprc_chat_structured_output_checkbox", 0),
+            ("mprc_chat_structured_output_scope_combo", 0),
+            ("mprc_chat_story_font_size_label", 0),
+            ("mprc_chat_story_font_size_spin", 0),
+            ("mprc_chat_remote_install_button", 0),
+            ("mprc_chat_remote_enabled_checkbox", 0),
+            ("mprc_chat_remote_host_input", 0),
+            ("mprc_chat_remote_port_spin", 0),
+            ("mprc_chat_remote_code_spin", 0),
+            ("mprc_chat_remote_regenerate_token_button", 0),
+            ("mprc_chat_remote_status_label", 1),
+        ):
+            add(name, "systems", stretch)
+
+        for widget in old_widgets:
+            if id(widget) not in moved:
+                rows["systems"].addWidget(widget)
+                moved.add(id(widget))
+        rows["voice"].addStretch(1)
+        rows["systems"].addStretch(1)
+
+        self._configure_chat_play_toolbar_advanced_toggle(advanced_toggle, advanced)
+
+        self._controls.update({
+            "chat_toolbar_panel": panel,
+            "chat_toolbar_actions_row": rows["actions"],
+            "chat_toolbar_voice_row": rows["voice"],
+            "chat_toolbar_systems_row": rows["systems"],
+            "chat_toolbar_advanced": advanced,
+            "chat_toolbar_advanced_toggle": advanced_toggle,
+        })
+
+    def _configure_chat_play_toolbar_advanced_toggle(self, toggle, advanced) -> None:
+        expanded = bool(self.settings.get("chat_toolbar_advanced_expanded", True))
+        self._apply_chat_play_toolbar_advanced_state(toggle, advanced, expanded)
+        toggle.clicked.connect(lambda checked: self._on_chat_play_toolbar_advanced_toggled(toggle, advanced, bool(checked)))
+
+    def _on_chat_play_toolbar_advanced_toggled(self, toggle, advanced, expanded: bool) -> None:
+        self.settings["chat_toolbar_advanced_expanded"] = bool(expanded)
+        self.storage.save_settings(self.settings)
+        self._apply_chat_play_toolbar_advanced_state(toggle, advanced, bool(expanded))
+
+    def _apply_chat_play_toolbar_advanced_state(self, toggle, advanced, expanded: bool) -> None:
+        if advanced is not None:
+            advanced.setVisible(bool(expanded))
+            advanced.setMaximumHeight(16777215 if expanded else 0)
+        if toggle is not None:
+            toggle.blockSignals(True)
+            toggle.setChecked(bool(expanded))
+            toggle.blockSignals(False)
+            toggle.setText("Advanced ^" if expanded else "Advanced v")
+
+    def _replace_chat_play_input(self, widget):
+        if widget is None:
+            return None
+        try:
+            from ui.runtime.spellcheck import ChatMessageInput
+        except Exception:
+            return widget
+        if isinstance(widget, ChatMessageInput):
+            return widget
+        parent = widget.parentWidget()
+        if parent is None:
+            return widget
+        layout = self._find_layout_containing_widget(parent.layout(), widget)
+        if layout is None:
+            return widget
+        replacement = ChatMessageInput(parent)
+        replacement.setObjectName(str(widget.objectName() or "mprc_chat_input"))
+        replacement.setPlaceholderText(str(getattr(widget, "placeholderText", lambda: "")() or "Type a player action..."))
+        replacement.setToolTip(str(widget.toolTip() or "Type the next player action. Enter sends; Shift+Enter inserts a newline."))
+        replacement.setEnabled(widget.isEnabled())
+        replacement.setHidden(widget.isHidden())
+        replacement.setMinimumWidth(widget.minimumWidth())
+        replacement.setMinimumHeight(max(72, int(widget.minimumHeight() or 0)))
+        maximum_height = int(widget.maximumHeight() or 0)
+        if 0 < maximum_height < 16777215:
+            replacement.setMaximumHeight(max(maximum_height, replacement.minimumHeight()))
+        else:
+            replacement.setMaximumHeight(130)
+        try:
+            replacement.textChanged.disconnect(replacement._sync_height_to_content)
+        except Exception:
+            pass
+        replacement.setStyleSheet(str(widget.styleSheet() or ""))
+        layout.replaceWidget(widget, replacement)
+        widget.setObjectName(f"{replacement.objectName()}_legacy")
+        widget.hide()
+        widget.deleteLater()
+        return replacement
+
+    def _find_layout_containing_widget(self, layout, widget):
+        if layout is None or widget is None:
+            return None
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item is None:
+                continue
+            if item.widget() is widget:
+                return layout
+            nested = item.layout()
+            if nested is not None:
+                found = self._find_layout_containing_widget(nested, widget)
+                if found is not None:
+                    return found
+        return None
 
     def _configure_chat_play_layout(self, page) -> None:
         def widget(name: str):
@@ -2595,17 +4340,16 @@ class MultiPersonaRoleplayController:
 
         splitter_style = """
         QSplitter::handle {
-            background: #20324a;
-            border: 1px solid #36506d;
-            border-radius: 2px;
+            background: transparent;
+            border: 0;
         }
         QSplitter::handle:hover {
-            background: #2b4565;
+            background: transparent;
         }
         """
 
         page.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
-        page.setMinimumHeight(0)
+        page.setMinimumHeight(920)
         page.setMaximumHeight(16777215)
 
         root_layout = page.layout()
@@ -2617,6 +4361,8 @@ class MultiPersonaRoleplayController:
                     root_layout.setStretch(index, 1 if index == 1 else 0)
                 except Exception:
                     pass
+
+        self._configure_chat_play_toolbar_rows(page)
 
         splitter = widget("mprc_story_runtime_splitter")
         if splitter is not None:
@@ -2646,6 +4392,7 @@ class MultiPersonaRoleplayController:
             main_layout.setAlignment(QtCore.Qt.Alignment())
             main_splitter = widget("mprc_story_main_vertical_splitter")
             if main_splitter is None:
+                buffer_box = widget("mprc_buffer_race_box")
                 story_box = widget("mprc_story_feed_box")
                 action_box = widget("mprc_player_action_box")
                 visual_debug_box = widget("mprc_visual_prompt_debug_box")
@@ -2654,6 +4401,8 @@ class MultiPersonaRoleplayController:
                         main_layout.takeAt(0)
                     main_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical, main_panel)
                     main_splitter.setObjectName("mprc_story_main_vertical_splitter")
+                    if buffer_box is not None:
+                        main_splitter.addWidget(buffer_box)
                     main_splitter.addWidget(story_box)
                     main_splitter.addWidget(action_box)
                     if visual_debug_box is not None:
@@ -2661,13 +4410,16 @@ class MultiPersonaRoleplayController:
                     main_splitter.setChildrenCollapsible(False)
                     main_splitter.setHandleWidth(6)
                     main_splitter.setStyleSheet(splitter_style)
-                    main_splitter.setStretchFactor(0, 1)
-                    main_splitter.setStretchFactor(1, 0)
+                    offset = 1 if buffer_box is not None else 0
+                    if buffer_box is not None:
+                        main_splitter.setStretchFactor(0, 0)
+                    main_splitter.setStretchFactor(offset, 1)
+                    main_splitter.setStretchFactor(offset + 1, 0)
                     if visual_debug_box is not None:
-                        main_splitter.setStretchFactor(2, 0)
-                        main_splitter.setSizes([340, 150, 150])
+                        main_splitter.setStretchFactor(offset + 2, 0)
+                        main_splitter.setSizes(([78] if buffer_box is not None else []) + [340, 150, 150])
                     else:
-                        main_splitter.setSizes([360, 150])
+                        main_splitter.setSizes(([78] if buffer_box is not None else []) + [360, 150])
                     main_layout.addWidget(main_splitter, 1)
             if main_splitter is not None:
                 main_splitter.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
@@ -2678,11 +4430,13 @@ class MultiPersonaRoleplayController:
                     pass
 
         flexible_heights = {
+            "mprc_buffer_race_box": (58, 92),
             "mprc_player_action_box": (120, 220),
             "mprc_visual_prompt_debug_box": (120, 320),
             "mprc_scene_state_box": (105, 230),
-            "mprc_story_state_tabs": (145, 16777215),
-            "mprc_director_box": (165, 230),
+            "mprc_story_state_tabs_box": (210, 16777215),
+            "mprc_story_state_tabs": (190, 16777215),
+            "mprc_director_box": (190, 260),
         }
         for name, (min_height, max_height) in flexible_heights.items():
             item = widget(name)
@@ -2704,6 +4458,25 @@ class MultiPersonaRoleplayController:
                 item.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
                 item.setMaximumHeight(max_height)
 
+        state_tabs = widget("mprc_story_state_tabs")
+        if isinstance(state_tabs, QtWidgets.QTabWidget):
+            state_tab_specs = (
+                (0, "Cast", "cast", "#60a5fa"),
+                (1, "Events", "events", "#facc15"),
+                (2, "Choices", "choices", "#fb7185"),
+            )
+            for tab_index, tab_title, icon_key, icon_color in state_tab_specs:
+                if tab_index < state_tabs.count():
+                    state_tabs.setTabText(tab_index, "")
+                    state_tabs.setTabIcon(tab_index, QtGui.QIcon())
+                    state_tabs.setTabToolTip(tab_index, tab_title)
+                    state_tabs.tabBar().setTabButton(
+                        tab_index,
+                        QtWidgets.QTabBar.LeftSide,
+                        self._story_state_tab_button(tab_title, icon_key, icon_color),
+                    )
+            state_tabs.setStyleSheet(self._story_state_tab_stylesheet())
+
         for name in ("mprc_story_state_sidebar",):
             panel = widget(name)
             layout = panel.layout() if panel is not None else None
@@ -2718,10 +4491,23 @@ class MultiPersonaRoleplayController:
                 if scene_box is not None and tabs_box is not None and director_box is not None:
                     while layout.count():
                         layout.takeAt(0)
+                    tabs_container = widget("mprc_story_state_tabs_box")
+                    if tabs_container is None:
+                        tabs_container = QtWidgets.QGroupBox("Story State", panel)
+                        tabs_container.setObjectName("mprc_story_state_tabs_box")
+                        tabs_container.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+                        tabs_container.setMinimumHeight(210)
+                        tabs_container.setMaximumHeight(16777215)
+                        tabs_layout = QtWidgets.QVBoxLayout(tabs_container)
+                        tabs_layout.setContentsMargins(8, 8, 8, 8)
+                        tabs_layout.setSpacing(4)
+                        tabs_box.setParent(tabs_container)
+                        tabs_layout.addWidget(tabs_box)
+                        self._controls["chat_story_state_tabs_box"] = tabs_container
                     sidebar_splitter = QtWidgets.QSplitter(QtCore.Qt.Vertical, panel)
                     sidebar_splitter.setObjectName("mprc_story_state_vertical_splitter")
                     sidebar_splitter.addWidget(scene_box)
-                    sidebar_splitter.addWidget(tabs_box)
+                    sidebar_splitter.addWidget(tabs_container)
                     sidebar_splitter.addWidget(director_box)
                     sidebar_splitter.setChildrenCollapsible(False)
                     sidebar_splitter.setHandleWidth(6)
@@ -2743,6 +4529,7 @@ class MultiPersonaRoleplayController:
         if status is not None:
             status.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
             status.setMaximumHeight(30)
+        self._refresh_chat_play_buffer_race()
 
     def _chat_play_is_floating(self) -> bool:
         window = getattr(self, "_chat_play_floating_window", None)
@@ -2904,9 +4691,24 @@ class MultiPersonaRoleplayController:
             f"<b>{speaker_text}:</b> {body.replace(chr(10), '<br/>')}"
             "</p>"
         )
+        bar = None
+        old_value = 0
+        should_autoscroll = True
+        try:
+            bar = transcript.verticalScrollBar()
+            old_value = int(bar.value())
+            remaining = int(bar.maximum()) - old_value
+            should_autoscroll = remaining <= max(24, int(bar.pageStep()) // 3)
+        except Exception:
+            bar = None
+            should_autoscroll = True
         transcript.append(line)
         try:
-            transcript.verticalScrollBar().setValue(transcript.verticalScrollBar().maximum())
+            bar = bar or transcript.verticalScrollBar()
+            if should_autoscroll:
+                bar.setValue(bar.maximum())
+            else:
+                bar.setValue(min(old_value, bar.maximum()))
         except Exception:
             pass
 
@@ -3248,14 +5050,20 @@ class MultiPersonaRoleplayController:
         latest_user_text = player_action if intent_text.lower() == "system" else f"{intent_text}: {player_action}"
         director_text = self._mprc_chat_director_context()
         full_setup = not bool(self._mprc_chat_history) and int(getattr(self.session, "turn_index", 0) or 0) <= 0
+        structured_output_rules = (
+            self._mprc_structured_output_prompt_rules()
+            if self._mprc_chat_structured_output_applies(full_setup=full_setup)
+            else ""
+        )
         if full_setup:
             context_text = self._mprc_chat_full_context(latest_user_text)
             system_parts = [
                 "You are NeuralCompanion's dedicated Multi Persona Roleplay story runtime. This is separate from normal chat history.",
                 "Write only the next story response to the player's action. Do not summarize these instructions or expose prompt structure.",
                 "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
-                "Use clear story-native formatting. In AR mode, prefer [NARRATOR], [CHARACTER: Exact Name], optional exact story audio tags, and [CHOICES].",
+                "Use clear story-native formatting. In AR mode, prefer [NARRATOR], [CHARACTER: Exact Name], exact listed story audio tags when needed, and follow the Director response ending mode.",
                 "Treat the user payload's focus instruction as binding for who performs or frames the latest action.",
+                structured_output_rules,
                 context_text,
                 director_text,
             ]
@@ -3264,8 +5072,9 @@ class MultiPersonaRoleplayController:
                 "You are NeuralCompanion's dedicated Multi Persona Roleplay story runtime. Continue the existing MPRC Play conversation below.",
                 "Write only the next story response to the player's latest action. Do not recap the full setup unless the player asks.",
                 "Preserve player agency: never decide major player actions, private thoughts, or consent for the player.",
-                "In AR mode, use [NARRATOR], [CHARACTER: Exact Name], exact listed story audio tags when needed, and optional [CHOICES].",
+                "In AR mode, use [NARRATOR], [CHARACTER: Exact Name], exact listed story audio tags when needed, and follow the Director response ending mode.",
                 "Treat the user payload's focus instruction as binding for who performs or frames the latest action.",
+                structured_output_rules,
                 self._mprc_chat_compact_turn_context(latest_user_text),
                 director_text,
             ]
@@ -3321,6 +5130,7 @@ class MultiPersonaRoleplayController:
         history_lines = self._mprc_chat_history_lines()
         parts = [
             "MPRC compact turn state:",
+            "Progression rule: latest player intent and latest visible story beat override older scene summary/location memory.",
             f"Scene: {self._mprc_compact(state.current_scene or self.session.scene_title, 180)}",
             f"Location: {self._mprc_compact(state.location or self.session.location, 140)}",
             f"Time: {self._mprc_compact(state.time_of_day or self.session.time_of_day, 80)}",
@@ -3428,10 +5238,17 @@ class MultiPersonaRoleplayController:
         tone = self._control_current_text("chat_director_tone")
         agency = self._control_current_text("chat_director_agency")
         pacing = str(self.session.ar_pacing or self._control_current_text("chat_director_pacing") or "Balanced").strip()
+        choice_mode = self._mprc_chat_choice_mode()
         lines = [
             f"Director pacing: {pacing}",
             f"Director tone: {tone or 'Keep current'}",
             f"Player agency mode: {agency or 'Guided'}",
+            (
+                'Response ending mode: Ask "What\'s your next move?" Do not include [CHOICES].'
+                if choice_mode == "ask_next_move"
+                else "Response ending mode: Always end with [CHOICES] containing 2 to 4 concrete playable next actions."
+            ),
+            "Progression priority: the latest player action overrides older scene summary/location memory. If the player leaves, enters, travels, or moves to a new place, transition there unless a concrete immediate obstacle blocks it.",
         ]
         return "MPRC Play director controls:\n" + "\n".join(lines)
 
@@ -3440,6 +5257,128 @@ class MultiPersonaRoleplayController:
         if widget is not None and hasattr(widget, "currentText"):
             return str(widget.currentText() or "").strip()
         return ""
+
+    def _mprc_structured_output_cast(self) -> dict[str, dict[str, str]]:
+        cast: dict[str, dict[str, str]] = {}
+        try:
+            personas = list(self.story_prompt_personas() or [])
+        except Exception:
+            personas = []
+        if not personas:
+            personas = list(getattr(self, "personas", []) or [])
+        for persona in personas:
+            persona_id = normalize_persona_id(getattr(persona, "id", "") or "")
+            if not persona_id or persona_id in {"narrator", "unknown_speaker"}:
+                continue
+            if self._persona_looks_like_narrator(persona):
+                continue
+            display_name = re.sub(r"\s+", " ", str(getattr(persona, "display_name", "") or persona_id)).strip()
+            if display_name:
+                cast[persona_id] = {"speaker_name": display_name}
+        return cast
+
+    def _mprc_structured_output_schema(self) -> dict[str, Any]:
+        return build_structured_story_output_schema(
+            self._mprc_structured_output_cast(),
+            require_choices=self._mprc_chat_should_offer_choices(),
+        )
+
+    def _mprc_chat_structured_output_enabled(self) -> bool:
+        return bool(self.settings.get("chat_structured_output_enabled", True))
+
+    def _mprc_chat_structured_output_scope(self) -> str:
+        scope = str(self.settings.get("chat_structured_output_scope") or "every_turn").strip().lower()
+        return scope if scope in {"every_turn", "first_turn"} else "every_turn"
+
+    def _mprc_chat_choice_mode(self) -> str:
+        mode = str(self.settings.get("chat_choice_mode") or "choices").strip().lower()
+        return mode if mode in {"choices", "ask_next_move"} else "choices"
+
+    def _mprc_chat_should_offer_choices(self) -> bool:
+        return self._mprc_chat_choice_mode() != "ask_next_move"
+
+    def _mprc_chat_structured_output_applies(self, *, full_setup: bool) -> bool:
+        if not self._mprc_chat_structured_output_enabled():
+            return False
+        scope = self._mprc_chat_structured_output_scope()
+        return scope == "every_turn" or bool(full_setup)
+
+    def _mprc_chat_structured_response_format(self) -> dict[str, Any]:
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "mprc_story_turn",
+                "strict": True,
+                "schema": self._mprc_structured_output_schema(),
+            },
+        }
+
+    def _apply_mprc_chat_structured_response_format(self, params: dict[str, Any], *, full_setup: bool) -> bool:
+        if not self._mprc_chat_structured_output_applies(full_setup=full_setup):
+            return False
+        params["response_format"] = self._mprc_chat_structured_response_format()
+        self._apply_mprc_chat_structured_token_cap(params)
+        return True
+
+    @staticmethod
+    def _apply_mprc_chat_structured_token_cap(params: dict[str, Any]) -> None:
+        cap = 2400
+        for key in ("max_completion_tokens", "max_tokens"):
+            if key not in params:
+                continue
+            try:
+                current = int(params.get(key))
+            except Exception:
+                current = cap
+            if current <= 0 or current > cap:
+                params[key] = cap
+            return
+        params["max_tokens"] = cap
+
+    def _mprc_structured_output_prompt_rules(self) -> str:
+        cast = {"narrator": {"speaker_name": "Narrator"}}
+        cast.update(self._mprc_structured_output_cast())
+        cast["unknown_speaker"] = {"speaker_name": "Unknown Speaker"}
+        cast_lines = [
+            f"- {speaker_id}: {item.get('speaker_name') or speaker_id}"
+            for speaker_id, item in cast.items()
+        ]
+        choice_rule = (
+            "- The choices array must contain 2 to 4 concise playable next actions. These become [CHOICES] at the end of the reply."
+            if self._mprc_chat_should_offer_choices()
+            else '- The choices array must be empty. End the final narrator segment by asking "What\'s your next move?"'
+        )
+        return "\n".join(
+            [
+                "Structured Output rules:",
+                f"- Return one compact JSON object matching schema_version {STRUCTURED_STORY_SCHEMA_VERSION}. No markdown or usage metadata.",
+                "- Use only these speaker_id values; do not output speaker_name because voice routing maps speaker_id locally:",
+                *cast_lines,
+                "- Never output voice IDs, voice file paths, or made-up voice keys.",
+                "- Put one speaker per segment; split quoted dialogue into character segments, not narrator text.",
+                "- Character segment text must contain only the spoken words or first-person thought. Put attribution, movement, facial expression, and consequences in narrator segments.",
+                "- Keep the turn short: no more than 6 story segments; put playable options only in choices.",
+                choice_rule,
+            ]
+        )
+
+    def _on_export_mprc_structured_output_clicked(self) -> None:
+        schema = self._mprc_structured_output_schema()
+        path = self._save_file(
+            "Export MPRC Structured LLM Output Schema",
+            str(Path.home() / "mprc_structured_llm_output_schema.json"),
+            "JSON Schema (*.json);;JSON files (*.json)",
+        )
+        if not path:
+            self._set_chat_play_status("Structured Output export cancelled.")
+            return
+        try:
+            Path(path).write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as exc:
+            self._warn("Export Structured Output", f"Export failed:\n\n{exc}")
+            self._set_chat_play_status(f"Structured Output export failed: {exc}")
+            return
+        self._set_chat_play_status(f"Exported Structured Output schema to {path}.")
 
     def _run_mprc_chat_provider(self, messages: list[dict[str, str]]) -> str:
         from core.engine_access import engine_module
@@ -3455,10 +5394,96 @@ class MultiPersonaRoleplayController:
         additional_params: dict[str, Any] = {}
         if hasattr(engine, "_apply_chat_provider_generation_fields"):
             engine._apply_chat_provider_generation_fields(params, additional_params)
-        reply = str(engine._chat_completion_create(params, additional_params) or "").strip()
+        full_setup = not bool(self._mprc_chat_history) and int(getattr(self.session, "turn_index", 0) or 0) <= 0
+        structured_output_applied = self._apply_mprc_chat_structured_response_format(params, full_setup=full_setup)
+        try:
+            reply = str(engine._chat_completion_create(params, additional_params) or "").strip()
+        except Exception as exc:
+            if not structured_output_applied or not self._mprc_chat_provider_error_is_structured_output_compatibility(exc):
+                raise
+            fallback_params = dict(params)
+            fallback_params.pop("response_format", None)
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC] MPRC Play structured output rejected by provider; retrying without schema: %s", exc)
+            self._record_story_event(
+                f"structured output fallback: provider rejected request-scoped schema ({exc})",
+                severity="warning",
+                kind="runtime",
+                persist=True,
+            )
+            reply = str(engine._chat_completion_create(fallback_params, additional_params) or "").strip()
         if not reply:
             raise RuntimeError("The selected chat provider returned an empty MPRC reply.")
         return reply
+
+    @staticmethod
+    def _mprc_chat_provider_error_is_structured_output_compatibility(exc: Exception) -> bool:
+        text = str(exc or "").lower()
+        markers = (
+            "response_format",
+            "json_schema",
+            "structured output",
+            "structured_output",
+            "schema",
+        )
+        return any(marker in text for marker in markers)
+
+    def _finalize_mprc_chat_reply_choice_mode(self, reply: str) -> str:
+        text = str(reply or "").strip()
+        if not text:
+            return ""
+        if not self._mprc_chat_should_offer_choices():
+            return self._ensure_mprc_next_move_reply(text)
+        if self._extract_ar_choices(text):
+            return text
+        choices = self._mprc_fallback_reply_choices()
+        if not choices:
+            return text
+        return f"{text.rstrip()}\n\n[CHOICES]\n" + "\n".join(
+            f"{index}. {choice}" for index, choice in enumerate(choices, start=1)
+        )
+
+    def _ensure_mprc_next_move_reply(self, reply: str) -> str:
+        text = self._strip_mprc_choices_block(str(reply or "").strip())
+        if not text:
+            text = "[NARRATOR]"
+        if re.search(r"what(?:'|’)?s your next move\?\s*$", text, flags=re.IGNORECASE):
+            return text.strip()
+        return f"{text.rstrip()}\n\n[NARRATOR]\nWhat's your next move?"
+
+    @staticmethod
+    def _strip_mprc_choices_block(text: str) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        match = re.search(r"(?ims)\n?\s*\[CHOICES\]\s*.*$", raw)
+        return raw[: match.start()].rstrip() if match else raw
+
+    def _mprc_fallback_reply_choices(self) -> list[str]:
+        state = self.session.ar_state
+        choices: list[str] = []
+        objective = self._mprc_compact(state.story_goal or self.session.objective, 120)
+        if objective:
+            choices.append(f"Pursue objective: {objective}")
+        active = self.current_speaker_persona() or self.active_persona()
+        if active is not None and not self._persona_looks_like_narrator(active):
+            choices.append(f"Ask {active.display_name} what they notice")
+        choices.extend(["Investigate the scene", "Proceed cautiously"])
+        normalized: list[str] = []
+        seen: set[str] = set()
+        for choice in choices:
+            clean = re.sub(r"\s+", " ", str(choice or "")).strip()
+            if not clean:
+                continue
+            key = clean.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            normalized.append(clean[:180])
+            if len(normalized) >= 4:
+                break
+        return normalized
 
     def _on_mprc_chat_turn_finished(self, token: str, reply_text: str, error: str):
         send_button = self._controls.get("chat_send")
@@ -3475,11 +5500,16 @@ class MultiPersonaRoleplayController:
             self._set_chat_play_status(f"MPRC turn failed: {error}")
             self._append_chat_play_line("System", f"MPRC turn failed: {error}", role="system")
             return
-        reply = str(reply_text or "").strip()
+        reply = self._normalize_mprc_structured_reply(
+            str(reply_text or "").strip(),
+            cast=self._mprc_structured_output_cast(),
+        )
+        reply = self._finalize_mprc_chat_reply_choice_mode(reply)
         if not reply:
             self._mprc_pending_chat_users.pop(token, None)
             self._set_chat_play_status("MPRC turn returned no story text.")
             return
+        self._remote_latest_reply_text = reply
         user_message = self._mprc_pending_chat_users.pop(token, None)
         if user_message:
             self._remember_mprc_chat_message(user_message)
@@ -3499,6 +5529,269 @@ class MultiPersonaRoleplayController:
         self._set_chat_play_status("MPRC turn complete.")
         self._refresh_chat_play_controls()
 
+    @staticmethod
+    def _normalize_mprc_structured_reply(text: str, cast: dict[str, dict[str, str]] | None = None) -> str:
+        raw = str(text or "").strip()
+        if not raw:
+            return ""
+        payload = MultiPersonaRoleplayController._extract_mprc_structured_reply_payload(raw)
+        if payload is None:
+            recovered = MultiPersonaRoleplayController._recover_mprc_partial_structured_reply(raw, cast=cast)
+            if recovered:
+                return recovered
+            if MultiPersonaRoleplayController._mprc_reply_looks_like_structured_json(raw):
+                return (
+                    "[NARRATOR]\n"
+                    "The structured story response was incomplete and could not be converted. "
+                    "Please continue with a shorter story turn."
+                )
+            return raw
+        converted = MultiPersonaRoleplayController._mprc_structured_reply_to_ar_text(payload, cast=cast)
+        if converted:
+            return converted
+        if MultiPersonaRoleplayController._mprc_reply_looks_like_structured_json(raw):
+            return (
+                "[NARRATOR]\n"
+                "The structured story response did not contain usable story segments. "
+                "Please continue with a shorter story turn."
+            )
+        return raw
+
+    @staticmethod
+    def _recover_mprc_partial_structured_reply(text: str, cast: dict[str, dict[str, str]] | None = None) -> str:
+        raw = str(text or "").strip()
+        if not MultiPersonaRoleplayController._mprc_reply_looks_like_structured_json(raw):
+            return ""
+        segments = [
+            item
+            for item in MultiPersonaRoleplayController._recover_mprc_json_array_items(raw, "segments")
+            if isinstance(item, dict)
+        ]
+        if not segments:
+            return ""
+        choices = MultiPersonaRoleplayController._recover_mprc_json_array_items(raw, "choices")
+        payload: dict[str, Any] = {"segments": segments, "choices": choices}
+        converted = MultiPersonaRoleplayController._mprc_structured_reply_to_ar_text(payload, cast=cast)
+        if not converted:
+            return ""
+        if not choices and MultiPersonaRoleplayController._mprc_structured_json_probably_truncated(raw):
+            converted = (
+                f"{converted}\n\n"
+                "[NARRATOR]\n"
+                "The structured response was cut off before it finished. Continue with a shorter turn."
+            )
+        return converted
+
+    @staticmethod
+    def _recover_mprc_json_array_items(text: str, key: str) -> list[Any]:
+        raw = str(text or "")
+        match = re.search(rf'"{re.escape(str(key or ""))}"\s*:\s*\[', raw)
+        if not match:
+            return []
+        decoder = json.JSONDecoder()
+        items: list[Any] = []
+        pos = match.end()
+        while pos < len(raw):
+            while pos < len(raw) and raw[pos] in " \t\r\n,":
+                pos += 1
+            if pos >= len(raw) or raw[pos] == "]":
+                break
+            try:
+                item, end = decoder.raw_decode(raw[pos:])
+            except Exception:
+                break
+            items.append(item)
+            pos += end
+        return items
+
+    @staticmethod
+    def _mprc_reply_looks_like_structured_json(text: str) -> bool:
+        raw = str(text or "")
+        head = raw[:5000]
+        if STRUCTURED_STORY_SCHEMA_VERSION in head:
+            return True
+        return '"segments"' in head and ('"speaker_id"' in head or '"response_type"' in head)
+
+    @staticmethod
+    def _mprc_structured_json_probably_truncated(text: str) -> bool:
+        raw = str(text or "")
+        return raw.count("{") != raw.count("}") or raw.count("[") != raw.count("]")
+
+    @staticmethod
+    def _extract_mprc_structured_reply_payload(text: str) -> dict[str, Any] | None:
+        raw = str(text or "").strip()
+        if not raw or "{" not in raw:
+            return None
+        decoder = json.JSONDecoder()
+        for start in [match.start() for match in re.finditer(r"\{", raw)]:
+            try:
+                payload, _end = decoder.raw_decode(raw[start:])
+            except Exception:
+                continue
+            if isinstance(payload, dict) and MultiPersonaRoleplayController._is_mprc_structured_reply_payload(payload):
+                return payload
+        return None
+
+    @staticmethod
+    def _is_mprc_structured_reply_payload(payload: dict[str, Any]) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if isinstance(payload.get("segments"), list):
+            return True
+        story = payload.get("story")
+        if isinstance(story, dict) and isinstance(story.get("segments"), list):
+            return True
+        return isinstance(payload.get("choices"), list) and any(
+            key in payload for key in ("segments", "story", "reply", "response")
+        )
+
+    @staticmethod
+    def _mprc_structured_reply_to_ar_text(payload: dict[str, Any], cast: dict[str, dict[str, str]] | None = None) -> str:
+        if not isinstance(payload, dict):
+            return ""
+        story = payload.get("story")
+        source = story if isinstance(story, dict) else payload
+        parts: list[str] = []
+        choices: list[str] = []
+        for item in list(source.get("segments") or []):
+            if not isinstance(item, dict):
+                continue
+            kind = str(item.get("kind") or item.get("type") or item.get("role") or "").strip().lower()
+            text = str(item.get("text") or item.get("content") or item.get("body") or "").strip()
+            if not text:
+                continue
+            if kind in {"choice", "choices", "option", "options"}:
+                choices.extend(MultiPersonaRoleplayController._mprc_structured_choice_lines(text))
+                continue
+            section = MultiPersonaRoleplayController._mprc_structured_segment_to_ar_text(kind, item, text, cast=cast)
+            if section:
+                parts.append(section)
+        for item in list(source.get("choices") or payload.get("choices") or []):
+            choice = MultiPersonaRoleplayController._mprc_structured_choice_text(item)
+            if choice:
+                choices.append(choice)
+        if choices:
+            normalized_choices = list(dict.fromkeys(choice for choice in choices if choice))
+            if normalized_choices:
+                lines = ["[CHOICES]"]
+                lines.extend(f"{index}. {choice}" for index, choice in enumerate(normalized_choices, start=1))
+                parts.append("\n".join(lines))
+        return "\n\n".join(part for part in parts if str(part or "").strip()).strip()
+
+    @staticmethod
+    def _mprc_structured_segment_to_ar_text(
+        kind: str,
+        item: dict[str, Any],
+        text: str,
+        cast: dict[str, dict[str, str]] | None = None,
+    ) -> str:
+        if MultiPersonaRoleplayController._mprc_structured_text_starts_with_ar_tag(text):
+            return text.strip()
+        speaker_id = normalize_persona_id(item.get("speaker_id") or "")
+        speaker = MultiPersonaRoleplayController._mprc_structured_speaker_name(
+            item.get("speaker") or item.get("speaker_name") or item.get("name") or item.get("character")
+        )
+        cast_map = dict(cast or {})
+        cast_map.setdefault("narrator", {"speaker_name": "Narrator"})
+        cast_map.setdefault("unknown_speaker", {"speaker_name": "Unknown Speaker"})
+        if speaker_id in cast_map:
+            speaker = str(cast_map[speaker_id].get("speaker_name") or speaker or speaker_id).strip()
+        if kind == "sfx":
+            tags = [
+                f"[FX: {tag}]"
+                for tag in (
+                    re.sub(r"\s+", " ", str(tag or "")).strip()
+                    for tag in list(item.get("sfx_tags") or [])
+                )
+                if tag
+            ]
+            if not tags:
+                tags.append(f"[SFX: {text.strip()}]")
+            else:
+                tags.append(f"[NARRATOR]\n{text.strip()}")
+            return "\n".join(tags)
+        if kind in {"music", "ambience", "ambient", "fx", "sfx", "stinger", "audio", "sound"}:
+            audio_type = {
+                "ambient": "AMBIENCE",
+                "ambience": "AMBIENCE",
+                "music": "MUSIC",
+                "fx": "FX",
+                "sfx": "SFX",
+                "stinger": "STINGER",
+                "audio": "AUDIO",
+                "sound": "AUDIO",
+            }.get(kind, "AUDIO")
+            return f"[{audio_type}: {text.strip()}]"
+        if kind == "narrator" or speaker_id in {"narrator", "unknown_speaker"}:
+            return f"[NARRATOR]\n{text.strip()}"
+        if speaker and not MultiPersonaRoleplayController._mprc_structured_speaker_is_narrator(speaker):
+            spoken = MultiPersonaRoleplayController._mprc_structured_character_spoken_text(text)
+            return f"[CHARACTER: {speaker}]\n{spoken.strip()}"
+        return f"[NARRATOR]\n{text.strip()}"
+
+    @staticmethod
+    def _mprc_structured_character_spoken_text(text: str) -> str:
+        raw = re.sub(r"\s+", " ", str(text or "")).strip()
+        if not raw:
+            return ""
+        quoted = [
+            re.sub(r"\s+", " ", match).strip()
+            for match in re.findall(r'["“](.+?)["”]', raw, flags=re.DOTALL)
+            if re.sub(r"\s+", " ", match).strip()
+        ]
+        if quoted:
+            return " ".join(quoted).strip()
+        return raw.strip(" \"“”")
+
+    @staticmethod
+    def _mprc_structured_speaker_name(value: Any) -> str:
+        speaker = re.sub(r"\s+", " ", str(value or "")).strip()
+        if not speaker:
+            return ""
+        speaker = re.sub(r"^\[?\s*(?:character|speaker)\s*:\s*", "", speaker, flags=re.IGNORECASE).strip()
+        speaker = re.sub(r"\s*\]$", "", speaker).strip()
+        return speaker.strip(" :")
+
+    @staticmethod
+    def _mprc_structured_speaker_is_narrator(speaker: str) -> bool:
+        value = str(speaker or "").strip().lower()
+        return not value or value in {"narrator", "story narrator", "master narrator"} or value.startswith("narrator #")
+
+    @staticmethod
+    def _mprc_structured_text_starts_with_ar_tag(text: str) -> bool:
+        return bool(
+            re.match(
+                r"^\s*\[/?(?:NARRATOR|CHARACTER|CHOICES|AMBIENCE|AMBIENT|MUSIC|FX|SFX|STINGER|AUDIO)\b",
+                str(text or ""),
+                flags=re.IGNORECASE,
+            )
+        )
+
+    @staticmethod
+    def _mprc_structured_choice_lines(text: str) -> list[str]:
+        return [
+            choice
+            for choice in (
+                MultiPersonaRoleplayController._mprc_structured_choice_text(line)
+                for line in str(text or "").splitlines()
+            )
+            if choice
+        ]
+
+    @staticmethod
+    def _mprc_structured_choice_text(item: Any) -> str:
+        if isinstance(item, dict):
+            for key in ("text", "content", "label", "title", "action", "choice"):
+                value = str(item.get(key) or "").strip()
+                if value:
+                    item = value
+                    break
+            else:
+                return ""
+        choice = re.sub(r"\s+", " ", str(item or "")).strip()
+        choice = re.sub(r"^(?:[-*]\s+|\d+[\.)]\s*)", "", choice).strip()
+        return choice
+
     def _remember_mprc_chat_message(self, message: dict[str, str]) -> None:
         role = str((message or {}).get("role") or "").strip().lower()
         content = str((message or {}).get("content") or "").strip()
@@ -3511,6 +5804,8 @@ class MultiPersonaRoleplayController:
         text = str(reply or "").strip()
         if not text:
             return
+        voice_segments = self._mprc_chat_reply_voice_segments(text)
+        self._begin_remote_speech_audio_capture(text)
         token = self._new_worker_token("mprc_tts")
         if not token:
             return
@@ -3535,7 +5830,7 @@ class MultiPersonaRoleplayController:
                                 logger.info("[MPRC] TTS could not be initialized; skipping MPRC Play reply speech.")
                             return
                 if self._worker_should_emit(token) and hasattr(engine, "speak_async"):
-                    controller = engine.speak_async(text)
+                    controller = engine.speak_async(text, text_iterable=list(voice_segments or []))
                     with self._mprc_tts_state_lock:
                         if self._worker_should_emit(token):
                             self._mprc_tts_controller = controller
@@ -3554,6 +5849,64 @@ class MultiPersonaRoleplayController:
                     self._mprc_tts_token = ""
             self._cancel_worker_token(token)
 
+    def _mprc_chat_reply_voice_segments(self, text: str) -> list[dict[str, Any]]:
+        content = str(text or "").strip()
+        if not content:
+            return []
+        volume_percent = self.mprc_voice_volume_percent()
+        volume = volume_percent / 100.0
+        backend = self.current_tts_backend()
+
+        def with_volume(segment: dict[str, Any]) -> dict[str, Any]:
+            item = dict(segment or {})
+            item["voice_volume"] = volume
+            item["voice_volume_percent"] = volume_percent
+            route = item.get("voice_route")
+            if isinstance(route, dict):
+                route = dict(route)
+            else:
+                route = {}
+            route["volume"] = volume
+            route["volume_percent"] = volume_percent
+            item["voice_route"] = route
+            return item
+
+        try:
+            routed = self.voice_router.split_text_by_persona(
+                {
+                    "text": content,
+                    "tts_backend": backend,
+                    "streaming": False,
+                }
+            )
+            segments = [with_volume(item) for item in list((routed or {}).get("segments") or []) if isinstance(item, dict)]
+            if segments:
+                return segments
+        except Exception as exc:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC] Could not prepare routed Play voice segments: %s", exc)
+
+        route = {}
+        try:
+            route = self.voice_router.effective_voice_config(
+                {
+                    "text": content,
+                    "tts_backend": backend,
+                    "streaming": False,
+                }
+            )
+        except Exception:
+            route = {}
+        segment = {
+            "text": content,
+            "persona_id": str((route or {}).get("persona_id") or ""),
+            "display_name": str((route or {}).get("display_name") or ""),
+            "voice_path": str((route or {}).get("sample_path") or "") if (route or {}).get("supported") else "",
+            "voice_route": route if isinstance(route, dict) else {},
+        }
+        return [with_volume(segment)]
+
     def _on_mprc_chat_speaker_changed(self):
         combo = self._controls.get("chat_speaker")
         raw_speaker_id = combo.currentData() if combo is not None and hasattr(combo, "currentData") else ""
@@ -3570,6 +5923,193 @@ class MultiPersonaRoleplayController:
             "MPRC Play story visuals enabled." if checked else "MPRC Play story visuals disabled."
         )
 
+    def _on_mprc_chat_structured_output_changed(self, checked: bool):
+        if self._syncing:
+            return
+        self.settings["chat_structured_output_enabled"] = bool(checked)
+        self.storage.save_settings(self.settings)
+        scope = self._controls.get("chat_structured_output_scope")
+        if scope is not None and hasattr(scope, "setEnabled"):
+            scope.setEnabled(bool(checked))
+        self._set_chat_play_status(
+            "MPRC Play request-scoped Structured JSON enabled." if checked else "MPRC Play Structured JSON disabled."
+        )
+
+    def _on_mprc_chat_structured_output_scope_changed(self):
+        if self._syncing:
+            return
+        combo = self._controls.get("chat_structured_output_scope")
+        scope = str(combo.currentData() or "every_turn").strip() if combo is not None and hasattr(combo, "currentData") else "every_turn"
+        if scope not in {"every_turn", "first_turn"}:
+            scope = "every_turn"
+        self.settings["chat_structured_output_scope"] = scope
+        self.storage.save_settings(self.settings)
+        label = "every MPRC Play turn" if scope == "every_turn" else "only the first/opening MPRC Play turn"
+        self._set_chat_play_status(f"MPRC Play Structured JSON scope: {label}.")
+
+    def _refresh_remote_controls(self) -> None:
+        installed = self._remote_server_installed()
+        remote_install = self._controls.get("chat_remote_install")
+        if remote_install is not None:
+            if hasattr(remote_install, "setVisible"):
+                remote_install.setVisible(not installed)
+            if hasattr(remote_install, "setEnabled"):
+                remote_install.setEnabled(not installed)
+        remote_control_keys = (
+            "chat_remote_enabled",
+            "chat_remote_host",
+            "chat_remote_port",
+            "chat_remote_code",
+            "chat_remote_regenerate_token",
+            "chat_remote_status",
+        )
+        for key in remote_control_keys:
+            widget = self._controls.get(key)
+            if widget is not None and hasattr(widget, "setVisible"):
+                widget.setVisible(installed)
+        if not installed:
+            remote_enabled = self._controls.get("chat_remote_enabled")
+            if remote_enabled is not None and hasattr(remote_enabled, "setChecked"):
+                remote_enabled.blockSignals(True)
+                remote_enabled.setChecked(False)
+                remote_enabled.blockSignals(False)
+                if hasattr(remote_enabled, "setEnabled"):
+                    remote_enabled.setEnabled(False)
+            remote_status = self._controls.get("chat_remote_status")
+            if remote_status is not None and hasattr(remote_status, "setText"):
+                remote_status.setText("")
+            return
+        enabled = bool(self.settings.get("remote_enabled", False))
+        host = self._remote_host()
+        port = self._remote_port()
+        code = self._remote_code()
+        status = self.remote_status_snapshot()
+        remote_enabled = self._controls.get("chat_remote_enabled")
+        if remote_enabled is not None and hasattr(remote_enabled, "setChecked"):
+            remote_enabled.blockSignals(True)
+            remote_enabled.setChecked(enabled)
+            remote_enabled.blockSignals(False)
+            if hasattr(remote_enabled, "setEnabled"):
+                remote_enabled.setEnabled(True)
+        remote_host = self._controls.get("chat_remote_host")
+        if remote_host is not None and hasattr(remote_host, "setText"):
+            remote_host.blockSignals(True)
+            remote_host.setText(host)
+            remote_host.blockSignals(False)
+            remote_host.setEnabled(not enabled)
+        remote_port = self._controls.get("chat_remote_port")
+        if remote_port is not None and hasattr(remote_port, "setValue"):
+            remote_port.blockSignals(True)
+            remote_port.setValue(port)
+            remote_port.blockSignals(False)
+            remote_port.setEnabled(not enabled)
+        remote_code = self._controls.get("chat_remote_code")
+        if remote_code is not None and hasattr(remote_code, "setValue"):
+            remote_code.blockSignals(True)
+            try:
+                remote_code.setValue(int(code))
+            except Exception:
+                remote_code.setValue(100000)
+            remote_code.blockSignals(False)
+            remote_code.setEnabled(True)
+        remote_regen = self._controls.get("chat_remote_regenerate_token")
+        if remote_regen is not None and hasattr(remote_regen, "setEnabled"):
+            remote_regen.setEnabled(True)
+        remote_status = self._controls.get("chat_remote_status")
+        if remote_status is not None and hasattr(remote_status, "setText"):
+            if bool(status.get("running")):
+                text = f"Remote: {status.get('url')} | code {code} | clients {status.get('connected_clients', 0)}"
+            else:
+                text = f"Remote: off | port {port} | code {code}"
+            remote_status.setText(text)
+            remote_status.setToolTip(f"URL: {status.get('url')}\nPairing code: {code}\nLAN clients only.")
+
+    def _on_mprc_remote_install_clicked(self):
+        if self._syncing:
+            return
+        self.settings["remote_server_installed"] = True
+        self.settings["remote_enabled"] = False
+        self._ensure_remote_settings_defaults(installed=True)
+        self.storage.save_settings(self.settings)
+        self._refresh_remote_controls()
+        self._set_chat_play_status("MPRC Remote controls installed. Enable LAN Remote when you want to use the Android companion app.")
+
+    def _on_mprc_remote_enabled_changed(self, checked: bool):
+        if self._syncing:
+            return
+        if not self._remote_server_installed():
+            self.settings["remote_enabled"] = False
+            self.storage.save_settings(self.settings)
+            self._refresh_remote_controls()
+            self._set_chat_play_status("Install MPRC Remote controls before enabling the LAN server.")
+            return
+        self.settings["remote_enabled"] = bool(checked)
+        self.storage.save_settings(self.settings)
+        self._sync_remote_backend_from_settings()
+        status = self.remote_status_snapshot()
+        if bool(status.get("running")):
+            self._set_chat_play_status(f"MPRC Remote enabled at {status.get('url')}.")
+        else:
+            self._set_chat_play_status("MPRC Remote disabled.")
+
+    def _on_mprc_remote_endpoint_changed(self):
+        if self._syncing:
+            return
+        if not self._remote_server_installed():
+            return
+        host_widget = self._controls.get("chat_remote_host")
+        port_widget = self._controls.get("chat_remote_port")
+        host = str(host_widget.text() if host_widget is not None and hasattr(host_widget, "text") else self._remote_host()).strip() or "0.0.0.0"
+        try:
+            port = int(port_widget.value() if port_widget is not None and hasattr(port_widget, "value") else self._remote_port())
+        except Exception:
+            port = DEFAULT_REMOTE_PORT
+        port = max(1, min(65535, port))
+        changed = host != self._remote_host() or port != self._remote_port()
+        self.settings["remote_host"] = host
+        self.settings["remote_port"] = port
+        self.storage.save_settings(self.settings)
+        if changed and bool(self.settings.get("remote_enabled", False)):
+            self._sync_remote_backend_from_settings()
+        else:
+            self._refresh_remote_controls()
+
+    def _on_mprc_remote_code_changed(self):
+        if self._syncing:
+            return
+        if not self._remote_server_installed():
+            return
+        code_widget = self._controls.get("chat_remote_code")
+        try:
+            code = self._normalized_remote_code(code_widget.value() if code_widget is not None and hasattr(code_widget, "value") else self._remote_code())
+        except Exception:
+            code = ""
+        if not code:
+            code = generate_remote_code()
+        changed = code != self._remote_code()
+        self.settings["remote_code"] = code
+        self.settings.pop("remote_token", None)
+        self.storage.save_settings(self.settings)
+        if changed and bool(self.settings.get("remote_enabled", False)):
+            self._sync_remote_backend_from_settings()
+        else:
+            self._refresh_remote_controls()
+        self._set_chat_play_status(f"MPRC Remote pairing code set to {code}.")
+
+    def _on_mprc_remote_regenerate_token(self):
+        if self._syncing:
+            return
+        if not self._remote_server_installed():
+            return
+        self.settings["remote_code"] = generate_remote_code()
+        self.settings.pop("remote_token", None)
+        self.storage.save_settings(self.settings)
+        if bool(self.settings.get("remote_enabled", False)):
+            self._sync_remote_backend_from_settings()
+        else:
+            self._refresh_remote_controls()
+        self._set_chat_play_status("MPRC Remote pairing code changed. Android clients must reconnect.")
+
     def _on_mprc_chat_pacing_changed(self, value: str):
         if self._syncing:
             return
@@ -3578,6 +6118,19 @@ class MultiPersonaRoleplayController:
             self.session.ar_pacing = choice
             self.save_state()
             self._set_chat_play_status(f"Director pacing set to {choice}.")
+
+    def _on_mprc_chat_choice_mode_changed(self):
+        if self._syncing:
+            return
+        combo = self._controls.get("chat_director_choice_mode")
+        mode = str(combo.currentData() or "choices").strip() if combo is not None and hasattr(combo, "currentData") else "choices"
+        if mode not in {"choices", "ask_next_move"}:
+            mode = "choices"
+        self.settings["chat_choice_mode"] = mode
+        self.storage.save_settings(self.settings)
+        self._refresh_chat_play_state_sidebar()
+        label = 'ask "What\'s your next move?" without fixed choices' if mode == "ask_next_move" else "offer fixed choices at the end"
+        self._set_chat_play_status(f"Director choice mode set to {label}.")
 
     def _on_mprc_director_action(self, action: str):
         label = {
@@ -3721,6 +6274,18 @@ class MultiPersonaRoleplayController:
             "chat_restart": "Restart the active story from the current setup. This clears story/character memory for the active run and removes auto-created chat characters, while keeping saved personas and saved story files.",
             "chat_clear": "Clear the visible Play transcript. This does not delete personas, story setup, saved memory, or normal NC chat history.",
             "chat_float": "Move the MPRC Play surface into its own floating window, or dock it back into the addon tab when already floating.",
+            "chat_export_structured_output": "Export one strict JSON Schema file for LM Studio or another provider Structured Output field. The schema is built from the current MPRC cast.",
+            "chat_story_font_size_label": "Font-size setting for the MPRC Story Feed response window.",
+            "chat_story_font_size": "Set the font size used by the MPRC Story Feed response window.",
+            "chat_remote_install": "Install optional LAN Remote controls for the Android companion app. This does not start the server.",
+            "chat_remote_enabled": "Enable the local LAN-only MPRC Remote HTTP backend for the Android companion app.",
+            "chat_remote_host": "Bind host for the remote backend. Use 0.0.0.0 for LAN access; requests are still limited to local/private clients.",
+            "chat_remote_port": "TCP port for the remote backend. Default is 8765.",
+            "chat_remote_code": "Six-digit pairing code for the Android remote app. You can type your own number.",
+            "chat_remote_regenerate_token": "Generate a new six-digit remote pairing code. Android clients must reconnect with the new code.",
+            "chat_remote_status": "Shows the remote LAN URL, six-digit pairing code, and recent client count.",
+            "chat_structured_output": "Attach the MPRC story JSON Schema directly to MPRC Play chat requests only. This does not affect Master Story, persona generation, normal chat, or Visual Reply.",
+            "chat_structured_output_scope": "Choose whether request-scoped Structured JSON is used on every MPRC Play turn or only on the opening turn.",
             "chat_runtime_splitter": "Resizable divider between the Story Feed/player action area and the scene-state sidebar.",
             "chat_story_feed_box": "Isolated MPRC story transcript. It shows narrator/character output, choices, selected player actions, and restored memory beats without writing into normal NC chat.",
             "chat_transcript": "Live MPRC Story Feed. Spoken narrator/character chunks are derived from this structured story text and routed by [NARRATOR] and [CHARACTER: Name] tags.",
@@ -3750,6 +6315,8 @@ class MultiPersonaRoleplayController:
             "chat_director_tone": "Tone hint for the next Play request. Keep current preserves the story's present mood; other choices nudge the narrator for the next beat.",
             "chat_director_agency_label": "Agency controls how strongly MPRC constrains player options and consequences.",
             "chat_director_agency": "Agency hint for the next Play request. Guided offers clear options; Open leaves more room; Strict consequences asks the narrator to enforce outcomes more firmly.",
+            "chat_director_choice_mode_label": "Choose whether story replies end with fixed choices or a freeform move prompt.",
+            "chat_director_choice_mode": "Offer choices guarantees [CHOICES] at the end. Ask next move removes fixed choices and ends with a freeform prompt.",
             "chat_advance_scene": "Queue a director action asking the narrator to move the scene forward while preserving current continuity.",
             "chat_summarize": "Queue an out-of-character story summary request inside the Play feed.",
             "chat_repair": "Queue a director repair request asking MPRC to restate/repair confusing story state, choices, or speaker routing.",
@@ -3760,6 +6327,7 @@ class MultiPersonaRoleplayController:
             "current_character_meta": "Quick status for the current character: ID, behavior, memory scope, voice readiness, visual readiness, and whether an AR profile is active.",
             "current_character_story": "Shows which active and saved Master Stories include this character, and whether the character is active/speaking in the current story.",
             "current_character_quick_status": "Status messages from quick persona actions such as save, import, duplicate, avatar changes, and editor jumps.",
+            "current_character_view_mode": "Choose whether the Current Character card shows only personas linked to the loaded story roster or all saved personas.",
             "character_roster_frame": "Horizontal preview strip for the story/persona roster. It is a visual selector, separate from the Registry list.",
             "character_roster_strip": "Scroll through character picture tiles. Click a tile to switch the active persona.",
             "character_roster_content": "Container for the current story/persona picture tiles.",
@@ -3780,6 +6348,7 @@ class MultiPersonaRoleplayController:
             "load_default_scenario": "Load the bundled touch-and-go group scenario with all default personas represented.",
             "persona_id": "Stable local ID for this persona. Keep it short and lowercase. Right-click to refine if needed.",
             "persona_enabled": "Enable or disable this persona without deleting it. Disabled personas are kept in storage but ignored by normal routing and story cast selection.",
+            "master_narrator": "Mark this persona as a favorite Master narrator. Master narrators are numbered in selectors, prioritized for narrator auto-pick, and protected from deletion.",
             "display_name": "Name shown in the Roleplay UI and prompts. Right-click to refine.",
             "role": "Short archetype or role, such as mentor, narrator, technician, or explorer. Right-click to refine.",
             "description": "Compact visible description of who this persona is. Right-click to refine this Short Description field.",
@@ -3851,6 +6420,10 @@ class MultiPersonaRoleplayController:
             "story_load_template": "Load the selected built-in template with narrator, one character, memory seed, visual profile, and AudioFX cue.",
             "story_export_bundle": "Export the current story, linked cast, narrator setup, memory snapshot, AudioFX links, visual settings, and voice routing as a portable JSON bundle.",
             "story_import_bundle": "Import a portable MPRC story bundle and apply it after saving a recovery backup.",
+            "story_export_status": "Story Library Export summary. Green option rows have data available to save into the portable story package.",
+            "story_export_button": "Create a zip story package from the selected Story Library Export sections. Selected avatar, voice, and AudioFX files are copied into the package when available.",
+            "story_import_button": "Import a zip story package, extract assets into this addon's runtime assets folder, remap file paths, and protect existing personas with unique imported IDs.",
+            "story_export_preview": "Preview which selected Story Library Export sections currently have data before creating a package.",
             "story_status_refresh": "Recalculate the runtime status and voice routing inspector.",
             "story_validate": "Check the active story for broken narrator, persona, voice, image, memory, AudioFX, and schema/resource issues.",
             "story_restore_backup": "Restore the latest recovery snapshot made automatically before Apply Draft changes story/persona state.",
@@ -3883,8 +6456,10 @@ class MultiPersonaRoleplayController:
             "story_clear_log": "Clear the readable skipped-action log.",
             "master_story_prompt": "Describe the full story you want. MPRC asks the current chat provider to draft personas and session state from this.",
             "master_story_visual_direction": "Optional visual art direction for generated persona appearances and avatar portraits.",
+            "master_story_sfw_mode": "Keep generated Master Story drafts non-explicit. Romance and mature emotional themes are allowed, but explicit sexual content is avoided.",
             "master_story_native_persona_count": "Target number of story-native persona profiles the Master generator should draft when the prompt does not already name them.",
             "master_story_max_created_characters": "Hard limit for how many new personas can be created from one Master Story apply.",
+            "master_story_allow_exceed_max_created_characters": "Override the Master Story apply limit and allow more new personas than Maximum created characters.",
             "master_story_use_existing_personas": "Let the Master generator consider your already saved personas and let Apply Draft map story characters onto them.",
             "master_story_use_ar": "Build the story for AlternativeReality mode with AR scene state and AR persona profiles.",
             "master_story_auto_create": "Create missing personas from the story draft when no existing persona matches.",
@@ -3909,6 +6484,9 @@ class MultiPersonaRoleplayController:
             "audiofx_volume_label": "Volume for MPRC AudioFX playback.",
             "audiofx_volume": "Set the volume for addon AudioFX playback. This affects automatic story/background sounds and manual AudioFX previews, but not NC's main TTS voice volume.",
             "audiofx_volume_value": "Current AudioFX volume percentage.",
+            "chat_voice_volume_label": "Volume for MPRC-routed Play voice.",
+            "chat_voice_volume": "Set the volume for addon-routed story voice in the Play tab. This does not change AudioFX/background sounds.",
+            "chat_voice_volume_value": "Current MPRC Play voice volume percentage.",
             "audiofx_test_mode": "Create and keep a small local test AudioFX set active for checking tag playback without needing a full external sound library.",
             "audiofx_create_test_sounds": "Generate local WAV test sounds and register them as ready AudioFX items for Ambience, Music, FX, and Stinger tag testing.",
             "audiofx_play_test_tag": "Manually trigger the exact test tag [AMBIENCE: pub ambient]. Use this to confirm playback before relying on generated story text.",
@@ -4036,12 +6614,75 @@ class MultiPersonaRoleplayController:
         from PySide6 import QtWidgets
 
         menu = widget.createStandardContextMenu() if hasattr(widget, "createStandardContextMenu") else QtWidgets.QMenu(widget)
+        try:
+            from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+            add_spellcheck_suggestions_to_menu(widget, menu, point)
+        except Exception:
+            pass
         menu.addSeparator()
         label = str(widget.property("_mprc_refine_label") or "Field")
         current_text = self._refinable_widget_text(widget)
         action = menu.addAction(f"Refine {label}")
         action.setEnabled(bool(current_text) and not bool(widget.property("_nc_refine_in_flight")))
         action.triggered.connect(lambda _checked=False, edit=widget: self._refine_field(edit))
+        menu.exec(widget.mapToGlobal(point))
+
+    def _install_spellcheck_widgets(self) -> None:
+        spellcheck_keys = (
+            "chat_input",
+            "description",
+            "system_prompt",
+            "ar_description",
+            "ar_system_prompt",
+            "scene_summary",
+            "ar_pending_choices",
+            "audio_sound_description",
+            "audio_prompt_output",
+            "master_story_prompt",
+            "master_story_visual_direction",
+            "visual_character",
+        )
+        for key in spellcheck_keys:
+            self._attach_spellcheck_to_widget(self._controls.get(key))
+
+    def _attach_spellcheck_to_widget(self, widget) -> bool:
+        if widget is None:
+            return False
+        if not isinstance(widget, (QtWidgets.QPlainTextEdit, QtWidgets.QTextEdit)):
+            return False
+        try:
+            if bool(widget.isReadOnly()):
+                return False
+        except Exception:
+            return False
+        try:
+            from ui.runtime.spellcheck import attach_spellcheck
+
+            attached = bool(attach_spellcheck(widget))
+        except Exception:
+            return False
+        if attached and not bool(widget.property("_mprc_refine_label")) and not bool(widget.property("_mprc_spellcheck_menu_installed")):
+            try:
+                widget.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+                widget.customContextMenuRequested.connect(
+                    lambda point, edit=widget: self._show_spellcheck_menu(edit, point)
+                )
+                widget.setProperty("_mprc_spellcheck_menu_installed", True)
+            except Exception:
+                pass
+        return attached
+
+    def _show_spellcheck_menu(self, widget, point) -> None:
+        from PySide6 import QtWidgets
+
+        menu = widget.createStandardContextMenu() if hasattr(widget, "createStandardContextMenu") else QtWidgets.QMenu(widget)
+        try:
+            from ui.runtime.spellcheck import add_spellcheck_suggestions_to_menu
+
+            add_spellcheck_suggestions_to_menu(widget, menu, point)
+        except Exception:
+            pass
         menu.exec(widget.mapToGlobal(point))
 
     def _refinable_widget_text(self, widget) -> str:
@@ -4125,8 +6766,35 @@ class MultiPersonaRoleplayController:
             QtWidgets.QMessageBox.warning(widget.window(), f"Refine {field_label}", f"Refinement failed:\n\n{error}")
             return
         refined = str(refined_text or "").strip()
+        if self._refined_text_looks_like_mprc_structured_output(refined):
+            QtWidgets.QMessageBox.warning(
+                widget.window(),
+                f"Refine {field_label}",
+                (
+                    "The provider returned a structured MPRC story response instead of refined field text.\n\n"
+                    "The field was left unchanged. Disable provider-level Structured Output for refine requests, "
+                    "or retry now that NC strips request-scoped structured-output settings from refinement."
+                ),
+            )
+            return
         if refined:
             self._set_refinable_widget_text(widget, refined)
+
+    @staticmethod
+    def _refined_text_looks_like_mprc_structured_output(text: str) -> bool:
+        raw = str(text or "").strip()
+        if not raw.startswith("{"):
+            return False
+        lowered = raw.lower()
+        return (
+            '"schema_version"' in lowered
+            and "mprc.story_output" in lowered
+            and '"segments"' in lowered
+        ) or (
+            '"response_type"' in lowered
+            and '"story_turn"' in lowered
+            and '"segments"' in lowered
+        )
 
     def _build_status_tab(self):
         from PySide6 import QtWidgets
@@ -4386,18 +7054,16 @@ class MultiPersonaRoleplayController:
 
         steps_box, steps_layout = self._group("Quick Start")
         steps = [
-            "1. For the fastest proof path, open Status and press Start Demo / Validate / Continue. This loads a known-good demo, validates it, tests AudioFX and Visual Reply, and queues Continue.",
-            "2. Use the Status tab before long sessions: confirm active story, narrator lock, linked personas, memory snapshot, voice readiness, Visual Reply readiness, and AudioFX readiness.",
-            "3. Try a built-in template from Status when you want a polished starter: fantasy mystery, sci-fi horror, or cozy tavern adventure.",
-            "4. For a custom story, open Master, describe the story, add Avatar visual direction if you want a specific look, optionally enable avatar style sheets if your Visual Reply workflow supports image-to-image, then Generate Story Setup, review the JSON, and press Apply Draft.",
-            "5. Keep Enable roleplay mode checked and use AlternativeReality when you want a directed interactive audiobook with narrator beats, active characters, choices, ambience, and continuity.",
-            "6. In the Apply Draft workflow, review each drafted character, compare existing persona pictures in the gallery, choose Create new persona or reuse an existing persona, then read Apply Result before Apply Story.",
-            "7. If validation reports a problem, use the repair buttons before guessing: choose narrator, browse voice file, disable missing AudioFX, fix image path, create memory snapshot, relink personas, or reset invalid overrides.",
-            "8. Use Preview next AR request and Explain next routing when you want to understand the next Continue turn before running it.",
-            "9. Use Memory Browser / Editor to pin facts, delete a wrong memory, reset character memory only, or reset this story's memory while keeping global settings intact.",
-            "10. Open Voice to assign a local voice sample path for each persona that should speak with a distinct voice. The narrator lock controls [NARRATOR].",
-            "11. Open Visual to enable story-scene images per persona. Open Audio to prepare Story Sounds used by tags like [AMBIENCE: pub ambient], [MUSIC: adventure music], [FX: magic shimmer], and [STINGER: danger stinger].",
-            "12. Export Story Bundle when a story is ready to share or back up. Import Story Bundle restores story, cast, narrator, memory, prompts, AudioFX, visual settings, and routing data.",
+            "1. Open Status first. Press Start Demo / Validate / Continue for the fastest known-good proof path.",
+            "2. In Status, validate the active story, narrator lock, linked personas, memory snapshot, voice readiness, Visual Reply readiness, and AudioFX readiness.",
+            "3. Pick the narrator and story personas. Use Master for a generated story draft, or Registry / Editor for manual persona setup.",
+            "4. Open Voice and assign a local voice sample path for every persona that should sound different. Newly created personas do not get unique voices until they have voice samples.",
+            "5. Confirm the active NC TTS backend supports voice samples. Chatterbox and PocketTTS reference-audio backends can route samples; unsupported backends fall back safely.",
+            "6. Open Visual and choose each persona's Visual Reply behavior. Grok/xAI gets richer natural-language prompts; Runware gets shorter direct prompts; ComfyUI keeps compact prompt behavior.",
+            "7. Test the Response Window or Play mode. Plain AR narration should stay on the narrator voice; voices should switch only on explicit [NARRATOR] or [CHARACTER: Name] sections.",
+            "8. If validation reports a problem, use the repair buttons before guessing: choose narrator, browse voice file, disable missing AudioFX, fix image path, create memory snapshot, relink personas, or reset invalid overrides.",
+            "9. Use Preview next AR request and Explain next routing when you want to understand the next Continue turn before running it.",
+            "10. Use Story Library Export below the Story Library card when a story is ready to move, share, or back up as a zip package with selectable sections. Green rows mean data exists; selected avatar, voice, and AudioFX files are copied into the package.",
         ]
         for step in steps:
             label = QtWidgets.QLabel(step)
@@ -4423,7 +7089,8 @@ class MultiPersonaRoleplayController:
             "- Voice Routing Inspector: shows exactly how [NARRATOR] and [CHARACTER: Name] route to personas and voice files.\n"
             "- Next-turn inspector: preview the next AR request or explain narrator, character, voice, memory, Visual Reply, and AudioFX routing.\n"
             "- Memory Browser / Editor: pin facts, review recent memory, delete one memory, reset character memory, or reset story memory.\n"
-            "- Story Bundle export/import: portable story package with schema version, cast, narrator setup, memory, prompts, AudioFX, visuals, and routing.\n\n"
+            "- Story Bundle export/import: compact JSON bundle for story setup, cast, narrator setup, memory, prompts, AudioFX, visuals, and routing.\n"
+            "- Story Library Export in the Master tab: zip package export/import below Story Library, with selectable sections, green availability rows, copied avatar/voice/audio assets, and safe import remapping.\n\n"
             "If something does not happen, check Validation Results and the Why Didn't It Happen Log before changing prompts."
         )
         cockpit_text.setToolTip("Explains the Status tab story production cockpit and confidence workflow.")
@@ -4465,6 +7132,7 @@ class MultiPersonaRoleplayController:
         master_text.setMinimumHeight(160)
         master_text.setPlainText(
             "Master turns one story prompt into a reusable story setup. The draft can include session state, AR state, linked personas, and visual profiles.\n\n"
+            "Story Library Export sits directly below the Story Library card. Use it when you want a portable zip package instead of the compact JSON Story Bundle: choose which sections to include, use the green rows to see what data exists, and include avatar/voice/AudioFX files when you want the package to restore local assets on import.\n\n"
             "Useful options:\n"
             "- Avatar visual direction: steer character portrait style, genre, costume language, and mood.\n"
             "- Native story personas to draft: target how many original story characters the prompt should ask for.\n"
@@ -4482,7 +7150,9 @@ class MultiPersonaRoleplayController:
             "- Persona Mapping lets you create a fresh persona, use an existing persona as-is, update one, or save a story-only alternate profile for the selected existing persona.\n"
             "- The Workflow Options row includes Request avatar style sheets, mirroring the Master tab setting for this apply run.\n"
             "- Apply Result explains exactly what will happen to prompts, AR profiles, pictures, voices, story links, avatar requests, style-sheet requests, and memory before you apply.\n"
-            "- Draft Avatar / Visual Prompt shows the ready portrait prompt created from the LLM-generated persona visual profile.\n"
+            "- Draft Avatar / Visual Prompt is editable. Right-click it and choose Refine Avatar Visual Prompt when the generated prompt needs cleanup before requesting the image.\n"
+            "- Generated draft avatar images immediately appear as Draft Characters thumbnails and are carried into Apply Story.\n"
+            "- Draft Voice lets you assign a .wav from the project voices folder before applying. Preview Voice loads the active NC TTS runtime and plays the editable emotional sample text with the selected voice.\n"
             "- Clear / Restart Story removes old MPRC long-memory, current scene state, and Master Story links while keeping saved personas and story files.\n\n"
             "Persona markers:\n"
             "- [Active Story] means this persona is the active persona for the loaded story.\n"
@@ -4507,6 +7177,10 @@ class MultiPersonaRoleplayController:
             "3. Fill Character visual description, clothing / props, and environment style so the scene prompt keeps identity and setting consistent.\n"
             "4. Keep Use latest scene summary and Include active speaker enabled when you want images to show what is happening in the story instead of only a portrait.\n"
             "5. Use Preview Image Prompt before generating. Use Generate Visual Reply for a manual test. Auto requests still respect cooldown and max auto images per session.\n\n"
+            "Provider prompt styles:\n"
+            "- Grok/xAI: richer natural-language prompt with current story moment, visible action, persona identity, appearance, scene, mood, lighting, style, and continuity.\n"
+            "- Runware: shorter direct prompt with concrete subject, action, location, style, lighting/mood, and continuity terms. This avoids overloading Runware with long story instructions.\n"
+            "- ComfyUI: compact direct positive prompt, preserving the existing ComfyUI behavior.\n\n"
             "If images do not appear, check that Visual Reply itself has a configured provider, this persona has visual generation enabled, the trigger mode matches the scene, cooldown has expired, and max auto images/session has not been reached."
         )
         visual_text.setToolTip("Explains the difference between character preview and real story-scene Visual Reply generation.")
@@ -4546,6 +7220,7 @@ class MultiPersonaRoleplayController:
         workflow_text.setReadOnly(True)
         workflow_text.setMinimumHeight(135)
         workflow_text.setPlainText(
+            "Play: isolated story feed, Player Action input, Response Window-style speech playback, Focus, choices, and story-scene Visual Reply triggers.\n"
             "Guide: quick start and default scenario overview.\n"
             "Status: production cockpit for demo start, templates, validation, repair, voice routing, memory editing, tests, bundles, and skipped-action logs.\n"
             "Master: build, save, and load complete stories from one prompt, including visual profiles and optional avatar images.\n"
@@ -4556,13 +7231,31 @@ class MultiPersonaRoleplayController:
             "AR: AlternativeReality pacing, story state, active characters, and choices.\n"
             "Visual: per-persona story-image generation, Visual Reply trigger modes, image prompt preview, cooldown, and auto image limits.\n"
             "Audio: saved audio prompts and AudioFX files available to the story. Ready AudioFX cues can be played by [AMBIENCE: description], [MUSIC: description], [FX: description], [STINGER: description], or [AUDIO: description].\n"
-            "Debug: inspect effective prompt, voice route, visual prompt, and compact state."
+            "Debug: inspect effective prompt, voice route, Visual Reply payload, provider prompt style, and compact state."
         )
         workflow_text.setToolTip("Quick map of what each MPRC tab controls.")
         workflow_layout.addWidget(workflow_text)
         guide_sections.append(("Which Tab To Use", workflow_text.toPlainText))
         workflow_layout.addLayout(self._guide_speech_row("Which Tab To Use", workflow_text.toPlainText))
         layout.addWidget(workflow_box)
+
+        troubleshoot_box, troubleshoot_layout = self._group("Troubleshooting")
+        troubleshoot_text = QtWidgets.QPlainTextEdit()
+        troubleshoot_text.setReadOnly(True)
+        troubleshoot_text.setMinimumHeight(180)
+        troubleshoot_text.setPlainText(
+            "Image not generating: open Visual Reply itself and confirm provider, model, API key/base URL, and image size. Then check this persona's Visual tab: enabled, trigger mode, cooldown, and max auto images.\n\n"
+            "Runware image quality drops: use Preview Image Prompt and keep the prompt compact. Runware usually works better with direct concrete visual phrases than with long story instructions.\n\n"
+            "Grok/xAI image is too plain: add richer character appearance, clothing/props, scene, mood, lighting, and style details. Grok/xAI handles natural-language prompts better than Runware.\n\n"
+            "Voice not applying: newly created personas need a voice sample path in the Voice tab, and the active NC TTS backend must support reference audio. Unsupported backends keep speaking with the normal voice.\n\n"
+            "Voice changes during one response: check Debug or Status -> Voice Routing Inspector. A voice should switch only on explicit [NARRATOR], [CHARACTER: Exact Persona Display Name], or supported speaker labels; plain AR narration should stay on the narrator.\n\n"
+            "Narrator/persona mismatch: choose the narrator explicitly in Status or Voice, then validate. The inspector shows route reasons such as explicit_persona, text_speaker_label, ar_narrator_default, ar_stream_speaker, current_speaker, or active_persona."
+        )
+        troubleshoot_text.setToolTip("Common MPRC setup and routing fixes.")
+        troubleshoot_layout.addWidget(troubleshoot_text)
+        guide_sections.append(("Troubleshooting", troubleshoot_text.toPlainText))
+        troubleshoot_layout.addLayout(self._guide_speech_row("Troubleshooting", troubleshoot_text.toPlainText))
+        layout.addWidget(troubleshoot_box)
 
         scenario_box, scenario_layout = self._group("Default Saved Scenario")
         scenario_text = QtWidgets.QPlainTextEdit()
@@ -4620,6 +7313,7 @@ class MultiPersonaRoleplayController:
         controls = {
             "persona_id": QtWidgets.QLineEdit(),
             "persona_enabled": QtWidgets.QCheckBox("Enabled"),
+            "master_narrator": QtWidgets.QCheckBox("Master narrator"),
             "display_name": QtWidgets.QLineEdit(),
             "role": QtWidgets.QLineEdit(),
             "description": QtWidgets.QTextEdit(),
@@ -4647,6 +7341,10 @@ class MultiPersonaRoleplayController:
             self._controls[key] = widget
         form.addRow("Persona ID", controls["persona_id"])
         form.addRow("", controls["persona_enabled"])
+        controls["master_narrator"].setToolTip(
+            "Mark this persona as a favorite Master narrator. Master narrators are numbered in selectors, preferred for AR narrator auto-pick, and protected from deletion."
+        )
+        form.addRow("", controls["master_narrator"])
         form.addRow("Display name", controls["display_name"])
         form.addRow("Role / archetype", controls["role"])
         form.addRow("Short description", controls["description"])
@@ -4682,24 +7380,29 @@ class MultiPersonaRoleplayController:
         form_layout.addLayout(form)
         layout.addWidget(box)
         layout.addStretch(1)
-        explicit_text_edits = {"description", "system_prompt", "ar_description", "ar_system_prompt", "character_image_path"}
+        text_area_keys = {"description", "system_prompt", "ar_description", "ar_system_prompt"}
+        identity_line_keys = {"persona_id", "display_name"}
         for key, widget in controls.items():
-            if key in explicit_text_edits:
+            if key in text_area_keys:
                 continue
             if hasattr(widget, "textChanged"):
-                widget.textChanged.connect(self._commit_editor)
+                if key in identity_line_keys and hasattr(widget, "editingFinished"):
+                    widget.editingFinished.connect(lambda key=key: self._commit_editor_now(include_identity=True))
+                else:
+                    widget.textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+                    if hasattr(widget, "editingFinished"):
+                        widget.editingFinished.connect(lambda key=key: self._commit_editor_now(include_identity=False))
             elif hasattr(widget, "currentTextChanged"):
-                widget.currentTextChanged.connect(lambda *_args: self._commit_editor())
+                widget.currentTextChanged.connect(lambda *_args: self._commit_editor_now(include_identity=False))
             elif hasattr(widget, "toggled"):
-                widget.toggled.connect(lambda *_args: self._commit_editor())
-        controls["description"].textChanged.connect(self._commit_editor)
-        controls["character_image_path"].textChanged.connect(self._commit_editor)
-        controls["system_prompt"].textChanged.connect(self._commit_editor)
-        controls["ar_description"].textChanged.connect(self._commit_editor)
-        controls["ar_system_prompt"].textChanged.connect(self._commit_editor)
+                widget.toggled.connect(lambda *_args: self._commit_editor_now(include_identity=False))
+        controls["description"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["system_prompt"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["ar_description"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
+        controls["ar_system_prompt"].textChanged.connect(lambda *_args: self._schedule_editor_commit(include_identity=False))
         image_browse.clicked.connect(self._browse_character_image)
         image_generate.clicked.connect(self._generate_character_image)
-        image_clear.clicked.connect(lambda *_args: controls["character_image_path"].setText(""))
+        image_clear.clicked.connect(lambda *_args: (controls["character_image_path"].setText(""), self._commit_editor_now(include_identity=False)))
         return page
 
     def _build_voice_tab(self):
@@ -4721,8 +7424,12 @@ class MultiPersonaRoleplayController:
         backend = QtWidgets.QComboBox()
         backend.addItems(list(VOICE_BACKENDS))
         sample = QtWidgets.QLineEdit()
+        sample.setMinimumWidth(520)
+        sample.setPlaceholderText("Selected voice sample .wav path")
+        sample.setToolTip("Full path to the selected voice sample file.")
         sample_picker = QtWidgets.QComboBox()
-        sample_picker.setMinimumWidth(240)
+        sample_picker.setMinimumWidth(420)
+        sample_picker.setToolTip("Quickly choose an audio file from the project voices folder.")
         sample_picker.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
         sample_picker_view = QtWidgets.QTreeView()
         sample_picker_view.setHeaderHidden(True)
@@ -4736,10 +7443,11 @@ class MultiPersonaRoleplayController:
         test = QtWidgets.QPushButton("Test voice")
         sample_row = QtWidgets.QHBoxLayout()
         sample_row.addWidget(test)
-        sample_row.addWidget(sample_picker)
         sample_row.addWidget(sample, 1)
         sample_row.addWidget(browse)
         sample_row.addWidget(clear)
+        sample_picker_row = QtWidgets.QHBoxLayout()
+        sample_picker_row.addWidget(sample_picker, 1)
         preset = QtWidgets.QLineEdit()
         language = QtWidgets.QComboBox()
         language.addItems(["", "en", "fr", "de", "es", "pt", "it", "ja", "ko", "zh"])
@@ -4753,6 +7461,7 @@ class MultiPersonaRoleplayController:
         form.addRow("", enabled)
         form.addRow("Backend override", backend)
         form.addRow("Voice sample path", sample_row)
+        form.addRow("Voice files in \\voices", sample_picker_row)
         form.addRow("Voice preset name", preset)
         form.addRow("Language", language)
         box_layout.addLayout(form)
@@ -4778,14 +7487,16 @@ class MultiPersonaRoleplayController:
         narrator_persona.currentIndexChanged.connect(lambda *_args: self._commit_narrator_persona())
         follow_active.toggled.connect(lambda *_args: self._commit_voice_follow_active())
         voice_persona.currentIndexChanged.connect(lambda *_args: self._commit_voice_persona())
-        enabled.toggled.connect(lambda *_args: self._commit_voice())
-        backend.currentTextChanged.connect(lambda *_args: self._commit_voice())
+        enabled.toggled.connect(lambda *_args: self._commit_voice_now())
+        backend.currentTextChanged.connect(lambda *_args: self._commit_voice_now())
         sample_picker.currentIndexChanged.connect(lambda *_args: self._select_voice_sample_from_picker())
-        sample.textChanged.connect(lambda *_args: self._commit_voice())
-        preset.textChanged.connect(lambda *_args: self._commit_voice())
-        language.currentTextChanged.connect(lambda *_args: self._commit_voice())
+        sample.textChanged.connect(lambda *_args: self._schedule_voice_commit())
+        sample.editingFinished.connect(self._commit_voice_now)
+        preset.textChanged.connect(lambda *_args: self._schedule_voice_commit())
+        preset.editingFinished.connect(self._commit_voice_now)
+        language.currentTextChanged.connect(lambda *_args: self._commit_voice_now())
         browse.clicked.connect(self._browse_voice_sample)
-        clear.clicked.connect(lambda *_args: (sample.setText(""), self._sync_voice_sample_picker("")))
+        clear.clicked.connect(lambda *_args: (sample.setText(""), self._sync_voice_sample_picker(""), self._commit_voice_now()))
         test.clicked.connect(self._test_voice)
         self._populate_voice_sample_picker()
         return page
@@ -4800,6 +7511,13 @@ class MultiPersonaRoleplayController:
         form = QtWidgets.QFormLayout()
         mode = QtWidgets.QComboBox()
         mode.addItems(list(SESSION_MODES))
+        for index, mode_name in enumerate(SESSION_MODES):
+            mode.setItemData(index, SESSION_MODE_DESCRIPTIONS.get(mode_name, ""), QtCore.Qt.ToolTipRole)
+        mode_note = QtWidgets.QLabel("")
+        mode_note.setObjectName("mprc_session_mode_note")
+        mode_note.setWordWrap(True)
+        mode_note.setProperty("muted", True)
+        mode_note.setMinimumHeight(34)
         scene_title = QtWidgets.QLineEdit()
         location = QtWidgets.QLineEdit()
         time_of_day = QtWidgets.QLineEdit()
@@ -4820,6 +7538,7 @@ class MultiPersonaRoleplayController:
             button_row.addWidget(button)
         button_row.addStretch(1)
         form.addRow("Mode", mode)
+        form.addRow("", mode_note)
         form.addRow("Scene title", scene_title)
         form.addRow("Location", location)
         form.addRow("Time / mood", time_of_day)
@@ -4836,6 +7555,7 @@ class MultiPersonaRoleplayController:
         layout.addWidget(box)
         self._controls.update({
             "session_mode": mode,
+            "session_mode_note": mode_note,
             "scene_title": scene_title,
             "location": location,
             "time_of_day": time_of_day,
@@ -4851,13 +7571,14 @@ class MultiPersonaRoleplayController:
             "export_session": export_session,
             "import_session": import_session,
         })
-        for widget in (mode, next_speaker):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_session())
+        mode.currentTextChanged.connect(lambda value="": (self._update_session_mode_note(value), self._commit_session_now(refresh_ui=True)))
+        next_speaker.currentTextChanged.connect(lambda *_args: self._commit_session_now(refresh_ui=False))
         for widget in (scene_title, location, time_of_day, mood, objective):
-            widget.textChanged.connect(lambda *_args: self._commit_session())
-        scene_summary.textChanged.connect(self._commit_session)
+            widget.textChanged.connect(lambda *_args: self._schedule_session_commit())
+            widget.editingFinished.connect(lambda widget=widget: self._commit_session_now(refresh_ui=False))
+        scene_summary.textChanged.connect(lambda *_args: self._schedule_session_commit())
         for widget in (auto_select, continuity, update_scene):
-            widget.toggled.connect(lambda *_args: self._commit_session())
+            widget.toggled.connect(lambda *_args: self._commit_session_now(refresh_ui=False))
         reset.clicked.connect(self._reset_scene)
         export_session.clicked.connect(self._export_session)
         import_session.clicked.connect(self._import_session)
@@ -4944,13 +7665,14 @@ class MultiPersonaRoleplayController:
             "ar_clear": clear,
         })
         ar_enabled.toggled.connect(self._on_ar_mode_changed)
-        ar_use_persona_profiles.toggled.connect(lambda *_args: self._commit_ar_state())
+        ar_use_persona_profiles.toggled.connect(lambda *_args: self._commit_ar_state_now())
         for widget in (ar_pacing, ar_interaction):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_ar_state())
+            widget.currentTextChanged.connect(lambda *_args: self._commit_ar_state_now())
         for widget in (current_scene, location, time_of_day, mood, story_goal, active_characters, player_intent):
-            widget.textChanged.connect(lambda *_args: self._commit_ar_state())
-        tension.valueChanged.connect(lambda *_args: self._commit_ar_state())
-        pending_choices.textChanged.connect(self._commit_ar_state)
+            widget.textChanged.connect(lambda *_args: self._schedule_ar_state_commit())
+            widget.editingFinished.connect(self._commit_ar_state_now)
+        tension.valueChanged.connect(lambda *_args: self._commit_ar_state_now())
+        pending_choices.textChanged.connect(lambda *_args: self._schedule_ar_state_commit())
         seed.clicked.connect(self._seed_ar_state_from_session)
         fill_profiles.clicked.connect(self._fill_ar_persona_profiles)
         clear.clicked.connect(self._clear_ar_state)
@@ -5124,9 +7846,9 @@ class MultiPersonaRoleplayController:
         test_mode.toggled.connect(self._on_audiofx_test_mode_changed)
         create_test_sounds.clicked.connect(self._create_test_audiofx)
         play_test_tag.clicked.connect(self._play_test_ambience_tag)
-        description.textChanged.connect(self._commit_audio_settings)
-        audio_type.currentTextChanged.connect(lambda *_args: self._commit_audio_settings())
-        output.textChanged.connect(self._commit_audio_settings)
+        description.textChanged.connect(lambda *_args: self._schedule_audio_settings_commit())
+        audio_type.currentTextChanged.connect(lambda *_args: self._commit_audio_settings_now())
+        output.textChanged.connect(lambda *_args: self._schedule_audio_settings_commit())
         create.clicked.connect(lambda *_args: self._create_audio_prompt())
         ambience.clicked.connect(lambda *_args: self._create_audio_prompt("ambience"))
         horror.clicked.connect(lambda *_args: self._create_audio_prompt("horror"))
@@ -5171,12 +7893,20 @@ class MultiPersonaRoleplayController:
             "Optional: describe the avatar art direction, such as fantasy portraits, cinematic realism, "
             "oil-painted nautical adventurers, gothic hotel staff, matching costume language..."
         )
+        sfw_mode = QtWidgets.QCheckBox("SFW mode")
+        sfw_mode.setChecked(bool(self.settings.get("master_story_sfw_mode", True)))
+        sfw_mode.setToolTip(
+            "When enabled, the story generator keeps romance, conflict, horror, prejudice, and mature emotional themes non-explicit. "
+            "It avoids explicit sexual content, erotic descriptions, and graphic nudity."
+        )
         native_count = QtWidgets.QSpinBox()
         native_count.setRange(0, 24)
         native_count.setValue(self._master_story_int_setting("master_story_native_persona_count", 4, 0, 24))
         max_characters = QtWidgets.QSpinBox()
         max_characters.setRange(1, 40)
         max_characters.setValue(self._master_story_int_setting("master_story_max_created_characters", 8, 1, 40))
+        allow_exceed_max = QtWidgets.QCheckBox("Allow exceeding max created characters")
+        allow_exceed_max.setChecked(bool(self.settings.get("master_story_allow_exceed_max_created_characters", False)))
         use_existing = QtWidgets.QCheckBox("Use already created personas")
         use_existing.setChecked(bool(self.settings.get("master_story_use_existing_personas", True)))
         use_ar = QtWidgets.QCheckBox("Build as AlternativeReality story")
@@ -5193,8 +7923,10 @@ class MultiPersonaRoleplayController:
         clear_memory.setChecked(bool(self.settings.get("master_story_clear_memory", True)))
         form.addRow("Story prompt", story_prompt)
         form.addRow("Avatar visual direction", visual_direction)
+        form.addRow("", sfw_mode)
         form.addRow("Native story personas to draft", native_count)
         form.addRow("Maximum created characters", max_characters)
+        form.addRow("", allow_exceed_max)
         form.addRow("", use_existing)
         form.addRow("", use_ar)
         form.addRow("", auto_create)
@@ -5256,14 +7988,19 @@ class MultiPersonaRoleplayController:
         library_content.addWidget(image_frame)
         library_layout.addLayout(library_content)
 
+        export_box = self._build_story_export_card()
+
         layout.addWidget(library_box)
+        layout.addWidget(export_box)
         layout.addWidget(builder_box)
         layout.addStretch(1)
         self._controls.update({
             "master_story_prompt": story_prompt,
             "master_story_visual_direction": visual_direction,
+            "master_story_sfw_mode": sfw_mode,
             "master_story_native_persona_count": native_count,
             "master_story_max_created_characters": max_characters,
+            "master_story_allow_exceed_max_created_characters": allow_exceed_max,
             "master_story_use_existing_personas": use_existing,
             "master_story_use_ar": use_ar,
             "master_story_auto_create": auto_create,
@@ -5290,8 +8027,10 @@ class MultiPersonaRoleplayController:
         load.clicked.connect(self._load_selected_master_story)
         delete.clicked.connect(self._delete_selected_master_story)
         story_list.currentIndexChanged.connect(lambda *_args: self._on_master_story_selection_changed())
+        sfw_mode.toggled.connect(lambda *_args: self._commit_master_story_options())
         native_count.valueChanged.connect(lambda *_args: self._commit_master_story_options())
         max_characters.valueChanged.connect(lambda *_args: self._commit_master_story_options())
+        allow_exceed_max.toggled.connect(lambda *_args: self._commit_master_story_options())
         use_existing.toggled.connect(lambda *_args: self._commit_master_story_options())
         use_ar.toggled.connect(lambda *_args: self._commit_master_story_options())
         auto_create.toggled.connect(lambda *_args: self._commit_master_story_options())
@@ -5300,6 +8039,61 @@ class MultiPersonaRoleplayController:
         avatar_style_sheets.toggled.connect(lambda *_args: self._commit_master_story_options())
         clear_memory.toggled.connect(lambda *_args: self._commit_master_story_options())
         return page
+
+    def _build_story_export_card(self):
+        from PySide6 import QtWidgets
+
+        box, layout = self._group("Story Library Export")
+        description = QtWidgets.QLabel(
+            "Export or import a complete story setup with selected personas, voices, memory, sounds, and story assets."
+        )
+        description.setWordWrap(True)
+        description.setProperty("muted", True)
+        layout.addWidget(description)
+
+        options_layout = QtWidgets.QGridLayout()
+        options_layout.setContentsMargins(0, 0, 0, 0)
+        options_layout.setHorizontalSpacing(18)
+        options_layout.setVerticalSpacing(4)
+        option_controls: dict[str, Any] = {}
+        saved_selection = self.settings.get("story_library_export_sections")
+        selected = set(saved_selection if isinstance(saved_selection, list) else [])
+        for index, spec in enumerate(self._story_export_option_specs()):
+            key = str(spec.get("key") or "").strip()
+            if not key:
+                continue
+            checkbox = QtWidgets.QCheckBox(str(spec.get("label") or key))
+            checkbox.setChecked(key in selected if selected else bool(spec.get("default", True)))
+            checkbox.setToolTip(str(spec.get("tooltip") or ""))
+            checkbox.toggled.connect(lambda *_args: self._on_story_export_option_changed())
+            option_controls[key] = checkbox
+            options_layout.addWidget(checkbox, index // 2, index % 2)
+        layout.addLayout(options_layout)
+
+        status = QtWidgets.QLabel("Story export availability will appear here.")
+        status.setWordWrap(True)
+        status.setProperty("muted", True)
+        layout.addWidget(status)
+
+        buttons = QtWidgets.QHBoxLayout()
+        export_button = QtWidgets.QPushButton("Export")
+        import_button = QtWidgets.QPushButton("Import")
+        preview_button = QtWidgets.QPushButton("Preview package contents")
+        for button in (export_button, import_button, preview_button):
+            buttons.addWidget(button)
+        buttons.addStretch(1)
+        layout.addLayout(buttons)
+
+        self._controls["story_export_options"] = option_controls
+        self._controls["story_export_status"] = status
+        self._controls["story_export_button"] = export_button
+        self._controls["story_import_button"] = import_button
+        self._controls["story_export_preview"] = preview_button
+        export_button.clicked.connect(self._export_story_package)
+        import_button.clicked.connect(self._import_story_package)
+        preview_button.clicked.connect(self._preview_story_package_contents)
+        QtCore.QTimer.singleShot(0, self._refresh_story_export_card)
+        return box
 
     def _build_visual_tab(self):
         from PySide6 import QtWidgets
@@ -5389,16 +8183,17 @@ class MultiPersonaRoleplayController:
             "visual_preview": preview,
         })
         mode.currentIndexChanged.connect(lambda *_args: self._update_visual_mode_note())
-        mode.currentIndexChanged.connect(lambda *_args: self._commit_visual())
+        mode.currentIndexChanged.connect(lambda *_args: self._commit_visual_now())
         for widget in (provider, size, style):
-            widget.currentTextChanged.connect(lambda *_args: self._commit_visual())
+            widget.currentTextChanged.connect(lambda *_args: self._commit_visual_now())
         for widget in (model, clothing, environment, negative):
-            widget.textChanged.connect(lambda *_args: self._commit_visual())
-        character.textChanged.connect(self._commit_visual)
+            widget.textChanged.connect(lambda *_args: self._schedule_visual_commit())
+            widget.editingFinished.connect(self._commit_visual_now)
+        character.textChanged.connect(lambda *_args: self._schedule_visual_commit())
         for widget in (enabled, continuity, scene, speaker, auto_show):
-            widget.toggled.connect(lambda *_args: self._commit_visual())
+            widget.toggled.connect(lambda *_args: self._commit_visual_now())
         for widget in (interval, cooldown, max_auto):
-            widget.valueChanged.connect(lambda *_args: self._commit_visual())
+            widget.valueChanged.connect(lambda *_args: self._commit_visual_now())
         preview.clicked.connect(self._preview_visual_prompt)
         generate.clicked.connect(self._generate_visual_reply)
         return page
@@ -5471,6 +8266,7 @@ class MultiPersonaRoleplayController:
             self._populate_ar()
             self._populate_audio()
             self._populate_master_stories()
+            self._refresh_story_export_card()
             self._refresh_character_preview()
             self._refresh_debug()
             self._refresh_reliability_panels()
@@ -5503,6 +8299,15 @@ class MultiPersonaRoleplayController:
             row = next((i for i, p in enumerate(self.personas) if p.id == active_id), 0)
             persona_list.setCurrentRow(max(0, row))
             persona_list.blockSignals(False)
+        delete_button = self._controls.get("delete_persona")
+        if delete_button is not None and hasattr(delete_button, "setEnabled"):
+            selected = self.active_persona()
+            protected = self._persona_is_master_narrator(selected)
+            delete_button.setEnabled(len(self.personas) > 1 and not protected)
+            if protected:
+                delete_button.setToolTip("Master narrator personas are protected. Uncheck Master narrator in Editor before deleting.")
+            else:
+                delete_button.setToolTip("Delete the selected persona.")
         next_speaker = self._controls.get("next_speaker")
         if next_speaker is not None:
             next_speaker.blockSignals(True)
@@ -5515,6 +8320,7 @@ class MultiPersonaRoleplayController:
 
     def _refresh_chat_play_controls(self):
         self._set_chat_play_float_button_text()
+        self._sync_chat_play_voice_volume_controls()
         combo = self._controls.get("chat_speaker")
         if combo is not None:
             combo.blockSignals(True)
@@ -5535,12 +8341,179 @@ class MultiPersonaRoleplayController:
             visuals.blockSignals(True)
             visuals.setChecked(bool(self.settings.get("chat_play_allow_story_visuals", False)))
             visuals.blockSignals(False)
+        structured_output = self._controls.get("chat_structured_output")
+        if structured_output is not None and hasattr(structured_output, "setChecked"):
+            structured_output.blockSignals(True)
+            structured_output.setChecked(self._mprc_chat_structured_output_enabled())
+            structured_output.blockSignals(False)
+        structured_scope = self._controls.get("chat_structured_output_scope")
+        if structured_scope is not None and hasattr(structured_scope, "findData"):
+            structured_scope.blockSignals(True)
+            index = structured_scope.findData(self._mprc_chat_structured_output_scope())
+            structured_scope.setCurrentIndex(max(0, index))
+            structured_scope.setEnabled(self._mprc_chat_structured_output_enabled())
+            structured_scope.blockSignals(False)
+        self._refresh_remote_controls()
+        self._sync_chat_play_story_font_controls()
+        self._refresh_chat_play_buffer_race()
         pacing = self._controls.get("chat_director_pacing")
         if pacing is not None and hasattr(pacing, "setCurrentText"):
             pacing.blockSignals(True)
             pacing.setCurrentText(str(self.session.ar_pacing or "Balanced"))
             pacing.blockSignals(False)
+        choice_mode = self._controls.get("chat_director_choice_mode")
+        if choice_mode is not None and hasattr(choice_mode, "findData"):
+            choice_mode.blockSignals(True)
+            index = choice_mode.findData(self._mprc_chat_choice_mode())
+            choice_mode.setCurrentIndex(max(0, index))
+            choice_mode.blockSignals(False)
         self._refresh_chat_play_state_sidebar()
+
+    def _chat_story_font_size(self) -> int:
+        try:
+            value = int(self.settings.get("chat_story_font_size", 13))
+        except Exception:
+            value = 13
+        return max(9, min(28, value))
+
+    def _sync_chat_play_story_font_controls(self, *, spin=None) -> None:
+        spin = spin or self._controls.get("chat_story_font_size")
+        value = self._chat_story_font_size()
+        if spin is not None and hasattr(spin, "setValue"):
+            spin.blockSignals(True)
+            spin.setValue(value)
+            spin.blockSignals(False)
+        self._apply_chat_play_story_font_size(value)
+
+    def _apply_chat_play_story_font_size(self, size: int | None = None, *, transcript=None) -> None:
+        try:
+            value = int(size if size is not None else self._chat_story_font_size())
+        except Exception:
+            value = 13
+        value = max(9, min(28, value))
+        transcript = transcript or self._controls.get("chat_transcript")
+        if transcript is None:
+            return
+        try:
+            font = QtGui.QFont(transcript.font())
+            font.setPointSize(value)
+            transcript.setFont(font)
+            document = transcript.document() if hasattr(transcript, "document") else None
+            if document is not None and hasattr(document, "setDefaultFont"):
+                document.setDefaultFont(font)
+        except RuntimeError:
+            return
+        except Exception:
+            return
+
+    def _on_mprc_story_font_size_changed(self, value: int) -> None:
+        if self._syncing:
+            return
+        try:
+            size = int(value)
+        except Exception:
+            size = 13
+        size = max(9, min(28, size))
+        self.settings["chat_story_font_size"] = size
+        self.storage.save_settings(self.settings)
+        self._apply_chat_play_story_font_size(size)
+
+    def mprc_voice_volume_percent(self) -> int:
+        try:
+            value = int(self.settings.get("mprc_voice_volume", 100))
+        except Exception:
+            value = 100
+        return max(0, min(100, value))
+
+    def mprc_voice_volume_factor(self) -> float:
+        return self.mprc_voice_volume_percent() / 100.0
+
+    def _sync_chat_play_voice_volume_controls(self, *, slider=None, value_label=None) -> None:
+        slider = slider or self._controls.get("chat_voice_volume")
+        value_label = value_label or self._controls.get("chat_voice_volume_value")
+        volume = self.mprc_voice_volume_percent()
+        if slider is not None and hasattr(slider, "setValue"):
+            slider.blockSignals(True)
+            slider.setValue(volume)
+            slider.blockSignals(False)
+        if value_label is not None and hasattr(value_label, "setText"):
+            value_label.setText(f"{volume}%")
+
+    def _on_mprc_voice_volume_changed(self, value: int) -> None:
+        if self._syncing:
+            return
+        try:
+            volume = int(value)
+        except Exception:
+            volume = 100
+        volume = max(0, min(100, volume))
+        self.settings["mprc_voice_volume"] = volume
+        self.storage.save_settings(self.settings)
+        label = self._controls.get("chat_voice_volume_value")
+        if label is not None and hasattr(label, "setText"):
+            label.setText(f"{volume}%")
+        self._refresh_debug()
+
+    def _refresh_chat_play_buffer_race(self) -> None:
+        summary = self._controls.get("chat_buffer_race_summary")
+        render_bar = self._controls.get("chat_buffer_race_render")
+        playback_bar = self._controls.get("chat_buffer_race_playback")
+        if summary is None and render_bar is None and playback_bar is None:
+            return
+        counts = self._chat_play_buffer_race_counts()
+        render_active = counts["render_active"]
+        playback_active = counts["playback_active"]
+        total_active = render_active + playback_active
+        if summary is not None and hasattr(summary, "setText"):
+            if total_active:
+                summary.setText(f"Active: render {render_active}, preview/playback {playback_active}.")
+            else:
+                summary.setText("Idle: render and playback buffers are clear.")
+        if render_bar is not None and hasattr(render_bar, "setValue"):
+            render_bar.setValue(100 if render_active == 0 else 38)
+            render_bar.setFormat("Render Ready: ready" if render_active == 0 else f"Render Ready: {render_active} running")
+        if playback_bar is not None and hasattr(playback_bar, "setValue"):
+            playback_bar.setValue(100 if playback_active == 0 else 38)
+            playback_bar.setFormat(
+                "Preview / Playback: ready" if playback_active == 0 else f"Preview / Playback: {playback_active} running"
+            )
+
+    def _chat_play_buffer_race_counts(self) -> dict[str, int]:
+        with self._state_lock:
+            tokens = [str(token or "") for token in self._active_worker_tokens]
+            manual_images = len(self._manual_character_image_inflight)
+            tts_persona_visuals = len(self._tts_persona_visual_inflight)
+            tts_visual_replies = len(self._tts_visual_reply_inflight)
+            story_audio_active = bool(self._story_audio_block_active)
+        with self._mprc_tts_state_lock:
+            tts_active = bool(self._mprc_tts_token or self._mprc_tts_controller is not None)
+
+        render_prefixes = (
+            "mprc_chat",
+            "mprc_visual",
+            "mprc_manual_visual",
+            "mprc_draft_avatar",
+            "mprc_story_avatar",
+            "mprc_tts_character_image",
+            "mprc_tts_visual_reply",
+            "master_story",
+            "refine",
+        )
+        playback_prefixes = ("mprc_tts", "voice_preview")
+        render_active = sum(1 for token in tokens if token.startswith(render_prefixes))
+        playback_active = sum(
+            1
+            for token in tokens
+            if token.startswith(playback_prefixes)
+            and not token.startswith(("mprc_tts_character_image", "mprc_tts_visual_reply"))
+        )
+        render_active = max(render_active, manual_images + tts_persona_visuals + tts_visual_replies)
+        playback_active = max(playback_active, 1 if tts_active else 0)
+        playback_active += 1 if story_audio_active else 0
+        return {
+            "render_active": max(0, int(render_active)),
+            "playback_active": max(0, int(playback_active)),
+        }
 
     def _set_list_items(self, widget, items: list[str], *, empty_text: str = ""):
         if widget is None:
@@ -5556,11 +8529,11 @@ class MultiPersonaRoleplayController:
         active = self.active_persona()
         speaker = self.current_speaker_persona()
         ar_state = self.session.ar_state
-        scene = str(self.session.scene_title or ar_state.current_scene or "Untitled scene").strip()
-        location = str(self.session.location or ar_state.location or "Unknown location").strip()
-        time_of_day = str(self.session.time_of_day or ar_state.time_of_day or "").strip()
-        mood = str(self.session.mood or ar_state.mood or "").strip()
-        objective = str(self.session.objective or ar_state.story_goal or "").strip()
+        scene = str(ar_state.current_scene or self.session.scene_title or "Untitled scene").strip()
+        location = str(ar_state.location or self.session.location or "Unknown location").strip()
+        time_of_day = str(ar_state.time_of_day or self.session.time_of_day or "").strip()
+        mood = str(ar_state.mood or self.session.mood or "").strip()
+        objective = str(ar_state.story_goal or self.session.objective or "").strip()
         scene_lines = [
             f"Scene: {scene}",
             f"Location: {location}",
@@ -5605,14 +8578,14 @@ class MultiPersonaRoleplayController:
         )
 
         choices = [str(item) for item in list(ar_state.pending_choices or []) if str(item or "").strip()]
-        if not choices:
+        if not choices and self._mprc_chat_should_offer_choices():
             if objective:
                 choices.append(f"Pursue objective: {objective}")
             choices.extend(["Ask the active speaker", "Investigate the scene", "Direct the pacing or tone"])
         self._set_list_items(
             self._controls.get("chat_next_actions"),
             choices[:6],
-            empty_text="No suggested next actions yet.",
+            empty_text="" if not self._mprc_chat_should_offer_choices() else "No suggested next actions yet.",
         )
 
     def _refresh_narrator_selector(self):
@@ -5634,8 +8607,8 @@ class MultiPersonaRoleplayController:
             QtCore.Qt.ToolTipRole,
         )
         for persona in self._ordered_narrator_selector_personas():
-            label = self._persona_story_label(persona)
-            if self._persona_looks_like_narrator(persona):
+            label = self._persona_voice_selector_label(persona)
+            if self._persona_looks_like_narrator(persona) and not self._persona_is_master_narrator(persona):
                 label += " [Narrator]"
             combo.addItem(label, persona.id)
             combo.setItemData(
@@ -5679,8 +8652,8 @@ class MultiPersonaRoleplayController:
         combo.blockSignals(True)
         combo.clear()
         narrator_id = self.selected_narrator_persona_id()
-        for persona in self.personas:
-            label = self._persona_story_label(persona)
+        for persona in self._ordered_voice_selector_personas():
+            label = self._persona_voice_selector_label(persona)
             if persona.id == narrator_id:
                 label += " [AR narrator]"
             combo.addItem(label, persona.id)
@@ -5710,6 +8683,9 @@ class MultiPersonaRoleplayController:
 
     def _persona_story_label(self, persona: PersonaConfig) -> str:
         label = str(persona.display_name or persona.id).strip() or persona.id
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            label += f" #{master_number} [Master Narrator]"
         linked = self._master_story_linked_persona_ids()
         created = self._master_story_created_persona_ids()
         auto_chat = self._chat_auto_created_persona_ids()
@@ -5723,8 +8699,18 @@ class MultiPersonaRoleplayController:
             label += " [Story]"
         return label
 
+    def _persona_voice_selector_label(self, persona: PersonaConfig) -> str:
+        label = str(persona.display_name or persona.id).strip() or persona.id
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            return f"{label} #{master_number} ({persona.id} #{master_number}) [Master Narrator]"
+        return f"{label} ({persona.id})"
+
     def _persona_story_tooltip(self, persona: PersonaConfig) -> str:
         pieces = [f"{persona.display_name} ({persona.id})"]
+        master_number = self._master_narrator_number(persona)
+        if master_number:
+            pieces.append(f"Master narrator #{master_number}. Protected from deletion and prioritized for narrator voice selection.")
         if persona.id in self._chat_auto_created_persona_ids():
             pieces.append("Auto-created from a [CHARACTER: Name] tag in the active chat. Edit this persona to add voice, prompts, and pictures.")
         if persona.id in self._master_story_linked_persona_ids():
@@ -5752,6 +8738,7 @@ class MultiPersonaRoleplayController:
         widgets = self._controls
         widgets["persona_id"].setText(persona.id)
         widgets["persona_enabled"].setChecked(bool(persona.enabled))
+        widgets["master_narrator"].setChecked(self._persona_is_master_narrator(persona))
         widgets["display_name"].setText(persona.display_name)
         widgets["role"].setText(persona.role)
         widgets["description"].setPlainText(persona.description)
@@ -5814,9 +8801,20 @@ class MultiPersonaRoleplayController:
         mode = str(combo.currentData() or combo.currentText() or "off").strip()
         label.setText(VISUAL_MODE_DESCRIPTIONS.get(mode, "Controls when this persona can request Visual Reply story images."))
 
+    def _update_session_mode_note(self, mode: str | None = None) -> None:
+        label = self._controls.get("session_mode_note")
+        combo = self._controls.get("session_mode")
+        if label is None:
+            return
+        selected = str(mode or "").strip()
+        if not selected and combo is not None and hasattr(combo, "currentText"):
+            selected = str(combo.currentText() or "").strip()
+        label.setText(SESSION_MODE_DESCRIPTIONS.get(selected, "Choose how personas, narration, and story direction are framed for the current scene."))
+
     def _populate_session(self):
         c = self._controls
         c["session_mode"].setCurrentText(self.session.mode)
+        self._update_session_mode_note(self.session.mode)
         c["scene_title"].setText(self.session.scene_title)
         c["location"].setText(self.session.location)
         c["time_of_day"].setText(self.session.time_of_day)
@@ -6651,7 +9649,79 @@ class MultiPersonaRoleplayController:
     def _selected_persona(self) -> PersonaConfig | None:
         return self.active_persona()
 
-    def _commit_editor(self):
+    def _schedule_delayed_commit(self, key: str, callback, *, delay_ms: int = 450) -> None:
+        if self._syncing:
+            return
+        timer_key = str(key or "").strip()
+        if not timer_key:
+            return
+        timer = self._commit_timers.get(timer_key)
+        if timer is None:
+            timer = QtCore.QTimer()
+            timer.setSingleShot(True)
+            timer.timeout.connect(callback)
+            self._commit_timers[timer_key] = timer
+        timer.start(max(0, int(delay_ms)))
+
+    def _commit_delayed_now(self, key: str, callback) -> None:
+        timer = self._commit_timers.get(str(key or "").strip())
+        if timer is not None and timer.isActive():
+            timer.stop()
+        callback()
+
+    def _schedule_editor_commit(self, *, include_identity: bool = False, delay_ms: int = 450) -> None:
+        if self._syncing:
+            return
+        self._editor_commit_include_identity = bool(self._editor_commit_include_identity or include_identity)
+        timer = getattr(self, "_editor_commit_timer", None)
+        if timer is not None:
+            timer.start(max(0, int(delay_ms)))
+        else:
+            self._commit_editor(include_identity=include_identity)
+
+    def _commit_scheduled_editor(self) -> None:
+        include_identity = bool(getattr(self, "_editor_commit_include_identity", False))
+        self._editor_commit_include_identity = False
+        self._commit_editor(include_identity=include_identity)
+
+    def _commit_editor_now(self, *, include_identity: bool = True) -> None:
+        timer = getattr(self, "_editor_commit_timer", None)
+        if timer is not None and timer.isActive():
+            timer.stop()
+        self._editor_commit_include_identity = False
+        self._commit_editor(include_identity=include_identity)
+
+    def _schedule_voice_commit(self) -> None:
+        self._schedule_delayed_commit("voice", self._commit_voice)
+
+    def _commit_voice_now(self) -> None:
+        self._commit_delayed_now("voice", self._commit_voice)
+
+    def _schedule_visual_commit(self) -> None:
+        self._schedule_delayed_commit("visual", self._commit_visual)
+
+    def _commit_visual_now(self) -> None:
+        self._commit_delayed_now("visual", self._commit_visual)
+
+    def _schedule_session_commit(self) -> None:
+        self._schedule_delayed_commit("session", lambda: self._commit_session(refresh_ui=False))
+
+    def _commit_session_now(self, *, refresh_ui: bool = True) -> None:
+        self._commit_delayed_now("session", lambda: self._commit_session(refresh_ui=refresh_ui))
+
+    def _schedule_ar_state_commit(self) -> None:
+        self._schedule_delayed_commit("ar_state", self._commit_ar_state)
+
+    def _commit_ar_state_now(self) -> None:
+        self._commit_delayed_now("ar_state", self._commit_ar_state)
+
+    def _schedule_audio_settings_commit(self) -> None:
+        self._schedule_delayed_commit("audio_settings", self._commit_audio_settings)
+
+    def _commit_audio_settings_now(self) -> None:
+        self._commit_delayed_now("audio_settings", self._commit_audio_settings)
+
+    def _commit_editor(self, *, include_identity: bool = True):
         if self._syncing:
             return
         persona = self._selected_persona()
@@ -6660,10 +9730,14 @@ class MultiPersonaRoleplayController:
         old_id = persona.id
         old_display_name = persona.display_name
         old_image_path = persona.character_image_path
-        requested_id = unique_persona_id(self._controls["persona_id"].text(), {p.id for p in self.personas if p is not persona})
-        persona.id = requested_id
+        old_master_narrator = self._persona_is_master_narrator(persona)
+        if include_identity:
+            requested_id = unique_persona_id(self._controls["persona_id"].text(), {p.id for p in self.personas if p is not persona})
+            persona.id = requested_id
         persona.enabled = self._controls["persona_enabled"].isChecked()
-        persona.display_name = self._controls["display_name"].text().strip() or persona.id.replace("_", " ").title()
+        persona.master_narrator = bool(self._controls["master_narrator"].isChecked())
+        if include_identity:
+            persona.display_name = self._controls["display_name"].text().strip() or persona.id.replace("_", " ").title()
         persona.role = self._controls["role"].text().strip()
         persona.description = self._controls["description"].toPlainText().strip()
         persona.character_image_path = self._controls["character_image_path"].text().strip()
@@ -6695,9 +9769,12 @@ class MultiPersonaRoleplayController:
         self.save_state()
         self._notify_changed()
         identity_changed = old_id != persona.id or old_display_name != persona.display_name
-        if identity_changed:
+        if identity_changed or old_master_narrator != self._persona_is_master_narrator(persona):
             self._refresh_persona_selectors()
-            self._populate_session()
+            if "session_mode" in self._controls:
+                self._populate_session()
+            self._refresh_narrator_selector()
+            self._refresh_voice_persona_selector()
         if old_image_path != persona.character_image_path:
             self._set_image_label(self._controls.get("character_image"), persona.character_image_path, fallback_text="No picture")
         self._refresh_character_preview()
@@ -6823,7 +9900,7 @@ class MultiPersonaRoleplayController:
         self.save_state()
         self._refresh_debug()
 
-    def _commit_session(self):
+    def _commit_session(self, *, refresh_ui: bool = True):
         if self._syncing:
             return
         c = self._controls
@@ -6849,7 +9926,11 @@ class MultiPersonaRoleplayController:
             self.settings["last_non_ar_mode"] = self.session.mode
             self.storage.save_settings(self.settings)
         self.save_state()
-        self.refresh_ui()
+        if refresh_ui:
+            self.refresh_ui()
+        else:
+            self._refresh_chat_play_state_sidebar()
+            self._refresh_story_export_card()
         self._refresh_debug()
 
     def _commit_ar_state(self):
@@ -6967,6 +10048,7 @@ class MultiPersonaRoleplayController:
     def _on_master_story_selection_changed(self):
         self._update_master_story_buttons()
         self._refresh_master_story_image_preview()
+        self._refresh_story_export_card()
 
     def _refresh_master_story_image_preview(self):
         label = self._controls.get("master_story_image")
@@ -7580,6 +10662,7 @@ class MultiPersonaRoleplayController:
         payload = self._normalize_master_story_payload(self._demo_story_payload(voice_paths))
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         draft_widget = self._controls.get("master_story_draft")
         if draft_widget is not None:
             draft_widget.setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -7793,6 +10876,7 @@ class MultiPersonaRoleplayController:
         payload = self._normalize_master_story_payload(self._story_template_payload(template_id, voice_paths))
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         draft_widget = self._controls.get("master_story_draft")
         if draft_widget is not None:
             draft_widget.setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
@@ -7859,6 +10943,263 @@ class MultiPersonaRoleplayController:
         except Exception:
             pass
         return False
+
+    def _story_export_option_specs(self) -> list[dict[str, Any]]:
+        return [
+            {"key": "story_setup", "label": "Story setup / session state", "default": True, "file": "session.json"},
+            {"key": "story_metadata", "label": "Story Library entry / story metadata", "default": True, "file": "story.json"},
+            {"key": "personas", "label": "Personas used by this story", "default": True, "file": "personas.json"},
+            {"key": "persona_visual", "label": "Persona visual settings", "default": True, "file": "persona_visual_settings.json"},
+            {"key": "avatar_assets", "label": "Persona avatar image files", "default": True, "file": "assets/visuals/"},
+            {"key": "persona_voice", "label": "Persona voice settings", "default": True, "file": "persona_voice_settings.json"},
+            {"key": "voice_assets", "label": "Voice sample/audio files", "default": True, "file": "assets/voices/"},
+            {"key": "story_memory", "label": "Story memory", "default": True, "file": "story_memory.json"},
+            {"key": "story_events", "label": "Recent story events / story log", "default": True, "file": "story_events.json"},
+            {"key": "audiofx", "label": "Sound effects / AudioFX settings", "default": True, "file": "audiofx.json"},
+            {"key": "audiofx_assets", "label": "Sound effect audio files", "default": True, "file": "assets/audiofx/"},
+            {"key": "visual_styles", "label": "Visual styles used by story", "default": True, "file": "visual_styles.json"},
+            {"key": "master_story", "label": "Master Story draft/setup data if available", "default": True, "file": "master_story.json"},
+            {"key": "templates", "label": "Story prompt/template data if available", "default": True, "file": "templates.json"},
+        ]
+
+    def _story_export_spec_by_key(self) -> dict[str, dict[str, Any]]:
+        return {str(item.get("key") or ""): dict(item) for item in self._story_export_option_specs()}
+
+    def _on_story_export_option_changed(self) -> None:
+        if self._syncing:
+            return
+        self.settings["story_library_export_sections"] = self._story_export_selected_sections()
+        self.storage.save_settings(self.settings)
+        self._refresh_story_export_card()
+
+    def _story_export_selected_sections(self) -> list[str]:
+        controls = self._controls.get("story_export_options")
+        if isinstance(controls, dict) and controls:
+            selected = [
+                str(key)
+                for key, checkbox in controls.items()
+                if hasattr(checkbox, "isChecked") and bool(checkbox.isChecked())
+            ]
+            return [item for item in self._story_export_spec_by_key() if item in set(selected)]
+        raw = self.settings.get("story_library_export_sections")
+        if isinstance(raw, list):
+            selected = {str(item or "").strip() for item in raw}
+            return [item for item in self._story_export_spec_by_key() if item in selected]
+        return [str(item.get("key") or "") for item in self._story_export_option_specs() if bool(item.get("default", True))]
+
+    def _story_export_story_id(self) -> str:
+        selected = self._selected_master_story_id()
+        return self.storage.story_id(selected or self._current_story_id() or "")
+
+    def _story_export_story_payload(self) -> dict[str, Any]:
+        story_id = self._story_export_story_id()
+        payload = self.storage.load_story(story_id) if story_id else {}
+        if isinstance(payload, dict) and payload:
+            return payload
+        snapshot = self._current_master_story_snapshot()
+        return snapshot if isinstance(snapshot, dict) else {}
+
+    def _story_export_persona_ids_from_story(self, story: dict[str, Any] | None = None) -> list[str]:
+        story = dict(story or self._story_export_story_payload() or {})
+        ids: list[str] = []
+
+        def add(value: Any) -> None:
+            persona_id = normalize_persona_id(value)
+            if persona_id and persona_id not in ids:
+                ids.append(persona_id)
+
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            add(story.get(key))
+        session = dict(story.get("session") or {}) if isinstance(story.get("session"), dict) else {}
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            add(session.get(key))
+        ar_state = dict(session.get("ar_state") or {}) if isinstance(session.get("ar_state"), dict) else {}
+        for item in list(ar_state.get("active_characters") or []):
+            add(item)
+        for item in list(story.get("personas") or []):
+            if isinstance(item, dict):
+                add(item.get("id") or item.get("display_name"))
+        overrides = story.get("persona_overrides")
+        if isinstance(overrides, dict):
+            for key in overrides:
+                add(key)
+        for item in [self.selected_narrator_persona_id(), *self._current_linked_persona_ids()]:
+            add(item)
+        return ids
+
+    def _story_export_persona_configs(self, story: dict[str, Any] | None = None) -> list[PersonaConfig]:
+        story = dict(story or self._story_export_story_payload() or {})
+        ids = self._story_export_persona_ids_from_story(story)
+        by_id = {persona.id: persona for persona in self.personas}
+        result: list[PersonaConfig] = []
+        seen: set[str] = set()
+        for persona_id in ids:
+            persona = by_id.get(persona_id)
+            if persona is None:
+                for item in list(story.get("personas") or []):
+                    if isinstance(item, dict) and normalize_persona_id(item.get("id") or item.get("display_name")) == persona_id:
+                        persona = PersonaConfig.from_dict(item)
+                        break
+            if persona is not None and persona.id not in seen:
+                result.append(persona)
+                seen.add(persona.id)
+        if not result and self.personas:
+            active = self.active_persona()
+            if active is not None:
+                result.append(active)
+        return result
+
+    def _story_export_visual_styles_for_personas(self, personas: list[PersonaConfig]) -> list[dict[str, str]]:
+        used = {
+            str(getattr(getattr(persona, "visual", None), "style_preset", "") or "").strip()
+            for persona in list(personas or [])
+        }
+        used = {item for item in used if item}
+        if not used:
+            return []
+        return [dict(item) for item in list(self.visual_styles or []) if str(item.get("id") or "").strip() in used]
+
+    def _story_export_templates_payload(self) -> dict[str, Any]:
+        templates = self.storage._read_json("roleplay_templates.json", {})
+        payload: dict[str, Any] = {}
+        if isinstance(templates, dict) and templates:
+            payload["roleplay_templates"] = copy.deepcopy(templates)
+        saved_prompts = self.settings.get("saved_audio_prompts")
+        if isinstance(saved_prompts, list) and saved_prompts:
+            payload["saved_audio_prompts"] = copy.deepcopy(saved_prompts)
+        prompt = self._controls.get("master_story_prompt")
+        if prompt is not None and hasattr(prompt, "toPlainText"):
+            text = str(prompt.toPlainText() or "").strip()
+            if text:
+                payload["current_master_story_prompt"] = text
+        return payload
+
+    def _story_export_availability(self) -> dict[str, dict[str, Any]]:
+        story = self._story_export_story_payload()
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "")
+        personas = self._story_export_persona_configs(story)
+        voice_paths = [
+            str(getattr(getattr(persona, "voice", None), "sample_path", "") or "").strip()
+            for persona in personas
+        ]
+        audio_items = self._audiofx_items()
+        available_audio = self.available_story_audio_files()
+        memory = self.storage.load_story_memory(story_id) if story_id else {}
+        if not memory:
+            try:
+                loaded = self.long_memory.load()
+                memory = loaded if isinstance(loaded, dict) else {}
+            except Exception:
+                memory = {}
+        story_events = list(self._story_event_log or [])
+        ar_state = getattr(self.session, "ar_state", None)
+        session_events = list(getattr(self.session, "recent_events", []) or []) + list(getattr(ar_state, "recent_events", []) or [])
+        visual_styles = self._story_export_visual_styles_for_personas(personas)
+        templates = self._story_export_templates_payload()
+        draft = self._master_story_draft if isinstance(self._master_story_draft, dict) else {}
+
+        def item(available: bool, count: int = 0, detail: str = "") -> dict[str, Any]:
+            return {"available": bool(available), "count": int(count or 0), "detail": str(detail or "")}
+
+        return {
+            "story_setup": item(bool(self.session), 1, "Current roleplay session state"),
+            "story_metadata": item(bool(story), 1 if story else 0, story.get("title") or story_id),
+            "personas": item(bool(personas), len(personas), f"{len(personas)} linked persona(s)"),
+            "persona_visual": item(
+                any(
+                    bool(getattr(persona.visual, "enabled", False))
+                    or any(str(getattr(persona.visual, field, "") or "").strip() for field in ("style_preset", "character_description", "clothing_props", "environment_style", "negative_prompt"))
+                    for persona in personas
+                ),
+                len(personas),
+                "Visual profile data",
+            ),
+            "avatar_assets": item(
+                any(
+                    str(getattr(persona, "character_image_path", "") or "").strip()
+                    and Path(str(persona.character_image_path)).exists()
+                    for persona in personas
+                ),
+                len([
+                    persona
+                    for persona in personas
+                    if str(getattr(persona, "character_image_path", "") or "").strip()
+                    and Path(str(persona.character_image_path)).exists()
+                ]),
+                "Existing local character/avatar image files",
+            ),
+            "persona_voice": item(
+                any(bool(getattr(persona.voice, "enabled", False)) or str(getattr(persona.voice, "sample_path", "") or "").strip() for persona in personas),
+                len([persona for persona in personas if bool(getattr(persona.voice, "enabled", False)) or str(getattr(persona.voice, "sample_path", "") or "").strip()]),
+                "Per-persona voice routing settings",
+            ),
+            "voice_assets": item(
+                any(path and Path(path).exists() for path in voice_paths),
+                len([path for path in voice_paths if path and Path(path).exists()]),
+                "Existing local voice sample files",
+            ),
+            "story_memory": item(bool(memory), 1 if memory else 0, "Saved story memory or active long memory"),
+            "story_events": item(bool(story_events or session_events), len(story_events) + len(session_events), "Recent story events and story log"),
+            "audiofx": item(bool(audio_items or available_audio or self.settings.get("saved_audio_prompts")), len(audio_items), "AudioFX settings and saved audio prompts"),
+            "audiofx_assets": item(
+                any(self._audiofx_file_ready(item) for item in audio_items) or any(Path(str(item.get("file_path") or "")).exists() for item in available_audio if isinstance(item, dict)),
+                sum(1 for item in audio_items if self._audiofx_file_ready(item)),
+                "Existing local AudioFX files",
+            ),
+            "visual_styles": item(bool(visual_styles), len(visual_styles), "Style presets referenced by linked personas"),
+            "master_story": item(bool(story or draft), 1 if story or draft else 0, "Saved story payload and current draft"),
+            "templates": item(bool(templates), len(templates), "Roleplay templates, saved prompts, or current story prompt"),
+        }
+
+    def _refresh_story_export_card(self) -> None:
+        controls = self._controls.get("story_export_options")
+        status = self._controls.get("story_export_status")
+        if not isinstance(controls, dict) or not controls:
+            return
+        availability = self._story_export_availability()
+        selected = set(self._story_export_selected_sections())
+        spec_by_key = self._story_export_spec_by_key()
+        available_selected = 0
+        selected_count = 0
+        for key, checkbox in controls.items():
+            info = availability.get(str(key), {})
+            available = bool(info.get("available"))
+            if str(key) in selected:
+                selected_count += 1
+                if available:
+                    available_selected += 1
+            label = str(spec_by_key.get(str(key), {}).get("label") or key)
+            detail = str(info.get("detail") or "")
+            count = int(info.get("count") or 0)
+            checkbox.setToolTip(f"{label}\n{'Available' if available else 'No data detected'}" + (f": {detail}" if detail else ""))
+            checkbox.setStyleSheet(
+                _mprc_checkbox_stylesheet("#22c55e", "700")
+                if available
+                else _mprc_checkbox_stylesheet("#9fb3c8", "600")
+            )
+            checkbox.setText(f"{label} ({count})" if available and count > 1 else label)
+        if status is not None:
+            story = self._story_export_story_payload()
+            title = str(story.get("title") or self._story_export_story_id() or "current story").strip()
+            status.setText(
+                f"{available_selected}/{selected_count or len(selected)} selected sections have data for '{title}'. "
+                "Green rows have data available to save; neutral rows have no matching data right now."
+            )
+
+    def _preview_story_package_contents(self) -> None:
+        availability = self._story_export_availability()
+        selected = set(self._story_export_selected_sections())
+        spec_by_key = self._story_export_spec_by_key()
+        lines = ["Story Library Export preview:", ""]
+        for key in spec_by_key:
+            if key not in selected:
+                continue
+            info = availability.get(key, {})
+            marker = "ready" if bool(info.get("available")) else "no data"
+            detail = str(info.get("detail") or "").strip()
+            lines.append(f"- {spec_by_key[key].get('label')}: {marker}" + (f" ({detail})" if detail else ""))
+        parent = self._widget.window() if self._widget is not None else None
+        QtWidgets.QMessageBox.information(parent, "Story Library Export", "\n".join(lines))
 
     def _story_bundle_settings(self) -> dict[str, Any]:
         keys = (
@@ -7959,6 +11300,770 @@ class MultiPersonaRoleplayController:
                 "mode": self._narrator_selection_mode(),
                 "display_name": self.selected_narrator_persona().display_name if self.selected_narrator_persona() is not None else "",
             },
+        }
+
+    def _story_package_safe_name(self, value: Any, fallback: str = "asset") -> str:
+        text = str(value or "").strip()
+        safe = []
+        previous = False
+        for char in text:
+            if char.isalnum() or char in {".", "_", "-"}:
+                safe.append(char)
+                previous = False
+            elif not previous:
+                safe.append("_")
+                previous = True
+        result = "".join(safe).strip("._-")
+        return result[:96] or fallback
+
+    def _story_package_scrub_runtime_paths(self, value: Any) -> Any:
+        path_keys = {"sample_path", "file_path", "character_image_path", "story_image_path", "cover_image_path", "image_path"}
+        if isinstance(value, list):
+            return [self._story_package_scrub_runtime_paths(item) for item in value]
+        if not isinstance(value, dict):
+            return copy.deepcopy(value)
+        cleaned: dict[str, Any] = {}
+        for key, item in value.items():
+            key_text = str(key)
+            if key_text in path_keys and isinstance(item, str):
+                text = str(item or "").strip().replace("\\", "/")
+                cleaned[key] = text if text.startswith("assets/") else ""
+            else:
+                cleaned[key] = self._story_package_scrub_runtime_paths(item)
+        return cleaned
+
+    def _story_package_unique_asset_path(self, folder: str, key: str, source_path: Path, used: set[str]) -> str:
+        stem = self._story_package_safe_name(key, "asset")
+        name = self._story_package_safe_name(source_path.name, "file")
+        candidate = f"assets/{folder}/{stem}_{name}"
+        counter = 2
+        while candidate.lower() in used:
+            candidate = f"assets/{folder}/{stem}_{counter}_{name}"
+            counter += 1
+        used.add(candidate.lower())
+        return candidate
+
+    def _copy_package_asset(
+        self,
+        zip_handle: zipfile.ZipFile,
+        source_path: str,
+        asset_path: str,
+        asset_key: str,
+        asset_file_map: dict[str, Any],
+        warnings: list[str],
+    ) -> bool:
+        raw = str(source_path or "").strip()
+        if not raw:
+            return False
+        path = Path(raw)
+        if not path.exists() or not path.is_file():
+            warnings.append(f"Missing asset for {asset_key}: {raw}")
+            return False
+        try:
+            zip_handle.write(str(path), asset_path)
+            asset_file_map[asset_key] = {
+                "asset_path": asset_path,
+                "file_name": path.name,
+                "source_path": str(path),
+            }
+            return True
+        except Exception as exc:
+            warnings.append(f"Could not copy asset for {asset_key}: {exc}")
+            return False
+
+    def _build_story_package_manifest(
+        self,
+        *,
+        story: dict[str, Any],
+        included_sections: list[str],
+        asset_file_map: dict[str, Any],
+        warnings: list[str],
+    ) -> dict[str, Any]:
+        manifest = getattr(self.context, "manifest", None)
+        addon_version = ""
+        try:
+            addon_version = str(getattr(manifest, "version", "") or "")
+        except Exception:
+            addon_version = ""
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "story")
+        return {
+            "package_schema_version": 1,
+            "addon_id": "nc.multi_persona_roleplay",
+            "addon_version": addon_version,
+            "exported_at": QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate),
+            "story_title": str(story.get("title") or story_id).strip() or story_id,
+            "story_id": story_id,
+            "included_sections": list(included_sections or []),
+            "asset_file_map": copy.deepcopy(asset_file_map),
+            "warnings": list(warnings or []),
+            "source_paths": {
+                key: str(value.get("source_path") or "")
+                for key, value in asset_file_map.items()
+                if isinstance(value, dict) and str(value.get("source_path") or "").strip()
+            },
+        }
+
+    def _story_package_persona_payloads(
+        self,
+        personas: list[PersonaConfig],
+        sections: set[str],
+        voice_asset_paths: dict[str, str],
+        avatar_asset_paths: dict[str, str] | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any], dict[str, Any]]:
+        include_visual = "persona_visual" in sections
+        include_voice = "persona_voice" in sections
+        avatar_asset_paths = dict(avatar_asset_paths or {})
+        personas_payload: list[dict[str, Any]] = []
+        visual_settings: dict[str, Any] = {}
+        voice_settings: dict[str, Any] = {}
+        for persona in list(personas or []):
+            payload = persona.to_dict()
+            visual_payload = copy.deepcopy(payload.get("visual") or {})
+            voice_payload = copy.deepcopy(payload.get("voice") or {})
+            avatar_asset_path = str(avatar_asset_paths.get(persona.id, "") or "")
+            asset_path = voice_asset_paths.get(persona.id, "")
+            if asset_path:
+                voice_payload["sample_path"] = asset_path
+            elif str(voice_payload.get("sample_path") or "").strip():
+                voice_payload["sample_path"] = ""
+            if include_visual:
+                visual_settings[persona.id] = {
+                    "visual": visual_payload,
+                    "character_image_path": avatar_asset_path,
+                }
+            else:
+                payload.pop("visual", None)
+            payload["character_image_path"] = avatar_asset_path
+            if include_voice:
+                voice_settings[persona.id] = voice_payload
+                payload["voice"] = voice_payload
+            else:
+                payload.pop("voice", None)
+            personas_payload.append(payload)
+        return personas_payload, visual_settings, voice_settings
+
+    def _story_package_audiofx_payload(
+        self,
+        sections: set[str],
+        audiofx_asset_paths: dict[str, str],
+    ) -> dict[str, Any]:
+        items = []
+        for item in self._audiofx_items():
+            payload = dict(item)
+            key = str(payload.get("id") or self._audio_file_key(payload.get("file_path", "")) or "").strip()
+            asset_path = audiofx_asset_paths.get(key, "")
+            if asset_path:
+                payload["file_path"] = asset_path
+            elif str(payload.get("file_path") or "").strip():
+                payload["file_path"] = ""
+            items.append(payload)
+        available = []
+        for item in self.available_story_audio_files():
+            payload = dict(item)
+            key = str(payload.get("source_audiofx_id") or payload.get("id") or self._audio_file_key(payload.get("file_path", "")) or "").strip()
+            asset_path = audiofx_asset_paths.get(key, "")
+            if asset_path:
+                payload["file_path"] = asset_path
+                payload["ready"] = True
+            elif str(payload.get("file_path") or "").strip():
+                payload["file_path"] = ""
+                payload["ready"] = False
+            available.append(payload)
+        return {
+            "items": items,
+            "available_audio_files": available,
+            "saved_audio_prompts": copy.deepcopy(list(self.settings.get("saved_audio_prompts") or [])),
+            "story_sounds_enabled": bool(self.settings.get("story_sounds_enabled", True)),
+            "audiofx_volume": self.settings.get("audiofx_volume"),
+        }
+
+    def _write_story_package(self, path: str | Path, sections: list[str] | None = None) -> tuple[dict[str, Any], list[str]]:
+        target = Path(path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        selected = list(sections or self._story_export_selected_sections())
+        section_set = set(selected)
+        story = self._story_export_story_payload()
+        story_id = self.storage.story_id(story.get("id") or self._story_export_story_id() or "story")
+        if not story:
+            story = self._current_master_story_snapshot()
+        personas = self._story_export_persona_configs(story)
+        warnings: list[str] = []
+        asset_file_map: dict[str, Any] = {}
+        used_assets: set[str] = set()
+        voice_asset_paths: dict[str, str] = {}
+        avatar_asset_paths: dict[str, str] = {}
+        audiofx_asset_paths: dict[str, str] = {}
+        voice_asset_sources: list[tuple[str, str, str]] = []
+        avatar_asset_sources: list[tuple[str, str, str]] = []
+        audio_asset_sources: list[tuple[str, str, str]] = []
+
+        if "voice_assets" in section_set:
+            for persona in personas:
+                sample_path = str(getattr(getattr(persona, "voice", None), "sample_path", "") or "").strip()
+                if not sample_path:
+                    continue
+                source = Path(sample_path)
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("voices", persona.id, source, used_assets)
+                    voice_asset_paths[persona.id] = asset_path
+                    voice_asset_sources.append((f"voice:{persona.id}", sample_path, asset_path))
+                else:
+                    warnings.append(f"Missing voice sample for {persona.display_name}: {sample_path}")
+
+        if "avatar_assets" in section_set:
+            for persona in personas:
+                image_path = str(getattr(persona, "character_image_path", "") or "").strip()
+                if not image_path:
+                    continue
+                source = Path(image_path)
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("visuals", persona.id, source, used_assets)
+                    avatar_asset_paths[persona.id] = asset_path
+                    avatar_asset_sources.append((f"avatar:{persona.id}", image_path, asset_path))
+                else:
+                    warnings.append(f"Missing avatar image for {persona.display_name}: {image_path}")
+
+        if "audiofx_assets" in section_set:
+            for item in self._audiofx_items():
+                file_path = str(item.get("file_path") or "").strip()
+                if not file_path:
+                    continue
+                source = Path(file_path)
+                key = str(item.get("id") or self._audio_file_key(file_path) or source.stem).strip()
+                if source.exists() and source.is_file():
+                    asset_path = self._story_package_unique_asset_path("audiofx", key, source, used_assets)
+                    audiofx_asset_paths[key] = asset_path
+                    audio_asset_sources.append((f"audiofx:{key}", file_path, asset_path))
+                else:
+                    warnings.append(f"Missing AudioFX file for {item.get('description') or key}: {file_path}")
+
+        personas_payload, visual_settings, voice_settings = self._story_package_persona_payloads(personas, section_set, voice_asset_paths, avatar_asset_paths)
+        package_story = self._story_package_scrub_runtime_paths(story)
+        json_files: dict[str, Any] = {}
+        if "story_setup" in section_set:
+            json_files["session.json"] = self.session.to_dict()
+        if "story_metadata" in section_set:
+            json_files["story.json"] = package_story
+        if "personas" in section_set:
+            json_files["personas.json"] = personas_payload
+        if "persona_visual" in section_set:
+            json_files["persona_visual_settings.json"] = visual_settings
+        if "avatar_assets" in section_set:
+            json_files["avatar_images.json"] = {
+                persona.id: {
+                    "display_name": persona.display_name,
+                    "character_image_path": avatar_asset_paths.get(persona.id, ""),
+                }
+                for persona in personas
+                if avatar_asset_paths.get(persona.id)
+            }
+        if "persona_voice" in section_set:
+            json_files["persona_voice_settings.json"] = voice_settings
+        if "story_memory" in section_set:
+            memory = self.storage.load_story_memory(story_id) if story_id else {}
+            if not memory:
+                try:
+                    memory = self.long_memory.load()
+                except Exception:
+                    memory = {}
+            json_files["story_memory.json"] = self._story_package_scrub_runtime_paths(memory if isinstance(memory, dict) else {})
+        if "story_events" in section_set:
+            ar_state = getattr(self.session, "ar_state", None)
+            json_files["story_events.json"] = {
+                "story_event_log": copy.deepcopy(list(self._story_event_log or [])),
+                "session_recent_events": list(getattr(self.session, "recent_events", []) or []),
+                "ar_recent_events": list(getattr(ar_state, "recent_events", []) or []),
+            }
+        if "audiofx" in section_set:
+            json_files["audiofx.json"] = self._story_package_audiofx_payload(section_set, audiofx_asset_paths)
+        if "visual_styles" in section_set:
+            json_files["visual_styles.json"] = self._story_export_visual_styles_for_personas(personas)
+        if "master_story" in section_set:
+            json_files["master_story.json"] = {
+                "draft": self._story_package_scrub_runtime_paths(self._master_story_draft if isinstance(self._master_story_draft, dict) else {}),
+                "active_story": package_story,
+                "generation_constraints": self._master_story_generation_constraints(),
+            }
+        if "templates" in section_set:
+            json_files["templates.json"] = self._story_export_templates_payload()
+
+        with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as handle:
+            for asset_key, source_path, asset_path in voice_asset_sources + avatar_asset_sources + audio_asset_sources:
+                self._copy_package_asset(handle, source_path, asset_path, asset_key, asset_file_map, warnings)
+            manifest = self._build_story_package_manifest(
+                story=story,
+                included_sections=selected,
+                asset_file_map=asset_file_map,
+                warnings=warnings,
+            )
+            handle.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=True))
+            for file_name, payload in json_files.items():
+                handle.writestr(file_name, json.dumps(payload, indent=2, ensure_ascii=True))
+        return manifest, warnings
+
+    def _export_story_package(self):
+        story_id = self._story_export_story_id() or "mprc_story"
+        default_path = Path.home() / f"{story_id}.mprcstory.zip"
+        path = self._save_file(
+            "Export Story Library package",
+            str(default_path),
+            "MPRC story packages (*.mprcstory.zip *.storypackage.zip);;Zip files (*.zip)",
+        )
+        if not path:
+            self._set_master_story_status("Story Library Export cancelled.")
+            return
+        if not str(path).lower().endswith((".mprcstory.zip", ".storypackage.zip", ".zip")):
+            path = str(path) + ".mprcstory.zip"
+        try:
+            manifest, warnings = self._write_story_package(path, self._story_export_selected_sections())
+        except Exception as exc:
+            self._warn("Story Library Export", f"Export failed:\n\n{exc}")
+            self._set_master_story_status(f"Story Library Export failed: {exc}")
+            return
+        warning_note = f" with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}" if warnings else ""
+        self._record_story_event(f"exported story library package: {path}{warning_note}", severity="info", kind="package", persist=True)
+        self._set_master_story_status(f"Exported Story Library package '{manifest.get('story_title')}' to {path}{warning_note}.")
+        self._refresh_story_export_card()
+
+    def _read_package_json(self, zip_handle: zipfile.ZipFile, file_name: str, fallback: Any) -> Any:
+        try:
+            if file_name not in zip_handle.namelist():
+                return fallback
+            return json.loads(zip_handle.read(file_name).decode("utf-8"))
+        except Exception:
+            return fallback
+
+    def _read_story_package_manifest(self, path: str | Path) -> tuple[dict[str, Any], list[str]]:
+        warnings: list[str] = []
+        try:
+            with zipfile.ZipFile(path, "r") as handle:
+                manifest = self._read_package_json(handle, "manifest.json", {})
+        except Exception as exc:
+            raise ValueError(f"Could not open story package: {exc}") from exc
+        if not isinstance(manifest, dict) or not manifest:
+            raise ValueError("Package is missing manifest.json.")
+        try:
+            schema_version = int(manifest.get("package_schema_version", 0) or 0)
+        except Exception:
+            schema_version = 0
+        if schema_version < 1:
+            raise ValueError("Package manifest has no supported schema version.")
+        if schema_version > 1:
+            warnings.append(f"Package schema {schema_version} is newer than this addon; importing with v1 fallback.")
+        if str(manifest.get("addon_id") or "") not in {"", "nc.multi_persona_roleplay"}:
+            warnings.append(f"Package addon id is {manifest.get('addon_id')}; expected nc.multi_persona_roleplay.")
+        return manifest, warnings
+
+    def _confirm_story_package_import(self, manifest: dict[str, Any], warnings: list[str]) -> bool:
+        parent = self._widget.window() if self._widget is not None else None
+        sections = ", ".join(str(item) for item in list(manifest.get("included_sections") or [])) or "none"
+        message = (
+            f"Import story package '{manifest.get('story_title') or manifest.get('story_id') or 'Untitled'}'?\n\n"
+            f"Included sections: {sections}\n"
+            f"Assets: {len(dict(manifest.get('asset_file_map') or {}))}\n"
+            "A recovery backup will be saved before applying the package."
+        )
+        if warnings:
+            message += "\n\nWarnings:\n" + "\n".join(f"- {item}" for item in warnings[:8])
+        answer = QtWidgets.QMessageBox.question(parent, "Import Story Library Package", message)
+        return answer == QtWidgets.QMessageBox.Yes
+
+    def _import_story_package(self):
+        path = self._open_file(
+            "Import Story Library package",
+            str(Path.home()),
+            "MPRC story packages (*.mprcstory.zip *.storypackage.zip);;Zip files (*.zip)",
+        )
+        if not path:
+            self._set_master_story_status("Story Library Import cancelled.")
+            return
+        try:
+            manifest, warnings = self._read_story_package_manifest(path)
+        except Exception as exc:
+            self._warn("Story Library Import", str(exc))
+            self._set_master_story_status(f"Story Library Import failed: {exc}")
+            return
+        all_warnings = warnings + [str(item) for item in list(manifest.get("warnings") or []) if str(item or "").strip()]
+        if not self._confirm_story_package_import(manifest, all_warnings):
+            self._set_master_story_status("Story Library Import cancelled.")
+            return
+        try:
+            result = self._apply_story_package(path, manifest=manifest)
+        except Exception as exc:
+            self._warn("Story Library Import", f"Import failed:\n\n{exc}")
+            self._set_master_story_status(f"Story Library Import failed: {exc}")
+            return
+        warnings = list(result.get("warnings") or [])
+        story_title = str(result.get("story_title") or result.get("story_id") or "story").strip()
+        warning_note = f" with {len(warnings)} warning{'s' if len(warnings) != 1 else ''}" if warnings else ""
+        self._record_story_event(f"imported story library package: {path}{warning_note}", severity="info", kind="package", persist=True)
+        self.refresh_ui()
+        self._set_master_story_status(f"Imported Story Library package '{story_title}'{warning_note}.")
+
+    def _story_package_import_asset_root(self, manifest: dict[str, Any]) -> Path:
+        story_id = self.storage.story_id((manifest or {}).get("story_id") or (manifest or {}).get("story_title") or "imported_story")
+        return self.context.storage.resolve(f"assets/story_packages/imported/{story_id}")
+
+    def _extract_package_assets(self, zip_handle: zipfile.ZipFile, manifest: dict[str, Any], warnings: list[str]) -> dict[str, str]:
+        asset_file_map = manifest.get("asset_file_map")
+        if not isinstance(asset_file_map, dict) or not asset_file_map:
+            return {}
+        root = self._story_package_import_asset_root(manifest)
+        extracted: dict[str, str] = {}
+        names = set(zip_handle.namelist())
+        for asset_key, item in asset_file_map.items():
+            if not isinstance(item, dict):
+                continue
+            asset_path = str(item.get("asset_path") or "").replace("\\", "/").strip()
+            if not asset_path or asset_path.startswith("/") or ".." in Path(asset_path).parts:
+                warnings.append(f"Skipped unsafe asset path for {asset_key}: {asset_path}")
+                continue
+            if asset_path not in names:
+                warnings.append(f"Package asset missing for {asset_key}: {asset_path}")
+                continue
+            if asset_path.startswith("assets/voices/"):
+                folder = "voices"
+            elif asset_path.startswith("assets/audiofx/"):
+                folder = "audiofx"
+            elif asset_path.startswith("assets/visuals/"):
+                folder = "visuals"
+            else:
+                folder = "misc"
+            target = root / folder / self._story_package_safe_name(Path(asset_path).name, "asset")
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(zip_handle.read(asset_path))
+                extracted[asset_path] = str(target)
+            except Exception as exc:
+                warnings.append(f"Could not extract {asset_path}: {exc}")
+        return extracted
+
+    def _remap_imported_asset_paths(self, value: Any, extracted_assets: dict[str, str]) -> Any:
+        if isinstance(value, str):
+            return extracted_assets.get(value, value)
+        if isinstance(value, list):
+            return [self._remap_imported_asset_paths(item, extracted_assets) for item in value]
+        if isinstance(value, dict):
+            return {key: self._remap_imported_asset_paths(item, extracted_assets) for key, item in value.items()}
+        return value
+
+    def _remap_persona_id_value(self, value: Any, id_map: dict[str, str]) -> Any:
+        normalized = normalize_persona_id(value)
+        return id_map.get(normalized, value)
+
+    def _remap_story_payload_persona_ids(self, payload: dict[str, Any], id_map: dict[str, str]) -> dict[str, Any]:
+        story = copy.deepcopy(dict(payload or {}))
+        if not id_map:
+            return story
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            if key in story:
+                story[key] = self._remap_persona_id_value(story.get(key), id_map)
+        session = dict(story.get("session") or {}) if isinstance(story.get("session"), dict) else {}
+        for key in ("narrator_persona_id", "active_persona_id", "current_speaker_id"):
+            if key in session:
+                session[key] = self._remap_persona_id_value(session.get(key), id_map)
+        ar_state = dict(session.get("ar_state") or {}) if isinstance(session.get("ar_state"), dict) else {}
+        if isinstance(ar_state.get("active_characters"), list):
+            ar_state["active_characters"] = [self._remap_persona_id_value(item, id_map) for item in ar_state.get("active_characters") or []]
+        session["ar_state"] = ar_state
+        if session:
+            story["session"] = session
+        personas = []
+        for item in list(story.get("personas") or []):
+            if isinstance(item, dict):
+                persona = dict(item)
+                old_id = normalize_persona_id(persona.get("id") or persona.get("display_name"))
+                if old_id in id_map:
+                    persona["id"] = id_map[old_id]
+                personas.append(persona)
+        if personas:
+            story["personas"] = personas
+        overrides = story.get("persona_overrides")
+        if isinstance(overrides, dict):
+            remapped = {}
+            for key, value in overrides.items():
+                remapped[str(self._remap_persona_id_value(key, id_map))] = copy.deepcopy(value)
+            story["persona_overrides"] = remapped
+        return story
+
+    def _remap_story_memory_persona_ids(self, payload: dict[str, Any], id_map: dict[str, str], story_id: str) -> dict[str, Any]:
+        memory = copy.deepcopy(dict(payload or {}))
+        memory["story_id"] = story_id
+        if not id_map:
+            return memory
+        session = memory.get("session")
+        if isinstance(session, dict):
+            remapped_story = self._remap_story_payload_persona_ids({"session": session}, id_map)
+            memory["session"] = remapped_story.get("session", session)
+        settings = memory.get("settings")
+        if isinstance(settings, dict):
+            for key in ("narrator_persona_id",):
+                if key in settings:
+                    settings[key] = self._remap_persona_id_value(settings.get(key), id_map)
+            for key in ("master_story_linked_persona_ids", "master_story_created_persona_ids"):
+                if isinstance(settings.get(key), list):
+                    settings[key] = [self._remap_persona_id_value(item, id_map) for item in settings.get(key) or []]
+            overrides = settings.get("master_story_persona_overrides")
+            if isinstance(overrides, dict):
+                settings["master_story_persona_overrides"] = {
+                    str(self._remap_persona_id_value(key, id_map)): copy.deepcopy(value)
+                    for key, value in overrides.items()
+                }
+        long_memory = memory.get("long_memory")
+        if isinstance(long_memory, dict):
+            for key in ("character_memory",):
+                value = long_memory.get(key)
+                if isinstance(value, dict):
+                    long_memory[key] = {
+                        str(self._remap_persona_id_value(persona_id, id_map)): copy.deepcopy(item)
+                        for persona_id, item in value.items()
+                    }
+            active = long_memory.get("active_character_ids")
+            if isinstance(active, list):
+                long_memory["active_character_ids"] = [self._remap_persona_id_value(item, id_map) for item in active]
+        return memory
+
+    def _unique_story_id(self, story_id: str) -> str:
+        base = self.storage.story_id(story_id or "imported_story")
+        existing = {str(item.get("id") or "").strip() for item in self.storage.load_story_index()}
+        if base not in existing:
+            return base
+        candidate = f"{base}_imported"
+        counter = 2
+        while candidate in existing:
+            candidate = f"{base}_imported_{counter}"
+            counter += 1
+        return candidate
+
+    def _apply_imported_personas(self, payload: Any, warnings: list[str]) -> dict[str, str]:
+        imported = personas_from_payload(payload)
+        if not imported:
+            return {}
+        existing_ids = {persona.id for persona in self.personas}
+        id_map: dict[str, str] = {}
+        for persona in imported:
+            original_id = persona.id
+            if persona.id in existing_ids:
+                persona.id = unique_persona_id(f"{persona.id}_imported", existing_ids)
+                if "(Imported)" not in persona.display_name:
+                    persona.display_name = f"{persona.display_name} (Imported)"
+                warnings.append(f"Persona id '{original_id}' already existed; imported as '{persona.id}'.")
+            id_map[original_id] = persona.id
+            existing_ids.add(persona.id)
+            self.personas.append(persona)
+        return id_map
+
+    def _apply_imported_voice_settings(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, voice in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None or not isinstance(voice, dict):
+                continue
+            updated = PersonaConfig.from_dict({**persona.to_dict(), "voice": voice})
+            persona.voice = updated.voice
+
+    def _apply_imported_visual_settings(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, visual_payload in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None or not isinstance(visual_payload, dict):
+                continue
+            merged = persona.to_dict()
+            if isinstance(visual_payload.get("visual"), dict):
+                merged["visual"] = visual_payload.get("visual")
+            if "character_image_path" in visual_payload:
+                merged["character_image_path"] = str(visual_payload.get("character_image_path") or "")
+            updated = PersonaConfig.from_dict(merged)
+            persona.visual = updated.visual
+            persona.character_image_path = updated.character_image_path
+
+    def _apply_imported_avatar_images(self, payload: Any, id_map: dict[str, str]) -> None:
+        if not isinstance(payload, dict):
+            return
+        by_id = {persona.id: persona for persona in self.personas}
+        for key, item in payload.items():
+            persona_id = str(self._remap_persona_id_value(key, id_map))
+            persona = by_id.get(persona_id)
+            if persona is None:
+                continue
+            image_path = ""
+            if isinstance(item, dict):
+                image_path = str(item.get("character_image_path") or "").strip()
+            elif isinstance(item, str):
+                image_path = str(item or "").strip()
+            if image_path:
+                persona.character_image_path = image_path
+
+    def _merge_imported_audiofx(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        imported_items = [dict(item) for item in list(payload.get("items") or []) if isinstance(item, dict)]
+        if not imported_items:
+            return
+        existing = self._audiofx_items()
+        existing_ids = {str(item.get("id") or "").strip() for item in existing}
+        merged = list(existing)
+        for item in imported_items:
+            base = str(item.get("id") or self._new_audiofx_id(merged)).strip() or self._new_audiofx_id(merged)
+            item_id = base
+            counter = 2
+            while item_id in existing_ids:
+                item_id = f"{base}_imported_{counter}"
+                counter += 1
+            item["id"] = item_id
+            existing_ids.add(item_id)
+            merged.append(item)
+        if "story_sounds_enabled" in payload:
+            self.settings["story_sounds_enabled"] = bool(payload.get("story_sounds_enabled"))
+        if payload.get("audiofx_volume") is not None:
+            self.settings["audiofx_volume"] = payload.get("audiofx_volume")
+        saved = payload.get("saved_audio_prompts")
+        if isinstance(saved, list) and saved:
+            current = [item for item in list(self.settings.get("saved_audio_prompts") or []) if isinstance(item, dict)]
+            current.extend(dict(item) for item in saved if isinstance(item, dict))
+            self.settings["saved_audio_prompts"] = current[-100:]
+        self._save_audiofx_items(merged)
+
+    def _merge_imported_visual_styles(self, payload: Any) -> None:
+        if not isinstance(payload, list):
+            return
+        current = [dict(item) for item in list(self.visual_styles or []) if isinstance(item, dict)]
+        seen = {str(item.get("id") or "").strip() for item in current}
+        changed = False
+        for item in payload:
+            if not isinstance(item, dict):
+                continue
+            style_id = str(item.get("id") or "").strip()
+            if not style_id or style_id in seen:
+                continue
+            current.append(dict(item))
+            seen.add(style_id)
+            changed = True
+        if changed:
+            self.visual_styles = current
+            self.storage._write_json("visual_styles.json", current)
+
+    def _merge_imported_templates(self, payload: Any) -> None:
+        if not isinstance(payload, dict):
+            return
+        templates = payload.get("roleplay_templates")
+        if isinstance(templates, dict):
+            current = self.storage._read_json("roleplay_templates.json", {})
+            current = dict(current or {}) if isinstance(current, dict) else {}
+            changed = False
+            for key, value in templates.items():
+                if key not in current:
+                    current[key] = copy.deepcopy(value)
+                    changed = True
+            if changed:
+                self.storage._write_json("roleplay_templates.json", current)
+        saved = payload.get("saved_audio_prompts")
+        if isinstance(saved, list) and saved:
+            current = [item for item in list(self.settings.get("saved_audio_prompts") or []) if isinstance(item, dict)]
+            current.extend(dict(item) for item in saved if isinstance(item, dict))
+            self.settings["saved_audio_prompts"] = current[-100:]
+
+    def _apply_story_package(self, path: str | Path, *, manifest: dict[str, Any] | None = None) -> dict[str, Any]:
+        warnings: list[str] = []
+        if manifest is None:
+            manifest, manifest_warnings = self._read_story_package_manifest(path)
+            warnings.extend(manifest_warnings)
+        warnings.extend(str(item) for item in list((manifest or {}).get("warnings") or []) if str(item or "").strip())
+        included = {str(item or "").strip() for item in list((manifest or {}).get("included_sections") or []) if str(item or "").strip()}
+        self._save_pre_apply_backup("Import Story Library Package")
+        with zipfile.ZipFile(path, "r") as handle:
+            extracted_assets = self._extract_package_assets(handle, manifest or {}, warnings)
+            story_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "story.json", {}), extracted_assets)
+            session_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "session.json", {}), extracted_assets)
+            personas_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "personas.json", []), extracted_assets)
+            voice_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "persona_voice_settings.json", {}), extracted_assets)
+            visual_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "persona_visual_settings.json", {}), extracted_assets)
+            avatar_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "avatar_images.json", {}), extracted_assets)
+            memory_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "story_memory.json", {}), extracted_assets)
+            events_payload = self._read_package_json(handle, "story_events.json", {})
+            audiofx_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "audiofx.json", {}), extracted_assets)
+            visual_styles_payload = self._read_package_json(handle, "visual_styles.json", [])
+            master_story_payload = self._remap_imported_asset_paths(self._read_package_json(handle, "master_story.json", {}), extracted_assets)
+            templates_payload = self._read_package_json(handle, "templates.json", {})
+
+        id_map: dict[str, str] = {}
+        if "personas" in included:
+            id_map = self._apply_imported_personas(personas_payload, warnings)
+        if "persona_voice" in included:
+            self._apply_imported_voice_settings(voice_payload, id_map)
+        if "persona_visual" in included:
+            self._apply_imported_visual_settings(visual_payload, id_map)
+        if "avatar_assets" in included:
+            self._apply_imported_avatar_images(avatar_payload, id_map)
+
+        story_id = ""
+        story_title = str((manifest or {}).get("story_title") or "").strip()
+        if "story_metadata" in included and isinstance(story_payload, dict) and story_payload:
+            story = self._remap_story_payload_persona_ids(story_payload, id_map)
+            original_story_id = self.storage.story_id(story.get("id") or (manifest or {}).get("story_id") or "imported_story")
+            story_id = self._unique_story_id(original_story_id)
+            if story_id != original_story_id:
+                warnings.append(f"Story id '{original_story_id}' already existed; imported as '{story_id}'.")
+            story["id"] = story_id
+            story_title = str(story.get("title") or story_title or story_id).strip()
+            story["updated_at"] = QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate)
+            self.storage.save_story(story)
+            self.settings["last_master_story_id"] = story_id
+            self.settings["last_master_story_title"] = story_title or story_id
+            self._master_story_draft = copy.deepcopy(story)
+
+        if "story_setup" in included and isinstance(session_payload, dict) and session_payload:
+            session_story = self._remap_story_payload_persona_ids({"session": session_payload}, id_map)
+            self.session = RoleplaySessionState.from_dict(session_story.get("session") or session_payload)
+            self.session.enabled = True
+            self._ensure_session_persona()
+
+        if "story_memory" in included and isinstance(memory_payload, dict) and memory_payload:
+            target_story_id = story_id or self._unique_story_id(str((manifest or {}).get("story_id") or "imported_story"))
+            memory = self._remap_story_memory_persona_ids(memory_payload, id_map, target_story_id)
+            self.storage.save_story_memory(target_story_id, memory)
+            if isinstance(memory.get("long_memory"), dict):
+                self.long_memory.save(memory.get("long_memory"))
+            self.settings["last_master_story_id"] = target_story_id
+            if story_title:
+                self.settings["last_master_story_title"] = story_title
+
+        if "story_events" in included and isinstance(events_payload, dict):
+            imported_events = [item for item in list(events_payload.get("story_event_log") or []) if isinstance(item, dict)]
+            if imported_events:
+                self._story_event_log = (self._story_event_log + imported_events)[-80:]
+                self.settings["story_event_log"] = list(self._story_event_log)
+
+        if "audiofx" in included:
+            self._merge_imported_audiofx(audiofx_payload)
+        if "visual_styles" in included:
+            self._merge_imported_visual_styles(visual_styles_payload)
+        if "templates" in included:
+            self._merge_imported_templates(templates_payload)
+        if "master_story" in included and isinstance(master_story_payload, dict):
+            draft = master_story_payload.get("draft")
+            active_story = master_story_payload.get("active_story")
+            if isinstance(draft, dict) and draft:
+                self._master_story_draft = self._remap_story_payload_persona_ids(draft, id_map)
+            elif isinstance(active_story, dict) and active_story:
+                self._master_story_draft = self._remap_story_payload_persona_ids(active_story, id_map)
+
+        self.storage.save_settings(self.settings)
+        self.save_state()
+        self._populate_master_stories()
+        self._story_audio_block_active = False
+        self._story_audio_pending_text = ""
+        self._last_story_audio_cues.clear()
+        return {
+            "story_id": story_id or self.settings.get("last_master_story_id") or (manifest or {}).get("story_id") or "",
+            "story_title": story_title or self.settings.get("last_master_story_title") or (manifest or {}).get("story_title") or "",
+            "warnings": warnings,
         }
 
     def _export_story_bundle(self):
@@ -8088,17 +12193,25 @@ class MultiPersonaRoleplayController:
         if persona is None:
             self._warn("Test Visual Reply", "No persona is available for Visual Reply.")
             return
-        result = self.visual_reply.request_generation(persona=persona, reason="manual")
-        self._debug_visual_prompt = json.dumps(result, indent=2)
+        self._debug_visual_prompt = json.dumps(
+            {"queued": True, "message": "Visual Reply test queued for a background worker.", "persona_id": persona.id},
+            indent=2,
+            ensure_ascii=True,
+        )
         self._refresh_debug()
-        accepted = bool(result.get("accepted"))
         self._record_story_event(
-            f"visual test {'accepted' if accepted else 'skipped'} for {persona.display_name}: {result.get('message', '')}",
-            severity="info" if accepted else "warning",
+            f"visual test queued for {persona.display_name}",
+            severity="info",
             kind="visual",
             persist=True,
         )
-        self._set_master_story_status(f"Visual Reply test for {persona.display_name}: {result.get('message', 'submitted')}.")
+        self._set_master_story_status(f"Queued Visual Reply test for {persona.display_name}.")
+        if not self._queue_visual_worker(
+            "mprc_status_visual_reply",
+            lambda: self._run_manual_visual_reply_request(str(persona.id or ""), kind="status_visual_reply"),
+        ):
+            result = {"accepted": False, "message": "Visual Reply test could not start a background worker."}
+            self._on_manual_visual_finished("status_visual_reply", str(persona.id or ""), result)
 
     def _test_audiofx_from_status(self):
         if not self.available_story_audio_files():
@@ -8501,6 +12614,7 @@ class MultiPersonaRoleplayController:
         self._story_audio_pending_text = ""
         self._last_story_audio_cues.clear()
         self._last_tts_visual_reply_at.clear()
+        self._manual_character_image_inflight.clear()
         self._tts_persona_visual_inflight.clear()
         self._tts_visual_reply_inflight.clear()
         for key in (
@@ -8598,9 +12712,12 @@ class MultiPersonaRoleplayController:
             ] if constraints["use_existing_personas"] else []
         return {
             "prompt": str(prompt or "").strip(),
+            "safe_prompt": self._master_story_safety_normalized_prompt(prompt, sfw=bool(constraints.get("sfw_mode", True))),
             "visual_direction": visual_direction,
             "constraints": constraints,
             "generation_notes": self._master_story_generation_constraints_text(constraints),
+            "content_safety": self._master_story_content_safety_payload(bool(constraints.get("sfw_mode", True))),
+            "safety_instruction": self._master_story_safety_instruction(bool(constraints.get("sfw_mode", True))),
             "use_ar": bool(use_ar),
             "roster": roster,
         }
@@ -8613,20 +12730,25 @@ class MultiPersonaRoleplayController:
         model_name = str(getattr(engine, "RUNTIME_CONFIG", {}).get("model_name", "") or "").strip()
         if not model_name:
             raise RuntimeError("Choose a chat model before generating a Master Story.")
-        prompt = str(snapshot.get("prompt") or "").strip()
+        prompt = str(snapshot.get("safe_prompt") or snapshot.get("prompt") or "").strip()
         visual_direction = str(snapshot.get("visual_direction") or "").strip()
         constraints = dict(snapshot.get("constraints") or {})
+        content_safety = dict(snapshot.get("content_safety") or self._master_story_content_safety_payload(bool(constraints.get("sfw_mode", True))))
+        safety_instruction = str(snapshot.get("safety_instruction") or self._master_story_safety_instruction(bool(content_safety.get("sfw", True))))
         roster = list(snapshot.get("roster") or []) if constraints.get("use_existing_personas") else []
         use_ar = bool(snapshot.get("use_ar", True))
         system = (
             "You create compact JSON story setup files for NeuralCompanion's Multi Persona Roleplay addon. "
-            "Return one valid JSON object only, with no markdown. Reuse existing persona IDs when the user's requested "
-            "character clearly matches an existing persona and existing-persona reuse is enabled. Create new persona objects only when needed. Keep all content "
-            "fictional, consensual, adult-safe, non-explicit, and respectful of user agency. For sensual or romantic adventure, "
-            "write suggestive atmosphere and character chemistry without explicit sexual content. Do not use DnD/tabletop rules, "
+            "Return one valid canonical story JSON object only, with no markdown and no wrapper unless the user explicitly asks for an envelope. "
+            "Do not append a second fallback story object. Do not repeat top-level keys. Do not overwrite a populated personas array with an empty one. "
+            "Reuse existing persona IDs when the user's requested character clearly matches an existing persona and existing-persona reuse is enabled. "
+            "Create new persona objects only when needed. Keep all content fictional, consensual, adult-safe, and respectful of user agency. "
+            f"{safety_instruction} "
+            "Do not use DnD/tabletop rules, "
             "dice, stats, or classes unless the user explicitly asks for them. For every persona, create a useful visual profile "
             "for avatar portrait generation. If the story is fantasy, make the visual descriptions read as strong fantasy "
-            "character portraits that still follow the user's story premise. Follow the requested persona counts and character limits."
+            "character portraits that still follow the user's story premise. Follow the requested persona count exactly when possible, "
+            "and respect the configured character creation limit."
         )
         user = {
             "task": "Draft a Master Story setup from the user's prompt.",
@@ -8685,12 +12807,42 @@ class MultiPersonaRoleplayController:
                         },
                     }
                 ],
+                "content_safety": {
+                    "sfw": True,
+                    "allow_romance": True,
+                    "allow_mature_themes": False,
+                    "allow_explicit_sexual_content": False,
+                },
+                "generation": {
+                    "source": "master_story_creator",
+                    "requested_story_native_personas": constraints.get("native_personas_to_draft", 4),
+                    "maximum_new_personas_to_create": constraints.get("maximum_new_personas_to_create", 8),
+                    "use_existing_personas": constraints.get("use_existing_personas", True),
+                    "auto_create_missing_personas": constraints.get("auto_create_missing_personas", True),
+                    "sfw_mode": content_safety.get("sfw", True),
+                },
+                "updated_at": "ISO-8601 timestamp or empty string",
             },
             "existing_personas": roster,
             "generation_constraints": constraints,
+            "content_safety": content_safety,
+            "content_safety_instruction": safety_instruction,
+            "canonical_json_rules": [
+                "Return exactly one story object at the JSON root.",
+                "Do not include a second top-level id/title/summary/personas/session block after the story.",
+                "Do not include duplicate top-level keys.",
+                "Keep generated personas in the single personas array.",
+                "Keep metadata in generation and safety flags in content_safety.",
+            ],
+            "persona_count_contract": {
+                "requested_story_native_personas": constraints.get("native_personas_to_draft", 4),
+                "return_exact_persona_count_when_possible": True,
+                "persona_array_is_validated_against_requested_count": True,
+            },
             "generation_notes": str(snapshot.get("generation_notes") or ""),
             "avatar_visual_direction": visual_direction,
             "user_story_prompt": prompt,
+            "original_user_story_prompt_note": "If SFW mode rewrote prompt wording, preserve the user's adventure intent using non-explicit relationship conflict and emotional stakes.",
         }
         messages = [
             {"role": "system", "content": system},
@@ -8704,20 +12856,86 @@ class MultiPersonaRoleplayController:
         additional_params: dict[str, Any] = {}
         if hasattr(engine, "_apply_chat_provider_generation_fields"):
             engine._apply_chat_provider_generation_fields(params, additional_params)
-        try:
-            return str(engine._chat_completion_create(params, additional_params) or "").strip()
-        except Exception as exc:
-            message = str(exc)
-            if "response_format" not in message and "json_object" not in message:
-                raise
-            params.pop("response_format", None)
-            return str(engine._chat_completion_create(params, additional_params) or "").strip()
+        return self._run_master_story_generation_request(engine, params, additional_params)
+
+    @staticmethod
+    def _master_story_generation_error_is_provider_compatibility(exc: Exception) -> bool:
+        message = str(exc or "").lower()
+        if not message:
+            return False
+        return any(
+            marker in message
+            for marker in (
+                "response_format",
+                "json_object",
+                "http error 400",
+                "400 bad request",
+                "bad request",
+                "invalid request",
+                "invalid parameter",
+                "unknown parameter",
+                "unsupported",
+                "extra_body",
+            )
+        )
+
+    @staticmethod
+    def _master_story_relaxed_params(params: dict[str, Any]) -> dict[str, Any]:
+        relaxed = dict(params or {})
+        relaxed.pop("response_format", None)
+        for key in ("max_tokens", "max_completion_tokens"):
+            if key not in relaxed:
+                continue
+            try:
+                if int(float(relaxed.get(key))) <= 0:
+                    relaxed.pop(key, None)
+            except Exception:
+                pass
+        return relaxed
+
+    def _run_master_story_generation_request(self, engine, params: dict[str, Any], additional_params: dict[str, Any]) -> str:
+        base_params = dict(params or {})
+        base_additional = dict(additional_params or {})
+        attempts: list[tuple[str, dict[str, Any], dict[str, Any]]] = [("strict JSON mode", base_params, base_additional)]
+        relaxed_params = self._master_story_relaxed_params(base_params)
+        if relaxed_params != base_params:
+            attempts.append(("plain JSON instructions", relaxed_params, base_additional))
+        if base_additional:
+            attempts.append(("plain JSON instructions without provider extras", relaxed_params, {}))
+
+        last_error: Exception | None = None
+        for label, request_params, request_additional in attempts:
+            try:
+                return str(engine._chat_completion_create(dict(request_params), dict(request_additional)) or "").strip()
+            except Exception as exc:
+                last_error = exc
+                if not self._master_story_generation_error_is_provider_compatibility(exc):
+                    raise
+                logger = getattr(getattr(self, "context", None), "logger", None)
+                if logger is not None:
+                    try:
+                        logger.info("[MPRC] Master Story generation provider retry after %s failed: %s", label, exc)
+                    except Exception:
+                        pass
+                continue
+        if last_error is not None:
+            raise RuntimeError(
+                f"{last_error} (Master Story generation retried without JSON response_format"
+                " and provider extra parameters.)"
+            )
+        return ""
 
     def _control_checked(self, key: str, default: bool = False) -> bool:
         widget = self._controls.get(key)
         if widget is None or not hasattr(widget, "isChecked"):
             return bool(default)
         return bool(widget.isChecked())
+
+    def _master_story_allow_exceed_max_created_characters(self) -> bool:
+        return self._control_checked("master_story_allow_exceed_max_created_characters", False)
+
+    def _master_story_sfw_mode(self) -> bool:
+        return self._control_checked("master_story_sfw_mode", True)
 
     def _control_int_value(self, key: str, default: int, minimum: int, maximum: int) -> int:
         widget = self._controls.get(key)
@@ -8739,6 +12957,8 @@ class MultiPersonaRoleplayController:
             return
         self.settings["master_story_native_persona_count"] = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
         self.settings["master_story_max_created_characters"] = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
+        self.settings["master_story_allow_exceed_max_created_characters"] = self._control_checked("master_story_allow_exceed_max_created_characters", False)
+        self.settings["master_story_sfw_mode"] = self._master_story_sfw_mode()
         for key in (
             "master_story_use_existing_personas",
             "master_story_use_ar",
@@ -8757,17 +12977,76 @@ class MultiPersonaRoleplayController:
         return {
             "native_personas_to_draft": native_count,
             "maximum_new_personas_to_create": max_created,
+            "allow_exceed_max_created_characters": self._master_story_allow_exceed_max_created_characters(),
+            "sfw_mode": self._master_story_sfw_mode(),
             "use_existing_personas": self._control_checked("master_story_use_existing_personas", True),
             "auto_create_missing_personas": self._control_checked("master_story_auto_create", True),
         }
 
+    def _master_story_content_safety_payload(self, sfw: bool | None = None) -> dict[str, Any]:
+        sfw_enabled = self._master_story_sfw_mode() if sfw is None else bool(sfw)
+        return {
+            "sfw": sfw_enabled,
+            "allow_romance": True,
+            "allow_mature_themes": not sfw_enabled,
+            "allow_explicit_sexual_content": False,
+        }
+
+    @staticmethod
+    def _master_story_safety_instruction(sfw: bool) -> str:
+        if bool(sfw):
+            return (
+                "Content safety: SFW mode is enabled. Keep the story suitable for general fantasy adventure. "
+                "Romantic tension and mature emotional themes are allowed, but do not generate explicit sexual content, erotic descriptions, or graphic nudity. "
+                "Rephrase sexual prompt elements into non-explicit relationship conflict, taboo, loyalty, intimacy, and emotional stakes."
+            )
+        return (
+            "Content safety: SFW mode is disabled. Mature themes may be included when relevant, but do not generate illegal, underage, "
+            "non-consensual, exploitative, or pornographic content. Keep story output narrative-focused and controllable."
+        )
+
+    @staticmethod
+    def _master_story_safety_normalized_prompt(prompt: str, *, sfw: bool) -> str:
+        text = str(prompt or "").strip()
+        if not bool(sfw) or not text:
+            return text
+        replacements = (
+            (r"\binter[\s-]?racial relationships?\s+and\s+sexual activity\b", "forbidden relationships, cultural taboos, and intimate bonds across enemy lines"),
+            (r"\bsexual activity\b", "non-explicit intimate bonds and emotional stakes"),
+            (r"\bexplicit sex(?:ual)?\b", "romantic tension and private emotional stakes"),
+            (r"\berotic\b", "romantic"),
+            (r"\bfetish(?:es|istic)?\b", "personal taboo"),
+            (r"\bgraphic nudity\b", "vulnerable non-explicit intimacy"),
+        )
+        for pattern, replacement in replacements:
+            text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
+        return text
+
     def _master_story_generation_constraints_text(self, constraints: dict[str, Any] | None = None) -> str:
         constraints = dict(constraints or self._master_story_generation_constraints())
         existing = "may reuse already created personas" if constraints["use_existing_personas"] else "should not rely on already created personas"
+        native_count = int(constraints.get("native_personas_to_draft", 4) or 0)
+        if native_count <= 0:
+            persona_count_line = "- Do not draft story-native persona objects unless the user's prompt explicitly requires them."
+        else:
+            persona_count_line = (
+                f"- Draft exactly {native_count} story-native persona/character profile(s) in the personas array when possible. "
+                "If you cannot safely reach that count, return the closest complete cast and note the reason in the summary instead of adding weak filler."
+            )
+        max_line = (
+            f"- Apply Draft will create no more than {constraints['maximum_new_personas_to_create']} new persona/character profile(s) by default; "
+            "still keep the requested draft cast visible so the user can review, map, reuse, or enable the override."
+        )
+        if constraints.get("allow_exceed_max_created_characters"):
+            max_line = (
+                f"- The user has enabled the max-created override; Apply Draft may create more than "
+                f"{constraints['maximum_new_personas_to_create']} new persona/character profile(s) when the requested draft cast needs it."
+            )
         return (
             "Master Story generation constraints:\n"
-            f"- Draft about {constraints['native_personas_to_draft']} story-native persona/character profile(s) when the user's prompt does not specify an exact cast.\n"
-            f"- Do not create more than {constraints['maximum_new_personas_to_create']} new persona/character profile(s) for this story.\n"
+            f"{persona_count_line}\n"
+            f"{max_line}\n"
+            f"- {self._master_story_safety_instruction(bool(constraints.get('sfw_mode', True)))}\n"
             f"- Existing personas: {existing}.\n"
             "- When reusing an existing persona, keep a clear separation between using that persona as-is and a story-only alternate profile."
         )
@@ -8784,40 +13063,82 @@ class MultiPersonaRoleplayController:
             self._set_master_story_status(f"Generation failed: {error}")
             self._warn("Generate Story Setup", f"Master Story generation failed:\n\n{error}")
             return
-        from . import prompting
-
-        payload = prompting.parse_json_object(payload_text)
+        payload, parse_errors = self._parse_master_story_json_text(payload_text)
         if not isinstance(payload, dict):
-            self._set_master_story_status("Generation returned text, but not valid JSON. Review the draft before applying.")
+            message = "Generation returned text, but not valid JSON. Review or regenerate before applying."
+            if parse_errors:
+                message += " " + parse_errors[0]
+            self._set_master_story_status(message)
             draft = str(payload_text or "").strip()
             if draft:
                 self._controls["master_story_draft"].setPlainText(draft)
             return
-        normalized = self._normalize_master_story_payload(payload)
+        canonical, canonical_errors = self._canonical_master_story_payload(payload)
+        validation_errors = parse_errors + canonical_errors + self._validate_master_story_payload(canonical)
+        if validation_errors:
+            self._controls["master_story_draft"].setPlainText(str(payload_text or "").strip())
+            self._set_master_story_status(self._master_story_validation_message(validation_errors).replace("\n", " "))
+            return
+        normalized = self._normalize_master_story_payload(canonical)
         normalized = self._sanitize_master_story_overrides_for_options(normalized)
         normalized = self._limit_generated_master_story_personas(normalized)
         self._master_story_draft = normalized
         self._set_master_story_visual_direction(normalized.get("avatar_visual_direction"))
+        self._set_master_story_sfw_from_payload(normalized)
         self._controls["master_story_draft"].setPlainText(json.dumps(normalized, indent=2, ensure_ascii=True))
-        self._set_master_story_status("Story setup generated. Review it, then Apply Draft or Save Story.")
+        status = "Story setup generated. Review it, then Apply Draft or Save Story."
+        count_warning = self._master_story_persona_count_warning(normalized)
+        if count_warning:
+            status += " " + count_warning
+        max_warning = self._master_story_generated_persona_limit_warning(normalized)
+        if max_warning:
+            status += " " + max_warning
+        self._set_master_story_status(status)
 
     def _limit_generated_master_story_personas(self, payload: dict[str, Any]) -> dict[str, Any]:
+        # Keep the full generated draft visible. The max-created setting is enforced during Apply Draft.
+        return payload
+
+    def _master_story_persona_count_warning(self, payload: dict[str, Any]) -> str:
+        requested = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
+        personas = [item for item in list((payload or {}).get("personas") or []) if isinstance(item, dict)]
+        actual = len(personas)
+        if actual == requested:
+            return ""
+        return (
+            f"Requested {requested} story-native persona(s); draft returned {actual}. "
+            "Review or regenerate before applying if the cast count matters."
+        )
+
+    def _master_story_generated_persona_limit_warning(self, payload: dict[str, Any]) -> str:
+        if self._master_story_allow_exceed_max_created_characters():
+            return ""
         max_created = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
-        personas = [item for item in list(payload.get("personas") or []) if isinstance(item, dict)]
+        personas = [item for item in list((payload or {}).get("personas") or []) if isinstance(item, dict)]
         if len(personas) <= max_created:
-            return payload
-        limited = dict(payload)
-        limited["personas"] = personas[:max_created]
-        summary = str(limited.get("summary") or "").strip()
-        note = f"Draft was limited to {max_created} persona(s) by Master Story settings."
-        limited["summary"] = f"{summary} {note}".strip()
-        return limited
+            return ""
+        return (
+            f"This draft contains {len(personas)} personas, but only {max_created} new personas will be created unless override is enabled."
+        )
 
     def _set_master_story_visual_direction(self, value: Any) -> None:
         widget = self._controls.get("master_story_visual_direction")
         text = str(value or "").strip()
         if widget is not None and text and not str(widget.toPlainText() or "").strip():
             widget.setPlainText(text)
+
+    def _set_master_story_sfw_from_payload(self, payload: dict[str, Any]) -> None:
+        widget = self._controls.get("master_story_sfw_mode")
+        if widget is None or not hasattr(widget, "setChecked"):
+            return
+        safety = payload.get("content_safety") if isinstance(payload.get("content_safety"), dict) else {}
+        sfw = bool(safety.get("sfw", True))
+        was_syncing = self._syncing
+        self._syncing = True
+        try:
+            widget.setChecked(sfw)
+        finally:
+            self._syncing = was_syncing
 
     def _sanitize_master_story_overrides_for_options(self, payload: dict[str, Any]) -> dict[str, Any]:
         raw = dict(payload or {})
@@ -8867,8 +13188,125 @@ class MultiPersonaRoleplayController:
                     ids.add(persona_id)
         return ids
 
-    def _normalize_master_story_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _parse_master_story_json_text(self, text: str) -> tuple[dict[str, Any] | None, list[str]]:
+        raw = str(text or "").strip()
+        if not raw:
+            return None, ["Master Story draft is empty."]
+        errors: list[str] = []
+
+        def reject_duplicates(pairs):
+            obj: dict[str, Any] = {}
+            seen: set[str] = set()
+            for key, value in pairs:
+                key_text = str(key)
+                if key_text in seen:
+                    errors.append(f"Duplicate JSON key '{key_text}' was found. Remove duplicate keys before applying the draft.")
+                seen.add(key_text)
+                obj[key_text] = value
+            return obj
+
+        def load(candidate: str) -> dict[str, Any] | None:
+            try:
+                payload = json.loads(candidate, object_pairs_hook=reject_duplicates)
+            except Exception as exc:
+                errors.append(f"Invalid JSON: {exc}")
+                return None
+            if not isinstance(payload, dict):
+                errors.append("Master Story draft must be a JSON object.")
+                return None
+            return payload
+
+        payload = load(raw)
+        if payload is None and "{" in raw and "}" in raw:
+            errors.clear()
+            start = raw.find("{")
+            end = raw.rfind("}")
+            payload = load(raw[start : end + 1])
+        return payload, errors
+
+    def _canonical_master_story_payload(self, payload: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
         raw = dict(payload or {})
+        errors: list[str] = []
+        story_keys = {
+            "id",
+            "title",
+            "summary",
+            "mode",
+            "active_persona_id",
+            "current_speaker_id",
+            "session",
+            "personas",
+            "content_safety",
+        }
+        if isinstance(raw.get("draft"), dict):
+            mixed = sorted(key for key in story_keys if key in raw)
+            if mixed:
+                errors.append(
+                    "Master Story JSON mixes wrapper fields with story fields at the same level: "
+                    + ", ".join(mixed)
+                    + ". Put the story only inside draft or return the story object directly."
+                )
+            draft = dict(raw.get("draft") or {})
+            if isinstance(raw.get("generation_constraints"), dict) and not isinstance(draft.get("generation"), dict):
+                draft["generation"] = dict(raw.get("generation_constraints") or {})
+            return draft, errors
+        return raw, errors
+
+    def _validate_master_story_payload(self, payload: dict[str, Any]) -> list[str]:
+        errors: list[str] = []
+        required = ("id", "title", "mode", "session", "personas")
+        for key in required:
+            if key not in payload:
+                errors.append(f"Missing required field: {key}.")
+        if "session" in payload and not isinstance(payload.get("session"), dict):
+            errors.append("Field 'session' must be an object.")
+        mode = str(payload.get("mode") or "").strip()
+        if mode and mode not in SESSION_MODES:
+            errors.append(f"Unsupported mode '{mode}'.")
+        personas = payload.get("personas")
+        if not isinstance(personas, list):
+            errors.append("Field 'personas' must be an array.")
+            personas = []
+        requested = self._control_int_value("master_story_native_persona_count", 4, 0, 24)
+        if requested > 0 and isinstance(personas, list) and not personas:
+            errors.append(f"Draft requested {requested} story-native persona(s), but personas is empty.")
+        ids: list[str] = []
+        for index, item in enumerate(list(personas or []), start=1):
+            if not isinstance(item, dict):
+                errors.append(f"Persona {index} must be an object.")
+                continue
+            persona_id = normalize_persona_id(item.get("id"))
+            if not persona_id:
+                errors.append(f"Persona {index} is missing id.")
+            else:
+                ids.append(persona_id)
+            if not str(item.get("display_name") or "").strip():
+                errors.append(f"Persona {index} is missing display_name.")
+            if not str(item.get("role") or "").strip():
+                errors.append(f"Persona {index} is missing role.")
+            if not str(item.get("system_prompt") or item.get("ar_system_prompt") or "").strip():
+                errors.append(f"Persona {index} must include system_prompt or ar_system_prompt.")
+        duplicates = sorted({persona_id for persona_id in ids if ids.count(persona_id) > 1})
+        if duplicates:
+            errors.append("Duplicate persona id(s) in draft: " + ", ".join(duplicates) + ".")
+        known_ids = {persona.id for persona in self.personas}
+        known_ids.update(ids)
+        narrator_id = normalize_persona_id(payload.get("narrator_persona_id"))
+        if narrator_id:
+            known_ids.add(narrator_id)
+        session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+        for key in ("active_persona_id", "current_speaker_id"):
+            value = normalize_persona_id(payload.get(key) or session.get(key))
+            if value and value not in known_ids:
+                errors.append(f"{key} '{value}' does not match a draft persona, existing persona, or narrator id.")
+        return errors
+
+    def _master_story_validation_message(self, errors: list[str]) -> str:
+        return "Master Story draft validation failed:\n\n" + "\n".join(f"- {item}" for item in errors[:12])
+
+    def _normalize_master_story_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        raw, _errors = self._canonical_master_story_payload(payload)
+        raw = dict(raw or {})
         title = str(raw.get("title") or raw.get("id") or "Master Story").strip() or "Master Story"
         story_id = self.storage.story_id(raw.get("id") or title)
         session = dict(raw.get("session") or {}) if isinstance(raw.get("session"), dict) else {}
@@ -8920,24 +13358,48 @@ class MultiPersonaRoleplayController:
         raw["current_speaker_id"] = speaker_id
         session["mode"] = mode
         raw["session"] = session
+        content_safety = raw.get("content_safety") if isinstance(raw.get("content_safety"), dict) else {}
+        sfw = bool(content_safety.get("sfw", True))
+        raw["content_safety"] = {
+            **self._master_story_content_safety_payload(sfw),
+            **{key: value for key, value in content_safety.items() if key in {"sfw", "allow_romance", "allow_mature_themes", "allow_explicit_sexual_content"}},
+        }
+        raw["content_safety"]["allow_explicit_sexual_content"] = False
+        generation = raw.get("generation") if isinstance(raw.get("generation"), dict) else {}
+        raw["generation"] = {
+            "source": "master_story_creator",
+            "requested_story_native_personas": self._control_int_value("master_story_native_persona_count", 4, 0, 24),
+            "maximum_new_personas_to_create": self._control_int_value("master_story_max_created_characters", 8, 1, 40),
+            "use_existing_personas": self._control_checked("master_story_use_existing_personas", True),
+            "auto_create_missing_personas": self._control_checked("master_story_auto_create", True),
+            "sfw_mode": bool(raw["content_safety"].get("sfw", True)),
+            **generation,
+        }
         raw["updated_at"] = QtCore.QDateTime.currentDateTimeUtc().toString(QtCore.Qt.ISODate)
         return raw
 
     def _parse_master_story_draft(self) -> dict[str, Any] | None:
-        from . import prompting
-
         draft = str(self._controls.get("master_story_draft").toPlainText() if self._controls.get("master_story_draft") is not None else "").strip()
         if not draft and self._master_story_draft:
             return self._normalize_master_story_payload(self._master_story_draft)
-        payload = prompting.parse_json_object(draft)
+        payload, parse_errors = self._parse_master_story_json_text(draft)
         if not isinstance(payload, dict):
+            if parse_errors:
+                self._set_master_story_status(self._master_story_validation_message(parse_errors).replace("\n", " "))
             return None
-        return self._normalize_master_story_payload(payload)
+        canonical, canonical_errors = self._canonical_master_story_payload(payload)
+        errors = parse_errors + canonical_errors + self._validate_master_story_payload(canonical)
+        if errors:
+            self._set_master_story_status(self._master_story_validation_message(errors).replace("\n", " "))
+            return None
+        normalized = self._normalize_master_story_payload(canonical)
+        self._set_master_story_sfw_from_payload(normalized)
+        return normalized
 
     def _apply_master_story_draft(self):
         payload = self._parse_master_story_draft()
         if not isinstance(payload, dict):
-            self._warn("Apply Draft", "The Master Story draft is not valid JSON.")
+            self._warn("Apply Draft", "The Master Story draft is not valid or does not match the required story schema. Check the Master Story status message.")
             return
         payload = self._sanitize_master_story_overrides_for_options(payload)
         apply_plan = self._show_master_story_apply_dialog(payload)
@@ -8972,6 +13434,12 @@ class MultiPersonaRoleplayController:
         guide.setWordWrap(True)
         guide.setProperty("muted", True)
         layout.addWidget(guide)
+        count_warning = self._master_story_generated_persona_limit_warning(payload)
+        if count_warning:
+            warning = QtWidgets.QLabel(count_warning)
+            warning.setWordWrap(True)
+            warning.setStyleSheet("color: #facc15; font-weight: 700;")
+            layout.addWidget(warning)
 
         options_box, options_layout = self._group("Workflow Options")
         options_row = QtWidgets.QHBoxLayout()
@@ -8983,6 +13451,12 @@ class MultiPersonaRoleplayController:
         auto_avatars.setChecked(self._control_checked("master_story_auto_avatars", True))
         avatar_style_sheets = QtWidgets.QCheckBox("Request avatar style sheets")
         avatar_style_sheets.setChecked(self._control_checked("master_story_avatar_style_sheets", False))
+        allow_exceed_max = QtWidgets.QCheckBox("Allow exceeding max created characters")
+        allow_exceed_max.setChecked(self._master_story_allow_exceed_max_created_characters())
+        allow_exceed_max.setToolTip(
+            "Default off. When off, Apply Story creates no more new personas than Maximum created characters. "
+            "Enable only when this draft intentionally needs a larger new cast."
+        )
         avatar_style_sheets.setToolTip(
             "Optional. Requests a character reference sheet after a new persona has an avatar image. "
             "Best used with Visual Reply providers or workflows that support image-to-image/reference input."
@@ -8991,6 +13465,7 @@ class MultiPersonaRoleplayController:
         options_row.addWidget(update_existing)
         options_row.addWidget(auto_avatars)
         options_row.addWidget(avatar_style_sheets)
+        options_row.addWidget(allow_exceed_max)
         options_row.addStretch(1)
         options_layout.addLayout(options_row)
         layout.addWidget(options_box)
@@ -9105,11 +13580,41 @@ class MultiPersonaRoleplayController:
         visual_actions.addWidget(draft_avatar_status, 1)
         visual_layout.addLayout(visual_actions)
         visual_prompt = QtWidgets.QPlainTextEdit()
-        visual_prompt.setReadOnly(True)
         visual_prompt.setMinimumHeight(150)
-        visual_prompt.setPlaceholderText("Select a drafted character to preview the generated avatar prompt.")
+        visual_prompt.setPlaceholderText("Select a drafted character to edit the generated avatar prompt.")
+        visual_prompt.setToolTip("Editable avatar prompt for the selected draft character. Right-click and choose Refine Avatar Visual Prompt to improve it.")
+        self._install_refine_menu(
+            visual_prompt,
+            "Avatar Visual Prompt",
+            "Refine into a concise image prompt for one avatar portrait. Preserve identity, role, clothing, mood, and story context. Keep it prompt-ready and avoid unrelated details.",
+        )
         visual_layout.addWidget(visual_prompt)
         detail_layout.addWidget(visual_box)
+
+        voice_box, voice_layout = self._group("6. Draft Voice")
+        voice_form = QtWidgets.QFormLayout()
+        voice_combo = QtWidgets.QComboBox()
+        voice_combo.setMinimumWidth(360)
+        voice_combo.setToolTip("Choose a .wav voice sample from the project voices folder for the selected draft character.")
+        voice_combo.setSizeAdjustPolicy(QtWidgets.QComboBox.AdjustToMinimumContentsLengthWithIcon)
+        self._populate_voice_file_combo(voice_combo, include_empty=True, empty_label="No voice selected")
+        voice_preview_text = QtWidgets.QPlainTextEdit()
+        voice_preview_text.setMinimumHeight(92)
+        voice_preview_text.setPlainText(self._default_voice_preview_text())
+        voice_preview_text.setToolTip("Editable TTS preview text. Use short emotional lines to hear how the selected voice handles different delivery.")
+        preview_voice = QtWidgets.QPushButton("Preview Voice")
+        preview_voice.setToolTip("Load the active NC TTS runtime if needed and play the preview text with the selected .wav voice sample.")
+        voice_status = QtWidgets.QLabel("")
+        voice_status.setWordWrap(True)
+        voice_status.setProperty("muted", True)
+        voice_button_row = QtWidgets.QHBoxLayout()
+        voice_button_row.addWidget(preview_voice)
+        voice_button_row.addWidget(voice_status, 1)
+        voice_form.addRow("Voice sample", voice_combo)
+        voice_form.addRow("Preview text", voice_preview_text)
+        voice_form.addRow("", voice_button_row)
+        voice_layout.addLayout(voice_form)
+        detail_layout.addWidget(voice_box)
         splitter.addWidget(detail_panel)
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
@@ -9121,8 +13626,19 @@ class MultiPersonaRoleplayController:
         alternates_by_row: dict[int, str] = {}
         draft_avatar_paths_by_row: dict[int, str] = {}
         draft_avatar_status_by_row: dict[int, str] = {}
+        draft_avatar_prompts_by_row: dict[int, str] = {}
+        draft_voice_paths_by_row: dict[int, str] = {}
         list_items: dict[int, Any] = {}
         active_row = {"value": -1}
+        draft_avatar_pending_rows: set[int] = set()
+        buttons = None
+
+        def update_apply_button_state() -> None:
+            if buttons is None:
+                return
+            ok_button = buttons.button(QtWidgets.QDialogButtonBox.Ok)
+            if ok_button is not None:
+                ok_button.setEnabled(not draft_avatar_pending_rows)
 
         def persona_for_choice(choice: str) -> PersonaConfig | None:
             if str(choice or "") == "__create__":
@@ -9151,11 +13667,33 @@ class MultiPersonaRoleplayController:
             if list_item is None or row < 0 or row >= len(personas):
                 return
             list_item.setText(draft_label(row, personas[row]))
+            avatar_path = str(draft_avatar_paths_by_row.get(row) or personas[row].get("character_image_path") or "").strip()
+            if avatar_path and Path(avatar_path).exists():
+                list_item.setIcon(self._apply_dialog_path_icon(avatar_path, 58, fallback_text=str(personas[row].get("display_name") or draft_ids[row])))
+                return
             selected = persona_for_choice(str(choices_by_row.get(row, "__create__") or "__create__"))
             if selected is not None:
                 list_item.setIcon(self._apply_dialog_persona_icon(selected, 58))
             else:
                 list_item.setIcon(self._apply_dialog_initial_icon(str(personas[row].get("display_name") or draft_ids[row]), 58))
+
+        def set_voice_combo_path(sample_path: str) -> None:
+            sample_path = str(sample_path or "").strip()
+            voice_combo.blockSignals(True)
+            target = self._normalized_path_text(sample_path)
+            index = 0
+            if target:
+                for combo_row in range(voice_combo.count()):
+                    candidate = self._normalized_path_text(voice_combo.itemData(combo_row))
+                    if candidate and candidate == target:
+                        index = combo_row
+                        break
+                else:
+                    voice_combo.addItem(Path(sample_path).name, sample_path)
+                    voice_combo.setItemData(voice_combo.count() - 1, sample_path, QtCore.Qt.ToolTipRole)
+                    index = voice_combo.count() - 1
+            voice_combo.setCurrentIndex(max(0, index))
+            voice_combo.blockSignals(False)
 
         for row, item in enumerate(personas):
             draft_id = normalize_persona_id(item.get("id") or item.get("display_name") or f"story_persona_{row + 1}")
@@ -9164,6 +13702,10 @@ class MultiPersonaRoleplayController:
             choices_by_row[row] = match.id if match is not None else "__create__"
             actions_by_row[row] = "story_profile" if match is not None else "__create__"
             alternates_by_row[row] = self._apply_dialog_default_alternate_profile(item)
+            voice_payload = item.get("voice") if isinstance(item.get("voice"), dict) else {}
+            voice_path = str(voice_payload.get("sample_path") or item.get("voice_sample_path") or "").strip()
+            if voice_path:
+                draft_voice_paths_by_row[row] = voice_path
             list_item = QtWidgets.QListWidgetItem()
             list_item.setData(QtCore.Qt.UserRole, row)
             list_items[row] = list_item
@@ -9192,6 +13734,8 @@ class MultiPersonaRoleplayController:
                 selected_summary.setPlainText("")
                 result_summary.setPlainText("")
                 visual_prompt.setPlainText("")
+                set_voice_combo_path("")
+                voice_status.setText("")
                 draft_avatar_generate.setEnabled(False)
                 draft_avatar_regenerate.setEnabled(False)
                 draft_avatar_status.setText("")
@@ -9240,13 +13784,29 @@ class MultiPersonaRoleplayController:
                     clean_start=bool(clean_start.isChecked()),
                     auto_avatars=bool(auto_avatars.isChecked()),
                     avatar_style_sheets=bool(avatar_style_sheets.isChecked()),
+                    allow_exceed_max=bool(allow_exceed_max.isChecked()),
+                    draft_voice_path=str(draft_voice_paths_by_row.get(row, "") or ""),
                 )
             )
-            prompt_preview = self._draft_avatar_prompt_preview(item, payload)
+            prompt_preview = str(draft_avatar_prompts_by_row.get(row) or item.get("avatar_prompt_override") or "").strip()
+            if not prompt_preview:
+                prompt_preview = self._draft_avatar_prompt_preview(item, payload)
+                draft_avatar_prompts_by_row[row] = prompt_preview
+            visual_prompt.blockSignals(True)
             visual_prompt.setPlainText(prompt_preview)
-            draft_avatar_generate.setEnabled(bool(prompt_preview.strip()))
-            draft_avatar_regenerate.setEnabled(bool(prompt_preview.strip()))
+            visual_prompt.blockSignals(False)
+            avatar_pending = row in draft_avatar_pending_rows
+            draft_avatar_generate.setEnabled(bool(prompt_preview.strip()) and not avatar_pending)
+            draft_avatar_regenerate.setEnabled(bool(prompt_preview.strip()) and not avatar_pending)
+            set_voice_combo_path(str(draft_voice_paths_by_row.get(row, "") or ""))
+            selected_voice = str(draft_voice_paths_by_row.get(row, "") or "").strip()
+            if selected_voice:
+                voice_status.setText(f"Selected voice: {Path(selected_voice).name}")
+            else:
+                voice_status.setText("No voice sample selected for this draft character.")
             status_text = str(draft_avatar_status_by_row.get(row, "") or "").strip()
+            if avatar_pending:
+                status_text = "Requesting draft avatar image..."
             if not status_text:
                 image_path = str(item.get("character_image_path") or "").strip()
                 if image_path and Path(image_path).exists():
@@ -9289,6 +13849,29 @@ class MultiPersonaRoleplayController:
                 return
             alternates_by_row[row] = alternate_profile.toPlainText().strip()
 
+        def on_visual_prompt_changed():
+            row = int(active_row.get("value", -1))
+            if row < 0 or row >= len(personas):
+                return
+            text = str(visual_prompt.toPlainText() or "").strip()
+            draft_avatar_prompts_by_row[row] = text
+            avatar_pending = row in draft_avatar_pending_rows
+            draft_avatar_generate.setEnabled(bool(text) and not avatar_pending)
+            draft_avatar_regenerate.setEnabled(bool(text) and not avatar_pending)
+
+        def on_voice_combo_changed(_index: int):
+            row = int(active_row.get("value", -1))
+            if row < 0 or row >= len(personas):
+                return
+            sample_path = str(voice_combo.currentData() or "").strip()
+            if sample_path:
+                draft_voice_paths_by_row[row] = sample_path
+                voice_status.setText(f"Selected voice: {Path(sample_path).name}")
+            else:
+                draft_voice_paths_by_row.pop(row, None)
+                voice_status.setText("No voice sample selected for this draft character.")
+            refresh_current_row(row)
+
         def on_gallery_clicked(item):
             row = int(active_row.get("value", -1))
             if row < 0 or row >= len(personas) or item is None:
@@ -9308,32 +13891,82 @@ class MultiPersonaRoleplayController:
                 payload_personas[row]["character_image_path"] = image_path
             draft_avatar_paths_by_row[row] = image_path
 
+        def finish_draft_avatar(row: int, result: Any) -> None:
+            row = int(row)
+            result_dict = dict(result or {}) if isinstance(result, dict) else {"ok": False, "message": str(result or "")}
+            draft_avatar_pending_rows.discard(row)
+            if row < 0 or row >= len(personas):
+                update_apply_button_state()
+                return
+            image_path = str(result_dict.get("image_path") or "").strip()
+            if image_path:
+                set_draft_avatar_path(row, image_path)
+            message = str(result_dict.get("message") or "").strip()
+            draft_avatar_status_by_row[row] = message or ("Draft avatar image request accepted." if result_dict.get("ok") else "Draft avatar image request failed.")
+            update_apply_button_state()
+            refresh_draft_list_item(row)
+            if int(active_row.get("value", -1)) == row:
+                refresh_current_row(row)
+            if not bool(result_dict.get("ok")):
+                self._warn("Draft Avatar Image", draft_avatar_status_by_row[row])
+
+        draft_avatar_bridge = _MprcObjectResultBridge(finish_draft_avatar, dialog)
+
         def request_draft_avatar(regenerate: bool = False):
             row = int(active_row.get("value", -1))
             if row < 0 or row >= len(personas):
                 return
+            if row in draft_avatar_pending_rows:
+                return
+            prompt_override = str(visual_prompt.toPlainText() or "").strip()
+            if not prompt_override:
+                self._warn("Draft Avatar Image", "This draft persona does not have a usable avatar prompt yet.")
+                return
+            draft_avatar_prompts_by_row[row] = prompt_override
+            draft_avatar_pending_rows.add(row)
+            draft_avatar_status_by_row[row] = "Requesting draft avatar image..."
             draft_avatar_generate.setEnabled(False)
             draft_avatar_regenerate.setEnabled(False)
-            draft_avatar_status.setText("Requesting draft avatar image...")
-            QtWidgets.QApplication.processEvents()
-            result = self._request_master_story_draft_avatar_image(personas[row], payload, regenerate=bool(regenerate))
-            image_path = str(result.get("image_path") or "").strip()
-            if image_path:
-                set_draft_avatar_path(row, image_path)
-            message = str(result.get("message") or "").strip()
-            draft_avatar_status_by_row[row] = message or ("Draft avatar image request accepted." if result.get("ok") else "Draft avatar image request failed.")
-            refresh_current_row(row)
-            if not bool(result.get("ok")):
-                self._warn("Draft Avatar Image", draft_avatar_status_by_row[row])
+            draft_avatar_status.setText(draft_avatar_status_by_row[row])
+            update_apply_button_state()
+            persona_payload = copy.deepcopy(personas[row])
+            story_payload = copy.deepcopy(payload)
+
+            def worker():
+                try:
+                    result = self._request_master_story_draft_avatar_image(
+                        persona_payload,
+                        story_payload,
+                        regenerate=bool(regenerate),
+                        prompt_override=prompt_override,
+                    )
+                except Exception as exc:
+                    result = {"ok": False, "message": f"Draft avatar generation failed:\n\n{exc}"}
+                try:
+                    draft_avatar_bridge.finished.emit(row, result)
+                except RuntimeError:
+                    pass
+
+            if not self._queue_visual_worker("mprc_draft_avatar_image", worker):
+                finish_draft_avatar(row, {"ok": False, "message": "Draft avatar generation could not start a background worker."})
 
         draft_list.currentRowChanged.connect(refresh_current_row)
         persona_combo.currentIndexChanged.connect(on_combo_changed)
         action_combo.currentIndexChanged.connect(on_action_changed)
         alternate_profile.textChanged.connect(on_alternate_changed)
+        visual_prompt.textChanged.connect(on_visual_prompt_changed)
+        voice_combo.currentIndexChanged.connect(on_voice_combo_changed)
         persona_gallery.itemClicked.connect(on_gallery_clicked)
         draft_avatar_generate.clicked.connect(lambda *_args: request_draft_avatar(False))
         draft_avatar_regenerate.clicked.connect(lambda *_args: request_draft_avatar(True))
-        for widget in (clean_start, update_existing, auto_avatars, avatar_style_sheets):
+        preview_voice.clicked.connect(
+            lambda *_args: self._preview_voice_sample(
+                str(voice_combo.currentData() or ""),
+                str(voice_preview_text.toPlainText() or ""),
+                status_label=voice_status,
+            )
+        )
+        for widget in (clean_start, update_existing, auto_avatars, avatar_style_sheets, allow_exceed_max):
             widget.toggled.connect(lambda *_args: refresh_current_row(int(active_row.get("value", -1))))
         if personas:
             draft_list.setCurrentRow(0)
@@ -9345,6 +13978,7 @@ class MultiPersonaRoleplayController:
         buttons.button(QtWidgets.QDialogButtonBox.Ok).setText("Apply Story")
         buttons.accepted.connect(dialog.accept)
         buttons.rejected.connect(dialog.reject)
+        update_apply_button_state()
         layout.addWidget(buttons)
         if dialog.exec() != QtWidgets.QDialog.Accepted:
             return None
@@ -9353,6 +13987,8 @@ class MultiPersonaRoleplayController:
         row_actions: dict[str, str] = {}
         row_alternates: dict[str, str] = {}
         row_avatar_paths: dict[str, str] = {}
+        row_avatar_prompts: dict[str, str] = {}
+        row_voice_paths: dict[str, str] = {}
         for row, item in enumerate(personas):
             draft_id = normalize_persona_id(item.get("id") or item.get("display_name") or f"story_persona_{row + 1}")
             choice = str(choices_by_row.get(row, "__create__") or "__create__")
@@ -9363,16 +13999,25 @@ class MultiPersonaRoleplayController:
             image_path = str(draft_avatar_paths_by_row.get(row) or item.get("character_image_path") or "").strip()
             if image_path:
                 row_avatar_paths[str(row)] = image_path
+            prompt_text = str(draft_avatar_prompts_by_row.get(row) or item.get("avatar_prompt_override") or "").strip()
+            if prompt_text:
+                row_avatar_prompts[str(row)] = prompt_text
+            voice_path = str(draft_voice_paths_by_row.get(row) or "").strip()
+            if voice_path:
+                row_voice_paths[str(row)] = voice_path
         return {
             "persona_choices": choices,
             "persona_choices_by_row": row_choices,
             "persona_actions_by_row": row_actions,
             "persona_alternates_by_row": row_alternates,
             "draft_avatar_paths_by_row": row_avatar_paths,
+            "draft_avatar_prompts_by_row": row_avatar_prompts,
+            "draft_voice_paths_by_row": row_voice_paths,
             "clear_memory": bool(clean_start.isChecked()),
             "update_existing": bool(update_existing.isChecked()),
             "auto_avatars": bool(auto_avatars.isChecked()),
             "avatar_style_sheets": bool(avatar_style_sheets.isChecked()),
+            "allow_exceed_max_created_characters": bool(allow_exceed_max.isChecked()),
         }
 
     def _apply_dialog_initial_icon(self, text: str, size: int = 64):
@@ -9407,6 +14052,16 @@ class MultiPersonaRoleplayController:
             if not pixmap.isNull():
                 return QtGui.QIcon(pixmap.scaled(size, size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
         return self._apply_dialog_initial_icon(str(persona.display_name or persona.id), size)
+
+    def _apply_dialog_path_icon(self, image_path: str, size: int = 64, *, fallback_text: str = "Draft"):
+        from PySide6 import QtCore, QtGui
+
+        path = Path(str(image_path or "").strip())
+        if path.exists():
+            pixmap = QtGui.QPixmap(str(path))
+            if not pixmap.isNull():
+                return QtGui.QIcon(pixmap.scaled(size, size, QtCore.Qt.KeepAspectRatio, QtCore.Qt.SmoothTransformation))
+        return self._apply_dialog_initial_icon(fallback_text, size)
 
     def _apply_dialog_default_alternate_profile(self, persona_payload: dict[str, Any]) -> str:
         draft_id = normalize_persona_id(persona_payload.get("id") or persona_payload.get("display_name") or "story_persona")
@@ -9502,6 +14157,8 @@ class MultiPersonaRoleplayController:
         clean_start: bool,
         auto_avatars: bool,
         avatar_style_sheets: bool = False,
+        allow_exceed_max: bool = False,
+        draft_voice_path: str = "",
     ) -> str:
         action = str(action or ("__create__" if str(choice or "") in {"", "__create__"} else "story_profile")).strip()
         selected = self.persona_by_id(choice) if action != "__create__" and str(choice or "") not in {"", "__create__"} else None
@@ -9513,7 +14170,6 @@ class MultiPersonaRoleplayController:
                     f"Create: {draft_name}",
                     "A fresh persona will be created from the draft.",
                     "Prompt, AR profile, visual profile, tags, behavior, and story link come from the draft.",
-                    "Voice sample: not created automatically. Add it later in the Voice tab.",
                     f"Avatar request: {'will be requested through Visual Reply' if auto_avatars else 'will be skipped'} for the new persona.",
                     f"Avatar style sheet: {'will be requested after an avatar image exists' if avatar_style_sheets else 'will be skipped'} for the new persona.",
                 ]
@@ -9554,9 +14210,22 @@ class MultiPersonaRoleplayController:
         story_title = str(payload.get("title") or payload.get("id") or "this Master Story").strip()
         lines.append(f"Story link: character will be linked to {story_title}.")
         lines.append(f"Memory: {'old MPRC story memory will be cleared first' if clean_start else 'existing MPRC memory will be kept'} before applying.")
+        if action == "__create__" or selected is None:
+            max_created = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
+            lines.append(
+                f"Creation limit: {'override enabled' if allow_exceed_max else f'max {max_created} new persona(s)'} for this apply."
+            )
+        voice_path = str(draft_voice_path or "").strip()
+        if voice_path:
+            lines.append(f"Voice: {Path(voice_path).name} will be assigned to the resulting persona.")
+        else:
+            lines.append("Voice: no new voice sample selected for this draft character.")
         return "\n".join(lines)
 
     def _draft_avatar_prompt_preview(self, persona_payload: dict[str, Any], payload: dict[str, Any]) -> str:
+        override = str((persona_payload or {}).get("avatar_prompt_override") or "").strip()
+        if override:
+            return override
         persona = PersonaConfig.from_dict(persona_payload)
         self._fill_story_visual_profile(persona, persona_payload)
         return self._story_avatar_prompt(persona, payload)
@@ -9567,6 +14236,7 @@ class MultiPersonaRoleplayController:
         payload: dict[str, Any],
         *,
         regenerate: bool = False,
+        prompt_override: str = "",
     ) -> dict[str, Any]:
         draft_id = normalize_persona_id(persona_payload.get("id") or persona_payload.get("display_name") or "story_persona")
         existing_path = str(persona_payload.get("character_image_path") or "").strip()
@@ -9590,7 +14260,7 @@ class MultiPersonaRoleplayController:
             }
         persona = PersonaConfig.from_dict(persona_payload)
         self._fill_story_visual_profile(persona, persona_payload)
-        prompt = self._story_avatar_prompt(persona, payload)
+        prompt = str(prompt_override or "").strip() or self._story_avatar_prompt(persona, payload)
         if not prompt:
             self._record_visual_debug(
                 source="master_story_draft_avatar",
@@ -9682,6 +14352,7 @@ class MultiPersonaRoleplayController:
         update_existing = bool(apply_plan.get("update_existing", self._control_checked("master_story_update_existing", True)))
         auto_avatars = bool(apply_plan.get("auto_avatars", self._control_checked("master_story_auto_avatars", True)))
         avatar_style_sheets = bool(apply_plan.get("avatar_style_sheets", self._control_checked("master_story_avatar_style_sheets", False)))
+        allow_exceed_max = bool(apply_plan.get("allow_exceed_max_created_characters", self._master_story_allow_exceed_max_created_characters()))
         if bool(apply_plan.get("clear_memory", self._control_checked("master_story_clear_memory", True))):
             self._clear_master_story_runtime_state(clear_long_memory=True, enabled=True)
         persona_choices = dict(apply_plan.get("persona_choices") or {})
@@ -9689,6 +14360,8 @@ class MultiPersonaRoleplayController:
         persona_actions_by_row = dict(apply_plan.get("persona_actions_by_row") or {})
         persona_alternates_by_row = dict(apply_plan.get("persona_alternates_by_row") or {})
         draft_avatar_paths_by_row = dict(apply_plan.get("draft_avatar_paths_by_row") or {})
+        draft_avatar_prompts_by_row = dict(apply_plan.get("draft_avatar_prompts_by_row") or {})
+        draft_voice_paths_by_row = dict(apply_plan.get("draft_voice_paths_by_row") or {})
         saved_overrides = payload.get("persona_overrides") if isinstance(payload.get("persona_overrides"), dict) else {}
         max_created = self._control_int_value("master_story_max_created_characters", 8, 1, 40)
         linked_ids: list[str] = []
@@ -9697,17 +14370,32 @@ class MultiPersonaRoleplayController:
         story_overrides: dict[str, dict[str, Any]] = {}
         created = 0
         updated = 0
+        voice_assigned = 0
         skipped: list[str] = []
         for row, item in enumerate(list(payload.get("personas") or [])):
             if not isinstance(item, dict):
                 continue
+            item = dict(item)
+            payload_personas = payload.get("personas")
             draft_avatar_path = str(draft_avatar_paths_by_row.get(str(row)) or draft_avatar_paths_by_row.get(row) or "").strip()
             if draft_avatar_path:
-                item = dict(item)
                 item["character_image_path"] = draft_avatar_path
-                payload_personas = payload.get("personas")
                 if isinstance(payload_personas, list) and row < len(payload_personas) and isinstance(payload_personas[row], dict):
                     payload_personas[row]["character_image_path"] = draft_avatar_path
+            draft_avatar_prompt = str(draft_avatar_prompts_by_row.get(str(row)) or draft_avatar_prompts_by_row.get(row) or "").strip()
+            if draft_avatar_prompt:
+                item["avatar_prompt_override"] = draft_avatar_prompt
+                if isinstance(payload_personas, list) and row < len(payload_personas) and isinstance(payload_personas[row], dict):
+                    payload_personas[row]["avatar_prompt_override"] = draft_avatar_prompt
+            draft_voice_path = str(draft_voice_paths_by_row.get(str(row)) or draft_voice_paths_by_row.get(row) or "").strip()
+            if draft_voice_path:
+                voice_payload = dict(item.get("voice") or {}) if isinstance(item.get("voice"), dict) else {}
+                voice_payload["enabled"] = True
+                voice_payload["sample_path"] = draft_voice_path
+                voice_payload.setdefault("backend", "inherit")
+                item["voice"] = voice_payload
+                if isinstance(payload_personas, list) and row < len(payload_personas) and isinstance(payload_personas[row], dict):
+                    payload_personas[row]["voice"] = dict(voice_payload)
             draft_id = normalize_persona_id(item.get("id") or item.get("display_name") or "")
             choice = str(persona_choices_by_row.get(str(row), persona_choices.get(draft_id, "")) or "").strip()
             action = str(persona_actions_by_row.get(str(row), "") or "").strip()
@@ -9738,12 +14426,14 @@ class MultiPersonaRoleplayController:
                             payload,
                             alternate_text=str(persona_alternates_by_row.get(str(row), "") or ""),
                         )
+                if draft_voice_path and self._apply_story_voice_sample(match, draft_voice_path):
+                    voice_assigned += 1
                 continue
             create_allowed = bool(auto_create or action == "__create__" or choice == "__create__")
             if not create_allowed:
                 skipped.append(str(item.get("display_name") or item.get("id") or "persona"))
                 continue
-            if created >= max_created:
+            if not allow_exceed_max and created >= max_created:
                 skipped.append(f"{str(item.get('display_name') or item.get('id') or 'persona')} (creation limit)")
                 continue
             persona_payload = dict(item)
@@ -9752,9 +14442,13 @@ class MultiPersonaRoleplayController:
                 persona_payload["ar_profile_enabled"] = True
             persona = PersonaConfig.from_dict(persona_payload)
             self._fill_story_visual_profile(persona, persona_payload)
+            if draft_avatar_prompt:
+                setattr(persona, "_mprc_avatar_prompt_override", draft_avatar_prompt)
             self.personas.append(persona)
             linked_ids.append(persona.id)
             created_ids.append(persona.id)
+            if draft_voice_path and str(getattr(persona.voice, "sample_path", "") or "").strip():
+                voice_assigned += 1
             if draft_id:
                 story_id_map[draft_id] = persona.id
             created += 1
@@ -9844,6 +14538,7 @@ class MultiPersonaRoleplayController:
             session_payload["narrator_persona_id"] = narrator_id
             session_payload["narrator_persona_mode"] = "explicit"
             payload["session"] = session_payload
+        activation_result = self._sync_story_persona_activation(linked_ids, narrator_id=narrator_id)
 
         self._master_story_draft = payload
         self.settings["last_master_story_id"] = payload.get("id")
@@ -9854,16 +14549,38 @@ class MultiPersonaRoleplayController:
         payload["persona_overrides"] = story_overrides
         self.storage.save_settings(self.settings)
         self.save_state()
-        avatar_result = self._generate_story_avatar_images(created_ids, payload, enabled=auto_avatars)
-        style_sheet_result = self._generate_story_avatar_style_sheets(created_ids, payload, enabled=avatar_style_sheets)
+        avatar_result = self._queue_story_avatar_generation(
+            created_ids,
+            payload,
+            avatar_enabled=auto_avatars,
+            style_sheet_enabled=avatar_style_sheets,
+        )
+        style_sheet_result = ""
         self.refresh_ui()
         message = f"Applied story '{payload.get('title')}'. Linked {len(linked_ids)} persona(s), created {created}, updated {updated}."
+        if voice_assigned:
+            message += f" Assigned {voice_assigned} voice sample(s)."
+        if activation_result.get("voices_enabled"):
+            message += f" Enabled {activation_result.get('voices_enabled')} existing story voice(s)."
+        if activation_result.get("enabled") or activation_result.get("disabled"):
+            message += (
+                f" Story persona filter enabled {activation_result.get('enabled', 0)}"
+                f" and disabled {activation_result.get('disabled', 0)} non-story persona(s)."
+            )
         if avatar_result:
             message += " " + avatar_result
         if style_sheet_result:
             message += " " + style_sheet_result
+        limit_skipped = [item for item in skipped if "(creation limit)" in item]
+        other_skipped = [item for item in skipped if "(creation limit)" not in item]
+        if limit_skipped:
+            message += (
+                f" Creation limit {max_created} skipped {len(limit_skipped)} draft persona(s). "
+                "Enable Allow exceeding max created characters to create more."
+            )
+        if other_skipped:
+            message += f" Skipped personas: {', '.join(other_skipped[:5])}."
         if skipped:
-            message += f" Skipped missing personas: {', '.join(skipped[:5])}."
             self._record_story_event(f"persona skipped: {', '.join(skipped[:8])}", severity="warning", kind="persona", persist=True)
         self._set_master_story_status(message)
         logger = getattr(self.context, "logger", None)
@@ -9882,6 +14599,59 @@ class MultiPersonaRoleplayController:
                 if persona.display_name.strip().lower() == wanted_name:
                     return persona
         return None
+
+    def _apply_story_voice_sample(self, persona: PersonaConfig | None, sample_path: str) -> bool:
+        if persona is None:
+            return False
+        sample = str(sample_path or "").strip()
+        if not sample:
+            return False
+        persona.voice.enabled = True
+        persona.voice.sample_path = sample
+        if persona.voice.backend not in VOICE_BACKENDS:
+            persona.voice.backend = "inherit"
+        return True
+
+    def _sync_story_persona_activation(self, linked_ids: list[str], *, narrator_id: str = "") -> dict[str, int]:
+        known = {persona.id for persona in self.personas}
+        active_ids = [
+            persona_id
+            for persona_id in list(dict.fromkeys(normalize_persona_id(item) for item in list(linked_ids or []) if str(item or "").strip()))
+            if persona_id in known
+        ]
+        narrator = normalize_persona_id(narrator_id or self.selected_narrator_persona_id())
+        if narrator and narrator in known and narrator not in active_ids:
+            active_ids.append(narrator)
+        if not active_ids:
+            return {"enabled": 0, "disabled": 0, "voices_enabled": 0}
+        active_set = set(active_ids)
+        enabled_count = 0
+        disabled_count = 0
+        voices_enabled = 0
+        for persona in self.personas:
+            desired_enabled = persona.id in active_set
+            if bool(getattr(persona, "enabled", True)) != desired_enabled:
+                persona.enabled = desired_enabled
+                if desired_enabled:
+                    enabled_count += 1
+                else:
+                    disabled_count += 1
+            voice = getattr(persona, "voice", None)
+            if persona.id in active_set and voice is not None:
+                sample = str(getattr(voice, "sample_path", "") or "").strip()
+                if sample and not bool(getattr(voice, "enabled", False)):
+                    voice.enabled = True
+                    voices_enabled += 1
+                if sample and str(getattr(voice, "backend", "") or "").strip() not in VOICE_BACKENDS:
+                    voice.backend = "inherit"
+        if self.session.active_persona_id not in active_set:
+            self.session.active_persona_id = active_ids[0]
+        if self.session.current_speaker_id not in active_set:
+            self.session.current_speaker_id = self.session.active_persona_id
+        if self._voice_follows_active():
+            self.settings["voice_edit_persona_id"] = self.session.active_persona_id
+        self.settings["current_character_view_mode"] = "active_story"
+        return {"enabled": enabled_count, "disabled": disabled_count, "voices_enabled": voices_enabled}
 
     def _merge_story_persona(self, target: PersonaConfig, persona_payload: dict[str, Any]) -> None:
         text_fields = (
@@ -9942,6 +14712,63 @@ class MultiPersonaRoleplayController:
             persona.visual.enabled = True
             persona.visual.mode = "manual"
             persona.visual.character_description = appearance
+
+    def _queue_story_avatar_generation(
+        self,
+        created_ids: list[str],
+        payload: dict[str, Any],
+        *,
+        avatar_enabled: bool,
+        style_sheet_enabled: bool,
+    ) -> str:
+        persona_ids = [str(item or "").strip() for item in list(created_ids or []) if str(item or "").strip()]
+        if not persona_ids or not (bool(avatar_enabled) or bool(style_sheet_enabled)):
+            return ""
+        service = self.visual_reply_service
+        if service is None or not hasattr(service, "request_generation"):
+            self._record_visual_debug(
+                source="master_story_avatar",
+                reason="story_avatar",
+                accepted=False,
+                message="Avatar generation skipped because the Visual Reply service is unavailable.",
+            )
+            return "Avatar generation skipped: Visual Reply service is unavailable."
+        payload_snapshot = copy.deepcopy(payload)
+
+        def worker():
+            messages: list[str] = []
+            accepted = False
+            try:
+                if avatar_enabled:
+                    avatar_message = self._generate_story_avatar_images(persona_ids, payload_snapshot, enabled=True)
+                    if avatar_message:
+                        messages.append(avatar_message)
+                        accepted = accepted or "failed" not in avatar_message.lower()
+                if style_sheet_enabled:
+                    sheet_message = self._generate_story_avatar_style_sheets(persona_ids, payload_snapshot, enabled=True)
+                    if sheet_message:
+                        messages.append(sheet_message)
+                        accepted = accepted or "failed" not in sheet_message.lower()
+            except Exception as exc:
+                messages.append(f"Avatar generation failed: {exc}")
+                accepted = False
+            self._emit_manual_visual_finished(
+                "story_avatar_batch",
+                "",
+                {
+                    "accepted": accepted,
+                    "message": " ".join(message for message in messages if message).strip() or "No avatar requests were needed.",
+                },
+            )
+
+        if self._queue_visual_worker("mprc_story_avatar_batch", worker):
+            queued = []
+            if avatar_enabled:
+                queued.append("avatar image")
+            if style_sheet_enabled:
+                queued.append("avatar style sheet")
+            return f"Queued {' and '.join(queued)} generation in background."
+        return "Avatar generation could not start a background worker."
 
     def _generate_story_avatar_images(self, created_ids: list[str], payload: dict[str, Any], *, enabled: bool | None = None) -> str:
         if enabled is None:
@@ -10179,6 +15006,11 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         return prompt[:3600].rstrip(" \t\r\n,;:.-")
 
     def _story_avatar_prompt(self, persona: PersonaConfig, payload: dict[str, Any]) -> str:
+        override = str(getattr(persona, "_mprc_avatar_prompt_override", "") or "").strip()
+        if not override:
+            override = self._story_avatar_prompt_override_for_persona(persona, payload)
+        if override:
+            return override[:1200].rstrip(" \t\r\n,;:.-")
         visual_direction_widget = self._controls.get("master_story_visual_direction")
         visual_direction = str(visual_direction_widget.toPlainText() if visual_direction_widget is not None else "").strip()
         if not visual_direction:
@@ -10201,6 +15033,20 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         ]
         prompt = ". ".join(str(item or "").strip(" .") for item in pieces if str(item or "").strip())
         return prompt[:1200].rstrip(" \t\r\n,;:.-")
+
+    def _story_avatar_prompt_override_for_persona(self, persona: PersonaConfig | None, payload: dict[str, Any]) -> str:
+        if persona is None or not isinstance(payload, dict):
+            return ""
+        persona_id = normalize_persona_id(getattr(persona, "id", ""))
+        display_name = str(getattr(persona, "display_name", "") or "").strip().lower()
+        for item in list(payload.get("personas") or []):
+            if not isinstance(item, dict):
+                continue
+            item_id = normalize_persona_id(item.get("id") or "")
+            item_name = str(item.get("display_name") or "").strip().lower()
+            if (persona_id and item_id == persona_id) or (display_name and item_name == display_name):
+                return str(item.get("avatar_prompt_override") or "").strip()
+        return ""
 
     @staticmethod
     def _looks_like_fantasy_story(payload: dict[str, Any]) -> bool:
@@ -10418,6 +15264,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         payload = self._ensure_master_story_image(payload)
         story_id = self.storage.save_story(payload)
         self._master_story_draft = payload
+        self._set_master_story_sfw_from_payload(payload)
         self._controls["master_story_draft"].setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
         if self.storage.story_id(self.settings.get("last_master_story_id") or "") == story_id:
             self._save_story_memory_snapshot(story_id)
@@ -10444,6 +15291,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         payload = self._ensure_master_story_image(payload, save_story=True)
         self._master_story_draft = payload
         self._set_master_story_visual_direction(payload.get("avatar_visual_direction"))
+        self._set_master_story_sfw_from_payload(payload)
         self._controls["master_story_draft"].setPlainText(json.dumps(payload, indent=2, ensure_ascii=True))
         self._apply_master_story_payload(payload, apply_plan={"clear_memory": True})
         restored = self._restore_story_memory_snapshot(story_id)
@@ -10898,6 +15746,17 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         self.storage.save_settings(self.settings)
         self._refresh_character_preview()
 
+    def _on_current_character_view_mode_changed(self):
+        if self._syncing:
+            return
+        combo = self._controls.get("current_character_view_mode")
+        mode = str(combo.currentData() or "active_story").strip() if combo is not None and hasattr(combo, "currentData") else "active_story"
+        if mode not in {"active_story", "all"}:
+            mode = "active_story"
+        self.settings["current_character_view_mode"] = mode
+        self.storage.save_settings(self.settings)
+        self._refresh_character_preview()
+
     def _on_ar_mode_changed(self, checked: bool):
         if self._syncing:
             return
@@ -10987,6 +15846,12 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         persona = self._selected_persona()
         if persona is None:
             return
+        if self._persona_is_master_narrator(persona):
+            self._warn(
+                "Delete persona",
+                "This persona is marked as a Master narrator and is protected from deletion. Uncheck Master narrator in the Editor tab before deleting it.",
+            )
+            return
         self.personas = [item for item in self.personas if item.id != persona.id]
         self.session.active_persona_id = self.personas[0].id
         self.session.current_speaker_id = self.session.active_persona_id
@@ -11009,6 +15874,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         self.settings["narrator_persona_id"] = ""
         self.settings["narrator_persona_mode"] = "auto"
         self.settings["voice_edit_persona_id"] = ""
+        self.settings["current_character_view_mode"] = "active_story"
         self.storage.save_settings(self.settings)
         self._ensure_session_persona()
         self.save_state()
@@ -11067,11 +15933,18 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             self.storage.export_personas_to_path(path, self.personas)
 
     def _browse_voice_sample(self):
-        path = self._open_file("Choose voice sample", str(Path.home()), "Audio files (*.wav *.mp3 *.flac *.ogg);;All files (*.*)")
+        voices_dir = self._voice_sample_folder()
+        start = voices_dir if voices_dir.exists() and voices_dir.is_dir() else Path(__file__).resolve().parents[2]
+        path = self._open_file(
+            "Choose voice sample",
+            str(start),
+            "WAV files (*.wav);;Audio files (*.wav *.mp3 *.flac *.ogg *.m4a);;All files (*.*)",
+        )
         if path:
             self._controls["voice_sample"].setText(path)
             self._populate_voice_sample_picker()
             self._sync_voice_sample_picker(path)
+            self._commit_voice_now()
 
     def _voice_sample_folder(self) -> Path:
         return Path(__file__).resolve().parents[2] / "voices"
@@ -11085,6 +15958,123 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             (path for path in folder.iterdir() if path.is_file() and path.suffix.lower() in audio_suffixes),
             key=lambda path: path.name.lower(),
         )
+
+    def _voice_sample_wav_files(self) -> list[Path]:
+        folder = self._voice_sample_folder()
+        if not folder.exists() or not folder.is_dir():
+            return []
+        return sorted((path for path in folder.iterdir() if path.is_file() and path.suffix.lower() == ".wav"), key=lambda path: path.name.lower())
+
+    def _populate_voice_file_combo(self, combo, *, include_empty: bool = True, empty_label: str = "No voice selected") -> None:
+        if combo is None or not hasattr(combo, "addItem"):
+            return
+        current = str(combo.currentData() or "").strip() if hasattr(combo, "currentData") else ""
+        combo.blockSignals(True)
+        combo.clear()
+        if include_empty:
+            combo.addItem(str(empty_label or "No voice selected"), "")
+        files = self._voice_sample_wav_files()
+        for path in files:
+            combo.addItem(path.name, str(path))
+            combo.setItemData(combo.count() - 1, str(path), QtCore.Qt.ToolTipRole)
+        if not files and not include_empty:
+            combo.addItem("No .wav files in \\voices", "")
+            combo.setEnabled(False)
+        else:
+            combo.setEnabled(True)
+        if current:
+            for index in range(combo.count()):
+                if self._normalized_path_text(combo.itemData(index)) == self._normalized_path_text(current):
+                    combo.setCurrentIndex(index)
+                    break
+        combo.blockSignals(False)
+
+    @staticmethod
+    def _default_voice_preview_text() -> str:
+        return (
+            "Neutral: This is the voice I will use for this character.\n"
+            "Warm: I am glad you found me here.\n"
+            "Concerned: Wait, something changed in the room.\n"
+            "Excited: That is exactly the clue we needed.\n"
+            "Whispered: Keep your voice low and listen closely."
+        )
+
+    def _preview_voice_sample(self, sample_path: str, text: str, *, status_label=None) -> bool:
+        sample = str(sample_path or "").strip()
+        if not sample:
+            if status_label is not None and hasattr(status_label, "setText"):
+                status_label.setText("Choose a .wav voice sample first.")
+            return False
+        path = Path(sample)
+        if not path.exists() or not path.is_file():
+            if status_label is not None and hasattr(status_label, "setText"):
+                status_label.setText(f"Voice sample not found: {sample}")
+            return False
+        preview_text = str(text or "").strip() or self._default_voice_preview_text()
+        token = self._new_worker_token("voice_preview")
+        if not token:
+            return False
+        if status_label is not None and hasattr(status_label, "setText"):
+            status_label.setProperty("_mprc_voice_preview_token", token)
+            status_label.setText(f"Loading TTS preview for {path.name}...")
+            try:
+                self._voice_preview_status_widgets[token] = weakref.ref(status_label)
+            except TypeError:
+                self._voice_preview_status_widgets[token] = lambda status_label=status_label: status_label
+
+        def worker():
+            error = ""
+            try:
+                from core.engine_access import engine_module
+
+                engine = engine_module()
+                if getattr(engine, "tts_model", None) is None:
+                    init_tts = getattr(engine, "init_tts", None)
+                    if not callable(init_tts):
+                        raise RuntimeError("The active NC runtime does not expose TTS initialization.")
+                    with self._mprc_tts_lock:
+                        if getattr(engine, "tts_model", None) is None and not bool(init_tts()):
+                            raise RuntimeError("The active TTS runtime could not be loaded.")
+                speak_async = getattr(engine, "speak_async", None)
+                if not callable(speak_async):
+                    raise RuntimeError("The active NC runtime does not expose TTS playback.")
+                if self._worker_should_emit(token):
+                    speak_async(preview_text, voice_path_override=str(path))
+            except Exception as exc:
+                error = str(exc) or repr(exc)
+            if not self._worker_should_emit(token):
+                return
+            bridge = getattr(self, "_voice_preview_bridge", None)
+            if bridge is not None:
+                bridge.finished.emit(token, error)
+            else:
+                self._cancel_worker_token(token)
+
+        if not self._start_daemon_worker(token, worker, name="nc-mprc-voice-preview"):
+            self._voice_preview_status_widgets.pop(token, None)
+            if status_label is not None and hasattr(status_label, "setText"):
+                status_label.setText("Could not start voice preview worker.")
+            return False
+        return True
+
+    def _on_voice_preview_finished(self, token: str, error: str) -> None:
+        token = str(token or "")
+        if not self._finish_worker_token(token):
+            self._voice_preview_status_widgets.pop(token, None)
+            return
+        widget_ref = self._voice_preview_status_widgets.pop(token, None)
+        widget = widget_ref() if callable(widget_ref) else None
+        if widget is not None and hasattr(widget, "property"):
+            current_token = str(widget.property("_mprc_voice_preview_token") or "")
+            if current_token and current_token != token:
+                widget = None
+        if widget is not None and hasattr(widget, "setText"):
+            widget.setProperty("_mprc_voice_preview_token", "")
+            widget.setText(f"Voice preview failed: {error}" if str(error or "").strip() else "Voice preview queued.")
+        if error:
+            logger = getattr(self.context, "logger", None)
+            if logger is not None:
+                logger.warning("[MPRC] Voice preview failed: %s", error)
 
     def _populate_voice_sample_picker(self) -> None:
         combo = self._controls.get("voice_sample_picker")
@@ -11148,6 +16138,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         path = str(combo.currentData() or "").strip()
         if path:
             sample.setText(path)
+            self._commit_voice_now()
 
     @staticmethod
     def _normalized_path_text(value: Any) -> str:
@@ -11163,15 +16154,75 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         path = self._open_file("Choose character picture", str(Path.home()), "Images (*.png *.jpg *.jpeg *.webp *.bmp);;All files (*.*)")
         if path:
             self._controls["character_image_path"].setText(path)
+            self._commit_editor_now(include_identity=False)
 
     def _generate_character_image(self):
         persona = self._selected_persona()
         if persona is None:
             return
-        result = self._request_character_image_generation(persona, auto_show=True, source="nc.multi_persona_roleplay.character_picture")
-        if result.get("ok"):
+        key = str(persona.id or "").strip()
+        if not key:
             return
-        self._warn("Create Character Picture", result.get("message") or "Character picture generation was not accepted.")
+        prompt = self._character_picture_prompt(persona)
+        if not prompt:
+            self._record_visual_debug(
+                source="nc.multi_persona_roleplay.character_picture",
+                reason="character_picture",
+                persona=persona,
+                accepted=False,
+                message="Character picture skipped because the persona has no usable description or system prompt.",
+            )
+            self._warn("Create Character Picture", "Add a description or system prompt before generating a character picture.")
+            return
+        with self._state_lock:
+            if key in self._manual_character_image_inflight:
+                self._record_visual_debug(
+                    source="nc.multi_persona_roleplay.character_picture",
+                    reason="character_picture",
+                    persona=persona,
+                    accepted=None,
+                    message="Character picture request is already running.",
+                    prompt=prompt,
+                )
+                return
+            self._manual_character_image_inflight.add(key)
+        self._record_visual_debug(
+            source="nc.multi_persona_roleplay.character_picture",
+            reason="character_picture",
+            persona=persona,
+            accepted=None,
+            message="Character picture request queued for a background worker.",
+            prompt=prompt,
+        )
+        if not self._queue_visual_worker("mprc_manual_character_image", lambda: self._run_manual_character_image_request(key)):
+            with self._state_lock:
+                self._manual_character_image_inflight.discard(key)
+            self._record_visual_debug(
+                source="nc.multi_persona_roleplay.character_picture",
+                reason="character_picture",
+                persona=persona,
+                accepted=False,
+                message="Character picture request could not start a background worker.",
+                prompt=prompt,
+            )
+            self._warn("Create Character Picture", "Character picture generation could not start a background worker.")
+
+    def _run_manual_character_image_request(self, persona_id: str) -> None:
+        key = str(persona_id or "").strip()
+        result: dict[str, Any]
+        try:
+            persona = self.persona_by_id(key)
+            if persona is None:
+                result = {"ok": False, "message": f"No persona matched character picture request id '{key}'."}
+            else:
+                result = self._request_character_image_generation(
+                    persona,
+                    auto_show=True,
+                    source="nc.multi_persona_roleplay.character_picture",
+                )
+        except Exception as exc:
+            result = {"ok": False, "message": f"Character picture generation failed:\n\n{exc}"}
+        self._emit_manual_visual_finished("character_picture", key, result)
 
     def _request_character_image_generation(self, persona: PersonaConfig, *, auto_show: bool, source: str) -> dict[str, Any]:
         visual_service = self.visual_reply_service
@@ -11279,8 +16330,9 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             if changed:
                 self.save_state()
             show_character_visual = bool(self.settings.get("show_current_character_visual", True))
-        if show_character_visual:
+        if show_character_visual and changed:
             self._request_ui_refresh()
+        if show_character_visual:
             self._maybe_generate_character_image_during_tts(persona)
         self._maybe_generate_visual_reply_during_tts(persona, spoken_text)
 
@@ -11313,7 +16365,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         try:
             result = self._request_character_image_generation(
                 persona,
-                auto_show=bool(getattr(persona.visual, "auto_show_dock", True)),
+                auto_show=False,
                 source="nc.multi_persona_roleplay.tts_character_picture",
             )
             logger = getattr(self.context, "logger", None)
@@ -11486,11 +16538,18 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         panel = self._controls.get("character_preview_panel")
         if panel is None:
             return
+        view_mode = self._current_character_view_mode()
+        view_combo = self._controls.get("current_character_view_mode")
+        if view_combo is not None and hasattr(view_combo, "findData"):
+            view_combo.blockSignals(True)
+            index = view_combo.findData(view_mode)
+            view_combo.setCurrentIndex(max(0, index))
+            view_combo.blockSignals(False)
         visible = bool(self.settings.get("show_current_character_visual", True))
         if visible:
-            panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
-            panel.setMinimumHeight(340)
-            panel.setMaximumHeight(380)
+            panel.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Expanding)
+            panel.setMinimumHeight(500)
+            panel.setMaximumHeight(16777215)
         else:
             panel.setMinimumHeight(0)
             panel.setMaximumHeight(0)
@@ -11507,8 +16566,19 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             pass
         if not visible:
             return
-        active = self.current_speaker_persona() or self.active_persona()
+        active = self._current_character_preview_persona()
         if active is None:
+            for key, value in (
+                ("current_character_name", "No story persona"),
+                ("current_character_role", ""),
+                ("current_character_meta", ""),
+                ("current_character_story", "Load or create a story to populate the active story roster."),
+            ):
+                widget = self._controls.get(key)
+                if widget is not None and hasattr(widget, "setText"):
+                    widget.setText(value)
+            self._set_image_label(self._controls.get("current_character_image"), "", fallback_text="No picture")
+            self._refresh_character_roster_strip()
             return
         self._controls["current_character_name"].setText(active.display_name)
         self._controls["current_character_role"].setText(
@@ -11517,6 +16587,43 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         self._refresh_current_character_quick_info(active)
         self._set_image_label(self._controls.get("current_character_image"), active.character_image_path, fallback_text="No picture")
         self._refresh_character_roster_strip()
+
+    def _current_character_view_mode(self) -> str:
+        mode = str(self.settings.get("current_character_view_mode") or "active_story").strip().lower()
+        return mode if mode in {"active_story", "all"} else "active_story"
+
+    def _current_character_active_story_persona_ids(self) -> list[str]:
+        known = {persona.id for persona in self.personas}
+        ids = [persona_id for persona_id in self._current_linked_persona_ids() if persona_id in known]
+        if not ids:
+            ids = [
+                normalize_persona_id(item)
+                for item in list(getattr(self.session.ar_state, "active_characters", []) or [])
+                if normalize_persona_id(item) in known
+            ]
+        if not ids:
+            ids = [
+                persona_id
+                for persona_id in (self.session.current_speaker_id, self.session.active_persona_id)
+                if str(persona_id or "").strip() and persona_id in known
+            ]
+        return list(dict.fromkeys(ids))
+
+    def _current_character_roster_personas(self) -> list[PersonaConfig]:
+        if self._current_character_view_mode() == "all":
+            return list(self.personas)
+        ids = self._current_character_active_story_persona_ids()
+        by_id = {persona.id: persona for persona in self.personas}
+        return [by_id[persona_id] for persona_id in ids if persona_id in by_id]
+
+    def _current_character_preview_persona(self) -> PersonaConfig | None:
+        personas = self._current_character_roster_personas()
+        if not personas:
+            return None
+        current = self.current_speaker_persona() or self.active_persona()
+        if current is not None and any(persona.id == current.id for persona in personas):
+            return current
+        return personas[0]
 
     def _refresh_current_character_quick_info(self, persona: PersonaConfig) -> None:
         meta = self._controls.get("current_character_meta")
@@ -11614,7 +16721,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         return False
 
     def _current_character_persona(self) -> PersonaConfig | None:
-        return self.current_speaker_persona() or self.active_persona()
+        return self._current_character_preview_persona()
 
     def _set_current_character_quick_status(self, message: str) -> None:
         label = self._controls.get("current_character_quick_status")
@@ -11695,11 +16802,12 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 child.setParent(None)
                 child.deleteLater()
         active_id = str(self.session.current_speaker_id or self.session.active_persona_id or "")
-        tile_width = 118
-        tile_height = 100
-        tile_spacing = 14
+        tile_width = 132
+        tile_height = 134
+        tile_spacing = 12
         count = 0
-        for persona in self.personas:
+        roster_personas = self._current_character_roster_personas()
+        for persona in roster_personas:
             count += 1
             tile = QtWidgets.QFrame()
             tile.setObjectName("mprc_character_roster_tile")
@@ -11728,17 +16836,25 @@ Generate a comprehensive character card that fully showcases the avatar from eve
                 """
             )
             tile_layout = QtWidgets.QVBoxLayout(tile)
-            tile_layout.setContentsMargins(5, 5, 5, 5)
-            tile_layout.setSpacing(0)
+            tile_layout.setContentsMargins(5, 5, 5, 6)
+            tile_layout.setSpacing(4)
             preview = QtWidgets.QLabel()
-            preview.setFixedSize(108, 90)
-            preview.setMinimumSize(108, 90)
-            preview.setMaximumSize(108, 90)
-            preview.setProperty("_mprc_image_width", 108)
-            preview.setProperty("_mprc_image_height", 90)
+            preview.setFixedSize(120, 96)
+            preview.setMinimumSize(120, 96)
+            preview.setMaximumSize(120, 96)
+            preview.setProperty("_mprc_image_width", 120)
+            preview.setProperty("_mprc_image_height", 96)
             preview.setAlignment(QtCore.Qt.AlignCenter)
             self._set_image_label(preview, persona.character_image_path, fallback_text="No picture")
             tile_layout.addWidget(preview, 0, QtCore.Qt.AlignCenter)
+            name = QtWidgets.QLabel(str(persona.display_name or persona.id).strip() or persona.id)
+            name.setObjectName("mprc_character_roster_name")
+            name.setAlignment(QtCore.Qt.AlignCenter)
+            name.setWordWrap(False)
+            name.setToolTip(str(persona.display_name or persona.id))
+            name.setStyleSheet("QLabel#mprc_character_roster_name { color: #dbeafe; background: transparent; border: none; font-weight: 700; }")
+            name.setFixedHeight(20)
+            tile_layout.addWidget(name, 0)
             tile.mousePressEvent = lambda _event, pid=persona.id: self._select_persona_id(pid)
             layout.addWidget(tile, 0, QtCore.Qt.AlignTop)
         content = self._controls.get("character_roster_content")
@@ -11747,6 +16863,7 @@ Generate a comprehensive character card that fully showcases the avatar from eve
             content.setMinimumWidth(total_width)
             content.setFixedWidth(total_width)
             content.setFixedHeight(tile_height)
+            content.setMinimumHeight(tile_height)
         layout.setSpacing(tile_spacing)
 
     def _character_thumbnail_icon(self, persona: PersonaConfig):
@@ -11774,11 +16891,27 @@ Generate a comprehensive character card that fully showcases the avatar from eve
 
     def _test_voice(self):
         self._update_voice_warning()
-        warning = self._controls["voice_warning"].text()
-        if warning:
+        warning_label = self._controls.get("voice_warning")
+        warning = str(warning_label.text() if warning_label is not None and hasattr(warning_label, "text") else "").strip()
+        persona = self._selected_voice_persona()
+        if persona is None:
+            if warning_label is not None and hasattr(warning_label, "setText"):
+                warning_label.setText("No voice persona is selected.")
+            return
+        route = self.voice_router.effective_voice_config({
+            "persona_id": persona.id,
+            "tts_backend": self.current_tts_backend(),
+            "text": f"[CHARACTER: {persona.display_name}]\nVoice preview.",
+        })
+        sample = str(route.get("sample_path") or getattr(persona.voice, "sample_path", "") or "").strip()
+        if not sample:
             logger = getattr(self.context, "logger", None)
             if logger is not None:
                 logger.warning("Voice test skipped: %s", warning)
+            if warning_label is not None and hasattr(warning_label, "setText"):
+                warning_label.setText(warning or f"{persona.display_name} has no usable voice sample.")
+            return
+        self._preview_voice_sample(sample, f"[CHARACTER: {persona.display_name}]\n{self._default_voice_preview_text()}", status_label=warning_label)
 
     def _update_voice_warning(self):
         persona = self._selected_voice_persona()
@@ -11854,9 +16987,20 @@ Generate a comprehensive character card that fully showcases the avatar from eve
         self._refresh_debug()
 
     def _generate_visual_reply(self):
-        result = self.visual_reply.request_generation(persona=self._selected_persona(), reason="manual")
-        self._debug_visual_prompt = json.dumps(result, indent=2)
+        persona = self._selected_persona()
+        persona_id = str(getattr(persona, "id", "") or "")
+        self._debug_visual_prompt = json.dumps(
+            {"queued": True, "message": "Visual Reply request queued for a background worker.", "persona_id": persona_id},
+            indent=2,
+            ensure_ascii=True,
+        )
         self._refresh_debug()
+        if not self._queue_visual_worker(
+            "mprc_manual_visual_reply",
+            lambda: self._run_manual_visual_reply_request(persona_id, kind="manual_visual_reply"),
+        ):
+            result = {"accepted": False, "message": "Visual Reply request could not start a background worker."}
+            self._on_manual_visual_finished("manual_visual_reply", persona_id, result)
 
     def _clear_debug(self):
         self._debug_prompt = ""
