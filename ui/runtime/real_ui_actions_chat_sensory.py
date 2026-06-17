@@ -235,7 +235,13 @@ class RealUiActionsChatSensoryMixin:
                 try:
                     from ui.runtime import engine_access as engine
 
-                    result = str(engine.refine_system_prompt_text(original) or "").strip()
+                    result = str(
+                        engine.refine_system_prompt_text(
+                            original,
+                            allow_nsfw=self._system_prompt_refine_allows_nsfw(),
+                        )
+                        or ""
+                    ).strip()
                 except Exception as exc:
                     error = str(exc)
                 try:
@@ -244,6 +250,17 @@ class RealUiActionsChatSensoryMixin:
                     pass
 
             threading.Thread(target=worker, name="nc-system-prompt-refine", daemon=True).start()
+
+    def _system_prompt_refine_allows_nsfw(self):
+            checkbox = self._ui_object("system_prompt_refine_nsfw_checkbox")
+            if checkbox is None and getattr(self, "backend", None) is not None:
+                checkbox = getattr(self.backend, "system_prompt_refine_nsfw_checkbox", None)
+            if checkbox is None or not hasattr(checkbox, "isChecked"):
+                return False
+            try:
+                return bool(checkbox.isChecked())
+            except Exception:
+                return False
 
     def _on_frontend_system_prompt_refined(self, refined_prompt, error):
             self._system_prompt_refine_in_flight = False

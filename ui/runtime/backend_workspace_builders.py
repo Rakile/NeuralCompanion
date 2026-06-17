@@ -1,5 +1,16 @@
 from PySide6 import QtCore, QtWidgets
 
+from ui.runtime.system_prompt_library import (
+    QUICK_PROMPT_LIMIT,
+    add_prompt_to_quick,
+    all_prompt_records,
+    find_prompt,
+    is_prompt_quick,
+    prompt_record_for_text,
+    quick_prompt_records,
+    remove_prompt_from_quick,
+    save_prompt_as,
+)
 from ui.shell_specs import UI_SHELL_CHUNKING_SPECS
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
 
@@ -100,6 +111,7 @@ class BackendWorkspaceBuilderMixin:
         prompt_group = QtWidgets.QGroupBox("System Prompt")
         prompt_layout = QtWidgets.QVBoxLayout(prompt_group)
         prompt_layout.setContentsMargins(8, 10, 8, 8)
+        self._install_system_prompt_library_controls(prompt_group, self.system_prompt_text)
         prompt_layout.addWidget(self.system_prompt_text)
 
         text_splitter.addWidget(technical_group)
@@ -114,6 +126,286 @@ class BackendWorkspaceBuilderMixin:
         apply_button.clicked.connect(self.apply_text_config)
         layout.addWidget(apply_button)
         return scroll
+
+    def _install_system_prompt_library_controls(self, prompt_group, text_widget):
+        if prompt_group is None or text_widget is None:
+            return None
+        try:
+            existing = prompt_group.findChild(QtWidgets.QWidget, "system_prompt_library_panel")
+        except Exception:
+            existing = None
+        if existing is not None:
+            return existing
+
+        panel = QtWidgets.QWidget(prompt_group)
+        panel.setObjectName("system_prompt_library_panel")
+        panel_layout = QtWidgets.QVBoxLayout(panel)
+        panel_layout.setContentsMargins(0, 0, 0, 4)
+        panel_layout.setSpacing(6)
+
+        top_row = QtWidgets.QHBoxLayout()
+        top_row.setSpacing(6)
+        self.system_prompt_library_combo = NoWheelComboBox()
+        self.system_prompt_library_combo.setObjectName("system_prompt_library_combo")
+        self.system_prompt_library_combo.setToolTip("Load a built-in or custom saved system prompt into the editor below.")
+        self.system_prompt_library_combo.currentIndexChanged.connect(self._on_system_prompt_library_selected)
+        top_row.addWidget(self.system_prompt_library_combo, 1)
+
+        self.btn_system_prompt_save_as = QtWidgets.QPushButton("Save As")
+        self.btn_system_prompt_save_as.setObjectName("btn_system_prompt_save_as")
+        self.btn_system_prompt_save_as.setToolTip("Save the current system prompt as a custom prompt. The name is generated automatically.")
+        self.btn_system_prompt_save_as.clicked.connect(lambda _checked=False: self._on_system_prompt_save_as_clicked())
+        top_row.addWidget(self.btn_system_prompt_save_as, 0)
+
+        self.btn_system_prompt_add_quick = QtWidgets.QPushButton("Add Quick")
+        self.btn_system_prompt_add_quick.setObjectName("btn_system_prompt_add_quick")
+        self.btn_system_prompt_add_quick.setToolTip("Add the selected saved prompt to the six quick-select slots.")
+        self.btn_system_prompt_add_quick.clicked.connect(lambda _checked=False: self._on_system_prompt_add_quick_clicked())
+        top_row.addWidget(self.btn_system_prompt_add_quick, 0)
+
+        self.btn_system_prompt_remove_quick = QtWidgets.QPushButton("Remove Quick")
+        self.btn_system_prompt_remove_quick.setObjectName("btn_system_prompt_remove_quick")
+        self.btn_system_prompt_remove_quick.setToolTip("Remove the selected saved prompt from quick select.")
+        self.btn_system_prompt_remove_quick.clicked.connect(lambda _checked=False: self._on_system_prompt_remove_quick_clicked())
+        top_row.addWidget(self.btn_system_prompt_remove_quick, 0)
+
+        self.system_prompt_refine_nsfw_checkbox = QtWidgets.QCheckBox("NSFW refine")
+        self.system_prompt_refine_nsfw_checkbox.setObjectName("system_prompt_refine_nsfw_checkbox")
+        self.system_prompt_refine_nsfw_checkbox.setToolTip(
+            "When refining, preserve mature/adult-theme intent with guardrails. Off keeps refinement SFW/non-explicit."
+        )
+        top_row.addWidget(self.system_prompt_refine_nsfw_checkbox, 0)
+        panel_layout.addLayout(top_row)
+
+        quick_row = QtWidgets.QHBoxLayout()
+        quick_row.setSpacing(6)
+        quick_label = QtWidgets.QLabel("Quick")
+        quick_label.setToolTip("Explicit quick-select prompts. Use Add Quick or Remove Quick to manage these slots.")
+        quick_row.addWidget(quick_label, 0)
+        self.system_prompt_quick_checkboxes = []
+        for index in range(QUICK_PROMPT_LIMIT):
+            checkbox = QtWidgets.QCheckBox(str(index + 1))
+            checkbox.setObjectName(f"system_prompt_quick_{index + 1}_checkbox")
+            checkbox.setToolTip("Quick prompt shortcut. Use Add Quick to fill these slots.")
+            checkbox.toggled.connect(lambda checked, slot=index: self._on_system_prompt_quick_toggled(slot, checked))
+            self.system_prompt_quick_checkboxes.append(checkbox)
+            quick_row.addWidget(checkbox, 0)
+        quick_row.addStretch(1)
+        panel_layout.addLayout(quick_row)
+
+        self.system_prompt_library_status_label = QtWidgets.QLabel("")
+        self.system_prompt_library_status_label.setObjectName("system_prompt_library_status_label")
+        self.system_prompt_library_status_label.setWordWrap(True)
+        self.system_prompt_library_status_label.setToolTip("Shows saved prompt library actions and validation messages.")
+        panel_layout.addWidget(self.system_prompt_library_status_label)
+
+        layout = prompt_group.layout()
+        if layout is not None and hasattr(layout, "insertWidget"):
+            layout.insertWidget(0, panel)
+        self._refresh_system_prompt_library_controls()
+        return panel
+
+    def _system_prompt_text_value(self) -> str:
+        widget = getattr(self, "system_prompt_text", None)
+        if widget is None or not hasattr(widget, "toPlainText"):
+            return ""
+        return str(widget.toPlainText() or "")
+
+    def _set_system_prompt_text_value(self, prompt: str):
+        widget = getattr(self, "system_prompt_text", None)
+        if widget is None or not hasattr(widget, "setPlainText"):
+            return
+        text = str(prompt or "")
+        current = str(widget.toPlainText() or "") if hasattr(widget, "toPlainText") else ""
+        if current != text:
+            widget.setPlainText(text)
+        try:
+            from ui.runtime.engine_access import update_runtime_config
+
+            update_runtime_config("system_prompt", text.strip())
+        except Exception:
+            pass
+
+    def _set_system_prompt_library_status(self, message: str):
+        label = getattr(self, "system_prompt_library_status_label", None)
+        if label is not None and hasattr(label, "setText"):
+            label.setText(str(message or ""))
+
+    def _selected_system_prompt_library_id(self) -> str:
+        combo = getattr(self, "system_prompt_library_combo", None)
+        if combo is not None and hasattr(combo, "currentData"):
+            prompt_id = str(combo.currentData() or "").strip()
+            if prompt_id:
+                return prompt_id
+        record = prompt_record_for_text(self._system_prompt_text_value())
+        return str(record.get("id") or "").strip() if record else ""
+
+    def _selected_system_prompt_library_record(self):
+        prompt_id = self._selected_system_prompt_library_id()
+        return find_prompt(prompt_id) if prompt_id else None
+
+    def _refresh_system_prompt_quick_buttons(self):
+        prompt_id = self._selected_system_prompt_library_id()
+        has_prompt = bool(prompt_id and find_prompt(prompt_id))
+        quick = bool(has_prompt and is_prompt_quick(prompt_id))
+        add_button = getattr(self, "btn_system_prompt_add_quick", None)
+        remove_button = getattr(self, "btn_system_prompt_remove_quick", None)
+        if add_button is not None and hasattr(add_button, "setEnabled"):
+            add_button.setEnabled(has_prompt and not quick and len(quick_prompt_records()) < QUICK_PROMPT_LIMIT)
+        if remove_button is not None and hasattr(remove_button, "setEnabled"):
+            remove_button.setEnabled(has_prompt and quick)
+
+    def _refresh_system_prompt_library_controls(self, selected_id: str = ""):
+        combo = getattr(self, "system_prompt_library_combo", None)
+        if combo is not None and hasattr(combo, "clear"):
+            previous = bool(combo.blockSignals(True)) if hasattr(combo, "blockSignals") else False
+            try:
+                combo.clear()
+                combo.addItem("Load system prompt...", "")
+                for record in all_prompt_records():
+                    addon = str(record.get("addon") or "").strip()
+                    name = str(record.get("name") or "Prompt").strip()
+                    label = f"{name} ({addon})" if addon and addon not in name else name
+                    combo.addItem(label, str(record.get("id") or ""))
+                if selected_id:
+                    for index in range(combo.count()):
+                        if str(combo.itemData(index) or "") == str(selected_id):
+                            combo.setCurrentIndex(index)
+                            break
+                    else:
+                        combo.setCurrentIndex(0)
+                else:
+                    combo.setCurrentIndex(0)
+            finally:
+                if hasattr(combo, "blockSignals"):
+                    combo.blockSignals(previous)
+
+        quick_records = quick_prompt_records()
+        checkboxes = list(getattr(self, "system_prompt_quick_checkboxes", []) or [])
+        for index, checkbox in enumerate(checkboxes):
+            previous = bool(checkbox.blockSignals(True)) if hasattr(checkbox, "blockSignals") else False
+            try:
+                if index < len(quick_records):
+                    record = quick_records[index]
+                    checkbox.setText(f"{index + 1}. {record.get('name', 'Prompt')}")
+                    checkbox.setProperty("prompt_id", str(record.get("id") or ""))
+                    checkbox.setEnabled(True)
+                    checkbox.setChecked(False)
+                    checkbox.setToolTip(f"Load custom prompt: {record.get('name', 'Prompt')}")
+                else:
+                    checkbox.setText(f"{index + 1}. Empty")
+                    checkbox.setProperty("prompt_id", "")
+                    checkbox.setEnabled(False)
+                    checkbox.setChecked(False)
+                    checkbox.setToolTip("Empty quick prompt shortcut. Select a saved prompt and press Add Quick to fill it.")
+            finally:
+                if hasattr(checkbox, "blockSignals"):
+                    checkbox.blockSignals(previous)
+        self._refresh_system_prompt_quick_buttons()
+
+    def _load_system_prompt_record(self, record):
+        if not isinstance(record, dict):
+            return
+        prompt = str(record.get("prompt") or "").strip()
+        if not prompt:
+            return
+        self._set_system_prompt_text_value(prompt)
+        prompt_id = str(record.get("id") or "")
+        checkboxes = list(getattr(self, "system_prompt_quick_checkboxes", []) or [])
+        for checkbox in checkboxes:
+            previous = bool(checkbox.blockSignals(True)) if hasattr(checkbox, "blockSignals") else False
+            try:
+                checkbox.setChecked(str(checkbox.property("prompt_id") or "") == prompt_id)
+            finally:
+                if hasattr(checkbox, "blockSignals"):
+                    checkbox.blockSignals(previous)
+        self._set_system_prompt_library_status(f"Loaded: {record.get('name', 'System prompt')}")
+        self._refresh_system_prompt_quick_buttons()
+
+    def _on_system_prompt_library_selected(self, index: int):
+        combo = getattr(self, "system_prompt_library_combo", None)
+        if combo is None or not hasattr(combo, "itemData"):
+            return
+        prompt_id = str(combo.itemData(index) or "").strip()
+        if not prompt_id:
+            return
+        record = find_prompt(prompt_id)
+        if record:
+            self._load_system_prompt_record(record)
+        self._refresh_system_prompt_quick_buttons()
+
+    def _on_system_prompt_quick_toggled(self, slot: int, checked: bool):
+        if not checked:
+            return
+        checkboxes = list(getattr(self, "system_prompt_quick_checkboxes", []) or [])
+        if slot < 0 or slot >= len(checkboxes):
+            return
+        checkbox = checkboxes[slot]
+        prompt_id = str(checkbox.property("prompt_id") or "").strip()
+        if not prompt_id:
+            return
+        for index, other in enumerate(checkboxes):
+            if index == slot:
+                continue
+            previous = bool(other.blockSignals(True)) if hasattr(other, "blockSignals") else False
+            try:
+                other.setChecked(False)
+            finally:
+                if hasattr(other, "blockSignals"):
+                    other.blockSignals(previous)
+        record = find_prompt(prompt_id)
+        if record:
+            self._load_system_prompt_record(record)
+            combo = getattr(self, "system_prompt_library_combo", None)
+            if combo is not None and hasattr(combo, "count"):
+                previous = bool(combo.blockSignals(True)) if hasattr(combo, "blockSignals") else False
+                try:
+                    for index in range(combo.count()):
+                        if str(combo.itemData(index) or "") == prompt_id:
+                            combo.setCurrentIndex(index)
+                            break
+                finally:
+                    if hasattr(combo, "blockSignals"):
+                        combo.blockSignals(previous)
+
+    def _on_system_prompt_save_as_clicked(self):
+        prompt = self._system_prompt_text_value().strip()
+        if not prompt:
+            self._set_system_prompt_library_status("Nothing to save: the system prompt is empty.")
+            return
+        try:
+            record = save_prompt_as(prompt)
+        except Exception as exc:
+            self._set_system_prompt_library_status(f"Save failed: {exc}")
+            return
+        self._refresh_system_prompt_library_controls(str(record.get("id") or ""))
+        self._set_system_prompt_library_status(
+            f"Saved custom prompt: {record.get('name', 'System prompt')}. Use Add Quick if you want it in quick select."
+        )
+
+    def _on_system_prompt_add_quick_clicked(self):
+        record = self._selected_system_prompt_library_record()
+        if not record:
+            self._set_system_prompt_library_status("Choose a saved prompt before adding it to quick select.")
+            return
+        prompt_id = str(record.get("id") or "")
+        try:
+            add_prompt_to_quick(prompt_id)
+        except Exception as exc:
+            self._set_system_prompt_library_status(f"Add Quick failed: {exc}")
+            return
+        self._refresh_system_prompt_library_controls(prompt_id)
+        self._set_system_prompt_library_status(f"Added to quick select: {record.get('name', 'System prompt')}")
+
+    def _on_system_prompt_remove_quick_clicked(self):
+        record = self._selected_system_prompt_library_record()
+        if not record:
+            self._set_system_prompt_library_status("Choose a saved prompt before removing it from quick select.")
+            return
+        prompt_id = str(record.get("id") or "")
+        remove_prompt_from_quick(prompt_id)
+        self._refresh_system_prompt_library_controls(prompt_id)
+        self._set_system_prompt_library_status(f"Removed from quick select: {record.get('name', 'System prompt')}")
 
     def _build_brain_tab(self):
         runtime_config = _runtime_config()

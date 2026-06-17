@@ -483,6 +483,14 @@ class MainUiRealSurfacesMixin:
     def _redirect_backend_chat_session_runtime_surface(self):
             self._ensure_frontend_spellcheck_widgets()
             self._ensure_frontend_long_term_memory_widgets()
+            system_prompt_group = self._ui_object("system_prompt_group")
+            system_prompt_text = self._ui_object("system_prompt_text")
+            install_prompt_library = getattr(self.backend, "_install_system_prompt_library_controls", None)
+            if callable(install_prompt_library) and system_prompt_group is not None and system_prompt_text is not None:
+                try:
+                    install_prompt_library(system_prompt_group, system_prompt_text)
+                except Exception as exc:
+                    print(f"[UI Real] System prompt library controls failed: {exc}")
             frontend_widgets = {
                 "allow_proactive_checkbox": self._ui_object("allow_proactive_checkbox"),
                 "require_first_user_checkbox": self._ui_object("require_first_user_checkbox"),
@@ -521,7 +529,15 @@ class MainUiRealSurfacesMixin:
                 "btn_reset_chat_session": self._ui_object("btn_reset_chat_session"),
                 "chat_session_hint": self._ui_object("chat_session_hint"),
                 "system_prompt_text": self._ui_object("system_prompt_text"),
+                "system_prompt_library_combo": self._ui_object("system_prompt_library_combo"),
+                "btn_system_prompt_save_as": self._ui_object("btn_system_prompt_save_as"),
+                "btn_system_prompt_add_quick": self._ui_object("btn_system_prompt_add_quick"),
+                "btn_system_prompt_remove_quick": self._ui_object("btn_system_prompt_remove_quick"),
+                "system_prompt_refine_nsfw_checkbox": self._ui_object("system_prompt_refine_nsfw_checkbox"),
+                "system_prompt_library_status_label": self._ui_object("system_prompt_library_status_label"),
             }
+            for index in range(1, 7):
+                frontend_widgets[f"system_prompt_quick_{index}_checkbox"] = self._ui_object(f"system_prompt_quick_{index}_checkbox")
             if frontend_widgets["chat_session_hint"] is None:
                 return
             backend_widgets = {
