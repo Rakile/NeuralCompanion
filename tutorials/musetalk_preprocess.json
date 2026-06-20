@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open MuseTalk Preprocess",
-      "body": "Preprocess is the MuseTalk avatar preparation tool. Use it before selecting an avatar pack in the main Host settings.",
+      "body": "Preprocess is the MuseTalk avatar preparation tool. Use it before selecting an avatar pack in the main Host settings. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Preprocess",
       "target": "musetalk_box",
       "actions": [

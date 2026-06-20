@@ -2,7 +2,7 @@
   "id": "spotify_sense",
   "order": 16,
   "title": "16. Spotify Sense",
-  "description": "Setup and safe defaults for Spotify metadata awareness, song-change commentary, hidden sensory style prompts, ducking, story music, and playback commands.",
+  "description": "Setup and safe defaults for Spotify metadata awareness, song-change commentary, hidden sensory style prompts, lowering music while NC speaks, story music, and playback commands.",
   "steps": [
     {
       "title": "Open Spotify Sense",
@@ -60,8 +60,8 @@
       ]
     },
     {
-      "title": "Duck Music While NC Speaks",
-      "body": "Duck music while NC speaks should normally stay on when Spotify is playing and TTS replies are enabled. It lowers Spotify during speech and restores volume after the reply so commentary remains understandable.",
+      "title": "Lower Music While NC Speaks",
+      "body": "Lower music while NC speaks should normally stay on when Spotify is playing and TTS replies are enabled. It lowers Spotify during speech and restores volume after the reply so commentary remains understandable.",
       "tab": "Spotify Sense",
       "target": "spotify_sense_duck_while_speaking",
       "actions": [
@@ -69,8 +69,8 @@
       ]
     },
     {
-      "title": "Tune Ducking and Fades",
-      "body": "Duck volume and fade values control how harsh or smooth the transition feels. For story mode, keep fades long enough that ambience moves behind narration instead of snapping under it.",
+      "title": "Tune Lowering and Fades",
+      "body": "Lowered volume and fade values control how harsh or smooth the transition feels. For story mode, keep fades long enough that ambience moves behind narration instead of snapping under it.",
       "tab": "Spotify Sense",
       "target": "spotify_sense_duck_fade_down_ms",
       "actions": [

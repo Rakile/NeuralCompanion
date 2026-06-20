@@ -34,6 +34,24 @@
       ]
     },
     {
+      "title": "Add Subtle Idle Motion",
+      "body": "Idle motion adds a small random drift around the presence position so it feels alive without racing around the screen. Keep this low for release demos, and set it to zero when you want the visualizer perfectly still.",
+      "tab": "AI Presence",
+      "target": "ai_presence_idle_motion_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "AI Presence" }
+      ]
+    },
+    {
+      "title": "Use External Runtime When Needed",
+      "body": "External runtime runs the presence renderer in a separate helper process. Use it when animation feels laggy in the main UI, and turn it off only when you are diagnosing renderer startup or bridge behavior.",
+      "tab": "AI Presence",
+      "target": "ai_presence_external_runtime_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "AI Presence" }
+      ]
+    },
+    {
       "title": "Neural Face Has Its Own Tab",
       "body": "Neural Face separates face topology, lipsync, blink, gaze, glow, and animation settings from the simpler AI Presence visualizer settings.",
       "tab": "Neural Face",

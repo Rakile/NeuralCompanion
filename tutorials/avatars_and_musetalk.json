@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Avatar Engines",
-      "body": "Avatar Engine controls whether NC runs without an avatar, uses MuseTalk, or uses another installed avatar provider. Start with None until chat and speech are confirmed.",
+      "body": "Avatar Engine controls whether NC runs without an avatar, uses MuseTalk, or uses another installed avatar provider. Start with None until chat and speech are confirmed. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "engine_combo"
     },
     {

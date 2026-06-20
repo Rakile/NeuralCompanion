@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Companion Orb",
-      "body": "Companion Orb has its own addon tab. Its settings are separate from AI Presence and Neural Face, so orb movement, response style, sensory target capture, and supervisor behavior can be tuned without changing the other overlays.",
+      "body": "Companion Orb has its own addon tab. Its settings are separate from AI Presence and Neural Face, so orb movement, response style, sensory target capture, and supervisor behavior can be tuned without changing the other overlays. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Companion Orb",
       "target": "companion_orb_overlay_addon_tab",
       "actions": [
@@ -28,6 +28,24 @@
       "body": "Movement settings should make the orb feel aware, not restless. Adjust range, return-home delay, avoid-center, avoid-mouse, and reactivity in small steps so it moves with intent instead of noise.",
       "tab": "Companion Orb",
       "target": "companion_orb_tuning_cards_grid",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Keep Orb Animation Isolated",
+      "body": "External runtime for orb animation keeps the animated overlay in a lightweight helper process. Leave it enabled for smoother motion, and only turn it off when diagnosing the bridge itself.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_external_runtime_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Choose the Orb Look",
+      "body": "Visual style changes the orb renderer while state colors show whether it is idle, thinking, speaking, or observing. Keep style and color edits subtle enough that the orb stays readable over the desktop.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_visual_style_combo",
       "actions": [
         { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
       ]

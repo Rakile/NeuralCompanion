@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Experimental Projector Booth",
-      "body": "Audio Story Mode is a highly experimental addon. It turns story audio into transcript windows, image prompts, generated visuals, playback sync, and optional streaming. Start with short clips, expect rough edges, and keep a copy of any audio you care about.",
+      "body": "Audio Story Mode is a highly experimental addon. It turns story audio into transcript windows, image prompts, generated visuals, playback sync, and optional streaming. Start with short clips, expect rough edges, and keep a copy of any audio you care about. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "audio_story_mode_tab",
       "actions": [
         { "type": "show_dock", "target": "WorkspaceTabsDock" },

@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Main Chat Remote",
-      "body": "Main Chat Remote is separate from Multi Persona Roleplay. It bridges the real main chat runtime to the phone app through a small local bridge and a separate LAN backend.",
+      "body": "Main Chat Remote is separate from Multi Persona Roleplay. It bridges the real main chat runtime to the phone app through a small local bridge and a separate LAN backend. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Main Chat Remote",
       "target": "main_chat_remote_tab",
       "actions": [

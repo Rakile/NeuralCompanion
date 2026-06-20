@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "What the Installer Creates",
-      "body": "The installer creates the main Neural Companion runtime and, when selected, separate isolated runtimes for MuseTalk and PocketTTS. Isolation keeps incompatible dependency stacks from colliding.",
+      "body": "The installer creates the main Neural Companion runtime and, when selected, separate isolated runtimes for MuseTalk and PocketTTS. Isolation keeps incompatible dependency stacks from colliding. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "workspace_central"
     },
     {

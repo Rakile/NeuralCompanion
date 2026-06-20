@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Story Visuals",
-      "body": "Story Visuals lives under Host settings and controls story-mode image behavior. It does not replace the main Visual Reply runtime provider; it shapes how story prompts are built.",
+      "body": "Story Visuals lives under Host settings and controls story-mode image behavior. It does not replace the main Visual Reply runtime provider; it shapes how story prompts are built. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Story Visuals",
       "target": "visual_story_group",
       "actions": [

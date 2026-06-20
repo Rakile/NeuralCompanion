@@ -901,33 +901,78 @@ class TutorialOverlay(QtWidgets.QWidget):
         margin = 18
         panel_size = self.panel.sizeHint()
         parent_rect = self.main_window.rect()
+        panel_width = min(panel_size.width(), max(1, parent_rect.width() - margin * 2))
+        panel_height = min(panel_size.height(), max(1, parent_rect.height() - margin * 2))
         rect = self.highlight_rect
         if rect.isNull():
-            x = max((parent_rect.width() - panel_size.width()) // 2, margin)
-            y = max((parent_rect.height() - panel_size.height()) // 2, margin)
-            self._set_panel_geometry(x, y, min(panel_size.width(), parent_rect.width() - margin * 2), panel_size.height())
+            x = max((parent_rect.width() - panel_width) // 2, margin)
+            y = max((parent_rect.height() - panel_height) // 2, margin)
+            self._set_panel_geometry(x, y, panel_width, panel_height)
             return
 
+        max_x = max(margin, parent_rect.width() - panel_width - margin)
+        max_y = max(margin, parent_rect.height() - panel_height - margin)
+        min_side_width = min(panel_width, 360)
+
+        def clamp_rect(candidate_x, candidate_y, width=None, height=None):
+            width = int(width if width is not None else panel_width)
+            height = int(height if height is not None else panel_height)
+            local_max_x = max(margin, parent_rect.width() - width - margin)
+            local_max_y = max(margin, parent_rect.height() - height - margin)
+            x = max(min(int(candidate_x), local_max_x), margin)
+            y = max(min(int(candidate_y), local_max_y), margin)
+            if x > local_max_x:
+                x = local_max_x
+            return QtCore.QRect(x, y, width, height)
+
+        def right_side_rect(candidate_y):
+            x = rect.right() + margin
+            available_width = parent_rect.width() - x - margin
+            if available_width >= min_side_width:
+                return clamp_rect(x, candidate_y, min(panel_width, available_width), panel_height)
+            return clamp_rect(x, candidate_y)
+
+        def left_side_rect(candidate_y):
+            available_width = rect.left() - margin * 2
+            if available_width >= min_side_width:
+                width = min(panel_width, available_width)
+                return clamp_rect(rect.left() - width - margin, candidate_y, width, panel_height)
+            return clamp_rect(rect.left() - panel_width - margin, candidate_y)
+
+        target_center = rect.center()
+        centered_x = target_center.x() - panel_width // 2
+        centered_y = target_center.y() - panel_height // 2
         candidates = [
-            (rect.right() + 18, rect.top()),
-            (rect.left() - panel_size.width() - 18, rect.top()),
-            (rect.left(), rect.bottom() + 18),
-            (rect.left(), rect.top() - panel_size.height() - 18),
+            right_side_rect(rect.top()),
+            left_side_rect(rect.top()),
+            clamp_rect(rect.left(), rect.bottom() + margin),
+            clamp_rect(rect.left(), rect.top() - panel_height - margin),
+            right_side_rect(centered_y),
+            left_side_rect(centered_y),
+            clamp_rect(centered_x, rect.bottom() + margin),
+            clamp_rect(centered_x, rect.top() - panel_height - margin),
+            clamp_rect(parent_rect.width() - panel_width - margin, margin),
+            clamp_rect(parent_rect.width() - panel_width - margin, parent_rect.height() - panel_height - margin),
+            clamp_rect(margin, margin),
+            clamp_rect(margin, parent_rect.height() - panel_height - margin),
+            clamp_rect((parent_rect.width() - panel_width) // 2, margin),
+            clamp_rect((parent_rect.width() - panel_width) // 2, parent_rect.height() - panel_height - margin),
         ]
-        x, y = margin, margin
-        for candidate_x, candidate_y in candidates:
-            candidate_x = max(min(candidate_x, parent_rect.width() - panel_size.width() - margin), margin)
-            candidate_y = max(min(candidate_y, parent_rect.height() - panel_size.height() - margin), margin)
-            candidate_rect = QtCore.QRect(candidate_x, candidate_y, panel_size.width(), panel_size.height())
-            if not candidate_rect.intersects(rect.adjusted(-12, -12, 12, 12)):
-                x, y = candidate_x, candidate_y
-                break
-        else:
-            x = max(min(rect.left(), parent_rect.width() - panel_size.width() - margin), margin)
-            y = max(min(rect.bottom() + 18, parent_rect.height() - panel_size.height() - margin), margin)
-        if y + panel_size.height() > parent_rect.height() - margin:
-            y = max(parent_rect.height() - panel_size.height() - margin, margin)
-        self._set_panel_geometry(x, y, min(panel_size.width(), parent_rect.width() - margin * 2), panel_size.height())
+
+        padded_target = rect.adjusted(-12, -12, 12, 12)
+
+        def overlap_area(candidate_rect):
+            overlap = candidate_rect.intersected(padded_target)
+            if overlap.isNull():
+                return 0
+            return max(0, overlap.width()) * max(0, overlap.height())
+
+        def distance_score(candidate_rect):
+            delta = candidate_rect.center() - target_center
+            return delta.x() * delta.x() + delta.y() * delta.y()
+
+        best_rect = min(candidates, key=lambda candidate: (overlap_area(candidate), distance_score(candidate)))
+        self._set_panel_geometry(best_rect.x(), best_rect.y(), best_rect.width(), best_rect.height())
 
     def show_step(self, index, _visited=None):
         if _visited is None:

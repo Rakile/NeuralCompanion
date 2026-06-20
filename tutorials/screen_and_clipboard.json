@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Ambient vs Deliberate Context",
-      "body": "Screen is ambient: it reflects what is visible on the desktop. Clipboard is deliberate: it reflects something the user intentionally copied.",
+      "body": "Screen is ambient: it reflects what is visible on the desktop. Clipboard is deliberate: it reflects something the user intentionally copied. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "sensory_feedback_tabs",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
@@ -15,7 +15,7 @@
     },
     {
       "title": "Screen Source",
-      "body": "Screen is best for ambient awareness: current app, visible content, or broad patterns that might deserve a character reaction.",
+      "body": "Screen is best for ambient awareness: current app, visible content, or broad patterns that might deserve a character reaction. Use the Source Overview and Source Setup cards to see what it captures before enabling optional reactions.",
       "target": "sensory_feedback_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
@@ -24,15 +24,15 @@
     },
     {
       "title": "Clipboard Source",
-      "body": "Clipboard is best for copied screenshots, reference images, inspiration images, and anything the user explicitly places on the clipboard.",
+      "body": "Clipboard is best for copied screenshots, reference images, inspiration images, and anything the user explicitly places on the clipboard. Its source card should stay plain and deliberate so copied material does not feel like passive surveillance.",
       "target": "sensory_feedback_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Clipboard" }
       ]
     },
     {
-      "title": "Behavior Safety",
-      "body": "Use strict triggers for proactive comments. A broad trigger can feel noisy, while a specific trigger makes NC's reactions feel intentional.",
+      "title": "Reaction Safety",
+      "body": "Use strict optional reactions for proactive comments. A broad reaction can feel noisy, while a specific reaction makes NC's response feel intentional.",
       "target": "sensory_feedback_tabs"
     }
   ]

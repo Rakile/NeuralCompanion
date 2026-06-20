@@ -107,6 +107,21 @@ def _target_exists(target: str, corpus: str) -> bool:
     return False
 
 
+def _visible_copy(payload: dict[str, Any]) -> list[str]:
+    copy: list[str] = [
+        str(payload.get("title") or ""),
+        str(payload.get("description") or ""),
+    ]
+    steps = payload.get("steps") or []
+    if isinstance(steps, list):
+        for raw_step in steps:
+            if not isinstance(raw_step, dict):
+                continue
+            copy.append(str(raw_step.get("title") or ""))
+            copy.append(str(raw_step.get("body") or ""))
+    return copy
+
+
 def main() -> int:
     errors: list[str] = []
     corpus = _repo_text()
@@ -139,6 +154,20 @@ def main() -> int:
         if not isinstance(steps, list) or not steps:
             errors.append(f"{path.name}: steps must be a non-empty list")
             continue
+
+        first_body = str(steps[0].get("body") or "") if isinstance(steps[0], dict) else ""
+        if "Read steps aloud" not in first_body and "Read Step" not in first_body:
+            errors.append(f"{path.name}: first step must mention the tutorial read-aloud controls")
+
+        visible_copy = "\n".join(_visible_copy(payload))
+        if path.name == "rag_context.json" and "RAG Context" in visible_copy:
+            errors.append(f"{path.name}: user-facing copy should use 'Document Memory', not 'RAG Context'")
+        if path.name == "spotify_sense.json" and "duck" in visible_copy.lower():
+            errors.append(f"{path.name}: user-facing copy should say 'lower music while NC speaks', not 'duck'")
+        if path.name == "vision_supervisors_overview.json":
+            headline_copy = "\n".join([str(payload.get("description") or "")] + [str(step.get("title") or "") for step in steps if isinstance(step, dict)])
+            if "PING/PONG" in headline_copy:
+                errors.append(f"{path.name}: PING/PONG should not appear in tutorial headlines")
 
         for index, raw_step in enumerate(steps, start=1):
             if not isinstance(raw_step, dict):

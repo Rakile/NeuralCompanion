@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Streaming Changes Timing",
-      "body": "Stream Mode lets speech begin before the full reply is complete. It feels more alive, but the setting should not be changed during an active generation.",
+      "body": "Stream Mode lets speech begin before the full reply is complete. It feels more alive, but the setting should not be changed during an active generation. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "stream_mode_combo"
     },
     {

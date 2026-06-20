@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Chat Player",
-      "body": "Chat Player is for saved-session replay and context loading. It is not the normal live chat box; use it when you want to inspect or replay an existing conversation.",
+      "body": "Chat Player is for saved-session replay and context loading. It is not the normal live chat box; use it when you want to inspect or replay an existing conversation. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Chat Player",
       "target": "chat_player_scroll_contents",
       "actions": [

@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Neural Face",
-      "body": "Neural Face is its own addon tab and is marked experimental. It controls the wireframe face presence without changing Companion Orb settings.",
+      "body": "Neural Face is its own addon tab and is marked experimental. It controls the wireframe face presence without changing Companion Orb settings. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Neural Face",
       "target": "neural_face_presence_addon_tab",
       "actions": [

@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Open Hotkeys",
-      "body": "Hotkeys lists configurable shortcuts for push-to-talk and other runtime actions. Use it when the default binding conflicts with a game, editor, or desktop tool.",
+      "body": "Hotkeys lists configurable shortcuts for push-to-talk and other runtime actions. Use it when the default binding conflicts with a game, editor, or desktop tool. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Hotkeys",
       "target": "hotkey_binding_edit",
       "actions": [
