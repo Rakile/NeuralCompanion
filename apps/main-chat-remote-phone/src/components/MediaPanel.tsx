@@ -70,6 +70,12 @@ export function MediaPanel({ audio, playback, disabled = false, demoMode = false
           </Pressable>
         </View>
       ) : null}
+      {!latest ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>No phone audio yet</Text>
+          <Text style={styles.metaLeft}>Connect to desktop or tap Demo. Phone TTS chunks appear here when NC generates speech for the remote app.</Text>
+        </View>
+      ) : null}
       {demoMode ? <Text style={styles.metaLeft}>Demo mode shows the phone audio queue without playing generated files.</Text> : null}
       {playback.error || clearError ? <Text style={styles.error}>{playback.error || clearError}</Text> : null}
     </View>
@@ -137,6 +143,19 @@ const styles = StyleSheet.create({
   },
   activeButton: {
     borderColor: colors.accent,
+  },
+  emptyCard: {
+    backgroundColor: colors.panelAlt,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
   },
   disabled: {
     opacity: 0.35,

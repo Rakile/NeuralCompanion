@@ -12,6 +12,12 @@ export function ChatFeed({ messages }: { messages: ChatMessage[] }) {
 
   return (
     <ScrollView ref={scrollRef} style={styles.feed} contentContainerStyle={styles.content}>
+      {!messages.length ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>No chat loaded</Text>
+          <Text style={styles.emptyText}>Connect to desktop or tap Demo.</Text>
+        </View>
+      ) : null}
       {messages.map((message) => (
         <View key={`${message.index}:${message.id}`} style={[styles.bubble, message.role === 'user' ? styles.user : styles.assistant]}>
           <Text style={styles.role}>{message.role || 'message'}</Text>
@@ -29,6 +35,24 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.sm,
     padding: spacing.md,
+  },
+  emptyCard: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.md,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 13,
+    lineHeight: 18,
   },
   bubble: {
     borderRadius: 8,

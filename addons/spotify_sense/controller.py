@@ -1390,7 +1390,9 @@ class SpotifySenseController(QtCore.QObject):
 
     def _update_setting(self, key: str, value: Any):
         self.settings.update(**{str(key): value})
-        if str(key) in {"enabled", "song_change_monitor_enabled", "music_awareness_enabled", "include_paused_track_context", "music_response_mode"}:
+        if str(key) in {"story_mode_background_music", "music_response_mode"}:
+            self._sync_control_values()
+        if str(key) in {"enabled", "song_change_monitor_enabled", "music_awareness_enabled", "include_paused_track_context", "music_response_mode", "story_mode_background_music"}:
             self._sync_monitor_timer()
             self._request_music_context_refresh(force=True)
         if str(key) == "album_art_thumbnail_enabled":
@@ -2587,7 +2589,8 @@ class SpotifySenseController(QtCore.QObject):
         if capability_name == "spotify.duck.end":
             return self.duck_end()
         if capability_name == "spotify.story_hook":
-            return self._story_hook(payload, device_id=device_id)
+            story_device_id = str(payload.get("device_id") or "").strip() or None
+            return self._story_hook(payload, device_id=story_device_id)
         return None
 
     def _invoke_volume(self, payload: dict[str, Any], *, device_id: str | None):
@@ -2784,11 +2787,12 @@ class SpotifySenseController(QtCore.QObject):
         music_kind = self._story_music_kind(payload)
         query = str(payload.get("query") or self._story_query_for_mood(mood, music_kind=music_kind, payload=payload)).strip()
         preferred_type = "playlist" if music_kind == "ambient" or bool(payload.get("prefer_ambient", self.settings.data.get("story_music_prefer_ambient", True))) else "track"
-        device_id = str(device_id or self.settings.data.get("default_device_id") or "").strip() or None
+        requested_device_id = str(device_id or "").strip() or None
+        configured_device_id = str(self.settings.data.get("default_device_id") or "").strip() or None
         state = self.client.get_playback_state()
         device = dict((state.get("data") or {}).get("device") or {}) if isinstance(state, dict) and state.get("ok") else {}
-        if not device_id:
-            device_id = str(device.get("id") or "").strip() or None
+        active_device_id = str(device.get("id") or "").strip() or None
+        device_id = requested_device_id or active_device_id or configured_device_id
         try:
             start_volume = int(device.get("volume_percent"))
         except Exception:
@@ -2805,6 +2809,19 @@ class SpotifySenseController(QtCore.QObject):
             "down_ms": fade_down_ms,
             "up_ms": fade_up_ms,
         }
+        self._debug_log(
+            "story_music_request",
+            {
+                "query": query,
+                "mood": mood,
+                "music_kind": music_kind,
+                "preferred_type": preferred_type,
+                "requested_device": bool(requested_device_id),
+                "active_device": bool(active_device_id),
+                "using_device": bool(device_id),
+                "fade": fade,
+            },
+        )
 
         def run_transition() -> dict[str, Any]:
             down_result = self._set_volume_blocking(
@@ -2817,9 +2834,18 @@ class SpotifySenseController(QtCore.QObject):
                 is_current=self._story_transition_is_current,
             )
             if not down_result.get("ok"):
+                self._debug_log(
+                    "story_music_transition_failed",
+                    {"stage": "fade_down", "query": query, "mood": mood, "music_kind": music_kind, "result": down_result},
+                )
                 return down_result
             play_result = self.client.play(query=query, device_id=device_id, preferred_type=preferred_type)
             playback_ok = bool(isinstance(play_result, dict) and play_result.get("ok"))
+            if not playback_ok:
+                self._debug_log(
+                    "story_music_transition_failed",
+                    {"stage": "play", "query": query, "mood": mood, "music_kind": music_kind, "result": play_result},
+                )
             if playback_ok and self._duck_is_active():
                 self._set_duck_restore_volume(target_volume, device_id)
                 self._debug_log(

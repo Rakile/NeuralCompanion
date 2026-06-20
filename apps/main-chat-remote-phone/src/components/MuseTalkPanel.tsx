@@ -185,7 +185,12 @@ export function MuseTalkPanel({ client, musetalk, disabled, available, quality =
         />
       ) : demoMode ? (
         <DemoMuseTalkAvatar speakingText={caption} />
-      ) : null}
+      ) : (
+        <View style={styles.emptyFrame}>
+          <Text style={styles.emptyTitle}>No avatar stream</Text>
+          <Text style={styles.emptyText}>Connect to desktop or tap Demo. MuseTalk frames appear here when the desktop runtime exposes a phone-safe frame stream.</Text>
+        </View>
+      )}
       <Text style={styles.caption} numberOfLines={1}>{caption}</Text>
     </View>
   );
@@ -236,6 +241,31 @@ const styles = StyleSheet.create({
     maxHeight: 180,
     overflow: 'hidden',
     width: '100%',
+  },
+  emptyFrame: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    aspectRatio: 16 / 9,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    justifyContent: 'center',
+    maxHeight: 180,
+    padding: spacing.md,
+    width: '100%',
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+    marginBottom: spacing.xs,
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
   },
   demoAvatarAura: {
     backgroundColor: colors.accentSoft,

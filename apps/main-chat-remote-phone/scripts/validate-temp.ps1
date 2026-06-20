@@ -124,6 +124,7 @@ try {
   Push-Location -LiteralPath $target
   try {
     Invoke-Native -Command npm -Arguments @("install")
+    Invoke-Native -Command node -Arguments @("scripts/smoke-ui-copy.js")
     Invoke-Native -Command npm -Arguments @("run", "typecheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/utils/url.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")
     Invoke-Native -Command npx -Arguments @("tsc", "src/api/client.ts", "--target", "ES2020", "--module", "commonjs", "--outDir", "out", "--skipLibCheck")

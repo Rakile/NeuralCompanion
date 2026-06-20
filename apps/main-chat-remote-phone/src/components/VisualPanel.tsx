@@ -82,6 +82,16 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
   const requestError = requestStatus === 'error' || requestStatus === 'rejected'
     ? String(latestRequest?.message || 'Last Visual Reply request was not accepted.')
     : '';
+  const emptyTitle = disabled
+    ? 'Visual Reply offline'
+    : controlsAvailable
+      ? 'No Visual Reply image yet'
+      : 'Visual Reply unavailable';
+  const emptyText = disabled
+    ? 'Connect to desktop or tap Demo.'
+    : controlsAvailable
+      ? 'Generate an image from the phone or ask NC for a Visual Reply in chat.'
+      : 'Visual Reply is unavailable because desktop provider is off.';
   useEffect(() => {
     if (controlsDisabled) {
       setBusy(false);
@@ -149,12 +159,18 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
         <Text style={styles.meta}>{statusText}</Text>
       </View>
       {imageUrl ? (
-        <Pressable onPress={() => setFullscreen(true)}>
+        <Pressable style={styles.imageFrame} onPress={() => setFullscreen(true)}>
           <Image source={{ uri: imageUrl }} style={styles.image} resizeMode="cover" />
         </Pressable>
       ) : demoMode ? (
         <DemoVisualReplyArtwork caption={String(visual?.state?.caption || visual?.latest_request?.prompt_preview || 'Demo Visual Reply scene')} />
-      ) : null}
+      ) : (
+        <View style={styles.emptyImage}>
+          <Text style={styles.emptyTitle}>{emptyTitle}</Text>
+          <Text style={styles.emptyText}>{emptyText}</Text>
+        </View>
+      )}
+      {visual?.state?.caption ? <Text style={styles.caption}>{String(visual.state.caption)}</Text> : null}
       <View style={styles.row}>
         <TextInput
           value={prompt}
@@ -173,14 +189,11 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
         </Pressable>
       </View>
       <View style={styles.actions}>
-        <Pressable disabled={controlsDisabled || busy} style={[styles.secondaryButton, (controlsDisabled || busy) && styles.disabled]} onPress={() => run(() => onAction('generate_last'))}>
-          <Text style={styles.buttonText}>Generate Last</Text>
-        </Pressable>
-        <Pressable disabled={busy} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => run(onRefresh)}>
-          <Text style={styles.buttonText}>Refresh</Text>
+        <Pressable disabled={!imageUrl || shareBusy} style={[styles.secondaryButton, styles.primaryAction, (!imageUrl || shareBusy) && styles.disabled]} onPress={shareImage}>
+          <Text style={styles.buttonText}>{shareBusy ? 'Saving' : 'Save/Share'}</Text>
         </Pressable>
         <Pressable disabled={controlsDisabled || busy} style={[styles.secondaryButton, (controlsDisabled || busy) && styles.disabled]} onPress={() => run(() => onAction('show'))}>
-          <Text style={styles.buttonText}>Show</Text>
+          <Text style={styles.buttonText}>Show on Desktop</Text>
         </Pressable>
         <Pressable disabled={controlsDisabled || busy} style={[styles.secondaryButton, (controlsDisabled || busy) && styles.disabled]} onPress={() => run(() => onAction('hide'))}>
           <Text style={styles.buttonText}>Hide</Text>
@@ -188,8 +201,11 @@ export function VisualPanel({ client, visual, disabled, controlsAvailable, contr
         <Pressable disabled={controlsDisabled || busy} style={[styles.secondaryButton, (controlsDisabled || busy) && styles.disabled]} onPress={() => run(() => onAction('clear'))}>
           <Text style={styles.buttonText}>Clear</Text>
         </Pressable>
-        <Pressable disabled={!imageUrl || shareBusy} style={[styles.secondaryButton, (!imageUrl || shareBusy) && styles.disabled]} onPress={shareImage}>
-          <Text style={styles.buttonText}>{shareBusy ? 'Saving' : 'Save/Share'}</Text>
+        <Pressable disabled={controlsDisabled || busy} style={[styles.secondaryButton, (controlsDisabled || busy) && styles.disabled]} onPress={() => run(() => onAction('generate_last'))}>
+          <Text style={styles.buttonText}>Generate Last</Text>
+        </Pressable>
+        <Pressable disabled={busy} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => run(onRefresh)}>
+          <Text style={styles.buttonText}>Refresh</Text>
         </Pressable>
       </View>
       {error || requestError ? <Text style={styles.error}>{error || requestError}</Text> : null}
@@ -227,12 +243,51 @@ const styles = StyleSheet.create({
     color: colors.muted,
     fontSize: 12,
   },
-  image: {
+  imageFrame: {
     alignSelf: 'center',
     aspectRatio: 1,
-    borderRadius: 6,
-    maxHeight: 180,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: 1,
+    maxHeight: 320,
+    overflow: 'hidden',
     width: '100%',
+  },
+  image: {
+    height: '100%',
+    width: '100%',
+  },
+  emptyImage: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    aspectRatio: 1,
+    backgroundColor: colors.background,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    justifyContent: 'center',
+    maxHeight: 320,
+    padding: spacing.md,
+    width: '100%',
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 14,
+    fontWeight: '900',
+    marginBottom: spacing.xs,
+    textAlign: 'center',
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  caption: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
   },
   demoArtwork: {
     alignSelf: 'center',
@@ -383,6 +438,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
+  },
+  primaryAction: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
   },
   disabled: {
     opacity: 0.35,

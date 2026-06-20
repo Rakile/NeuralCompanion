@@ -16,6 +16,14 @@ type Props = {
 };
 
 const intentOptions = ['Auto', 'Continue', 'Act', 'Say'];
+type StorySection = 'play' | 'cast' | 'memory' | 'visual' | 'advanced';
+const storySections: Array<{ id: StorySection; label: string }> = [
+  { id: 'play', label: 'Play' },
+  { id: 'cast', label: 'Cast' },
+  { id: 'memory', label: 'Memory' },
+  { id: 'visual', label: 'Visual' },
+  { id: 'advanced', label: 'Advanced' },
+];
 
 function clean(value: unknown, fallback = ''): string {
   const text = String(value ?? '').trim();
@@ -62,6 +70,7 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
   const [intent, setIntent] = useState('Auto');
   const [speakerId, setSpeakerId] = useState('');
   const [selectedCastDevice, setSelectedCastDevice] = useState('');
+  const [section, setSection] = useState<StorySection>('play');
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
   const available = !disabled && mprc?.available === true;
@@ -147,6 +156,27 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
         </Text>
       </View>
 
+      {!available ? (
+        <View style={styles.emptyCard}>
+          <Text style={styles.emptyTitle}>Story mode offline</Text>
+          <Text style={styles.emptyText}>Connect to desktop or tap Demo.</Text>
+        </View>
+      ) : null}
+
+      <View style={styles.sectionTabs}>
+        {storySections.map((item) => (
+          <Pressable
+            key={item.id}
+            style={[styles.sectionTab, section === item.id && styles.sectionTabActive]}
+            onPress={() => setSection(item.id)}
+          >
+            <Text style={[styles.sectionTabText, section === item.id && styles.sectionTabTextActive]}>{item.label}</Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {section === 'play' ? <>
+      <Text style={styles.sectionTitle}>Story Controls</Text>
       <View style={styles.actions}>
         <Pressable disabled={disabledControls} style={[styles.secondaryButton, disabledControls && styles.disabled]} onPress={() => run('play', () => onAction('play'))}>
           <Text style={styles.buttonText}>{busy === 'play' ? 'Playing' : 'Play'}</Text>
@@ -161,8 +191,9 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
           <Text style={styles.buttonText}>Refresh</Text>
         </Pressable>
       </View>
+      </> : null}
 
-      <View style={styles.castBox}>
+      {section === 'cast' ? <View style={styles.castBox}>
         <View style={styles.storyHeader}>
           <Text style={styles.sectionTitle}>Chromecast</Text>
           <Text style={[styles.meta, cast?.casting ? styles.castOk : cast?.dependency_error ? styles.castWarning : undefined]} numberOfLines={1}>
@@ -213,9 +244,9 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
         ) : (
           <Text style={styles.emptyText}>Use Find Cast to discover Chromecast devices on this LAN.</Text>
         )}
-      </View>
+      </View> : null}
 
-      <View style={styles.sceneGrid}>
+      {section === 'play' || section === 'advanced' ? <View style={styles.sceneGrid}>
         <View style={styles.sceneCell}>
           <Text style={styles.label}>Location</Text>
           <Text style={styles.value} numberOfLines={2}>{clean(session?.location, 'Unset')}</Text>
@@ -228,9 +259,9 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
           <Text style={styles.label}>Objective</Text>
           <Text style={styles.value} numberOfLines={3}>{clean(session?.objective || session?.scene_summary, 'No active objective')}</Text>
         </View>
-      </View>
+      </View> : null}
 
-      <View style={styles.memoryBox}>
+      {section === 'memory' ? <View style={styles.memoryBox}>
         <View style={styles.storyHeader}>
           <Text style={styles.sectionTitle}>Story Memory</Text>
           <Text style={[styles.meta, memory?.database_available ? styles.castOk : undefined]} numberOfLines={1}>
@@ -259,8 +290,9 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
           Data bank sources: {Number(memory?.indexed_databank_source_count ?? 0)} indexed / {Number(memory?.configured_databank_source_count ?? 0)} configured
         </Text>
         {clean(memory?.fallback_note) ? <Text style={styles.warningText}>{clean(memory?.fallback_note)}</Text> : null}
-      </View>
+      </View> : null}
 
+      {section === 'play' ? <>
       <Text style={styles.sectionTitle}>Cast</Text>
       <View style={styles.personaRow}>
         <Pressable disabled={disabledControls} style={[styles.chip, !speakerId && styles.chipSelected, disabledControls && styles.disabled]} onPress={() => setSpeakerId('')}>
@@ -348,11 +380,31 @@ export function MprcPanel({ mprc, disabled, onSend, onChoice, onAction, onCastAc
           <Text style={styles.emptyText}>{clean(mprc?.latest_reply, available ? 'No story reply yet.' : 'Connect to view story mode.')}</Text>
         )}
       </View>
+      </> : null}
 
-      {clean(mprc?.visual?.latest_prompt) ? (
+      {section === 'visual' ? (
         <View style={styles.visualBox}>
           <Text style={styles.label}>Visual Reply Beat</Text>
-          <Text style={styles.value}>{clean(mprc?.visual?.latest_prompt)}</Text>
+          <Text style={styles.value}>{clean(mprc?.visual?.latest_prompt, 'No Visual Reply beat has been selected yet.')}</Text>
+          <View style={styles.actions}>
+            <Pressable disabled={disabledControls} style={[styles.secondaryButton, styles.activeButton, disabledControls && styles.disabled]} onPress={() => run('visual', () => onAction('visual'))}>
+              <Text style={styles.buttonText}>Generate Visual</Text>
+            </Pressable>
+            <Pressable disabled={Boolean(busy)} style={[styles.secondaryButton, busy && styles.disabled]} onPress={() => run('refresh', onRefresh)}>
+              <Text style={styles.buttonText}>Refresh</Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
+
+      {section === 'advanced' ? (
+        <View style={styles.visualBox}>
+          <Text style={styles.label}>Advanced Details</Text>
+          <Text style={styles.value}>Mode: {modeText}</Text>
+          <Text style={styles.value}>Current speaker: {clean(session?.current_speaker_id || session?.active_persona_id, 'Auto')}</Text>
+          <Text style={styles.value}>Voice chunks: {speechItems.length}</Text>
+          <Text style={styles.value}>Audio cues: {Number(mprc?.audio_cues?.length ?? 0)}</Text>
+          <Text style={styles.value}>Schema: {Number(mprc?.schema_version ?? 0)}</Text>
         </View>
       ) : null}
 
@@ -404,6 +456,48 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     color: colors.muted,
     maxWidth: '45%',
+  },
+  emptyCard: {
+    backgroundColor: colors.panelAlt,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  emptyTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  emptyText: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  sectionTabs: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
+  sectionTab: {
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  sectionTabActive: {
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+  },
+  sectionTabText: {
+    color: colors.muted,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  sectionTabTextActive: {
+    color: colors.text,
   },
   actions: {
     flexDirection: 'row',
@@ -558,10 +652,6 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
     lineHeight: 17,
-  },
-  emptyText: {
-    color: colors.muted,
-    fontSize: 12,
   },
   visualBox: {
     backgroundColor: colors.panelAlt,

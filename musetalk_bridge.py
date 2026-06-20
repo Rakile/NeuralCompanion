@@ -19,6 +19,7 @@ MUSE_BRIDGE_CPU_THREAD_LIMITS = {
     "TORCH_NUM_INTEROP_THREADS": "1",
 }
 _PROGRESS_LINE_RE = re.compile(r"^\s*\d+%\|.*\|\s*\d+/\d+\s*\[")
+_ANSI_ESCAPE_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
 def _is_progress_noise_line(line):
@@ -28,6 +29,28 @@ def _is_progress_noise_line(line):
     if _PROGRESS_LINE_RE.match(text) and "it/s" in text:
         return True
     return False
+
+
+def _strip_ansi_escape_codes(text):
+    return _ANSI_ESCAPE_RE.sub("", str(text or ""))
+
+
+def _parse_torch_cuda_compatibility_output(stdout):
+    cleaned = _strip_ansi_escape_codes(stdout)
+    decoder = json.JSONDecoder()
+    payload = None
+    for index, char in enumerate(cleaned):
+        if char != "{":
+            continue
+        try:
+            candidate, _end = decoder.raw_decode(cleaned[index:])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(candidate, dict):
+            payload = candidate
+    if payload is None:
+        raise json.JSONDecodeError("No JSON object found in MuseTalk torch compatibility output", cleaned, 0)
+    return payload
 
 
 class MuseTalkBridge:
@@ -91,12 +114,10 @@ print(json.dumps(payload))
             )
         except Exception as exc:
             raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
-        raw = (result.stdout or "").strip().splitlines()
-        detail = raw[-1] if raw else ""
         try:
-            payload = json.loads(detail)
+            payload = _parse_torch_cuda_compatibility_output(result.stdout)
         except Exception as exc:
-            combined = " ".join(part.strip() for part in [result.stdout, result.stderr] if part)
+            combined = _strip_ansi_escape_codes(" ".join(part.strip() for part in [result.stdout, result.stderr] if part))
             raise RuntimeError(f"Could not parse MuseTalk torch CUDA compatibility check: {combined}") from exc
         if result.returncode != 0:
             combined = " ".join(part.strip() for part in [result.stdout, result.stderr] if part)

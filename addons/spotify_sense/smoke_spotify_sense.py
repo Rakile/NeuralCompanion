@@ -95,6 +95,10 @@ def main():
         assert settings.data["user_music_change_cooldown_seconds"] == 120
         assert settings.data["hidden_commentary_style_prompt"]
         assert isinstance(settings.data["hidden_sensory_quick_ids"], list)
+        settings.update(story_mode_background_music=True, music_response_mode="companion")
+        assert settings.data["music_response_mode"] == "story_soundtrack"
+        settings.update(story_mode_background_music=False, music_response_mode="companion")
+        assert settings.data["music_response_mode"] == "companion"
         settings.update(client_id="fake-client-id")
         client = SpotifySenseClient(settings)
         auth = client.build_authorization_url()
@@ -529,6 +533,29 @@ def main():
         assert story_result["fade"]["target"] == 34
         assert story_play_calls[-1] == ("mysterious cinematic ambient story ambience", "story-device", "playlist")
         assert story_volume_calls[:2] == [(6, "story-device"), (34, "story-device")]
+
+        story_play_calls.clear()
+        story_volume_calls.clear()
+        controller.settings.update(default_device_id="stale-story-device")
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "live-story-device", "volume_percent": 50}},
+        }
+        live_device_result = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "The lantern reveals a hidden archive map.",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert live_device_result["ok"] is True
+        assert live_device_result["started"] is True
+        assert story_play_calls[-1] == ("mysterious cinematic ambient story ambience", "live-story-device", "playlist")
+        assert story_volume_calls[:2] == [(6, "live-story-device"), (34, "live-story-device")]
 
         story_race_play_calls = []
         story_race_volume_calls = []

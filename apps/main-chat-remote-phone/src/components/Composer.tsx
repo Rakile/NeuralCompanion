@@ -49,6 +49,7 @@ export function Composer({ disabled, voiceAvailable, recording, busy, recordingE
   return (
     <View style={styles.wrap}>
       {sendError || recordingError ? <Text style={styles.error}>{sendError || recordingError}</Text> : null}
+      {!voiceAvailable ? <Text style={styles.hint}>Phone voice needs a desktop STT backend with file transcription.</Text> : null}
       <View style={styles.composer}>
         <TextInput
           value={text}
@@ -85,6 +86,11 @@ const styles = StyleSheet.create({
   },
   error: {
     color: colors.danger,
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  hint: {
+    color: colors.muted,
     fontSize: 12,
     lineHeight: 16,
   },

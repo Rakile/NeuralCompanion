@@ -132,6 +132,8 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
         "debug_logging_enabled",
     ):
         data[key] = bool(data.get(key, DEFAULT_SETTINGS[key]))
+    if data["story_mode_background_music"]:
+        data["music_response_mode"] = "story_soundtrack"
     for key, default, minimum, maximum in (
         ("default_volume", 30, 0, 100),
         ("duck_volume_percent", 15, 0, 100),

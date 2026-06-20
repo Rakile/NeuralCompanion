@@ -13,6 +13,7 @@ import { RuntimeBar } from './src/components/RuntimeBar';
 import { SettingsPanel } from './src/components/SettingsPanel';
 import { VisualPanel } from './src/components/VisualPanel';
 import { useDemoRemote } from './src/demo/useDemoRemote';
+import type { RemoteState } from './src/api/types';
 import { useAudioQueue } from './src/hooks/useAudioQueue';
 import { usePhoneSettings } from './src/hooks/usePhoneSettings';
 import { useRecorder } from './src/hooks/useRecorder';
@@ -21,14 +22,82 @@ import { colors, spacing } from './src/styles/theme';
 
 type MainTab = 'chat' | 'story' | 'visual' | 'audio' | 'musetalk' | 'settings';
 
-const mainTabs: Array<{ id: MainTab; label: string }> = [
-  { id: 'chat', label: 'Chat' },
-  { id: 'story', label: 'Story' },
-  { id: 'visual', label: 'Visual' },
-  { id: 'audio', label: 'Audio' },
-  { id: 'musetalk', label: 'Avatar' },
-  { id: 'settings', label: 'Settings' },
+const mainTabs: Array<{ id: MainTab; label: string; icon: string }> = [
+  { id: 'chat', label: 'Chat', icon: 'CH' },
+  { id: 'story', label: 'Story', icon: 'ST' },
+  { id: 'visual', label: 'Image', icon: 'IMG' },
+  { id: 'audio', label: 'Audio', icon: 'AUD' },
+  { id: 'musetalk', label: 'Avatar', icon: 'AV' },
+  { id: 'settings', label: 'Settings', icon: 'SET' },
 ];
+
+function tabBadge(tab: MainTab, state: RemoteState | null, sessionActive: boolean, demoMode: boolean): string {
+  if (demoMode) {
+    return 'Demo';
+  }
+  if (!sessionActive) {
+    return 'Offline';
+  }
+  if (tab === 'visual') {
+    return state?.visual?.service_available === false ? 'Off' : state?.visual?.latest_request?.status ? String(state.visual.latest_request.status) : 'Ready';
+  }
+  if (tab === 'audio') {
+    if (state?.media?.backend_playback_suppressed) {
+      return 'Muted';
+    }
+    return state?.media?.items?.length ? `${state.media.items.length}` : 'Ready';
+  }
+  if (tab === 'musetalk') {
+    return state?.musetalk?.available === false ? 'Off' : state?.musetalk?.state?.status ? 'Live' : 'Ready';
+  }
+  if (tab === 'story') {
+    return state?.mprc?.available ? `Turn ${Number(state.mprc.session?.turn_index ?? 0)}` : 'Off';
+  }
+  if (tab === 'settings') {
+    return 'Ready';
+  }
+  return state?.runtime_status?.running || state?.engine?.running ? 'Ready' : 'Idle';
+}
+
+function DesktopControlsDrawer({
+  state,
+  disabled,
+  demoMode,
+  onStart,
+  onStop,
+  onControl,
+}: {
+  state: RemoteState | null;
+  disabled: boolean;
+  demoMode: boolean;
+  onStart: () => Promise<void>;
+  onStop: () => Promise<void>;
+  onControl: (action: string) => Promise<void>;
+}) {
+  const [open, setOpen] = React.useState(false);
+  const runtime = state?.runtime_status;
+  const running = Boolean(state?.engine?.running ?? runtime?.running);
+  const actionCount = state?.controls?.actions?.length ?? 0;
+  return (
+    <View style={styles.controlsDrawer}>
+      <Pressable style={styles.controlsDrawerHeader} onPress={() => setOpen((value) => !value)}>
+        <View style={styles.controlsDrawerText}>
+          <Text style={styles.controlsDrawerTitle}>Desktop Controls</Text>
+          <Text style={styles.controlsDrawerMeta} numberOfLines={1}>
+            {demoMode ? 'Demo desktop state' : running ? 'Runtime running' : 'Runtime stopped'} - {runtime?.chat_provider || 'LLM'} - {actionCount} actions
+          </Text>
+        </View>
+        <Text style={styles.controlsDrawerToggle}>{open ? 'Hide' : 'Show'}</Text>
+      </Pressable>
+      {open ? (
+        <View style={styles.controlsDrawerBody}>
+          <RuntimeBar state={state} disabled={disabled} onStart={onStart} onStop={onStop} />
+          <ControlsBar actions={state?.controls?.actions ?? []} disabled={disabled} onControl={onControl} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 export default function App() {
   const [activeTab, setActiveTab] = React.useState<MainTab>('chat');
@@ -104,15 +173,12 @@ export default function App() {
               <Text style={styles.demoBannerText}>Offline story tour with sample chat, Visual Reply, and animated MuseTalk avatar.</Text>
             </View>
           ) : null}
-          <RuntimeBar
+          <DesktopControlsDrawer
             state={activeState}
             disabled={!commandsAvailable}
+            demoMode={demoMode}
             onStart={demoMode ? demo.startEngine : remote.startEngine}
             onStop={demoMode ? demo.stopEngine : remote.stopEngine}
-          />
-          <ControlsBar
-            actions={activeState?.controls?.actions ?? []}
-            disabled={!commandsAvailable}
             onControl={(action) => demoMode ? demo.sendControl(action, sendOptions) : remote.sendControl(action, sendOptions)}
           />
           <ScrollView
@@ -123,13 +189,18 @@ export default function App() {
           >
             {mainTabs.map((tab) => {
               const selected = activeTab === tab.id;
+              const badge = tabBadge(tab.id, activeState, sessionActive, demoMode);
               return (
                 <Pressable
                   key={tab.id}
                   style={[styles.tabButton, selected && styles.tabButtonActive]}
                   onPress={() => setActiveTab(tab.id)}
                 >
-                  <Text style={[styles.tabText, selected && styles.tabTextActive]}>{tab.label}</Text>
+                  <View style={styles.tabInner}>
+                    <Text style={[styles.tabIcon, selected && styles.tabIconActive]}>{tab.icon}</Text>
+                    <Text style={[styles.tabText, selected && styles.tabTextActive]}>{tab.label}</Text>
+                  </View>
+                  <Text style={[styles.tabBadge, selected && styles.tabBadgeActive]}>{badge}</Text>
                 </Pressable>
               );
             })}
@@ -283,19 +354,72 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+  controlsDrawer: {
+    backgroundColor: colors.panel,
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    overflow: 'hidden',
+  },
+  controlsDrawerHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.sm,
+    minHeight: 46,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  controlsDrawerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  controlsDrawerTitle: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  controlsDrawerMeta: {
+    color: colors.muted,
+    fontSize: 12,
+    marginTop: 2,
+  },
+  controlsDrawerToggle: {
+    color: colors.text,
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  controlsDrawerBody: {
+    borderTopColor: colors.border,
+    borderTopWidth: 1,
+  },
   tabButton: {
     alignItems: 'center',
     borderColor: 'transparent',
     borderRadius: 5,
     borderWidth: 1,
-    minWidth: 82,
-    minHeight: 36,
+    gap: 2,
     justifyContent: 'center',
+    minHeight: 42,
+    minWidth: 84,
     paddingHorizontal: spacing.xs,
+    paddingVertical: spacing.xs,
   },
   tabButtonActive: {
     backgroundColor: colors.accentSoft,
     borderColor: colors.accent,
+  },
+  tabInner: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  tabIcon: {
+    color: colors.muted,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+  tabIconActive: {
+    color: colors.text,
   },
   tabText: {
     color: colors.muted,
@@ -305,6 +429,16 @@ const styles = StyleSheet.create({
   },
   tabTextActive: {
     color: colors.text,
+  },
+  tabBadge: {
+    color: colors.muted,
+    fontSize: 9,
+    fontWeight: '800',
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  tabBadgeActive: {
+    color: colors.ok,
   },
   mainArea: {
     flex: 1,

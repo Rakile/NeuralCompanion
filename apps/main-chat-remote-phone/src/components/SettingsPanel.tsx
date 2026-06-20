@@ -91,8 +91,7 @@ function Diagnostics({ health, status, transport, error }: { health: RemoteEnvel
   const lanBackend = health ? (health.status === 'ready' || Boolean(health.remote?.running) ? 'reachable' : String(health.status || 'unavailable')) : 'not checked';
   const bridge = health ? (health.bridge?.error ? String(health.bridge.error) : String(health.bridge?.status || health.status || 'ready')) : 'not checked';
   return (
-    <View style={styles.card}>
-      <Text style={styles.cardTitle}>Connection Diagnostics</Text>
+    <View style={styles.diagnosticsBody}>
       <Text style={styles.diag}>LAN backend: {lanBackend}</Text>
       <Text style={styles.diag}>Local bridge: {bridge}</Text>
       <Text style={styles.diag}>Transport: {transport === 'none' ? status : `${status} / ${transport}`}</Text>
@@ -117,8 +116,10 @@ function RuntimeSummary({ state }: { state: RemoteState | null }) {
 }
 
 export function SettingsPanel({ settings, onChange, state, health, status, transport, error }: Props) {
+  const [diagnosticsOpen, setDiagnosticsOpen] = React.useState(false);
   const volumePercent = Math.round(settings.phoneTtsVolume * 100);
   const pollSeconds = Math.round(settings.pollingIntervalMs / 100) / 10;
+  const showDiagnostics = Boolean(error) || diagnosticsOpen;
   return (
     <ScrollView style={styles.panel} contentContainerStyle={styles.content}>
       <View style={styles.card}>
@@ -142,7 +143,7 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Input Behavior</Text>
+        <Text style={styles.cardTitle}>Voice Input</Text>
         <Segmented label="Send mode" value={settings.sendMode} options={sendModeOptions} onChange={(sendMode) => onChange({ sendMode })} />
         <Segmented label="Microphone" value={settings.micBehavior} options={micOptions} onChange={(micBehavior) => onChange({ micBehavior })} />
       </View>
@@ -163,11 +164,23 @@ export function SettingsPanel({ settings, onChange, state, health, status, trans
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>MuseTalk</Text>
+        <Text style={styles.cardTitle}>Avatar Stream</Text>
         <Segmented label="Quality mode" value={settings.museTalkQuality} options={qualityOptions} onChange={(museTalkQuality) => onChange({ museTalkQuality })} />
       </View>
 
-      <Diagnostics health={health} status={status} transport={transport} error={error} />
+      <View style={styles.card}>
+        <View style={styles.cardHeaderRow}>
+          <Text style={styles.cardTitle}>Diagnostics</Text>
+          <Pressable style={styles.diagnosticsToggle} onPress={() => setDiagnosticsOpen((value) => !value)}>
+            <Text style={styles.toggleText}>{showDiagnostics ? 'Hide' : 'Show'}</Text>
+          </Pressable>
+        </View>
+        {showDiagnostics ? (
+          <Diagnostics health={health} status={status} transport={transport} error={error} />
+        ) : (
+          <Text style={styles.detail}>Hidden unless there is a connection error.</Text>
+        )}
+      </View>
       <RuntimeSummary state={state} />
     </ScrollView>
   );
@@ -193,6 +206,11 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 14,
     fontWeight: '800',
+  },
+  cardHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
   },
   row: {
     alignItems: 'center',
@@ -231,6 +249,16 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 12,
     fontWeight: '800',
+  },
+  diagnosticsToggle: {
+    borderColor: colors.border,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  diagnosticsBody: {
+    gap: spacing.xs,
   },
   group: {
     gap: spacing.xs,
