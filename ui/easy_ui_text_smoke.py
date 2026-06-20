@@ -138,6 +138,13 @@ def main() -> None:
         '"Provider is ready."',
         '"chat_runtime_provider_setup_card"',
         '"visual_reply_runtime_provider_setup_card"',
+        "def _runtime_section_group",
+        '"visual_reply_runtime_image_settings_group"',
+        '"visual_reply_runtime_credentials_group"',
+        '"visual_reply_runtime_display_group"',
+        '"Image Settings"',
+        '"Provider Credentials"',
+        '"Display Behavior"',
     )
     _assert_not_contains(
         "ui/runtime/real_ui_layout.py",

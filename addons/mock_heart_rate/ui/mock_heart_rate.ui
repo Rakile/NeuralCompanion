@@ -188,7 +188,7 @@
          <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
         </property>
         <property name="text">
-         <string>Addon Contract</string>
+         <string>How this source connects</string>
         </property>
        </widget>
       </item>

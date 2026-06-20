@@ -96,7 +96,7 @@
    <item>
     <widget class="QLabel" name="heart_rate_behavior_preview_label">
      <property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property>
-     <property name="text"><string>Prompt Preview</string></property>
+     <property name="text"><string>Review Prompt Preview</string></property>
     </widget>
    </item>
    <item>

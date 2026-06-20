@@ -1060,6 +1060,16 @@ QTabWidget#right_tabs QTabBar::tab {
     border-bottom-left-radius: 0px;
     border-bottom-right-radius: 0px;
 }
+QTabWidget#sensory_feedback_tabs QTabBar::tab {
+    /* nc-vision-tab-buttons-compact */
+    min-width: 112px;
+    max-width: 190px;
+    min-height: 30px;
+    max-height: 30px;
+    height: 30px;
+    padding: 4px 12px;
+    margin-right: 3px;
+}
 QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected,
 QTabWidget#vseeface_tabs QTabBar::tab:!selected,
 QTabWidget#musetalk_tabs QTabBar::tab:!selected,
@@ -1067,6 +1077,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:!selected,
 QTabWidget#vam_setup_tabs QTabBar::tab:!selected,
 QTabWidget#right_tabs QTabBar::tab:!selected {
     margin-top: 3px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:!selected {
+    margin-top: 0px;
 }
 QTabWidget#sensory_feedback_tabs::pane,
 QTabWidget#vseeface_tabs::pane,
@@ -1104,6 +1117,9 @@ QTabWidget#right_tabs QTabBar::tab:selected {
     border-right: 1px solid #273342;
     margin-bottom: -1px;
     padding-bottom: 11px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected {
+    padding: 4px 12px;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab:hover,
 QTabWidget#vseeface_tabs QTabBar::tab:hover,

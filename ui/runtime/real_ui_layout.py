@@ -708,6 +708,33 @@ SELECTOR QStackedWidget {
             self._refresh_runtime_provider_setup_card(kind, card)
             return card
 
+    def _runtime_section_group(self, title, object_name):
+            group = QtWidgets.QGroupBox(str(title or "").strip())
+            group.setObjectName(str(object_name or "").strip())
+            group.setStyleSheet(
+                "QGroupBox {"
+                "  color: #dbeafe;"
+                "  font-weight: 700;"
+                "  border: 1px solid rgba(96, 165, 250, 0.32);"
+                "  border-radius: 7px;"
+                "  margin-top: 10px;"
+                "  padding-top: 10px;"
+                "}"
+                "QGroupBox::title {"
+                "  subcontrol-origin: margin;"
+                "  left: 10px;"
+                "  padding: 0 4px;"
+                "}"
+            )
+            layout = QtWidgets.QVBoxLayout(group)
+            layout.setContentsMargins(10, 10, 10, 10)
+            layout.setSpacing(8)
+            try:
+                group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            except Exception:
+                pass
+            return group, layout
+
     def _style_runtime_setup_chip(self, chip, active):
             if chip is None:
                 return
@@ -1433,9 +1460,10 @@ QTabWidget QScrollArea > QWidget > QWidget {
                 if tab_bar is not None:
                     tab_bar.setVisible(int(tabs.count()) > 1)
                     tab_bar.setExpanding(False)
+                    tab_bar.setFixedHeight(34)
                 tabs.setUsesScrollButtons(True)
                 tabs.setElideMode(QtCore.Qt.ElideNone)
-                tabs.setIconSize(QtCore.QSize(18, 18))
+                tabs.setIconSize(QtCore.QSize(16, 16))
             except Exception:
                 pass
             try:
@@ -1449,16 +1477,19 @@ QTabWidget::tab-bar {
     left: 0px;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab {
-    min-width: 132px;
-    max-width: 320px;
-    padding-left: 18px;
-    padding-right: 18px;
+    /* nc-vision-tab-buttons-compact */
+    min-width: 112px;
+    max-width: 190px;
+    min-height: 30px;
+    max-height: 30px;
+    height: 30px;
+    padding: 4px 12px;
+    margin-right: 3px;
 }
-QTabWidget QTabBar::tab:selected {
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected {
     border-bottom: 0px;
     margin-bottom: -1px;
-    padding-right: 18px;
-    padding-bottom: 11px;
+    padding: 4px 12px;
 }
 /* nc-sensory-feedback-tabs-runtime-style:end */
 """.strip()
@@ -1589,10 +1620,11 @@ QTabWidget QStackedWidget {
                     if object_name.startswith("vision_source_tabs_"):
                         tabs.setUsesScrollButtons(True)
                         tabs.setElideMode(QtCore.Qt.ElideNone)
-                        tabs.setIconSize(QtCore.QSize(18, 18))
+                        tabs.setIconSize(QtCore.QSize(16, 16))
                         tab_bar = tabs.tabBar()
                         if tab_bar is not None:
                             tab_bar.setExpanding(False)
+                            tab_bar.setFixedHeight(34)
                 except Exception:
                     pass
                 try:
@@ -1603,13 +1635,17 @@ QTabWidget QStackedWidget {
                             """
 /* nc-vision-source-tabs-fit */
 QTabWidget QTabBar::tab {
-    min-width: 132px;
-    max-width: 320px;
-    padding-left: 18px;
-    padding-right: 18px;
+    /* nc-vision-tab-buttons-compact */
+    min-width: 112px;
+    max-width: 190px;
+    min-height: 30px;
+    max-height: 30px;
+    height: 30px;
+    padding: 4px 12px;
+    margin-right: 3px;
 }
 QTabWidget QTabBar::tab:selected {
-    padding-right: 18px;
+    padding: 4px 12px;
 }
 /* nc-nested-horizontal-tabs-runtime-style:end */
 """.strip(),
@@ -4843,45 +4879,56 @@ QTabWidget QTabBar::tab:selected {
                 content_layout = QtWidgets.QVBoxLayout(content)
                 content_layout.setContentsMargins(0, 0, 0, 0)
                 content_layout.setSpacing(8)
-                provider_form = QtWidgets.QFormLayout()
-                provider_form.setObjectName("visual_reply_runtime_provider_active_form")
-                provider_form.setContentsMargins(0, 0, 0, 0)
-                provider_form.setHorizontalSpacing(12)
-                provider_form.setVerticalSpacing(8)
-                provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-                content_layout.addLayout(provider_form)
             else:
-                provider_form = content.findChild(QtWidgets.QFormLayout, "visual_reply_runtime_provider_active_form")
-                if provider_form is None:
-                    provider_form = QtWidgets.QFormLayout()
-                    provider_form.setObjectName("visual_reply_runtime_provider_active_form")
-                    provider_form.setContentsMargins(0, 0, 0, 0)
-                    provider_form.setHorizontalSpacing(12)
-                    provider_form.setVerticalSpacing(8)
-                    provider_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
-                    if content.layout() is None:
-                        content_layout = QtWidgets.QVBoxLayout(content)
-                        content_layout.setContentsMargins(0, 0, 0, 0)
-                        content_layout.setSpacing(8)
-                    content.layout().addLayout(provider_form)
+                content_layout = content.layout()
+                if content_layout is None:
+                    content_layout = QtWidgets.QVBoxLayout(content)
+                    content_layout.setContentsMargins(0, 0, 0, 0)
+                    content_layout.setSpacing(8)
+                else:
+                    _clear_layout(content_layout)
             self._insert_runtime_provider_setup_card(
                 content,
                 "visual_reply_runtime_provider_setup_card",
                 "visual",
             )
-            self._clear_form_rows_preserving_widgets(provider_form)
+
+            def _new_section_form(object_name):
+                form = QtWidgets.QFormLayout()
+                form.setObjectName(str(object_name or "").strip())
+                form.setContentsMargins(0, 0, 0, 0)
+                form.setHorizontalSpacing(12)
+                form.setVerticalSpacing(8)
+                form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                return form
+
+            image_group, image_layout = self._runtime_section_group("Image Settings", "visual_reply_runtime_image_settings_group")
+            image_form = _new_section_form("visual_reply_runtime_image_settings_form")
             if widgets["size_label"] is not None:
-                provider_form.addRow(widgets["size_label"], widgets["size_combo"])
+                image_form.addRow(widgets["size_label"], widgets["size_combo"])
             if widgets["model_label"] is not None:
-                provider_form.addRow(widgets["model_label"], widgets["model_row"])
+                image_form.addRow(widgets["model_label"], widgets["model_row"])
+            image_layout.addLayout(image_form)
+            content_layout.addWidget(image_group)
+
+            credentials_group, credentials_layout = self._runtime_section_group("Provider Credentials", "visual_reply_runtime_credentials_group")
+            credentials_form = _new_section_form("visual_reply_runtime_credentials_form")
             if widgets["api_key_label"] is not None and widgets["api_key_edit"] is not None:
-                provider_form.addRow(widgets["api_key_label"], widgets["api_key_edit"])
+                credentials_form.addRow(widgets["api_key_label"], widgets["api_key_edit"])
             if widgets["cleanup_label"] is not None and widgets["cleanup_combo"] is not None:
-                provider_form.addRow(widgets["cleanup_label"], widgets["cleanup_combo"])
+                credentials_form.addRow(widgets["cleanup_label"], widgets["cleanup_combo"])
+            credentials_layout.addLayout(credentials_form)
+            content_layout.addWidget(credentials_group)
+
+            display_group, display_layout = self._runtime_section_group("Display Behavior", "visual_reply_runtime_display_group")
+            display_form = _new_section_form("visual_reply_runtime_display_form")
             if widgets["auto_show"] is not None:
-                provider_form.addRow(widgets["auto_show"])
+                display_form.addRow(widgets["auto_show"])
             if widgets["hint"] is not None:
-                provider_form.addRow(widgets["hint"])
+                display_form.addRow(widgets["hint"])
+            display_layout.addLayout(display_form)
+            content_layout.addWidget(display_group)
+            content_layout.addStretch(1)
 
             try:
                 group_layout.setContentsMargins(12, 14, 12, 12)

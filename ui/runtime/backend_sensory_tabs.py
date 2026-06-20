@@ -12,6 +12,61 @@ def _sensory():
     return sensory
 
 class BackendSensoryTabsMixin:
+    def _apply_vision_tab_button_style(self, tabs):
+        if tabs is None:
+            return
+        try:
+            tabs.setUsesScrollButtons(True)
+            tabs.setElideMode(QtCore.Qt.ElideNone)
+            tabs.setIconSize(QtCore.QSize(16, 16))
+            tab_bar = tabs.tabBar()
+            if tab_bar is not None:
+                tab_bar.setExpanding(False)
+                tab_bar.setUsesScrollButtons(True)
+                tab_bar.setElideMode(QtCore.Qt.ElideNone)
+                tab_bar.setIconSize(QtCore.QSize(16, 16))
+                tab_bar.setFixedHeight(34)
+                tab_bar.setStyleSheet(
+                    "QTabBar {"
+                    "  background: transparent;"
+                    "  min-height: 34px;"
+                    "  max-height: 34px;"
+                    "  qproperty-drawBase: 0;"
+                    "}"
+                    "QTabBar::tab {"
+                    "  background: #17212c;"
+                    "  border: 1px solid #273342;"
+                    "  min-width: 112px;"
+                    "  max-width: 190px;"
+                    "  min-height: 30px;"
+                    "  max-height: 30px;"
+                    "  height: 30px;"
+                    "  padding: 4px 12px;"
+                    "  margin-top: 0px;"
+                    "  margin-right: 3px;"
+                    "  margin-bottom: -1px;"
+                    "  border-top-left-radius: 7px;"
+                    "  border-top-right-radius: 7px;"
+                    "  border-bottom-left-radius: 0px;"
+                    "  border-bottom-right-radius: 0px;"
+                    "}"
+                    "QTabBar::tab:!selected {"
+                    "  margin-top: 0px;"
+                    "}"
+                    "QTabBar::tab:selected {"
+                    "  background: #0f141b;"
+                    "  border-color: #273342;"
+                    "  border-bottom-color: #0f141b;"
+                    "  padding: 4px 12px;"
+                    "  margin-bottom: -1px;"
+                    "}"
+                    "QTabBar::tab:hover {"
+                    "  background: #223247;"
+                    "}"
+                )
+        except Exception:
+            pass
+
     def _sensory_source_icon(self, provider_id):
         style = QtWidgets.QApplication.style()
         provider_key = str(provider_id or "").strip().lower()
@@ -26,11 +81,14 @@ class BackendSensoryTabsMixin:
         standard_icon = icon_map.get(provider_key, QtWidgets.QStyle.SP_FileIcon)
         return style.standardIcon(standard_icon) if style is not None else QtGui.QIcon()
 
-    def _source_section_card(self, title, *, icon=None, description=""):
+    def _source_section_card(self, title, *, icon=None, description="", object_name=""):
         card = QtWidgets.QGroupBox(str(title or "").strip())
+        if object_name:
+            card.setObjectName(str(object_name or "").strip())
+        card.setStyleSheet(self._vision_section_group_stylesheet())
         card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
         card_layout = QtWidgets.QVBoxLayout(card)
-        card_layout.setContentsMargins(12, 14, 12, 12)
+        card_layout.setContentsMargins(10, 10, 10, 10)
         card_layout.setSpacing(8)
         if description:
             intro_row = QtWidgets.QHBoxLayout()
@@ -47,6 +105,84 @@ class BackendSensoryTabsMixin:
             intro_row.addWidget(description_label, 1)
             card_layout.addLayout(intro_row)
         return card, card_layout
+
+    def _vision_section_group_stylesheet(self):
+        return (
+            "QGroupBox {"
+            "  color: #dbeafe;"
+            "  font-weight: 700;"
+            "  border: 1px solid rgba(96, 165, 250, 0.32);"
+            "  border-radius: 7px;"
+            "  margin-top: 10px;"
+            "  padding-top: 10px;"
+            "}"
+            "QGroupBox::title {"
+            "  subcontrol-origin: margin;"
+            "  left: 10px;"
+            "  padding: 0 4px;"
+            "}"
+        )
+
+    def _vision_panel_frame_stylesheet(self, object_name):
+        safe_name = str(object_name or "vision_contribution_panel").strip() or "vision_contribution_panel"
+        return (
+            f"QFrame#{safe_name} {{"
+            "  background: rgba(10, 18, 30, 0.74);"
+            "  border: 1px solid rgba(96, 165, 250, 0.32);"
+            "  border-radius: 7px;"
+            "}"
+        )
+
+    def _normalize_vision_source_contribution_widget(self, widget):
+        if widget is None:
+            return
+        try:
+            widget.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+        except Exception:
+            pass
+        root_layout = widget.layout() if hasattr(widget, "layout") else None
+        if root_layout is not None:
+            try:
+                root_layout.setContentsMargins(8, 8, 8, 8)
+                root_layout.setSpacing(8)
+            except Exception:
+                pass
+        for group in widget.findChildren(QtWidgets.QGroupBox):
+            title = str(group.title() or "").strip()
+            if title == "Advanced Reaction Prompt Template":
+                group.setTitle("Advanced Prompt Rules")
+            group.setStyleSheet(self._vision_section_group_stylesheet())
+            try:
+                group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                group_layout = group.layout()
+                if group_layout is not None:
+                    group_layout.setContentsMargins(10, 10, 10, 10)
+                    group_layout.setSpacing(8)
+            except Exception:
+                pass
+        for frame in widget.findChildren(QtWidgets.QFrame):
+            try:
+                if frame.metaObject().className() != "QFrame" or frame.layout() is None:
+                    continue
+                if not str(frame.objectName() or "").strip():
+                    frame.setObjectName("vision_contribution_panel")
+                frame.setStyleSheet(self._vision_panel_frame_stylesheet(frame.objectName()))
+                frame.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                frame_layout = frame.layout()
+                if frame_layout is not None:
+                    frame_layout.setContentsMargins(10, 10, 10, 10)
+                    frame_layout.setSpacing(8)
+            except Exception:
+                continue
+        for label in widget.findChildren(QtWidgets.QLabel):
+            try:
+                text = str(label.text() or "").strip()
+                if text == "Addon Contract":
+                    label.setText("How this source connects")
+                elif text == "Prompt Preview":
+                    label.setText("Review Prompt Preview")
+            except Exception:
+                continue
 
     def _source_help_label(self, text):
         label = QtWidgets.QLabel(str(text or "").strip())
@@ -88,6 +224,7 @@ class BackendSensoryTabsMixin:
             tab_bar = None
         if tab_bar is None:
             return
+        self._apply_vision_tab_button_style(tabs)
         try:
             tab_bar.setVisible(int(tabs.count()) > 1)
         except Exception:
@@ -165,6 +302,7 @@ class BackendSensoryTabsMixin:
         overview_card, overview_layout = self._source_section_card(
             "Source Overview",
             icon=source_icon,
+            object_name="vision_source_overview_group",
             description=overview_description
             or "This source can add background context when selected in Background Awareness.",
         )
@@ -179,8 +317,9 @@ class BackendSensoryTabsMixin:
 
         if self._provider_uses_source_prompt_fragment(provider_key):
             prompt_card, prompt_layout = self._source_section_card(
-                "How background review uses this source",
+                "How NC reads this source",
                 icon=source_icon,
+                object_name="vision_source_guidance_group",
                 description=(
                     "These instructions are merged into the background review prompt only when this source is selected. "
                     "Use them to keep reactions focused on visible evidence and useful context."
@@ -206,8 +345,9 @@ class BackendSensoryTabsMixin:
             layout.addWidget(prompt_card)
 
         metadata_card, metadata_layout = self._source_section_card(
-            "Source Data Contract",
+            "Advanced Source Details",
             icon=source_icon,
+            object_name="vision_source_advanced_details_group",
             description=(
                 "Advanced source details for what gets sent into review and what the review is allowed to produce. "
                 "Most users can leave these recommended values alone."
@@ -260,9 +400,9 @@ class BackendSensoryTabsMixin:
                 height=58,
                 placeholder=f"Plain-language description for {label}",
             ),
-            "ping_payload": add_json_editor("ping_payload", "Data sent to review", effective_metadata.get("ping_payload", declared_ping_payload)),
-            "pong_influences": add_json_editor("pong_influences", "Allowed review outputs", effective_metadata.get("pong_influences", declared_outputs)),
-            "tag_subscriptions": add_json_editor("tag_subscriptions", "Tags this source can use", effective_metadata.get("tag_subscriptions", declared_tags), height=72),
+            "ping_payload": add_json_editor("ping_payload", "What gets reviewed", effective_metadata.get("ping_payload", declared_ping_payload)),
+            "pong_influences": add_json_editor("pong_influences", "What review can do", effective_metadata.get("pong_influences", declared_outputs)),
+            "tag_subscriptions": add_json_editor("tag_subscriptions", "Matching tags", effective_metadata.get("tag_subscriptions", declared_tags), height=72),
         }
         metadata_layout.addLayout(metadata_form)
         layout.addWidget(metadata_card)
@@ -282,6 +422,7 @@ class BackendSensoryTabsMixin:
             reactions_card, reactions_layout = self._source_section_card(
                 "Reactions",
                 icon=source_icon,
+                object_name="vision_source_reactions_group",
                 description=(
                     "These enabled add-ons contribute behavior rules for this source. They can suggest spoken comments, Visual Reply beats, or tags when the review output allows it."
                 ),
@@ -340,6 +481,7 @@ class BackendSensoryTabsMixin:
         intro_card, _intro_layout = self._source_section_card(
             "Source Overview",
             icon=source_icon,
+            object_name="vision_source_overview_group",
             description=(
                 f"{label} is a {source_kind.lower()} source. Use these tabs to decide what it captures, "
                 "how background review should interpret it, and which optional reaction rules are active."
@@ -355,8 +497,9 @@ class BackendSensoryTabsMixin:
             static_tabs = [item for item in addon_contributions if item not in checkable_children]
             if checkable_children:
                 add_on_card, add_on_layout = self._source_section_card(
-                    "Optional add-ons",
+                    "Optional Reactions",
                     icon=source_icon,
+                    object_name=f"vision_source_{provider_key}_optional_reactions_group",
                     description="Turn source-specific reaction add-ons on or off. Disabled add-ons keep their settings but do not contribute rules to background review.",
                 )
                 for item in checkable_children:
@@ -370,6 +513,7 @@ class BackendSensoryTabsMixin:
             nested_tabs.setObjectName(f"vision_source_tabs_{provider_key}")
             nested_tabs.setMinimumSize(0, 0)
             nested_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            self._apply_vision_tab_button_style(nested_tabs)
             nested_tabs.currentChanged.connect(lambda _index, tabs=nested_tabs: self._sync_tab_widget_height(tabs))
             if use_nested_source_tab:
                 source_widget, editor = self._build_sensory_source_foundation_widget(
@@ -390,6 +534,7 @@ class BackendSensoryTabsMixin:
                     child_widget = item.factory(None)
                     if child_widget is None:
                         continue
+                    self._normalize_vision_source_contribution_widget(child_widget)
                     tab_title = self._vision_source_contribution_tab_title(provider_key, item)
                     tab_index = nested_tabs.addTab(child_widget, self._vision_source_contribution_icon(provider_key, item), tab_title)
                     if item.tooltip:
@@ -403,6 +548,7 @@ class BackendSensoryTabsMixin:
                     child_widget = item.factory(None)
                     if child_widget is None:
                         continue
+                    self._normalize_vision_source_contribution_widget(child_widget)
                     tab_title = self._vision_source_contribution_tab_title(provider_key, item)
                     tab_index = nested_tabs.addTab(child_widget, self._vision_source_contribution_icon(provider_key, item), tab_title)
                     if item.tooltip:

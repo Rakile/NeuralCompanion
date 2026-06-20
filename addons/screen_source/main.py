@@ -620,23 +620,57 @@ class Addon(BaseAddon):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
 
-        form = QtWidgets.QFormLayout()
-        form.setContentsMargins(0, 0, 0, 0)
-        form.setSpacing(8)
+        def section_group(title, object_name):
+            group = QtWidgets.QGroupBox(str(title or "").strip())
+            group.setObjectName(str(object_name or "").strip())
+            group.setStyleSheet(
+                "QGroupBox {"
+                "  color: #dbeafe;"
+                "  font-weight: 700;"
+                "  border: 1px solid rgba(96, 165, 250, 0.32);"
+                "  border-radius: 7px;"
+                "  margin-top: 10px;"
+                "  padding-top: 10px;"
+                "}"
+                "QGroupBox::title {"
+                "  subcontrol-origin: margin;"
+                "  left: 10px;"
+                "  padding: 0 4px;"
+                "}"
+            )
+            group_layout = QtWidgets.QVBoxLayout(group)
+            group_layout.setContentsMargins(10, 10, 10, 10)
+            group_layout.setSpacing(8)
+            group.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            return group, group_layout
+
+        capture_group, capture_layout = section_group("Capture Area", "vision_source_capture_area_group")
+        capture_form = QtWidgets.QFormLayout()
+        capture_form.setContentsMargins(0, 0, 0, 0)
+        capture_form.setSpacing(8)
+        capture_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
 
         mode_combo = QtWidgets.QComboBox()
         mode_combo.addItem("Whole screen", CAPTURE_MODE_FULL)
         mode_combo.addItem("Selected region", CAPTURE_MODE_REGION)
         mode_combo.addItem("Selected square", CAPTURE_MODE_SQUARE)
         mode_combo.setToolTip("Choose whether screen snapshots capture the whole desktop or a selected area.")
-        form.addRow("Capture area", mode_combo)
+        capture_form.addRow("Capture area", mode_combo)
 
         screen_combo = QtWidgets.QComboBox()
         screen_combo.setToolTip(
             "Choose which monitor is captured when Capture area is Whole screen. "
             "Selected regions and squares keep their own desktop coordinates."
         )
-        form.addRow("Screen", screen_combo)
+        capture_form.addRow("Screen", screen_combo)
+        capture_layout.addLayout(capture_form)
+        layout.addWidget(capture_group)
+
+        detail_group, detail_layout = section_group("Image Detail", "vision_source_image_detail_group")
+        detail_form = QtWidgets.QFormLayout()
+        detail_form.setContentsMargins(0, 0, 0, 0)
+        detail_form.setSpacing(8)
+        detail_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
 
         max_width_spin = QtWidgets.QSpinBox()
         max_width_spin.setRange(MIN_MAX_SIDE, MAX_MAX_SIDE)
@@ -644,7 +678,7 @@ class Addon(BaseAddon):
         max_width_spin.setSuffix(" px")
         max_width_spin.setValue(_clamp_int(getattr(self, "max_width", DEFAULT_MAX_WIDTH), DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE))
         max_width_spin.setToolTip("Maximum width for hidden screen snapshots.")
-        form.addRow("Max width", max_width_spin)
+        detail_form.addRow("Max width", max_width_spin)
 
         max_height_spin = QtWidgets.QSpinBox()
         max_height_spin.setRange(MIN_MAX_SIDE, MAX_MAX_SIDE)
@@ -652,7 +686,7 @@ class Addon(BaseAddon):
         max_height_spin.setSuffix(" px")
         max_height_spin.setValue(_clamp_int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT), DEFAULT_MAX_HEIGHT, MIN_MAX_SIDE, MAX_MAX_SIDE))
         max_height_spin.setToolTip("Maximum height for hidden screen snapshots.")
-        form.addRow("Max height", max_height_spin)
+        detail_form.addRow("Max height", max_height_spin)
 
         quality_spin = QtWidgets.QSpinBox()
         quality_spin.setRange(MIN_JPEG_QUALITY, MAX_JPEG_QUALITY)
@@ -662,16 +696,17 @@ class Addon(BaseAddon):
             _clamp_int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY), DEFAULT_JPEG_QUALITY, MIN_JPEG_QUALITY, MAX_JPEG_QUALITY)
         )
         quality_spin.setToolTip("JPEG quality for the hidden screen snapshot file.")
-        form.addRow("JPEG quality", quality_spin)
+        detail_form.addRow("JPEG quality", quality_spin)
+        detail_layout.addLayout(detail_form)
+        layout.addWidget(detail_group)
 
-        layout.addLayout(form)
-
+        actions_group, actions_layout = section_group("Capture Actions", "vision_source_capture_actions_group")
         auto_attach_checkbox = QtWidgets.QCheckBox("Attach screen capture to every next user turn")
         auto_attach_checkbox.setToolTip(
             "When enabled, each user message captures the current screen with these Capture settings and sends it as that turn's image attachment."
         )
         auto_attach_checkbox.setChecked(bool(getattr(self, "auto_attach_next_user_turn", False)))
-        layout.addWidget(auto_attach_checkbox)
+        actions_layout.addWidget(auto_attach_checkbox)
 
         button_row = QtWidgets.QHBoxLayout()
         button_row.setContentsMargins(0, 0, 0, 0)
@@ -689,20 +724,23 @@ class Addon(BaseAddon):
         use_full_button.setToolTip("Return to full-screen capture and restore the previous full-screen width and height cap.")
         button_row.addWidget(use_full_button)
         button_row.addStretch(1)
-        layout.addLayout(button_row)
+        actions_layout.addLayout(button_row)
+        layout.addWidget(actions_group)
 
+        current_group, current_layout = section_group("Current Selection", "vision_source_current_selection_group")
         hint = QtWidgets.QLabel(
             "Bigger snapshots preserve small UI text and details, but they increase vision-token use, latency, and API cost. "
             "The image keeps its original aspect ratio inside the width and height limits. Selected areas are cropped before resizing."
         )
         hint.setWordWrap(True)
         hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        layout.addWidget(hint)
+        current_layout.addWidget(hint)
 
         current_label = QtWidgets.QLabel()
         current_label.setWordWrap(True)
         current_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
-        layout.addWidget(current_label)
+        current_layout.addWidget(current_label)
+        layout.addWidget(current_group)
 
         def refresh_screen_combo():
             selected = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))

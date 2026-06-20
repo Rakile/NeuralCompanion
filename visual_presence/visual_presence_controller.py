@@ -38,6 +38,7 @@ _LIVE_SETTING_RANGES = {
     "ai_presence_speaking_reactivity": (0.10, 1.5, float),
     "ai_presence_glow_strength": (0.0, 1.75, float),
     "ai_presence_animation_speed": (0.35, 1.75, float),
+    "ai_presence_idle_motion_strength": (0.0, 1.0, float),
     "ai_presence_mood_color_intensity": (0.0, 1.0, float),
     "ai_presence_primary_color_strength": (0.0, 1.5, float),
     "ai_presence_secondary_color_strength": (0.0, 1.5, float),
@@ -203,6 +204,26 @@ class _FallbackPresenceWindow(QtWidgets.QWidget):
             return 0.0
         factor = attack if target_value > current_value else release
         return current_value + (target_value - current_value) * factor
+
+    def _idle_motion_offset(self, width: int, height: int) -> QtCore.QPointF:
+        if bool(getattr(self.bridge, "reducedEffects", False)):
+            return QtCore.QPointF(0.0, 0.0)
+        strength = self._clamp01(getattr(self.bridge, "idleMotionStrength", 0.0))
+        if strength <= 0.0:
+            return QtCore.QPointF(0.0, 0.0)
+        span = max(1.0, min(float(width), float(height)))
+        max_offset = min(18.0, max(1.5, span * 0.014)) * strength
+        x = (
+            math.sin(self._tick * 0.67 + 0.35)
+            + math.sin(self._tick * 1.31 + 1.70) * 0.42
+            + math.sin(self._tick * 2.07 + 0.90) * 0.18
+        ) * max_offset
+        y = (
+            math.cos(self._tick * 0.59 + 1.10)
+            + math.cos(self._tick * 1.17 + 0.45) * 0.38
+            + math.cos(self._tick * 1.83 + 2.20) * 0.20
+        ) * max_offset
+        return QtCore.QPointF(x, y)
 
     def _mix_color(self, base, target, amount: float) -> QtGui.QColor:
         base_color = QtGui.QColor(base)
@@ -910,7 +931,8 @@ class _FallbackPresenceWindow(QtWidgets.QWidget):
             darkness = max(0.0, min(1.0, float(getattr(self.bridge, "backgroundDarkness", 1.0) or 1.0)))
             background.setAlpha(int((92 + darkness * (120 if self._floating else 148)) * opacity))
             painter.fillRect(rect, background)
-        center = QtCore.QPointF(width * 0.5, height * 0.5)
+        idle_offset = self._idle_motion_offset(width, height)
+        center = QtCore.QPointF(width * 0.5 + idle_offset.x(), height * 0.5 + idle_offset.y())
         pulse = 1.0 + math.sin(self._tick * 2.0) * 0.035 * self.bridge.pulseIntensity + voice_level * 0.12 * self.bridge.speakingReactivity
         base = min(width, height) * (0.075 if style == "minimal_dot" else 0.19)
         radius = max(18.0 if style == "minimal_dot" else 42.0, base * pulse)

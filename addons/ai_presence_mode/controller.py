@@ -174,6 +174,7 @@ AI_PRESENCE_SESSION_KEYS = [
     "ai_presence_allow_persona_mood_override",
     "ai_presence_glow_strength",
     "ai_presence_animation_speed",
+    "ai_presence_idle_motion_strength",
     "ai_presence_primary_color_strength",
     "ai_presence_secondary_color_strength",
     "ai_presence_background_darkness",
@@ -329,6 +330,7 @@ DEFAULT_SETTINGS = {
     "ai_presence_allow_persona_mood_override": True,
     "ai_presence_glow_strength": 1.0,
     "ai_presence_animation_speed": 1.0,
+    "ai_presence_idle_motion_strength": 0.16,
     "ai_presence_primary_color_strength": 1.0,
     "ai_presence_secondary_color_strength": 1.0,
     "ai_presence_background_darkness": 1.0,
@@ -730,6 +732,7 @@ class AIPresenceModeController(QtCore.QObject):
             ("ai_presence_mood_color_intensity", "ai_presence_mood_color_intensity_slider", "Mood color strength", 0.00, 1.00, 0.85, False),
             ("ai_presence_glow_strength", "ai_presence_glow_strength_slider", "Glow strength", 0.00, 1.75, 1.0, False),
             ("ai_presence_animation_speed", "ai_presence_animation_speed_slider", "Animation speed", 0.35, 1.75, 1.0, False),
+            ("ai_presence_idle_motion_strength", "ai_presence_idle_motion_slider", "Idle motion", 0.00, 1.00, 0.16, False),
             ("ai_presence_background_darkness", "ai_presence_background_darkness_slider", "Background dimming", 0.00, 1.00, 1.0, False),
         ]
         for spec in look_sliders:
@@ -1162,6 +1165,8 @@ class AIPresenceModeController(QtCore.QObject):
             return max(0.00, min(1.75, float(value)))
         if key == "ai_presence_animation_speed":
             return max(0.35, min(1.75, float(value)))
+        if key == "ai_presence_idle_motion_strength":
+            return max(0.00, min(1.00, float(value)))
         if key in {"ai_presence_primary_color_strength", "ai_presence_secondary_color_strength"}:
             return max(0.00, min(1.50, float(value)))
         if key == "ai_presence_background_darkness":

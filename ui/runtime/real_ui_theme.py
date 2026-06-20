@@ -925,13 +925,17 @@ QToolButton#ncDockCloseButton {{
             # but text tabs need enough width after dynamic addon pages are adopted.
             return """
 QTabWidget#sensory_feedback_tabs QTabBar::tab {
-    min-width: 132px;
-    max-width: 320px;
-    padding-left: 18px;
-    padding-right: 18px;
+    /* nc-vision-tab-buttons-compact */
+    min-width: 112px;
+    max-width: 190px;
+    min-height: 30px;
+    max-height: 30px;
+    height: 30px;
+    padding: 4px 12px;
+    margin-right: 3px;
 }
 QTabWidget#sensory_feedback_tabs QTabBar::tab:selected {
-    padding-right: 18px;
+    padding: 4px 12px;
 }
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,

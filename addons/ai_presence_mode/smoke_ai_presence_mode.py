@@ -79,6 +79,8 @@ def main():
     assert "companion_orb_external_runtime_enabled" in orb_keys
     assert "ai_presence_external_runtime_enabled" in core_keys
     assert DEFAULT_SETTINGS["ai_presence_external_runtime_enabled"] is False
+    assert "ai_presence_idle_motion_strength" in core_keys
+    assert DEFAULT_SETTINGS["ai_presence_idle_motion_strength"] == 0.16
     assert "companion_orb_custom_colors_enabled" in orb_keys
     assert "companion_orb_primary_color" in orb_keys
     assert "companion_orb_secondary_color" in orb_keys
@@ -240,6 +242,7 @@ def main():
             "ai_presence_neural_face_lipsync_strength": 1.25,
             "ai_presence_neural_face_blink_enabled": True,
             "ai_presence_neural_face_eye_movement_enabled": True,
+            "ai_presence_idle_motion_strength": 0.42,
             "ai_presence_female_neural_face_enabled": True,
             "ai_presence_female_reference_nodes": True,
             "ai_presence_female_show_wire_nodes": True,
@@ -259,6 +262,9 @@ def main():
     assert presence_bridge.neuralFaceSize > 1.0
     assert presence_bridge.neuralFaceOpacity < 0.9
     assert presence_bridge.neuralFaceLipSyncStrength > 1.0
+    assert presence_bridge.idleMotionStrength == 0.42
+    presence_bridge.apply_settings({"ai_presence_idle_motion_strength": 2.0})
+    assert presence_bridge.idleMotionStrength == 1.0
     assert presence_bridge.femaleNeuralFaceEnabled is True
     assert presence_bridge.femaleReferenceNodes is True
     assert presence_bridge.femaleShowWireNodes is True
@@ -276,6 +282,8 @@ def main():
     assert "renderTarget: Canvas.Image" in overlay_qml
     assert 'globalCompositeOperation = "copy"' in overlay_qml
     assert "drawBlueFlameSmoke" in overlay_qml
+    assert "property real idleMotionStrength" in overlay_qml
+    assert "function idleMotionOffset" in overlay_qml
     presence_controller_source = (ROOT / "visual_presence" / "visual_presence_controller.py").read_text(encoding="utf-8")
     external_client_source = (ROOT / "visual_presence" / "external_runtime_client.py").read_text(encoding="utf-8")
     external_runtime_source = (ROOT / "visual_presence" / "external_ai_presence_runtime.py").read_text(encoding="utf-8")
@@ -283,6 +291,8 @@ def main():
     assert "def _ensure_floating_renderer" in presence_controller_source
     assert "def _resolved_palette" in presence_controller_source
     assert "glowStrength" in presence_controller_source
+    assert "idleMotionStrength" in presence_controller_source
+    assert "def _idle_motion_offset" in presence_controller_source
     assert "lineBrightness" in presence_controller_source
     assert "haloThickness" in presence_controller_source
     assert "ringExpansionSpeed" in presence_controller_source
@@ -324,6 +334,8 @@ def main():
     assert "ai_presence_toggle_groups_grid" in ai_presence_controller_source
     assert "Presence Look" in ai_presence_controller_source
     assert "Advanced motion and audio" in ai_presence_controller_source
+    assert "ai_presence_idle_motion_slider" in ai_presence_controller_source
+    assert "Idle motion" in ai_presence_controller_source
     assert "Face Preset" in ai_presence_controller_source
     assert "ai_presence_external_runtime_enabled_checkbox" in ai_presence_controller_source
     companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")

@@ -776,6 +776,7 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_feedback_tabs.setObjectName("sensory_feedback_tabs")
         self.sensory_feedback_tabs.setMinimumSize(0, 0)
         self.sensory_feedback_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._apply_vision_tab_button_style(self.sensory_feedback_tabs)
         self.sensory_feedback_tabs.currentChanged.connect(lambda _index, tabs=self.sensory_feedback_tabs: self._sync_tab_widget_height(tabs))
 
         core_tab = QtWidgets.QWidget()
@@ -784,8 +785,24 @@ class BackendSystemShapingBuilderMixin:
         core_layout.setSpacing(10)
 
         sensory_box = QtWidgets.QGroupBox("Background Awareness")
+        sensory_box.setObjectName("vision_background_awareness_group")
+        sensory_box.setStyleSheet(
+            "QGroupBox {"
+            "  color: #dbeafe;"
+            "  font-weight: 700;"
+            "  border: 1px solid rgba(96, 165, 250, 0.32);"
+            "  border-radius: 7px;"
+            "  margin-top: 10px;"
+            "  padding-top: 10px;"
+            "}"
+            "QGroupBox::title {"
+            "  subcontrol-origin: margin;"
+            "  left: 10px;"
+            "  padding: 0 4px;"
+            "}"
+        )
         sensory_layout = QtWidgets.QVBoxLayout(sensory_box)
-        sensory_layout.setContentsMargins(12, 14, 12, 12)
+        sensory_layout.setContentsMargins(10, 10, 10, 10)
         sensory_layout.setSpacing(10)
 
         intro_label = QtWidgets.QLabel(
@@ -796,11 +813,27 @@ class BackendSystemShapingBuilderMixin:
         intro_label.setStyleSheet("color: #b8c8d9; font-size: 11px;")
         sensory_layout.addWidget(intro_label)
 
-        def make_card(title):
+        def make_card(title, object_name):
             card = QtWidgets.QGroupBox(title)
+            card.setObjectName(object_name)
+            card.setStyleSheet(
+                "QGroupBox {"
+                "  color: #dbeafe;"
+                "  font-weight: 700;"
+                "  border: 1px solid rgba(96, 165, 250, 0.32);"
+                "  border-radius: 7px;"
+                "  margin-top: 10px;"
+                "  padding-top: 10px;"
+                "}"
+                "QGroupBox::title {"
+                "  subcontrol-origin: margin;"
+                "  left: 10px;"
+                "  padding: 0 4px;"
+                "}"
+            )
             card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
             card_layout = QtWidgets.QVBoxLayout(card)
-            card_layout.setContentsMargins(12, 14, 12, 12)
+            card_layout.setContentsMargins(10, 10, 10, 10)
             card_layout.setSpacing(8)
             return card, card_layout
 
@@ -816,7 +849,7 @@ class BackendSystemShapingBuilderMixin:
             row.addStretch(1)
             return container
 
-        review_card, review_layout = make_card("Background Review")
+        review_card, review_layout = make_card("Background Review", "vision_overview_review_group")
         review_layout.addWidget(self.sensory_pingpong_checkbox)
         review_form = QtWidgets.QFormLayout()
         review_form.setLabelAlignment(QtCore.Qt.AlignLeft)
@@ -827,7 +860,7 @@ class BackendSystemShapingBuilderMixin:
         review_layout.addLayout(review_form)
         sensory_layout.addWidget(review_card)
 
-        sources_card, sources_layout = make_card("Sources to observe")
+        sources_card, sources_layout = make_card("Sources to observe", "vision_overview_sources_group")
         sources_hint = QtWidgets.QLabel("Select the background inputs NC may include when building context.")
         sources_hint.setWordWrap(True)
         sources_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -842,7 +875,7 @@ class BackendSystemShapingBuilderMixin:
         sources_layout.addLayout(companion_orb_target_row)
         sensory_layout.addWidget(sources_card)
 
-        actions_card, actions_layout = make_card("Allowed Actions")
+        actions_card, actions_layout = make_card("What NC may do", "vision_overview_actions_group")
         actions_layout.addWidget(self.sensory_allow_hidden_proactive_checkbox)
         actions_layout.addWidget(self.sensory_allow_hidden_visual_checkbox)
         sensory_layout.addWidget(actions_card)

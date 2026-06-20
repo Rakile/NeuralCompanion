@@ -96,6 +96,7 @@ class VisualPresenceBridge(QtCore.QObject):
         self._mood_particle_multiplier = 1.0
         self._glow_strength = 1.0
         self._animation_speed = 1.0
+        self._idle_motion_strength = 0.16
         self._primary_color_strength = 1.0
         self._secondary_color_strength = 1.0
         self._background_darkness = 1.0
@@ -285,6 +286,10 @@ class VisualPresenceBridge(QtCore.QObject):
     @QtCore.Property(float, notify=settings_changed)
     def animationSpeed(self):
         return self._animation_speed
+
+    @QtCore.Property(float, notify=settings_changed)
+    def idleMotionStrength(self):
+        return self._idle_motion_strength
 
     @QtCore.Property(float, notify=settings_changed)
     def primaryColorStrength(self):
@@ -554,6 +559,7 @@ class VisualPresenceBridge(QtCore.QObject):
         persona_mood_override = bool(settings.get("ai_presence_allow_persona_mood_override", True))
         glow_strength = _float_setting(settings, "ai_presence_glow_strength", 1.0, 0.0, 1.75)
         animation_speed = _float_setting(settings, "ai_presence_animation_speed", 1.0, 0.35, 1.75)
+        idle_motion_strength = _float_setting(settings, "ai_presence_idle_motion_strength", 0.16, 0.0, 1.0)
         primary_color_strength = _float_setting(settings, "ai_presence_primary_color_strength", 1.0, 0.0, 1.5)
         secondary_color_strength = _float_setting(settings, "ai_presence_secondary_color_strength", 1.0, 0.0, 1.5)
         background_darkness = _float_setting(settings, "ai_presence_background_darkness", 1.0, 0.0, 1.0)
@@ -617,6 +623,7 @@ class VisualPresenceBridge(QtCore.QObject):
             ("_persona_mood_override", persona_mood_override),
             ("_glow_strength", glow_strength),
             ("_animation_speed", animation_speed),
+            ("_idle_motion_strength", idle_motion_strength),
             ("_primary_color_strength", primary_color_strength),
             ("_secondary_color_strength", secondary_color_strength),
             ("_background_darkness", background_darkness),
