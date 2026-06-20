@@ -6,14 +6,18 @@
   "steps": [
     {
       "title": "Experimental Projector Booth",
-      "body": "Audio Story Mode is a highly experimental addon. It tries to turn story audio into transcript windows, image prompts, generated visuals, playback sync, optional streaming, and a small amount of controlled chaos. Treat it like a lab feature: start with short clips, expect rough edges, and keep a copy of any audio you care about.",
-      "target": "main_window"
+      "body": "Audio Story Mode is a highly experimental addon. It turns story audio into transcript windows, image prompts, generated visuals, playback sync, and optional streaming. Start with short clips, expect rough edges, and keep a copy of any audio you care about.",
+      "target": "audio_story_mode_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
+      ]
     },
     {
       "title": "Where the Addon Lives",
       "body": "Audio Story Mode appears as its own tab in the left Workspace Tabs area. If you do not see it, open Addons, find Audio Story Mode under the visuals category, make sure it is enabled, then restart Neural Companion so the addon can mount itself properly.",
       "tab": "Addons",
-      "target": "addons_tab",
+      "target": "addons_intro_label",
       "actions": [
         { "type": "open_tab", "tab_widget": "left_tabs", "value": "Addons" }
       ]
@@ -28,9 +32,9 @@
       ]
     },
     {
-      "title": "Set the Chat Runtime First",
-      "body": "Audio Story uses the chat runtime chosen in System Shaping -> Host for story analysis, especially when Analysis Provider is set to Current Chat Provider. Pick the chat provider and model you want doing the reading, planning, and occasional overconfident literary criticism before you ask the addon to analyze a story.",
-      "target": "chat_provider_combo",
+      "title": "Set the LLM Runtime First",
+      "body": "Audio Story uses the active LLM Runtime chosen in System Shaping -> Host for story analysis, especially when Analysis Provider is set to Current Chat Provider. Click an LLM provider tab to inspect its settings, then click the circle inside that tab to make it active before you ask the addon to analyze a story.",
+      "target": "chat_runtime_active_provider_label",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
@@ -38,8 +42,8 @@
     },
     {
       "title": "Set the Visual Reply Runtime",
-      "body": "Audio Story does not make the final pictures by itself. It feeds prompts into the chosen Visual Reply runtime in System Shaping -> Host. The Visual Reply provider, model, size, and API key are the image factory for the magic part, so check them before you generate a pile of expensive surprises.",
-      "target": "visual_reply_provider_combo",
+      "body": "Audio Story does not make the final pictures by itself. It feeds prompts into the active Visual Reply runtime in System Shaping -> Host. Click a Visual Reply provider tab to inspect its settings, and click the circle inside that tab to make it active before you generate story images.",
+      "target": "visual_reply_runtime_active_provider_label",
       "actions": [
         { "type": "show_dock", "target": "SystemShapingDock" },
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
@@ -47,7 +51,7 @@
     },
     {
       "title": "Import the Story Audio",
-      "body": "Use Import Audio to choose an audiobook, narration, drama clip, or other story-shaped audio file. Shorter is friendlier while you learn; the addon is ambitious, not psychic, and long files make every later mistake more expensive.",
+      "body": "Use Import Audio to choose an audiobook, narration, drama clip, or other story-shaped audio file. Shorter clips are easier while you learn because long files make transcription, planning, and image generation slower to inspect.",
       "tab": "Audio Story Mode",
       "target": "audio_story_import_button",
       "actions": [
@@ -65,7 +69,7 @@
     },
     {
       "title": "Pick a Cost Profile",
-      "body": "Precision is the global appetite knob. Economy makes fewer demands and is good for a first sniff test. Balanced is the normal starting point. Detailed and Cinematic can make richer visuals, but they also ask more from analysis, image generation, patience, and occasionally your sense of humor.",
+      "body": "Quality profile controls how much planning and image generation the addon performs. Economy is best for a first test. Balanced is the normal starting point. Detailed and Cinematic can produce richer visuals, but they need more analysis time and image-generation budget.",
       "tab": "Audio Story Mode",
       "target": "audio_story_cost_profile_combo",
       "actions": [
@@ -92,16 +96,16 @@
     },
     {
       "title": "Plan Image Timing",
-      "body": "Generate Image Every and Image Timing decide when new visuals should appear. Fixed Seconds is predictable. Scene Changes tries to group transcript chunks by story beats. If the scene detector gets dramatic in the wrong places, that is why this addon is wearing the experimental badge.",
+      "body": "New image timing and Timing mode decide when new visuals should appear. Fixed Seconds is predictable. Scene Changes tries to group transcript chunks by story beats. If the scene detector changes images too often, use Fixed Seconds or adjust the detail settings.",
       "tab": "Audio Story Mode",
-      "target": "audio_story_timing_group",
+      "target": "audio_story_image_timing_combo",
       "actions": [
         { "type": "open_tab", "tab_widget": "left_tabs", "value": "Audio Story Mode" }
       ]
     },
     {
       "title": "Control Continuity",
-      "body": "Continuity tells the visual planner how hard to preserve characters, locations, props, and style between images. Higher continuity helps recurring faces and places stay familiar; lower continuity gives the generator more room to wander off with a confident clipboard.",
+      "body": "Continuity tells the visual planner how strongly to preserve characters, locations, props, and style between images. Higher continuity helps recurring faces and places stay familiar; lower continuity gives the image provider more creative room.",
       "tab": "Audio Story Mode",
       "target": "audio_story_continuity_slider",
       "actions": [
@@ -119,7 +123,7 @@
     },
     {
       "title": "Set the Visual Style",
-      "body": "Prompt Strategy is where the story stops being only a story and starts becoming whatever your taste, mood, and questionable imagination can invent. Style layers can turn the same transcript into a comic book, pulp horror, retro anime, watercolor diary, grimy zombie survival scene, glossy romance cover, noir detective fever dream, or anything else you can describe without the model calling security.",
+      "body": "Story Image Style controls the visual direction of the generated images. Style layers can turn the same transcript into a comic book, pulp horror, retro anime, watercolor diary, romance cover, noir scene, or any other consistent style you describe.",
       "tab": "Audio Story Mode",
       "target": "audio_story_prompt_group",
       "actions": [
@@ -128,7 +132,7 @@
     },
     {
       "title": "Change Style Live",
-      "body": "Change Style Live lets style edits affect the current story while you are working. Leave it off when you want stable, repeatable visuals. Turn it on when you are actively experimenting: make chapter one a sunny cartoon, chapter two a cursed bathroom nightmare, chapter three a brick-wall zombie fiasco, then pretend that was the plan all along.",
+      "body": "Apply style edits while working lets style changes affect the current story immediately. Leave it off when you want stable, repeatable visuals. Turn it on when you are actively experimenting with the visual direction.",
       "tab": "Audio Story Mode",
       "target": "audio_story_style_live_checkbox",
       "actions": [
@@ -137,7 +141,7 @@
     },
     {
       "title": "Show the Pictures",
-      "body": "After images exist, open Visual Reply to inspect the current picture, captions, and prompt text. This is where you judge whether the style prompt actually made the scene better, funnier, scarier, weirder, or just confidently wrong. Play with different models until you are happy, or at least somewhat satisfied with the beautiful mess.",
+      "body": "After images exist, open Visual Reply to inspect the current picture, captions, and prompt text. Use this to judge whether the style prompt improved the scene and whether the chosen image provider is matching the story.",
       "target": "visual_reply_image_label",
       "actions": [
         { "type": "show_dock", "target": "VisualReplyDock" }
@@ -163,7 +167,7 @@
     },
     {
       "title": "Pick Analysis Provider and Model",
-      "body": "Analysis Provider controls where transcript analysis and prompt planning run. Current Chat Provider uses the chat runtime selected in System Shaping -> Host. DeepSeek and Local LM Studio are explicit routes. Analysis Model can be left on Auto unless you know the exact model id you want to volunteer for story duty.",
+      "body": "Analysis Provider controls where transcript analysis and prompt planning run. Current Chat Provider uses the active LLM Runtime selected in System Shaping -> Host. DeepSeek and Local LM Studio are explicit routes. Analysis Model can be left on Auto unless you know the exact model id you want to volunteer for story duty.",
       "tab": "Audio Story Mode",
       "target": "audio_story_analysis_provider_combo",
       "actions": [
@@ -172,7 +176,7 @@
     },
     {
       "title": "Check Image Provider Settings",
-      "body": "Final image generation follows the chosen Visual Reply runtime. Runware is a good dirt-cheap playground for lots of test images, depending on model and size. xAI/Grok can be fun, but stay away from Elon Musk's xAI for big experiments unless your daddy has deep pockets. Try different providers and models until the story looks right, or at least stops offending your eyeballs.",
+      "body": "Final image generation follows the chosen Visual Reply runtime. Runware can be useful for lower-cost test images, depending on model and size. xAI/Grok and other providers may have different quality, speed, and cost tradeoffs. Try different providers and models until the story looks right.",
       "tab": "Audio Story Mode",
       "target": "audio_story_xai_group",
       "actions": [
@@ -217,7 +221,7 @@
     },
     {
       "title": "Scrub the Timeline",
-      "body": "The position slider lets you move through the story after media is ready. Use it for spot checks: does this moment show roughly the right scene, mood, and cast? If not, adjust timing, continuity, or scene overrides before generating a whole gallery of confident nonsense.",
+      "body": "The position slider lets you move through the story after media is ready. Use it for spot checks: does this moment show roughly the right scene, mood, and cast? If not, adjust timing, continuity, or scene overrides before generating a larger set of images.",
       "tab": "Audio Story Mode",
       "target": "audio_story_position_slider",
       "actions": [

@@ -15,6 +15,8 @@ MAX_MAX_SIDE = 5120
 DEFAULT_JPEG_QUALITY = 85
 MIN_JPEG_QUALITY = 40
 MAX_JPEG_QUALITY = 95
+SCREEN_INDEX_ALL = -1
+DEFAULT_SCREEN_INDEX = SCREEN_INDEX_ALL
 CAPTURE_MODE_FULL = "full"
 CAPTURE_MODE_REGION = "region"
 CAPTURE_MODE_SQUARE = "square"
@@ -41,6 +43,16 @@ def _clamp_int(value, default: int, minimum: int, maximum: int) -> int:
 def _normalize_capture_mode(value) -> str:
     mode = str(value or "").strip().lower()
     return mode if mode in CAPTURE_MODES else CAPTURE_MODE_FULL
+
+
+def _normalize_screen_index(value) -> int:
+    try:
+        number = int(value)
+    except Exception:
+        number = DEFAULT_SCREEN_INDEX
+    if number < 0:
+        return SCREEN_INDEX_ALL
+    return max(0, min(32, number))
 
 
 def _normalize_region(value) -> dict:
@@ -74,6 +86,17 @@ def _region_label(region) -> str:
     return f"{payload['width']} x {payload['height']} px at {payload['x']}, {payload['y']}"
 
 
+def _screen_label(screen_info: dict) -> str:
+    bounds = _normalize_region((screen_info or {}).get("bounds"))
+    if not bounds:
+        return "All screens"
+    prefix = f"Screen {int((screen_info or {}).get('index', 0)) + 1}"
+    name = str((screen_info or {}).get("name") or "").strip()
+    primary = " primary" if bool((screen_info or {}).get("primary", False)) else ""
+    suffix = f" - {name}" if name else ""
+    return f"{prefix}{suffix}: {bounds['width']} x {bounds['height']} px at {bounds['x']}, {bounds['y']}{primary}"
+
+
 class Addon(BaseAddon):
     PROVIDER_ID = "screen"
     CAPTURE_TAB_ID = "screen_source_capture_tab"
@@ -91,12 +114,14 @@ class Addon(BaseAddon):
             MIN_JPEG_QUALITY,
             MAX_JPEG_QUALITY,
         )
+        self.capture_screen_index = _normalize_screen_index(os.environ.get("NC_SCREEN_SOURCE_CAPTURE_SCREEN_INDEX"))
         self.capture_mode = _normalize_capture_mode(os.environ.get("NC_SCREEN_SOURCE_CAPTURE_MODE"))
         self.capture_region = _normalize_region({})
         self.auto_attach_next_user_turn = False
         self.full_max_width = int(self.max_width)
         self.full_max_height = int(self.max_height)
         self._tab_refreshers = []
+        self._sync_runtime_setting("screen_source_capture_screen_index", int(self.capture_screen_index))
         sensory_service = context.get_service("qt.sensory")
         if sensory_service is not None:
             sensory_service.register_provider(
@@ -134,6 +159,7 @@ class Addon(BaseAddon):
                 int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)),
             ),
             "screen_source_jpeg_quality": int(getattr(self, "jpeg_quality", DEFAULT_JPEG_QUALITY)),
+            "screen_source_capture_screen_index": _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX)),
             "screen_source_capture_mode": _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)),
             "screen_source_capture_region": _normalize_region(getattr(self, "capture_region", {})),
             "screen_source_auto_attach_next_user_turn": bool(getattr(self, "auto_attach_next_user_turn", False)),
@@ -173,6 +199,9 @@ class Addon(BaseAddon):
             MIN_JPEG_QUALITY,
             MAX_JPEG_QUALITY,
         )
+        self.capture_screen_index = _normalize_screen_index(
+            payload.get("screen_source_capture_screen_index", getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))
+        )
         self.full_max_width = _clamp_int(
             payload.get("screen_source_full_max_width", getattr(self, "full_max_width", self.max_width)),
             DEFAULT_MAX_WIDTH,
@@ -192,6 +221,7 @@ class Addon(BaseAddon):
         )
         if self.capture_mode != CAPTURE_MODE_FULL and not self.capture_region:
             self.capture_mode = CAPTURE_MODE_FULL
+        self._sync_runtime_setting("screen_source_capture_screen_index", int(self.capture_screen_index))
         self._notify_tab_refreshers()
         return None
 
@@ -212,11 +242,89 @@ class Addon(BaseAddon):
         except Exception:
             return None
 
+    def _available_screen_infos(self) -> list[dict]:
+        try:
+            from PySide6 import QtWidgets
+
+            app_screens = list(QtWidgets.QApplication.screens() or [])
+            primary = QtWidgets.QApplication.primaryScreen()
+        except Exception:
+            return []
+        items = []
+        for index, screen in enumerate(app_screens):
+            try:
+                geometry = screen.geometry()
+                available = screen.availableGeometry()
+                items.append(
+                    {
+                        "index": int(index),
+                        "name": str(screen.name() or ""),
+                        "primary": bool(primary is not None and screen is primary),
+                        "bounds": {
+                            "x": int(geometry.x()),
+                            "y": int(geometry.y()),
+                            "width": int(geometry.width()),
+                            "height": int(geometry.height()),
+                        },
+                        "available_bounds": {
+                            "x": int(available.x()),
+                            "y": int(available.y()),
+                            "width": int(available.width()),
+                            "height": int(available.height()),
+                        },
+                    }
+                )
+            except Exception:
+                continue
+        return items
+
+    def _virtual_desktop_region(self) -> dict:
+        rect = self._virtual_desktop_rect()
+        if rect is None or rect.width() <= 0 or rect.height() <= 0:
+            return {}
+        return {
+            "x": int(rect.x()),
+            "y": int(rect.y()),
+            "width": int(rect.width()),
+            "height": int(rect.height()),
+        }
+
+    def _selected_screen_info(self) -> dict:
+        index = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))
+        if index == SCREEN_INDEX_ALL:
+            return {}
+        for item in self._available_screen_infos():
+            if int(item.get("index", -2)) == int(index):
+                return dict(item)
+        return {}
+
+    def _selected_screen_region(self) -> dict:
+        info = self._selected_screen_info()
+        return _normalize_region(info.get("bounds") if info else {})
+
+    def _screen_selection_label(self) -> str:
+        index = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))
+        if index == SCREEN_INDEX_ALL:
+            virtual = self._virtual_desktop_region()
+            if virtual:
+                return f"All screens: {virtual['width']} x {virtual['height']} px at {virtual['x']}, {virtual['y']}"
+            return "All screens"
+        info = self._selected_screen_info()
+        if info:
+            return _screen_label(info)
+        return f"Screen {index + 1} unavailable"
+
     def _effective_region(self):
         mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
         if mode == CAPTURE_MODE_FULL:
-            return {}
+            return self._selected_screen_region()
         return _normalize_region(getattr(self, "capture_region", {}))
+
+    def _effective_capture_bounds(self) -> dict:
+        region = self._effective_region()
+        if region:
+            return region
+        return self._virtual_desktop_region()
 
     def _restore_full_capture_cap(self):
         self.max_width = _clamp_int(
@@ -399,7 +507,10 @@ class Addon(BaseAddon):
         except Exception as exc:
             raise RuntimeError(f"Screen capture failed: {exc}") from exc
         image = image.convert("RGB")
+        desktop_dimensions = [int(image.width), int(image.height)]
         region = self._effective_region()
+        capture_bounds = self._effective_capture_bounds()
+        crop = []
         if region:
             virtual_rect = self._virtual_desktop_rect()
             if virtual_rect is not None and virtual_rect.width() > 0 and virtual_rect.height() > 0:
@@ -413,7 +524,8 @@ class Addon(BaseAddon):
                 top = max(0, min(image.height - 1, top))
                 right = max(left + 1, min(image.width, right))
                 bottom = max(top + 1, min(image.height, bottom))
-                image = image.crop((left, top, right, bottom))
+                crop = [int(left), int(top), int(right), int(bottom)]
+                image = image.crop(tuple(crop))
         max_width = _clamp_int(getattr(self, "max_width", DEFAULT_MAX_WIDTH), DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE)
         max_height = _clamp_int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT), DEFAULT_MAX_HEIGHT, MIN_MAX_SIDE, MAX_MAX_SIDE)
         jpeg_quality = _clamp_int(
@@ -426,12 +538,20 @@ class Addon(BaseAddon):
         dimensions = image.size
         output_path.parent.mkdir(parents=True, exist_ok=True)
         image.save(output_path, format="JPEG", quality=jpeg_quality, optimize=True)
-        return output_path, dimensions
+        metadata = {
+            "desktop_width": int(desktop_dimensions[0]),
+            "desktop_height": int(desktop_dimensions[1]),
+            "capture_screen_index": _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX)),
+            "capture_screen_label": self._screen_selection_label(),
+            "screen_bounds": _normalize_region(capture_bounds),
+            "crop": list(crop),
+        }
+        return output_path, dimensions, metadata
 
     def _capture_sensory_snapshot(self, context=None):
         timestamp = int(time.time() * 1000)
         output_root = Path(str((context or {}).get("output_dir") or (self.context.app_root / "runtime" / "sensory_feedback")))
-        output_path, dimensions = self._capture_screen(output_root / f"screen_{timestamp}.jpg")
+        output_path, dimensions, capture_metadata = self._capture_screen(output_root / f"screen_{timestamp}.jpg")
         return {
             "captured_at": time.time(),
             "image_path": str(output_path),
@@ -440,7 +560,13 @@ class Addon(BaseAddon):
             "metadata": {
                 "width": int(dimensions[0]),
                 "height": int(dimensions[1]),
+                "desktop_width": int(capture_metadata.get("desktop_width", 0) or 0),
+                "desktop_height": int(capture_metadata.get("desktop_height", 0) or 0),
                 "capture_mode": _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)),
+                "capture_screen_index": int(capture_metadata.get("capture_screen_index", DEFAULT_SCREEN_INDEX)),
+                "capture_screen_label": str(capture_metadata.get("capture_screen_label") or ""),
+                "screen_bounds": _normalize_region(capture_metadata.get("screen_bounds", {})),
+                "crop": list(capture_metadata.get("crop") or []),
                 "capture_region": _normalize_region(getattr(self, "capture_region", {})),
                 "max_width": int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)),
                 "max_height": int(getattr(self, "max_height", DEFAULT_MAX_HEIGHT)),
@@ -454,6 +580,15 @@ class Addon(BaseAddon):
 
     def _runtime_config_service(self):
         return self.context.get_service("qt.runtime_config") if getattr(self, "context", None) is not None else None
+
+    def _sync_runtime_setting(self, key, value):
+        service = self._runtime_config_service()
+        if service is None:
+            return
+        try:
+            service.update(str(key), value)
+        except Exception:
+            pass
 
     def _auto_attach_from_runtime_config(self):
         service = self._runtime_config_service()
@@ -495,6 +630,13 @@ class Addon(BaseAddon):
         mode_combo.addItem("Selected square", CAPTURE_MODE_SQUARE)
         mode_combo.setToolTip("Choose whether screen snapshots capture the whole desktop or a selected area.")
         form.addRow("Capture area", mode_combo)
+
+        screen_combo = QtWidgets.QComboBox()
+        screen_combo.setToolTip(
+            "Choose which monitor is captured when Capture area is Whole screen. "
+            "Selected regions and squares keep their own desktop coordinates."
+        )
+        form.addRow("Screen", screen_combo)
 
         max_width_spin = QtWidgets.QSpinBox()
         max_width_spin.setRange(MIN_MAX_SIDE, MAX_MAX_SIDE)
@@ -562,6 +704,31 @@ class Addon(BaseAddon):
         current_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
         layout.addWidget(current_label)
 
+        def refresh_screen_combo():
+            selected = _normalize_screen_index(getattr(self, "capture_screen_index", DEFAULT_SCREEN_INDEX))
+            screen_combo.blockSignals(True)
+            screen_combo.clear()
+            virtual = self._virtual_desktop_region()
+            if virtual:
+                screen_combo.addItem(
+                    f"All screens: {virtual['width']} x {virtual['height']} px at {virtual['x']}, {virtual['y']}",
+                    SCREEN_INDEX_ALL,
+                )
+            else:
+                screen_combo.addItem("All screens", SCREEN_INDEX_ALL)
+            for screen_info in self._available_screen_infos():
+                try:
+                    screen_combo.addItem(_screen_label(screen_info), int(screen_info.get("index", 0)))
+                except Exception:
+                    continue
+            selected_index = screen_combo.findData(selected)
+            if selected_index < 0 and selected != SCREEN_INDEX_ALL:
+                screen_combo.addItem(f"Screen {selected + 1} unavailable", selected)
+                selected_index = screen_combo.findData(selected)
+            screen_combo.setCurrentIndex(max(0, selected_index))
+            screen_combo.setEnabled(_normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL)) == CAPTURE_MODE_FULL)
+            screen_combo.blockSignals(False)
+
         def refresh():
             self.auto_attach_next_user_turn = self._auto_attach_from_runtime_config()
             current_mode = _normalize_capture_mode(getattr(self, "capture_mode", CAPTURE_MODE_FULL))
@@ -577,11 +744,13 @@ class Addon(BaseAddon):
                 CAPTURE_MODE_REGION: "selected region",
                 CAPTURE_MODE_SQUARE: "selected square",
             }.get(current_mode, "whole screen")
+            refresh_screen_combo()
             current_label.setText(
                 f"Current cap: {int(getattr(self, 'max_width', DEFAULT_MAX_WIDTH))} x "
                 f"{int(getattr(self, 'max_height', DEFAULT_MAX_HEIGHT))} px, "
                 f"JPEG {int(getattr(self, 'jpeg_quality', DEFAULT_JPEG_QUALITY))}%. "
-                f"Capture area: {mode_label}; region: {_region_label(getattr(self, 'capture_region', {}))}."
+                f"Capture area: {mode_label}; screen: {self._screen_selection_label()}; "
+                f"region: {_region_label(getattr(self, 'capture_region', {}))}."
             )
             if max_width_spin.value() != int(getattr(self, "max_width", DEFAULT_MAX_WIDTH)):
                 max_width_spin.blockSignals(True)
@@ -602,6 +771,12 @@ class Addon(BaseAddon):
 
         def set_capture_mode_from_combo(_index):
             self._set_capture_mode(mode_combo.currentData())
+
+        def set_capture_screen_from_combo(_index):
+            self.capture_screen_index = _normalize_screen_index(screen_combo.currentData())
+            self._sync_runtime_setting("screen_source_capture_screen_index", int(self.capture_screen_index))
+            refresh()
+            self._notify_settings_changed()
 
         def set_max_width(value):
             self.max_width = _clamp_int(value, DEFAULT_MAX_WIDTH, MIN_MAX_SIDE, MAX_MAX_SIDE)
@@ -636,6 +811,7 @@ class Addon(BaseAddon):
             self._notify_settings_changed()
 
         mode_combo.currentIndexChanged.connect(set_capture_mode_from_combo)
+        screen_combo.currentIndexChanged.connect(set_capture_screen_from_combo)
         max_width_spin.valueChanged.connect(set_max_width)
         max_height_spin.valueChanged.connect(set_max_height)
         quality_spin.valueChanged.connect(set_quality)

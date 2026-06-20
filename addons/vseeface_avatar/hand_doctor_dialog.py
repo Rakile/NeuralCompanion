@@ -3,6 +3,7 @@
 from PySide6 import QtCore, QtWidgets
 
 from core.addons.qt_host_services import QtHandCalibrationService
+from ui.theme_support import apply_app_slider_style
 
 
 def _hand_service(owner):
@@ -29,17 +30,20 @@ class HandDoctorDialog(QtWidgets.QDialog):
             """
             QDialog { background: #11161d; color: #e5e9f0; }
             QLabel { color: #e5e9f0; }
-            QCheckBox { color: #f2f5f9; spacing: 8px; }
+            QCheckBox { color: #f2f5f9; spacing: 9px; min-height: 24px; }
             QCheckBox::indicator {
-                width: 16px;
-                height: 16px;
-                border-radius: 4px;
-                border: 1px solid #4a5d73;
-                background: #0f141b;
+                width: 20px;
+                height: 20px;
+                image: url(ui/assets/checkbox_round_inactive.svg);
+                background: transparent;
+                border: 0px;
             }
             QCheckBox::indicator:checked {
-                background: #2c7be5;
-                border-color: #58a6ff;
+                width: 20px;
+                height: 20px;
+                image: url(ui/assets/checkbox_round_active.svg);
+                background: transparent;
+                border: 0px;
             }
             QGroupBox {
                 border: 1px solid #283342;
@@ -63,19 +67,6 @@ class HandDoctorDialog(QtWidgets.QDialog):
                 color: #f2f5f9;
             }
             QPushButton:hover { background: #29405b; }
-            QSlider::groove:horizontal {
-                border: 1px solid #273342;
-                height: 6px;
-                background: #0f141b;
-                border-radius: 4px;
-            }
-            QSlider::handle:horizontal {
-                background: #58a6ff;
-                border: 1px solid #8cc2ff;
-                width: 16px;
-                margin: -6px 0;
-                border-radius: 8px;
-            }
             """
         )
 
@@ -146,6 +137,7 @@ class HandDoctorDialog(QtWidgets.QDialog):
         slider.setRange(-1800, 1800)
         slider.setSingleStep(1)
         slider.setPageStep(100)
+        apply_app_slider_style(slider)
         value_label = QtWidgets.QLabel("0.0")
         value_label.setMinimumWidth(48)
         value_label.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)

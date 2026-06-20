@@ -1,4 +1,4 @@
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
@@ -9,7 +9,7 @@ from ui.runtime.addon_disabled_placeholders import (
     ensure_visual_reply_legacy_placeholders,
 )
 from ui.shell_specs import UI_SHELL_DEFAULT_CHUNKING_VALUES
-from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
+from ui.widgets.basic import CollapsibleSection, ContextTokenStepper, DecimalStepper, LabeledSlider, NoWheelComboBox, NoWheelSpinBox, NoWheelTabWidget
 
 
 from ui.runtime.engine_access import engine_module as _engine
@@ -36,6 +36,8 @@ SYSTEM_SHAPING_TOOLTIPS = {
     "musetalk_use_frame_cache_checkbox": "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames.",
     "musetalk_avatar_pack_combo": "Prepared MuseTalk avatar pack and variant used for rendering visual speech.",
     "btn_musetalk_avatar_pack_refresh": "Rescan installed MuseTalk avatar packs under avatar_packs/.",
+    "scenic_pack_combo": "Portable Scenic Pack used by the Scenic avatar engine to map tags to still images.",
+    "btn_scenic_pack_refresh": "Rescan ScenicPacks/ for portable Scenic Pack folders.",
     "preset_combo": "Saved companion preset. Presets store persona/runtime choices such as model, voice, avatar, and generation settings.",
     "btn_preset_refresh": "Reload the preset list from disk.",
 }
@@ -57,7 +59,8 @@ CHAT_TAB_TOOLTIPS = {
     "btn_install_spellcheck_dependency": "Install only the PyEnchant package into the active NC Python environment when spellcheck is unavailable after an update.",
     "spellcheck_dependency_hint": "Shows whether the optional PyEnchant spellcheck package and dictionaries are available in the active NC Python environment.",
     "long_term_memory_enabled_checkbox": "Maintain a compact Continuity Memory summary for this saved chat context.",
-    "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after 120-239 new saved-chat messages have accumulated.",
+    "long_term_memory_update_on_save_checkbox": "Automatically summarize continuity after the configured number of new saved-chat messages has accumulated.",
+    "continuity_memory_auto_turns_spin": "Number of new chat messages required before automatic Continuity Memory summarization runs. Save Chat Context flushes all pending messages immediately, even one.",
     "long_term_memory_inject_checkbox": "Include the Continuity Memory summary in normal model requests so the assistant can remember older context.",
     "long_term_memory_max_chars_spin": "Maximum character budget for the Continuity Memory summary.",
     "btn_review_long_term_memory": "Open the current Continuity Memory summary for inspection.",
@@ -68,6 +71,7 @@ CHAT_TAB_TOOLTIPS = {
     "long_term_memory_archive_hint": "Shows Long-Term Memory archive record counts and storage location.",
     "long_term_memory_retrieval_enabled_checkbox": "Allow NC to retrieve relevant Long-Term Memory archive items and inject a compact recall block into chat requests.",
     "long_term_memory_retrieval_max_items_spin": "Maximum number of Long-Term Memory archive matches injected into a chat request.",
+    "long_term_memory_archive_batch_turns_spin": "Number of new chat messages required before automatic Long-Term Memory archive storage runs. Save Chat Context archives all pending messages immediately, even one.",
     "long_term_memory_embedding_enabled_checkbox": "Use LM Studio embeddings for semantic Long-Term Memory archive retrieval. Keyword search remains available as fallback.",
     "long_term_memory_embedding_model_edit": "Embedding model served by LM Studio. Use Refresh after starting or changing the LM Studio embedding server.",
     "btn_long_term_memory_embedding_model_refresh": "Refresh LM Studio embedding models.",
@@ -116,9 +120,6 @@ class BackendSystemShapingBuilderMixin:
 
     def _invoke_avatar_legacy_capability(self, provider_id, capability, payload=None, default=None):
         provider = str(provider_id or "").strip().lower()
-        addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
-        if not addon_id:
-            return default
         result = self._invoke_addon_service_capability(
             "avatar_provider_registry",
             capability,
@@ -128,6 +129,9 @@ class BackendSystemShapingBuilderMixin:
         )
         if result is not None:
             return result
+        addon_id = addon_id_for_service("avatar_provider_registry", provider_id=provider)
+        if not addon_id:
+            return default
         return self._invoke_initialized_addon_capability(addon_id, capability, payload, default=default)
 
     def _invoke_visual_reply_capability(self, capability, payload=None, default=None):
@@ -169,6 +173,10 @@ class BackendSystemShapingBuilderMixin:
         self.musetalk_avatar_label = QtWidgets.QLabel("MuseTalk Avatar")
         _set_tooltip(self.musetalk_avatar_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_avatar_pack_combo"])
         form.addRow(self.musetalk_avatar_label, self.musetalk_avatar_pack_row_widget)
+        if hasattr(self, "scenic_pack_row_widget"):
+            self.scenic_pack_label = QtWidgets.QLabel("Scenic Pack")
+            _set_tooltip(self.scenic_pack_label, SYSTEM_SHAPING_TOOLTIPS["scenic_pack_combo"])
+            form.addRow(self.scenic_pack_label, self.scenic_pack_row_widget)
         form.addRow("Preset", self.preset_row_widget if hasattr(self, "preset_row_widget") else self.preset_combo)
         layout.addLayout(form)
         self._refresh_musetalk_vram_visibility()
@@ -318,6 +326,255 @@ class BackendSystemShapingBuilderMixin:
             pass
         return self.visual_reply_runtime_section
 
+    def _build_ai_presence_runtime_card(self):
+        runtime_config = _engine().RUNTIME_CONFIG
+        self.ai_presence_runtime_box = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(self.ai_presence_runtime_box)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(8)
+
+        self.ai_presence_enabled_checkbox = QtWidgets.QCheckBox("Enable AI Presence Mode")
+        self.ai_presence_enabled_checkbox.setObjectName("ai_presence_enabled_checkbox")
+        self.ai_presence_enabled_checkbox.setChecked(bool(runtime_config.get("ai_presence_enabled", False)))
+        self.ai_presence_enabled_checkbox.setToolTip("Show a native Qt Quick fullscreen presence animation while the AI is thinking or speaking.")
+        self.ai_presence_enabled_checkbox.toggled.connect(self.on_ai_presence_enabled_changed)
+
+        self.ai_presence_display_mode_combo = NoWheelComboBox()
+        self.ai_presence_display_mode_combo.setObjectName("ai_presence_display_mode_combo")
+        self.ai_presence_display_mode_combo.setToolTip("Choose whether AI Presence is off, fullscreen, floating, or both.")
+        for label, value in [
+            ("Off", "off"),
+            ("Fullscreen", "fullscreen"),
+            ("Floating Window", "floating"),
+            ("Both", "both"),
+        ]:
+            self.ai_presence_display_mode_combo.addItem(label, value)
+        display_mode = str(runtime_config.get("ai_presence_display_mode", "fullscreen") or "fullscreen").strip().lower()
+        if display_mode not in {"off", "fullscreen", "floating", "both"}:
+            display_mode = "fullscreen"
+        for index in range(self.ai_presence_display_mode_combo.count()):
+            if str(self.ai_presence_display_mode_combo.itemData(index) or "") == display_mode:
+                self.ai_presence_display_mode_combo.setCurrentIndex(index)
+                break
+        self.ai_presence_display_mode_combo.currentIndexChanged.connect(lambda _index: self.on_ai_presence_display_mode_changed(self.ai_presence_display_mode_combo.currentData()))
+
+        self.ai_presence_visual_style_combo = NoWheelComboBox()
+        self.ai_presence_visual_style_combo.setObjectName("ai_presence_visual_style_combo")
+        self.ai_presence_visual_style_combo.setToolTip("Select the AI Presence animation style.")
+        for label, value in [
+            ("Neural Network Pulse", "neural_network_pulse"),
+        ]:
+            self.ai_presence_visual_style_combo.addItem(label, value)
+        visual_style = str(runtime_config.get("ai_presence_visual_style", "neural_network_pulse") or "neural_network_pulse").strip().lower()
+        for index in range(self.ai_presence_visual_style_combo.count()):
+            if str(self.ai_presence_visual_style_combo.itemData(index) or "") == visual_style:
+                self.ai_presence_visual_style_combo.setCurrentIndex(index)
+                break
+        self.ai_presence_visual_style_combo.currentIndexChanged.connect(lambda _index: self.on_ai_presence_visual_style_changed(self.ai_presence_visual_style_combo.currentData()))
+
+        self.ai_presence_fullscreen_checkbox = QtWidgets.QCheckBox("Fullscreen overlay")
+        self.ai_presence_fullscreen_checkbox.setObjectName("ai_presence_fullscreen_checkbox")
+        self.ai_presence_fullscreen_checkbox.setChecked(bool(runtime_config.get("ai_presence_fullscreen", True)))
+        self.ai_presence_fullscreen_checkbox.setToolTip("Cover the active screen during thinking and speaking. Disable to cover only the NC window.")
+        self.ai_presence_fullscreen_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_fullscreen", bool(checked)))
+
+        self.ai_presence_reduced_effects_checkbox = QtWidgets.QCheckBox("Reduced effects")
+        self.ai_presence_reduced_effects_checkbox.setObjectName("ai_presence_reduced_effects_checkbox")
+        self.ai_presence_reduced_effects_checkbox.setChecked(bool(runtime_config.get("ai_presence_reduced_effects", False)))
+        self.ai_presence_reduced_effects_checkbox.setToolTip("Use fewer particles and slower animation updates.")
+        self.ai_presence_reduced_effects_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_reduced_effects", bool(checked)))
+
+        self.ai_presence_preview_button = QtWidgets.QPushButton("Show Fullscreen")
+        self.ai_presence_preview_button.setObjectName("ai_presence_preview_button")
+        self.ai_presence_preview_button.setToolTip("Show the AI Presence fullscreen overlay now. Shortcut: Ctrl+Alt+P.")
+        self.ai_presence_preview_button.clicked.connect(self.on_ai_presence_preview_requested)
+
+        self.ai_presence_floating_button = QtWidgets.QPushButton("Show Floating")
+        self.ai_presence_floating_button.setObjectName("ai_presence_floating_button")
+        self.ai_presence_floating_button.setToolTip("Open the resizable floating AI Presence window.")
+        self.ai_presence_floating_button.clicked.connect(self.on_ai_presence_show_floating_requested)
+
+        self.ai_presence_floating_always_on_top_checkbox = QtWidgets.QCheckBox("Floating always on top")
+        self.ai_presence_floating_always_on_top_checkbox.setObjectName("ai_presence_floating_always_on_top_checkbox")
+        self.ai_presence_floating_always_on_top_checkbox.setChecked(bool(runtime_config.get("ai_presence_floating_always_on_top", True)))
+        self.ai_presence_floating_always_on_top_checkbox.setToolTip("Keep the floating presence window above other windows.")
+        self.ai_presence_floating_always_on_top_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_floating_always_on_top", bool(checked)))
+
+        self.ai_presence_remember_floating_geometry_checkbox = QtWidgets.QCheckBox("Remember floating size")
+        self.ai_presence_remember_floating_geometry_checkbox.setObjectName("ai_presence_remember_floating_geometry_checkbox")
+        self.ai_presence_remember_floating_geometry_checkbox.setChecked(bool(runtime_config.get("ai_presence_remember_floating_geometry", True)))
+        self.ai_presence_remember_floating_geometry_checkbox.setToolTip("Remember the floating window position and size.")
+        self.ai_presence_remember_floating_geometry_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_remember_floating_geometry", bool(checked)))
+
+        self.ai_presence_transparent_background_checkbox = QtWidgets.QCheckBox("Transparent background")
+        self.ai_presence_transparent_background_checkbox.setObjectName("ai_presence_transparent_background_checkbox")
+        self.ai_presence_transparent_background_checkbox.setChecked(bool(runtime_config.get("ai_presence_transparent_background", False)))
+        self.ai_presence_transparent_background_checkbox.setToolTip("Make AI Presence render without a painted background. The floating window stays frameless either way.")
+        self.ai_presence_transparent_background_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_transparent_background", bool(checked)))
+
+        self.ai_presence_shaders_enabled_checkbox = QtWidgets.QCheckBox("Soft glow")
+        self.ai_presence_shaders_enabled_checkbox.setObjectName("ai_presence_shaders_enabled_checkbox")
+        self.ai_presence_shaders_enabled_checkbox.setChecked(bool(runtime_config.get("ai_presence_shaders_enabled", True)))
+        self.ai_presence_shaders_enabled_checkbox.setToolTip("Use soft glow backgrounds when available.")
+        self.ai_presence_shaders_enabled_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_shaders_enabled", bool(checked)))
+
+        self.ai_presence_particles_enabled_checkbox = QtWidgets.QCheckBox("Particles")
+        self.ai_presence_particles_enabled_checkbox.setObjectName("ai_presence_particles_enabled_checkbox")
+        self.ai_presence_particles_enabled_checkbox.setChecked(bool(runtime_config.get("ai_presence_particles_enabled", True)))
+        self.ai_presence_particles_enabled_checkbox.setToolTip("Show small moving particles around the presence animation.")
+        self.ai_presence_particles_enabled_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_particles_enabled", bool(checked)))
+
+        self.ai_presence_space_closes_fullscreen_checkbox = QtWidgets.QCheckBox("Space exits fullscreen")
+        self.ai_presence_space_closes_fullscreen_checkbox.setObjectName("ai_presence_space_closes_fullscreen_checkbox")
+        self.ai_presence_space_closes_fullscreen_checkbox.setChecked(bool(runtime_config.get("ai_presence_space_closes_fullscreen", True)))
+        self.ai_presence_space_closes_fullscreen_checkbox.setToolTip("Escape or mouse click hides fullscreen. Enable this to let Space hide it too.")
+        self.ai_presence_space_closes_fullscreen_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_space_closes_fullscreen", bool(checked)))
+
+        self.ai_presence_music_reactivity_enabled_checkbox = QtWidgets.QCheckBox("Computer audio sync")
+        self.ai_presence_music_reactivity_enabled_checkbox.setObjectName("ai_presence_music_reactivity_enabled_checkbox")
+        self.ai_presence_music_reactivity_enabled_checkbox.setChecked(bool(runtime_config.get("ai_presence_music_reactivity_enabled", False)))
+        self.ai_presence_music_reactivity_enabled_checkbox.setToolTip("React the outer AI Presence animation to desktop/music output when WASAPI loopback is available.")
+        self.ai_presence_music_reactivity_enabled_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_music_reactivity_enabled", bool(checked)))
+
+        selector_grid = QtWidgets.QGridLayout()
+        selector_grid.setContentsMargins(0, 0, 0, 0)
+        selector_grid.setHorizontalSpacing(10)
+        selector_grid.setVerticalSpacing(6)
+        selector_grid.addWidget(QtWidgets.QLabel("Display"), 0, 0)
+        selector_grid.addWidget(self.ai_presence_display_mode_combo, 0, 1)
+        selector_grid.addWidget(QtWidgets.QLabel("Style"), 0, 2)
+        selector_grid.addWidget(self.ai_presence_visual_style_combo, 0, 3)
+        selector_grid.setColumnStretch(1, 1)
+        selector_grid.setColumnStretch(3, 1)
+        layout.addLayout(selector_grid)
+
+        toggle_row = QtWidgets.QHBoxLayout()
+        toggle_row.setSpacing(12)
+        toggle_row.addWidget(self.ai_presence_enabled_checkbox)
+        toggle_row.addWidget(self.ai_presence_fullscreen_checkbox)
+        toggle_row.addWidget(self.ai_presence_reduced_effects_checkbox)
+        toggle_row.addWidget(self.ai_presence_preview_button)
+        toggle_row.addWidget(self.ai_presence_floating_button)
+        toggle_row.addStretch(1)
+        layout.addLayout(toggle_row)
+
+        options_row = QtWidgets.QHBoxLayout()
+        options_row.setSpacing(12)
+        options_row.addWidget(self.ai_presence_floating_always_on_top_checkbox)
+        options_row.addWidget(self.ai_presence_remember_floating_geometry_checkbox)
+        options_row.addWidget(self.ai_presence_transparent_background_checkbox)
+        options_row.addWidget(self.ai_presence_shaders_enabled_checkbox)
+        options_row.addWidget(self.ai_presence_particles_enabled_checkbox)
+        options_row.addWidget(self.ai_presence_music_reactivity_enabled_checkbox)
+        options_row.addWidget(self.ai_presence_space_closes_fullscreen_checkbox)
+        options_row.addStretch(1)
+        layout.addLayout(options_row)
+
+        self.ai_presence_opacity_slider = LabeledSlider(
+            "Opacity",
+            0.10,
+            1.00,
+            float(runtime_config.get("ai_presence_overlay_opacity", 0.72) or 0.72),
+        )
+        self.ai_presence_opacity_slider.setObjectName("ai_presence_opacity_slider")
+        self.ai_presence_opacity_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_overlay_opacity", float(value)))
+
+        self.ai_presence_thinking_slider = LabeledSlider(
+            "Thinking Pulse",
+            0.10,
+            1.00,
+            float(runtime_config.get("ai_presence_thinking_pulse", 0.55) or 0.55),
+        )
+        self.ai_presence_thinking_slider.setObjectName("ai_presence_thinking_slider")
+        self.ai_presence_thinking_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_thinking_pulse", float(value)))
+
+        self.ai_presence_speaking_slider = LabeledSlider(
+            "Speaking Reactivity",
+            0.10,
+            1.50,
+            float(runtime_config.get("ai_presence_speaking_reactivity", 0.85) or 0.85),
+        )
+        self.ai_presence_speaking_slider.setObjectName("ai_presence_speaking_slider")
+        self.ai_presence_speaking_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_speaking_reactivity", float(value)))
+
+        self.ai_presence_audio_refresh_slider = LabeledSlider(
+            "Audio Sync Rate",
+            5,
+            30,
+            int(runtime_config.get("ai_presence_audio_refresh_hz", 30) or 30),
+            is_int=True,
+        )
+        self.ai_presence_audio_refresh_slider.setObjectName("ai_presence_audio_refresh_slider")
+        self.ai_presence_audio_refresh_slider.setToolTip("How many audio-level updates per second are sent to AI Presence while speech is playing.")
+        self.ai_presence_audio_refresh_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_audio_refresh_hz", int(value)))
+
+        self.ai_presence_density_slider = LabeledSlider(
+            "Neural Node Density",
+            8,
+            96,
+            int(runtime_config.get("ai_presence_node_density", 32) or 32),
+            is_int=True,
+        )
+        self.ai_presence_density_slider.setObjectName("ai_presence_density_slider")
+        self.ai_presence_density_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_node_density", int(value)))
+
+        self.ai_presence_floating_opacity_slider = LabeledSlider(
+            "Floating Opacity",
+            0.35,
+            1.00,
+            float(runtime_config.get("ai_presence_floating_opacity", 0.92) or 0.92),
+        )
+        self.ai_presence_floating_opacity_slider.setObjectName("ai_presence_floating_opacity_slider")
+        self.ai_presence_floating_opacity_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_floating_opacity", float(value)))
+
+        self.ai_presence_particle_density_slider = LabeledSlider(
+            "Particle Density",
+            0,
+            120,
+            int(runtime_config.get("ai_presence_particle_density", 28) or 28),
+            is_int=True,
+        )
+        self.ai_presence_particle_density_slider.setObjectName("ai_presence_particle_density_slider")
+        self.ai_presence_particle_density_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_particle_density", int(value)))
+
+        self.ai_presence_music_reactivity_slider = LabeledSlider(
+            "Music Reactivity",
+            0.00,
+            1.50,
+            float(runtime_config.get("ai_presence_music_reactivity", 0.65)),
+        )
+        self.ai_presence_music_reactivity_slider.setObjectName("ai_presence_music_reactivity_slider")
+        self.ai_presence_music_reactivity_slider.setToolTip("How strongly computer/music output moves the outer AI Presence animation.")
+        self.ai_presence_music_reactivity_slider.value_changed.connect(lambda value: self.on_ai_presence_setting_changed("ai_presence_music_reactivity", float(value)))
+
+        slider_grid = QtWidgets.QGridLayout()
+        slider_grid.setContentsMargins(0, 0, 0, 0)
+        slider_grid.setHorizontalSpacing(12)
+        slider_grid.setVerticalSpacing(8)
+        slider_grid.addWidget(self.ai_presence_opacity_slider, 0, 0)
+        slider_grid.addWidget(self.ai_presence_thinking_slider, 0, 1)
+        slider_grid.addWidget(self.ai_presence_speaking_slider, 1, 0)
+        slider_grid.addWidget(self.ai_presence_audio_refresh_slider, 1, 1)
+        slider_grid.addWidget(self.ai_presence_density_slider, 2, 0)
+        slider_grid.addWidget(self.ai_presence_particle_density_slider, 2, 1)
+        slider_grid.addWidget(self.ai_presence_floating_opacity_slider, 3, 0)
+        slider_grid.addWidget(self.ai_presence_music_reactivity_slider, 3, 1)
+        layout.addLayout(slider_grid)
+
+        self.ai_presence_status_label = QtWidgets.QLabel("Uses Qt Quick when available; Fullscreen appears during thinking/speaking. Escape or mouse click hides fullscreen. Floating Window can be resized.")
+        self.ai_presence_status_label.setObjectName("ai_presence_status_label")
+        self.ai_presence_status_label.setWordWrap(True)
+        self.ai_presence_status_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        layout.addWidget(self.ai_presence_status_label)
+
+        self.ai_presence_runtime_section = CollapsibleSection(
+            "AI PRESENCE MODE",
+            self.ai_presence_runtime_box,
+            expanded=True,
+        )
+        self.ai_presence_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
+        return self.ai_presence_runtime_section
+
     def _build_chat_runtime_card(self):
         self.chat_runtime_box = QtWidgets.QWidget()
         layout = QtWidgets.QVBoxLayout(self.chat_runtime_box)
@@ -406,7 +663,7 @@ class BackendSystemShapingBuilderMixin:
         layout.addWidget(self.chat_runtime_inner_card)
 
         self._refresh_chat_provider_card()
-        self.chat_runtime_section = CollapsibleSection("Chat Runtime", self.chat_runtime_box, expanded=True)
+        self.chat_runtime_section = CollapsibleSection("LLM Runtime", self.chat_runtime_box, expanded=True)
         self.chat_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
         self._refresh_chat_runtime_summary()
         return self.chat_runtime_section
@@ -488,8 +745,8 @@ class BackendSystemShapingBuilderMixin:
 
         self.tts_runtime_addon_tabs = QtWidgets.QTabWidget()
         self.tts_runtime_addon_tabs.setDocumentMode(False)
-        self.tts_runtime_addon_tabs.setMinimumHeight(420)
-        self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.tts_runtime_addon_tabs.setMinimumHeight(0)
+        self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.tts_runtime_addon_tabs.currentChanged.connect(self._on_tts_runtime_addon_tab_changed)
         self.tts_runtime_addon_tabs.setVisible(False)
         inner_layout.addWidget(self.tts_runtime_addon_tabs)
@@ -526,22 +783,69 @@ class BackendSystemShapingBuilderMixin:
         core_layout.setContentsMargins(8, 8, 8, 8)
         core_layout.setSpacing(10)
 
-        sensory_box = QtWidgets.QGroupBox("Hidden Sensory Feedback")
+        sensory_box = QtWidgets.QGroupBox("Background Awareness")
         sensory_layout = QtWidgets.QVBoxLayout(sensory_box)
         sensory_layout.setContentsMargins(12, 14, 12, 12)
-        sensory_layout.setSpacing(8)
+        sensory_layout.setSpacing(10)
 
-        sensory_form = QtWidgets.QFormLayout()
-        sensory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        sensory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        sensory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        sensory_form.addRow("Include", self.sensory_feedback_sources_widget)
-        sensory_form.addRow("Refresh (s)", self._wrap_compact_form_field(self.sensory_feedback_interval_spin))
-        sensory_form.addRow("Retain PONGs", self._wrap_compact_form_field(self.sensory_pingpong_history_spin))
-        sensory_layout.addWidget(self.sensory_pingpong_checkbox)
-        sensory_layout.addWidget(self.sensory_allow_hidden_proactive_checkbox)
-        sensory_layout.addWidget(self.sensory_allow_hidden_visual_checkbox)
-        sensory_layout.addLayout(sensory_form)
+        intro_label = QtWidgets.QLabel(
+            "Choose what NC may quietly observe in the background. Observations are added as context; they are not sent as user messages."
+        )
+        intro_label.setObjectName("sensory_feedback_intro")
+        intro_label.setWordWrap(True)
+        intro_label.setStyleSheet("color: #b8c8d9; font-size: 11px;")
+        sensory_layout.addWidget(intro_label)
+
+        def make_card(title):
+            card = QtWidgets.QGroupBox(title)
+            card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            card_layout = QtWidgets.QVBoxLayout(card)
+            card_layout.setContentsMargins(12, 14, 12, 12)
+            card_layout.setSpacing(8)
+            return card, card_layout
+
+        def field_with_suffix(widget, suffix):
+            container = QtWidgets.QWidget()
+            row = QtWidgets.QHBoxLayout(container)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+            row.addWidget(self._wrap_compact_form_field(widget), 0)
+            suffix_label = QtWidgets.QLabel(suffix)
+            suffix_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+            row.addWidget(suffix_label, 0)
+            row.addStretch(1)
+            return container
+
+        review_card, review_layout = make_card("Background Review")
+        review_layout.addWidget(self.sensory_pingpong_checkbox)
+        review_form = QtWidgets.QFormLayout()
+        review_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        review_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        review_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        review_form.addRow("Review every", field_with_suffix(self.sensory_feedback_interval_spin, "seconds"))
+        review_form.addRow("Keep recent observations", self._wrap_compact_form_field(self.sensory_pingpong_history_spin))
+        review_layout.addLayout(review_form)
+        sensory_layout.addWidget(review_card)
+
+        sources_card, sources_layout = make_card("Sources to observe")
+        sources_hint = QtWidgets.QLabel("Select the background inputs NC may include when building context.")
+        sources_hint.setWordWrap(True)
+        sources_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        sources_layout.addWidget(sources_hint)
+        sources_layout.addWidget(self.sensory_feedback_sources_widget)
+        companion_orb_target_row = QtWidgets.QHBoxLayout()
+        companion_orb_target_row.setContentsMargins(0, 0, 0, 0)
+        companion_orb_target_row.setSpacing(8)
+        companion_orb_target_row.addWidget(self.companion_orb_sensory_target_checkbox)
+        companion_orb_target_row.addWidget(self.btn_companion_orb_clear_sensory_target)
+        companion_orb_target_row.addStretch(1)
+        sources_layout.addLayout(companion_orb_target_row)
+        sensory_layout.addWidget(sources_card)
+
+        actions_card, actions_layout = make_card("Allowed Actions")
+        actions_layout.addWidget(self.sensory_allow_hidden_proactive_checkbox)
+        actions_layout.addWidget(self.sensory_allow_hidden_visual_checkbox)
+        sensory_layout.addWidget(actions_card)
 
         self.sensory_feedback_hint = QtWidgets.QLabel()
         self.sensory_feedback_hint.setObjectName("sensory_feedback_hint")
@@ -550,7 +854,12 @@ class BackendSystemShapingBuilderMixin:
         sensory_layout.addWidget(self.sensory_feedback_hint)
         self._refresh_sensory_feedback_hint()
 
-        self.sensory_pingpong_prompt_label = QtWidgets.QLabel("Core Hidden PING/PONG Prompt")
+        advanced_widget = QtWidgets.QWidget()
+        advanced_layout = QtWidgets.QVBoxLayout(advanced_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(8)
+
+        self.sensory_pingpong_prompt_label = QtWidgets.QLabel("Developer prompt JSON contract")
         self.sensory_pingpong_prompt_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
         prompt_header = QtWidgets.QHBoxLayout()
         prompt_header.setContentsMargins(0, 0, 0, 0)
@@ -558,17 +867,23 @@ class BackendSystemShapingBuilderMixin:
         prompt_header.addWidget(self.sensory_pingpong_prompt_label)
         prompt_header.addStretch(1)
         prompt_header.addWidget(self.btn_sensory_pingpong_prompt_reset, 0)
-        sensory_layout.addLayout(prompt_header)
-        sensory_layout.addWidget(self.sensory_pingpong_prompt_text)
+        advanced_layout.addLayout(prompt_header)
+        advanced_layout.addWidget(self.sensory_pingpong_prompt_text)
 
-        self.sensory_pingpong_prompt_hint = QtWidgets.QLabel("Core prompt defines the shared JSON contract. Source tabs add source-specific guidance. Use __EMOTION_LIST__ to inject the currently available avatar emotion tags.")
+        self.sensory_pingpong_prompt_hint = QtWidgets.QLabel("Advanced: this prompt defines the JSON contract for background review. Source tabs add source-specific guidance. Use __EMOTION_LIST__ to inject the currently available avatar emotion tags.")
         self.sensory_pingpong_prompt_hint.setWordWrap(True)
         self.sensory_pingpong_prompt_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        sensory_layout.addWidget(self.sensory_pingpong_prompt_hint)
+        advanced_layout.addWidget(self.sensory_pingpong_prompt_hint)
+        self.sensory_pingpong_prompt_section = CollapsibleSection("Advanced / Developer Prompt", advanced_widget, expanded=False)
+        self.sensory_pingpong_prompt_section.setSummary("JSON contract and source guidance")
+        sensory_layout.addWidget(self.sensory_pingpong_prompt_section)
 
         core_layout.addWidget(sensory_box)
-        self.sensory_feedback_tabs.addTab(core_tab, "Core")
+        style = QtWidgets.QApplication.style()
+        overview_icon = style.standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation) if style is not None else QtGui.QIcon()
+        self.sensory_feedback_tabs.addTab(core_tab, overview_icon, "Overview")
         self._refresh_sensory_feedback_source_tabs()
+        self._update_sensory_feedback_tab_bar_visibility()
         layout.addWidget(self.sensory_feedback_tabs, 0, QtCore.Qt.AlignTop)
         return tab
 
@@ -616,6 +931,7 @@ class BackendSystemShapingBuilderMixin:
         memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
         memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        memory_form.addRow("Auto summary interval (msgs)", self.continuity_memory_auto_turns_spin)
         memory_form.addRow("Summary budget (chars)", self.long_term_memory_max_chars_spin)
         memory_layout.addLayout(memory_form)
         memory_button_row = QtWidgets.QHBoxLayout()
@@ -632,7 +948,7 @@ class BackendSystemShapingBuilderMixin:
         archive_layout = QtWidgets.QVBoxLayout(archive_box)
         archive_layout.setContentsMargins(12, 14, 12, 12)
         archive_layout.setSpacing(8)
-        archive_hint = QtWidgets.QLabel("Manual archive extraction stores structured memory records. Retrieval can inject matching archive recall into chat requests.")
+        archive_hint = QtWidgets.QLabel("Long-Term Memory stores raw chat archive chunks on Save Chat Context or after the archive interval. Retrieval can inject matching archive recall into chat requests.")
         archive_hint.setWordWrap(True)
         archive_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         archive_layout.addWidget(archive_hint)
@@ -641,6 +957,7 @@ class BackendSystemShapingBuilderMixin:
         retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
         retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
         retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        retrieval_form.addRow("Archive interval (msgs)", self.long_term_memory_archive_batch_turns_spin)
         retrieval_form.addRow("Max recall items", self.long_term_memory_retrieval_max_items_spin)
         embedding_model_row = QtWidgets.QHBoxLayout()
         embedding_model_row.setSpacing(8)
@@ -812,6 +1129,12 @@ class BackendSystemShapingBuilderMixin:
         )
         if not built:
             ensure_musetalk_legacy_placeholders(self, runtime_config)
+        self._invoke_avatar_legacy_capability(
+            "scenic",
+            "legacy.build_runtime_widgets",
+            {"backend": self, "runtime_config": runtime_config},
+            default=False,
+        )
         built = self._invoke_visual_reply_capability(
             "legacy.build_runtime_widgets",
             {"backend": self, "runtime_config": runtime_config},
@@ -844,20 +1167,37 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_feedback_interval_spin.setMinimumWidth(112)
         self.sensory_feedback_interval_spin.setMaximumWidth(132)
 
-        self.sensory_pingpong_checkbox = QtWidgets.QCheckBox("Enable hidden PING/PONG loop")
+        self.sensory_pingpong_checkbox = QtWidgets.QCheckBox("Enable background review")
         self.sensory_pingpong_checkbox.setObjectName("sensory_pingpong_checkbox")
+        self.sensory_pingpong_checkbox.setToolTip("Lets NC quietly review selected sources while idle, then keep useful observation notes.")
         self.sensory_pingpong_checkbox.setChecked(bool(runtime_config.get("sensory_pingpong_enabled", False)))
         self.sensory_pingpong_checkbox.toggled.connect(self.on_sensory_pingpong_enabled_changed)
 
-        self.sensory_allow_hidden_proactive_checkbox = QtWidgets.QCheckBox("Allow hidden PONGs to trigger proactive speech")
+        self.sensory_allow_hidden_proactive_checkbox = QtWidgets.QCheckBox("Allow NC to speak about observations")
         self.sensory_allow_hidden_proactive_checkbox.setObjectName("sensory_allow_hidden_proactive_checkbox")
+        self.sensory_allow_hidden_proactive_checkbox.setToolTip("Allows a background observation to become a spoken proactive comment when the prompt marks it as worth saying.")
         self.sensory_allow_hidden_proactive_checkbox.setChecked(bool(runtime_config.get("sensory_allow_hidden_proactive_speech", False)))
         self.sensory_allow_hidden_proactive_checkbox.toggled.connect(self.on_sensory_allow_hidden_proactive_changed)
 
-        self.sensory_allow_hidden_visual_checkbox = QtWidgets.QCheckBox("Allow NC to generate visual replies automatically")
+        self.sensory_allow_hidden_visual_checkbox = QtWidgets.QCheckBox("Use observations for Visual Reply images")
         self.sensory_allow_hidden_visual_checkbox.setObjectName("sensory_allow_hidden_visual_checkbox")
+        self.sensory_allow_hidden_visual_checkbox.setToolTip("Allows selected sensory context to trigger automatic Visual Reply image generation when the prompt explicitly requests it.")
         self.sensory_allow_hidden_visual_checkbox.setChecked(bool(runtime_config.get("sensory_allow_hidden_visual_generation", False)))
         self.sensory_allow_hidden_visual_checkbox.toggled.connect(self.on_sensory_allow_hidden_visual_changed)
+
+        self.companion_orb_sensory_target_checkbox = QtWidgets.QCheckBox("Use Orb target as a source")
+        self.companion_orb_sensory_target_checkbox.setObjectName("companion_orb_sensory_target_checkbox")
+        self.companion_orb_sensory_target_checkbox.setToolTip(
+            "Uses the Companion Orb selected window/region as a background source. "
+            "It never silently falls back to full-screen capture."
+        )
+        self.companion_orb_sensory_target_checkbox.setChecked(bool(runtime_config.get("companion_orb_sensory_target_enabled", False)))
+        self.companion_orb_sensory_target_checkbox.toggled.connect(self.on_companion_orb_sensory_target_changed)
+
+        self.btn_companion_orb_clear_sensory_target = QtWidgets.QPushButton("Clear orb target")
+        self.btn_companion_orb_clear_sensory_target.setObjectName("btn_companion_orb_clear_sensory_target")
+        self.btn_companion_orb_clear_sensory_target.setToolTip("Clears the selected Companion Orb sensory target.")
+        self.btn_companion_orb_clear_sensory_target.clicked.connect(self.clear_companion_orb_sensory_target)
 
         self.sensory_pingpong_history_spin = ContextTokenStepper()
         self.sensory_pingpong_history_spin.setObjectName("sensory_pingpong_history_spin")
@@ -871,10 +1211,10 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_pingpong_prompt_text = QtWidgets.QPlainTextEdit()
         self.sensory_pingpong_prompt_text.setObjectName("sensory_pingpong_prompt_text")
         self.sensory_pingpong_prompt_text.setPlainText(str(runtime_config.get("sensory_pingpong_prompt", getattr(engine_module, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine_module, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")))
-        self.sensory_pingpong_prompt_text.setPlaceholderText("Hidden PING/PONG prompt")
+        self.sensory_pingpong_prompt_text.setPlaceholderText("Advanced background review prompt")
         self.sensory_pingpong_prompt_text.setMinimumHeight(0)
         self.sensory_pingpong_prompt_text.textChanged.connect(self.on_sensory_pingpong_prompt_changed)
-        self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Use Recommended")
+        self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Restore recommended prompt")
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
 
@@ -1029,7 +1369,7 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_enabled_checkbox.setChecked(bool(runtime_config.get("continuity_memory_enabled", runtime_config.get("long_term_memory_enabled", False))))
         self.long_term_memory_enabled_checkbox.toggled.connect(self.on_long_term_memory_enabled_changed)
 
-        self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize after 120 new messages")
+        self.long_term_memory_update_on_save_checkbox = QtWidgets.QCheckBox("Auto summarize at interval")
         self.long_term_memory_update_on_save_checkbox.setObjectName("long_term_memory_update_on_save_checkbox")
         self.long_term_memory_update_on_save_checkbox.setChecked(bool(runtime_config.get("continuity_memory_auto_summarize", runtime_config.get("continuity_memory_update_on_save", runtime_config.get("long_term_memory_update_on_save", False)))))
         self.long_term_memory_update_on_save_checkbox.toggled.connect(self.on_long_term_memory_update_on_save_changed)
@@ -1038,6 +1378,15 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_inject_checkbox.setObjectName("long_term_memory_inject_checkbox")
         self.long_term_memory_inject_checkbox.setChecked(bool(runtime_config.get("continuity_memory_inject", runtime_config.get("long_term_memory_inject", False))))
         self.long_term_memory_inject_checkbox.toggled.connect(self.on_long_term_memory_inject_changed)
+
+        self.continuity_memory_auto_turns_spin = ContextTokenStepper()
+        self.continuity_memory_auto_turns_spin.setObjectName("continuity_memory_auto_turns_spin")
+        self.continuity_memory_auto_turns_spin.setRange(1, 10000)
+        self.continuity_memory_auto_turns_spin.setSingleStep(10)
+        self.continuity_memory_auto_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("continuity_memory_auto_turns", 120) or 120))))
+        self.continuity_memory_auto_turns_spin.valueChanged.connect(self.on_continuity_memory_auto_turns_changed)
+        self.continuity_memory_auto_turns_spin.setMinimumWidth(112)
+        self.continuity_memory_auto_turns_spin.setMaximumWidth(132)
 
         self.long_term_memory_max_chars_spin = ContextTokenStepper()
         self.long_term_memory_max_chars_spin.setObjectName("long_term_memory_max_chars_spin")
@@ -1087,6 +1436,15 @@ class BackendSystemShapingBuilderMixin:
         self.long_term_memory_retrieval_max_items_spin.valueChanged.connect(self.on_long_term_memory_retrieval_max_items_changed)
         self.long_term_memory_retrieval_max_items_spin.setMinimumWidth(112)
         self.long_term_memory_retrieval_max_items_spin.setMaximumWidth(132)
+
+        self.long_term_memory_archive_batch_turns_spin = ContextTokenStepper()
+        self.long_term_memory_archive_batch_turns_spin.setObjectName("long_term_memory_archive_batch_turns_spin")
+        self.long_term_memory_archive_batch_turns_spin.setRange(1, 10000)
+        self.long_term_memory_archive_batch_turns_spin.setSingleStep(10)
+        self.long_term_memory_archive_batch_turns_spin.setValue(max(1, min(10000, int(runtime_config.get("long_term_memory_archive_batch_turns", 120) or 120))))
+        self.long_term_memory_archive_batch_turns_spin.valueChanged.connect(self.on_long_term_memory_archive_batch_turns_changed)
+        self.long_term_memory_archive_batch_turns_spin.setMinimumWidth(112)
+        self.long_term_memory_archive_batch_turns_spin.setMaximumWidth(132)
 
         self.long_term_memory_embedding_enabled_checkbox = QtWidgets.QCheckBox("Use LM Studio embeddings for semantic retrieval")
         self.long_term_memory_embedding_enabled_checkbox.setObjectName("long_term_memory_embedding_enabled_checkbox")

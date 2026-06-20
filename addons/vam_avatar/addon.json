@@ -16,7 +16,17 @@
     "vam_play_audio_in_vam": true,
     "vam_target_atom_uid": "Person",
     "vam_target_storable_id": "plugin#0_NeuralCompanionBridge",
-    "vam_timeline_auto_resume": true
+    "vam_timeline_auto_resume": true,
+    "vam_hymotion_model_path": "Q:\\HY-Motion model",
+    "vam_hymotion_repo_dir": "addons/vam_avatar/tools/hy_motion/HY-Motion-1.0",
+    "vam_hymotion_venv_dir": "addons/vam_avatar/.venv-hymotion",
+    "vam_hymotion_output_dir": "addons/vam_avatar/outputs/hy_motion",
+    "vam_hymotion_device_ids": "0",
+    "vam_hymotion_duration_seconds": 4.0,
+    "vam_hymotion_num_seeds": 1,
+    "vam_hymotion_cfg_scale": 5.0,
+    "vam_hymotion_disable_rewrite": true,
+    "vam_hymotion_disable_duration_est": true
   },
   "runtime_env_overrides": {
     "vam_vmc_enabled": "NC_VAM_VMC_ENABLED",
@@ -26,7 +36,17 @@
     "vam_play_audio_in_vam": "NC_VAM_PLAY_AUDIO_IN_VAM",
     "vam_target_atom_uid": "NC_VAM_TARGET_ATOM_UID",
     "vam_target_storable_id": "NC_VAM_TARGET_STORABLE_ID",
-    "vam_timeline_auto_resume": "NC_VAM_TIMELINE_AUTO_RESUME"
+    "vam_timeline_auto_resume": "NC_VAM_TIMELINE_AUTO_RESUME",
+    "vam_hymotion_model_path": "NC_VAM_HYMOTION_MODEL_PATH",
+    "vam_hymotion_repo_dir": "NC_VAM_HYMOTION_REPO_DIR",
+    "vam_hymotion_venv_dir": "NC_VAM_HYMOTION_VENV_DIR",
+    "vam_hymotion_output_dir": "NC_VAM_HYMOTION_OUTPUT_DIR",
+    "vam_hymotion_device_ids": "NC_VAM_HYMOTION_DEVICE_IDS",
+    "vam_hymotion_duration_seconds": "NC_VAM_HYMOTION_DURATION_SECONDS",
+    "vam_hymotion_num_seeds": "NC_VAM_HYMOTION_NUM_SEEDS",
+    "vam_hymotion_cfg_scale": "NC_VAM_HYMOTION_CFG_SCALE",
+    "vam_hymotion_disable_rewrite": "NC_VAM_HYMOTION_DISABLE_REWRITE",
+    "vam_hymotion_disable_duration_est": "NC_VAM_HYMOTION_DISABLE_DURATION_EST"
   },
   "services": [
     {

@@ -137,6 +137,12 @@ class RealUiActionsChatSensoryMixin:
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
+    def _on_frontend_continuity_memory_auto_turns_changed(self, value):
+            try:
+                self.backend.on_continuity_memory_auto_turns_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
     def _on_frontend_long_term_memory_retrieval_enabled_changed(self, checked):
             try:
                 self.backend.on_long_term_memory_retrieval_enabled_changed(bool(checked))
@@ -146,6 +152,12 @@ class RealUiActionsChatSensoryMixin:
     def _on_frontend_long_term_memory_retrieval_max_items_changed(self, value):
             try:
                 self.backend.on_long_term_memory_retrieval_max_items_changed(int(value))
+            finally:
+                self._refresh_chat_session_runtime_frontend()
+
+    def _on_frontend_long_term_memory_archive_batch_turns_changed(self, value):
+            try:
+                self.backend.on_long_term_memory_archive_batch_turns_changed(int(value))
             finally:
                 self._refresh_chat_session_runtime_frontend()
 
@@ -223,7 +235,13 @@ class RealUiActionsChatSensoryMixin:
                 try:
                     from ui.runtime import engine_access as engine
 
-                    result = str(engine.refine_system_prompt_text(original) or "").strip()
+                    result = str(
+                        engine.refine_system_prompt_text(
+                            original,
+                            allow_nsfw=self._system_prompt_refine_allows_nsfw(),
+                        )
+                        or ""
+                    ).strip()
                 except Exception as exc:
                     error = str(exc)
                 try:
@@ -232,6 +250,17 @@ class RealUiActionsChatSensoryMixin:
                     pass
 
             threading.Thread(target=worker, name="nc-system-prompt-refine", daemon=True).start()
+
+    def _system_prompt_refine_allows_nsfw(self):
+            checkbox = self._ui_object("system_prompt_refine_nsfw_checkbox")
+            if checkbox is None and getattr(self, "backend", None) is not None:
+                checkbox = getattr(self.backend, "system_prompt_refine_nsfw_checkbox", None)
+            if checkbox is None or not hasattr(checkbox, "isChecked"):
+                return False
+            try:
+                return bool(checkbox.isChecked())
+            except Exception:
+                return False
 
     def _on_frontend_system_prompt_refined(self, refined_prompt, error):
             self._system_prompt_refine_in_flight = False
@@ -365,11 +394,10 @@ class RealUiActionsChatSensoryMixin:
                 return
             self._sync_combo_like_widget(frontend_combo, backend_combo)
             self._refresh_backend_preset_dirty_state()
+            if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                return
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
-            QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
 
     def _on_frontend_spellcheck_enabled_changed(self, checked):
             try:
@@ -419,7 +447,7 @@ class RealUiActionsChatSensoryMixin:
             self._sync_combo_like_widget(frontend_combo, backend_combo)
             self._refresh_backend_preset_dirty_state()
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
 
     def _on_frontend_model_requires_vision_changed(self, checked):
             backend_checkbox = self._backend_widget("model_requires_vision_checkbox")

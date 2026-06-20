@@ -7,7 +7,11 @@
     {
       "title": "Presence Sources",
       "body": "Webcam and Heart Rate are more personal than screen or clipboard. Enable them only when the user wants this kind of awareness.",
-      "target": "main_window"
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
+      ]
     },
     {
       "title": "Webcam Context",
@@ -29,7 +33,7 @@
     {
       "title": "Avoid Overreach",
       "body": "Presence sources should be conservative. Prefer simple observations and opt-in behavior over confident claims about mood, health, or intent.",
-      "target": "main_window"
+      "target": "sensory_allow_hidden_proactive_checkbox"
     }
   ]
 }

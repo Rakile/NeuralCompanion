@@ -7,7 +7,11 @@
     {
       "title": "What Sensory Sources Are",
       "body": "Sensory sources let NC observe context outside the chat box. Screen, Clipboard, Webcam, and Heart Rate are optional inputs that can become hidden context or trigger behaviors.",
-      "target": "main_window"
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
+      ]
     },
     {
       "title": "Open Host -> Vision",

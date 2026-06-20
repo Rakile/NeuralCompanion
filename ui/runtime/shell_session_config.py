@@ -95,7 +95,7 @@ def _bind_ui_shell_preset_session_controls(window, providers):
             provider = str(payload.get("chat_provider") or "").strip() or "saved provider"
             model = str(payload.get("model_name") or "").strip() or "saved model"
             session_hint.setText(
-                f"Shell preview loaded preset '{current}' into Chat Runtime controls "
+                f"Shell preview loaded preset '{current}' into LLM Runtime controls "
                 f"({provider} / {model}). Runtime state was not changed."
             )
 
@@ -120,7 +120,7 @@ def _bind_ui_shell_preset_session_controls(window, providers):
             button.setToolTip("Chat session file/runtime mutation is deferred in shell mode.")
     if session_hint is not None and hasattr(session_hint, "setText"):
         session_hint.setText(
-            "Shell-local session binding: preset Load previews saved Chat Runtime values; "
+            "Shell-local session binding: preset Load previews saved LLM Runtime values; "
             "Save/Delete and chat-context file operations remain deferred."
         )
 

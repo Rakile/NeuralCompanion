@@ -398,6 +398,9 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:selected {
         if backend_id:
             self._tts_runtime_tab_index_by_backend[backend_id] = index
 
+        if callable(getattr(self, "frontend_layout_resync_callback", None)):
+            return
+
         sync_func = getattr(self, "_sync_tts_runtime_fields_height", None)
         if not sync_func:
             backend = getattr(self, "backend", None)

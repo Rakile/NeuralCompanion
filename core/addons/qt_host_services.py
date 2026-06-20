@@ -66,6 +66,23 @@ class QtShellService:
     def open_local_path(self, path) -> bool:
         return QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(Path(path).resolve())))
 
+    def send_typed_chat_message(self, text=None) -> bool:
+        sender = getattr(self._window, "send_typed_chat_message", None)
+        if callable(sender):
+            return bool(sender(text=text))
+        backend = getattr(self._window, "backend", None)
+        sender = getattr(backend, "send_typed_chat_message", None)
+        if callable(sender):
+            queued = bool(sender(text=text))
+            sync = getattr(self._window, "_sync_backend_to_ui", None)
+            if queued and callable(sync):
+                try:
+                    sync(force=True)
+                except Exception:
+                    pass
+            return queued
+        return False
+
     def notify_settings_changed(self) -> None:
         if hasattr(self._window, "_refresh_preset_dirty_state"):
             self._window._refresh_preset_dirty_state()
@@ -1007,8 +1024,7 @@ class QtSensoryService:
             capture_handler=capture_handler,
             metadata=metadata,
         )
-        if hasattr(self._window, "refresh_sensory_feedback_source_options"):
-            self._window.refresh_sensory_feedback_source_options(selected_value=getattr(provider, "id", ""))
+        self._refresh_ui()
         return provider.to_summary()
 
     def unregister_provider(self, provider_id: str) -> bool:

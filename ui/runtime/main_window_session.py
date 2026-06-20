@@ -113,6 +113,221 @@ class MainWindowSessionMixin:
             return self._current_model_supports_images_value(model_name)
         return RUNTIME_CONFIG.get("model_supports_images", None)
 
+    def _ai_presence_session_settings(self):
+        def _checked(attr, key, default=False):
+            widget = getattr(self, attr, None)
+            if widget is not None and hasattr(widget, "isChecked"):
+                return bool(widget.isChecked())
+            return bool(RUNTIME_CONFIG.get(key, default))
+
+        def _slider(attr, key, default):
+            widget = getattr(self, attr, None)
+            if widget is not None and hasattr(widget, "value"):
+                try:
+                    return widget.value()
+                except Exception:
+                    pass
+            return RUNTIME_CONFIG.get(key, default)
+
+        def _combo(attr, key, default):
+            widget = getattr(self, attr, None)
+            if widget is not None and hasattr(widget, "currentData"):
+                try:
+                    data = widget.currentData()
+                    if data:
+                        return data
+                except Exception:
+                    pass
+            return RUNTIME_CONFIG.get(key, default)
+
+        def _number(value, default):
+            return default if value is None else value
+
+        return {
+            "ai_presence_enabled": _checked("ai_presence_enabled_checkbox", "ai_presence_enabled", False),
+            "ai_presence_display_mode": str(_combo("ai_presence_display_mode_combo", "ai_presence_display_mode", "fullscreen") or "fullscreen"),
+            "ai_presence_visual_style": str(_combo("ai_presence_visual_style_combo", "ai_presence_visual_style", "neural_network_pulse") or "neural_network_pulse"),
+            "ai_presence_fullscreen": _checked("ai_presence_fullscreen_checkbox", "ai_presence_fullscreen", True),
+            "ai_presence_overlay_opacity": float(_slider("ai_presence_opacity_slider", "ai_presence_overlay_opacity", 0.72) or 0.72),
+            "ai_presence_floating_opacity": float(_slider("ai_presence_floating_opacity_slider", "ai_presence_floating_opacity", 0.92) or 0.92),
+            "ai_presence_floating_always_on_top": _checked("ai_presence_floating_always_on_top_checkbox", "ai_presence_floating_always_on_top", True),
+            "ai_presence_remember_floating_geometry": _checked("ai_presence_remember_floating_geometry_checkbox", "ai_presence_remember_floating_geometry", True),
+            "ai_presence_transparent_background": _checked("ai_presence_transparent_background_checkbox", "ai_presence_transparent_background", False),
+            "ai_presence_floating_geometry": RUNTIME_CONFIG.get("ai_presence_floating_geometry", []),
+            "ai_presence_external_runtime_enabled": _checked("ai_presence_external_runtime_enabled_checkbox", "ai_presence_external_runtime_enabled", False),
+            "ai_presence_thinking_pulse": float(_slider("ai_presence_thinking_slider", "ai_presence_thinking_pulse", 0.55) or 0.55),
+            "ai_presence_speaking_reactivity": float(_slider("ai_presence_speaking_slider", "ai_presence_speaking_reactivity", 0.85) or 0.85),
+            "ai_presence_audio_refresh_hz": int(_slider("ai_presence_audio_refresh_slider", "ai_presence_audio_refresh_hz", 30) or 30),
+            "ai_presence_node_density": int(_slider("ai_presence_density_slider", "ai_presence_node_density", 32) or 32),
+            "ai_presence_particle_density": int(_slider("ai_presence_particle_density_slider", "ai_presence_particle_density", 28) or 28),
+            "ai_presence_reduced_effects": _checked("ai_presence_reduced_effects_checkbox", "ai_presence_reduced_effects", False),
+            "ai_presence_shaders_enabled": _checked("ai_presence_shaders_enabled_checkbox", "ai_presence_shaders_enabled", True),
+            "ai_presence_particles_enabled": _checked("ai_presence_particles_enabled_checkbox", "ai_presence_particles_enabled", True),
+            "ai_presence_space_closes_fullscreen": _checked("ai_presence_space_closes_fullscreen_checkbox", "ai_presence_space_closes_fullscreen", True),
+            "ai_presence_music_reactivity_enabled": _checked("ai_presence_music_reactivity_enabled_checkbox", "ai_presence_music_reactivity_enabled", False),
+            "ai_presence_music_reactivity": float(_number(_slider("ai_presence_music_reactivity_slider", "ai_presence_music_reactivity", 0.65), 0.65)),
+            "ai_presence_neural_face_enabled": _checked("ai_presence_neural_face_enabled_checkbox", "ai_presence_neural_face_enabled", True),
+            "ai_presence_neural_face_variant": str(_combo("ai_presence_neural_face_variant_combo", "ai_presence_neural_face_variant", "auto") or "auto"),
+            "ai_presence_neural_face_size": float(_slider("ai_presence_neural_face_size_slider", "ai_presence_neural_face_size", 1.0) or 1.0),
+            "ai_presence_neural_face_opacity": float(_slider("ai_presence_neural_face_opacity_slider", "ai_presence_neural_face_opacity", 0.92) or 0.92),
+            "ai_presence_neural_face_animation_intensity": float(_number(_slider("ai_presence_neural_face_animation_slider", "ai_presence_neural_face_animation_intensity", 0.78), 0.78)),
+            "ai_presence_neural_face_lipsync_strength": float(_number(_slider("ai_presence_neural_face_lipsync_slider", "ai_presence_neural_face_lipsync_strength", 1.0), 1.0)),
+            "ai_presence_neural_face_eye_movement_enabled": _checked("ai_presence_neural_face_eye_movement_checkbox", "ai_presence_neural_face_eye_movement_enabled", True),
+            "ai_presence_neural_face_blink_enabled": _checked("ai_presence_neural_face_blink_checkbox", "ai_presence_neural_face_blink_enabled", True),
+            "ai_presence_neural_face_glow_enabled": _checked("ai_presence_neural_face_glow_checkbox", "ai_presence_neural_face_glow_enabled", True),
+            "ai_presence_neural_face_emotion_enabled": _checked("ai_presence_neural_face_emotion_checkbox", "ai_presence_neural_face_emotion_enabled", True),
+            "ai_presence_neural_face_use_tts_emotion": _checked("ai_presence_neural_face_tts_emotion_checkbox", "ai_presence_neural_face_use_tts_emotion", True),
+            "ai_presence_neural_face_audio_lipsync_enabled": _checked("ai_presence_neural_face_audio_lipsync_checkbox", "ai_presence_neural_face_audio_lipsync_enabled", True),
+            "ai_presence_neural_face_reduced_animation": _checked("ai_presence_neural_face_reduced_checkbox", "ai_presence_neural_face_reduced_animation", False),
+            "ai_presence_female_neural_face_enabled": _checked("ai_presence_female_neural_face_enabled_checkbox", "ai_presence_female_neural_face_enabled", True),
+            "ai_presence_female_reference_nodes": _checked("ai_presence_female_reference_nodes_checkbox", "ai_presence_female_reference_nodes", True),
+            "ai_presence_female_show_wire_nodes": _checked("ai_presence_female_show_nodes_checkbox", "ai_presence_female_show_wire_nodes", True),
+            "ai_presence_female_show_wire_lines": _checked("ai_presence_female_show_lines_checkbox", "ai_presence_female_show_wire_lines", True),
+            "ai_presence_female_node_glow_enabled": _checked("ai_presence_female_node_glow_checkbox", "ai_presence_female_node_glow_enabled", True),
+            "ai_presence_female_wire_pulse_enabled": _checked("ai_presence_female_wire_pulse_checkbox", "ai_presence_female_wire_pulse_enabled", True),
+            "ai_presence_female_depth_enabled": _checked("ai_presence_female_depth_checkbox", "ai_presence_female_depth_enabled", True),
+        }
+
+    def _restore_ai_presence_session_settings(self, session):
+        config = {
+            "ai_presence_enabled": bool(session.get("ai_presence_enabled", RUNTIME_CONFIG.get("ai_presence_enabled", False))),
+            "ai_presence_display_mode": str(session.get("ai_presence_display_mode", RUNTIME_CONFIG.get("ai_presence_display_mode", "fullscreen")) or "fullscreen"),
+            "ai_presence_visual_style": str(session.get("ai_presence_visual_style", RUNTIME_CONFIG.get("ai_presence_visual_style", "neural_network_pulse")) or "neural_network_pulse"),
+            "ai_presence_fullscreen": bool(session.get("ai_presence_fullscreen", RUNTIME_CONFIG.get("ai_presence_fullscreen", True))),
+            "ai_presence_overlay_opacity": float(session.get("ai_presence_overlay_opacity", RUNTIME_CONFIG.get("ai_presence_overlay_opacity", 0.72)) or 0.72),
+            "ai_presence_floating_opacity": float(session.get("ai_presence_floating_opacity", RUNTIME_CONFIG.get("ai_presence_floating_opacity", 0.92)) or 0.92),
+            "ai_presence_floating_always_on_top": bool(session.get("ai_presence_floating_always_on_top", RUNTIME_CONFIG.get("ai_presence_floating_always_on_top", True))),
+            "ai_presence_remember_floating_geometry": bool(session.get("ai_presence_remember_floating_geometry", RUNTIME_CONFIG.get("ai_presence_remember_floating_geometry", True))),
+            "ai_presence_transparent_background": bool(session.get("ai_presence_transparent_background", RUNTIME_CONFIG.get("ai_presence_transparent_background", False))),
+            "ai_presence_floating_geometry": session.get("ai_presence_floating_geometry", RUNTIME_CONFIG.get("ai_presence_floating_geometry", [])),
+            "ai_presence_external_runtime_enabled": bool(
+                session.get("ai_presence_external_runtime_enabled", RUNTIME_CONFIG.get("ai_presence_external_runtime_enabled", False))
+            ),
+            "ai_presence_thinking_pulse": float(session.get("ai_presence_thinking_pulse", RUNTIME_CONFIG.get("ai_presence_thinking_pulse", 0.55)) or 0.55),
+            "ai_presence_speaking_reactivity": float(session.get("ai_presence_speaking_reactivity", RUNTIME_CONFIG.get("ai_presence_speaking_reactivity", 0.85)) or 0.85),
+            "ai_presence_audio_refresh_hz": int(session.get("ai_presence_audio_refresh_hz", RUNTIME_CONFIG.get("ai_presence_audio_refresh_hz", 30)) or 30),
+            "ai_presence_node_density": int(session.get("ai_presence_node_density", RUNTIME_CONFIG.get("ai_presence_node_density", 32)) or 32),
+            "ai_presence_particle_density": int(session.get("ai_presence_particle_density", RUNTIME_CONFIG.get("ai_presence_particle_density", 28)) or 28),
+            "ai_presence_reduced_effects": bool(session.get("ai_presence_reduced_effects", RUNTIME_CONFIG.get("ai_presence_reduced_effects", False))),
+            "ai_presence_shaders_enabled": bool(session.get("ai_presence_shaders_enabled", RUNTIME_CONFIG.get("ai_presence_shaders_enabled", True))),
+            "ai_presence_particles_enabled": bool(session.get("ai_presence_particles_enabled", RUNTIME_CONFIG.get("ai_presence_particles_enabled", True))),
+            "ai_presence_space_closes_fullscreen": bool(session.get("ai_presence_space_closes_fullscreen", RUNTIME_CONFIG.get("ai_presence_space_closes_fullscreen", True))),
+            "ai_presence_music_reactivity_enabled": bool(session.get("ai_presence_music_reactivity_enabled", RUNTIME_CONFIG.get("ai_presence_music_reactivity_enabled", False))),
+            "ai_presence_music_reactivity": float(session.get("ai_presence_music_reactivity", RUNTIME_CONFIG.get("ai_presence_music_reactivity", 0.65))),
+            "ai_presence_neural_face_enabled": bool(session.get("ai_presence_neural_face_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_enabled", True))),
+            "ai_presence_neural_face_variant": str(session.get("ai_presence_neural_face_variant", RUNTIME_CONFIG.get("ai_presence_neural_face_variant", "auto")) or "auto"),
+            "ai_presence_neural_face_size": float(session.get("ai_presence_neural_face_size", RUNTIME_CONFIG.get("ai_presence_neural_face_size", 1.0)) or 1.0),
+            "ai_presence_neural_face_opacity": float(session.get("ai_presence_neural_face_opacity", RUNTIME_CONFIG.get("ai_presence_neural_face_opacity", 0.92)) or 0.92),
+            "ai_presence_neural_face_animation_intensity": float(session.get("ai_presence_neural_face_animation_intensity", RUNTIME_CONFIG.get("ai_presence_neural_face_animation_intensity", 0.78)) or 0.78),
+            "ai_presence_neural_face_lipsync_strength": float(session.get("ai_presence_neural_face_lipsync_strength", RUNTIME_CONFIG.get("ai_presence_neural_face_lipsync_strength", 1.0)) or 1.0),
+            "ai_presence_neural_face_eye_movement_enabled": bool(session.get("ai_presence_neural_face_eye_movement_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_eye_movement_enabled", True))),
+            "ai_presence_neural_face_blink_enabled": bool(session.get("ai_presence_neural_face_blink_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_blink_enabled", True))),
+            "ai_presence_neural_face_glow_enabled": bool(session.get("ai_presence_neural_face_glow_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_glow_enabled", True))),
+            "ai_presence_neural_face_emotion_enabled": bool(session.get("ai_presence_neural_face_emotion_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_emotion_enabled", True))),
+            "ai_presence_neural_face_use_tts_emotion": bool(session.get("ai_presence_neural_face_use_tts_emotion", RUNTIME_CONFIG.get("ai_presence_neural_face_use_tts_emotion", True))),
+            "ai_presence_neural_face_audio_lipsync_enabled": bool(session.get("ai_presence_neural_face_audio_lipsync_enabled", RUNTIME_CONFIG.get("ai_presence_neural_face_audio_lipsync_enabled", True))),
+            "ai_presence_neural_face_reduced_animation": bool(session.get("ai_presence_neural_face_reduced_animation", RUNTIME_CONFIG.get("ai_presence_neural_face_reduced_animation", False))),
+            "ai_presence_female_neural_face_enabled": bool(session.get("ai_presence_female_neural_face_enabled", RUNTIME_CONFIG.get("ai_presence_female_neural_face_enabled", True))),
+            "ai_presence_female_reference_nodes": bool(session.get("ai_presence_female_reference_nodes", RUNTIME_CONFIG.get("ai_presence_female_reference_nodes", True))),
+            "ai_presence_female_show_wire_nodes": bool(session.get("ai_presence_female_show_wire_nodes", RUNTIME_CONFIG.get("ai_presence_female_show_wire_nodes", True))),
+            "ai_presence_female_show_wire_lines": bool(session.get("ai_presence_female_show_wire_lines", RUNTIME_CONFIG.get("ai_presence_female_show_wire_lines", True))),
+            "ai_presence_female_node_glow_enabled": bool(session.get("ai_presence_female_node_glow_enabled", RUNTIME_CONFIG.get("ai_presence_female_node_glow_enabled", True))),
+            "ai_presence_female_wire_pulse_enabled": bool(session.get("ai_presence_female_wire_pulse_enabled", RUNTIME_CONFIG.get("ai_presence_female_wire_pulse_enabled", True))),
+            "ai_presence_female_depth_enabled": bool(session.get("ai_presence_female_depth_enabled", RUNTIME_CONFIG.get("ai_presence_female_depth_enabled", True))),
+        }
+        if config["ai_presence_display_mode"] not in {"off", "fullscreen", "floating", "both"}:
+            config["ai_presence_display_mode"] = "fullscreen"
+        if config["ai_presence_visual_style"] not in {
+            "neural_network_pulse",
+            "neural_face_male",
+            "neural_face_female",
+            "neural_face_auto",
+        }:
+            config["ai_presence_visual_style"] = "neural_network_pulse"
+        config["ai_presence_overlay_opacity"] = max(0.10, min(1.00, config["ai_presence_overlay_opacity"]))
+        config["ai_presence_floating_opacity"] = max(0.35, min(1.00, config["ai_presence_floating_opacity"]))
+        config["ai_presence_thinking_pulse"] = max(0.10, min(1.00, config["ai_presence_thinking_pulse"]))
+        config["ai_presence_speaking_reactivity"] = max(0.10, min(1.50, config["ai_presence_speaking_reactivity"]))
+        config["ai_presence_music_reactivity"] = max(0.00, min(1.50, config["ai_presence_music_reactivity"]))
+        config["ai_presence_audio_refresh_hz"] = max(5, min(30, config["ai_presence_audio_refresh_hz"]))
+        config["ai_presence_node_density"] = max(8, min(96, config["ai_presence_node_density"]))
+        config["ai_presence_particle_density"] = max(0, min(120, config["ai_presence_particle_density"]))
+        if config["ai_presence_neural_face_variant"] not in {"auto", "male", "female"}:
+            config["ai_presence_neural_face_variant"] = "auto"
+        config["ai_presence_neural_face_size"] = max(0.55, min(1.35, config["ai_presence_neural_face_size"]))
+        config["ai_presence_neural_face_opacity"] = max(0.15, min(1.00, config["ai_presence_neural_face_opacity"]))
+        config["ai_presence_neural_face_animation_intensity"] = max(0.00, min(1.50, config["ai_presence_neural_face_animation_intensity"]))
+        config["ai_presence_neural_face_lipsync_strength"] = max(0.00, min(1.75, config["ai_presence_neural_face_lipsync_strength"]))
+        if not (isinstance(config["ai_presence_floating_geometry"], (list, tuple)) and len(config["ai_presence_floating_geometry"]) == 4):
+            config["ai_presence_floating_geometry"] = []
+        for key, value in config.items():
+            update_runtime_config(key, value)
+
+        widget_specs = [
+            ("ai_presence_enabled_checkbox", "ai_presence_enabled", "checked"),
+            ("ai_presence_display_mode_combo", "ai_presence_display_mode", "combo"),
+            ("ai_presence_visual_style_combo", "ai_presence_visual_style", "combo"),
+            ("ai_presence_fullscreen_checkbox", "ai_presence_fullscreen", "checked"),
+            ("ai_presence_floating_always_on_top_checkbox", "ai_presence_floating_always_on_top", "checked"),
+            ("ai_presence_remember_floating_geometry_checkbox", "ai_presence_remember_floating_geometry", "checked"),
+            ("ai_presence_transparent_background_checkbox", "ai_presence_transparent_background", "checked"),
+            ("ai_presence_external_runtime_enabled_checkbox", "ai_presence_external_runtime_enabled", "checked"),
+            ("ai_presence_reduced_effects_checkbox", "ai_presence_reduced_effects", "checked"),
+            ("ai_presence_shaders_enabled_checkbox", "ai_presence_shaders_enabled", "checked"),
+            ("ai_presence_particles_enabled_checkbox", "ai_presence_particles_enabled", "checked"),
+            ("ai_presence_space_closes_fullscreen_checkbox", "ai_presence_space_closes_fullscreen", "checked"),
+            ("ai_presence_music_reactivity_enabled_checkbox", "ai_presence_music_reactivity_enabled", "checked"),
+            ("ai_presence_neural_face_enabled_checkbox", "ai_presence_neural_face_enabled", "checked"),
+            ("ai_presence_neural_face_eye_movement_checkbox", "ai_presence_neural_face_eye_movement_enabled", "checked"),
+            ("ai_presence_neural_face_blink_checkbox", "ai_presence_neural_face_blink_enabled", "checked"),
+            ("ai_presence_neural_face_glow_checkbox", "ai_presence_neural_face_glow_enabled", "checked"),
+            ("ai_presence_neural_face_emotion_checkbox", "ai_presence_neural_face_emotion_enabled", "checked"),
+            ("ai_presence_neural_face_tts_emotion_checkbox", "ai_presence_neural_face_use_tts_emotion", "checked"),
+            ("ai_presence_neural_face_audio_lipsync_checkbox", "ai_presence_neural_face_audio_lipsync_enabled", "checked"),
+            ("ai_presence_neural_face_reduced_checkbox", "ai_presence_neural_face_reduced_animation", "checked"),
+            ("ai_presence_female_neural_face_enabled_checkbox", "ai_presence_female_neural_face_enabled", "checked"),
+            ("ai_presence_female_reference_nodes_checkbox", "ai_presence_female_reference_nodes", "checked"),
+            ("ai_presence_female_show_nodes_checkbox", "ai_presence_female_show_wire_nodes", "checked"),
+            ("ai_presence_female_show_lines_checkbox", "ai_presence_female_show_wire_lines", "checked"),
+            ("ai_presence_female_node_glow_checkbox", "ai_presence_female_node_glow_enabled", "checked"),
+            ("ai_presence_female_wire_pulse_checkbox", "ai_presence_female_wire_pulse_enabled", "checked"),
+            ("ai_presence_female_depth_checkbox", "ai_presence_female_depth_enabled", "checked"),
+            ("ai_presence_opacity_slider", "ai_presence_overlay_opacity", "slider"),
+            ("ai_presence_floating_opacity_slider", "ai_presence_floating_opacity", "slider"),
+            ("ai_presence_thinking_slider", "ai_presence_thinking_pulse", "slider"),
+            ("ai_presence_speaking_slider", "ai_presence_speaking_reactivity", "slider"),
+            ("ai_presence_audio_refresh_slider", "ai_presence_audio_refresh_hz", "slider"),
+            ("ai_presence_density_slider", "ai_presence_node_density", "slider"),
+            ("ai_presence_particle_density_slider", "ai_presence_particle_density", "slider"),
+            ("ai_presence_music_reactivity_slider", "ai_presence_music_reactivity", "slider"),
+            ("ai_presence_neural_face_variant_combo", "ai_presence_neural_face_variant", "combo"),
+            ("ai_presence_neural_face_size_slider", "ai_presence_neural_face_size", "slider"),
+            ("ai_presence_neural_face_opacity_slider", "ai_presence_neural_face_opacity", "slider"),
+            ("ai_presence_neural_face_animation_slider", "ai_presence_neural_face_animation_intensity", "slider"),
+            ("ai_presence_neural_face_lipsync_slider", "ai_presence_neural_face_lipsync_strength", "slider"),
+        ]
+        for attr, key, kind in widget_specs:
+            widget = getattr(self, attr, None)
+            if widget is None:
+                continue
+            try:
+                widget.blockSignals(True)
+                if kind == "checked" and hasattr(widget, "setChecked"):
+                    widget.setChecked(bool(config[key]))
+                elif kind == "slider" and hasattr(widget, "set_value"):
+                    widget.set_value(config[key])
+                elif kind == "combo" and hasattr(widget, "count"):
+                    value = str(config[key] or "").strip().lower()
+                    for index in range(widget.count()):
+                        if str(widget.itemData(index) or "").strip().lower() == value:
+                            widget.setCurrentIndex(index)
+                            break
+            finally:
+                try:
+                    widget.blockSignals(False)
+                except Exception:
+                    pass
+
     def save_session(self):
         if bool(getattr(self, "_session_read_only", False)):
             return
@@ -164,15 +379,18 @@ class MainWindowSessionMixin:
             "chat_context_overflow_policy": self._chat_overflow_policy_value_from_label(self.chat_overflow_policy_combo.currentText()) if hasattr(self, "chat_overflow_policy_combo") else "rolling_window",
             "spellcheck_enabled": bool(self.spellcheck_enabled_checkbox.isChecked()) if hasattr(self, "spellcheck_enabled_checkbox") else bool(RUNTIME_CONFIG.get("spellcheck_enabled", True)),
             "spellcheck_language": str(self.spellcheck_language_combo.currentText() or "en_US").strip() if hasattr(self, "spellcheck_language_combo") else str(RUNTIME_CONFIG.get("spellcheck_language", "en_US") or "en_US"),
+            **self._ai_presence_session_settings(),
             "continuity_memory_id": str(RUNTIME_CONFIG.get("continuity_memory_id", "") or ""),
             "active_chat_context_path": str(RUNTIME_CONFIG.get("active_chat_context_path", "") or ""),
             "active_chat_context_name": str(RUNTIME_CONFIG.get("active_chat_context_name", "") or ""),
             "continuity_memory_enabled": bool(self.long_term_memory_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_enabled_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_enabled", RUNTIME_CONFIG.get("long_term_memory_enabled", False))),
             "continuity_memory_auto_summarize": bool(self.long_term_memory_update_on_save_checkbox.isChecked()) if hasattr(self, "long_term_memory_update_on_save_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_auto_summarize", RUNTIME_CONFIG.get("continuity_memory_update_on_save", RUNTIME_CONFIG.get("long_term_memory_update_on_save", False)))),
+            "continuity_memory_auto_turns": int(self.continuity_memory_auto_turns_spin.value()) if hasattr(self, "continuity_memory_auto_turns_spin") else int(RUNTIME_CONFIG.get("continuity_memory_auto_turns", 120) or 120),
             "continuity_memory_inject": bool(self.long_term_memory_inject_checkbox.isChecked()) if hasattr(self, "long_term_memory_inject_checkbox") else bool(RUNTIME_CONFIG.get("continuity_memory_inject", RUNTIME_CONFIG.get("long_term_memory_inject", False))),
             "continuity_memory_max_chars": int(self.long_term_memory_max_chars_spin.value()) if hasattr(self, "long_term_memory_max_chars_spin") else int(RUNTIME_CONFIG.get("continuity_memory_max_chars", RUNTIME_CONFIG.get("long_term_memory_max_chars", 3000)) or 3000),
             "long_term_memory_retrieval_enabled": bool(self.long_term_memory_retrieval_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_retrieval_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_retrieval_enabled", False)),
             "long_term_memory_retrieval_max_items": int(self.long_term_memory_retrieval_max_items_spin.value()) if hasattr(self, "long_term_memory_retrieval_max_items_spin") else int(RUNTIME_CONFIG.get("long_term_memory_retrieval_max_items", 6) or 6),
+            "long_term_memory_archive_batch_turns": int(self.long_term_memory_archive_batch_turns_spin.value()) if hasattr(self, "long_term_memory_archive_batch_turns_spin") else int(RUNTIME_CONFIG.get("long_term_memory_archive_batch_turns", 120) or 120),
             "long_term_memory_embedding_enabled": bool(self.long_term_memory_embedding_enabled_checkbox.isChecked()) if hasattr(self, "long_term_memory_embedding_enabled_checkbox") else bool(RUNTIME_CONFIG.get("long_term_memory_embedding_enabled", False)),
             "long_term_memory_embedding_model": (
                 str(self.long_term_memory_embedding_model_edit.currentText() or "").strip()
@@ -192,6 +410,10 @@ class MainWindowSessionMixin:
             "sensory_pingpong_enabled": bool(self.sensory_pingpong_checkbox.isChecked()) if hasattr(self, "sensory_pingpong_checkbox") else bool(RUNTIME_CONFIG.get("sensory_pingpong_enabled", False)),
             "sensory_allow_hidden_proactive_speech": bool(self.sensory_allow_hidden_proactive_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_proactive_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_proactive_speech", False)),
             "sensory_allow_hidden_visual_generation": bool(self.sensory_allow_hidden_visual_checkbox.isChecked()) if hasattr(self, "sensory_allow_hidden_visual_checkbox") else bool(RUNTIME_CONFIG.get("sensory_allow_hidden_visual_generation", False)),
+            "companion_orb_sensory_target_enabled": bool(self.companion_orb_sensory_target_checkbox.isChecked()) if hasattr(self, "companion_orb_sensory_target_checkbox") else bool(RUNTIME_CONFIG.get("companion_orb_sensory_target_enabled", False)),
+            "companion_orb_full_screen_context_enabled": bool(RUNTIME_CONFIG.get("companion_orb_full_screen_context_enabled", False)),
+            "companion_orb_include_process_name": bool(RUNTIME_CONFIG.get("companion_orb_include_process_name", True)),
+            "companion_orb_target_info": dict(RUNTIME_CONFIG.get("companion_orb_target_info", {}) or {}),
             "sensory_pingpong_history_depth": int(self.sensory_pingpong_history_spin.value()) if hasattr(self, "sensory_pingpong_history_spin") else int(RUNTIME_CONFIG.get("sensory_pingpong_history_depth", 3) or 3),
             "sensory_pingpong_prompt": self.sensory_pingpong_prompt_text.toPlainText().strip() if hasattr(self, "sensory_pingpong_prompt_text") else str(RUNTIME_CONFIG.get("sensory_pingpong_prompt", getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")),
             "sensory_pingpong_source_prompts": self._current_sensory_pingpong_source_prompt_map() if hasattr(self, "_current_sensory_pingpong_source_prompt_map") else dict(RUNTIME_CONFIG.get("sensory_pingpong_source_prompts", {}) or {}),
@@ -479,7 +701,11 @@ class MainWindowSessionMixin:
                 update_runtime_config("model_name", saved_model_name)
             model_requires_vision = session.get("model_requires_vision")
             if model_requires_vision is not None and hasattr(self, "model_requires_vision_checkbox"):
-                self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
+                self.model_requires_vision_checkbox.blockSignals(True)
+                try:
+                    self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
+                finally:
+                    self.model_requires_vision_checkbox.blockSignals(False)
                 update_runtime_config("model_requires_vision", bool(model_requires_vision))
             if "model_supports_images" in session:
                 update_runtime_config("model_supports_images", session.get("model_supports_images"))
@@ -527,6 +753,7 @@ class MainWindowSessionMixin:
                     self.spellcheck_language_combo.addItem(language)
                 self.spellcheck_language_combo.setCurrentText(language)
                 self.on_spellcheck_language_changed(language)
+            self._restore_ai_presence_session_settings(session)
             continuity_memory_id = session.get("continuity_memory_id")
             if continuity_memory_id is not None:
                 update_runtime_config("continuity_memory_id", str(continuity_memory_id or ""))
@@ -544,6 +771,11 @@ class MainWindowSessionMixin:
             if continuity_memory_auto_summarize is not None and hasattr(self, "long_term_memory_update_on_save_checkbox"):
                 self.long_term_memory_update_on_save_checkbox.setChecked(bool(continuity_memory_auto_summarize))
                 self.on_continuity_memory_update_on_save_changed(bool(continuity_memory_auto_summarize))
+            continuity_memory_auto_turns = session.get("continuity_memory_auto_turns")
+            if continuity_memory_auto_turns is not None and hasattr(self, "continuity_memory_auto_turns_spin"):
+                auto_turns = max(1, min(10000, int(continuity_memory_auto_turns or 120)))
+                self.continuity_memory_auto_turns_spin.setValue(auto_turns)
+                self.on_continuity_memory_auto_turns_changed(auto_turns)
             continuity_memory_inject = session.get("continuity_memory_inject", session.get("long_term_memory_inject"))
             if continuity_memory_inject is not None and hasattr(self, "long_term_memory_inject_checkbox"):
                 self.long_term_memory_inject_checkbox.setChecked(bool(continuity_memory_inject))
@@ -562,6 +794,11 @@ class MainWindowSessionMixin:
                 max_items = max(1, min(12, int(retrieval_max_items)))
                 self.long_term_memory_retrieval_max_items_spin.setValue(max_items)
                 self.on_long_term_memory_retrieval_max_items_changed(max_items)
+            archive_batch_turns = session.get("long_term_memory_archive_batch_turns")
+            if archive_batch_turns is not None and hasattr(self, "long_term_memory_archive_batch_turns_spin"):
+                batch_turns = max(1, min(10000, int(archive_batch_turns or 120)))
+                self.long_term_memory_archive_batch_turns_spin.setValue(batch_turns)
+                self.on_long_term_memory_archive_batch_turns_changed(batch_turns)
             embedding_enabled = session.get("long_term_memory_embedding_enabled")
             if embedding_enabled is not None and hasattr(self, "long_term_memory_embedding_enabled_checkbox"):
                 self.long_term_memory_embedding_enabled_checkbox.setChecked(bool(embedding_enabled))
@@ -627,6 +864,25 @@ class MainWindowSessionMixin:
                 visual_enabled = bool(sensory_allow_hidden_visual_generation)
                 self.sensory_allow_hidden_visual_checkbox.setChecked(visual_enabled)
                 self.on_sensory_allow_hidden_visual_changed(visual_enabled)
+            companion_orb_sensory_target_enabled = session.get("companion_orb_sensory_target_enabled")
+            if companion_orb_sensory_target_enabled is not None:
+                orb_target_enabled = bool(companion_orb_sensory_target_enabled)
+                update_runtime_config("companion_orb_sensory_target_enabled", orb_target_enabled)
+                if hasattr(self, "companion_orb_sensory_target_checkbox"):
+                    try:
+                        self.companion_orb_sensory_target_checkbox.blockSignals(True)
+                        self.companion_orb_sensory_target_checkbox.setChecked(orb_target_enabled)
+                    finally:
+                        self.companion_orb_sensory_target_checkbox.blockSignals(False)
+                if hasattr(self, "_sync_companion_orb_sensory_target_controls"):
+                    self._sync_companion_orb_sensory_target_controls()
+            if "companion_orb_full_screen_context_enabled" in session:
+                update_runtime_config("companion_orb_full_screen_context_enabled", bool(session.get("companion_orb_full_screen_context_enabled")))
+            if "companion_orb_include_process_name" in session:
+                update_runtime_config("companion_orb_include_process_name", bool(session.get("companion_orb_include_process_name", True)))
+            companion_orb_target_info = session.get("companion_orb_target_info")
+            if isinstance(companion_orb_target_info, dict):
+                update_runtime_config("companion_orb_target_info", dict(companion_orb_target_info))
             sensory_pingpong_history_depth = session.get("sensory_pingpong_history_depth")
             if sensory_pingpong_history_depth is not None and hasattr(self, "sensory_pingpong_history_spin"):
                 pingpong_depth = max(0, int(sensory_pingpong_history_depth))
@@ -733,5 +989,6 @@ class MainWindowSessionMixin:
             QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)
         finally:
             self._suspend_session_save = previous_suspend
+            self._restoring_session = False
         self.save_session()
         QtCore.QTimer.singleShot(700, self._finalize_session_restore_dirty_state)

@@ -92,11 +92,15 @@ def stream_delegated_audio_progress(playback_state, stop_event, *, musetalk_stat
     sequence_index = int(state.get("sequence_index", 0) or 0)
     chunk_id = state.get("chunk_id")
     sync_time = float(state.get("sync_time", time.time()) or time.time())
+    is_single_still = bool(state.get("frame_paths")) and not state.get("frame_dir") and len(state.get("frame_paths") or []) == 1
 
     while not stop_event.is_set():
         elapsed = max(0.0, time.time() - sync_time)
         progress = min(elapsed / duration_seconds, 1.0) if duration_seconds > 0 else 1.0
-        preview_frame_index = min(int(progress * max(expected_frame_count - 1, 1)), expected_frame_count - 1)
+        if is_single_still:
+            preview_frame_index = 0
+        else:
+            preview_frame_index = min(int(progress * max(expected_frame_count - 1, 1)), expected_frame_count - 1)
         live_state = getattr(musetalk_state_module, "current_musetalk_frame_data", {}) or {}
         if live_state.get("chunk_id") != chunk_id:
             break

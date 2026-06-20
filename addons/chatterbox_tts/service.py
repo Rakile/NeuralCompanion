@@ -50,6 +50,9 @@ class _SuppressReferenceMelFilter(logging.Filter):
                 "Reference mel length is not equal to 2 * reference token length.",
                 "LlamaModel is using LlamaSdpaAttention",
                 "We detected that you are passing `past_key_values` as a tuple of tuples.",
+                "Xet Storage is enabled for this repo, but the 'hf_xet' package is not installed.",
+                "`huggingface_hub` cache-system uses symlinks by default",
+                "cache-system uses symlinks by default",
             )
             return not any(fragment in message for fragment in muted_fragments)
         except Exception:
@@ -57,10 +60,12 @@ class _SuppressReferenceMelFilter(logging.Filter):
 
 
 def _suppress_chatterbox_console_noise():
+    os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
     for category, pattern in (
         (FutureWarning, r".*torch\.backends\.cuda\.sdp_kernel\(\).*deprecated.*"),
         (UserWarning, r".*`return_dict_in_generate` is NOT set to `True`, but `output_attentions` is.*"),
         (UserWarning, r".*past_key_values.*tuple of tuples.*deprecated.*"),
+        (UserWarning, r".*cache-system uses symlinks by default.*"),
     ):
         try:
             warnings.filterwarnings("ignore", message=pattern, category=category)
@@ -68,12 +73,21 @@ def _suppress_chatterbox_console_noise():
             pass
     try:
         root_logger = logging.getLogger()
-        if not any(isinstance(item, _SuppressReferenceMelFilter) for item in root_logger.filters):
-            root_logger.addFilter(_SuppressReferenceMelFilter())
+        chatterbox_filter = next(
+            (item for item in root_logger.filters if isinstance(item, _SuppressReferenceMelFilter)),
+            None,
+        )
+        if chatterbox_filter is None:
+            chatterbox_filter = _SuppressReferenceMelFilter()
+            root_logger.addFilter(chatterbox_filter)
+        for handler in list(root_logger.handlers):
+            if not any(isinstance(item, _SuppressReferenceMelFilter) for item in handler.filters):
+                handler.addFilter(chatterbox_filter)
     except Exception:
         pass
     for logger_name in (
         "chatterbox.models.t3.inference.alignment_stream_analyzer",
+        "huggingface_hub.file_download",
         "transformers.generation.configuration_utils",
         "transformers.models.llama.modeling_llama",
     ):

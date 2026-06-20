@@ -262,7 +262,11 @@ class BackendChatModelCatalogMixin:
         provider_getter = getattr(self, "_current_chat_provider_editor_value", None)
         provider = provider_getter() if callable(provider_getter) else self._current_chat_provider_value()
         active_provider = self._current_chat_provider_value()
-        raw_models = list(preloaded_models or _get_chat_models(provider=provider, quiet=quiet))
+        raw_models = (
+            list(_get_chat_models(provider=provider, quiet=quiet))
+            if preloaded_models is None
+            else list(preloaded_models or [])
+        )
         available_catalog = self._set_model_catalog(raw_models)
         valid_models = [str(entry.get("id") or "") for entry in list(getattr(self, "_all_model_catalog", []) or []) if str(entry.get("id") or "")]
         self._tutorial_lm_studio_running = bool(valid_models)

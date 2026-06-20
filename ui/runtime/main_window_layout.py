@@ -6,13 +6,17 @@ contents still come from the existing backend/addon mixins.
 
 from PySide6 import QtCore, QtWidgets
 
-from ui.theme_support import build_app_stylesheet_for_preset as _build_app_stylesheet_for_preset
+from ui.theme_support import (
+    build_app_stylesheet_for_preset as _build_app_stylesheet_for_preset,
+    install_app_wide_slider_styling as _install_app_wide_slider_styling,
+)
 
 
 class MainWindowLayoutMixin:
     def _build_ui(self):
         self.setDockNestingEnabled(True)
         self.setStyleSheet(_build_app_stylesheet_for_preset(self.current_app_theme_preset()))
+        _install_app_wide_slider_styling(self)
 
         central = QtWidgets.QWidget()
         central.setObjectName("workspace_central")
@@ -24,7 +28,7 @@ class MainWindowLayoutMixin:
         self.system_shaping_panel, self.workspace_tabs_panel = self._build_left_panel()
         self.right_panel = self._build_right_panel()
 
-        self.system_shaping_dock = QtWidgets.QDockWidget("System Shaping", self)
+        self.system_shaping_dock = QtWidgets.QDockWidget("HOST", self)
         self.system_shaping_dock.setObjectName("SystemShapingDock")
         self.system_shaping_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea
@@ -37,7 +41,7 @@ class MainWindowLayoutMixin:
         self._register_workspace_dock(self.system_shaping_dock)
         self.addDockWidget(QtCore.Qt.LeftDockWidgetArea, self.system_shaping_dock)
 
-        self.workspace_tabs_dock = QtWidgets.QDockWidget("Workspace Tabs", self)
+        self.workspace_tabs_dock = QtWidgets.QDockWidget("ADDONS", self)
         self.workspace_tabs_dock.setObjectName("WorkspaceTabsDock")
         self.workspace_tabs_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea
@@ -55,7 +59,7 @@ class MainWindowLayoutMixin:
             pass
         self.workspace_tabs_dock.raise_()
 
-        self.operational_dock = QtWidgets.QDockWidget("Operational View", self)
+        self.operational_dock = QtWidgets.QDockWidget("CHAT WINDOW", self)
         self.operational_dock.setObjectName("OperationalViewDock")
         self.operational_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea

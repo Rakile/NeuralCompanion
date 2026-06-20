@@ -10,14 +10,32 @@ addons.
 ## What It Can Do
 
 - Chat through local or API providers such as LM Studio, OpenAI, xAI/Grok,
-  Claude, DeepSeek, and addon providers.
+  Claude, DeepSeek, Ollama, and addon providers.
 - Speak through TTS backends such as Chatterbox, Gemini TTS Preview,
   PocketTTS, and addon backends.
-- Drive avatars through MuseTalk, VSeeFace, VaM, or no-avatar mode.
+- Drive avatars through MuseTalk, Scenic still-image packs, VSeeFace, VaM, or
+  no-avatar mode.
 - Use screen, webcam, clipboard, heart-rate, and visual-reply workflows.
 - Save and reload chat contexts.
 - Use Continuity Memory summaries and Long-Term Memory archive retrieval.
-- Run tutorials, presets, hotkeys, chat replay, and addon tools.
+- Run Multi Persona Roleplay Companion, tutorials, presets, hotkeys, chat
+  replay, and addon tools.
+- Use spellchecking in typed chat and optional dependency repair for supported
+  features.
+
+## Current Highlights
+
+- **Multi Persona Roleplay Companion:** story setup, personas, narrator and
+  character routing, a dedicated Play view, voice routing, visual prompt
+  debugging, and story state tools.
+- **Scenic Avatar Engine:** portable still-image avatar packs that map tags to
+  images and can be previewed through the MuseTalk Preview window.
+- **Memory systems:** per-chat Continuity Memory summaries and Long-Term Memory
+  archive retrieval with optional embeddings.
+- **Local provider support:** LM Studio and Ollama support for local chat model
+  workflows.
+
+For release history, see [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 

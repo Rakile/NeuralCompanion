@@ -380,6 +380,7 @@ class TutorialOverlay(QtWidgets.QWidget):
         self._debug("overlay start() called")
         self.step_index = 0
         self.setGeometry(self.main_window.rect())
+        self._ensure_workspace_tutorial_layout()
         self.panel.show()
         self.check_timer.start()
         self.show_step(0)
@@ -424,10 +425,60 @@ class TutorialOverlay(QtWidgets.QWidget):
         painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
         if not self.highlight_rect.isNull():
             glow_rect = self.highlight_rect.adjusted(-6, -6, 6, 6)
-            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255, 220), 3))
-            painter.setBrush(QtCore.Qt.NoBrush)
+            painter.setPen(QtGui.QPen(QtGui.QColor(88, 166, 255, 230), 3))
+            painter.setBrush(QtGui.QColor(88, 166, 255, 28))
             painter.drawRoundedRect(glow_rect, 12, 12)
+            painter.setPen(QtGui.QPen(QtGui.QColor(255, 211, 105, 235), 3))
+            painter.setBrush(QtCore.Qt.NoBrush)
+            length = max(10, min(28, glow_rect.width() // 4, glow_rect.height() // 4))
+            left = glow_rect.left()
+            right = glow_rect.right()
+            top = glow_rect.top()
+            bottom = glow_rect.bottom()
+            painter.drawLine(left, top, left + length, top)
+            painter.drawLine(left, top, left, top + length)
+            painter.drawLine(right, top, right - length, top)
+            painter.drawLine(right, top, right, top + length)
+            painter.drawLine(left, bottom, left + length, bottom)
+            painter.drawLine(left, bottom, left, bottom - length)
+            painter.drawLine(right, bottom, right - length, bottom)
+            painter.drawLine(right, bottom, right, bottom - length)
+            panel_rect = self._panel_rect_in_main_window()
+            if not panel_rect.isNull() and not panel_rect.intersects(glow_rect.adjusted(-10, -10, 10, 10)):
+                painter.setPen(QtGui.QPen(QtGui.QColor(255, 211, 105, 180), 2, QtCore.Qt.DashLine))
+                painter.drawLine(panel_rect.center(), glow_rect.center())
         super().paintEvent(event)
+
+    def _panel_rect_in_main_window(self):
+        try:
+            geometry = self.panel.frameGeometry()
+            top_left = self.main_window.mapFromGlobal(geometry.topLeft())
+            return QtCore.QRect(top_left, geometry.size())
+        except Exception:
+            return QtCore.QRect()
+
+    def _ensure_workspace_tutorial_layout(self):
+        bridge = getattr(self.main_window, "_nc_ui_real_bridge", None)
+        if bridge is not None:
+            handler = getattr(bridge, "_apply_frontend_default_workspace_layout", None)
+            if callable(handler):
+                try:
+                    handler(save=False, reset_titles=False)
+                    return
+                except TypeError:
+                    try:
+                        handler(save=False)
+                        return
+                    except Exception:
+                        pass
+                except Exception:
+                    pass
+        handler = getattr(self.main_window, "reset_workspace_layout", None)
+        if callable(handler):
+            try:
+                handler()
+            except Exception:
+                pass
 
     def _select_tab_by_text(self, tab_widget, tab_title):
         if not tab_widget or not tab_title:

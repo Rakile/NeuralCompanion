@@ -1,0 +1,54 @@
+{
+  "id": "main_chat_remote",
+  "order": 17,
+  "title": "17. Main Chat Remote",
+  "description": "LAN-first phone remote setup for the real main chat runtime: local bridge, backend process, Expo app, pairing, and test order.",
+  "steps": [
+    {
+      "title": "Open Main Chat Remote",
+      "body": "Main Chat Remote is separate from Multi Persona Roleplay. It bridges the real main chat runtime to the phone app through a small local bridge and a separate LAN backend.",
+      "tab": "Main Chat Remote",
+      "target": "main_chat_remote_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Main Chat Remote" }
+      ]
+    },
+    {
+      "title": "Start the Local Bridge",
+      "body": "Local bridge exposes safe runtime status and chat actions to the remote backend. Keep this on only while testing the phone remote.",
+      "tab": "Main Chat Remote",
+      "target": "main_chat_remote_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Main Chat Remote" }
+      ]
+    },
+    {
+      "title": "Create the Backend Venv Once",
+      "body": "Create Backend Venv prepares the separate remote backend environment. This should live outside the main NC runtime so phone networking does not become part of the core chat pipeline.",
+      "tab": "Main Chat Remote",
+      "target": "main_chat_remote_create_backend_venv_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Main Chat Remote" }
+      ]
+    },
+    {
+      "title": "Start the LAN Backend",
+      "body": "Start LAN Backend launches the phone-facing process. Test on the same LAN first with numeric pairing before considering any internet relay or tunnel layer.",
+      "tab": "Main Chat Remote",
+      "target": "main_chat_remote_start_backend_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Main Chat Remote" }
+      ]
+    },
+    {
+      "title": "Use the Phone Command Text",
+      "body": "The command box shows the current Expo/phone startup hints and bridge status. For real-device testing, start the backend first, then run the Expo app and pair from the Android device on the same network.",
+      "tab": "Main Chat Remote",
+      "target": "main_chat_remote_command_text",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Main Chat Remote" }
+      ]
+    }
+  ]
+}

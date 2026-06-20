@@ -1,0 +1,63 @@
+{
+  "id": "neural_face_presence",
+  "order": 19,
+  "title": "19. Neural Face",
+  "description": "Neural Face Presence setup for the experimental wireframe face overlay, fullscreen/floating previews, lip sync, gaze, glow, and animation tuning.",
+  "steps": [
+    {
+      "title": "Open Neural Face",
+      "body": "Neural Face is its own addon tab and is marked experimental. It controls the wireframe face presence without changing Companion Orb settings.",
+      "tab": "Neural Face",
+      "target": "neural_face_presence_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Notice the Experimental Label",
+      "body": "The red experimental label is intentional. Treat this renderer as a preview feature and test it after UI, TTS, and AI Presence settings are stable.",
+      "tab": "Neural Face",
+      "target": "neural_face_presence_experimental_label",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Enable the Face Renderer",
+      "body": "Enable Neural Face Presence and choose the face style before using fullscreen or floating preview. The face can follow thinking and speaking state when AI Presence is active.",
+      "tab": "Neural Face",
+      "target": "ai_presence_neural_face_enabled_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Tune Lip Sync and Motion",
+      "body": "Lip sync, blink, gaze, glow, size, opacity, and animation should be adjusted in small steps. Too much animation can make the face feel laggy or distracting.",
+      "tab": "Neural Face",
+      "target": "ai_presence_neural_face_lipsync_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Fullscreen Escape Behavior",
+      "body": "Fullscreen mode can be closed by mouse click or Escape. Test that before using it in a long session so you always know how to return to the main app.",
+      "tab": "Neural Face",
+      "target": "neural_face_presence_status_label",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Watch Runtime Status",
+      "body": "The status label reports whether fullscreen or floating preview started successfully. Use it when diagnosing rendering or performance issues.",
+      "tab": "Neural Face",
+      "target": "neural_face_presence_status_label",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    }
+  ]
+}

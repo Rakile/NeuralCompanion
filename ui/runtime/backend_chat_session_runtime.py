@@ -42,6 +42,7 @@ class BackendChatSessionRuntimeMixin:
     @QtCore.Slot()
     def continuity_memory_updated(self):
         self._refresh_continuity_memory_hint()
+        self._refresh_long_term_memory_archive_hint()
 
     def _continuity_memory_batch_locked_widgets(self):
         names = (
@@ -52,6 +53,10 @@ class BackendChatSessionRuntimeMixin:
             "btn_save_chat_session_as",
             "btn_load_chat_session",
             "btn_reset_chat_session",
+            "chat_quick_save_button",
+            "chat_quick_load_button",
+            "btn_search_long_term_memory_archive",
+            "btn_review_long_term_memory_archive",
         )
         widgets = []
         for name in names:
@@ -234,12 +239,15 @@ class BackendChatSessionRuntimeMixin:
         auto_enabled = bool(config.get("continuity_memory_auto_summarize", config.get("continuity_memory_update_on_save", False)))
         active_path = str(config.get("active_chat_context_path", "") or "").strip()
         try:
-            batch_size = int(getattr(getattr(engine, "continuity_memory", None), "DEFAULT_UPDATE_BATCH_TURNS", 120) or 120)
+            batch_size = max(1, min(10000, int(config.get("continuity_memory_auto_turns", getattr(getattr(engine, "continuity_memory", None), "DEFAULT_UPDATE_BATCH_TURNS", 120)) or 120)))
         except Exception:
             batch_size = 120
         auto_pending_turns = unsummarized_turns
         if auto_enabled and active_path:
-            auto_text = "Auto summary is armed for 120-239 new messages."
+            auto_text = (
+                f"Auto summary is armed for {batch_size}-{(batch_size * 2) - 1} new messages. "
+                "Save Chat Context summarizes all pending messages immediately, even one."
+            )
             if auto_pending_turns >= batch_size * 2:
                 next_summary_text = (
                     "Messages until next summarization: Automatic summarization is disabled because "
@@ -301,6 +309,23 @@ class BackendChatSessionRuntimeMixin:
         except Exception as exc:
             self.long_term_memory_archive_hint.setText(f"Long-Term Memory archive is unavailable: {exc}")
             return
+        total_turns = len(list(getattr(engine, "conversation_history", []) or []))
+        archived_through = 0
+        for chunk in list(active_chunks or []):
+            try:
+                archived_through = max(archived_through, int((chunk or {}).get("source_message_end") or 0))
+            except Exception:
+                continue
+        pending_turns = max(0, total_turns - archived_through)
+        try:
+            archive_interval = max(1, min(10000, int(config.get("long_term_memory_archive_batch_turns", 120) or 120)))
+        except Exception:
+            archive_interval = 120
+        if pending_turns >= archive_interval:
+            archive_progress = "Messages until next archive: 0 (eligible on the next completed reply)."
+        else:
+            archive_progress = f"Messages until next archive: {archive_interval - pending_turns}"
+        archive_flush = "Save Chat Context archives all pending messages immediately, even one."
         embedding_text = "Embeddings off."
         if bool((embedding_status or {}).get("enabled", False)):
             warning = str((embedding_status or {}).get("warning", "") or "").strip()
@@ -316,6 +341,9 @@ class BackendChatSessionRuntimeMixin:
             "Long-Term Memory archive: "
             f"{len(active_records)} active record(s), {len(active_chunks)} raw chunk(s). "
             f"Deleted: {len(deleted_records)} record(s), {len(deleted_chunks)} chunk(s).\n"
+            f"Archived messages: {min(archived_through, total_turns)}/{total_turns}. "
+            f"Unarchived messages: {pending_turns}. {archive_progress}\n"
+            f"{archive_flush}\n"
             f"{embedding_text}\n"
             f"Storage: {path}"
         )
@@ -560,10 +588,17 @@ class BackendChatSessionRuntimeMixin:
 
     def on_continuity_memory_update_on_save_changed(self, checked):
         _update_runtime_config("continuity_memory_auto_summarize", bool(checked))
+        _update_runtime_config("continuity_memory_update_on_save", bool(checked))
+        self._refresh_continuity_memory_hint()
         self.save_session()
 
     def on_long_term_memory_update_on_save_changed(self, checked):
         self.on_continuity_memory_update_on_save_changed(checked)
+
+    def on_continuity_memory_auto_turns_changed(self, value):
+        _update_runtime_config("continuity_memory_auto_turns", max(1, min(10000, int(value))))
+        self._refresh_continuity_memory_hint()
+        self.save_session()
 
     def on_continuity_memory_inject_changed(self, checked):
         _update_runtime_config("continuity_memory_inject", bool(checked))
@@ -586,6 +621,11 @@ class BackendChatSessionRuntimeMixin:
 
     def on_long_term_memory_retrieval_max_items_changed(self, value):
         _update_runtime_config("long_term_memory_retrieval_max_items", max(1, min(12, int(value))))
+        self.save_session()
+
+    def on_long_term_memory_archive_batch_turns_changed(self, value):
+        _update_runtime_config("long_term_memory_archive_batch_turns", max(1, min(10000, int(value))))
+        self._refresh_long_term_memory_archive_hint()
         self.save_session()
 
     def on_long_term_memory_embedding_enabled_changed(self, checked):

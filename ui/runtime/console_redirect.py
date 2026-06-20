@@ -4,6 +4,8 @@ import re
 
 from PySide6 import QtCore
 
+from core import crash_diagnostics
+
 
 class QtConsoleBridge(QtCore.QObject):
     text_ready = QtCore.Signal(str)
@@ -48,6 +50,7 @@ class QtTextRedirector:
     def _emit_text(self, value):
         if not value:
             return
+        crash_diagnostics.record_console_text(value)
         self.bridge.text_ready.emit(value)
         self.line_count += value.count("\n") or 1
         self.bridge.status_ready.emit(self.line_count, 1)

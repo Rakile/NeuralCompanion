@@ -4,7 +4,7 @@ import os
 import sys
 import threading
 
-from PySide6 import QtCore
+from PySide6 import QtCore, QtGui
 
 from ui.runtime import engine_access as engine
 import tutorial_framework
@@ -154,9 +154,33 @@ class MainWindowStartupMixin:
 
         self.refresh_resources()
         self.restore_session()
+        self._install_visual_presence_overlay()
+        self._install_visual_presence_shortcut()
         self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
         self.refresh_tutorial_list()
         QtCore.QTimer.singleShot(250, self.maybe_prompt_first_run_tutorial)
+
+    def _install_visual_presence_overlay(self):
+        self.visual_presence_controller = None
+        try:
+            from visual_presence.visual_presence_controller import install_visual_presence
+
+            self.visual_presence_controller = install_visual_presence(self, RUNTIME_CONFIG)
+        except Exception as exc:
+            self.visual_presence_controller = None
+            print(f"[AI Presence] Overlay unavailable: {exc}")
+
+    def _install_visual_presence_shortcut(self):
+        if getattr(self, "_ai_presence_preview_shortcut", None) is not None:
+            return
+        try:
+            shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Alt+P"), self)
+            shortcut.setObjectName("ai_presence_preview_shortcut")
+            shortcut.activated.connect(self.on_ai_presence_preview_requested)
+            self._ai_presence_preview_shortcut = shortcut
+        except Exception as exc:
+            self._ai_presence_preview_shortcut = None
+            print(f"[AI Presence] Shortcut unavailable: {exc}")
 
     def _musetalk_preview_state_for_api(self):
         if hasattr(self, "_invoke_addon_service_capability"):
@@ -176,6 +200,12 @@ class MainWindowStartupMixin:
     def closeEvent(self, event):
         self._closing = True
         self.save_session()
+        controller = getattr(self, "visual_presence_controller", None)
+        if controller is not None and hasattr(controller, "shutdown"):
+            try:
+                controller.shutdown()
+            except Exception:
+                pass
         self.stop_musetalk_preview()
         self.stop_engine()
         if hasattr(engine, "set_addon_event_publisher"):

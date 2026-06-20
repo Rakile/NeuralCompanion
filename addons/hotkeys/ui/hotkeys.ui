@@ -32,7 +32,7 @@
       <string notr="true">color: #cbd5e1;</string>
      </property>
      <property name="text">
-      <string>Configure the shared hotkey spine here. Push-to-Talk is global, manual controls are handled by both the engine and the focused Qt window, and UI actions work while NC is focused.</string>
+      <string>Choose a shortcut category, then record or edit the key binding for that action.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -45,7 +45,7 @@
       <string notr="true">color: #8ea3b8; font-size: 11px;</string>
      </property>
      <property name="text">
-      <string>Examples: Right Ctrl, Alt+R, Ctrl+Shift+Space. Leave a UI action blank if you do not want it bound. Clearing Push-to-Talk falls back to the default key so you cannot strand yourself.</string>
+      <string>Examples: Right Ctrl, Alt+R, Ctrl+Shift+Space. Leave optional shortcuts blank if you do not want them bound.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -84,7 +84,7 @@
            <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
           </property>
           <property name="text">
-           <string>Available Actions</string>
+           <string>Shortcut Categories</string>
           </property>
          </widget>
         </item>

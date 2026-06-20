@@ -123,6 +123,57 @@ Actions currently sent by the adapter:
 - `speech_chunk`
 - `play_timeline_clip`
 - `follow_state`
+- `hy_motion_generated`
+- `hy_motion_play_latest`
+- `hy_motion_stop`
+- `hy_motion_reset_pose`
+- `hy_motion_load_by_name`
+
+## HY-Motion VaM Actions
+
+The bridge exposes HY-Motion controls as normal VaM storables/actions so Timeline, LogicBricks, buttons, and other scene systems can call them:
+
+- `NC Bridge Self Test`
+- `Play Latest HY-Motion`
+- `Stop HY-Motion`
+- `Reset HY-Motion Pose`
+- `Load HY-Motion By Name`
+- `Set HY-Motion Strength`
+- `Loop HY-Motion`
+- `HY-Motion Blend Seconds`
+- `HY-Motion Drive Root`
+- `HY-Motion Drive Upper Body`
+- `HY-Motion Drive Arms`
+- `HY-Motion Drive Legs`
+- `HY-Motion Conflict Guard`
+- `Open HY-Motion Started Trigger`
+- `Open HY-Motion Finished Trigger`
+- `Open HY-Motion Missing/Failed Trigger`
+
+`Load HY-Motion By Name` uses the `HY-Motion Name` text field and loads from:
+
+```text
+Custom/PluginData/NeuralCompanionBridge/motion/<HY-Motion Name>
+```
+
+The bridge prefers `motion_smpl.json`, falls back to `motion_proxy.json`, and keeps FBX/NPZ paths as reference assets. It interpolates frames, applies a blend-in, can loop, can mask body regions, and can smoothly reset controlled controllers to the saved pose.
+
+The conflict guard temporarily disables obvious jaw/lip-sync conflicts and logs possible Timeline, BodyLanguage, Glance, or IK peers. It restores changed bool parameters after playback stops.
+
+The bridge also exposes HY-Motion event triggers:
+
+- `On HY-Motion Started`
+- `On HY-Motion Finished`
+- `On HY-Motion Missing/Failed`
+
+Open the corresponding trigger panel actions to wire lights, UI, audio, expressions, Timeline clips, or other VaM receivers. The latest event is also written to `outbox/hy_motion_event.json`, with an append-only event log at `outbox/hy_motion_events.log`.
+
+Staged HY-Motion runs include optional Timeline export artifacts:
+
+- `motion_timeline_clip.json`
+- `motion_timeline_storable.json`
+
+These use Timeline's readable full keyframe object format so the generated motion can be inspected and used as an edit/import helper while the bridge keeps direct runtime playback stable.
 
 ## VaM Setup Order
 

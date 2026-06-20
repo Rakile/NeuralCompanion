@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "NC Main Chat Remote",
+    "slug": "nc-main-chat-remote",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "scheme": "ncchatremote",
+    "userInterfaceStyle": "automatic",
+    "plugins": [
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow NC Main Chat Remote to send microphone replies to NeuralCompanion.",
+          "enableBackgroundPlayback": true,
+          "enableBackgroundRecording": false
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow NC Main Chat Remote to read Visual Reply images for sharing.",
+          "savePhotosPermission": "Allow NC Main Chat Remote to save Visual Reply images to your photo library.",
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      "expo-secure-store"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "NC Main Chat Remote connects to NeuralCompanion on your local network."
+      }
+    },
+    "android": {
+      "usesCleartextTraffic": true,
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

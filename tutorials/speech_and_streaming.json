@@ -11,8 +11,8 @@
     },
     {
       "title": "TTS Backend",
-      "body": "The TTS Backend chooses the installed speech engine. Chatterbox is the default; PocketTTS is isolated and may require Hugging Face terms and login for voice cloning.",
-      "target": "tts_backend_combo"
+      "body": "The active TTS provider chooses the installed speech engine. Click a TTS backend tab to view its settings, and click the circle inside a tab to make it active. Chatterbox is the default; PocketTTS is isolated and may require Hugging Face terms and login for voice cloning.",
+      "target": "tts_runtime_active_provider_label"
     },
     {
       "title": "Chunking Basics",
@@ -26,7 +26,11 @@
     {
       "title": "PocketTTS Login",
       "body": "If PocketTTS cloning is installed but not ready, complete Hugging Face terms and login from the installer prompt or the PocketTTS runtime's hf command.",
-      "target": "main_window"
+      "target": "tts_runtime_addon_tabs",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
     },
     {
       "title": "Audio Devices",

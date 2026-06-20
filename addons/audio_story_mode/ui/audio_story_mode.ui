@@ -74,7 +74,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
        <item>
         <widget class="QLabel" name="audio_story_intro_label">
          <property name="text">
-          <string>Import audiobook or story audio, transcribe it through the local Whisper runtime already in this repo, then drive visual story images from the resulting transcript while the story plays.</string>
+          <string>Import a story or audiobook, turn it into scenes, generate matching images, then play or cast the result.</string>
          </property>
          <property name="wordWrap">
           <bool>true</bool>
@@ -102,7 +102,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_source_title">
             <property name="text">
-             <string>Source, Analysis, and Visual Plan</string>
+             <string>1. Import Audio</string>
             </property>
             <property name="sectionTitle" stdset="0">
              <bool>true</bool>
@@ -137,7 +137,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="0" column="0">
              <widget class="QGroupBox" name="audio_story_audio_group">
               <property name="title">
-               <string>Audio Setup</string>
+               <string>2. Transcribe</string>
               </property>
               <layout class="QFormLayout" name="audio_story_audio_form">
                <property name="fieldGrowthPolicy">
@@ -165,7 +165,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="1" column="0">
                 <widget class="QLabel" name="audio_story_precision_label">
                  <property name="text">
-                  <string>Precision</string>
+                  <string>Quality</string>
                  </property>
                 </widget>
                </item>
@@ -175,7 +175,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="2" column="0">
                 <widget class="QLabel" name="audio_story_settings_preset_label">
                  <property name="text">
-                  <string>Settings Preset</string>
+                  <string>Saved setup</string>
                  </property>
                 </widget>
                </item>
@@ -225,7 +225,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="3" column="0">
                 <widget class="QLabel" name="audio_story_transcribe_seconds_label">
                  <property name="text">
-                  <string>Transcription Granularity</string>
+                  <string>Transcript detail</string>
                  </property>
                 </widget>
                </item>
@@ -265,7 +265,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               <item row="4" column="0">
                <widget class="QLabel" name="audio_story_transcription_range_label">
                 <property name="text">
-                 <string>Transcribe Seconds</string>
+                 <string>Audio range</string>
                 </property>
                </widget>
               </item>
@@ -322,7 +322,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="0" column="1">
              <widget class="QGroupBox" name="audio_story_timing_group">
               <property name="title">
-               <string>Timing and Continuity</string>
+               <string>3. Plan Scenes</string>
               </property>
               <layout class="QFormLayout" name="audio_story_timing_form">
                <property name="fieldGrowthPolicy">
@@ -337,7 +337,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="0" column="0">
                 <widget class="QLabel" name="audio_story_image_frequency_label">
                  <property name="text">
-                  <string>Generate Image Every</string>
+                  <string>Image every</string>
                  </property>
                 </widget>
                </item>
@@ -387,7 +387,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="2" column="0">
                 <widget class="QLabel" name="audio_story_continuity_label">
                  <property name="text">
-                  <string>Continuity</string>
+                  <string>Keep story continuity</string>
                  </property>
                 </widget>
                </item>
@@ -427,7 +427,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="3" column="0">
                 <widget class="QLabel" name="audio_story_generate_ahead_label">
                  <property name="text">
-                  <string>Generate Ahead</string>
+                  <string>Prepare upcoming images</string>
                  </property>
                 </widget>
                </item>
@@ -470,7 +470,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="1" column="0">
              <widget class="QGroupBox" name="audio_story_prompt_group">
               <property name="title">
-               <string>Prompt Strategy</string>
+               <string>4. Generate Images</string>
               </property>
               <layout class="QFormLayout" name="audio_story_prompt_form">
                <property name="fieldGrowthPolicy">
@@ -515,7 +515,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="2" column="0">
                 <widget class="QLabel" name="audio_story_master_prompt_label">
                  <property name="text">
-                  <string>Master Prompt</string>
+                  <string>Visual style anchor</string>
                  </property>
                 </widget>
                </item>
@@ -539,7 +539,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                  <item>
                   <widget class="QPushButton" name="audio_story_master_prompt_button">
                    <property name="text">
-                    <string>Visuals Master Prompt From Story</string>
+                    <string>Use story as visual style anchor</string>
                    </property>
                   </widget>
                  </item>
@@ -558,7 +558,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="3" column="0">
                 <widget class="QLabel" name="audio_story_prompt_blocks_label">
                  <property name="text">
-                  <string>Prompt Blocks</string>
+                  <string>Scene detail balance</string>
                  </property>
                 </widget>
                </item>
@@ -581,7 +581,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="4" column="0">
                 <widget class="QLabel" name="audio_story_prompt_cap_label">
                  <property name="text">
-                  <string>Prompt Cap</string>
+                  <string>Maximum prompt length</string>
                  </property>
                 </widget>
                </item>
@@ -594,7 +594,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="1" column="1">
              <widget class="QGroupBox" name="audio_story_analysis_group">
               <property name="title">
-               <string>Story Analysis</string>
+               <string>Scene Planning</string>
               </property>
               <layout class="QFormLayout" name="audio_story_analysis_form">
                <property name="fieldGrowthPolicy">
@@ -609,21 +609,21 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="0" column="0">
                 <widget class="QLabel" name="audio_story_story_analysis_label">
                  <property name="text">
-                  <string>Story Analysis</string>
+                  <string>Scene planning</string>
                  </property>
                 </widget>
                </item>
                <item row="0" column="1">
                 <widget class="QCheckBox" name="audio_story_llm_analysis_checkbox">
                  <property name="text">
-                  <string>Use LLM Story Analysis</string>
+                  <string>Use AI scene planning</string>
                  </property>
                 </widget>
                </item>
                <item row="1" column="0">
                 <widget class="QLabel" name="audio_story_analysis_mode_label">
                  <property name="text">
-                  <string>Image Analysis Mode</string>
+                  <string>Planning mode</string>
                  </property>
                 </widget>
                </item>
@@ -640,7 +640,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="2" column="0">
                 <widget class="QLabel" name="audio_story_analysis_provider_label">
                  <property name="text">
-                  <string>Analysis Provider</string>
+                  <string>Planning provider</string>
                  </property>
                 </widget>
                </item>
@@ -657,7 +657,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="3" column="0">
                 <widget class="QLabel" name="audio_story_analysis_model_label">
                  <property name="text">
-                  <string>Analysis Model</string>
+                  <string>Planning model</string>
                  </property>
                 </widget>
                </item>
@@ -674,14 +674,14 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="4" column="0">
                 <widget class="QLabel" name="audio_story_xai_image_settings_label">
                  <property name="text">
-                  <string>Provider Image Settings</string>
+                  <string>Image provider settings</string>
                  </property>
                 </widget>
                </item>
                <item row="4" column="1">
                 <widget class="QLabel" name="audio_story_xai_image_settings_hint">
                  <property name="text">
-                  <string>Audio Story uses the active Visual Reply provider. These xAI overrides apply only when Visual Reply is set to xAI / Grok.</string>
+                  <string>Audio Story uses the active Visual Reply provider. These advanced xAI options apply only when Visual Reply is set to xAI / Grok.</string>
                  </property>
                  <property name="wordWrap">
                   <bool>true</bool>
@@ -694,7 +694,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="2" column="0" colspan="2">
              <widget class="QGroupBox" name="audio_story_xai_group">
               <property name="title">
-               <string>xAI Image API</string>
+               <string>Advanced xAI image options</string>
               </property>
               <layout class="QGridLayout" name="audio_story_xai_grid">
                <property name="horizontalSpacing">
@@ -706,7 +706,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="0" column="0">
                 <widget class="QLabel" name="audio_story_xai_aspect_ratio_label">
                  <property name="text">
-                  <string>xAI Aspect Ratio</string>
+                  <string>xAI aspect ratio</string>
                  </property>
                 </widget>
                </item>
@@ -716,7 +716,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="0" column="2">
                 <widget class="QLabel" name="audio_story_xai_resolution_label">
                  <property name="text">
-                  <string>xAI Resolution</string>
+                  <string>xAI resolution</string>
                  </property>
                 </widget>
                </item>
@@ -726,7 +726,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="1" column="0">
                 <widget class="QLabel" name="audio_story_xai_response_format_label">
                  <property name="text">
-                  <string>xAI Response</string>
+                  <string>xAI response format</string>
                  </property>
                 </widget>
                </item>
@@ -736,7 +736,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
                <item row="1" column="2">
                 <widget class="QLabel" name="audio_story_xai_n_label">
                  <property name="text">
-                  <string>xAI Images</string>
+                  <string>xAI images per request</string>
                  </property>
                 </widget>
                </item>
@@ -791,7 +791,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_source_hint">
             <property name="text">
-             <string>Use the Analysis Provider for transcript analysis and prompt planning. Final image generation follows the global Visual Reply provider, model, size, and style-anchor settings.</string>
+             <string>Use the planning provider for scene planning. Final image generation follows the global Visual Reply provider, model, size, and style-anchor settings.</string>
             </property>
             <property name="wordWrap">
              <bool>true</bool>
@@ -822,7 +822,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_scene_title">
             <property name="text">
-             <string>Scene Overrides</string>
+             <string>Scene Image Tweaks</string>
             </property>
             <property name="sectionTitle" stdset="0">
              <bool>true</bool>
@@ -892,14 +892,14 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="2" column="0">
              <widget class="QLabel" name="audio_story_anchor_label">
               <property name="text">
-               <string>Scene Anchor</string>
+               <string>Scene image focus</string>
               </property>
              </widget>
             </item>
             <item row="2" column="1">
              <widget class="QLabel" name="audio_story_negative_prompt_label">
               <property name="text">
-               <string>Negative Prompt</string>
+               <string>Avoid in image</string>
               </property>
              </widget>
             </item>
@@ -925,7 +925,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               <item>
                <widget class="QPushButton" name="audio_story_scene_anchor_pin_button">
                 <property name="text">
-                 <string>Pin Anchor</string>
+                 <string>Pin image focus</string>
                 </property>
                 <property name="checkable">
                  <bool>true</bool>
@@ -942,7 +942,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               <item>
                <widget class="QPushButton" name="audio_story_scene_anchor_apply_button">
                 <property name="text">
-                 <string>Apply Anchor</string>
+                 <string>Apply image focus</string>
                 </property>
                </widget>
               </item>
@@ -956,7 +956,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               <item>
                <widget class="QPushButton" name="audio_story_negative_prompt_anchor_button">
                 <property name="text">
-                 <string>Pin Negative Prompt</string>
+                 <string>Pin avoid list</string>
                 </property>
                 <property name="checkable">
                  <bool>true</bool>
@@ -973,7 +973,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
               <item>
                <widget class="QPushButton" name="audio_story_scene_negative_prompt_apply_button">
                 <property name="text">
-                 <string>Apply Negative Prompt</string>
+                 <string>Apply avoid list</string>
                 </property>
                </widget>
               </item>
@@ -984,7 +984,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_scene_hint">
             <property name="text">
-             <string>These overrides apply to the current scene and feed later prompts and continuity references.</string>
+             <string>These tweaks apply to the current scene image and feed later continuity references.</string>
             </property>
             <property name="wordWrap">
              <bool>true</bool>
@@ -1015,7 +1015,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_playback_title">
             <property name="text">
-             <string>Playback and Visual Stream</string>
+             <string>5. Play / Cast</string>
             </property>
             <property name="sectionTitle" stdset="0">
              <bool>true</bool>
@@ -1088,14 +1088,14 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="0" column="0">
              <widget class="QCheckBox" name="audio_story_stream_enabled_checkbox">
               <property name="text">
-               <string>Stream Visuals</string>
+               <string>Show visuals on network</string>
               </property>
              </widget>
             </item>
             <item row="0" column="1">
              <widget class="QSpinBox" name="audio_story_stream_port_spin">
               <property name="prefix">
-               <string>Port </string>
+               <string>Network port </string>
               </property>
               <property name="minimum">
                <number>1024</number>
@@ -1148,7 +1148,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
             <item row="2" column="0" colspan="2">
              <widget class="QCheckBox" name="audio_story_cast_prompt_checkbox">
               <property name="text">
-               <string>Show Prompt On Cast</string>
+               <string>Show image prompt on cast</string>
               </property>
              </widget>
             </item>
@@ -1188,7 +1188,7 @@ QWidget#audio_story_mode_tab QGroupBox::title { subcontrol-origin: margin; left:
           <item>
            <widget class="QLabel" name="audio_story_transcript_title">
             <property name="text">
-             <string>Transcript Windows</string>
+             <string>Story Scenes</string>
             </property>
             <property name="sectionTitle" stdset="0">
              <bool>true</bool>

@@ -61,7 +61,7 @@ class BackendChatProviderFieldsMixin:
             return chat_providers.normalize_provider_id(provider, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         return self._current_chat_provider_value()
 
-    def _set_chat_provider_editor_value(self, provider_id, *, force=False):
+    def _set_chat_provider_editor_value(self, provider_id, *, force=False, refresh_models=True):
         provider_key = chat_providers.normalize_provider_id(provider_id, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         previous = str(getattr(self, "_chat_runtime_editor_provider", "") or "").strip().lower()
         self._chat_runtime_editor_provider = provider_key
@@ -77,7 +77,8 @@ class BackendChatProviderFieldsMixin:
             finally:
                 self.model_requires_vision_checkbox.blockSignals(False)
         self._refresh_chat_provider_card()
-        self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
+        if refresh_models:
+            self.request_model_list_refresh(quiet=True, wait_for_reachable=False, force=True)
 
     def _sync_chat_provider_settings_to_registry(self):
         try:
@@ -240,6 +241,11 @@ class BackendChatProviderFieldsMixin:
             provider_settings = self._current_chat_provider_settings_for(provider_id)
             if "max_tokens" in provider_settings:
                 return provider_settings.get("max_tokens")
+            omit_values = field.get("omit_if", [])
+            if not isinstance(omit_values, list):
+                omit_values = [omit_values]
+            if any(str(value) == "-1" for value in omit_values):
+                return -1
             if bool(_runtime_config().get("limit_response_length", False)):
                 return int(_runtime_config().get("max_response_tokens", field.get("default", DEFAULT_MAX_RESPONSE_TOKENS)) or DEFAULT_MAX_RESPONSE_TOKENS)
         return field.get("default", "")
@@ -435,7 +441,6 @@ class BackendChatProviderFieldsMixin:
                 if box.layout():
                     box.layout().setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
 
-            QtWidgets.QApplication.processEvents()
             current = widget
             while current:
                 if current.layout():
@@ -445,11 +450,6 @@ class BackendChatProviderFieldsMixin:
                     current.updateGeometry()
                 current = current.parentWidget()
             self._request_frontend_layout_resync()
-            try:
-                QtCore.QTimer.singleShot(75, self._request_frontend_layout_resync)
-                QtCore.QTimer.singleShot(200, self._request_frontend_layout_resync)
-            except Exception:
-                pass
         except Exception:
             pass
 
@@ -478,6 +478,15 @@ class BackendChatProviderFieldsMixin:
                 editor.setObjectName(f"chat_provider_field_{field_id}")
                 if kind == "password":
                     editor.setEchoMode(QtWidgets.QLineEdit.Password)
+                try:
+                    editor.setMinimumWidth(360)
+                    editor.setMaximumWidth(720)
+                    policy = editor.sizePolicy()
+                    policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Preferred)
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Fixed)
+                    editor.setSizePolicy(policy)
+                except Exception:
+                    pass
                 default_value = str(current_settings.get(field_id) or field.get("default") or "").strip()
                 editor.setText(default_value)
                 placeholder = field.get("placeholder")
@@ -517,3 +526,6 @@ class BackendChatProviderFieldsMixin:
             self.chat_provider_hint_label.setText(description)
         self._refresh_chat_provider_generation_card()
         self._refresh_chat_runtime_summary()
+        refresh_setup = getattr(self, "_refresh_runtime_provider_setup_card", None)
+        if callable(refresh_setup):
+            refresh_setup("llm")

@@ -489,6 +489,9 @@ def on_visual_reply_api_key_changed(backend):
     refresh_hint = getattr(backend, "_refresh_visual_reply_hint", None)
     if callable(refresh_hint):
         refresh_hint()
+    refresh_setup = getattr(backend, "_refresh_runtime_provider_setup_card", None)
+    if callable(refresh_setup):
+        refresh_setup("visual")
     save_session = getattr(backend, "save_session", None)
     if callable(save_session):
         save_session()
@@ -580,6 +583,9 @@ def on_visual_reply_provider_changed(backend, choice):
     sync_visual_reply_api_key_field(backend, provider)
     sync_visual_reply_comfyui_cleanup_field(backend, provider)
     refresh_visual_reply_hint(backend)
+    refresh_setup = getattr(backend, "_refresh_runtime_provider_setup_card", None)
+    if callable(refresh_setup):
+        refresh_setup("visual")
     backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_provider", "value": provider})
     backend.save_session()
 
@@ -618,6 +624,9 @@ def on_visual_reply_model_changed(backend):
     if _visual_reply_view_is_active(backend, provider):
         _update_runtime_config(backend, "visual_reply_model", model_name)
     refresh_visual_reply_hint(backend)
+    refresh_setup = getattr(backend, "_refresh_runtime_provider_setup_card", None)
+    if callable(refresh_setup):
+        refresh_setup("visual")
     backend.emit_tutorial_event("ui_changed", {"field": "visual_reply_model", "value": model_name})
     backend.save_session()
 

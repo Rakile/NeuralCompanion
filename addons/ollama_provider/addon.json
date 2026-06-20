@@ -1,0 +1,18 @@
+{
+  "id": "nc.chat_provider_ollama",
+  "name": "Ollama Chat Provider",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Local Ollama chat provider addon for NC's dynamic chat-provider registry.",
+  "permissions": [
+    "events.subscribe"
+  ],
+  "services": [
+    {
+      "id": "chat_provider_registry",
+      "provider_id": "ollama"
+    }
+  ],
+  "enabled": true
+}

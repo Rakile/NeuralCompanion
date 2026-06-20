@@ -1,0 +1,63 @@
+{
+  "id": "chat_session_player",
+  "order": 20,
+  "title": "20. Chat Player",
+  "description": "Load, inspect, and replay saved chat sessions with optional role voices.",
+  "steps": [
+    {
+      "title": "Open Chat Player",
+      "body": "Chat Player is for saved-session replay and context loading. It is not the normal live chat box; use it when you want to inspect or replay an existing conversation.",
+      "tab": "Chat Player",
+      "target": "chat_player_scroll_contents",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    },
+    {
+      "title": "Load a Session",
+      "body": "Load chooses a saved chat session. Quick Load is useful when you want the latest or most obvious saved context without browsing.",
+      "tab": "Chat Player",
+      "target": "btn_chat_player_load",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    },
+    {
+      "title": "Inspect Messages",
+      "body": "The message list lets you choose a point in the conversation. Use Previous and Next to move through turns before replaying.",
+      "tab": "Chat Player",
+      "target": "chat_player_message_list",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    },
+    {
+      "title": "Replay One Message or the Whole Chat",
+      "body": "Replay Selected starts from the chosen message. Replay Latest and Replay Chat are broader playback paths. Use these for listening checks and chat-session QA.",
+      "tab": "Chat Player",
+      "target": "btn_chat_player_replay_selected",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    },
+    {
+      "title": "Set Role Voices",
+      "body": "Replay Voices can use separate assistant and user voice references. Leave them on current TTS voice if you only want the normal voice path.",
+      "tab": "Chat Player",
+      "target": "chat_player_assistant_voice_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    },
+    {
+      "title": "Read the Status",
+      "body": "The status line explains whether a session is loaded, whether a message is selected, and what replay action is available.",
+      "tab": "Chat Player",
+      "target": "chat_player_status_label",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chat Player" }
+      ]
+    }
+  ]
+}

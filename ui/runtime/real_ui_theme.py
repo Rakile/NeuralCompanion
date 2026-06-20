@@ -11,10 +11,11 @@ def configure_real_ui_theme_dependencies(namespace):
 
 
 class _WorkspaceDockTabPaintFilter(QtCore.QObject):
-    def __init__(self, palettes, aliases=None, parent=None):
+    def __init__(self, palettes, aliases=None, parent=None, display_aliases=None):
         super().__init__(parent)
         self._palettes = dict(palettes or {})
         self._aliases = dict(aliases or {})
+        self._display_aliases = dict(display_aliases or {})
         self._fallback = {
             "background": "#17212c",
             "checked": "#223247",
@@ -26,6 +27,10 @@ class _WorkspaceDockTabPaintFilter(QtCore.QObject):
     def _canonical_title(self, title):
         raw = str(title or "").strip()
         return self._aliases.get(raw, raw)
+
+    def _display_title(self, title):
+        raw = str(title or "").strip()
+        return self._display_aliases.get(raw, raw)
 
     def _palette_for_title(self, title):
         return self._palettes.get(self._canonical_title(title)) or self._fallback
@@ -167,7 +172,7 @@ class _WorkspaceDockTabPaintFilter(QtCore.QObject):
                 font.setBold(True)
                 painter.setFont(font)
                 painter.setPen(QtGui.QColor(palette["text"]))
-                painter.drawText(rect.adjusted(12, top_offset - 1, -12, -4), QtCore.Qt.AlignCenter, self._canonical_title(title))
+                painter.drawText(rect.adjusted(12, top_offset - 1, -12, -4), QtCore.Qt.AlignCenter, self._display_title(title))
         finally:
             painter.end()
 
@@ -202,7 +207,7 @@ class _WorkspaceDockTabPaintFilter(QtCore.QObject):
             font.setBold(True)
             painter.setFont(font)
             painter.setPen(QtGui.QColor(palette["text"]))
-            painter.drawText(proxy.rect().adjusted(12, 3, -12, -4), QtCore.Qt.AlignCenter, self._canonical_title(title))
+            painter.drawText(proxy.rect().adjusted(12, 3, -12, -4), QtCore.Qt.AlignCenter, self._display_title(title))
             return True
         finally:
             painter.end()
@@ -299,37 +304,58 @@ class MainUiRealThemeMixin:
                 except Exception:
                     pass
 
+    def _frontend_workspace_default_dock_titles(self):
+            return {
+                "SystemShapingDock": "HOST",
+                "WorkspaceTabsDock": "ADDONS",
+                "OperationalViewDock": "CHAT WINDOW",
+                "VisualReplyDock": "VISUAL REPLY",
+                "MuseTalkPreviewDock": "MUSETALK",
+                "PreviewDock": "MUSETALK",
+            }
+
+    def _frontend_workspace_legacy_dock_title_aliases(self):
+            return {
+                "System Shaping": "HOST",
+                "Workspace Tabs": "ADDONS",
+                "Operational View": "CHAT WINDOW",
+                "CHAT INTERFACE": "CHAT WINDOW",
+                "Visual Reply": "VISUAL REPLY",
+                "MuseTalk Preview": "MUSETALK",
+                "MuseTalk": "MUSETALK",
+            }
+
     def _frontend_workspace_dock_tab_palettes(self):
             return {
-                "System Shaping": {
+                "HOST": {
                     "background": "#2f1214",
                     "checked": "#42191d",
                     "hover": "#552026",
                     "border": "#ff5f6d",
                     "text": "#fff4f5",
                 },
-                "Workspace Tabs": {
+                "ADDONS": {
                     "background": "#0b203f",
                     "checked": "#12315e",
                     "hover": "#164274",
                     "border": "#4d8dff",
                     "text": "#f1f7ff",
                 },
-                "Operational View": {
+                "CHAT WINDOW": {
                     "background": "#0d2b20",
                     "checked": "#123b2c",
                     "hover": "#184d39",
                     "border": "#2cc985",
                     "text": "#f4fffa",
                 },
-                "Visual Reply": {
+                "VISUAL REPLY": {
                     "background": "#2d2110",
                     "checked": "#3f2e16",
                     "hover": "#564020",
                     "border": "#ffb347",
                     "text": "#fff8ed",
                 },
-                "MuseTalk": {
+                "MUSETALK": {
                     "background": "#1d183b",
                     "checked": "#282153",
                     "hover": "#342b70",
@@ -339,13 +365,22 @@ class MainUiRealThemeMixin:
             }
 
     def _normalize_frontend_workspace_dock_titles(self):
-            for object_name in ("PreviewDock", "MuseTalkPreviewDock"):
+            defaults = self._frontend_workspace_default_dock_titles()
+            legacy_aliases = self._frontend_workspace_legacy_dock_title_aliases()
+            for object_name, default_title in defaults.items():
                 dock = self._ui_object(object_name)
                 if dock is None or not hasattr(dock, "setWindowTitle"):
                     continue
                 try:
-                    if str(dock.windowTitle() or "") != "MuseTalk":
-                        dock.setWindowTitle("MuseTalk")
+                    if bool(dock.property("nc_workspace_dock_custom_title")):
+                        continue
+                    title = str(dock.windowTitle() or "").strip()
+                    if object_name in {"PreviewDock", "MuseTalkPreviewDock"}:
+                        wanted = legacy_aliases.get(title, default_title)
+                    else:
+                        wanted = legacy_aliases.get(title, default_title if not title or title == object_name else title)
+                    if title != wanted:
+                        dock.setWindowTitle(wanted)
                 except Exception:
                     pass
 
@@ -354,24 +389,110 @@ class MainUiRealThemeMixin:
                 return False
             for index in range(tab_bar.count()):
                 title = str(tab_bar.tabText(index) or "").strip()
-                if title in target_titles or title == "MuseTalk Preview":
+                if title in target_titles:
                     return True
             return False
+
+    def _frontend_workspace_dock_tab_title_maps(self, palettes):
+            aliases = self._frontend_workspace_legacy_dock_title_aliases()
+            display_aliases = dict(aliases)
+            target_titles = set(palettes) | set(aliases)
+            defaults = self._frontend_workspace_default_dock_titles()
+            for object_name, default_title in defaults.items():
+                dock = self._ui_object(object_name)
+                if dock is None or not hasattr(dock, "windowTitle"):
+                    continue
+                try:
+                    title = str(dock.windowTitle() or "").strip()
+                except Exception:
+                    title = ""
+                if not title:
+                    continue
+                target_titles.add(title)
+                if title not in palettes and title not in aliases:
+                    aliases[title] = default_title
+            return aliases, display_aliases, target_titles
+
+    def _connect_frontend_workspace_tab_rename(self, tab_bar):
+            if tab_bar is None or bool(tab_bar.property("nc_workspace_dock_tab_rename_connected")):
+                return
+            signal = getattr(tab_bar, "tabBarDoubleClicked", None)
+            if signal is None:
+                return
+            try:
+                signal.connect(lambda index, bar=tab_bar: self._rename_frontend_workspace_dock_tab(bar, index))
+                tab_bar.setProperty("nc_workspace_dock_tab_rename_connected", True)
+            except Exception:
+                pass
+
+    def _rename_frontend_workspace_dock_tab(self, tab_bar, index):
+            try:
+                index = int(index)
+            except Exception:
+                index = -1
+            if tab_bar is None or index < 0:
+                return
+            try:
+                tab_text = str(tab_bar.tabText(index) or "").strip()
+            except Exception:
+                tab_text = ""
+            if not tab_text:
+                return
+            dock = None
+            finder = getattr(self, "_frontend_dock_for_tab_text", None)
+            if callable(finder):
+                try:
+                    dock = finder(tab_text)
+                except Exception:
+                    dock = None
+            if dock is None:
+                return
+            current_title = str(dock.windowTitle() or tab_text).strip() or tab_text
+            parent = self.window if self.window is not None else dock
+            try:
+                new_title, accepted = QtWidgets.QInputDialog.getText(
+                    parent,
+                    "Rename Tab",
+                    "Tab name:",
+                    QtWidgets.QLineEdit.Normal,
+                    current_title,
+                )
+            except Exception:
+                return
+            if not accepted:
+                return
+            new_title = " ".join(str(new_title or "").split())
+            if not new_title or new_title == current_title:
+                return
+            try:
+                dock.setProperty("nc_workspace_dock_custom_title", True)
+                dock.setWindowTitle(new_title)
+                action = dock.toggleViewAction()
+                if action is not None:
+                    action.setText(new_title)
+            except Exception:
+                return
+            scheduler = getattr(self, "_schedule_frontend_workspace_dock_tab_refresh", None)
+            if callable(scheduler):
+                scheduler()
+            layout_scheduler = getattr(self, "_schedule_frontend_layout_save", None)
+            if callable(layout_scheduler):
+                layout_scheduler(delay_ms=650)
 
     def _apply_frontend_workspace_dock_tab_styles(self):
             if self.window is None:
                 return
             self._normalize_frontend_workspace_dock_titles()
             palettes = self._frontend_workspace_dock_tab_palettes()
-            target_titles = set(palettes)
-            aliases = {"MuseTalk Preview": "MuseTalk"}
+            aliases, display_aliases, target_titles = self._frontend_workspace_dock_tab_title_maps(palettes)
             paint_filter = getattr(self, "_frontend_workspace_dock_tab_paint_filter", None)
             if paint_filter is None:
-                paint_filter = _WorkspaceDockTabPaintFilter(palettes, aliases, self.window)
+                paint_filter = _WorkspaceDockTabPaintFilter(palettes, aliases, self.window, display_aliases)
                 self._frontend_workspace_dock_tab_paint_filter = paint_filter
             try:
                 paint_filter._palettes = dict(palettes)
                 paint_filter._aliases = dict(aliases)
+                paint_filter._display_aliases = dict(display_aliases)
             except Exception:
                 pass
             for tab_bar in self.window.findChildren(QtWidgets.QTabBar):
@@ -381,6 +502,7 @@ class MainUiRealThemeMixin:
                     if not bool(tab_bar.property("nc_workspace_dock_tab_styled")):
                         tab_bar.installEventFilter(paint_filter)
                         tab_bar.setProperty("nc_workspace_dock_tab_styled", True)
+                    self._connect_frontend_workspace_tab_rename(tab_bar)
                     font = tab_bar.font()
                     base_font_height = tab_bar.property("nc_workspace_dock_tab_base_font_height")
                     try:
@@ -802,7 +924,15 @@ QToolButton#ncDockCloseButton {{
             # The Designer/runtime theme intentionally keeps icon-sidebar tabs narrow,
             # but text tabs need enough width after dynamic addon pages are adopted.
             return """
-QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#sensory_feedback_tabs QTabBar::tab {
+    min-width: 132px;
+    max-width: 320px;
+    padding-left: 18px;
+    padding-right: 18px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected {
+    padding-right: 18px;
+}
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,
 QTabWidget#vam_setup_tabs QTabBar::tab {

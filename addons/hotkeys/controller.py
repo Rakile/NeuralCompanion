@@ -7,6 +7,16 @@ from PySide6 import QtCore, QtWidgets
 from core import runtime_hotkeys
 
 
+HOTKEY_CATEGORY_CARDS = (
+    ("all", "All", "Every shortcut"),
+    ("voice", "Voice", "Talking, listening, and speech controls"),
+    ("chat", "Chat", "Reply and conversation controls"),
+    ("window", "Window", "Desktop window and panel shortcuts"),
+    ("orb", "Orb", "Companion Orb shortcuts"),
+    ("story", "Story", "Story mode and replay shortcuts"),
+)
+
+
 class HotkeysController(QtCore.QObject):
     bindingCaptured = QtCore.Signal(str)
     bindingCaptureFailed = QtCore.Signal(str)
@@ -18,6 +28,8 @@ class HotkeysController(QtCore.QObject):
         self.hotkeys_tab_widget = None
         self._entries = []
         self._entry_by_action = {}
+        self._active_category_filter = "all"
+        self._category_buttons = {}
         self._refresh_timer = None
         self._capture_in_progress = False
         self.bindingCaptured.connect(self._on_binding_captured)
@@ -25,6 +37,7 @@ class HotkeysController(QtCore.QObject):
 
     def bind_designer_tab(self, widget):
         self._bind_ui_objects(widget)
+        self._install_category_cards(widget)
         return self._finalize_tab_widget(widget)
 
     def _bind_ui_objects(self, widget):
@@ -59,6 +72,41 @@ class HotkeysController(QtCore.QObject):
         self.btn_hotkey_refresh.clicked.connect(self.refresh_state)
         self.btn_hotkey_reset_all.clicked.connect(self._reset_all_defaults)
 
+    def _install_category_cards(self, widget):
+        if getattr(self, "hotkey_category_tabs", None) is not None:
+            return
+        panel = widget.findChild(QtWidgets.QFrame, "hotkey_list_panel")
+        layout = panel.layout() if panel is not None else None
+        if not isinstance(layout, QtWidgets.QVBoxLayout):
+            return
+        category_tabs = QtWidgets.QFrame(panel)
+        category_tabs.setObjectName("hotkey_category_tabs")
+        category_tabs.setStyleSheet(
+            "QFrame#hotkey_category_tabs {"
+            "background: #0d1722;"
+            "border: 1px solid #25405a;"
+            "border-radius: 8px;"
+            "}"
+        )
+        grid = QtWidgets.QGridLayout(category_tabs)
+        grid.setContentsMargins(8, 8, 8, 8)
+        grid.setHorizontalSpacing(6)
+        grid.setVerticalSpacing(6)
+        self._category_buttons = {}
+        for index, (category_key, label, tooltip) in enumerate(HOTKEY_CATEGORY_CARDS):
+            button = QtWidgets.QToolButton(category_tabs)
+            button.setText(label)
+            button.setToolTip(tooltip)
+            button.setCheckable(True)
+            button.setAutoRaise(False)
+            button.setMinimumHeight(30)
+            button.clicked.connect(lambda _checked=False, key=category_key: self._set_category_filter(key))
+            self._category_buttons[category_key] = button
+            grid.addWidget(button, index // 3, index % 3)
+        self.hotkey_category_tabs = category_tabs
+        layout.insertWidget(1, category_tabs)
+        self._refresh_category_cards()
+
     def _finalize_tab_widget(self, widget):
         self.hotkeys_tab_widget = widget
         self._refresh_timer = QtCore.QTimer(widget)
@@ -77,12 +125,87 @@ class HotkeysController(QtCore.QObject):
     def _selected_entry(self):
         return self._entry_by_action.get(self._selected_action())
 
+    def _set_category_filter(self, category_key):
+        next_key = str(category_key or "all").strip() or "all"
+        valid_keys = {key for key, _label, _tooltip in HOTKEY_CATEGORY_CARDS}
+        self._active_category_filter = next_key if next_key in valid_keys else "all"
+        self._apply_entries(self._entries)
+
+    def _category_for_entry(self, entry):
+        category = str(entry.get("category", "") or "").lower()
+        action = str(entry.get("action", "") or "").lower()
+        label = str(entry.get("label", "") or "").lower()
+        haystack = f"{category} {action} {label}"
+        if category == "input" or any(token in haystack for token in ("voice", "talk", "speech", "stt", "tts", "microphone")):
+            return "voice"
+        if any(token in haystack for token in ("orb", "companion_orb", "companion orb")):
+            return "orb"
+        if any(token in haystack for token in ("story", "roleplay", "persona", "cast", "replay")):
+            return "story"
+        if category == "manual_controls" or any(
+            token in haystack for token in ("regenerate", "retry", "pause", "skip", "reply", "chat", "response", "input")
+        ):
+            return "chat"
+        return "window"
+
+    def _visible_entries(self):
+        active_filter = str(getattr(self, "_active_category_filter", "all") or "all")
+        if active_filter == "all":
+            return list(self._entries)
+        return [entry for entry in self._entries if self._category_for_entry(entry) == active_filter]
+
+    def _category_counts(self):
+        counts = {key: 0 for key, _label, _tooltip in HOTKEY_CATEGORY_CARDS}
+        counts["all"] = len(self._entries)
+        for entry in self._entries:
+            category_key = self._category_for_entry(entry)
+            if category_key in counts:
+                counts[category_key] += 1
+        return counts
+
+    def _refresh_category_cards(self):
+        buttons = getattr(self, "_category_buttons", {}) or {}
+        if not buttons:
+            return
+        active_filter = str(getattr(self, "_active_category_filter", "all") or "all")
+        counts = self._category_counts()
+        labels = {key: label for key, label, _tooltip in HOTKEY_CATEGORY_CARDS}
+        for key, button in buttons.items():
+            count = int(counts.get(key, 0) or 0)
+            label = labels.get(key, key.title())
+            button.setText(f"{label} ({count})")
+            is_active = key == active_filter
+            button.setChecked(is_active)
+            if is_active:
+                button.setStyleSheet(
+                    "QToolButton {"
+                    "background: #123e2a;"
+                    "border: 1px solid #25d48a;"
+                    "border-radius: 6px;"
+                    "color: #ffffff;"
+                    "font-weight: 700;"
+                    "padding: 5px 9px;"
+                    "}"
+                )
+            else:
+                button.setStyleSheet(
+                    "QToolButton {"
+                    "background: #14263a;"
+                    "border: 1px solid #355b82;"
+                    "border-radius: 6px;"
+                    "color: #d8e6f3;"
+                    "font-weight: 600;"
+                    "padding: 5px 9px;"
+                    "}"
+                    "QToolButton:hover { border-color: #6aa5df; }"
+                )
+
     def _apply_entries(self, entries):
         self._entries = list(entries or [])
         self._entry_by_action = {str(item.get("action", "") or ""): dict(item) for item in self._entries}
         selected_action = self._selected_action()
         self.hotkey_list.clear()
-        for entry in self._entries:
+        for entry in self._visible_entries():
             binding = str(entry.get("binding", "") or "").strip()
             suffix = binding if binding else "Unbound"
             item = QtWidgets.QListWidgetItem(f"{entry.get('label', entry.get('action', 'Action'))}  [{suffix}]")
@@ -96,6 +219,7 @@ class HotkeysController(QtCore.QObject):
                     break
         if self.hotkey_list.count() and self.hotkey_list.currentRow() < 0:
             self.hotkey_list.setCurrentRow(0)
+        self._refresh_category_cards()
         self._on_selection_changed()
 
     def refresh_state(self):
@@ -104,7 +228,15 @@ class HotkeysController(QtCore.QObject):
             return
         entries = list(self.hotkeys.list_bindings() or [])
         self._apply_entries(entries)
-        self.hotkey_status.setText(f"{len(entries)} hotkey action(s) available.")
+        visible_count = self.hotkey_list.count()
+        if self._active_category_filter == "all":
+            self.hotkey_status.setText(f"{len(entries)} hotkey action(s) available.")
+        else:
+            category_label = dict((key, label) for key, label, _tooltip in HOTKEY_CATEGORY_CARDS).get(
+                self._active_category_filter,
+                self._active_category_filter.title(),
+            )
+            self.hotkey_status.setText(f"{visible_count} {category_label.lower()} hotkey action(s) shown.")
 
     def _soft_refresh(self):
         if self.hotkeys is None or self.hotkeys_tab_widget is None or not self.hotkeys_tab_widget.isVisible():

@@ -6,8 +6,17 @@
   "steps": [
     {
       "title": "One Modern GUI",
-      "body": "Neural Companion now starts into the modern main.ui interface. The old legacy GUI is no longer the user-facing path, so these tutorials focus on this single layout.",
-      "target": "main_window"
+      "body": "Neural Companion now starts into the modern main.ui interface. The workspace panels stay docked as top tabs: HOST, CHAT WINDOW, ADDONS, VISUAL REPLY, and MUSETALK. Use Read steps aloud or Read Step in this tutorial panel if you want spoken instructions while you work.",
+      "target": "workspace_central",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "show_dock", "target": "SystemShapingDock" }
+      ]
+    },
+    {
+      "title": "Docked Workspace Tabs",
+      "body": "Reset Workspace Layout returns the workspace to the docked tab strip. Tutorials use that layout and switch between workspace tabs instead of floating panels out of the main window.",
+      "target": "SystemShapingDock"
     },
     {
       "title": "Host Controls",
@@ -22,31 +31,60 @@
     {
       "title": "Chat Area",
       "body": "The chat panel is the ordinary conversation surface. Use it to test the model and speech path before adding visual replies, avatars, or background sensory behavior.",
-      "target": "chat_edit"
+      "target": "chat_edit",
+      "actions": [
+        { "type": "show_dock", "target": "OperationalViewDock" }
+      ]
+    },
+    {
+      "title": "Addon Workspace",
+      "body": "ADDONS contains persona, chunking, dry run, tutorials, and addon-owned tabs such as Roleplay, Audio Story Mode, AI Presence, Companion Orb, Spotify Sense, and Main Chat Remote when those addons are enabled.",
+      "tab": "Addons",
+      "target": "addons_intro_label",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Addons" }
+      ]
     },
     {
       "title": "Persona Tab",
       "body": "The Persona tab controls presets, system prompt, voice selection, emotional instructions, and TTS behavior. Presets are the fastest way to switch character setups.",
       "tab": "Persona",
-      "target": "persona_tab"
+      "target": "persona_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Persona" }
+      ]
     },
     {
       "title": "Chunking Tab",
       "body": "Chunking controls how text is split for speech and avatar timing. The defaults are intended to work; use Dry Run before manual tuning when possible.",
       "tab": "Chunking",
-      "target": "chunking_tab"
+      "target": "chunking_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Chunking" }
+      ]
     },
     {
       "title": "Dry Run Tab",
       "body": "Dry Run measures the active configuration and can recommend better startup and streaming values for your machine.",
       "tab": "Dry Run",
-      "target": "dry_run_tab"
+      "target": "dry_run_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Dry Run" }
+      ]
     },
     {
       "title": "Tutorials Tab",
       "body": "Tutorials are loaded from JSON files, so the manual can grow without hardcoding every walkthrough into the app.",
       "tab": "Tutorials",
-      "target": "tutorials_tab"
+      "target": "tutorials_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Tutorials" }
+      ]
     }
   ]
 }

@@ -1,0 +1,71 @@
+{
+  "id": "musetalk_preprocess",
+  "order": 23,
+  "title": "23. MuseTalk Preprocess",
+  "description": "Prepare MuseTalk avatar packs, source media, emotion tags, frame cache, mask ranges, and first-frame debug output.",
+  "steps": [
+    {
+      "title": "Open MuseTalk Preprocess",
+      "body": "Preprocess is the MuseTalk avatar preparation tool. Use it before selecting an avatar pack in the main Host settings.",
+      "tab": "Preprocess",
+      "target": "musetalk_box",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Choose the Target Pack",
+      "body": "The target pack is where prepared avatars and emotion variants are stored. Create or refresh the pack list before importing new source media.",
+      "tab": "Preprocess",
+      "target": "musetalk_target_pack_combo",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Choose Source Media",
+      "body": "Source can be a video, still image, or folder of frames. Use clear source names so generated avatar IDs and emotion variants stay understandable later.",
+      "tab": "Preprocess",
+      "target": "musetalk_source_edit",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Name the Avatar Variant",
+      "body": "Avatar ID is the prepared variant name. Use simple lowercase names such as neutral, angry, shy, or surprised so persona emotion tags can match them.",
+      "tab": "Preprocess",
+      "target": "musetalk_avatar_id_edit",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Prepare and Cache Frames",
+      "body": "Prepare Avatar runs the preprocessing path. Create frame cache makes startup faster later, at the cost of more disk space.",
+      "tab": "Preprocess",
+      "target": "btn_musetalk_prepare_avatar",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Debug the First Frame",
+      "body": "First-frame debug helps you inspect bbox shift, parsing mode, mask overlays, and cheek/margin settings before running a full avatar preprocess.",
+      "tab": "Preprocess",
+      "target": "btn_musetalk_debug_first_frame_quick",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    },
+    {
+      "title": "Save Metadata",
+      "body": "Save metadata after emotion tags, default avatar choice, and mask tweaks are correct. This is what later avatar selection depends on.",
+      "tab": "Preprocess",
+      "target": "btn_musetalk_avatar_save_metadata",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" }
+      ]
+    }
+  ]
+}

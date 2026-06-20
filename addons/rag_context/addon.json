@@ -1,10 +1,10 @@
 {
   "id": "nc.rag_context",
-  "name": "RAG Context",
+  "name": "Document Memory",
   "category": "chat",
   "version": "0.1.0",
   "entry_point": "main.py",
-  "description": "Optional chat retrieval context from a user-selected text/PDF file index.",
+  "description": "Optional chat memory from user-selected text/PDF files.",
   "permissions": [
     "storage.read",
     "storage.write",
@@ -13,12 +13,12 @@
   "ui": [
     {
       "id": "rag_context_tab",
-      "title": "RAG Context",
+      "title": "Document Memory",
       "area": "host_settings",
       "ui_path": "ui/rag_context.ui",
       "icon_path": "ui/icons/RAG.png",
       "order": 132,
-      "tooltip": "Build and use a local text/PDF RAG index for chat sessions."
+      "tooltip": "Build and use searchable local text/PDF memory for chat sessions."
     }
   ],
   "enabled": true

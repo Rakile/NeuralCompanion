@@ -7,7 +7,10 @@
     {
       "title": "What Startup Needs",
       "body": "Neural Companion starts cleanly when the installer finished, LM Studio is serving a model, FFmpeg is available, and the selected TTS/avatar runtimes match what is installed.",
-      "target": "main_window"
+      "target": "console_edit",
+      "actions": [
+        { "type": "show_dock", "target": "OperationalViewDock" }
+      ]
     },
     {
       "title": "Check the Console First",

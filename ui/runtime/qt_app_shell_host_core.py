@@ -123,7 +123,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         sensory_feedback_interval_spin.setToolTip("Shell-local sensory refresh preview. Changes are not saved or applied to runtime.")
     if sensory_pingpong_checkbox is not None:
         _ui_shell_set_checked(sensory_pingpong_checkbox, session.get("sensory_pingpong_enabled", False))
-        sensory_pingpong_checkbox.setToolTip("Shell-local hidden PING/PONG preview. No hidden runtime loop is started.")
+        sensory_pingpong_checkbox.setToolTip("Shell-local background sensory review preview. No background runtime loop is started.")
     if sensory_allow_hidden_proactive_checkbox is not None:
         _ui_shell_set_checked(sensory_allow_hidden_proactive_checkbox, session.get("sensory_allow_hidden_proactive_speech", False))
         sensory_allow_hidden_proactive_checkbox.setToolTip("Shell-local sensory speech preview. Changes are not saved or applied to runtime.")
@@ -307,7 +307,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
     bind_check(
         sensory_pingpong_checkbox,
         "_nc_ui_shell_host_core_bound",
-        lambda: f"[UI Shell] Hidden PING/PONG preview: {'enabled' if sensory_pingpong_checkbox.isChecked() else 'disabled'}; no hidden loop was started.",
+        lambda: f"[UI Shell] Background sensory review preview: {'enabled' if sensory_pingpong_checkbox.isChecked() else 'disabled'}; no background loop was started.",
     )
     bind_check(
         sensory_allow_hidden_proactive_checkbox,
@@ -322,7 +322,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
     bind_spin(
         sensory_pingpong_history_spin,
         "_nc_ui_shell_host_core_bound",
-        lambda: f"[UI Shell] Hidden PING/PONG history preview: {int(sensory_pingpong_history_spin.value()) if hasattr(sensory_pingpong_history_spin, 'value') else 3}; runtime behavior remains unchanged.",
+        lambda: f"[UI Shell] Background observation history preview: {int(sensory_pingpong_history_spin.value()) if hasattr(sensory_pingpong_history_spin, 'value') else 3}; runtime behavior remains unchanged.",
     )
     bind_combo(
         visual_reply_mode_combo,

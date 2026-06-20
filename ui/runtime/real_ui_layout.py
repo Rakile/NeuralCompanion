@@ -1,4 +1,5 @@
 import base64
+import html
 import json
 from pathlib import Path
 
@@ -15,6 +16,9 @@ def configure_real_ui_layout_dependencies(namespace):
 class _RuntimeProviderTabBar(QtWidgets.QTabBar):
     """Paint the active runtime tab independently from the currently viewed tab."""
 
+    runtimeActivationRequested = QtCore.Signal(str)
+    runtimeBrowseRequested = QtCore.Signal(int)
+
     _ACTIVE_BG = QtGui.QColor("#123626")
     _ACTIVE_BORDER = QtGui.QColor("#2cc985")
     _ACTIVE_TEXT = QtGui.QColor("#f4fffa")
@@ -22,6 +26,14 @@ class _RuntimeProviderTabBar(QtWidgets.QTabBar):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._active_runtime_value = ""
+        self._activation_checkable = False
+
+    def set_runtime_activation_checkable(self, enabled):
+        enabled = bool(enabled)
+        if enabled == self._activation_checkable:
+            return
+        self._activation_checkable = enabled
+        self.update()
 
     def set_active_runtime_value(self, value):
         value = str(value or "").strip().lower()
@@ -36,6 +48,98 @@ class _RuntimeProviderTabBar(QtWidgets.QTabBar):
         except Exception:
             value = ""
         return bool(value and value == self._active_runtime_value)
+
+    def _activation_indicator_rect(self, index):
+        rect = self.tabRect(index)
+        size = 22
+        right = rect.right() - 12
+        center_y = rect.center().y() + 2
+        return QtCore.QRect(right - size + 1, center_y - size // 2, size, size)
+
+    def _tab_value(self, index):
+        try:
+            return str(self.tabData(index) or "").strip().lower()
+        except Exception:
+            return ""
+
+    def _begin_smooth_switch(self):
+        tabs = self.parentWidget()
+        if tabs is None or not bool(tabs.property("_nc_smooth_provider_switch")):
+            return None
+        try:
+            state = bool(tabs.updatesEnabled())
+            tabs.setUpdatesEnabled(False)
+            return tabs, state
+        except Exception:
+            return None
+
+    def _finish_smooth_switch(self, state):
+        if not state:
+            return
+        tabs, updates_enabled = state
+        try:
+            tabs.setUpdatesEnabled(bool(updates_enabled))
+            if updates_enabled:
+                tabs.update()
+        except Exception:
+            pass
+
+    def mousePressEvent(self, event):
+        smooth_state = None
+        if event.button() == QtCore.Qt.LeftButton:
+            position = event.position().toPoint()
+            index = self.tabAt(position)
+            if index >= 0:
+                if self._activation_checkable and self._activation_indicator_rect(index).contains(position):
+                    event.accept()
+                    return
+                smooth_state = self._begin_smooth_switch()
+                self.runtimeBrowseRequested.emit(index)
+        try:
+            super().mousePressEvent(event)
+        finally:
+            if smooth_state is not None:
+                QtCore.QTimer.singleShot(0, lambda state=smooth_state: self._finish_smooth_switch(state))
+
+    def mouseReleaseEvent(self, event):
+        if self._activation_checkable and event.button() == QtCore.Qt.LeftButton:
+            for index in range(self.count()):
+                if self._activation_indicator_rect(index).contains(event.position().toPoint()):
+                    value = self._tab_value(index)
+                    if value:
+                        self.runtimeActivationRequested.emit(value)
+                        event.accept()
+                        return
+        super().mouseReleaseEvent(event)
+
+    def _paint_activation_indicator(self, painter, index, active):
+        if not self._activation_checkable:
+            return
+        rect = self._activation_indicator_rect(index)
+        center = rect.center()
+        radius = min(rect.width(), rect.height()) // 2 - 2
+        painter.save()
+        painter.setRenderHint(QtGui.QPainter.Antialiasing, True)
+        if active:
+            fill = QtGui.QColor("#2cc985")
+            border = QtGui.QColor("#78f5b6")
+            check = QtGui.QColor("#f4fffa")
+        else:
+            fill = QtGui.QColor("#263447")
+            border = QtGui.QColor("#35465b")
+            check = QtGui.QColor("#8ea3b8")
+        painter.setBrush(fill)
+        painter.setPen(QtGui.QPen(border, 2))
+        painter.drawEllipse(center, radius, radius)
+        if active:
+            pen = QtGui.QPen(check, 2.4, QtCore.Qt.SolidLine, QtCore.Qt.RoundCap, QtCore.Qt.RoundJoin)
+            painter.setPen(pen)
+            path = QtGui.QPainterPath()
+            path.moveTo(center.x() - 6, center.y())
+            path.lineTo(center.x() - 2, center.y() + 4)
+            path.lineTo(center.x() + 7, center.y() - 6)
+            painter.drawPath(path)
+        painter.restore()
 
     def sizeHint(self):
         return super().sizeHint()
@@ -52,6 +156,7 @@ class _RuntimeProviderTabBar(QtWidgets.QTabBar):
             self.initStyleOption(option, index)
             if not self._is_active_runtime_tab(index):
                 painter.drawControl(QtWidgets.QStyle.CE_TabBarTab, option)
+                self._paint_activation_indicator(painter, index, False)
                 continue
 
             rect = option.rect.adjusted(0, 1, -1, 0)
@@ -68,6 +173,7 @@ class _RuntimeProviderTabBar(QtWidgets.QTabBar):
             option.palette.setColor(QtGui.QPalette.WindowText, self._ACTIVE_TEXT)
             option.palette.setColor(QtGui.QPalette.Text, self._ACTIVE_TEXT)
             painter.drawControl(QtWidgets.QStyle.CE_TabBarTabLabel, option)
+            self._paint_activation_indicator(painter, index, True)
 
 
 class MainUiRealLayoutMixin:
@@ -202,6 +308,7 @@ class MainUiRealLayoutMixin:
                 return
             self._sync_tts_runtime_tab_backend_data(tabs)
             self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+            self._refresh_tts_runtime_active_provider_label()
 
     def _apply_tts_runtime_tab_shape(self, tabs=None, palette=None):
             tabs = tabs or self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
@@ -277,13 +384,13 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab {
     color: TAB_TEXT;
     font-weight: 700;
     border: 1px solid TAB_BORDER;
-    width: 118px;
-    min-width: 118px;
-    max-width: 118px;
+    width: 142px;
+    min-width: 142px;
+    max-width: 142px;
     height: 36px;
     min-height: 36px;
     max-height: 36px;
-    padding: 0px 14px;
+    padding: 0px 30px 0px 10px;
     margin-left: 0px;
     margin-right: 1px;
     margin-bottom: -1px;
@@ -378,6 +485,13 @@ QTabWidget#tts_runtime_addon_tabs QStackedWidget {
             tab_hover = str(runtime_palette.get("hover") or tab_hover)
             tab_border = str(runtime_palette.get("border") or border)
             tab_text = str(runtime_palette.get("text") or "#f2f5f9")
+            activation_tabs = {
+                "chat_runtime_provider_tabs",
+                "stt_runtime_backend_tabs",
+                "visual_reply_runtime_provider_tabs",
+            }
+            tab_width = "108px" if object_name == "chat_runtime_provider_tabs" else "122px"
+            tab_padding = "0px 28px 0px 10px" if object_name in activation_tabs else "0px 14px"
             try:
                 tabs.setDocumentMode(False)
                 tabs.setUsesScrollButtons(True)
@@ -432,13 +546,13 @@ SELECTOR QTabBar::tab {
     color: TAB_TEXT;
     font-weight: 700;
     border: 1px solid TAB_BORDER;
-    width: 118px;
-    min-width: 118px;
-    max-width: 118px;
+    width: TAB_WIDTH;
+    min-width: TAB_WIDTH;
+    max-width: TAB_WIDTH;
     height: 36px;
     min-height: 36px;
     max-height: 36px;
-    padding: 0px 14px;
+    padding: TAB_PADDING;
     margin-left: 0px;
     margin-right: 1px;
     margin-bottom: -1px;
@@ -484,6 +598,8 @@ SELECTOR QStackedWidget {
                 .replace("TAB_HOVER", tab_hover)
                 .replace("TAB_BORDER", tab_border)
                 .replace("TAB_TEXT", tab_text)
+                .replace("TAB_WIDTH", tab_width)
+                .replace("TAB_PADDING", tab_padding)
                 .replace("BORDER", border)
                 .replace("SELECTOR", selector)
                 .replace("MARKER_ID", marker_id)
@@ -501,6 +617,282 @@ SELECTOR QStackedWidget {
                     tabs.setStyleSheet(next_style)
             except Exception:
                 pass
+
+    def _runtime_provider_setup_card(self, object_name, kind):
+            card = self._ui_object(object_name)
+            if card is not None:
+                return card
+            card = QtWidgets.QFrame()
+            card.setObjectName(object_name)
+            card.setStyleSheet(
+                f"QFrame#{object_name} {{"
+                " background: rgba(17, 24, 39, 0.72);"
+                " border: 1px solid #2a3a4c;"
+                " border-radius: 8px;"
+                "}"
+            )
+            try:
+                card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                card.setMaximumHeight(52)
+            except Exception:
+                pass
+            layout = QtWidgets.QHBoxLayout(card)
+            layout.setContentsMargins(10, 6, 10, 6)
+            layout.setSpacing(8)
+
+            title = QtWidgets.QLabel("Provider setup")
+            title.setObjectName(f"{object_name}_title")
+            title.setStyleSheet("font-weight: 700; color: #f2f5f9;")
+            try:
+                title.setMinimumWidth(96)
+            except Exception:
+                pass
+            layout.addWidget(title, 0, QtCore.Qt.AlignVCenter)
+
+            chips = {}
+            for state_key, label_text in (
+                ("connected", "Connected"),
+                ("needs_key", "Needs key"),
+                ("needs_model", "Needs model"),
+            ):
+                chip = QtWidgets.QLabel(label_text)
+                chip.setObjectName(f"{object_name}_{state_key}_chip")
+                chip.setAlignment(QtCore.Qt.AlignCenter)
+                chip.setMinimumHeight(24)
+                chip.setProperty("nc_setup_state", state_key)
+                chips[state_key] = chip
+                layout.addWidget(chip, 0, QtCore.Qt.AlignVCenter)
+
+            status = QtWidgets.QLabel("Provider is ready.")
+            status.setObjectName(f"{object_name}_status")
+            status.setWordWrap(False)
+            status.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+            try:
+                status.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+            except Exception:
+                pass
+            layout.addWidget(status, 1, QtCore.Qt.AlignVCenter)
+            test_button = QtWidgets.QPushButton("Test provider")
+            test_button.setObjectName(f"{object_name}_test_provider_button")
+            test_button.setToolTip("Run the safest available provider check for this runtime.")
+            test_button.clicked.connect(lambda _checked=False, runtime_kind=str(kind or ""): self._test_runtime_provider_setup(runtime_kind))
+            layout.addWidget(test_button, 0, QtCore.Qt.AlignVCenter)
+            setattr(card, "_nc_setup_chips", chips)
+            setattr(card, "_nc_setup_status", status)
+            setattr(card, "_nc_setup_test_button", test_button)
+            self._refresh_runtime_provider_setup_card(kind, card)
+            return card
+
+    def _insert_runtime_provider_setup_card(self, parent_widget, object_name, kind, *, before_widget=None):
+            if parent_widget is None or not hasattr(parent_widget, "layout"):
+                return None
+            layout = parent_widget.layout()
+            if layout is None:
+                layout = QtWidgets.QVBoxLayout(parent_widget)
+                layout.setContentsMargins(0, 0, 0, 0)
+                layout.setSpacing(8)
+            card = self._runtime_provider_setup_card(object_name, kind)
+            if card is None:
+                return None
+            try:
+                if layout.indexOf(card) < 0:
+                    before_index = layout.indexOf(before_widget) if before_widget is not None else -1
+                    if before_index >= 0:
+                        layout.insertWidget(before_index, card)
+                    else:
+                        layout.insertWidget(0, card)
+                card.setVisible(True)
+                card.updateGeometry()
+            except Exception:
+                pass
+            self._refresh_runtime_provider_setup_card(kind, card)
+            return card
+
+    def _style_runtime_setup_chip(self, chip, active):
+            if chip is None:
+                return
+            if active:
+                chip.setStyleSheet(
+                    "color: #f4fffa; background: #104f36; border: 1px solid #2cc985; "
+                    "border-radius: 12px; padding: 3px 10px; font-weight: 700;"
+                )
+            else:
+                chip.setStyleSheet(
+                    "color: #9fb3c8; background: rgba(36, 48, 64, 0.74); border: 1px solid #33455a; "
+                    "border-radius: 12px; padding: 3px 10px;"
+                )
+
+    def _combo_current_text(self, combo_name):
+            combo = self._ui_object(combo_name)
+            if combo is None:
+                return ""
+            try:
+                return str(combo.currentText() or "").strip()
+            except Exception:
+                return ""
+
+    def _line_edit_text(self, object_name):
+            widget = self._ui_object(object_name)
+            if widget is None or not hasattr(widget, "text"):
+                return ""
+            try:
+                return str(widget.text() or "").strip()
+            except Exception:
+                return ""
+
+    def _runtime_provider_setup_state(self, kind):
+            runtime_kind = str(kind or "").strip().lower()
+            state = "connected"
+            detail = "Provider is ready."
+            if runtime_kind == "llm":
+                backend = getattr(self, "backend", None)
+                provider_getter = getattr(backend, "_current_chat_provider_editor_value", None)
+                try:
+                    provider_id = str(provider_getter() if callable(provider_getter) else "").strip().lower()
+                except Exception:
+                    provider_id = ""
+                if not provider_id:
+                    provider_id = self._runtime_combo_current_value(self._ui_object("chat_provider_combo"))
+                model = ""
+                state_getter = getattr(backend, "_current_chat_provider_model_state_for", None)
+                if callable(state_getter):
+                    try:
+                        model = str((state_getter(provider_id) or {}).get("model_name") or "").strip()
+                    except Exception:
+                        model = ""
+                model = model or self._combo_current_text("model_combo")
+                placeholder = ""
+                placeholder_check = getattr(backend, "_is_model_catalog_placeholder", None)
+                if callable(placeholder_check):
+                    try:
+                        placeholder = bool(placeholder_check(model))
+                    except Exception:
+                        placeholder = False
+                required_key_missing = False
+                fields_getter = getattr(backend, "_chat_provider_config_fields", None)
+                settings_getter = getattr(backend, "_current_chat_provider_settings_for", None)
+                fields = []
+                settings = {}
+                if callable(fields_getter):
+                    try:
+                        fields = list(fields_getter(provider_id) or [])
+                    except Exception:
+                        fields = []
+                if callable(settings_getter):
+                    try:
+                        settings = dict(settings_getter(provider_id) or {})
+                    except Exception:
+                        settings = {}
+                for field in fields:
+                    field_id = str((field or {}).get("id") or "").strip()
+                    if "api" not in field_id.lower() or "key" not in field_id.lower():
+                        continue
+                    if not str(settings.get(field_id) or self._line_edit_text(f"chat_provider_field_{field_id}") or "").strip():
+                        required_key_missing = True
+                        break
+                if required_key_missing:
+                    state = "needs_key"
+                    detail = "Needs key before this provider can run."
+                elif not model or placeholder:
+                    state = "needs_model"
+                    detail = "Needs model before this provider can run."
+                return state, detail
+
+            if runtime_kind == "stt":
+                backend_id = self._runtime_combo_current_value(self._ui_object("stt_backend_combo"))
+                model = self._combo_current_text("stt_model_combo")
+                if backend_id and backend_id != "none":
+                    if not model:
+                        return "needs_model", "Needs model before this speech-to-text backend can run."
+                    return "connected", "Provider is ready."
+                return "connected", "Speech-to-text is disabled."
+
+            if runtime_kind == "tts":
+                backend_id = self._runtime_combo_current_value(self._ui_object("tts_backend_combo"))
+                if backend_id and backend_id != "none":
+                    return "connected", "Provider is ready."
+                return "needs_model", "Choose a TTS provider before testing speech playback."
+
+            if runtime_kind == "visual":
+                provider = self._runtime_combo_current_value(self._ui_object("visual_reply_provider_combo"))
+                model = self._line_edit_text("visual_reply_model_edit")
+                api_value = self._line_edit_text("visual_reply_api_key_edit")
+                requires_key = False
+                try:
+                    from addons.visual_reply.providers import provider_spec
+
+                    requires_key = bool(provider_spec(provider).requires_api_key)
+                except Exception:
+                    requires_key = False
+                if requires_key and not api_value:
+                    return "needs_key", "Needs key before this image provider can run."
+                if not model:
+                    return "needs_model", "Needs model before this image provider can run."
+                return "connected", "Provider is ready."
+
+            return state, detail
+
+    def _refresh_runtime_provider_setup_card(self, kind, card=None):
+            runtime_kind = str(kind or "").strip().lower()
+            if card is None:
+                object_name = {
+                    "llm": "chat_runtime_provider_setup_card",
+                    "visual": "visual_reply_runtime_provider_setup_card",
+                }.get(runtime_kind, "")
+                card = self._ui_object(object_name) if object_name else None
+            if card is None:
+                return
+            state, detail = self._runtime_provider_setup_state(runtime_kind)
+            chips = dict(getattr(card, "_nc_setup_chips", {}) or {})
+            for state_key, chip in chips.items():
+                self._style_runtime_setup_chip(chip, state_key == state)
+            status = getattr(card, "_nc_setup_status", None)
+            if status is not None and hasattr(status, "setText"):
+                try:
+                    status.setText(str(detail or "Provider is ready."))
+                except Exception:
+                    pass
+
+    def _test_runtime_provider_setup(self, kind):
+            runtime_kind = str(kind or "").strip().lower()
+            if runtime_kind == "llm":
+                refresh = getattr(getattr(self, "backend", None), "request_model_list_refresh", None)
+                if callable(refresh):
+                    refresh(quiet=False, wait_for_reachable=True, force=True)
+                else:
+                    refresh = getattr(self, "request_model_list_refresh", None)
+                    if callable(refresh):
+                        refresh(quiet=False, wait_for_reachable=True, force=True)
+                return
+            if runtime_kind == "stt":
+                callback = getattr(getattr(self, "backend", None), "_refresh_stt_runtime_summary", None)
+                if callable(callback):
+                    callback()
+                self._refresh_runtime_provider_setup_card("stt")
+                return
+            if runtime_kind == "tts":
+                callback = getattr(getattr(self, "backend", None), "_refresh_tts_runtime_card", None)
+                if callable(callback):
+                    callback()
+                self._refresh_runtime_provider_setup_card("tts")
+                return
+            if runtime_kind == "visual":
+                callback = getattr(getattr(self, "backend", None), "_refresh_visual_reply_hint", None)
+                if callable(callback):
+                    callback()
+                self._refresh_runtime_provider_setup_card("visual")
+
+    def _refresh_runtime_provider_setup_for_tabs(self, tabs):
+            try:
+                object_name = str(tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            kind = {
+                "chat_runtime_provider_tabs": "llm",
+                "visual_reply_runtime_provider_tabs": "visual",
+            }.get(object_name, "")
+            if kind:
+                self._refresh_runtime_provider_setup_card(kind)
 
     def _normalize_frontend_tts_runtime_layout(self):
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
@@ -534,27 +926,160 @@ SELECTOR QStackedWidget {
                 except Exception:
                     pass
 
+            active_label = self._ui_object("tts_runtime_active_provider_label")
+            if active_label is None:
+                active_label = QtWidgets.QLabel(tts_box)
+                active_label.setObjectName("tts_runtime_active_provider_label")
+                active_label.setWordWrap(True)
+                active_label.setTextFormat(QtCore.Qt.RichText)
+                active_label.setStyleSheet("color: #f2f5f9; font-size: 12px;")
+                active_label.setToolTip("Click the circle in a TTS backend tab to make that backend active.")
+            try:
+                if combo is not None:
+                    selector = combo.parentWidget()
+                    selector_name = str(selector.objectName() or "") if selector is not None else ""
+                    if selector is not None and selector is not active_label and selector_name not in {"tts_runtime_box", "tts_runtime_inner_card"}:
+                        selector.setVisible(False)
+                    label = self._ui_object("tts_backend_label")
+                    if label is not None:
+                        label.setVisible(False)
+                    combo.setVisible(False)
+                    combo.setEnabled(True)
+            except Exception:
+                pass
+            try:
+                inner_layout = tabs.parentWidget().layout() if tabs is not None and tabs.parentWidget() is not None else None
+                if inner_layout is not None and inner_layout.indexOf(active_label) < 0:
+                    tab_index = inner_layout.indexOf(tabs) if tabs is not None else -1
+                    if tab_index >= 0:
+                        inner_layout.insertWidget(tab_index, active_label)
+                    else:
+                        inner_layout.addWidget(active_label)
+                active_label.setVisible(True)
+            except Exception:
+                pass
+            self._refresh_tts_runtime_active_provider_label()
+            if hint is not None:
+                try:
+                    hint.setText("Click a TTS backend tab to view its settings. Click the circle in the tab to make that backend active.")
+                except Exception:
+                    pass
+            self._hide_frontend_tts_backend_selector()
+
             if tabs is None:
                 return
             self._apply_tts_runtime_tab_shape(tabs)
+            self._sync_tts_runtime_tab_backend_data(tabs)
+            tab_bar = self._ensure_runtime_provider_tab_bar(tabs, preserve_existing=True)
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                tabs.setProperty("_nc_smooth_provider_switch", True)
+                tab_bar.set_runtime_activation_checkable(True)
+                if not bool(tab_bar.property("_nc_tts_backend_activation_bound")):
+                    try:
+                        tab_bar.runtimeActivationRequested.connect(
+                            lambda value, tabs=tabs, combo=combo: self._activate_tts_runtime_backend_tab_value(tabs, combo, value)
+                        )
+                        tab_bar.setProperty("_nc_tts_backend_activation_bound", True)
+                    except Exception:
+                        pass
+            if not bool(tabs.property("_nc_tts_runtime_height_bound")):
+                try:
+                    tabs.currentChanged.connect(
+                        lambda _index=0, tabs=tabs: QtCore.QTimer.singleShot(
+                            0,
+                            lambda tabs=tabs: self._sync_frontend_tts_runtime_tab_height(tabs),
+                        )
+                    )
+                    tabs.setProperty("_nc_tts_runtime_height_bound", True)
+                except Exception:
+                    pass
+            self._refresh_tts_runtime_active_tab_marker()
+            self._sync_frontend_tts_runtime_tab_height(tabs)
+
+    def _sync_frontend_tts_runtime_tab_height(self, tabs=None):
+            tabs = tabs or self._ui("tts_runtime_addon_tabs", QtWidgets.QTabWidget)
+            if tabs is None:
+                return
             try:
+                tab_bar = tabs.tabBar()
+                tab_height = int(tab_bar.sizeHint().height()) if tab_bar is not None else 40
+                max_content_height = 0
+                current_index = int(tabs.currentIndex())
+            except Exception:
+                current_index = 0
+                tab_height = 40
+            try:
+                for index in range(tabs.count()):
+                    page = tabs.widget(index)
+                    if page is None:
+                        continue
+                    policy = page.sizePolicy()
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
+                    policy.setRetainSizeWhenHidden(False)
+                    page.setSizePolicy(policy)
+                    page.setMinimumHeight(0)
+                    layout = page.layout()
+                    if layout is not None:
+                        layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+                        layout.invalidate()
+                        layout.activate()
+                    if index == current_index:
+                        page.adjustSize()
+                    page.updateGeometry()
+                    max_content_height = max(max_content_height, int(page.sizeHint().height()))
+
                 policy = tabs.sizePolicy()
-                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Maximum)
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
                 tabs.setSizePolicy(policy)
-                tabs.setMinimumHeight(0)
-                active_page = tabs.currentWidget()
-                if active_page is not None:
-                    if active_page.layout() is not None:
-                        active_page.layout().invalidate()
-                        active_page.layout().activate()
-                    active_page.adjustSize()
-                    active_page.updateGeometry()
-                    wanted = active_page.sizeHint().height() + tabs.tabBar().sizeHint().height() + 44
-                    tabs.setMaximumHeight(max(160, min(900, int(wanted))))
-                tabs.adjustSize()
+                wanted = max(132, max_content_height + tab_height + 48)
+                tabs.setMinimumHeight(int(wanted))
+                tabs.setMaximumHeight(int(wanted))
                 tabs.updateGeometry()
+                self._sync_frontend_runtime_tab_stack_height()
             except Exception:
                 pass
+
+    def _hide_frontend_tts_backend_selector(self):
+            combo = self._ui_object("tts_backend_combo")
+            label = self._ui_object("tts_backend_label")
+            form = self._ui_object("ttsBackendSelectorForm")
+            tts_box = self._ui_object("tts_runtime_box")
+            if combo is None:
+                return
+            try:
+                if isinstance(form, QtWidgets.QFormLayout):
+                    row = -1
+                    try:
+                        row, _role = form.getWidgetPosition(combo)
+                    except Exception:
+                        row = -1
+                    if row < 0 and label is not None:
+                        try:
+                            row, _role = form.getWidgetPosition(label)
+                        except Exception:
+                            row = -1
+                    if row >= 0 and hasattr(form, "takeRow"):
+                        result = form.takeRow(row)
+                        for item in (getattr(result, "labelItem", None), getattr(result, "fieldItem", None)):
+                            widget = item.widget() if item is not None else None
+                            if widget is not None:
+                                widget.setParent(tts_box)
+                                widget.setVisible(False)
+                                widget.setEnabled(True)
+                    elif row >= 0 and hasattr(form, "removeRow"):
+                        form.removeRow(row)
+            except Exception:
+                pass
+            for widget in (label, combo):
+                if widget is None:
+                    continue
+                try:
+                    widget.setVisible(False)
+                    widget.setEnabled(True)
+                    if tts_box is not None and widget.parentWidget() is None:
+                        widget.setParent(tts_box)
+                except Exception:
+                    pass
 
     def _fix_system_shaping_scroll_content_size(self):
             if self._normalize_system_shaping_fixed_tab_layout():
@@ -580,13 +1105,16 @@ SELECTOR QStackedWidget {
             tts_box = self._ui("tts_runtime_box", QtWidgets.QGroupBox)
             visual_reply_box = self._ui("visual_reply_runtime_box", QtWidgets.QGroupBox)
             perf_box = self._ui("performance_guidance_box", QtWidgets.QGroupBox)
+            ai_presence_box = self._ui("ai_presence_runtime_box", QtWidgets.QGroupBox)
+            if ai_presence_box is not None:
+                ai_presence_box.hide()
 
             if scroll is not None:
                 scroll.setWidgetResizable(True)
                 scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
                 scroll.setVerticalScrollBarPolicy(QtCore.Qt.ScrollBarAsNeeded)
 
-            for w in (content, tabs, host_tab, chat_box, stt_box, tts_box, visual_reply_box, perf_box):
+            for w in (content, tabs, host_tab, chat_box, stt_box, tts_box, visual_reply_box, perf_box, ai_presence_box):
                 if w is None:
                     continue
 
@@ -901,6 +1429,16 @@ QTabWidget QScrollArea > QWidget > QWidget {
             if tabs is None:
                 return
             try:
+                tab_bar = tabs.tabBar()
+                if tab_bar is not None:
+                    tab_bar.setVisible(int(tabs.count()) > 1)
+                    tab_bar.setExpanding(False)
+                tabs.setUsesScrollButtons(True)
+                tabs.setElideMode(QtCore.Qt.ElideNone)
+                tabs.setIconSize(QtCore.QSize(18, 18))
+            except Exception:
+                pass
+            try:
                 if bool(tabs.property("_nc_sensory_feedback_tabs_alignment_applied")):
                     return
             except Exception:
@@ -910,9 +1448,16 @@ QTabWidget QScrollArea > QWidget > QWidget {
 QTabWidget::tab-bar {
     left: 0px;
 }
+QTabWidget#sensory_feedback_tabs QTabBar::tab {
+    min-width: 132px;
+    max-width: 320px;
+    padding-left: 18px;
+    padding-right: 18px;
+}
 QTabWidget QTabBar::tab:selected {
     border-bottom: 0px;
     margin-bottom: -1px;
+    padding-right: 18px;
     padding-bottom: 11px;
 }
 /* nc-sensory-feedback-tabs-runtime-style:end */
@@ -945,8 +1490,6 @@ QTabWidget QTabBar::tab:selected {
             tab_hover = str((palette or {}).get("tab_hover_bg") or "#223247")
             border = str((palette or {}).get("surface_border") or "#273342")
             style_key = (field_bg, tab_bg, tab_hover, border)
-            if getattr(self, "_nested_horizontal_tab_facing_style_key", None) == style_key:
-                return
             style = """
 /* nc-nested-horizontal-tabs-runtime-style:start */
 QTabWidget::tab-bar {
@@ -1043,9 +1586,34 @@ QTabWidget QStackedWidget {
                 try:
                     tabs.setTabPosition(QtWidgets.QTabWidget.North)
                     tabs.setTabShape(QtWidgets.QTabWidget.Rounded)
+                    if object_name.startswith("vision_source_tabs_"):
+                        tabs.setUsesScrollButtons(True)
+                        tabs.setElideMode(QtCore.Qt.ElideNone)
+                        tabs.setIconSize(QtCore.QSize(18, 18))
+                        tab_bar = tabs.tabBar()
+                        if tab_bar is not None:
+                            tab_bar.setExpanding(False)
                 except Exception:
                     pass
                 try:
+                    tab_style = style
+                    if object_name.startswith("vision_source_tabs_"):
+                        tab_style = tab_style.replace(
+                            "/* nc-nested-horizontal-tabs-runtime-style:end */",
+                            """
+/* nc-vision-source-tabs-fit */
+QTabWidget QTabBar::tab {
+    min-width: 132px;
+    max-width: 320px;
+    padding-left: 18px;
+    padding-right: 18px;
+}
+QTabWidget QTabBar::tab:selected {
+    padding-right: 18px;
+}
+/* nc-nested-horizontal-tabs-runtime-style:end */
+""".strip(),
+                        )
                     existing = str(tabs.styleSheet() or "").strip()
                     start = "/* nc-nested-horizontal-tabs-runtime-style:start */"
                     end = "/* nc-nested-horizontal-tabs-runtime-style:end */"
@@ -1053,7 +1621,7 @@ QTabWidget QStackedWidget {
                         before, rest = existing.split(start, 1)
                         _old, after = rest.split(end, 1)
                         existing = f"{before.rstrip()}\n{after.lstrip()}".strip()
-                    next_style = f"{existing}\n{style}".strip() if existing else style
+                    next_style = f"{existing}\n{tab_style}".strip() if existing else tab_style
                     if str(tabs.styleSheet() or "") != next_style:
                         tabs.setStyleSheet(next_style)
                     tabs.setProperty("_nc_nested_horizontal_tab_facing", True)
@@ -1104,6 +1672,295 @@ QTabWidget QStackedWidget {
                 host_layout.invalidate()
                 host_layout.activate()
                 host_tab.setProperty("_nc_preset_buttons_near_selector", True)
+                host_tab.updateGeometry()
+            except Exception:
+                pass
+
+    def _ensure_frontend_ai_presence_controls(self):
+            host_tab = self._ui("host_settings_host_tab", QtWidgets.QWidget)
+            if host_tab is None:
+                return
+            form = host_tab.findChild(QtWidgets.QFormLayout, "hostRuntimeForm")
+            host_layout = host_tab.layout()
+            if form is None or host_layout is None:
+                return
+            if bool(host_tab.property("_nc_ai_presence_controls_installed")):
+                return
+
+            try:
+                from ui.runtime.engine_access import RUNTIME_CONFIG
+            except Exception:
+                RUNTIME_CONFIG = {}
+            try:
+                from ui.widgets.basic import LabeledSlider, NoWheelComboBox
+            except Exception:
+                LabeledSlider = None
+                NoWheelComboBox = QtWidgets.QComboBox
+
+            def _select_combo_data(combo, value):
+                target = str(value or "").strip().lower()
+                for index in range(combo.count()):
+                    if str(combo.itemData(index) or "").strip().lower() == target:
+                        combo.setCurrentIndex(index)
+                        return
+
+            enabled_checkbox = QtWidgets.QCheckBox("Enable AI Presence Mode")
+            enabled_checkbox.setObjectName("ai_presence_enabled_checkbox")
+            enabled_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_enabled", False)))
+            enabled_checkbox.setToolTip("Show the native Qt Quick presence animation while the AI is thinking or speaking.")
+
+            display_mode_combo = NoWheelComboBox()
+            display_mode_combo.setObjectName("ai_presence_display_mode_combo")
+            display_mode_combo.setToolTip("Choose whether AI Presence is off, fullscreen, floating, or both.")
+            for label, value in [
+                ("Off", "off"),
+                ("Fullscreen", "fullscreen"),
+                ("Floating Window", "floating"),
+                ("Both", "both"),
+            ]:
+                display_mode_combo.addItem(label, value)
+            display_mode = str(RUNTIME_CONFIG.get("ai_presence_display_mode", "fullscreen") or "fullscreen").strip().lower()
+            if display_mode not in {"off", "fullscreen", "floating", "both"}:
+                display_mode = "fullscreen"
+            _select_combo_data(display_mode_combo, display_mode)
+
+            visual_style_combo = NoWheelComboBox()
+            visual_style_combo.setObjectName("ai_presence_visual_style_combo")
+            visual_style_combo.setToolTip("Select the AI Presence animation style.")
+            for label, value in [
+                ("Neural Network Pulse", "neural_network_pulse"),
+            ]:
+                visual_style_combo.addItem(label, value)
+            visual_style = str(RUNTIME_CONFIG.get("ai_presence_visual_style", "neural_network_pulse") or "neural_network_pulse").strip().lower()
+            _select_combo_data(visual_style_combo, visual_style)
+
+            fullscreen_checkbox = QtWidgets.QCheckBox("Fullscreen overlay")
+            fullscreen_checkbox.setObjectName("ai_presence_fullscreen_checkbox")
+            fullscreen_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_fullscreen", True)))
+            fullscreen_checkbox.setToolTip("Cover the active screen. Disable this to cover only the NC window.")
+
+            reduced_checkbox = QtWidgets.QCheckBox("Reduced effects")
+            reduced_checkbox.setObjectName("ai_presence_reduced_effects_checkbox")
+            reduced_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_reduced_effects", False)))
+            reduced_checkbox.setToolTip("Use fewer particles and slower animation updates.")
+
+            preview_button = QtWidgets.QPushButton("Show Fullscreen")
+            preview_button.setObjectName("ai_presence_preview_button")
+            preview_button.setToolTip("Show the AI Presence fullscreen overlay now. Shortcut: Ctrl+Alt+P.")
+
+            floating_button = QtWidgets.QPushButton("Show Floating")
+            floating_button.setObjectName("ai_presence_floating_button")
+            floating_button.setToolTip("Open the resizable floating AI Presence window.")
+
+            floating_top_checkbox = QtWidgets.QCheckBox("Floating always on top")
+            floating_top_checkbox.setObjectName("ai_presence_floating_always_on_top_checkbox")
+            floating_top_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_floating_always_on_top", True)))
+            floating_top_checkbox.setToolTip("Keep the floating presence window above other windows.")
+
+            remember_floating_checkbox = QtWidgets.QCheckBox("Remember floating size")
+            remember_floating_checkbox.setObjectName("ai_presence_remember_floating_geometry_checkbox")
+            remember_floating_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_remember_floating_geometry", True)))
+            remember_floating_checkbox.setToolTip("Remember the floating window position and size.")
+
+            transparent_checkbox = QtWidgets.QCheckBox("Transparent background")
+            transparent_checkbox.setObjectName("ai_presence_transparent_background_checkbox")
+            transparent_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_transparent_background", False)))
+            transparent_checkbox.setToolTip("Make AI Presence render without a painted background. The floating window stays frameless either way.")
+
+            shaders_checkbox = QtWidgets.QCheckBox("Soft glow")
+            shaders_checkbox.setObjectName("ai_presence_shaders_enabled_checkbox")
+            shaders_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_shaders_enabled", True)))
+            shaders_checkbox.setToolTip("Use soft glow backgrounds when available.")
+
+            particles_checkbox = QtWidgets.QCheckBox("Particles")
+            particles_checkbox.setObjectName("ai_presence_particles_enabled_checkbox")
+            particles_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_particles_enabled", True)))
+            particles_checkbox.setToolTip("Show small moving particles around the presence animation.")
+
+            space_checkbox = QtWidgets.QCheckBox("Space exits fullscreen")
+            space_checkbox.setObjectName("ai_presence_space_closes_fullscreen_checkbox")
+            space_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_space_closes_fullscreen", True)))
+            space_checkbox.setToolTip("Escape or mouse click hides fullscreen. Enable this to let Space hide it too.")
+
+            music_sync_checkbox = QtWidgets.QCheckBox("Computer audio sync")
+            music_sync_checkbox.setObjectName("ai_presence_music_reactivity_enabled_checkbox")
+            music_sync_checkbox.setChecked(bool(RUNTIME_CONFIG.get("ai_presence_music_reactivity_enabled", False)))
+            music_sync_checkbox.setToolTip("React the outer AI Presence animation to desktop/music output when WASAPI loopback is available.")
+
+            row_widget = QtWidgets.QWidget()
+            row_widget.setObjectName("ai_presence_frontend_row")
+            row_layout = QtWidgets.QHBoxLayout(row_widget)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(10)
+            row_layout.addWidget(enabled_checkbox)
+            row_layout.addWidget(fullscreen_checkbox)
+            row_layout.addWidget(reduced_checkbox)
+            row_layout.addWidget(preview_button)
+            row_layout.addWidget(floating_button)
+            row_layout.addStretch(1)
+
+            try:
+                form.insertRow(min(4, max(0, form.rowCount())), "AI Presence", row_widget)
+            except Exception:
+                form.addRow("AI Presence", row_widget)
+
+            group = QtWidgets.QGroupBox("AI PRESENCE MODE")
+            group.setObjectName("ai_presence_runtime_box")
+            group.setToolTip("Native QML overlay settings for thinking and speaking presence.")
+            group_layout = QtWidgets.QVBoxLayout(group)
+            group_layout.setContentsMargins(12, 14, 12, 12)
+            group_layout.setSpacing(8)
+
+            selector_grid = QtWidgets.QGridLayout()
+            selector_grid.setContentsMargins(0, 0, 0, 0)
+            selector_grid.setHorizontalSpacing(10)
+            selector_grid.setVerticalSpacing(6)
+            selector_grid.addWidget(QtWidgets.QLabel("Display"), 0, 0)
+            selector_grid.addWidget(display_mode_combo, 0, 1)
+            selector_grid.addWidget(QtWidgets.QLabel("Style"), 0, 2)
+            selector_grid.addWidget(visual_style_combo, 0, 3)
+            selector_grid.setColumnStretch(1, 1)
+            selector_grid.setColumnStretch(3, 1)
+            group_layout.addLayout(selector_grid)
+
+            options_row = QtWidgets.QHBoxLayout()
+            options_row.setSpacing(10)
+            options_row.addWidget(floating_top_checkbox)
+            options_row.addWidget(remember_floating_checkbox)
+            options_row.addWidget(transparent_checkbox)
+            options_row.addWidget(shaders_checkbox)
+            options_row.addWidget(particles_checkbox)
+            options_row.addWidget(music_sync_checkbox)
+            options_row.addWidget(space_checkbox)
+            options_row.addStretch(1)
+            group_layout.addLayout(options_row)
+
+            sliders = []
+            if LabeledSlider is not None:
+                opacity_slider = LabeledSlider("Opacity", 0.10, 1.00, float(RUNTIME_CONFIG.get("ai_presence_overlay_opacity", 0.72) or 0.72))
+                opacity_slider.setObjectName("ai_presence_opacity_slider")
+                thinking_slider = LabeledSlider("Thinking Pulse", 0.10, 1.00, float(RUNTIME_CONFIG.get("ai_presence_thinking_pulse", 0.55) or 0.55))
+                thinking_slider.setObjectName("ai_presence_thinking_slider")
+                speaking_slider = LabeledSlider("Speaking Reactivity", 0.10, 1.50, float(RUNTIME_CONFIG.get("ai_presence_speaking_reactivity", 0.85) or 0.85))
+                speaking_slider.setObjectName("ai_presence_speaking_slider")
+                audio_refresh_slider = LabeledSlider("Audio Sync Rate", 5, 30, int(RUNTIME_CONFIG.get("ai_presence_audio_refresh_hz", 30) or 30), is_int=True)
+                audio_refresh_slider.setObjectName("ai_presence_audio_refresh_slider")
+                audio_refresh_slider.setToolTip("How many audio-level updates per second are sent to AI Presence while speech is playing.")
+                density_slider = LabeledSlider("Neural Node Density", 8, 96, int(RUNTIME_CONFIG.get("ai_presence_node_density", 32) or 32), is_int=True)
+                density_slider.setObjectName("ai_presence_density_slider")
+                floating_opacity_slider = LabeledSlider("Floating Opacity", 0.35, 1.00, float(RUNTIME_CONFIG.get("ai_presence_floating_opacity", 0.92) or 0.92))
+                floating_opacity_slider.setObjectName("ai_presence_floating_opacity_slider")
+                particle_density_slider = LabeledSlider("Particle Density", 0, 120, int(RUNTIME_CONFIG.get("ai_presence_particle_density", 28) or 28), is_int=True)
+                particle_density_slider.setObjectName("ai_presence_particle_density_slider")
+                music_reactivity_slider = LabeledSlider("Music Reactivity", 0.00, 1.50, float(RUNTIME_CONFIG.get("ai_presence_music_reactivity", 0.65)))
+                music_reactivity_slider.setObjectName("ai_presence_music_reactivity_slider")
+                music_reactivity_slider.setToolTip("How strongly computer/music output moves the outer AI Presence animation.")
+                sliders = [
+                    ("ai_presence_overlay_opacity", opacity_slider, float),
+                    ("ai_presence_thinking_pulse", thinking_slider, float),
+                    ("ai_presence_speaking_reactivity", speaking_slider, float),
+                    ("ai_presence_audio_refresh_hz", audio_refresh_slider, int),
+                    ("ai_presence_node_density", density_slider, int),
+                    ("ai_presence_floating_opacity", floating_opacity_slider, float),
+                    ("ai_presence_particle_density", particle_density_slider, int),
+                    ("ai_presence_music_reactivity", music_reactivity_slider, float),
+                ]
+                grid = QtWidgets.QGridLayout()
+                grid.setContentsMargins(0, 0, 0, 0)
+                grid.setHorizontalSpacing(12)
+                grid.setVerticalSpacing(8)
+                grid.addWidget(opacity_slider, 0, 0)
+                grid.addWidget(thinking_slider, 0, 1)
+                grid.addWidget(speaking_slider, 1, 0)
+                grid.addWidget(audio_refresh_slider, 1, 1)
+                grid.addWidget(density_slider, 2, 0)
+                grid.addWidget(particle_density_slider, 2, 1)
+                grid.addWidget(floating_opacity_slider, 3, 0)
+                grid.addWidget(music_reactivity_slider, 3, 1)
+                group_layout.addLayout(grid)
+
+            status = QtWidgets.QLabel("Fullscreen appears during thinking/speaking. Escape or mouse click hides fullscreen. Floating Window can be resized.")
+            status.setObjectName("ai_presence_status_label")
+            status.setWordWrap(True)
+            status.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            group_layout.addWidget(status)
+
+            try:
+                insert_index = 0
+                for index in range(host_layout.count()):
+                    item = host_layout.itemAt(index)
+                    if item is not None and item.layout() is form:
+                        insert_index = index + 1
+                        break
+                host_layout.insertWidget(insert_index, group)
+            except Exception:
+                host_layout.addWidget(group)
+
+            backend = getattr(self, "backend", None)
+            if backend is not None:
+                try:
+                    backend.ai_presence_enabled_checkbox = enabled_checkbox
+                    backend.ai_presence_display_mode_combo = display_mode_combo
+                    backend.ai_presence_visual_style_combo = visual_style_combo
+                    backend.ai_presence_fullscreen_checkbox = fullscreen_checkbox
+                    backend.ai_presence_reduced_effects_checkbox = reduced_checkbox
+                    backend.ai_presence_preview_button = preview_button
+                    backend.ai_presence_floating_button = floating_button
+                    backend.ai_presence_floating_always_on_top_checkbox = floating_top_checkbox
+                    backend.ai_presence_remember_floating_geometry_checkbox = remember_floating_checkbox
+                    backend.ai_presence_transparent_background_checkbox = transparent_checkbox
+                    backend.ai_presence_shaders_enabled_checkbox = shaders_checkbox
+                    backend.ai_presence_particles_enabled_checkbox = particles_checkbox
+                    backend.ai_presence_space_closes_fullscreen_checkbox = space_checkbox
+                    backend.ai_presence_music_reactivity_enabled_checkbox = music_sync_checkbox
+                    backend.ai_presence_status_label = status
+                    if sliders:
+                        backend.ai_presence_opacity_slider = sliders[0][1]
+                        backend.ai_presence_thinking_slider = sliders[1][1]
+                        backend.ai_presence_speaking_slider = sliders[2][1]
+                        backend.ai_presence_audio_refresh_slider = sliders[3][1]
+                        backend.ai_presence_density_slider = sliders[4][1]
+                        backend.ai_presence_floating_opacity_slider = sliders[5][1]
+                        backend.ai_presence_particle_density_slider = sliders[6][1]
+                        backend.ai_presence_music_reactivity_slider = sliders[7][1]
+                    if hasattr(backend, "on_ai_presence_enabled_changed"):
+                        enabled_checkbox.toggled.connect(backend.on_ai_presence_enabled_changed)
+                    if hasattr(backend, "on_ai_presence_preview_requested"):
+                        preview_button.clicked.connect(backend.on_ai_presence_preview_requested)
+                        shortcut_parent = host_tab.window()
+                        if shortcut_parent is not None and getattr(shortcut_parent, "_ai_presence_preview_shortcut", None) is None:
+                            try:
+                                shortcut = QtGui.QShortcut(QtGui.QKeySequence("Ctrl+Alt+P"), shortcut_parent)
+                                shortcut.setObjectName("ai_presence_preview_shortcut")
+                                shortcut.activated.connect(backend.on_ai_presence_preview_requested)
+                                shortcut_parent._ai_presence_preview_shortcut = shortcut
+                            except Exception:
+                                pass
+                    if hasattr(backend, "on_ai_presence_show_floating_requested"):
+                        floating_button.clicked.connect(backend.on_ai_presence_show_floating_requested)
+                    if hasattr(backend, "on_ai_presence_display_mode_changed"):
+                        display_mode_combo.currentIndexChanged.connect(lambda _index: backend.on_ai_presence_display_mode_changed(display_mode_combo.currentData()))
+                    if hasattr(backend, "on_ai_presence_visual_style_changed"):
+                        visual_style_combo.currentIndexChanged.connect(lambda _index: backend.on_ai_presence_visual_style_changed(visual_style_combo.currentData()))
+                    if hasattr(backend, "on_ai_presence_setting_changed"):
+                        fullscreen_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_fullscreen", bool(checked)))
+                        reduced_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_reduced_effects", bool(checked)))
+                        floating_top_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_floating_always_on_top", bool(checked)))
+                        remember_floating_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_remember_floating_geometry", bool(checked)))
+                        transparent_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_transparent_background", bool(checked)))
+                        shaders_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_shaders_enabled", bool(checked)))
+                        particles_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_particles_enabled", bool(checked)))
+                        music_sync_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_music_reactivity_enabled", bool(checked)))
+                        space_checkbox.toggled.connect(lambda checked: backend.on_ai_presence_setting_changed("ai_presence_space_closes_fullscreen", bool(checked)))
+                        for key, slider, caster in sliders:
+                            slider.value_changed.connect(lambda value, setting_key=key, value_type=caster: backend.on_ai_presence_setting_changed(setting_key, value_type(value)))
+                except Exception:
+                    pass
+
+            host_tab.setProperty("_nc_ai_presence_controls_installed", True)
+            try:
+                host_layout.invalidate()
+                host_layout.activate()
                 host_tab.updateGeometry()
             except Exception:
                 pass
@@ -1184,6 +2041,65 @@ QTabWidget QStackedWidget {
 
     def _resync_frontend_runtime_cards(self):
             self._frontend_runtime_cards_resync_pending = False
+            self._run_frontend_runtime_layout_pass()
+
+    def _run_frontend_runtime_layout_pass(self):
+            self._frontend_runtime_layout_pass_pending = False
+            if self._frontend_runtime_layout_pass_is_suppressed():
+                return
+            container = getattr(self, "_frontend_runtime_tab_container", None) or self._ui_object("runtime_section_tabs")
+            updates_enabled = True
+            try:
+                updates_enabled = bool(container.updatesEnabled()) if container is not None else True
+            except Exception:
+                updates_enabled = True
+            try:
+                if container is not None:
+                    container.setUpdatesEnabled(False)
+                self._normalize_frontend_runtime_section_layouts()
+                self._normalize_frontend_tts_runtime_layout()
+                self._stabilize_frontend_chat_provider_field_widths()
+                stack = getattr(self, "_frontend_runtime_tab_stack", None)
+                if stack is not None:
+                    page = stack.currentWidget()
+                    if page is not None:
+                        self._refresh_frontend_runtime_group_region(page)
+            finally:
+                try:
+                    if container is not None:
+                        container.setUpdatesEnabled(updates_enabled)
+                        container.update()
+                except Exception:
+                    pass
+
+    def _schedule_frontend_runtime_layout_pass(self, delay_ms=40):
+            if self._frontend_runtime_layout_pass_is_suppressed():
+                return
+            if bool(getattr(self, "_frontend_runtime_layout_pass_pending", False)):
+                return
+            self._frontend_runtime_layout_pass_pending = True
+            try:
+                QtCore.QTimer.singleShot(max(0, int(delay_ms or 0)), self._run_frontend_runtime_layout_pass)
+            except Exception:
+                self._frontend_runtime_layout_pass_pending = False
+
+    def _suppress_frontend_runtime_layout_pass(self, duration_ms=220):
+            try:
+                now = int(QtCore.QDateTime.currentMSecsSinceEpoch())
+                until = now + max(0, int(duration_ms or 0))
+                current_until = int(getattr(self, "_frontend_runtime_layout_pass_suppressed_until", 0) or 0)
+                self._frontend_runtime_layout_pass_suppressed_until = max(current_until, until)
+            except Exception:
+                pass
+
+    def _frontend_runtime_layout_pass_is_suppressed(self):
+            try:
+                until = int(getattr(self, "_frontend_runtime_layout_pass_suppressed_until", 0) or 0)
+                return bool(until and int(QtCore.QDateTime.currentMSecsSinceEpoch()) < until)
+            except Exception:
+                return False
+
+    def _resync_frontend_runtime_cards_legacy(self):
             backend = getattr(self, "backend", None)
             if backend is not None:
                 for callback_name in ("_sync_chat_provider_generation_fields_height", "_sync_tts_runtime_fields_height"):
@@ -1523,6 +2439,10 @@ QTabWidget QStackedWidget {
                         floating_geometry.height(),
                     ],
                 }
+                if bool(dock.property("nc_workspace_dock_custom_title")):
+                    title = str(dock.windowTitle() or "").strip()
+                    if title:
+                        docks[object_name]["title"] = title
             return docks
 
     def _save_frontend_layout_state(self):
@@ -1564,7 +2484,7 @@ QTabWidget QStackedWidget {
             payload = self._load_frontend_session_payload()
             layout_state = payload.get(self.FRONTEND_LAYOUT_SESSION_KEY)
             if not isinstance(layout_state, dict):
-                return
+                return False
             self._pending_frontend_layout_state = dict(layout_state)
             self._restoring_frontend_layout = True
             try:
@@ -1602,6 +2522,10 @@ QTabWidget QStackedWidget {
                         if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                             continue
                         try:
+                            title = str(dock_state.get("title") or "").strip()
+                            if title:
+                                dock.setProperty("nc_workspace_dock_custom_title", True)
+                                dock.setWindowTitle(title)
                             dock.setFloating(bool(dock_state.get("floating", False)))
                             if dock.isFloating():
                                 geometry = dock_state.get("floating_geometry") or dock_state.get("geometry")
@@ -1621,6 +2545,7 @@ QTabWidget QStackedWidget {
                 QtCore.QTimer.singleShot(900, self._restore_frontend_dock_geometry_pass)
             finally:
                 self._restoring_frontend_layout = False
+            return True
 
     def _saved_frontend_dock_states(self):
             layout_state = getattr(self, "_pending_frontend_layout_state", None)
@@ -1652,6 +2577,10 @@ QTabWidget QStackedWidget {
                     if dock is None or not isinstance(dock, QtWidgets.QDockWidget) or not isinstance(dock_state, dict):
                         continue
                     try:
+                        title = str(dock_state.get("title") or "").strip()
+                        if title:
+                            dock.setProperty("nc_workspace_dock_custom_title", True)
+                            dock.setWindowTitle(title)
                         visible = bool(dock_state.get("visible", True))
                         floating = bool(dock_state.get("floating", False))
                         dock.setVisible(visible)
@@ -2003,7 +2932,7 @@ QTabWidget QStackedWidget {
                     dock.installEventFilter(self)
                 except Exception:
                     pass
-                for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged"):
+                for signal_name in ("topLevelChanged", "visibilityChanged", "dockLocationChanged", "windowTitleChanged"):
                     signal = getattr(dock, signal_name, None)
                     if signal is None:
                         continue
@@ -2083,12 +3012,12 @@ QTabWidget QStackedWidget {
             menu.clear()
             seen = set()
             for object_name, label in (
-                ("WorkspaceTabsDock", "Workspace Tabs"),
-                ("SystemShapingDock", "System Shaping"),
-                ("MuseTalkPreviewDock", "MuseTalk"),
-                ("PreviewDock", "MuseTalk"),
-                ("OperationalViewDock", "Operational View"),
-                ("VisualReplyDock", "Visual Reply"),
+                ("SystemShapingDock", "HOST"),
+                ("OperationalViewDock", "CHAT WINDOW"),
+                ("WorkspaceTabsDock", "ADDONS"),
+                ("VisualReplyDock", "VISUAL REPLY"),
+                ("MuseTalkPreviewDock", "MUSETALK"),
+                ("PreviewDock", "MUSETALK"),
             ):
                 if object_name in seen or not self._frontend_dock_addon_enabled(object_name):
                     continue
@@ -2099,10 +3028,11 @@ QTabWidget QStackedWidget {
                     action = dock.toggleViewAction()
                     if action is None:
                         continue
-                    action.setText(label)
+                    title = str(dock.windowTitle() or "").strip() or label
+                    action.setText(title)
                     menu.addAction(action)
                     seen.add(object_name)
-                    if label == "MuseTalk":
+                    if object_name in {"MuseTalkPreviewDock", "PreviewDock"}:
                         seen.add("MuseTalkPreviewDock")
                         seen.add("PreviewDock")
                 except Exception:
@@ -2119,18 +3049,22 @@ QTabWidget QStackedWidget {
     def _frontend_workspace_docks(self):
             names = [
                 "SystemShapingDock",
-                "WorkspaceTabsDock",
                 "OperationalViewDock",
-                "MuseTalkPreviewDock",
-                "PreviewDock",
+                "WorkspaceTabsDock",
             ]
             if self._frontend_dock_addon_enabled("VisualReplyDock"):
                 names.append("VisualReplyDock")
+            names.extend(("MuseTalkPreviewDock", "PreviewDock"))
             docks = []
+            preview_seen = False
             for object_name in names:
+                if object_name in {"MuseTalkPreviewDock", "PreviewDock"} and preview_seen:
+                    continue
                 dock = self._ui_object(object_name)
                 if dock is not None and isinstance(dock, QtWidgets.QDockWidget):
                     docks.append(dock)
+                    if object_name in {"MuseTalkPreviewDock", "PreviewDock"}:
+                        preview_seen = True
             return docks
 
     def _frontend_dock_addon_enabled(self, object_name):
@@ -2184,6 +3118,63 @@ QTabWidget QStackedWidget {
             self.window.addDockWidget(area, dock)
             dock.show()
 
+    def _default_frontend_workspace_dock_title(self, dock):
+            object_name = str(dock.objectName() or "").strip() if dock is not None else ""
+            defaults_provider = getattr(self, "_frontend_workspace_default_dock_titles", None)
+            defaults = defaults_provider() if callable(defaults_provider) else {}
+            return str(defaults.get(object_name) or dock.windowTitle() or object_name or "Panel").strip()
+
+    def _apply_frontend_default_workspace_layout(self, *, save=False, reset_titles=True):
+            docks = self._frontend_workspace_docks()
+            if not docks:
+                return False
+            anchor = docks[0]
+            self._restoring_frontend_layout = True
+            updates_enabled = True
+            try:
+                updates_enabled = bool(self.window.updatesEnabled())
+            except Exception:
+                updates_enabled = True
+            try:
+                self.window.setUpdatesEnabled(False)
+            except Exception:
+                pass
+            try:
+                for dock in docks:
+                    try:
+                        if reset_titles:
+                            dock.setProperty("nc_workspace_dock_custom_title", False)
+                            dock.setWindowTitle(self._default_frontend_workspace_dock_title(dock))
+                        self._move_frontend_workspace_dock(dock, QtCore.Qt.LeftDockWidgetArea)
+                    except Exception:
+                        continue
+                for dock in docks[1:]:
+                    try:
+                        if dock not in self.window.tabifiedDockWidgets(anchor):
+                            self.window.tabifyDockWidget(anchor, dock)
+                    except Exception:
+                        continue
+                try:
+                    anchor.show()
+                    anchor.raise_()
+                except Exception:
+                    pass
+            finally:
+                try:
+                    self.window.setUpdatesEnabled(updates_enabled)
+                except Exception:
+                    pass
+                self._restoring_frontend_layout = False
+
+            self._apply_frontend_workspace_view_constraints()
+            self._enforce_disabled_frontend_workspace_docks()
+            refresher = getattr(self, "_schedule_frontend_workspace_dock_tab_refresh", None)
+            if callable(refresher):
+                refresher()
+            if save:
+                self._save_frontend_layout_state()
+            return True
+
     def show_all_frontend_workspace_panels(self):
             if not self._begin_frontend_workspace_layout_operation("Show All Panels"):
                 return
@@ -2201,44 +3192,11 @@ QTabWidget QStackedWidget {
     def reset_frontend_workspace_layout(self):
             if not self._begin_frontend_workspace_layout_operation("Reset Workspace Layout"):
                 return
-            self._restoring_frontend_layout = True
-            try:
-                system_dock = self._ui_object("SystemShapingDock")
-                workspace_dock = self._ui_object("WorkspaceTabsDock")
-                operational_dock = self._ui_object("OperationalViewDock")
-                preview_dock = self._ui_object("MuseTalkPreviewDock") or self._ui_object("PreviewDock")
-                visual_dock = None
-                checker = getattr(self, "_visual_reply_addon_enabled", None)
-                if not callable(checker) or bool(checker()):
-                    visual_dock = self._ui_object("VisualReplyDock")
-
-                left_docks = [dock for dock in (system_dock, workspace_dock) if isinstance(dock, QtWidgets.QDockWidget)]
-                right_docks = [dock for dock in (operational_dock, preview_dock, visual_dock) if isinstance(dock, QtWidgets.QDockWidget)]
-
-                for dock in left_docks:
-                    self._move_frontend_workspace_dock(dock, QtCore.Qt.LeftDockWidgetArea)
-                for dock in right_docks:
-                    self._move_frontend_workspace_dock(dock, QtCore.Qt.RightDockWidgetArea)
-
-                # Avoid forcing tab groups during reset. With Designer-loaded
-                # docks and live adopted widgets, rapid re-tabification can
-                # crash in Qt's native docking code. Users can still dock/tab
-                # panels manually after reset.
-                for dock in left_docks + right_docks:
-                    try:
-                        dock.raise_()
-                    except Exception:
-                        pass
-            finally:
-                self._restoring_frontend_layout = False
-
-            self._apply_frontend_workspace_view_constraints()
-            self._enforce_disabled_frontend_workspace_docks()
-            self._save_frontend_layout_state()
+            self._apply_frontend_default_workspace_layout(save=True)
             print("[UI Real] Workspace layout reset.")
 
     def _bind_frontend_workspace_constraint_hooks(self):
-            for object_name in ("SystemShapingDock", "WorkspaceTabsDock", "OperationalViewDock", "PreviewDock", "VisualReplyDock"):
+            for object_name in ("SystemShapingDock", "WorkspaceTabsDock", "OperationalViewDock", "MuseTalkPreviewDock", "PreviewDock", "VisualReplyDock"):
                 dock = self._ui_object(object_name)
                 if dock is None or not hasattr(dock, "topLevelChanged"):
                     continue
@@ -2283,9 +3241,38 @@ QTabWidget QStackedWidget {
                 if layout is None:
                     continue
                 try:
-                    layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.ExpandingFieldsGrow)
+                    layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
                 except Exception:
                     pass
+            self._stabilize_frontend_chat_provider_field_widths()
+
+    def _stabilize_frontend_chat_provider_field_widths(self):
+            settings_widget = self._ui_object("chat_provider_fields_widget")
+            if settings_widget is not None:
+                layout = settings_widget.layout() if hasattr(settings_widget, "layout") else None
+                if isinstance(layout, QtWidgets.QFormLayout):
+                    try:
+                        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+                    except Exception:
+                        pass
+                try:
+                    for editor in settings_widget.findChildren(QtWidgets.QLineEdit):
+                        editor.setMinimumWidth(360)
+                        editor.setMaximumWidth(720)
+                        policy = editor.sizePolicy()
+                        policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Preferred)
+                        policy.setVerticalPolicy(QtWidgets.QSizePolicy.Fixed)
+                        editor.setSizePolicy(policy)
+                except Exception:
+                    pass
+            generation_widget = self._ui_object("chat_provider_generation_fields_widget")
+            if generation_widget is not None:
+                layout = generation_widget.layout() if hasattr(generation_widget, "layout") else None
+                if isinstance(layout, QtWidgets.QFormLayout):
+                    try:
+                        layout.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+                    except Exception:
+                        pass
 
     def _runtime_combo_options(self, combo, fallback_label):
             options = []
@@ -2405,6 +3392,12 @@ QTabWidget QStackedWidget {
             if tabs is None:
                 return -1
             current = self._runtime_combo_current_value(combo)
+            return self._runtime_tab_index_for_value(tabs, current, fallback_first=True)
+
+    def _runtime_tab_index_for_value(self, tabs, value, *, fallback_first=False):
+            if tabs is None:
+                return -1
+            current = str(value or "").strip().lower()
             try:
                 count = int(tabs.count())
             except Exception:
@@ -2429,7 +3422,7 @@ QTabWidget QStackedWidget {
                         return index
                 except Exception:
                     pass
-            return 0 if count else -1
+            return 0 if fallback_first and count else -1
 
     def _set_combo_to_runtime_tab_value(self, combo, tabs, tab_index):
             if combo is None or tabs is None:
@@ -2597,6 +3590,361 @@ QTabWidget QStackedWidget {
                         tab_bar.setTabTextColor(index, color)
                     except Exception:
                         pass
+            try:
+                self._refresh_active_runtime_label_for_tabs(tabs)
+            except Exception:
+                pass
+
+    def _runtime_active_provider_label_text(self, combo_name, title, *, label_getter_name=None):
+            combo = self._ui_object(combo_name)
+            runtime_label = ""
+            if combo is not None:
+                try:
+                    runtime_label = str(combo.currentText() or "").strip()
+                except Exception:
+                    runtime_label = ""
+            if not runtime_label and label_getter_name:
+                runtime_value = self._runtime_combo_current_value(combo)
+                backend = getattr(self, "backend", None)
+                label_getter = getattr(backend, label_getter_name, None)
+                if callable(label_getter):
+                    try:
+                        runtime_label = str(label_getter(runtime_value) or "").strip()
+                    except Exception:
+                        runtime_label = ""
+            runtime_label = runtime_label or "None"
+            return f"<b>{html.escape(str(title or 'Active provider'))}</b> {html.escape(runtime_label)}"
+
+    def _refresh_runtime_active_provider_label(self, label_name, combo_name, title, *, label_getter_name=None):
+            label = self._ui_object(label_name)
+            if label is None:
+                return
+            try:
+                label.setText(
+                    self._runtime_active_provider_label_text(
+                        combo_name,
+                        title,
+                        label_getter_name=label_getter_name,
+                    )
+                )
+                label.setTextFormat(QtCore.Qt.RichText)
+                label.setVisible(True)
+            except Exception:
+                pass
+
+    def _refresh_active_runtime_label_for_tabs(self, tabs):
+            try:
+                object_name = str(tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            if object_name == "chat_runtime_provider_tabs":
+                self._refresh_chat_runtime_active_provider_label()
+            elif object_name == "stt_runtime_backend_tabs":
+                self._refresh_stt_runtime_active_provider_label()
+            elif object_name == "visual_reply_runtime_provider_tabs":
+                self._refresh_visual_reply_runtime_active_provider_label()
+
+    def _refresh_chat_runtime_active_provider_label(self):
+            self._refresh_runtime_active_provider_label(
+                "chat_runtime_active_provider_label",
+                "chat_provider_combo",
+                "Active LLM provider",
+                label_getter_name="_chat_provider_label_from_value",
+            )
+            self._refresh_runtime_provider_setup_card("llm")
+
+    def _refresh_stt_runtime_active_provider_label(self):
+            self._refresh_runtime_active_provider_label(
+                "stt_runtime_active_provider_label",
+                "stt_backend_combo",
+                "Active STT provider",
+                label_getter_name="_stt_backend_label_for",
+            )
+            self._refresh_runtime_provider_setup_card("stt")
+
+    def _refresh_tts_runtime_active_provider_label(self):
+            self._refresh_runtime_active_provider_label(
+                "tts_runtime_active_provider_label",
+                "tts_backend_combo",
+                "Active TTS provider",
+                label_getter_name="_tts_backend_label_from_value",
+            )
+            self._refresh_runtime_provider_setup_card("tts")
+
+    def _refresh_visual_reply_runtime_active_provider_label(self):
+            self._refresh_runtime_active_provider_label(
+                "visual_reply_runtime_active_provider_label",
+                "visual_reply_provider_combo",
+                "Active Visual Reply provider",
+                label_getter_name="_visual_reply_provider_label_from_value",
+            )
+            self._refresh_runtime_provider_setup_card("visual")
+
+    def _activate_runtime_provider_tab_value(self, tabs, combo, value):
+            if tabs is None or combo is None:
+                return
+            target = str(value or "").strip().lower()
+            if not target:
+                return
+            try:
+                count = int(combo.count())
+            except Exception:
+                count = 0
+            target_index = -1
+            for index in range(count):
+                try:
+                    data = combo.itemData(index)
+                    item_value = str(data if data is not None else combo.itemText(index)).strip().lower()
+                except Exception:
+                    item_value = ""
+                if item_value == target:
+                    target_index = index
+                    break
+            if target_index < 0:
+                return
+            try:
+                object_name = str(tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            direct_activation = object_name in {
+                "chat_runtime_provider_tabs",
+                "stt_runtime_backend_tabs",
+                "tts_runtime_addon_tabs",
+            }
+            update_state = None
+            try:
+                self._suppress_frontend_runtime_layout_pass(320)
+                if bool(tabs.property("_nc_smooth_provider_switch")):
+                    try:
+                        update_state = bool(tabs.updatesEnabled())
+                        tabs.setUpdatesEnabled(False)
+                    except Exception:
+                        update_state = None
+                self._runtime_provider_tab_activation_in_progress = True
+                self._runtime_provider_tab_browse_in_progress = False
+                if combo.currentIndex() != target_index and direct_activation:
+                    self._set_combo_index_without_signals(combo, target_index)
+                elif combo.currentIndex() != target_index:
+                    combo.setCurrentIndex(target_index)
+                else:
+                    self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                    self._refresh_active_runtime_label_for_tabs(tabs)
+                if direct_activation:
+                    self._apply_runtime_provider_activation_value(tabs, combo, target_index, target)
+                    self._select_runtime_provider_tab_for_activation(tabs, combo, target)
+                self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                self._refresh_active_runtime_label_for_tabs(tabs)
+                self._refresh_runtime_provider_setup_for_tabs(tabs)
+                self._refresh_frontend_runtime_tab_buttons()
+                QtCore.QTimer.singleShot(0, lambda: setattr(self, "_runtime_provider_tab_activation_in_progress", False))
+                if update_state is not None:
+                    QtCore.QTimer.singleShot(0, lambda tabs=tabs, state=update_state: self._finish_runtime_provider_activation_update(tabs, state))
+            except Exception:
+                self._runtime_provider_tab_activation_in_progress = False
+                if update_state is not None:
+                    self._finish_runtime_provider_activation_update(tabs, update_state)
+                pass
+
+    def _select_runtime_provider_tab_for_activation(self, tabs, combo, value):
+            index = self._runtime_tab_index_for_value(tabs, value)
+            if index < 0:
+                return
+            content = getattr(tabs, "_nc_runtime_active_content", None)
+            if content is not None:
+                self._move_runtime_provider_content_to_active_tab(
+                    tabs,
+                    combo,
+                    content,
+                    select_tab=True,
+                    sync_combo_on_tab_change=False,
+                    tab_index=index,
+                )
+                return
+            try:
+                if tabs.currentIndex() != index:
+                    blocker = QtCore.QSignalBlocker(tabs)
+                    tabs.setCurrentIndex(index)
+                    del blocker
+            except Exception:
+                pass
+            try:
+                if str(tabs.objectName() or "") == "tts_runtime_addon_tabs":
+                    self._sync_frontend_tts_runtime_tab_height(tabs)
+                else:
+                    self._sync_runtime_provider_tabs_height(tabs)
+            except Exception:
+                pass
+
+    def _finish_runtime_provider_activation_update(self, tabs, updates_enabled):
+            try:
+                tabs.setUpdatesEnabled(bool(updates_enabled))
+                if updates_enabled:
+                    tabs.update()
+            except Exception:
+                pass
+
+    def _set_combo_index_without_signals(self, combo, index):
+            if combo is None:
+                return
+            try:
+                blocker = QtCore.QSignalBlocker(combo)
+                combo.setCurrentIndex(int(index))
+                del blocker
+            except Exception:
+                pass
+
+    def _set_named_combo_value_without_signals(self, object_name, value):
+            widget = None
+            getter = getattr(self, "_backend_widget", None)
+            if callable(getter):
+                try:
+                    widget = getter(object_name)
+                except Exception:
+                    widget = None
+            if widget is None:
+                widget = getattr(getattr(self, "backend", None), object_name, None)
+            if widget is None or not hasattr(widget, "setCurrentIndex"):
+                return
+            target = str(value or "").strip().lower()
+            target_index = -1
+            try:
+                count = int(widget.count())
+            except Exception:
+                count = 0
+            for index in range(count):
+                try:
+                    data = widget.itemData(index) if hasattr(widget, "itemData") else None
+                    item_value = str(data if data is not None else widget.itemText(index)).strip().lower()
+                except Exception:
+                    item_value = ""
+                if item_value == target:
+                    target_index = index
+                    break
+            if target_index >= 0:
+                self._set_combo_index_without_signals(widget, target_index)
+
+    def _apply_runtime_provider_activation_value(self, tabs, combo, target_index, value):
+            try:
+                object_name = str(tabs.objectName() or "")
+            except Exception:
+                object_name = ""
+            target = str(value or "").strip().lower()
+            if not target:
+                return
+            backend = getattr(self, "backend", None)
+            try:
+                from ui.runtime.engine_access import engine_module, update_runtime_config
+            except Exception:
+                engine_module = None
+                update_runtime_config = None
+
+            if object_name == "chat_runtime_provider_tabs":
+                self._set_named_combo_value_without_signals("chat_provider_combo", target)
+                if callable(update_runtime_config):
+                    update_runtime_config("chat_provider", target)
+                state = {}
+                sync_state = getattr(backend, "_sync_active_provider_model_state_to_runtime", None)
+                if callable(sync_state):
+                    try:
+                        state = dict(sync_state(target) or {})
+                    except Exception:
+                        state = {}
+                try:
+                    setattr(backend, "_pending_restored_model_name", str((state or {}).get("model_name") or "").strip())
+                except Exception:
+                    pass
+                for callback_name in ("_refresh_chat_runtime_summary", "save_session"):
+                    callback = getattr(backend, callback_name, None)
+                    if callable(callback):
+                        try:
+                            callback()
+                        except Exception:
+                            pass
+                return
+
+            if object_name == "stt_runtime_backend_tabs":
+                self._set_named_combo_value_without_signals("stt_backend_combo", target)
+                if callable(update_runtime_config):
+                    update_runtime_config("stt_backend", target)
+                try:
+                    settings = dict(getattr(backend, "_stt_backend_settings_for")(target) or {})
+                except Exception:
+                    settings = {}
+                try:
+                    model = str(settings.get("model_size") or backend._stt_backend_default_model_value(target)).strip()
+                except Exception:
+                    model = ""
+                try:
+                    language = settings.get("language")
+                    if language is None:
+                        language = backend._stt_backend_default_language_value(target)
+                    from core.stt_runtime import normalize_whisper_language
+                    language = normalize_whisper_language(language) or ""
+                except Exception:
+                    language = ""
+                try:
+                    if callable(update_runtime_config) and backend._stt_backend_has_model_settings(target):
+                        update_runtime_config("stt_model_size", model)
+                except Exception:
+                    pass
+                try:
+                    if callable(update_runtime_config):
+                        if backend._stt_backend_has_language_settings(target):
+                            update_runtime_config("stt_language", language)
+                        else:
+                            update_runtime_config("stt_language", backend._stt_backend_default_language_value(target))
+                except Exception:
+                    pass
+                for callback_name in ("_refresh_stt_runtime_summary", "_reload_stt_runtime_if_available", "save_session"):
+                    callback = getattr(backend, callback_name, None)
+                    if callable(callback):
+                        try:
+                            callback()
+                        except Exception:
+                            pass
+                return
+
+            if object_name == "tts_runtime_addon_tabs":
+                self._set_named_combo_value_without_signals("tts_backend_combo", target)
+                if callable(update_runtime_config):
+                    update_runtime_config("tts_backend", target)
+                invoke = getattr(backend, "_invoke_addon_service_capability", None)
+                if callable(invoke):
+                    try:
+                        invoke("tts_backend_service", "ui.ensure_python_path", {"backend": backend}, default=None, backend_id=target)
+                    except Exception:
+                        pass
+                try:
+                    engine = engine_module() if callable(engine_module) else None
+                    if bool(getattr(backend, "thread", None) and backend.thread.is_alive()) and hasattr(engine, "init_tts"):
+                        engine.init_tts()
+                except Exception:
+                    pass
+                for callback_name in ("_refresh_tts_runtime_summary", "update_model_budget_hint", "save_session"):
+                    callback = getattr(backend, callback_name, None)
+                    if callable(callback):
+                        try:
+                            callback()
+                        except Exception:
+                            pass
+                try:
+                    setattr(backend, "_advisor_context_manual_override", False)
+                    backend.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": target})
+                except Exception:
+                    pass
+
+    def _activate_chat_runtime_provider_tab_value(self, tabs, combo, value):
+            self._activate_runtime_provider_tab_value(tabs, combo, value)
+
+    def _activate_stt_runtime_backend_tab_value(self, tabs, combo, value):
+            self._activate_runtime_provider_tab_value(tabs, combo, value)
+
+    def _activate_visual_reply_runtime_provider_tab_value(self, tabs, combo, value):
+            self._activate_runtime_provider_tab_value(tabs, combo, value)
+
+    def _activate_tts_runtime_backend_tab_value(self, tabs, combo, value):
+            self._activate_runtime_provider_tab_value(tabs, combo, value)
+            self._refresh_tts_runtime_active_provider_label()
 
     def _sync_runtime_provider_tabs_height(self, tabs):
             if tabs is None:
@@ -2605,7 +3953,7 @@ QTabWidget QStackedWidget {
                 object_name = str(tabs.objectName() or "").strip()
             except Exception:
                 object_name = ""
-            if object_name not in {"chat_runtime_provider_tabs", "visual_reply_runtime_provider_tabs"}:
+            if object_name not in {"chat_runtime_provider_tabs", "stt_runtime_backend_tabs", "visual_reply_runtime_provider_tabs"}:
                 return
             try:
                 active_page = tabs.currentWidget()
@@ -2618,25 +3966,33 @@ QTabWidget QStackedWidget {
                 active_page.adjustSize()
                 active_page.updateGeometry()
                 content_hint = active_page.sizeHint().height()
-                wanted = max(180, int(content_hint) + int(tab_bar.sizeHint().height()) + 38)
+                wanted = max(132, int(content_hint) + int(tab_bar.sizeHint().height()) + 38)
                 tabs.setMinimumHeight(wanted)
-                tabs.setMaximumHeight(16777215)
+                tabs.setMaximumHeight(wanted)
                 policy = tabs.sizePolicy()
-                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Minimum)
+                policy.setVerticalPolicy(QtWidgets.QSizePolicy.Preferred)
                 tabs.setSizePolicy(policy)
                 tabs.updateGeometry()
+                self._sync_frontend_runtime_tab_stack_height()
             except Exception:
                 pass
 
-    def _move_runtime_provider_content_to_active_tab(self, tabs, combo, content, select_tab=True, sync_combo_on_tab_change=True):
+    def _move_runtime_provider_content_to_active_tab(self, tabs, combo, content, select_tab=True, sync_combo_on_tab_change=True, tab_index=None):
             if tabs is None or content is None:
                 return
             preserve_combo = bool(not select_tab and not sync_combo_on_tab_change)
             preserved_combo = self._runtime_combo_selection_snapshot(combo) if preserve_combo else {}
-            active_index = self._runtime_tab_index_for_combo(tabs, combo)
+            requested_index = None
+            if tab_index is not None:
+                try:
+                    requested_index = int(tab_index)
+                except Exception:
+                    requested_index = None
+            active_index = requested_index if requested_index is not None else self._runtime_tab_index_for_combo(tabs, combo)
             if active_index < 0:
                 return
             if preserve_combo:
+                self._suppress_frontend_runtime_layout_pass(220)
                 self._runtime_provider_tab_browse_in_progress = True
             try:
                 if select_tab and tabs.currentIndex() != active_index:
@@ -2648,15 +4004,37 @@ QTabWidget QStackedWidget {
             if preserve_combo:
                 self._restore_runtime_combo_selection(combo, preserved_combo)
                 self._refresh_runtime_provider_active_tab_marker(tabs, combo)
-            try:
-                index = int(tabs.currentIndex())
-            except Exception:
-                index = active_index
+            if requested_index is not None:
+                index = requested_index
+            else:
+                try:
+                    index = int(tabs.currentIndex())
+                except Exception:
+                    index = active_index
             if index < 0:
                 index = active_index
             page = tabs.widget(index)
             if page is None:
+                if preserve_combo:
+                    self._runtime_provider_tab_browse_in_progress = False
                 return
+            if preserve_combo and requested_index is not None:
+                try:
+                    current_index = int(tabs.currentIndex())
+                except Exception:
+                    current_index = -1
+                try:
+                    prepared_index = int(tabs.property("_nc_runtime_provider_prepared_browse_index") or -1)
+                except Exception:
+                    prepared_index = -1
+                if current_index != requested_index:
+                    tabs.setProperty("_nc_runtime_provider_prepared_browse_index", requested_index)
+                elif prepared_index == requested_index and content.parentWidget() is page:
+                    tabs.setProperty("_nc_runtime_provider_prepared_browse_index", -1)
+                    self._restore_runtime_combo_selection(combo, preserved_combo)
+                    self._refresh_runtime_provider_active_tab_marker(tabs, combo)
+                    self._runtime_provider_tab_browse_in_progress = False
+                    return
             if not select_tab and sync_combo_on_tab_change:
                 self._set_combo_to_runtime_tab_value(combo, tabs, index)
             try:
@@ -2683,14 +4061,23 @@ QTabWidget QStackedWidget {
             except Exception:
                 pass
             self._refresh_runtime_provider_active_tab_marker(tabs, combo)
-            self._sync_runtime_provider_tabs_height(tabs)
+            if preserve_combo:
+                try:
+                    QtCore.QTimer.singleShot(0, lambda tabs=tabs: self._sync_runtime_provider_tabs_height(tabs))
+                except Exception:
+                    pass
+            else:
+                self._sync_runtime_provider_tabs_height(tabs)
             try:
                 object_name = str(tabs.objectName() or "")
                 backend = getattr(self, "backend", None)
                 if object_name == "chat_runtime_provider_tabs":
                     setter = getattr(backend, "_set_chat_provider_editor_value", None)
                     if callable(setter):
-                        setter(view_value)
+                        try:
+                            setter(view_value, refresh_models=not preserve_combo)
+                        except TypeError:
+                            setter(view_value)
                 elif object_name == "stt_runtime_backend_tabs":
                     setter = getattr(backend, "_set_stt_backend_editor_value", None)
                     if callable(setter):
@@ -2709,6 +4096,8 @@ QTabWidget QStackedWidget {
 
                 def _clear_runtime_tab_browse_guard():
                     try:
+                        if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                            return
                         self._restore_runtime_combo_selection(combo, preserved_combo)
                         self._refresh_runtime_provider_active_tab_marker(tabs, combo)
                     finally:
@@ -2724,6 +4113,33 @@ QTabWidget QStackedWidget {
             options = self._runtime_combo_options(combo, "Chat Provider")
             self._rebuild_runtime_provider_tabs(tabs, options, "chat_runtime_provider")
             self._apply_runtime_provider_tab_shape(tabs)
+            tab_bar = self._ensure_runtime_provider_tab_bar(tabs, preserve_existing=True)
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                tabs.setProperty("_nc_smooth_provider_switch", True)
+                tab_bar.set_runtime_activation_checkable(True)
+                if not bool(tab_bar.property("_nc_chat_provider_activation_bound")):
+                    try:
+                        tab_bar.runtimeActivationRequested.connect(
+                            lambda value, tabs=tabs, combo=combo: self._activate_chat_runtime_provider_tab_value(tabs, combo, value)
+                        )
+                        tab_bar.setProperty("_nc_chat_provider_activation_bound", True)
+                    except Exception:
+                        pass
+                if not bool(tab_bar.property("_nc_chat_provider_browse_bound")):
+                    try:
+                        tab_bar.runtimeBrowseRequested.connect(
+                            lambda index, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                                tabs,
+                                combo,
+                                getattr(tabs, "_nc_runtime_active_content", None),
+                                select_tab=False,
+                                sync_combo_on_tab_change=False,
+                                tab_index=index,
+                            )
+                        )
+                        tab_bar.setProperty("_nc_chat_provider_browse_bound", True)
+                    except Exception:
+                        pass
             if not bool(tabs.property("_nc_runtime_provider_combo_bound")):
                 try:
                     tabs.currentChanged.connect(
@@ -2733,6 +4149,7 @@ QTabWidget QStackedWidget {
                             getattr(tabs, "_nc_runtime_active_content", None),
                             select_tab=False,
                             sync_combo_on_tab_change=False,
+                            tab_index=_index,
                         )
                     )
                     combo.currentIndexChanged.connect(
@@ -2845,6 +4262,33 @@ QTabWidget QStackedWidget {
             options = self._runtime_combo_options(combo, "STT Backend")
             self._rebuild_runtime_provider_tabs(tabs, options, "stt_runtime_backend")
             self._apply_runtime_provider_tab_shape(tabs)
+            tab_bar = self._ensure_runtime_provider_tab_bar(tabs, preserve_existing=True)
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                tabs.setProperty("_nc_smooth_provider_switch", True)
+                tab_bar.set_runtime_activation_checkable(True)
+                if not bool(tab_bar.property("_nc_stt_backend_activation_bound")):
+                    try:
+                        tab_bar.runtimeActivationRequested.connect(
+                            lambda value, tabs=tabs, combo=combo: self._activate_stt_runtime_backend_tab_value(tabs, combo, value)
+                        )
+                        tab_bar.setProperty("_nc_stt_backend_activation_bound", True)
+                    except Exception:
+                        pass
+                if not bool(tab_bar.property("_nc_stt_backend_browse_bound")):
+                    try:
+                        tab_bar.runtimeBrowseRequested.connect(
+                            lambda index, tabs=tabs, combo=combo: self._move_runtime_provider_content_to_active_tab(
+                                tabs,
+                                combo,
+                                getattr(tabs, "_nc_runtime_active_content", None),
+                                select_tab=False,
+                                sync_combo_on_tab_change=False,
+                                tab_index=index,
+                            )
+                        )
+                        tab_bar.setProperty("_nc_stt_backend_browse_bound", True)
+                    except Exception:
+                        pass
             if not bool(tabs.property("_nc_runtime_backend_combo_bound")):
                 try:
                     tabs.currentChanged.connect(
@@ -2854,6 +4298,7 @@ QTabWidget QStackedWidget {
                             getattr(tabs, "_nc_runtime_active_content", None),
                             select_tab=False,
                             sync_combo_on_tab_change=False,
+                            tab_index=_index,
                         )
                     )
                     combo.currentIndexChanged.connect(
@@ -2922,6 +4367,8 @@ QTabWidget QStackedWidget {
             finally:
                 def _clear_runtime_tab_browse_guard():
                     try:
+                        if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                            return
                         self._restore_runtime_combo_selection(combo, preserved_combo)
                         self._refresh_runtime_provider_active_tab_marker(tabs, combo)
                     finally:
@@ -2937,6 +4384,17 @@ QTabWidget QStackedWidget {
             options = self._runtime_combo_options(combo, "Visual Reply Provider")
             self._rebuild_runtime_provider_tabs(tabs, options, "visual_reply_runtime_provider")
             self._apply_runtime_provider_tab_shape(tabs)
+            tab_bar = self._ensure_runtime_provider_tab_bar(tabs, preserve_existing=True)
+            if isinstance(tab_bar, _RuntimeProviderTabBar):
+                tab_bar.set_runtime_activation_checkable(True)
+                if not bool(tab_bar.property("_nc_visual_reply_provider_activation_bound")):
+                    try:
+                        tab_bar.runtimeActivationRequested.connect(
+                            lambda value, tabs=tabs, combo=combo: self._activate_visual_reply_runtime_provider_tab_value(tabs, combo, value)
+                        )
+                        tab_bar.setProperty("_nc_visual_reply_provider_activation_bound", True)
+                    except Exception:
+                        pass
             if not bool(tabs.property("_nc_runtime_provider_combo_bound")):
                 try:
                     tabs.currentChanged.connect(
@@ -3027,6 +4485,14 @@ QTabWidget QStackedWidget {
 
             provider_label = self._ui_object("chat_provider_label") or _fallback_label("provider", "Chat Provider")
             provider_combo = self._ui_object("chat_provider_combo") or _backend_attr("chat_provider_combo")
+            active_provider_label = self._ui_object("chat_runtime_active_provider_label")
+            if active_provider_label is None:
+                active_provider_label = QtWidgets.QLabel()
+                active_provider_label.setObjectName("chat_runtime_active_provider_label")
+                active_provider_label.setWordWrap(True)
+                active_provider_label.setTextFormat(QtCore.Qt.RichText)
+                active_provider_label.setStyleSheet("color: #f2f5f9; font-size: 12px;")
+                active_provider_label.setToolTip("Click the circle in an LLM provider tab to make that provider active.")
             model_label = self._ui_object("model_label") or _fallback_label("model", "LLM Model")
             model_row = self._ui_object("chat_model_row_widget") or _backend_attr("model_row_widget")
             if model_row is None:
@@ -3045,6 +4511,7 @@ QTabWidget QStackedWidget {
             widgets = {
                 "provider_label": provider_label,
                 "provider_combo": provider_combo,
+                "active_provider_label": active_provider_label,
                 "model_label": model_label,
                 "model_row": model_row,
                 "vision_label": self._ui_object("model_requires_vision_label"),
@@ -3065,29 +4532,31 @@ QTabWidget QStackedWidget {
             selector_layout.setContentsMargins(0, 0, 0, 0)
             selector_layout.setHorizontalSpacing(12)
             selector_layout.setVerticalSpacing(8)
-            selector_layout.addWidget(widgets["provider_label"], 0, 0, QtCore.Qt.AlignVCenter)
-            selector_layout.addWidget(widgets["provider_combo"], 0, 1)
-            selector_layout.setColumnStretch(1, 1)
-            for widget in (
-                selector,
-                widgets["provider_label"],
-                widgets["provider_combo"],
-            ):
+            selector_layout.addWidget(widgets["active_provider_label"], 0, 0, 1, 2, QtCore.Qt.AlignVCenter)
+            selector_layout.setColumnStretch(0, 1)
+            for widget in (selector, widgets["active_provider_label"]):
                 try:
                     widget.setVisible(True)
+                    widget.setEnabled(True)
+                except Exception:
+                    pass
+            for widget in (widgets["provider_label"], widgets["provider_combo"]):
+                try:
+                    widget.setParent(selector)
+                    widget.setVisible(False)
                     widget.setEnabled(True)
                 except Exception:
                     pass
 
             hint = self._ui_object("chat_runtime_provider_hint_label")
             if hint is None:
-                hint = QtWidgets.QLabel("Choose the active chat provider from the dropdown. Tabs browse provider settings without changing the active runtime.")
+                hint = QtWidgets.QLabel("Click a provider tab to view its settings. Click the circle in the tab to make that provider the active LLM runtime.")
                 hint.setObjectName("chat_runtime_provider_hint_label")
                 hint.setWordWrap(True)
                 hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             else:
                 try:
-                    hint.setText("Choose the active chat provider from the dropdown. Tabs browse provider settings without changing the active runtime.")
+                    hint.setText("Click a provider tab to view its settings. Click the circle in the tab to make that provider the active LLM runtime.")
                 except Exception:
                     pass
 
@@ -3125,6 +4594,11 @@ QTabWidget QStackedWidget {
                         content_layout.setContentsMargins(0, 0, 0, 0)
                         content_layout.setSpacing(8)
                     content.layout().addLayout(provider_form)
+            self._insert_runtime_provider_setup_card(
+                content,
+                "chat_runtime_provider_setup_card",
+                "llm",
+            )
             self._clear_form_rows_preserving_widgets(provider_form)
             provider_form.addRow(widgets["model_label"], widgets["model_row"])
             if widgets["vision_label"] is not None and widgets["vision_check"] is not None:
@@ -3148,6 +4622,7 @@ QTabWidget QStackedWidget {
                 pass
             setattr(tabs, "_nc_runtime_active_content", content)
             self._sync_chat_runtime_provider_tabs()
+            self._stabilize_frontend_chat_provider_field_widths()
 
     def _normalize_frontend_stt_runtime_layout(self):
             form = self._ui_object("sttRuntimeForm")
@@ -3157,9 +4632,18 @@ QTabWidget QStackedWidget {
             if bool(getattr(form, "_nc_provider_tab_runtime_layout", False)) and existing_tabs is not None:
                 self._sync_stt_runtime_backend_tabs()
                 return
+            active_provider_label = self._ui_object("stt_runtime_active_provider_label")
+            if active_provider_label is None:
+                active_provider_label = QtWidgets.QLabel()
+                active_provider_label.setObjectName("stt_runtime_active_provider_label")
+                active_provider_label.setWordWrap(True)
+                active_provider_label.setTextFormat(QtCore.Qt.RichText)
+                active_provider_label.setStyleSheet("color: #f2f5f9; font-size: 12px;")
+                active_provider_label.setToolTip("Click the circle in an STT backend tab to make that backend active.")
             widgets = {
                 "backend_label": self._ui_object("stt_backend_label"),
                 "backend_combo": self._ui_object("stt_backend_combo"),
+                "active_provider_label": active_provider_label,
                 "model_label": self._ui_object("stt_model_label"),
                 "model_combo": self._ui_object("stt_model_combo"),
                 "language_label": self._ui_object("stt_language_label"),
@@ -3176,14 +4660,24 @@ QTabWidget QStackedWidget {
             selector_layout.setContentsMargins(0, 0, 0, 0)
             selector_layout.setHorizontalSpacing(12)
             selector_layout.setVerticalSpacing(8)
-            selector_layout.addWidget(widgets["backend_label"], 0, 0, QtCore.Qt.AlignVCenter)
-            selector_layout.addWidget(widgets["backend_combo"], 0, 1)
-            selector_layout.setColumnStretch(1, 1)
+            selector_layout.addWidget(widgets["active_provider_label"], 0, 0, 1, 2, QtCore.Qt.AlignVCenter)
+            selector_layout.setColumnStretch(0, 1)
+            for widget in (widgets["backend_label"], widgets["backend_combo"]):
+                try:
+                    widget.setParent(selector)
+                    widget.setVisible(False)
+                    widget.setEnabled(True)
+                except Exception:
+                    pass
+            try:
+                widgets["active_provider_label"].setVisible(True)
+            except Exception:
+                pass
 
             hint = self._ui_object("stt_runtime_hint_label")
             if hint is not None:
                 try:
-                    hint.setText("Choose the active STT backend from the dropdown. Tabs browse backend settings without changing the active runtime.")
+                    hint.setText("Click an STT backend tab to view its settings. Click the circle in the tab to make that backend active.")
                 except Exception:
                     pass
             tabs = self._ui_object("stt_runtime_backend_tabs")
@@ -3249,12 +4743,21 @@ QTabWidget QStackedWidget {
             if bool(getattr(group, "_nc_provider_tab_runtime_layout", False)) and existing_tabs is not None:
                 self._sync_visual_reply_runtime_provider_tabs()
                 return
+            active_provider_label = self._ui_object("visual_reply_runtime_active_provider_label")
+            if active_provider_label is None:
+                active_provider_label = QtWidgets.QLabel()
+                active_provider_label.setObjectName("visual_reply_runtime_active_provider_label")
+                active_provider_label.setWordWrap(True)
+                active_provider_label.setTextFormat(QtCore.Qt.RichText)
+                active_provider_label.setStyleSheet("color: #f2f5f9; font-size: 12px;")
+                active_provider_label.setToolTip("Click the circle in a Visual Reply provider tab to make that provider active.")
 
             widgets = {
                 "mode_label": self._ui_object("visual_reply_mode_label"),
                 "mode_combo": self._ui_object("visual_reply_mode_combo"),
                 "provider_label": self._ui_object("visual_reply_provider_label"),
                 "provider_combo": self._ui_object("visual_reply_provider_combo"),
+                "active_provider_label": active_provider_label,
                 "size_label": self._ui_object("visual_reply_size_label"),
                 "size_combo": self._ui_object("visual_reply_size_combo"),
                 "model_label": self._ui_object("visual_reply_model_label"),
@@ -3312,11 +4815,20 @@ QTabWidget QStackedWidget {
             if widgets["mode_label"] is not None:
                 selector_layout.addWidget(widgets["mode_label"], 0, 0, QtCore.Qt.AlignVCenter)
             selector_layout.addWidget(widgets["mode_combo"], 0, 1)
-            if widgets["provider_label"] is not None:
-                selector_layout.addWidget(widgets["provider_label"], 0, 2, QtCore.Qt.AlignVCenter)
-            selector_layout.addWidget(widgets["provider_combo"], 0, 3)
+            selector_layout.addWidget(widgets["active_provider_label"], 0, 2, 1, 2, QtCore.Qt.AlignVCenter)
             selector_layout.setColumnStretch(1, 1)
-            selector_layout.setColumnStretch(3, 1)
+            selector_layout.setColumnStretch(2, 1)
+            for widget in (widgets["provider_label"], widgets["provider_combo"]):
+                try:
+                    widget.setParent(selector)
+                    widget.setVisible(False)
+                    widget.setEnabled(True)
+                except Exception:
+                    pass
+            try:
+                widgets["active_provider_label"].setVisible(True)
+            except Exception:
+                pass
 
             tabs = self._ui_object("visual_reply_runtime_provider_tabs")
             if tabs is None:
@@ -3352,6 +4864,11 @@ QTabWidget QStackedWidget {
                         content_layout.setContentsMargins(0, 0, 0, 0)
                         content_layout.setSpacing(8)
                     content.layout().addLayout(provider_form)
+            self._insert_runtime_provider_setup_card(
+                content,
+                "visual_reply_runtime_provider_setup_card",
+                "visual",
+            )
             self._clear_form_rows_preserving_widgets(provider_form)
             if widgets["size_label"] is not None:
                 provider_form.addRow(widgets["size_label"], widgets["size_combo"])
@@ -3392,8 +4909,7 @@ QTabWidget QStackedWidget {
                 return
             for child_name in (
                 "stt_runtime_selector_grid",
-                "stt_backend_label",
-                "stt_backend_combo",
+                "stt_runtime_active_provider_label",
                 "stt_runtime_hint_label",
             ):
                 widget = self._ui_object(child_name)
@@ -3402,6 +4918,15 @@ QTabWidget QStackedWidget {
                 try:
                     widget.setVisible(True)
                     widget.updateGeometry()
+                except Exception:
+                    pass
+            for child_name in ("stt_backend_label", "stt_backend_combo"):
+                widget = self._ui_object(child_name)
+                if widget is None:
+                    continue
+                try:
+                    widget.setVisible(False)
+                    widget.setEnabled(True)
                 except Exception:
                     pass
             self._refresh_frontend_stt_runtime_backend_controls()
@@ -3478,7 +5003,7 @@ QTabWidget QStackedWidget {
 
     def _frontend_runtime_group_specs(self):
             return (
-                ("chat_runtime_box", "Chat Runtime"),
+                ("chat_runtime_box", "LLM Runtime"),
                 ("stt_runtime_box", "STT Runtime"),
                 ("tts_runtime_box", "TTS Runtime"),
                 ("visual_reply_runtime_box", "Visual Reply Runtime"),
@@ -3488,7 +5013,70 @@ QTabWidget QStackedWidget {
             base = str(object_name or "").strip()
             return base.replace("_box", "_tab_button") if base else "runtime_section_tab_button"
 
+    def _frontend_runtime_group_base_title(self, object_name, fallback_title):
+            name = str(object_name or "").strip()
+            for spec_name, spec_title in self._frontend_runtime_group_specs():
+                if str(spec_name or "").strip() == name:
+                    return str(spec_title or fallback_title or "").strip()
+            return str(fallback_title or "").strip()
+
+    def _runtime_provider_tab_label(self, combo_name, label_getter_name=None):
+            combo = self._ui_object(combo_name)
+            label = ""
+            value = self._runtime_combo_current_value(combo)
+            backend = getattr(self, "backend", None)
+            label_getter = getattr(backend, label_getter_name or "", None)
+            if callable(label_getter):
+                try:
+                    label = str(label_getter(value) or "").strip()
+                except Exception:
+                    label = ""
+            if not label and combo is not None:
+                try:
+                    label = str(combo.currentText() or "").strip()
+                except Exception:
+                    label = ""
+            return label or "None"
+
+    def _short_runtime_provider_tab_label(self, label):
+            text = str(label or "").strip()
+            short_labels = {
+                "Whisper English": "Whisper Eng",
+                "Whisper Multilingual": "Whisper Multi",
+                "Chatterbox Multilingual": "Chatterbox Multi",
+                "PocketTTS Multilingual": "PocketTTS Multi",
+                "Gemini TTS Preview": "Gemini TTS",
+            }
+            return short_labels.get(text, text or "None")
+
+    def _runtime_group_provider_tab_title(self, object_name, fallback_title):
+            name = str(object_name or "").strip()
+            base_title = self._frontend_runtime_group_base_title(name, fallback_title)
+            provider_specs = {
+                "chat_runtime_box": ("chat_provider_combo", "_chat_provider_label_from_value", False),
+                "stt_runtime_box": ("stt_backend_combo", "_stt_backend_label_for", True),
+                "tts_runtime_box": ("tts_backend_combo", "_tts_backend_label_from_value", True),
+                "visual_reply_runtime_box": (
+                    "visual_reply_provider_combo",
+                    "_visual_reply_provider_label_from_value",
+                    False,
+                ),
+            }
+            provider_spec = provider_specs.get(name)
+            if not provider_spec:
+                return ""
+            combo_name, label_getter_name, use_short_label = provider_spec
+            provider_label = self._runtime_provider_tab_label(combo_name, label_getter_name)
+            if use_short_label:
+                provider_label = self._short_runtime_provider_tab_label(provider_label)
+            return f"{base_title} - {provider_label}" if provider_label else base_title
+
     def _runtime_tab_title_parts(self, group_box, fallback_title):
+            try:
+                object_name = str(group_box.objectName() or "").strip()
+            except Exception:
+                object_name = ""
+            provider_title = self._runtime_group_provider_tab_title(object_name, fallback_title)
             try:
                 title = str(group_box.property("nc_collapsible_base_title") or fallback_title or "").strip()
             except Exception:
@@ -3497,7 +5085,7 @@ QTabWidget QStackedWidget {
                 summary = str(group_box.property("nc_collapsible_summary") or "").strip()
             except Exception:
                 summary = ""
-            title = title or str(fallback_title or "").strip()
+            title = provider_title or title or str(fallback_title or "").strip()
             tooltip = f"{title}  -  {summary}" if summary else title
             return title, tooltip
 
@@ -3519,6 +5107,7 @@ QTabWidget QStackedWidget {
     def _style_frontend_runtime_tab_container(self, container):
             if container is None:
                 return
+            border = str(getattr(container, "_nc_runtime_tab_border_color", "") or "#273342")
             style = """
 /* nc-runtime-tabs-container:start */
 QWidget#runtime_section_tabs {
@@ -3529,7 +5118,7 @@ QWidget#runtime_section_tab_bar {
 }
 QStackedWidget#runtime_section_stack {
     background: #0f141b;
-    border: 1px solid #273342;
+    border: 1px solid RUNTIME_TAB_BORDER;
     border-top-left-radius: 0px;
     border-top-right-radius: 10px;
     border-bottom-left-radius: 10px;
@@ -3539,13 +5128,73 @@ QWidget#runtime_section_tab_page {
     background: transparent;
 }
 /* nc-runtime-tabs-container:end */
-""".strip()
+""".replace("RUNTIME_TAB_BORDER", border).strip()
             self._replace_marked_widget_stylesheet(
                 container,
                 "/* nc-runtime-tabs-container:start */",
                 "/* nc-runtime-tabs-container:end */",
                 style,
             )
+
+    def _sync_frontend_runtime_tab_container_border(self, group_box=None):
+            container = getattr(self, "_frontend_runtime_tab_container", None)
+            if container is None:
+                return
+            if group_box is None:
+                stack = getattr(self, "_frontend_runtime_tab_stack", None)
+                specs = list(self._frontend_runtime_group_specs())
+                try:
+                    current = int(stack.currentIndex()) if stack is not None else 0
+                except Exception:
+                    current = 0
+                if 0 <= current < len(specs):
+                    group_box = self._ui_object(specs[current][0])
+            palette = self._frontend_runtime_group_header_palette(group_box) if group_box is not None else {}
+            border = str((palette or {}).get("border") or "#273342")
+            if str(getattr(container, "_nc_runtime_tab_border_color", "") or "") == border:
+                return
+            setattr(container, "_nc_runtime_tab_border_color", border)
+            self._style_frontend_runtime_tab_container(container)
+
+    def _sync_frontend_runtime_tab_stack_height(self):
+            container = getattr(self, "_frontend_runtime_tab_container", None)
+            stack = getattr(self, "_frontend_runtime_tab_stack", None)
+            if container is None or stack is None:
+                return
+            try:
+                page = stack.currentWidget()
+            except Exception:
+                page = None
+            if page is None:
+                return
+            try:
+                for widget in (page, stack, container):
+                    policy = widget.sizePolicy()
+                    policy.setHorizontalPolicy(QtWidgets.QSizePolicy.Expanding)
+                    policy.setVerticalPolicy(QtWidgets.QSizePolicy.Maximum)
+                    widget.setSizePolicy(policy)
+            except Exception:
+                pass
+            try:
+                layout = page.layout()
+                if layout is not None:
+                    layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
+                    layout.invalidate()
+                    layout.activate()
+                page.adjustSize()
+                page.updateGeometry()
+                page_height = max(1, int(page.sizeHint().height()))
+                stack_height = page_height + 2
+                stack.setMinimumHeight(stack_height)
+                stack.setMaximumHeight(stack_height)
+                tab_bar = getattr(self, "_frontend_runtime_tab_bar", None)
+                tab_height = int(tab_bar.sizeHint().height()) if tab_bar is not None else 36
+                container.setMinimumHeight(stack_height + tab_height)
+                container.setMaximumHeight(stack_height + tab_height)
+                stack.updateGeometry()
+                container.updateGeometry()
+            except Exception:
+                pass
 
     def _style_frontend_runtime_tab_button(self, button, group_box):
             if button is None:
@@ -3684,9 +5333,12 @@ QGroupBox#{object_name}::indicator {{
                 stack.setCurrentIndex(index)
             except Exception:
                 pass
+            active_group_box = None
             for item_index, (object_name, fallback_title) in enumerate(self._frontend_runtime_group_specs()):
                 group_box = self._ui_object(object_name)
                 button = buttons.get(object_name) or getattr(group_box, "_nc_runtime_tab_button", None)
+                if item_index == index:
+                    active_group_box = group_box
                 if button is not None:
                     try:
                         blocker = QtCore.QSignalBlocker(button)
@@ -3706,10 +5358,12 @@ QGroupBox#{object_name}::indicator {{
                     group_box.updateGeometry()
                 except Exception:
                     pass
+            self._sync_frontend_runtime_tab_container_border(active_group_box)
             try:
                 self._refresh_frontend_runtime_group_region(pages[index])
             except Exception:
                 pass
+            self._sync_frontend_runtime_tab_stack_height()
 
     def _ensure_frontend_runtime_tab_selection(self):
             stack = getattr(self, "_frontend_runtime_tab_stack", None)
@@ -3738,9 +5392,16 @@ QGroupBox#{object_name}::indicator {{
                 if stack is not None:
                     self._frontend_runtime_tab_container = existing_container
                     self._frontend_runtime_tab_stack = stack
-                    self._style_frontend_runtime_tab_container(existing_container)
+                    self._frontend_runtime_tab_bar = existing_container.findChild(QtWidgets.QWidget, "runtime_section_tab_bar")
+                    try:
+                        existing_container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                        stack.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                    except Exception:
+                        pass
                     self._refresh_frontend_runtime_tab_buttons()
                     self._ensure_frontend_runtime_tab_selection()
+                    self._sync_frontend_runtime_tab_container_border()
+                    self._sync_frontend_runtime_tab_stack_height()
                     return True
 
             parent_layout = None
@@ -3764,12 +5425,15 @@ QGroupBox#{object_name}::indicator {{
 
             container = QtWidgets.QWidget()
             container.setObjectName("runtime_section_tabs")
+            container.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
             outer_layout = QtWidgets.QVBoxLayout(container)
             outer_layout.setContentsMargins(0, 0, 0, 0)
             outer_layout.setSpacing(0)
+            outer_layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
 
             tab_bar = QtWidgets.QWidget(container)
             tab_bar.setObjectName("runtime_section_tab_bar")
+            self._frontend_runtime_tab_bar = tab_bar
             tab_layout = QtWidgets.QHBoxLayout(tab_bar)
             tab_layout.setContentsMargins(0, 0, 0, 0)
             tab_layout.setSpacing(4)
@@ -3777,8 +5441,8 @@ QGroupBox#{object_name}::indicator {{
 
             stack = QtWidgets.QStackedWidget(container)
             stack.setObjectName("runtime_section_stack")
-            stack.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
-            outer_layout.addWidget(stack, 1)
+            stack.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            outer_layout.addWidget(stack, 0)
 
             buttons = {}
             pages = []
@@ -3795,9 +5459,11 @@ QGroupBox#{object_name}::indicator {{
 
                 page = QtWidgets.QWidget(stack)
                 page.setObjectName("runtime_section_tab_page")
+                page.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
                 page_layout = QtWidgets.QVBoxLayout(page)
                 page_layout.setContentsMargins(10, 10, 10, 10)
                 page_layout.setSpacing(0)
+                page_layout.setSizeConstraint(QtWidgets.QLayout.SetMinimumSize)
 
                 try:
                     parent_layout.removeWidget(group_box)
@@ -4238,7 +5904,7 @@ QGroupBox#{object_name}::indicator {{
             if self._ensure_frontend_runtime_group_tabs():
                 return
             group_specs = (
-                ("chat_runtime_box", "Chat Runtime"),
+                ("chat_runtime_box", "LLM Runtime"),
                 ("stt_runtime_box", "STT Runtime"),
                 ("tts_runtime_box", "TTS Runtime"),
                 ("visual_reply_runtime_box", "Visual Reply Runtime"),

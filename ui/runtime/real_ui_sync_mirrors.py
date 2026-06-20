@@ -531,8 +531,8 @@ class RealUiSyncMirrorMixin:
                 try:
                     self._set_frontend_collapsible_group_summary(
                         runtime_box,
-                        str(backend_runtime_section.toggle_button.text() or "Chat Runtime"),
-                        "Chat Runtime",
+                        str(backend_runtime_section.toggle_button.text() or "LLM Runtime"),
+                        "LLM Runtime",
                     )
                 except Exception:
                     pass

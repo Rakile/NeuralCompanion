@@ -7,6 +7,15 @@ from ui.widgets.basic import LabeledSlider, NoWheelComboBox, NoWheelSpinBox
 
 DEFAULT_MAX_RESPONSE_TOKENS = 600
 
+ADDON_PURPOSE_GROUPS = (
+    ("core", "Core", "Chat providers, memory, hotkeys, and base runtime support."),
+    ("voice", "Voice", "Speech-to-text, text-to-speech, and voice runtime addons."),
+    ("visual", "Visual", "Images, avatars, vision sources, overlays, and visual feedback."),
+    ("story", "Story", "Story mode, replay, soundtrack, and narrative tools."),
+    ("phone", "Phone", "LAN pairing, phone remote, and mobile companion features."),
+    ("experimental", "Experimental", "Newer or heavier visual systems that may need extra testing."),
+)
+
 
 def _runtime_config():
     # Imported lazily because qt_app imports this mixin before it imports engine.
@@ -21,7 +30,7 @@ class BackendWorkspaceAddonsMixin:
         layout = QtWidgets.QVBoxLayout(widget)
 
         intro = QtWidgets.QLabel(
-            "Manage addon loading here. Category toggles act like parent switches: if a parent category is off, all child addons under it are effectively off too. Changes here are global and apply on next launch."
+            "Manage addons by what they do. Launch Groups are parent switches for the next Neural Companion start; individual addon switches let you turn one feature on or off without hunting through technical categories."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color: #9fb3c8;")
@@ -197,6 +206,174 @@ class BackendWorkspaceAddonsMixin:
                 f"Addon requirements install failed for '{addon_id}'.\n\n{details or 'No details were reported.'}",
             )
 
+    def _addon_purpose_for_row(self, addon):
+        addon_id = str(addon.get("id") or "").strip().lower()
+        name = str(addon.get("name") or "").strip().lower()
+        category_id = str(addon.get("_category_id") or "").strip().lower()
+        haystack = f"{addon_id} {name} {category_id}"
+        if any(token in haystack for token in ("main_chat_remote", "phone", "remote")):
+            return "phone"
+        if any(token in haystack for token in ("neural_face", "ai_presence", "scenic")):
+            return "experimental"
+        if any(
+            token in haystack
+            for token in (
+                "multi_persona",
+                "roleplay",
+                "audio_story",
+                "story",
+                "chat_session_player",
+                "conversation replay",
+                "spotify",
+                "soundtrack",
+            )
+        ):
+            return "story"
+        if any(token in haystack for token in ("tts", "stt", "whisper", "chatterbox", "pockettts", "gemini tts", "voice")):
+            return "voice"
+        if any(
+            token in haystack
+            for token in (
+                "visual",
+                "vision",
+                "avatar",
+                "musetalk",
+                "vam",
+                "vseeface",
+                "screen",
+                "webcam",
+                "clipboard",
+                "heart_rate",
+                "orb",
+                "presence",
+            )
+        ):
+            return "visual"
+        return "core"
+
+    def _addons_by_purpose(self, snapshot):
+        grouped = {key: [] for key, _label, _hint in ADDON_PURPOSE_GROUPS}
+        category_rows = []
+        for category in list(snapshot or []):
+            category_id = str(category.get("id") or "").strip()
+            category_label = str(category.get("label") or category_id or "Addons").strip()
+            category_enabled = bool(category.get("enabled", True))
+            category_rows.append(
+                {
+                    "id": category_id,
+                    "label": category_label,
+                    "enabled": category_enabled,
+                }
+            )
+            for addon in list(category.get("addons", []) or []):
+                row = dict(addon or {})
+                row["_category_id"] = category_id
+                row["_category_label"] = category_label
+                row["_category_enabled"] = category_enabled
+                purpose = self._addon_purpose_for_row(row)
+                grouped.setdefault(purpose, []).append(row)
+        for rows in grouped.values():
+            rows.sort(key=lambda item: str(item.get("name") or item.get("id") or "").lower())
+        return category_rows, grouped
+
+    def _add_addon_category_switches(self, layout, categories):
+        category_box = QtWidgets.QGroupBox("Launch Groups")
+        category_layout = QtWidgets.QVBoxLayout(category_box)
+        category_layout.setContentsMargins(12, 12, 12, 12)
+        category_layout.setSpacing(8)
+
+        hint = QtWidgets.QLabel("These parent switches apply on the next launch and affect every addon in that launch group.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        category_layout.addWidget(hint)
+
+        grid_widget = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(grid_widget)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(6)
+        for index, category in enumerate(list(categories or [])):
+            checkbox = QtWidgets.QCheckBox(str(category.get("label") or category.get("id") or "Addons"))
+            checkbox.setChecked(bool(category.get("enabled", True)))
+            checkbox.toggled.connect(
+                lambda checked, category_id=str(category.get("id") or ""): self._on_addon_category_toggled(category_id, checked)
+            )
+            grid.addWidget(checkbox, index // 3, index % 3)
+        category_layout.addWidget(grid_widget)
+        layout.addWidget(category_box)
+
+    def _add_addon_row(self, layout, addon):
+        category_enabled = bool(addon.get("_category_enabled", True))
+        row_frame = QtWidgets.QFrame()
+        row_frame.setObjectName("Panel")
+        row_layout = QtWidgets.QVBoxLayout(row_frame)
+        row_layout.setContentsMargins(10, 10, 10, 10)
+        row_layout.setSpacing(4)
+
+        top_row = QtWidgets.QHBoxLayout()
+        addon_checkbox = QtWidgets.QCheckBox(str(addon.get("name") or addon.get("id") or "Addon"))
+        addon_checkbox.setChecked(bool(addon.get("enabled", True)))
+        addon_checkbox.setEnabled(category_enabled)
+        addon_checkbox.toggled.connect(
+            lambda checked, addon_id=str(addon.get("id") or ""): self._on_addon_global_toggled(addon_id, checked)
+        )
+        top_row.addWidget(addon_checkbox)
+
+        status_bits = []
+        category_label = str(addon.get("_category_label") or "Addons")
+        if not category_enabled:
+            status_bits.append(f"inactive: {category_label} launch group is off")
+        elif not bool(addon.get("effective_enabled", True)):
+            status_bits.append("inactive on next launch")
+        else:
+            status_bits.append("active on next launch")
+        record_state = str(addon.get("state") or "").strip()
+        if record_state:
+            status_bits.append(f"current state: {record_state}")
+        status = QtWidgets.QLabel(" | ".join(status_bits))
+        status.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        top_row.addStretch(1)
+        top_row.addWidget(status, 0, QtCore.Qt.AlignRight)
+        row_layout.addLayout(top_row)
+
+        meta_bits = [category_label, str(addon.get("id") or "").strip()]
+        version = str(addon.get("version") or "").strip()
+        if version:
+            meta_bits.append(f"v{version}")
+        permissions = list(addon.get("permissions", []) or [])
+        if permissions:
+            meta_bits.append(", ".join(permissions))
+        meta = QtWidgets.QLabel(" | ".join([bit for bit in meta_bits if bit]))
+        meta.setWordWrap(True)
+        meta.setStyleSheet("color: #6f8599; font-size: 11px;")
+        row_layout.addWidget(meta)
+
+        description = str(addon.get("description") or "").strip()
+        if description:
+            description_label = QtWidgets.QLabel(description)
+            description_label.setWordWrap(True)
+            description_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+            row_layout.addWidget(description_label)
+
+        dependency_status = addon.get("dependency_status")
+        if isinstance(dependency_status, dict):
+            dependency_row = QtWidgets.QHBoxLayout()
+            dependency_message = str(dependency_status.get("message") or "").strip()
+            dependency_label = QtWidgets.QLabel(dependency_message or "Addon requirements status unavailable.")
+            dependency_label.setWordWrap(True)
+            dependency_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            dependency_row.addWidget(dependency_label, 1)
+            if bool(dependency_status.get("needs_install", False)) and bool(dependency_status.get("installable", False)):
+                install_button = QtWidgets.QPushButton("Install requirements")
+                install_button.setToolTip("Install only this addon's requirements.txt into the active NC Python environment.")
+                install_button.clicked.connect(
+                    lambda _checked=False, addon_id=str(addon.get("id") or ""): self._on_addon_requirements_install_requested(addon_id)
+                )
+                dependency_row.addWidget(install_button)
+            row_layout.addLayout(dependency_row)
+
+        layout.addWidget(row_frame)
+
     def _refresh_addons_management_ui(self):
         layout = getattr(self, "addons_management_layout", None)
         manager = getattr(self, "_addon_manager", None)
@@ -229,98 +406,27 @@ class BackendWorkspaceAddonsMixin:
             layout.addWidget(empty)
             layout.addStretch(1)
             return
-        for category in snapshot:
-            category_box = QtWidgets.QGroupBox(str(category.get("label") or "Addons"))
-            category_layout = QtWidgets.QVBoxLayout(category_box)
-            category_layout.setContentsMargins(12, 12, 12, 12)
-            category_layout.setSpacing(8)
+        category_rows, grouped = self._addons_by_purpose(snapshot)
+        self._add_addon_category_switches(layout, category_rows)
+        for purpose_id, label, hint_text in ADDON_PURPOSE_GROUPS:
+            purpose_box = QtWidgets.QGroupBox(label)
+            purpose_layout = QtWidgets.QVBoxLayout(purpose_box)
+            purpose_layout.setContentsMargins(12, 12, 12, 12)
+            purpose_layout.setSpacing(8)
 
-            header_row = QtWidgets.QHBoxLayout()
-            enabled_checkbox = QtWidgets.QCheckBox("Enabled")
-            enabled_checkbox.setChecked(bool(category.get("enabled", True)))
-            enabled_checkbox.toggled.connect(
-                lambda checked, category_id=str(category.get("id") or ""): self._on_addon_category_toggled(category_id, checked)
-            )
-            header_row.addWidget(enabled_checkbox)
-            header_row.addStretch(1)
-            category_layout.addLayout(header_row)
+            hint = QtWidgets.QLabel(hint_text)
+            hint.setWordWrap(True)
+            hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+            purpose_layout.addWidget(hint)
 
-            category_hint = QtWidgets.QLabel(
-                "Turning this parent category off disables all child addons under it on next launch."
-            )
-            category_hint.setWordWrap(True)
-            category_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            category_layout.addWidget(category_hint)
-
-            category_enabled = bool(category.get("enabled", True))
-            for addon in list(category.get("addons", []) or []):
-                row_frame = QtWidgets.QFrame()
-                row_frame.setObjectName("Panel")
-                row_layout = QtWidgets.QVBoxLayout(row_frame)
-                row_layout.setContentsMargins(10, 10, 10, 10)
-                row_layout.setSpacing(4)
-
-                top_row = QtWidgets.QHBoxLayout()
-                addon_checkbox = QtWidgets.QCheckBox(str(addon.get("name") or addon.get("id") or "Addon"))
-                addon_checkbox.setChecked(bool(addon.get("enabled", True)))
-                addon_checkbox.setEnabled(category_enabled)
-                addon_checkbox.toggled.connect(
-                    lambda checked, addon_id=str(addon.get("id") or ""): self._on_addon_global_toggled(addon_id, checked)
-                )
-                top_row.addWidget(addon_checkbox)
-
-                status_bits = []
-                if not category_enabled:
-                    status_bits.append("inactive: parent category disabled")
-                elif not bool(addon.get("effective_enabled", True)):
-                    status_bits.append("inactive on next launch")
-                else:
-                    status_bits.append("active on next launch")
-                record_state = str(addon.get("state") or "").strip()
-                if record_state:
-                    status_bits.append(f"current state: {record_state}")
-                status = QtWidgets.QLabel(" | ".join(status_bits))
-                status.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-                top_row.addStretch(1)
-                top_row.addWidget(status, 0, QtCore.Qt.AlignRight)
-                row_layout.addLayout(top_row)
-
-                meta_bits = [str(addon.get("id") or "").strip()]
-                version = str(addon.get("version") or "").strip()
-                if version:
-                    meta_bits.append(f"v{version}")
-                permissions = list(addon.get("permissions", []) or [])
-                if permissions:
-                    meta_bits.append(", ".join(permissions))
-                meta = QtWidgets.QLabel(" | ".join([bit for bit in meta_bits if bit]))
-                meta.setWordWrap(True)
-                meta.setStyleSheet("color: #6f8599; font-size: 11px;")
-                row_layout.addWidget(meta)
-
-                description = str(addon.get("description") or "").strip()
-                if description:
-                    description_label = QtWidgets.QLabel(description)
-                    description_label.setWordWrap(True)
-                    description_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
-                    row_layout.addWidget(description_label)
-
-                dependency_status = addon.get("dependency_status")
-                if isinstance(dependency_status, dict):
-                    dependency_row = QtWidgets.QHBoxLayout()
-                    dependency_message = str(dependency_status.get("message") or "").strip()
-                    dependency_label = QtWidgets.QLabel(dependency_message or "Addon requirements status unavailable.")
-                    dependency_label.setWordWrap(True)
-                    dependency_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-                    dependency_row.addWidget(dependency_label, 1)
-                    if bool(dependency_status.get("needs_install", False)) and bool(dependency_status.get("installable", False)):
-                        install_button = QtWidgets.QPushButton("Install requirements")
-                        install_button.setToolTip("Install only this addon's requirements.txt into the active NC Python environment.")
-                        install_button.clicked.connect(
-                            lambda _checked=False, addon_id=str(addon.get("id") or ""): self._on_addon_requirements_install_requested(addon_id)
-                        )
-                        dependency_row.addWidget(install_button)
-                    row_layout.addLayout(dependency_row)
-
-                category_layout.addWidget(row_frame)
-            layout.addWidget(category_box)
+            rows = list(grouped.get(purpose_id, []) or [])
+            if rows:
+                for addon in rows:
+                    self._add_addon_row(purpose_layout, addon)
+            else:
+                empty = QtWidgets.QLabel("No addons in this group right now.")
+                empty.setWordWrap(True)
+                empty.setStyleSheet("color: #6f8599; font-size: 11px;")
+                purpose_layout.addWidget(empty)
+            layout.addWidget(purpose_box)
         layout.addStretch(1)

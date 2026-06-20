@@ -378,12 +378,18 @@ class BackendSttRuntimeMixin:
                 self._set_stt_combo_value(self.stt_language_combo, default_language)
             _update_runtime_config("stt_language", default_language)
         self._refresh_stt_runtime_summary()
+        refresh_setup = getattr(self, "_refresh_runtime_provider_setup_card", None)
+        if callable(refresh_setup):
+            refresh_setup("stt")
         self._reload_stt_runtime_if_available()
         self.save_session()
 
     def on_stt_model_change(self, _choice=None):
         language = self._current_stt_editor_language_value() if self._stt_backend_has_language_settings(self._current_stt_editor_backend_value()) else None
         self._set_stt_editor_runtime_values(model_value=self._current_stt_editor_model_value(), language_value=language)
+        refresh_setup = getattr(self, "_refresh_runtime_provider_setup_card", None)
+        if callable(refresh_setup):
+            refresh_setup("stt")
 
     def on_stt_language_change(self, _choice=None):
         self._set_stt_editor_runtime_values(model_value=self._current_stt_editor_model_value(), language_value=self._current_stt_editor_language_value())

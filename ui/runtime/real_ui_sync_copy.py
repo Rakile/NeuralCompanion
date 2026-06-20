@@ -30,8 +30,10 @@ class RealUiSyncCopyMixin:
             visible = False
             if backend is not None and hasattr(backend, "_current_avatar_mode_value"):
                 try:
-                    visible = backend._current_avatar_mode_value() == "musetalk"
+                    avatar_mode = backend._current_avatar_mode_value()
+                    visible = avatar_mode == "musetalk"
                 except Exception:
+                    avatar_mode = ""
                     visible = False
             for object_name in (
                 "musetalk_vram_label",
@@ -69,6 +71,21 @@ class RealUiSyncCopyMixin:
                             widget.setToolTip(tooltip)
                         except Exception:
                             pass
+            scenic_visible = avatar_mode == "scenic"
+            for object_name in (
+                "scenic_pack_label",
+                "scenic_pack_combo",
+                "btn_scenic_pack_refresh",
+                "scenic_pack_row_widget",
+            ):
+                widget = self._ui_object(object_name)
+                if widget is None:
+                    continue
+                if hasattr(widget, "setVisible"):
+                    try:
+                        widget.setVisible(scenic_visible)
+                    except Exception:
+                        pass
 
     def _sync_musetalk_vram_visibility(self):
             self._sync_musetalk_runtime_visibility()
@@ -221,7 +238,7 @@ class RealUiSyncCopyMixin:
             designer_placeholders = {
                 "emotional_text": "Technical rules / expressive tags",
                 "system_prompt_text": "System prompt",
-                "sensory_pingpong_prompt_text": "Hidden PING/PONG prompt",
+                "sensory_pingpong_prompt_text": "Background review prompt",
             }
             if text == designer_placeholders.get(str(object_name), "") and runtime_text:
                 text = ""

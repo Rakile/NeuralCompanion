@@ -1,0 +1,66 @@
+{
+  "id": "ai_presence_and_overlays",
+  "order": 15,
+  "title": "15. AI Presence and Overlays",
+  "description": "A tour of the AI Presence, Neural Face, and Companion Orb addon tabs and how they relate to the main thinking/speaking visual state.",
+  "steps": [
+    {
+      "title": "Open AI Presence",
+      "body": "AI Presence controls the fullscreen and floating visualizer used while NC thinks or speaks. Use Read steps aloud or Read Step in this tutorial panel if you want spoken instructions while you inspect these controls.",
+      "tab": "AI Presence",
+      "target": "ai_presence_mode_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "AI Presence" }
+      ]
+    },
+    {
+      "title": "Choose Display Mode",
+      "body": "Display decides whether AI Presence is off, fullscreen, floating, or both. Start with Floating when you want a small persistent indicator, and use Fullscreen only when you want NC to take over the screen during thinking or speech.",
+      "tab": "AI Presence",
+      "target": "ai_presence_display_mode_combo",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "AI Presence" }
+      ]
+    },
+    {
+      "title": "Preview Without Starting Chat",
+      "body": "Show Fullscreen and Show Floating let you check the visualizer without starting a chat reply. Reset Floating Position recenters the floating window when it ends up off-screen or behind other windows.",
+      "tab": "AI Presence",
+      "target": "ai_presence_preview_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "AI Presence" }
+      ]
+    },
+    {
+      "title": "Neural Face Has Its Own Tab",
+      "body": "Neural Face separates face topology, lipsync, blink, gaze, glow, and animation settings from the simpler AI Presence visualizer settings.",
+      "tab": "Neural Face",
+      "target": "neural_face_presence_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Neural Face" }
+      ]
+    },
+    {
+      "title": "Companion Orb Has Its Own Tab",
+      "body": "Companion Orb is the small desktop orb. It has separate controls for overlay display, movement, target capture, supervisor behavior, and hotkeys.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_overlay_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Use Orb Targeting Deliberately",
+      "body": "The Companion Orb sensory tabs decide whether the orb can feed selected-window, selected-region, or full-screen context into hidden sensory feedback. Keep broad full-screen context off until you actually want desktop-wide awareness.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_sensory_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    }
+  ]
+}

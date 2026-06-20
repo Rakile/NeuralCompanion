@@ -1,0 +1,72 @@
+{
+  "id": "companion_orb_overlay",
+  "order": 18,
+  "title": "18. Companion Orb",
+  "description": "Companion Orb setup for display, movement, response style prompts, sensory targeting, supervisor rules, and hotkeys.",
+  "steps": [
+    {
+      "title": "Open Companion Orb",
+      "body": "Companion Orb has its own addon tab. Its settings are separate from AI Presence and Neural Face, so orb movement, response style, sensory target capture, and supervisor behavior can be tuned without changing the other overlays.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_overlay_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Enable and Place the Orb",
+      "body": "Start with the overlay enabled, a simple display mode, and a predictable position. Use Show Orb before changing many tuning values so you can see exactly what changed.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_overlay_group",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Tune Movement for Awareness, Not Speed",
+      "body": "Movement settings should make the orb feel aware, not restless. Adjust range, return-home delay, avoid-center, avoid-mouse, and reactivity in small steps so it moves with intent instead of noise.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_tuning_cards_grid",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Edit Reply Styles",
+      "body": "Reply styles decide how orb comments sound. Use the style editor to strengthen casual, playful, dry, supportive, or custom commentary without changing the main system prompt.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_reply_style_prompt_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Use Sensory Targeting Carefully",
+      "body": "Sensory tabs decide what the orb may focus on: selected windows, regions, or broader context. Keep full-screen context opt-in and use target confirmation when testing.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_sensory_tabs",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Supervisor Rules Are Separate",
+      "body": "The supervisor section teaches the orb what patterns deserve a reaction. Keep rules specific and sparse so the orb does not compete with Spotify Sense or other hidden sensory sources.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_supervisor_behaviors_widget",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    },
+    {
+      "title": "Check Hotkeys",
+      "body": "Orb hotkeys cover toggle, edit mode, placement mode, click-through, clear target, and reset position. Learn these before using the orb over fullscreen apps.",
+      "tab": "Companion Orb",
+      "target": "companion_orb_hotkey_responsive_grid",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Companion Orb" }
+      ]
+    }
+  ]
+}

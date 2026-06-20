@@ -242,7 +242,7 @@ def _bind_ui_shell_chat_runtime(window, providers, session_override=None):
         provider = provider_by_id.get(provider_id, {})
         provider_label = _ui_shell_provider_label(provider)
         model_name = str(session.get("model_name", "") or "").strip()
-        title = f"Chat Runtime - {provider_label}"
+        title = f"LLM Runtime - {provider_label}"
         if model_name:
             title += f" / {model_name}"
         if runtime_box is not None and hasattr(runtime_box, "setTitle"):

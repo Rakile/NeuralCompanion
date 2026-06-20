@@ -178,8 +178,10 @@ class RealUiActionsRuntimeMixin:
             if bool(getattr(self, "_runtime_provider_tab_browse_in_progress", False)):
                 return
             self._sync_single_combo_to_backend("stt_backend_combo")
+            if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                return
             self._refresh_host_input_runtime_frontend()
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
 
     def _frontend_combo_current_value(self, object_name):
             combo = self._ui_object(object_name)
@@ -218,6 +220,7 @@ class RealUiActionsRuntimeMixin:
 
     def _on_frontend_tts_backend_changed(self, _index=None):
             self._sync_single_combo_to_backend("tts_backend_combo")
+            if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                return
             self._refresh_host_input_runtime_frontend()
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
-            QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
