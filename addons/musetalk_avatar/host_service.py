@@ -81,6 +81,10 @@ class QtMuseTalkUIService:
             ),
             "musetalk_loop_fade_ms": self._spin_value("musetalk_loop_fade_spin", int(runtime.get("musetalk_loop_fade_ms", default_fade) or default_fade)),
             "musetalk_use_frame_cache": self._checked("musetalk_use_frame_cache_checkbox", bool(runtime.get("musetalk_use_frame_cache", True))),
+            "ua_companion_orb_send_musetalk_face_mask": self._checked(
+                "ua_companion_orb_send_musetalk_face_mask_checkbox",
+                bool(runtime.get("ua_companion_orb_send_musetalk_face_mask", False)),
+            ),
         }
 
     def _set_combo_text_quietly(self, name: str, text: str):
@@ -152,6 +156,7 @@ class QtMuseTalkUIService:
             "musetalk_vram_mode",
             "musetalk_loop_fade_ms",
             "musetalk_use_frame_cache",
+            "ua_companion_orb_send_musetalk_face_mask",
         }
         if not any(key in data for key in keys):
             return None
@@ -173,6 +178,10 @@ class QtMuseTalkUIService:
             enabled = bool(data.get("musetalk_use_frame_cache"))
             self._runtime_config.update("musetalk_use_frame_cache", enabled)
             self._set_checked_quietly("musetalk_use_frame_cache_checkbox", enabled)
+        if "ua_companion_orb_send_musetalk_face_mask" in data:
+            enabled = bool(data.get("ua_companion_orb_send_musetalk_face_mask"))
+            self._runtime_config.update("ua_companion_orb_send_musetalk_face_mask", enabled)
+            self._set_checked_quietly("ua_companion_orb_send_musetalk_face_mask_checkbox", enabled)
         return None
 
     def legacy_emotion_avatar_map(self):

@@ -34,6 +34,7 @@ SYSTEM_SHAPING_TOOLTIPS = {
     "stream_mode_combo": "When On, NC streams the model reply and starts chunked TTS sooner. When Off, NC waits for the full reply first.",
     "musetalk_loop_fade_spin": "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; higher values smooth changes but can delay visible updates.",
     "musetalk_use_frame_cache_checkbox": "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames.",
+    "ua_companion_orb_send_musetalk_face_mask_checkbox": "Route MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay and suppress the local MuseTalk preview.",
     "musetalk_avatar_pack_combo": "Prepared MuseTalk avatar pack and variant used for rendering visual speech.",
     "btn_musetalk_avatar_pack_refresh": "Rescan installed MuseTalk avatar packs under avatar_packs/.",
     "scenic_pack_combo": "Portable Scenic Pack used by the Scenic avatar engine to map tags to still images.",
@@ -170,6 +171,15 @@ class BackendSystemShapingBuilderMixin:
         self.musetalk_frame_cache_label = QtWidgets.QLabel("Frame Cache")
         _set_tooltip(self.musetalk_frame_cache_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_use_frame_cache_checkbox"])
         form.addRow(self.musetalk_frame_cache_label, self.musetalk_use_frame_cache_checkbox)
+        self.ua_companion_orb_send_musetalk_face_mask_label = QtWidgets.QLabel("Ua Companion Orb")
+        _set_tooltip(
+            self.ua_companion_orb_send_musetalk_face_mask_label,
+            SYSTEM_SHAPING_TOOLTIPS["ua_companion_orb_send_musetalk_face_mask_checkbox"],
+        )
+        form.addRow(
+            self.ua_companion_orb_send_musetalk_face_mask_label,
+            self.ua_companion_orb_send_musetalk_face_mask_checkbox,
+        )
         self.musetalk_avatar_label = QtWidgets.QLabel("MuseTalk Avatar")
         _set_tooltip(self.musetalk_avatar_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_avatar_pack_combo"])
         form.addRow(self.musetalk_avatar_label, self.musetalk_avatar_pack_row_widget)

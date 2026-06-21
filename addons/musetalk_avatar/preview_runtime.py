@@ -6,6 +6,22 @@ import os
 import time
 
 
+def _publish_ua_companion_orb_frame(frame_path, *, frame_index, runtime_config, emitted_at):
+    try:
+        from addons.ua_companion_orb_overlay import stream_runtime as ua_companion_orb_stream_runtime
+    except Exception:
+        return False
+    if not ua_companion_orb_stream_runtime.should_suppress_musetalk_preview(runtime_config or {}):
+        return False
+    ua_companion_orb_stream_runtime.publish_frame_path(
+        frame_path,
+        frame_index=int(frame_index or 0),
+        runtime_config=runtime_config or {},
+        timestamp_seconds=float(emitted_at or time.time()),
+    )
+    return True
+
+
 def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config, list_png_frames, musetalk_state_module):
     state = dict(playback_state or {})
     frame_paths = list(state.get("frame_paths", []) or [])
@@ -55,18 +71,25 @@ def stream_musetalk_preview_frames(playback_state, stop_event, *, runtime_config
 
         frame_path = frame_paths[target_index]
         if frame_path != last_emitted_path:
-            musetalk_state_module.write_musetalk_preview_frame(
-                {
-                    "chunk_id": chunk_id,
-                    "status": status,
-                    "loop": loop,
-                    "frame_path": frame_path,
-                    "frame_index": target_index,
-                    "source_index": start_index + target_index,
-                    "fps": fps,
-                    "emitted_at": time.time(),
-                }
-            )
+            emitted_at = time.time()
+            if not _publish_ua_companion_orb_frame(
+                frame_path,
+                frame_index=target_index,
+                runtime_config=runtime_config,
+                emitted_at=emitted_at,
+            ):
+                musetalk_state_module.write_musetalk_preview_frame(
+                    {
+                        "chunk_id": chunk_id,
+                        "status": status,
+                        "loop": loop,
+                        "frame_path": frame_path,
+                        "frame_index": target_index,
+                        "source_index": start_index + target_index,
+                        "fps": fps,
+                        "emitted_at": emitted_at,
+                    }
+                )
             last_emitted_path = frame_path
 
         frame_index += 1
@@ -139,6 +162,15 @@ def prime_musetalk_preview_frame(playback_state, *, runtime_config, list_png_fra
     if not first_frame_path or not os.path.exists(first_frame_path):
         return
 
+    emitted_at = time.time()
+    if _publish_ua_companion_orb_frame(
+        first_frame_path,
+        frame_index=0,
+        runtime_config=runtime_config,
+        emitted_at=emitted_at,
+    ):
+        return
+
     musetalk_state_module.write_musetalk_preview_frame(
         {
             "chunk_id": state.get("chunk_id"),
@@ -148,7 +180,7 @@ def prime_musetalk_preview_frame(playback_state, *, runtime_config, list_png_fra
             "frame_index": 0,
             "source_index": int(state.get("start_index", 0) or 0),
             "fps": max(int(state.get("fps", runtime_config.get("musetalk_fps", 24)) or 24), 1),
-            "emitted_at": time.time(),
+            "emitted_at": emitted_at,
         }
     )
 

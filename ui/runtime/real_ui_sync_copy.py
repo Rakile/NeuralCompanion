@@ -42,6 +42,8 @@ class RealUiSyncCopyMixin:
                 "musetalk_loop_fade_spin",
                 "musetalk_frame_cache_label",
                 "musetalk_use_frame_cache_checkbox",
+                "ua_companion_orb_send_musetalk_face_mask_label",
+                "ua_companion_orb_send_musetalk_face_mask_checkbox",
                 "musetalk_avatar_label",
                 "musetalk_avatar_pack_row_widget",
                 "musetalk_vram_hint",
@@ -58,6 +60,7 @@ class RealUiSyncCopyMixin:
                 "musetalk_vram_label": "musetalk_vram_combo",
                 "musetalk_loop_fade_label": "musetalk_loop_fade_spin",
                 "musetalk_frame_cache_label": "musetalk_use_frame_cache_checkbox",
+                "ua_companion_orb_send_musetalk_face_mask_label": "ua_companion_orb_send_musetalk_face_mask_checkbox",
                 "musetalk_avatar_label": "musetalk_avatar_pack_combo",
             }
             for label_name, source_name in tooltip_sources.items():

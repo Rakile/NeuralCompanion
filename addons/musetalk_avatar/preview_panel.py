@@ -16,6 +16,15 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from addons.musetalk_avatar import state as musetalk_state
 from ui.widgets.basic import AltWheelZoomScrollArea
 
+
+def _ua_companion_orb_preview_suppressed(runtime_config):
+    try:
+        from addons.ua_companion_orb_overlay import stream_runtime as ua_companion_orb_stream_runtime
+    except Exception:
+        return False
+    return bool(ua_companion_orb_stream_runtime.should_suppress_musetalk_preview(runtime_config or {}))
+
+
 QT_PREVIEW_CACHE_LIMIT = 384
 QT_PREVIEW_INITIAL_PRELOAD = 32
 QT_PREVIEW_AHEAD_PRELOAD = 32
@@ -1224,6 +1233,11 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
 
     def poll_state(self):
         try:
+            if _ua_companion_orb_preview_suppressed(self._runtime_config):
+                if self.preview_label.text() != "MuseTalk routed to Ua Companion Orb":
+                    self.reset_preview()
+                    self.preview_label.setText("MuseTalk routed to Ua Companion Orb")
+                return
             if self.loop_fade_active:
                 self._update_loop_fade_display()
             fade_locked = bool(self.loop_fade_active and time.time() < float(self.loop_fade_lock_until or 0.0))

@@ -1270,13 +1270,33 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </widget>
                </item>
                <item row="8" column="0">
+                <widget class="QLabel" name="ua_companion_orb_send_musetalk_face_mask_label">
+                 <property name="text">
+                  <string>Ua Companion Orb</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="1">
+                <widget class="QCheckBox" name="ua_companion_orb_send_musetalk_face_mask_checkbox">
+                 <property name="toolTip">
+                  <string>Route MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay and suppress the local MuseTalk preview.</string>
+                 </property>
+                 <property name="text">
+                  <string>Send MuseTalk face mask to Ua Companion Orb</string>
+                 </property>
+                 <property name="checked">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="9" column="0">
                 <widget class="QLabel" name="musetalk_avatar_label">
                  <property name="text">
                   <string>MuseTalk Avatar</string>
                  </property>
                 </widget>
                </item>
-               <item row="8" column="1">
+               <item row="9" column="1">
                 <widget class="QWidget" name="musetalk_avatar_pack_row_widget" native="true">
                  <layout class="QHBoxLayout" name="musetalkAvatarPackRowLayout">
                   <property name="leftMargin">
@@ -1336,14 +1356,14 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </layout>
                 </widget>
                </item>
-               <item row="9" column="0">
+               <item row="10" column="0">
                 <widget class="QLabel" name="scenic_pack_label">
                  <property name="text">
                   <string>Scenic Pack</string>
                  </property>
                 </widget>
                </item>
-               <item row="9" column="1">
+               <item row="10" column="1">
                 <widget class="QWidget" name="scenic_pack_row_widget" native="true">
                  <layout class="QHBoxLayout" name="scenicPackRowLayout">
                   <property name="leftMargin">
@@ -1403,14 +1423,14 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </layout>
                 </widget>
                </item>
-               <item row="10" column="0">
+               <item row="11" column="0">
                 <widget class="QLabel" name="preset_label">
                  <property name="text">
                   <string>Preset</string>
                  </property>
                 </widget>
                </item>
-               <item row="10" column="1">
+               <item row="11" column="1">
                 <widget class="QWidget" name="preset_row_widget" native="true">
                  <layout class="QHBoxLayout" name="presetRowLayout">
                   <property name="leftMargin">

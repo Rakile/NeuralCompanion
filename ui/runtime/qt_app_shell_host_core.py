@@ -25,6 +25,7 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
     stream_mode_combo = _ui_shell_find_object(window, "stream_mode_combo")
     musetalk_vram_combo = _ui_shell_find_object(window, "musetalk_vram_combo")
     musetalk_avatar_pack_combo = _ui_shell_find_object(window, "musetalk_avatar_pack_combo")
+    ua_companion_orb_checkbox = _ui_shell_find_object(window, "ua_companion_orb_send_musetalk_face_mask_checkbox")
     context_window_spin = _ui_shell_find_object(window, "chat_context_window_spin")
     stored_history_spin = _ui_shell_find_object(window, "stored_chat_history_limit_spin")
     overflow_combo = _ui_shell_find_object(window, "chat_overflow_policy_combo")
@@ -64,6 +65,11 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         stream_mode_combo.setToolTip("Shell-local stream-mode preview. Changes update only the shell status line.")
     if musetalk_vram_combo is not None and hasattr(musetalk_vram_combo, "setToolTip"):
         musetalk_vram_combo.setToolTip("Shell-local MuseTalk VRAM preview. No runtime adapter is reconfigured.")
+    if ua_companion_orb_checkbox is not None:
+        _ui_shell_set_checked(ua_companion_orb_checkbox, session.get("ua_companion_orb_send_musetalk_face_mask", False))
+        ua_companion_orb_checkbox.setToolTip(
+            "Shell-local Ua Companion Orb preview. Real MuseTalk mask routing is only active in runtime-backed mode."
+        )
     if musetalk_avatar_pack_combo is not None and hasattr(musetalk_avatar_pack_combo, "clear"):
         saved_pack_id = str(session.get("musetalk_avatar_pack_id", "") or "").strip()
         musetalk_avatar_pack_combo.blockSignals(True)
@@ -247,6 +253,11 @@ def _bind_ui_shell_host_core_controls(window, sensory_providers=None):
         musetalk_avatar_pack_combo,
         "_nc_ui_shell_host_core_bound",
         lambda: f"[UI Shell] MuseTalk avatar pack preview: {str(musetalk_avatar_pack_combo.currentText() or 'No avatar packs found').strip()} selected; no adapter was rebuilt.",
+    )
+    bind_check(
+        ua_companion_orb_checkbox,
+        "_nc_ui_shell_host_core_bound",
+        lambda: f"[UI Shell] Ua Companion Orb mask routing preview: {'enabled' if ua_companion_orb_checkbox.isChecked() else 'disabled'}; runtime transport remains disconnected.",
     )
     bind_combo(
         overflow_combo,

@@ -63,6 +63,7 @@ UI_VALIDATION_REQUIRED_GROUPS = (
             ("tts_backend_combo", "QComboBox"),
             ("musetalk_vram_combo", "QComboBox"),
             ("musetalk_loop_fade_spin", "QSpinBox"),
+            ("ua_companion_orb_send_musetalk_face_mask_checkbox", "QCheckBox"),
             ("musetalk_avatar_pack_combo", "QComboBox"),
             ("preset_combo", "QComboBox"),
             ("chat_provider_combo", "QComboBox"),
