@@ -10,6 +10,7 @@ from collections import deque
 MUSE_BRIDGE_DIAGNOSTIC_ECHO = False
 MUSE_BRIDGE_WORKER_LOG = str(os.environ.get("NC_MUSETALK_WORKER_LOG", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA = str(os.environ.get("NC_MUSETALK_ALLOW_UNSUPPORTED_CUDA", "") or "").strip().lower() in {"1", "true", "yes", "on"}
+MUSE_BRIDGE_STRICT_CUDA_CHECK = str(os.environ.get("NC_MUSETALK_STRICT_CUDA_COMPAT_CHECK", "") or "").strip().lower() in {"1", "true", "yes", "on"}
 MUSE_BRIDGE_CPU_THREAD_LIMITS = {
     "OMP_NUM_THREADS": "1",
     "MKL_NUM_THREADS": "1",
@@ -33,6 +34,33 @@ def _is_progress_noise_line(line):
 
 def _strip_ansi_escape_codes(text):
     return _ANSI_ESCAPE_RE.sub("", str(text or ""))
+
+
+def _format_image_read_error_message(payload):
+    path = str((payload or {}).get("path", "") or "")
+    context = str((payload or {}).get("context", "") or "image").strip() or "image"
+    basename = os.path.basename(path) if path else "<unknown>"
+    exists = (payload or {}).get("exists")
+    size_bytes = (payload or {}).get("size_bytes")
+    chunk_id = str((payload or {}).get("chunk_id", "") or "").strip()
+    details = [
+        f"[MuseTalkImage] Could not read {context}: {basename}",
+        f"path={path or '<unknown>'}",
+    ]
+    if exists is not None:
+        details.append(f"exists={bool(exists)}")
+    if size_bytes is not None:
+        details.append(f"size={size_bytes}")
+    if chunk_id:
+        details.append(f"chunk={chunk_id}")
+    return " ".join(details)
+
+
+def _torch_compatibility_timeout_seconds():
+    try:
+        return max(5.0, min(300.0, float(os.environ.get("NC_MUSETALK_CUDA_CHECK_TIMEOUT_SECONDS", "30") or "30")))
+    except Exception:
+        return 30.0
 
 
 def _parse_torch_cuda_compatibility_output(stdout):
@@ -71,7 +99,7 @@ class MuseTalkBridge:
         self._recent_output = deque(maxlen=12)
         self._torch_compat_checked = False
 
-    def _validate_torch_cuda_compatibility(self):
+    def _validate_torch_cuda_compatibility(self, logger=print):
         if self._torch_compat_checked or MUSE_BRIDGE_ALLOW_UNSUPPORTED_CUDA:
             self._torch_compat_checked = True
             return
@@ -104,14 +132,34 @@ except Exception as exc:
     payload["error"] = str(exc)
 print(json.dumps(payload))
 """
+        check_env = dict(os.environ)
+        check_env.setdefault("PYTHONUTF8", "1")
+        check_env.setdefault("PYTHONIOENCODING", "utf-8")
+        for key, value in MUSE_BRIDGE_CPU_THREAD_LIMITS.items():
+            check_env.setdefault(key, value)
+        timeout_seconds = _torch_compatibility_timeout_seconds()
         try:
             result = subprocess.run(
                 [self.python_exe, "-c", script],
                 cwd=self.root_dir,
+                env=check_env,
                 text=True,
                 capture_output=True,
-                timeout=30,
+                timeout=timeout_seconds,
             )
+        except subprocess.TimeoutExpired as exc:
+            message = (
+                f"[MuseTalkBridge] Torch CUDA compatibility check timed out after {timeout_seconds:.1f}s. "
+                "Continuing startup; the MuseTalk worker will perform the real Torch initialization."
+            )
+            try:
+                logger(message)
+            except Exception:
+                pass
+            self._torch_compat_checked = True
+            if MUSE_BRIDGE_STRICT_CUDA_CHECK:
+                raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
+            return
         except Exception as exc:
             raise RuntimeError(f"Could not validate MuseTalk torch CUDA compatibility: {exc}") from exc
         try:
@@ -331,6 +379,8 @@ print(json.dumps(payload))
                     f"vae_slicing={payload.get('vae_slicing')} preload_face_parsing={payload.get('preload_face_parsing')} "
                     f"gpu={payload.get('gpu')}"
                 )
+            elif payload.get("worker_info") == "image_read_error":
+                print(_format_image_read_error_message(payload))
             elif payload.get("worker_info") == "checkpoint" and MUSE_BRIDGE_DIAGNOSTIC_ECHO:
                 print(
                     "[MuseTalkBridge] Worker checkpoint: "

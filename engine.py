@@ -1496,12 +1496,20 @@ def _get_lmstudio_sdk():
     return lmstudio_runtime.get_sdk()
 
 
+def _active_lmstudio_base_url():
+    return str(
+        _chat_provider_base_url("lmstudio")
+        or chat_providers.get_provider_setting("lmstudio", "base_url")
+        or LMSTUDIO_BASE_URL
+    ).strip() or LMSTUDIO_BASE_URL
+
+
 def _get_lmstudio_sdk_host():
-    return lmstudio_runtime.sdk_host(LMSTUDIO_BASE_URL)
+    return lmstudio_runtime.sdk_host(_active_lmstudio_base_url())
 
 
 def _get_lmstudio_sdk_client(sdk):
-    return lmstudio_runtime.sdk_client(sdk, LMSTUDIO_BASE_URL)
+    return lmstudio_runtime.sdk_client(sdk, _active_lmstudio_base_url())
 
 
 def _run_lms_cli(args, timeout=300):
@@ -1509,13 +1517,13 @@ def _run_lms_cli(args, timeout=300):
 
 
 def unload_lmstudio_models():
-    return lmstudio_runtime.unload_models(base_url=LMSTUDIO_BASE_URL, logger=print)
+    return lmstudio_runtime.unload_models(base_url=_active_lmstudio_base_url(), logger=print)
 
 
 def load_lmstudio_model(model_name):
     return lmstudio_runtime.load_model(
         model_name,
-        base_url=LMSTUDIO_BASE_URL,
+        base_url=_active_lmstudio_base_url(),
         is_placeholder=_is_model_catalog_placeholder,
         logger=print,
     )

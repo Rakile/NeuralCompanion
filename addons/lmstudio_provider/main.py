@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -334,6 +335,8 @@ class Addon(BaseAddon):
         return None
 
     def _responsiveness_guard(self):
+        if not lmstudio_runtime.is_local_base_url(self._base_url()):
+            return contextlib.nullcontext()
         return lmstudio_runtime.local_inference_responsiveness_guard(logger=print)
 
     def _worker_enabled(self) -> bool:

@@ -2847,10 +2847,16 @@ class SpotifySenseController(QtCore.QObject):
                     {"stage": "play", "query": query, "mood": mood, "music_kind": music_kind, "result": play_result},
                 )
             if playback_ok and self._duck_is_active():
-                self._set_duck_restore_volume(target_volume, device_id)
                 self._debug_log(
                     "story_music_transition_ducked",
-                    {"query": query, "mood": mood, "music_kind": music_kind, "fade": fade, "play_result": play_result},
+                    {
+                        "query": query,
+                        "mood": mood,
+                        "music_kind": music_kind,
+                        "fade": fade,
+                        "play_result": play_result,
+                        "restore_volume_preserved": self._remembered_volume,
+                    },
                 )
                 return {
                     "ok": True,
@@ -2865,6 +2871,7 @@ class SpotifySenseController(QtCore.QObject):
                 reason="story_music_fade_up",
                 generation=generation,
                 is_current=self._story_transition_is_current,
+                cancel_if_duck_active=True,
             )
             self._debug_log(
                 "story_music_transition",
@@ -2910,6 +2917,7 @@ class SpotifySenseController(QtCore.QObject):
         reason: str,
         generation: int,
         is_current: Callable[[int], bool] | None = None,
+        cancel_if_duck_active: bool = False,
     ) -> dict[str, Any]:
         start_value = max(0, min(100, int(start)))
         target_value = max(0, min(100, int(target)))
@@ -2925,6 +2933,8 @@ class SpotifySenseController(QtCore.QObject):
         for index in range(1, steps + 1):
             if not current_checker(generation):
                 return {"ok": False, "cancelled": True, "reason": reason}
+            if cancel_if_duck_active and self._duck_is_active():
+                return {"ok": True, "skipped": True, "reason": "tts_duck_active"}
             fraction = index / float(steps)
             volume = int(round(start_value + ((target_value - start_value) * fraction)))
             last_result = self.client.set_volume(volume, device_id=device_id)

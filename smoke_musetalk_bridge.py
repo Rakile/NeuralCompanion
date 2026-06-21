@@ -1,4 +1,6 @@
-from musetalk_bridge import _parse_torch_cuda_compatibility_output
+import subprocess
+
+from musetalk_bridge import MuseTalkBridge, _format_image_read_error_message, _parse_torch_cuda_compatibility_output
 
 
 def test_torch_compatibility_parser_ignores_trailing_ansi_reset():
@@ -27,7 +29,46 @@ def test_torch_compatibility_parser_uses_last_json_payload():
     assert payload == {"ok": True, "cuda_available": False}
 
 
+def test_image_read_error_message_includes_path_and_context():
+    message = _format_image_read_error_message(
+        {
+            "worker_info": "image_read_error",
+            "context": "render_audio.mask",
+            "path": r"Q:\NC\MuseTalk\runtime\bad.png",
+            "exists": True,
+            "size_bytes": 12,
+            "chunk_id": "bsData_test",
+        }
+    )
+
+    assert "[MuseTalkImage]" in message
+    assert "render_audio.mask" in message
+    assert "bad.png" in message
+    assert "size=12" in message
+    assert "chunk=bsData_test" in message
+
+
+def test_torch_compatibility_timeout_warns_without_blocking_startup():
+    bridge = MuseTalkBridge(root_dir="MuseTalk")
+    original_run = subprocess.run
+    messages = []
+
+    def fake_run(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(cmd=["python", "-c", "import torch"], timeout=30)
+
+    try:
+        subprocess.run = fake_run
+        bridge._validate_torch_cuda_compatibility(logger=messages.append)
+    finally:
+        subprocess.run = original_run
+
+    assert bridge._torch_compat_checked is True
+    assert any("timed out" in message.lower() for message in messages)
+
+
 if __name__ == "__main__":
     test_torch_compatibility_parser_ignores_trailing_ansi_reset()
     test_torch_compatibility_parser_uses_last_json_payload()
+    test_image_read_error_message_includes_path_and_context()
+    test_torch_compatibility_timeout_warns_without_blocking_startup()
     print("smoke_musetalk_bridge: ok")

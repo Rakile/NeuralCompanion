@@ -610,7 +610,66 @@ def main():
         assert (33, "story-device") not in story_race_volume_calls
         restored_after_story = controller.invoke_capability("tts.duck.end", {"source": "smoke"})
         assert restored_after_story["ok"] is True
-        assert story_race_volume_calls[-1] == (33, "story-device")
+        assert restored_after_story["volume"] == 60
+        assert story_race_volume_calls[-1] == (60, "story-device")
+
+        story_overlap_play_calls = []
+        story_overlap_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            allow_llm_control=True,
+            require_confirmation=True,
+            duck_while_speaking=True,
+            restore_volume_after_speech=True,
+            duck_volume_percent=12,
+            duck_fade_down_ms=0,
+            duck_fade_up_ms=0,
+            story_mode_background_music=True,
+            autonomous_music="full",
+            default_device_id="overlap-device",
+            story_music_target_volume=45,
+            story_music_transition_floor_volume=5,
+            story_music_fade_down_ms=0,
+            story_music_fade_up_ms=1200,
+            story_music_prefer_ambient=True,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "overlap-device", "volume_percent": 70}},
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            story_overlap_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        controller.client.play = lambda query=None, device_id=None, preferred_type=None, **_kwargs: (
+            story_overlap_play_calls.append((query, device_id, preferred_type))
+            or {"ok": True, "query": query, "device_id": device_id, "preferred_type": preferred_type}
+        )
+        overlap_transition = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "The hidden door hums as the floor lights wake up.",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert overlap_transition["ok"] is True
+        assert overlap_transition["transitioning"] is True
+        deadline = time.time() + 1.0
+        while time.time() < deadline and len(story_overlap_volume_calls) < 2:
+            time.sleep(0.02)
+        assert len(story_overlap_volume_calls) >= 2
+        overlap_duck = controller.invoke_capability("tts.duck.start", {"source": "smoke-overlap"})
+        assert overlap_duck["ok"] is True
+        assert story_overlap_volume_calls[-1] == (12, "overlap-device")
+        duck_call_count = len(story_overlap_volume_calls)
+        time.sleep(0.35)
+        assert story_overlap_volume_calls[duck_call_count - 1 :] == [(12, "overlap-device")]
+        overlap_restore = controller.invoke_capability("tts.duck.end", {"source": "smoke-overlap"})
+        assert overlap_restore["ok"] is True
+        assert story_overlap_volume_calls[-1] == (70, "overlap-device")
 
         controller.settings.update(enabled=False, allow_llm_control=False, user_music_change_cooldown_seconds=120)
         controller._last_user_music_change_at = time.time()

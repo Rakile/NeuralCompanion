@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import sys
 from pathlib import Path
 
@@ -9,6 +10,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from addons.lmstudio_provider.main import Addon
+from core import lmstudio_runtime
 
 
 class _Settings:
@@ -59,9 +61,29 @@ def test_lmstudio_worker_flattens_openai_compatible_extra_body() -> None:
     assert payload["min_p"] == 0.05
 
 
+def test_remote_lmstudio_skips_local_responsiveness_guard() -> None:
+    addon = _addon_with_base_url("http://192.168.2.46:1234")
+    original_guard = lmstudio_runtime.local_inference_responsiveness_guard
+    calls = []
+
+    @contextlib.contextmanager
+    def _recording_guard(logger=print):
+        calls.append("entered")
+        yield
+
+    try:
+        lmstudio_runtime.local_inference_responsiveness_guard = _recording_guard
+        with addon._responsiveness_guard():
+            pass
+        assert calls == []
+    finally:
+        lmstudio_runtime.local_inference_responsiveness_guard = original_guard
+
+
 def main() -> int:
     test_lmstudio_base_url_defaults_to_openai_v1_path()
     test_lmstudio_worker_flattens_openai_compatible_extra_body()
+    test_remote_lmstudio_skips_local_responsiveness_guard()
     return 0
 
 
