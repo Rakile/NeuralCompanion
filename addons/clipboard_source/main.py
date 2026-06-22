@@ -445,16 +445,16 @@ class Addon(BaseAddon):
 
     def _on_hidden_loop_toggled(self, checked):
         if getattr(self, "_shell_preview", False):
-            self.last_delivery_status = "Shell preview: hidden-loop clipboard feed is disabled."
+            self.last_delivery_status = "Shell preview: Background Awareness clipboard feed is disabled."
             self._notify_tab_refreshers()
             return
         self.hidden_loop_enabled = bool(checked)
         if self.hidden_loop_enabled and self.auto_send_immediately:
             self.auto_send_immediately = False
         self.last_delivery_status = (
-            "Clipboard source will now feed the hidden Vision loop when selected."
+            "Clipboard source will now feed Background Awareness when selected."
             if self.hidden_loop_enabled
-            else "Clipboard source hidden-loop feed disabled."
+            else "Clipboard source Background Awareness feed disabled."
         )
         self._notify_tab_refreshers()
         self._notify_settings_changed()
@@ -472,7 +472,7 @@ class Addon(BaseAddon):
                 f"Clipboard source include: {'on' if self._source_is_enabled() else 'off'}",
                 f"New image auto-arm: {'on' if self.auto_attach_next_user_turn else 'off'}",
                 f"Immediate auto-send: {'on' if self.auto_send_immediately else 'off'}",
-                f"Hidden Vision loop feed: {'on' if self.hidden_loop_enabled else 'off'}",
+                f"Background Awareness feed: {'on' if self.hidden_loop_enabled else 'off'}",
                 self.last_delivery_status,
             ]
         )

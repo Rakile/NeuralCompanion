@@ -6,23 +6,33 @@
   "steps": [
     {
       "title": "Avatar Engines",
-      "body": "Avatar Engine controls whether NC runs without an avatar, uses MuseTalk, or uses another installed avatar provider. Start with None until chat and speech are confirmed.",
+      "body": "Avatar Engine controls whether NC runs without an avatar, uses MuseTalk, or uses another installed avatar provider. Start with None until chat and speech are confirmed. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "engine_combo"
     },
     {
       "title": "MuseTalk Needs a Pack",
-      "body": "MuseTalk needs a prepared avatar pack. A pack can include several emotion variants, such as neutral, angry, and sad.",
-      "target": "musetalk_avatar_pack_combo"
+      "body": "MuseTalk needs a prepared avatar pack. Select MuseTalk as the Avatar Engine while configuring these controls. A pack can include several emotion variants, such as neutral, angry, and sad.",
+      "target": "musetalk_avatar_pack_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
+        { "type": "set_combo_text", "target": "engine_combo", "value": "MuseTalk" }
+      ]
     },
     {
       "title": "VRAM Mode",
       "body": "VRAM mode trades quality and speed against memory use. Very Low VRAM is the safest first choice; higher modes should be tested later.",
-      "target": "musetalk_vram_combo"
+      "target": "musetalk_vram_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
+        { "type": "set_combo_text", "target": "engine_combo", "value": "MuseTalk" }
+      ]
     },
     {
       "title": "Emotion Availability",
       "body": "Personas should ask for emotions that actually exist in the selected avatar pack. If the pack only has neutral, angry, and sad, keep presets within those tags.",
-      "target": "main_window"
+      "target": "musetalk_avatar_pack_combo"
     },
     {
       "title": "Preview and Focus",

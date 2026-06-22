@@ -1,4 +1,9 @@
 import sys
+if any(str(arg or "").strip().lower() == "--codex-debug-bundle" for arg in sys.argv[1:]):
+    from core.crash_diagnostics import create_manual_debug_bundle
+
+    print(f"Codex debug bundle created: {create_manual_debug_bundle()}")
+    sys.exit(0)
 from ui.runtime.qt_app_cli import maybe_handle_ui_shell, maybe_handle_validate_ui, resolve_ui_path as _resolve_ui_path_base, validate_ui_file as _validate_ui_file
 from ui.runtime.qt_app_shell_namespace import export_qt_app_shell_namespace
 
@@ -42,4 +47,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

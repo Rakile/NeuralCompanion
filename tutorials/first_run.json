@@ -6,8 +6,12 @@
   "steps": [
     {
       "title": "Welcome to Neural Companion",
-      "body": "This walkthrough gets the core app into a safe first-run state. Use Read steps aloud in this tutorial panel if you want the written instructions spoken while you work. It focuses on chat, model connection, speech, and the controls you need before experimenting with avatars or advanced automation.",
-      "target": "main_window"
+      "body": "This walkthrough gets the core app into a safe first-run state. The workspace panels stay docked as tabs while the tutorial switches between them. Use Read steps aloud or Read Step in this tutorial panel if you want the written instructions spoken while you work.",
+      "target": "WorkspaceTabsDock",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "show_dock", "target": "SystemShapingDock" }
+      ]
     },
     {
       "title": "Start Without an Avatar",
@@ -46,8 +50,8 @@
     },
     {
       "title": "Confirm Text to Speech",
-      "body": "Chatterbox is the default public TTS backend. PocketTTS can be selected later after its isolated runtime and Hugging Face access are ready.",
-      "target": "tts_backend_combo"
+      "body": "Chatterbox is the default public TTS backend. Click a TTS backend tab to view its settings, and click the circle inside a tab to make that backend active. PocketTTS can be selected later after its isolated runtime and Hugging Face access are ready.",
+      "target": "tts_runtime_active_provider_label"
     },
     {
       "title": "Load the Tutorial Persona",
@@ -85,7 +89,7 @@
     },
     {
       "title": "Next Tutorials",
-      "body": "After this, run the remaining tutorials in order. They cover the launcher, TTS choices, personas, avatars, performance tuning, visual replies, sensory sources, and routine troubleshooting.",
+      "body": "After this, run the remaining tutorials in order. They cover runtime setup, chat, speech, personas, avatars, Visual Reply, sensory sources, AI Presence, Companion Orb, Spotify Sense, Main Chat Remote, Audio Story Mode, Multi Persona Roleplay, and troubleshooting.",
       "tab": "Tutorials",
       "target": "tutorials_tab",
       "actions": [

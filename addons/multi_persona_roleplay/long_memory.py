@@ -5,6 +5,8 @@ import time
 import uuid
 from typing import Any
 
+from .databank import StoryDataBank
+from .memory_database import DEFAULT_STORY_ID, open_memory_database
 from .models import AR_MODE, PersonaConfig, RoleplaySessionState, normalize_persona_id
 
 
@@ -34,13 +36,18 @@ def _keywords(text: str) -> set[str]:
 class RoleplayLongMemory:
     """Addon-local long memory for both standard roleplay and AR mode.
 
-    This intentionally uses JSON storage first. It gives the addon one stable
-    memory shape before any optional database backend is introduced.
+    JSON remains the export/import compatibility shape. A local database mirrors
+    that payload for ranked retrieval and data-bank chunks.
     """
 
     def __init__(self, storage, logger=None):
         self.storage = storage
         self.logger = logger
+        self.story_id = DEFAULT_STORY_ID
+        self.database = self._open_database()
+        self.databank = StoryDataBank(self.database, story_id=self.story_id, logger=logger) if self.database is not None else None
+        self._indexed_databank_sources: set[str] = set()
+        self._sync_existing_payload_once()
 
     def load(self) -> dict[str, Any]:
         payload = self.storage._read_json(MEMORY_PATH, {})
@@ -50,7 +57,9 @@ class RoleplayLongMemory:
         return self._normalize(payload)
 
     def save(self, payload: dict[str, Any]) -> None:
-        self.storage._write_json(MEMORY_PATH, self._normalize(payload))
+        normalized = self._normalize(payload)
+        self.storage._write_json(MEMORY_PATH, normalized)
+        self._sync_database(normalized)
 
     def clear(self) -> None:
         self.save({})
@@ -95,8 +104,6 @@ class RoleplayLongMemory:
     ) -> str:
         payload = self.load()
         events = list(payload.get("events") or [])
-        if not events:
-            return ""
 
         query_text = " ".join(
             item for item in (
@@ -118,6 +125,7 @@ class RoleplayLongMemory:
             event for event in self._rank_events(events[:-len(recent)] if len(events) > len(recent) else [], query_text)
             if event.get("id") not in recent_ids
         ][: max(0, limit - 2)]
+        semantic_events = self._semantic_event_results(query_text, exclude_ids=recent_ids, limit=max(2, limit))
         chapters = self._rank_chapters(list(payload.get("chapters") or []), query_text)[:3]
         active_character_ids = set(session.ar_state.active_characters or [])
         if session.current_speaker_id:
@@ -135,6 +143,11 @@ class RoleplayLongMemory:
         if isinstance(raw_pinned, str):
             raw_pinned = raw_pinned.splitlines()
         pinned = [str(item).strip() for item in list(raw_pinned or []) if str(item).strip()]
+        self._sync_configured_databank_sources()
+        databank_context = self._databank_context(query_text)
+        if not any((events, pinned, semantic_events, character_lines, databank_context)):
+            return ""
+
         if pinned:
             lines.append("Pinned story facts:")
             lines.extend(f"- {item}" for item in pinned[:12])
@@ -144,12 +157,17 @@ class RoleplayLongMemory:
         if relevant:
             lines.append("Relevant older events:")
             lines.extend(f"- {event.get('summary')}" for event in relevant)
+        if semantic_events:
+            lines.append("Retrieved story memory:")
+            lines.extend(f"- {item.text}" for item in semantic_events if str(item.text or "").strip())
         if recent:
             lines.append("Recent remembered events:")
             lines.extend(f"- {event.get('summary')}" for event in recent)
         if character_lines:
             lines.append("Character memory:")
             lines.extend(character_lines[:6])
+        if databank_context:
+            lines.append(databank_context)
         return "\n".join(line for line in lines if str(line or "").strip())
 
     def _build_event(
@@ -288,6 +306,82 @@ class RoleplayLongMemory:
             "location_memory": dict(payload.get("location_memory") or {}) if isinstance(payload.get("location_memory"), dict) else {},
             "updated_at": float(payload.get("updated_at", 0.0) or 0.0),
         }
+
+    def _open_database(self):
+        try:
+            return open_memory_database(self.storage, settings=self._load_database_settings(), logger=self.logger)
+        except Exception as exc:
+            self._log("[LONG_MEMORY] Database backend disabled: %s", exc)
+            return None
+
+    def _load_database_settings(self) -> dict[str, Any]:
+        try:
+            load_settings = getattr(self.storage, "load_settings", None)
+            if callable(load_settings):
+                payload = load_settings()
+            else:
+                payload = self.storage._read_json("settings.json", {})
+            return dict(payload or {}) if isinstance(payload, dict) else {}
+        except Exception:
+            return {}
+
+    def _sync_database(self, payload: dict[str, Any]) -> None:
+        if self.database is None:
+            return
+        try:
+            events = [event for event in list(payload.get("events") or []) if isinstance(event, dict)]
+            self.database.replace_events(events, story_id=self.story_id)
+            if self.databank is not None:
+                self.databank.index_long_memory_payload(payload)
+        except Exception as exc:
+            self._log("[LONG_MEMORY] Database sync failed: %s", exc)
+
+    def _sync_existing_payload_once(self) -> None:
+        if self.database is None:
+            return
+        try:
+            payload = self.storage._read_json(MEMORY_PATH, {})
+            if isinstance(payload, dict) and any((payload.get("events"), payload.get("chapters"), payload.get("pinned_facts"))):
+                self._sync_database(self._normalize(payload))
+        except Exception as exc:
+            self._log("[LONG_MEMORY] Startup database sync failed: %s", exc)
+
+    def _semantic_event_results(self, query: str, *, exclude_ids: set[Any], limit: int) -> list[Any]:
+        if self.database is None or not str(query or "").strip():
+            return []
+        try:
+            results = self.database.search_events(query, story_id=self.story_id, limit=max(1, int(limit or 1)))
+        except Exception as exc:
+            self._log("[LONG_MEMORY] Semantic retrieval failed: %s", exc)
+            return []
+        blocked = {str(item or "") for item in exclude_ids}
+        return [item for item in results if str(getattr(item, "record_id", "")) not in blocked][: max(1, int(limit or 1))]
+
+    def _databank_context(self, query: str) -> str:
+        if self.databank is None or not str(query or "").strip():
+            return ""
+        try:
+            return self.databank.prompt_context(query, max_chunks=4, max_chars=2600)
+        except Exception as exc:
+            self._log("[LONG_MEMORY] Data bank retrieval failed: %s", exc)
+            return ""
+
+    def _sync_configured_databank_sources(self) -> None:
+        if self.databank is None:
+            return
+        settings = self._load_database_settings()
+        sources = settings.get("long_memory_databank_sources") or settings.get("memory_databank_sources") or []
+        if isinstance(sources, str):
+            sources = [line.strip() for line in sources.splitlines() if line.strip()]
+        for source in list(sources or []):
+            key = str(source or "").strip()
+            if not key or key in self._indexed_databank_sources:
+                continue
+            try:
+                self.databank.index_path(key)
+                self._indexed_databank_sources.add(key)
+            except Exception as exc:
+                self._log("[LONG_MEMORY] Failed to index data bank source %s: %s", key, exc)
 
     def _log(self, message: str, *args) -> None:
         if self.logger is not None:

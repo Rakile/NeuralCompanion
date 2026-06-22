@@ -36,7 +36,7 @@
     <item>
      <widget class="QGroupBox" name="rag_context_group">
       <property name="title">
-       <string>RAG Context</string>
+       <string>Document Memory</string>
       </property>
       <layout class="QVBoxLayout" name="rag_context_group_layout">
        <property name="leftMargin">
@@ -57,7 +57,7 @@
        <item>
         <widget class="QLabel" name="rag_context_hint_label">
          <property name="text">
-          <string>Build a local retrieval index from selected text and PDF files and optionally inject matching chunks into chat requests.</string>
+          <string>Choose local text or PDF files, build a searchable memory, and let NC use matching notes during chat.</string>
          </property>
          <property name="wordWrap">
           <bool>true</bool>
@@ -67,14 +67,14 @@
        <item>
         <widget class="QCheckBox" name="rag_context_enable_checkbox">
          <property name="text">
-          <string>Use this RAG DB during chat</string>
+          <string>Use Document Memory during chat</string>
          </property>
         </widget>
        </item>
        <item>
         <widget class="QGroupBox" name="rag_context_files_group">
          <property name="title">
-          <string>Source Files</string>
+          <string>Documents</string>
          </property>
          <layout class="QVBoxLayout" name="rag_context_files_layout">
           <property name="leftMargin">
@@ -146,7 +146,7 @@
        <item>
         <widget class="QGroupBox" name="rag_context_retrieval_group">
          <property name="title">
-          <string>Retrieval</string>
+          <string>Search Behavior</string>
          </property>
          <layout class="QFormLayout" name="rag_context_retrieval_form">
           <property name="leftMargin">
@@ -167,7 +167,7 @@
           <item row="0" column="0">
            <widget class="QLabel" name="rag_context_top_k_label">
             <property name="text">
-             <string>Max chunks</string>
+             <string>How many notes to use</string>
             </property>
            </widget>
           </item>
@@ -187,7 +187,7 @@
           <item row="1" column="0">
            <widget class="QLabel" name="rag_context_min_score_label">
             <property name="text">
-             <string>Minimum score</string>
+             <string>Match strength</string>
             </property>
            </widget>
           </item>
@@ -207,7 +207,7 @@
           <item row="2" column="0">
            <widget class="QLabel" name="rag_context_max_chars_label">
             <property name="text">
-             <string>Max context chars</string>
+             <string>Maximum note length</string>
             </property>
            </widget>
           </item>
@@ -235,14 +235,14 @@
          <item>
           <widget class="QPushButton" name="rag_context_build_button">
            <property name="text">
-            <string>Build RAG DB</string>
+            <string>Build Search Memory</string>
            </property>
           </widget>
          </item>
          <item>
           <widget class="QPushButton" name="rag_context_reload_button">
            <property name="text">
-            <string>Reload DB</string>
+            <string>Reload Memory</string>
            </property>
           </widget>
          </item>
@@ -264,7 +264,7 @@
        <item>
         <widget class="QGroupBox" name="rag_context_test_group">
          <property name="title">
-          <string>Test Retrieval</string>
+          <string>Test Search</string>
          </property>
          <layout class="QVBoxLayout" name="rag_context_test_layout">
           <property name="leftMargin">

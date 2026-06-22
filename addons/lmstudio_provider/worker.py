@@ -7,17 +7,6 @@ from typing import Any, Iterable
 from urllib.request import Request, urlopen
 
 
-def _configure_stdio() -> None:
-    for stream in (sys.stdin, sys.stdout, sys.stderr):
-        try:
-            stream.reconfigure(encoding="utf-8", errors="replace")
-        except Exception:
-            pass
-
-
-_configure_stdio()
-
-
 CHANNEL_START = "<|channel>"
 CHANNEL_END = "<channel|>"
 
@@ -207,12 +196,11 @@ def _run_request(config: dict[str, Any]) -> str:
     payload = dict(config.get("payload") or {})
     fallback_payload = config.get("fallback_payload") if isinstance(config.get("fallback_payload"), dict) else None
     emit_chunks = bool(config.get("emit_chunks"))
-    stream = bool(config.get("stream"))
     force_non_stream = bool(config.get("force_non_stream"))
     if not url:
         raise RuntimeError("LM Studio worker received an empty request URL.")
 
-    if force_non_stream or not stream:
+    if force_non_stream:
         response_payload = _post_json(url, payload, api_key)
         return _extract_native_text(response_payload) if native else _extract_openai_message(response_payload)
 

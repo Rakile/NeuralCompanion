@@ -1,23 +1,23 @@
 {
   "id": "nc.chat_session_player",
-  "name": "Chat Session Player",
+  "name": "Conversation Replay",
   "category": "chat",
   "version": "0.1.0",
   "entry_point": "main.py",
-  "description": "Dedicated chat session replay and context loading tools.",
+  "description": "Dedicated conversation replay and context loading tools.",
   "permissions": [
     "ui.tabs"
   ],
   "ui": [
     {
       "id": "chat_session_player_tab",
-      "title": "Chat Player",
+      "title": "Conversation Replay",
       "area": "top_level",
       "ui_path": "ui/chat_session_player.ui",
       "placeholder": "chat_player_tab",
       "icon_path": "ui/icons/chat_player.png",
       "order": 920,
-      "tooltip": "Standalone chat session replay and context loading tools.",
+      "tooltip": "Standalone conversation replay and context loading tools.",
       "metadata": {
         "runtime_role": "chat_replay",
         "real_ui_bridge_module": "addons.chat_session_player.real_ui_bridge"

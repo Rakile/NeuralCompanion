@@ -59,7 +59,7 @@ class MainWindowLayoutMixin:
             pass
         self.workspace_tabs_dock.raise_()
 
-        self.operational_dock = QtWidgets.QDockWidget("CHAT INTERFACE", self)
+        self.operational_dock = QtWidgets.QDockWidget("CHAT WINDOW", self)
         self.operational_dock.setObjectName("OperationalViewDock")
         self.operational_dock.setAllowedAreas(
             QtCore.Qt.LeftDockWidgetArea

@@ -10,15 +10,36 @@ from pathlib import Path
 from typing import Any, Callable
 
 
+def _parse_event_line(line: str) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(str(line or "").strip())
+    except Exception:
+        return None
+    if not isinstance(payload, dict):
+        return None
+    event_type = str(payload.get("type") or "").strip()
+    if not event_type:
+        return None
+    payload["type"] = event_type
+    return payload
+
+
 class ExternalOrbRuntimeClient:
     """Small JSON-lines IPC client for the out-of-process Companion Orb overlay."""
 
-    def __init__(self, app_root: Path, logger: Callable[[str], None] | None = None):
+    def __init__(
+        self,
+        app_root: Path,
+        logger: Callable[[str], None] | None = None,
+        event_handler: Callable[[dict[str, Any]], None] | None = None,
+    ):
         self.app_root = Path(app_root)
         self._logger = logger or (lambda _message: None)
+        self._event_handler = event_handler
         self._lock = threading.RLock()
         self._process: subprocess.Popen | None = None
         self._log_handle = None
+        self._event_thread: threading.Thread | None = None
 
     def is_running(self) -> bool:
         process = self._process
@@ -45,13 +66,15 @@ class ExternalOrbRuntimeClient:
                     [str(python), "-u", str(script), "--app-root", str(self.app_root)],
                     cwd=str(self.app_root),
                     stdin=subprocess.PIPE,
-                    stdout=self._log_handle,
+                    stdout=subprocess.PIPE,
                     stderr=self._log_handle,
                     text=True,
                     encoding="utf-8",
+                    errors="replace",
                     env=env,
                     creationflags=self._creation_flags(),
                 )
+                self._start_event_reader(self._process)
                 return self.is_running()
             except Exception as exc:
                 self._logger(f"Could not start Companion Orb external runtime: {exc}")
@@ -70,6 +93,36 @@ class ExternalOrbRuntimeClient:
                     return False
                 return self._write(payload)
             return True
+
+    def _start_event_reader(self, process: subprocess.Popen) -> None:
+        if process.stdout is None:
+            return
+        self._event_thread = threading.Thread(
+            target=self._read_events_loop,
+            args=(process,),
+            daemon=True,
+            name="companion-orb-external-events",
+        )
+        self._event_thread.start()
+
+    def _read_events_loop(self, process: subprocess.Popen) -> None:
+        stream = process.stdout
+        if stream is None:
+            return
+        for line in stream:
+            event = _parse_event_line(line)
+            if event is None:
+                text = str(line or "").strip()
+                if text:
+                    self._logger(f"Companion Orb external runtime: {text}")
+                continue
+            handler = self._event_handler
+            if not callable(handler):
+                continue
+            try:
+                handler(event)
+            except Exception as exc:
+                self._logger(f"Companion Orb external event handler failed: {exc}")
 
     def stop(self) -> None:
         process = self._process
@@ -97,6 +150,7 @@ class ExternalOrbRuntimeClient:
                         process.kill()
                     except Exception:
                         pass
+        self._event_thread = None
         self._close_log_handle()
 
     def _write(self, payload: dict[str, Any]) -> bool:

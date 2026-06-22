@@ -6,6 +6,17 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_HIDDEN_COMMENTARY_STYLE_PROMPT = (
+    "Make song-change comments sound like a relaxed music-aware companion: one short natural line, "
+    "specific to the track title, artist, mood, or energy. Avoid dry metadata summaries, repeated "
+    "'now playing' wording, and hidden-system mechanics."
+)
+DEFAULT_HIDDEN_SENSORY_QUICK_IDS = [
+    "builtin.natural_companion",
+    "builtin.story_soundtrack",
+    "builtin.focus_mode",
+]
+
 DEFAULT_SETTINGS: dict[str, Any] = {
     "enabled": False,
     "client_id": "",
@@ -39,9 +50,18 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "allow_playlist_changes": False,
     "allow_queue_changes": False,
     "story_mode_background_music": False,
+    "story_music_prefer_ambient": True,
+    "story_music_target_volume": 30,
+    "story_music_transition_floor_volume": 8,
+    "story_music_fade_down_ms": 900,
+    "story_music_fade_up_ms": 1400,
     "coding_mode_query": "relaxing focus music",
     "song_change_monitor_enabled": False,
     "debug_logging_enabled": False,
+    "hidden_commentary_style_prompt": DEFAULT_HIDDEN_COMMENTARY_STYLE_PROMPT,
+    "hidden_sensory_preset_id": "builtin.natural_companion",
+    "hidden_sensory_custom_presets": [],
+    "hidden_sensory_quick_ids": list(DEFAULT_HIDDEN_SENSORY_QUICK_IDS),
 }
 
 TOKEN_KEYS = {"access_token", "refresh_token"}
@@ -107,15 +127,22 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
         "allow_playlist_changes",
         "allow_queue_changes",
         "story_mode_background_music",
+        "story_music_prefer_ambient",
         "song_change_monitor_enabled",
         "debug_logging_enabled",
     ):
         data[key] = bool(data.get(key, DEFAULT_SETTINGS[key]))
+    if data["story_mode_background_music"]:
+        data["music_response_mode"] = "story_soundtrack"
     for key, default, minimum, maximum in (
         ("default_volume", 30, 0, 100),
         ("duck_volume_percent", 15, 0, 100),
         ("duck_fade_down_ms", 650, 0, 5000),
         ("duck_fade_up_ms", 900, 0, 5000),
+        ("story_music_target_volume", 30, 0, 100),
+        ("story_music_transition_floor_volume", 8, 0, 100),
+        ("story_music_fade_down_ms", 900, 0, 8000),
+        ("story_music_fade_up_ms", 1400, 0, 8000),
         ("proactive_comment_cooldown_seconds", 120, 15, 3600),
         ("hidden_response_cooldown_seconds", 300, 15, 7200),
         ("user_music_change_cooldown_seconds", 120, 0, 3600),
@@ -134,4 +161,70 @@ def _sanitize(payload: dict[str, Any]) -> dict[str, Any]:
             data["scopes"] = list(json.loads(str(data.get("scopes") or "[]")))
         except Exception:
             data["scopes"] = []
+    data["hidden_commentary_style_prompt"] = (
+        _clean_text(data.get("hidden_commentary_style_prompt"), limit=1200)
+        or DEFAULT_HIDDEN_COMMENTARY_STYLE_PROMPT
+    )
+    data["hidden_sensory_preset_id"] = _clean_text(data.get("hidden_sensory_preset_id"), limit=96)
+    data["hidden_sensory_custom_presets"] = _sanitize_hidden_sensory_presets(
+        data.get("hidden_sensory_custom_presets")
+    )
+    data["hidden_sensory_quick_ids"] = _sanitize_hidden_sensory_ids(
+        data.get("hidden_sensory_quick_ids"),
+        fallback=DEFAULT_HIDDEN_SENSORY_QUICK_IDS,
+    )
     return data
+
+
+def _clean_text(value: Any, *, limit: int) -> str:
+    text = str(value or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if len(text) > limit:
+        text = text[:limit].strip()
+    return text
+
+
+def _sanitize_hidden_sensory_presets(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list):
+        return []
+    records: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in list(value)[:100]:
+        if not isinstance(item, dict):
+            continue
+        prompt = _clean_text(item.get("prompt"), limit=1200)
+        if not prompt:
+            continue
+        preset_id = _clean_text(item.get("id"), limit=96)
+        if not preset_id:
+            preset_id = f"custom.hidden_sensory_{len(records) + 1}"
+        if preset_id in seen:
+            continue
+        seen.add(preset_id)
+        name = _clean_text(item.get("name"), limit=80) or "Custom Hidden Sensory"
+        records.append(
+            {
+                "id": preset_id,
+                "name": name,
+                "prompt": prompt,
+                "created_at": _clean_text(item.get("created_at"), limit=40),
+                "updated_at": _clean_text(item.get("updated_at"), limit=40),
+            }
+        )
+    return records
+
+
+def _sanitize_hidden_sensory_ids(value: Any, *, fallback: list[str]) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = list(value)
+    else:
+        raw_items = list(fallback)
+    ids: list[str] = []
+    for item in raw_items:
+        preset_id = _clean_text(item, limit=96)
+        if preset_id and preset_id not in ids:
+            ids.append(preset_id)
+        if len(ids) >= 6:
+            break
+    return ids

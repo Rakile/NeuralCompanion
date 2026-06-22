@@ -1,0 +1,108 @@
+{
+  "id": "spotify_sense",
+  "order": 16,
+  "title": "16. Spotify Sense",
+  "description": "Setup and safe defaults for Spotify metadata awareness, song-change commentary, hidden sensory style prompts, lowering music while NC speaks, story music, and playback commands.",
+  "steps": [
+    {
+      "title": "Open Spotify Sense",
+      "body": "Spotify Sense is an optional addon. It uses Spotify Web API metadata and playback commands; it does not listen to raw desktop audio. Use Read steps aloud or Read Step if you want spoken instructions while configuring it.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_addon_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Add Spotify App Details",
+      "body": "Client ID and Redirect URI must match your Spotify Developer Dashboard app. Save settings before logging in so the local callback can complete the OAuth flow.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_client_id",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Keep Playback Changes Confirmed",
+      "body": "Require confirmation before changing music is the safer default. Leave autonomous LLM Spotify control off until you trust the behavior with your account and playback device.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_require_confirmation",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Enable Song-Change Commentary",
+      "body": "Comment on song changes lets Spotify Sense trigger natural short comments when the track changes. Pair it with a reasonable cooldown so NC does not repeat the same kind of sentence every time metadata refreshes.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_comment_on_song_changes",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Shape the Hidden Commentary Voice",
+      "body": "Hidden Sensory Source has a Comment style field. Right-click that field to refine it, save a reusable style, or load a quick preset. Keep this short: it should guide the tone, not replace the whole system prompt.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_hidden_commentary_style",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Use Quick Hidden Sensory Styles",
+      "body": "The quick switches under Hidden Sensory Source are for fast commentary moods. Use them like system-prompt quick switches: calm, playful, cinematic, sparse, or whatever style you saved for music reactions.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_hidden_preset_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Lower Music While NC Speaks",
+      "body": "Lower music while NC speaks should normally stay on when Spotify is playing and TTS replies are enabled. It lowers Spotify during speech and restores volume after the reply so commentary remains understandable.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_duck_while_speaking",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Tune Lowering and Fades",
+      "body": "Lowered volume and fade values control how harsh or smooth the transition feels. For story mode, keep fades long enough that ambience moves behind narration instead of snapping under it.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_duck_fade_down_ms",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Enable Story Background Music",
+      "body": "Story mode background music lets MPRC request ambient or story music from Spotify Sense. Prefer ambience for long story sessions, and keep volume modest so TTS and multi-voice dialogue remain the foreground.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_story_mode_background_music",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Refine Source Guidance",
+      "body": "Source guidance controls how Spotify metadata enters hidden sensory feedback. It should stay metadata-only, avoid spam, vary wording, and only speak when the music meaningfully supports the current moment.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_source_guidance",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    },
+    {
+      "title": "Preview Commands Before Trusting Them",
+      "body": "The intent preview field lets you test phrases such as pause music, skip this, previous track, or play calm focus music before relying on voice or chat commands during a live session.",
+      "tab": "Spotify Sense",
+      "target": "spotify_sense_intent_test",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Spotify Sense" }
+      ]
+    }
+  ]
+}

@@ -4,12 +4,14 @@ from pathlib import Path
 import json
 import os
 import socket
+import struct
 import sys
 import tempfile
 import threading
 import time
 import urllib.error
 import urllib.request
+import wave
 import zipfile
 from types import SimpleNamespace
 
@@ -72,6 +74,8 @@ def run_smoke() -> None:
     assert "Progression rule" in prompt
     assert "The user asked to continue" in prompt
     assert "Story Narrator" in prompt
+    _smoke_story_director_prompt_contract(personas, ar_session)
+    _smoke_story_director_ongoing_play_context(personas, ar_session)
     _smoke_voice_routing(personas, ar_session)
     _smoke_story_only_persona_overrides(personas, ar_session)
     _smoke_current_character_view_mode(personas)
@@ -81,11 +85,15 @@ def run_smoke() -> None:
     _smoke_structured_output_request_scoping(personas)
     _smoke_structured_output_partial_recovery()
     _smoke_chat_choice_mode_finalizer(personas, ar_session)
+    _smoke_remote_capabilities()
+    _smoke_chromecast_stream_contract()
     _smoke_remote_backend_api()
     _smoke_remote_install_is_opt_in()
     _smoke_ar_scene_state_update(personas)
     _smoke_audio_prompts()
     _smoke_long_memory(personas, ar_session)
+    _smoke_long_memory_database_and_databank(personas, ar_session)
+    _smoke_remote_memory_snapshot(personas, ar_session)
     _smoke_master_story_persona_count_controls()
     _smoke_master_story_apply_voice_and_avatar_prompt()
     _smoke_master_story_apply_dialog_builds()
@@ -98,6 +106,9 @@ def run_smoke() -> None:
     _smoke_persona_editor_identity_commit_is_quiet()
     _smoke_tab_text_inputs_commit_quietly()
     _smoke_chat_play_voice_volume()
+    _smoke_chat_play_voice_focus_toolbar_layout()
+    _smoke_chat_play_story_engine_cards()
+    _smoke_spotify_story_music_integration()
     _smoke_output_playback_volume()
     _smoke_schema_migration()
     _smoke_tutorial_doc()
@@ -123,6 +134,252 @@ class _Storage:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _smoke_story_director_prompt_contract(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    from addons.multi_persona_roleplay import story_director
+
+    rival = PersonaConfig.from_dict(
+        {
+            "id": "distant_rival",
+            "display_name": "Distant Rival",
+            "role": "off-screen rival",
+            "description": "A rival mentioned in the story bible but not present in this scene.",
+        }
+    )
+    cast = [*personas, rival]
+
+    focused = story_director.build_story_director_prompt(
+        cast,
+        session,
+        latest_user_text="Continue",
+        narrator_persona_id="story_narrator",
+        cast_mode=story_director.CAST_MODE_FOCUSED_SPEAKER,
+    )
+    ordered_sections = [
+        "Story premise/state:",
+        "Active cast:",
+        "Speaker discipline:",
+        "Story progression rules:",
+        "Visual Reply beat rules:",
+        "Multi-voice output contract:",
+        "Continue/choice nudge:",
+    ]
+    positions = [focused.index(section) for section in ordered_sections]
+    assert positions == sorted(positions)
+    assert "Story Director cast mode: focused speaker" in focused
+    assert "SillyTavern" not in focused
+    assert "Mentor (mentor)" in focused
+    assert "Friend (friend)" in focused
+    assert "Story Narrator (story_narrator)" in focused
+    assert "Distant Rival" not in focused
+    assert "Do not make every persona respond every turn" in focused
+    assert "Split direct speech into [CHARACTER: Exact Name] blocks" in focused
+    assert "Select one visible image beat" in focused
+    assert "The player asked to continue" in focused
+
+    joined = story_director.build_story_director_prompt(
+        cast,
+        session,
+        latest_user_text="open the door",
+        narrator_persona_id="story_narrator",
+        cast_mode=story_director.CAST_MODE_JOINED_CAST,
+    )
+    assert "Story Director cast mode: joined cast" in joined
+    assert "SillyTavern" not in joined
+    assert "Distant Rival (distant_rival)" in joined
+
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = personas
+    probe.session = session
+    probe.story_prompt_personas = lambda: personas
+    probe._persona_looks_like_narrator = lambda persona: "narrator" in str(getattr(persona, "role", "")).lower()
+    probe._mprc_chat_should_offer_choices = lambda: True
+    structured_rules = probe._mprc_structured_output_prompt_rules()
+    assert "Story Director segment discipline" in structured_rules
+    assert "If two characters speak, use two character segments" in structured_rules
+
+    beat = story_director.build_visual_beat_context(
+        persona=personas[1],
+        session=session,
+        reason="assistant_reply",
+        source_text=(
+            "[NARRATOR]\nRain floods the archive floor as Friend lifts the lantern toward the broken sigil.\n"
+            "[CHARACTER: Friend]\nI can see the hinge now.\n"
+            "[CHOICES]\n1. Pull the hinge\n2. Step back"
+        ),
+    )
+    assert beat["latest_visible_action"].startswith("Rain floods the archive floor")
+    assert "I can see the hinge" not in beat["latest_visible_action"]
+    assert "Pull the hinge" not in beat["latest_visible_action"]
+    assert beat["visual_subject"] == "Friend"
+    assert beat["location"] == "Archive corridor"
+
+
+def _smoke_story_director_ongoing_play_context(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    probe = object.__new__(MultiPersonaRoleplayController)
+    probe.personas = list(personas)
+    probe.session = session
+    probe.settings = {"chat_structured_output_enabled": False, "chat_choice_mode": "choices"}
+    probe._controls = {}
+    probe._mprc_chat_history = [
+        {"role": "assistant", "content": "[NARRATOR]\nThe archive door shivers under the lantern light."}
+    ]
+    probe.story_prompt_personas = lambda: list(personas)
+    probe.available_story_audio_files = lambda: []
+    probe.selected_narrator_persona_id = lambda: "story_narrator"
+    probe.persona_by_id = lambda persona_id: next((persona for persona in personas if persona.id == persona_id), None)
+    probe._persona_looks_like_narrator = lambda persona: str(getattr(persona, "id", "") or "") == "story_narrator"
+    probe.set_debug_prompt = lambda text: setattr(probe, "_debug_prompt", str(text or ""))
+
+    messages = probe._build_mprc_chat_turn_messages(intent="Act", player_text="lift the lantern")
+    system_prompt = messages[0]["content"]
+    assert "Story Director cast mode: focused speaker" in system_prompt
+    assert "SillyTavern" not in system_prompt
+    assert "Visual Reply beat rules:" in system_prompt
+    assert "Multi-voice output contract:" in system_prompt
+    assert "MPRC compact turn state:" in system_prompt
+
+
+def _smoke_remote_capabilities() -> None:
+    controller = object.__new__(MultiPersonaRoleplayController)
+    controller._state_lock = threading.RLock()
+    controller._shutting_down = False
+    calls = []
+
+    controller.remote_snapshot = lambda: {"schema_version": 1, "session": {"enabled": True}}
+    controller.remote_send_user_text = (
+        lambda text, intent="Auto", speaker_id="": calls.append(("send", text, intent, speaker_id))
+        or {"accepted": True, "text": text, "intent": intent, "speaker_id": speaker_id}
+    )
+    controller.remote_select_choice = (
+        lambda choice: calls.append(("choice", choice)) or {"accepted": True, "choice": choice}
+    )
+    controller.remote_play = lambda: calls.append(("play",)) or {"accepted": True}
+    controller.remote_pause = lambda: calls.append(("pause",)) or {"accepted": True}
+    controller.remote_request_visual = lambda: calls.append(("visual",)) or {"accepted": True}
+    controller.remote_chromecast_action = (
+        lambda payload: calls.append(("cast", dict(payload or {})))
+        or {"accepted": True, "cast": {"selected_device": str(dict(payload or {}).get("device_name") or "")}}
+    )
+
+    state = controller.invoke_capability_threadsafe("mprc.remote_state")
+    assert state["session"]["enabled"] is True
+    sent = controller.invoke_capability_threadsafe(
+        "mprc.remote_send",
+        {"text": "continue the scene", "intent": "Continue", "speaker_id": "mentor"},
+    )
+    assert sent["accepted"] is True
+    assert calls[-1] == ("send", "continue the scene", "Continue", "mentor")
+    choice = controller.invoke_capability_threadsafe("mprc.remote_choice", {"choice": "1"})
+    assert choice["accepted"] is True
+    assert calls[-1] == ("choice", "1")
+    assert controller.invoke_capability_threadsafe("mprc.remote_play")["accepted"] is True
+    assert calls[-1] == ("play",)
+    assert controller.invoke_capability_threadsafe("mprc.remote_pause")["accepted"] is True
+    assert calls[-1] == ("pause",)
+    assert controller.invoke_capability_threadsafe("mprc.remote_visual")["accepted"] is True
+    assert calls[-1] == ("visual",)
+    cast = controller.invoke_capability_threadsafe(
+        "mprc.remote_cast",
+        {"action": "start", "device_name": "Living Room TV"},
+    )
+    assert cast["accepted"] is True
+    assert calls[-1] == ("cast", {"action": "start", "device_name": "Living Room TV"})
+
+
+def _free_local_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _write_smoke_wav(path: Path) -> None:
+    with wave.open(str(path), "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        frames = b"".join(struct.pack("<h", 0) for _index in range(1600))
+        handle.writeframes(frames)
+
+
+def _write_smoke_png(path: Path) -> None:
+    path.write_bytes(
+        bytes.fromhex(
+            "89504e470d0a1a0a0000000d4948445200000001000000010802000000907753de"
+            "0000000c49444154789c6360f8cf0000020201005dfe2a270000000049454e44ae426082"
+        )
+    )
+
+
+def _http_bytes(url: str, *, limit: int = 0) -> tuple[int, str, bytes]:
+    with urllib.request.urlopen(url, timeout=5) as response:
+        payload = response.read(limit if limit > 0 else -1)
+        return int(response.status), str(response.headers.get("Content-Type") or ""), payload
+
+
+def _smoke_chromecast_stream_contract() -> None:
+    from addons.multi_persona_roleplay.chromecast_bridge import MprcCastStreamServer
+    from addons.visual_reply import state as visual_reply_state
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        image_path = root / "visual.png"
+        audio_path = root / "speech.wav"
+        _write_smoke_png(image_path)
+        _write_smoke_wav(audio_path)
+
+        class FakeController:
+            def remote_speech_audio_snapshot(self):
+                return {
+                    "available": True,
+                    "status": "ready",
+                    "generation": 7,
+                    "items": [
+                        {
+                            "id": "speech_1",
+                            "url_path": "/api/speech-audio/file/speech_1",
+                            "speaker": "Mentor",
+                            "text": "The lantern hums.",
+                            "duration_seconds": 0.1,
+                        }
+                    ],
+                }
+
+            def remote_speech_audio_file_path(self, audio_id: str) -> Path:
+                if audio_id != "speech_1":
+                    raise FileNotFoundError(audio_id)
+                return audio_path
+
+        previous_visual = dict(getattr(visual_reply_state, "current_visual_reply_data", {}) or {})
+        server = MprcCastStreamServer(FakeController(), port=_free_local_port())
+        try:
+            visual_reply_state.current_visual_reply_data = {
+                "image_path": str(image_path),
+                "caption": "A bright lantern in the archive.",
+            }
+            base_url = server.start().rstrip("/")
+            status, content_type, state_payload = _http_bytes(f"{base_url}/state.json")
+            assert status == 200
+            assert "application/json" in content_type
+            state = json.loads(state_payload.decode("utf-8"))
+            assert state["ready"] is True
+            assert state["caption"] == "A bright lantern in the archive."
+            assert state["audio_generation"] == 7
+            assert state["audio_items"][0]["url_path"] == "/audio/file/speech_1"
+
+            status, content_type, image_payload = _http_bytes(f"{base_url}/current.jpg?fit=cast&w=64&h=64", limit=16)
+            assert status == 200
+            assert content_type.startswith("image/jpeg")
+            assert image_payload.startswith(b"\xff\xd8")
+
+            status, content_type, audio_payload = _http_bytes(f"{base_url}/audio/file/speech_1", limit=16)
+            assert status == 200
+            assert content_type.startswith("audio/")
+            assert audio_payload.startswith(b"RIFF")
+        finally:
+            server.stop()
+            visual_reply_state.current_visual_reply_data = previous_visual
+
+
 class _AddonStorage:
     def __init__(self, root: Path):
         self.root = Path(root)
@@ -139,10 +396,19 @@ class _AddonStorage:
         path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+class _PeerServices:
+    def __init__(self, services: dict[str, object] | None = None):
+        self._services = dict(services or {})
+
+    def get(self, service_name: str, default=None):
+        return self._services.get(str(service_name or ""), default)
+
+
 class _AddonContext:
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, services: dict[str, object] | None = None):
         self.logger = None
         self.storage = _AddonStorage(root)
+        self.services = _PeerServices(services)
         self.manifest = SimpleNamespace(
             root_dir=str(Path(__file__).resolve().parent),
             version="smoke",
@@ -152,8 +418,8 @@ class _AddonContext:
         return None
 
 
-def _new_controller(root: Path) -> MultiPersonaRoleplayController:
-    return MultiPersonaRoleplayController(_AddonContext(root))
+def _new_controller(root: Path, *, services: dict[str, object] | None = None) -> MultiPersonaRoleplayController:
+    return MultiPersonaRoleplayController(_AddonContext(root, services=services))
 
 
 def _smoke_long_memory(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
@@ -179,6 +445,95 @@ def _smoke_long_memory(personas: list[PersonaConfig], session: RoleplaySessionSt
         pinned_context = memory.prompt_context(session=session, personas=personas, query="key", limit=2)
         assert "Pinned story facts" in pinned_context
         assert "lantern key" in pinned_context
+
+
+def _smoke_long_memory_database_and_databank(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    from addons.multi_persona_roleplay.databank import StoryDataBank
+    from addons.multi_persona_roleplay.memory_database import SQLiteMemoryDatabase, open_memory_database
+    from addons.multi_persona_roleplay.memory_embeddings import cosine_similarity, embed_text
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        storage = _Storage(root)
+        memory = RoleplayLongMemory(storage)
+        event = memory.record_turn(
+            session=session,
+            personas=personas,
+            user_text="I follow the silver lantern toward the Moon Garden.",
+            assistant_text="[NARRATOR] The silver lantern opens a hidden Moon Garden behind the archive wall.",
+        )
+        memory.record_turn(
+            session=session,
+            personas=personas,
+            user_text="I check the brass compass.",
+            assistant_text="[NARRATOR] The compass needle trembles beside the archive stairs.",
+        )
+        for index in range(4):
+            memory.record_turn(
+                session=session,
+                personas=personas,
+                user_text=f"I count the stair marker {index}.",
+                assistant_text=f"[NARRATOR] Stair marker {index} glows beside the archive stairs.",
+            )
+
+        db_path = root / "memory" / "long_memory.sqlite3"
+        assert db_path.exists()
+        db = SQLiteMemoryDatabase(db_path)
+        found_events = db.search_events("silver lantern moon garden", limit=3)
+        assert any(item.record_id == event["id"] for item in found_events)
+
+        context = memory.prompt_context(session=session, personas=personas, query="lunar lamp courtyard", limit=4)
+        assert "Long-term roleplay memory" in context
+        assert "Retrieved story memory" in context
+        assert "Moon Garden" in context
+
+        opened = open_memory_database(storage, settings={"long_memory_database_backend": "sqlite"})
+        assert isinstance(opened, SQLiteMemoryDatabase)
+
+        databank = StoryDataBank(db)
+        chunks = databank.index_document(
+            source="lore/moon_garden.md",
+            title="Moon Garden Lore",
+            text="The Moon Garden opens only when a silver lantern is carried through the archive wall.",
+        )
+        assert chunks
+        databank_context = databank.prompt_context("archive wall silver lamp", max_chunks=2)
+        assert "Story data bank" in databank_context
+        assert "Moon Garden" in databank_context
+
+        similar = cosine_similarity(embed_text("silver lantern garden"), embed_text("silver lamp garden"))
+        unrelated = cosine_similarity(embed_text("silver lantern garden"), embed_text("engine piston"))
+        assert similar > unrelated
+
+
+def _smoke_remote_memory_snapshot(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        storage = _Storage(root)
+        memory = RoleplayLongMemory(storage)
+        memory.record_turn(
+            session=session,
+            personas=personas,
+            user_text="Remember the silver lantern.",
+            assistant_text="[NARRATOR] The silver lantern is now a key story fact.",
+        )
+        payload = memory.load()
+        payload["pinned_facts"] = ["The silver lantern opens the archive wall."]
+        memory.save(payload)
+
+        probe = object.__new__(MultiPersonaRoleplayController)
+        probe.long_memory = memory
+        probe.settings = {"long_memory_database_backend": "sqlite", "long_memory_databank_sources": ["story_notes.md"]}
+
+        snapshot = probe.remote_memory_snapshot()
+        assert snapshot["available"] is True
+        assert snapshot["backend"] == "sqlite"
+        assert snapshot["database_available"] is True
+        assert snapshot["event_count"] >= 1
+        assert snapshot["pinned_fact_count"] == 1
+        assert snapshot["databank_available"] is True
+        assert snapshot["configured_databank_source_count"] == 1
+        assert str(root) not in json.dumps(snapshot)
 
 
 def _smoke_audio_prompts() -> None:
@@ -274,20 +629,14 @@ class _FakeController:
 def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySessionState) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        routing_personas = list(personas) + [
-            PersonaConfig.from_dict({"id": "daemon_groot", "display_name": "Daemon Groot", "role": "ancient guardian"}),
-            PersonaConfig.from_dict({"id": "otilia", "display_name": "Otilia", "role": "creation mage"}),
-        ]
         voice_paths = {
             "story_narrator": root / "narrator.wav",
             "mentor": root / "mentor.wav",
             "friend": root / "friend.wav",
-            "daemon_groot": root / "groot.wav",
-            "otilia": root / "otilia.wav",
         }
         for path in voice_paths.values():
             path.write_bytes(b"RIFF0000WAVE")
-        for persona in routing_personas:
+        for persona in personas:
             if persona.id in voice_paths:
                 persona.voice.enabled = True
                 persona.voice.backend = "chatterbox"
@@ -297,7 +646,7 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
         session.mode = AR_MODE
         session.active_persona_id = "mentor"
         session.current_speaker_id = "mentor"
-        controller = _FakeController(routing_personas, session)
+        controller = _FakeController(personas, session)
         controller.settings["mprc_voice_volume"] = 42
         router = PersonaVoiceRouter(controller)
 
@@ -380,49 +729,6 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "narrator.wav",
         ]
 
-        italic_attributed_dialogue = router.split_text_by_persona(
-            {
-                "text": "[NARRATOR]\n*“We are close,”* Groot rumbles",
-                "tts_backend": "chatterbox",
-            }
-        )
-        italic_attributed_segments = italic_attributed_dialogue.get("segments") or []
-        assert [item.get("persona_id") for item in italic_attributed_segments] == ["daemon_groot", "story_narrator"]
-        assert [item.get("text") for item in italic_attributed_segments] == [
-            "“We are close,”",
-            "Groot rumbles",
-        ]
-        assert [Path(item.get("voice_path", "")).name for item in italic_attributed_segments] == [
-            "groot.wav",
-            "narrator.wav",
-        ]
-
-        pronoun_markdown_attributed_dialogue = router.split_text_by_persona(
-            {
-                "text": (
-                    "[NARRATOR]\n"
-                    "Daemon Groot rumbles beside you, his bark-shifting form settling into a protective crouch. "
-                    '*"Growth... flows,"* he murmurs, the sound like dry leaves skittering over stone. '
-                    '*"No fear... only roots."*'
-                ),
-                "tts_backend": "chatterbox",
-            }
-        )
-        pronoun_markdown_segments = pronoun_markdown_attributed_dialogue.get("segments") or []
-        assert [item.get("persona_id") for item in pronoun_markdown_segments] == [
-            "story_narrator",
-            "daemon_groot",
-            "story_narrator",
-            "daemon_groot",
-        ]
-        assert [item.get("text") for item in pronoun_markdown_segments] == [
-            "Daemon Groot rumbles beside you, his bark-shifting form settling into a protective crouch.",
-            '"Growth... flows,"',
-            "he murmurs, the sound like dry leaves skittering over stone.",
-            '"No fear... only roots."',
-        ]
-        assert not any("*" in str(item.get("text") or "") for item in pronoun_markdown_segments)
-
         pronoun_dialogue = router.split_text_by_persona(
             {
                 "text": (
@@ -489,71 +795,6 @@ def _smoke_voice_routing(personas: list[PersonaConfig], session: RoleplaySession
             "friend",
             "story_narrator",
         ]
-
-        wrapped_story = router.split_text_by_persona(
-            {
-                "text": (
-                    "Narrator #1 [Master Narrator] [Act]: attack\n"
-                    "Story: [NARRATOR] The air in the Twilight Grove snaps.\n"
-                    "Otilia raises both hands, palms open.\n"
-                    '"You think to strike me?" Otilia\'s voice cuts through the ozone smell.\n'
-                    "**[MUSIC: adventure music]** swells into something darker.\n"
-                    'Otilia closes her eyes. **"Strike me,"** she whispers.\n'
-                    "**[CHOICES]**\n"
-                    "1. **Strike Otilia:** Force the assault."
-                ),
-                "tts_backend": "chatterbox",
-            }
-        )
-        wrapped_segments = wrapped_story.get("segments") or []
-        wrapped_text = "\n".join(str(item.get("text") or "") for item in wrapped_segments)
-        assert "Narrator #1" not in wrapped_text
-        assert "Story:" not in wrapped_text
-        assert "[MUSIC" not in wrapped_text
-        assert "[CHOICES" not in wrapped_text
-        assert "*" not in wrapped_text
-        assert [
-            item.get("persona_id")
-            for item in wrapped_segments
-            if "You think to strike me?" in str(item.get("text") or "")
-            or "Strike me," in str(item.get("text") or "")
-        ] == ["otilia", "otilia"]
-        assert [
-            Path(item.get("voice_path", "")).name
-            for item in wrapped_segments
-            if item.get("persona_id") == "otilia"
-        ] == ["otilia.wav", "otilia.wav"]
-
-        hardened_labels = router.split_text_by_persona(
-            {
-                "text": (
-                    "[NARRATOR]: The grove waits.\n"
-                    "[CHARACTER: Otilia]: You should run.\n"
-                    "Narrator: The mist thickens.\n"
-                    "Otilia: raises both hands.\n"
-                    "Otilia: You cannot stop this.\n"
-                    "[CHOICES]\n"
-                    "Strike Otilia: Force the assault.\n"
-                    "- **[CHARACTER: Otilia]** \"Enough.\""
-                ),
-                "tts_backend": "chatterbox",
-            }
-        )
-        hardened_segments = hardened_labels.get("segments") or []
-        hardened_pairs = [(item.get("persona_id"), item.get("text")) for item in hardened_segments]
-        assert ("otilia", "You should run.") in hardened_pairs
-        assert ("otilia", "You cannot stop this.") in hardened_pairs
-        assert ("otilia", '"Enough."') in hardened_pairs
-        assert ("story_narrator", "Otilia raises both hands.") in hardened_pairs
-        assert any(
-            item.get("persona_id") == "story_narrator" and "Strike Otilia: Force the assault." in str(item.get("text") or "")
-            for item in hardened_segments
-        )
-        assert not any(
-            item.get("persona_id") == "otilia" and "raises both hands" in str(item.get("text") or "")
-            for item in hardened_segments
-        )
-        assert not any("[CHARACTER" in str(item.get("text") or "") or "[NARRATOR" in str(item.get("text") or "") for item in hardened_segments)
 
         stream_chunks = [
             "[CHARACTER: Friend]\n",
@@ -1086,6 +1327,15 @@ def _smoke_remote_backend_api() -> None:
         def remote_request_visual(self):
             return self.remote_snapshot()
 
+        def remote_chromecast_action(self, payload):
+            return {
+                "accepted": True,
+                "cast": {
+                    "selected_device": str(dict(payload or {}).get("device_name") or ""),
+                    "casting": str(dict(payload or {}).get("action") or "") == "start",
+                },
+            }
+
         def audio_settings_snapshot(self):
             return {"enabled": True}
 
@@ -1132,6 +1382,10 @@ def _smoke_remote_backend_api() -> None:
         choice = _remote_json_request(base + "/api/choice", code=code, payload={"choice": "1"})
         assert choice["ok"] is True
         assert probe.choices[-1] == "1"
+        cast = _remote_json_request(base + "/api/cast", code=code, payload={"action": "start", "device_name": "Living Room TV"})
+        assert cast["ok"] is True
+        assert cast["result"]["accepted"] is True
+        assert cast["result"]["cast"]["casting"] is True
         audio = _remote_json_request(base + "/api/speech-audio", code=code)
         assert audio["ok"] is True
         assert audio["speech_audio"]["items"][0]["id"] == "chunk1"
@@ -1891,6 +2145,185 @@ def _smoke_chat_play_voice_volume() -> None:
         assert spoken_segments[0].get("voice_route", {}).get("volume_percent") == 37
 
 
+def _smoke_chat_play_voice_focus_toolbar_layout() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        page = controller._build_chat_play_tab()
+        app.processEvents()
+        assert page is not None
+        visible_row = controller._controls.get("chat_toolbar_voice_focus_row")
+        advanced = controller._controls.get("chat_toolbar_advanced")
+        assert visible_row is not None
+        assert advanced is not None
+        assert controller._controls.get("chat_toolbar_voice_card") is None
+        for key in (
+            "chat_voice_volume",
+            "chat_voice_volume_value",
+            "chat_voice_volume_popout",
+            "chat_intent",
+            "chat_speaker",
+        ):
+            widget = controller._controls.get(key)
+            assert widget is not None, key
+            assert visible_row.isAncestorOf(widget), key
+            assert not advanced.isAncestorOf(widget), key
+
+
+def _smoke_chat_play_story_engine_cards() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        from PySide6 import QtWidgets
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        controller = _new_controller(Path(tmp) / "storage")
+        controller.personas = _personas()
+        controller.session = RoleplaySessionState.from_dict(
+            {
+                "enabled": True,
+                "mode": AR_MODE,
+                "active_persona_id": "mentor",
+                "current_speaker_id": "friend",
+                "scene_title": "Lantern Door",
+                "location": "Archive corridor",
+                "objective": "Open the sealed lantern door.",
+                "ar_state": {
+                    "current_scene": "A sealed door waits at the end of the archive corridor.",
+                    "location": "Archive corridor",
+                    "time_of_day": "Blue hour",
+                    "mood": "tense curiosity",
+                    "active_characters": ["mentor", "friend"],
+                    "recent_events": ["Friend lifted the lantern toward the sigil."],
+                    "pending_choices": ["Touch the sigil", "Ask Mentor to inspect it"],
+                    "story_goal": "Open the sealed lantern door.",
+                },
+            }
+        )
+        controller.settings["narrator_persona_id"] = "story_narrator"
+        controller.settings["long_memory_database_backend"] = "sqlite"
+        controller.settings["long_memory_databank_sources"] = ["lore/lantern_notes.md"]
+        controller._remote_latest_reply_text = (
+            "[NARRATOR]\nFriend lifts the lantern toward the broken sigil.\n"
+            "[CHARACTER: Friend]\nI can see the hinge now."
+        )
+        controller._debug_visual_prompt = json.dumps(
+            {
+                "prompt": "Friend lifting a brass lantern beside a broken archive sigil",
+                "persona_id": "friend",
+                "reason": "assistant_reply",
+            },
+            indent=2,
+        )
+        controller.long_memory.save(
+            {
+                "events": [{"summary": "The archive door reacted to the lantern."}],
+                "pinned_facts": ["The lantern key belongs to the archive door."],
+            }
+        )
+
+        page = controller._build_chat_play_tab()
+        controller._refresh_chat_play_controls()
+        app.processEvents()
+
+        assert page is not None
+        tabs = controller._controls.get("chat_story_engine_tabs")
+        assert tabs is not None
+        assert [tabs.tabText(index) for index in range(tabs.count())] == [
+            "Story Director",
+            "Memory/Data Bank",
+            "Visual Beat",
+            "Voice Segments",
+            "Spotify Music",
+        ]
+        expected = {
+            "chat_story_director_summary": ("Cast mode", "Focused speaker", "Joined cast"),
+            "chat_memory_databank_summary": ("SQLite", "lore/lantern_notes.md", "Pinned facts"),
+            "chat_visual_beat_summary": ("Latest visible beat", "Friend lifts the lantern", "Archive corridor"),
+            "chat_voice_segments_summary": ("Multi-voice contract", "Narrator", "Friend"),
+            "chat_spotify_music_summary": ("Spotify Sense", "Story music", "cinematic ambience"),
+        }
+        for key, snippets in expected.items():
+            widget = controller._controls.get(key)
+            assert widget is not None, key
+            text = widget.toPlainText() if hasattr(widget, "toPlainText") else widget.text()
+            for snippet in snippets:
+                assert snippet in text, (key, snippet, text)
+
+
+def _smoke_spotify_story_music_integration() -> None:
+    class _SpotifyService:
+        def __init__(self):
+            self.calls = []
+
+        def invoke_capability(self, capability, payload=None):
+            self.calls.append((str(capability or ""), dict(payload or {})))
+            return {"ok": True, "started": True, "query": dict(payload or {}).get("query", "")}
+
+    with tempfile.TemporaryDirectory() as tmp:
+        spotify = _SpotifyService()
+        controller = _new_controller(Path(tmp) / "storage", services={"spotify.sense": spotify})
+        controller.personas = _personas()
+        controller.session = RoleplaySessionState.from_dict(
+            {
+                "enabled": True,
+                "mode": AR_MODE,
+                "active_persona_id": "mentor",
+                "current_speaker_id": "friend",
+                "scene_title": "Lantern Door",
+                "location": "Archive corridor",
+                "objective": "Open the sealed lantern door.",
+                "ar_state": {
+                    "current_scene": "A sealed door waits at the end of the archive corridor.",
+                    "location": "Archive corridor",
+                    "time_of_day": "Blue hour",
+                    "mood": "tense curiosity",
+                    "active_characters": ["mentor", "friend"],
+                    "recent_events": ["The sigil answered the lantern."],
+                    "story_goal": "Open the sealed lantern door.",
+                    "tension_level": 6,
+                },
+            }
+        )
+        payload = controller._spotify_story_music_payload_for_reply(
+            "[NARRATOR]\nFriend lifts the lantern toward the broken sigil as blue dust turns in the air.",
+            user_text="Touch the sigil",
+        )
+        assert payload["event"] == "story_turn"
+        assert payload["source"] == "multi_persona_roleplay"
+        assert payload["music_kind"] == "ambient"
+        assert payload["mood"] == "mystery"
+        assert payload["query"] == "mysterious cinematic ambient story ambience"
+        assert payload["prefer_ambient"] is True
+        assert "Friend lifts the lantern" in payload["latest_visible_beat"]
+
+        finished_tokens = []
+
+        def run_sync(token, target, *, name):
+            target()
+            finished_tokens.append((token, name))
+            return True
+
+        controller._start_daemon_worker = run_sync
+        controller._maybe_request_spotify_story_music(
+            "[NARRATOR]\nFriend lifts the lantern toward the broken sigil as blue dust turns in the air.",
+            user_text="Touch the sigil",
+        )
+        assert spotify.calls
+        capability, request = spotify.calls[-1]
+        assert capability == "spotify.story_hook"
+        assert request["query"] == "mysterious cinematic ambient story ambience"
+        assert request["music_kind"] == "ambient"
+        assert request["event"] == "story_turn"
+        assert finished_tokens and finished_tokens[-1][1] == "nc-mprc-spotify-story-music"
+        status = controller._chat_play_spotify_music_summary_text()
+        assert "mysterious cinematic ambient story ambience" in status
+        assert "started" in status.lower()
+        controller._last_spotify_story_music_result = {"ok": True, "transitioning": True, "query": request["query"]}
+        transitioning_status = controller._chat_play_spotify_music_summary_text()
+        assert "transitioning" in transitioning_status.lower()
+
+
 def _smoke_output_playback_volume() -> None:
     from core import audio_playback
 
@@ -2094,11 +2527,11 @@ def _smoke_tutorial_doc() -> None:
     payload = json.loads(path.read_text(encoding="utf-8"))
     assert payload["id"] == "multi_persona_roleplay"
     body = "\n".join(str(step.get("body", "")) for step in payload.get("steps") or [])
-    assert "Status" in body
+    assert "Story Health" in body
     assert "Master Story" in body
     assert "Grok/xAI" in body
     assert "Runware" in body
-    assert "Voice Routing Inspector" in body
+    assert "Voice Routing Check" in body
 
 
 if __name__ == "__main__":

@@ -51,26 +51,26 @@ MUSETALK_PREPROCESS_TOOLTIPS = {
     "btn_musetalk_target_pack_new": "Create a new avatar pack folder and manifest.",
     "musetalk_avatar_combo": "Prepared variants already available in the selected pack.",
     "btn_musetalk_avatar_refresh": "Refresh prepared variants for the selected pack.",
-    "btn_musetalk_clear_frame_cache": "Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.",
+    "btn_musetalk_clear_frame_cache": "Delete the selected avatar's faster startup cache. PNG frames and normal prepared files are kept.",
     "btn_musetalk_make_default_avatar": "Make the selected prepared variant the locked base/default avatar for this pack.",
     "musetalk_source_edit": "Source video, still image, or PNG frame folder used to create a prepared MuseTalk avatar.",
-    "btn_musetalk_source_video": "Choose a source video for preprocessing.",
-    "btn_musetalk_source_image": "Choose a still image for preprocessing.",
-    "btn_musetalk_source_folder": "Choose a folder of PNG frames for preprocessing.",
+    "btn_musetalk_source_video": "Choose a source video for avatar preparation.",
+    "btn_musetalk_source_image": "Choose a still image for avatar preparation.",
+    "btn_musetalk_source_folder": "Choose a folder of PNG frames for avatar preparation.",
     "musetalk_avatar_id_edit": "Folder-safe variant id written under the selected avatar pack.",
-    "musetalk_recreate_checkbox": "Allow preprocessing to replace an existing variant folder with the same Avatar ID.",
-    "btn_musetalk_prepare_avatar": "Run MuseTalk preprocessing for the selected source and Avatar ID.",
-    "musetalk_create_frame_cache_checkbox": "Create a NumPy cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster.",
+    "musetalk_recreate_checkbox": "Allow avatar preparation to replace an existing variant folder with the same Avatar ID.",
+    "btn_musetalk_prepare_avatar": "Prepare a MuseTalk avatar from the selected source and Avatar ID.",
+    "musetalk_create_frame_cache_checkbox": "Create a faster startup cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster.",
     "musetalk_emotion_tags_edit": "Comma-separated emotion tags that should activate this prepared variant at runtime.",
-    "btn_musetalk_avatar_save_metadata": "Save emotion tags and mask settings for the selected prepared variant.",
+    "btn_musetalk_avatar_save_metadata": "Save emotion tags and mouth-area settings for the selected prepared variant.",
     "btn_musetalk_pack_emotions_all": "Enable every emotion variant in the selected avatar pack.",
     "btn_musetalk_pack_emotions_none": "Disable optional emotion variants while keeping the locked base/default avatar enabled.",
-    "musetalk_bbox_shift_spin": "Move the detected mouth/face crop up or down before preprocessing.",
-    "musetalk_parsing_mode_combo": "Choose how the editable inpaint mask is derived. Jaw is safer for talking heads; Raw keeps the parsed mask closer to source.",
+    "musetalk_bbox_shift_spin": "Move the detected mouth/face crop up or down before avatar preparation.",
+    "musetalk_parsing_mode_combo": "Choose how the editable mouth mask is derived. Jaw is safer for talking heads; Raw keeps the parsed mask closer to source.",
     "musetalk_extra_margin_spin": "Add extra pixels around the mouth/face mask.",
     "musetalk_left_cheek_width_spin": "Width of the editable mask on the character's left cheek side.",
     "musetalk_right_cheek_width_spin": "Width of the editable mask on the character's right cheek side.",
-    "btn_musetalk_debug_first_frame_quick": "Render a preview of the first/debug frame using current mask settings without modifying avatar files.",
+    "btn_musetalk_debug_first_frame_quick": "Render a preview frame using current mouth-area settings without modifying avatar files.",
     "btn_musetalk_debug_first_frame_modified_quick": "Render a preview using the manually modified mask.",
     "musetalk_debug_show_mask_overlay_quick_checkbox": "Show the mask overlay in debug previews.",
     "musetalk_mask_range_start_spin": "First frame for a frame-specific mask range override.",
@@ -86,8 +86,8 @@ MUSETALK_PREPROCESS_TOOLTIPS = {
     "btn_musetalk_debug_zoom_in": "Zoom debug preview in.",
     "musetalk_test_audio_edit": "Short audio clip used for the experimental first-frame lip-sync test.",
     "btn_musetalk_test_audio": "Choose audio for the experimental first-frame lip-sync test.",
-    "btn_musetalk_debug_first_frame": "Render a debug frame using current mask settings without modifying prepared avatar folders.",
-    "btn_musetalk_debug_first_frame_modified": "Render a debug frame using the manually modified mask.",
+    "btn_musetalk_debug_first_frame": "Render a preview frame using current mouth-area settings without modifying prepared avatar folders.",
+    "btn_musetalk_debug_first_frame_modified": "Render a preview frame using the manually modified mask.",
     "btn_musetalk_first_frame_test": "Run the experimental audio first-frame test with a temporary scratch avatar.",
 }
 
@@ -578,7 +578,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             self.btn_musetalk_avatar_refresh.clicked.connect(self.refresh_musetalk_avatar_list)
         self.btn_musetalk_clear_frame_cache = self._ui_child(root, "btn_musetalk_clear_frame_cache", QtWidgets.QPushButton)
         if self.btn_musetalk_clear_frame_cache is not None:
-            self.btn_musetalk_clear_frame_cache.setToolTip("Delete the selected avatar's generated NumPy startup cache. PNG frames and normal preprocess files are kept.")
+            self.btn_musetalk_clear_frame_cache.setToolTip("Delete the selected avatar's faster startup cache. PNG frames and normal prepared files are kept.")
             self.btn_musetalk_clear_frame_cache.clicked.connect(self.clear_selected_musetalk_frame_cache)
         self.btn_musetalk_make_default_avatar = self._ui_child(root, "btn_musetalk_make_default_avatar", QtWidgets.QPushButton)
         if self.btn_musetalk_make_default_avatar is not None:
@@ -615,7 +615,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         if self.musetalk_create_frame_cache_checkbox is not None:
             self.musetalk_create_frame_cache_checkbox.setChecked(True)
             self.musetalk_create_frame_cache_checkbox.setToolTip(
-                "Create a NumPy cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster."
+                "Create a faster startup cache for prepared full-frame images. Uses more disk space, but makes later MuseTalk initialization much faster."
             )
         self.musetalk_emotion_tags_edit = self._ui_child(root, "musetalk_emotion_tags_edit", QtWidgets.QLineEdit)
         if self.musetalk_emotion_tags_edit is not None:
@@ -930,7 +930,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         prepare_row = QtWidgets.QHBoxLayout()
         prepare_row.setContentsMargins(0, 0, 0, 0)
         prepare_row.addWidget(self.btn_musetalk_prepare_avatar, 0, QtCore.Qt.AlignLeft)
-        self.musetalk_create_frame_cache_checkbox = QtWidgets.QCheckBox("Create .npy startup cache")
+        self.musetalk_create_frame_cache_checkbox = QtWidgets.QCheckBox("Faster avatar startup cache")
         self.musetalk_create_frame_cache_checkbox.setObjectName("musetalk_create_frame_cache_checkbox")
         self.musetalk_create_frame_cache_checkbox.setChecked(True)
         self.musetalk_create_frame_cache_checkbox.setToolTip(
@@ -991,8 +991,8 @@ class MuseTalkPreprocessController(QtCore.QObject):
         musetalk_layout.addWidget(emotion_card)
 
         mask_card, mask_card_layout = build_musetalk_card(
-            "Mask Settings",
-            "These controls define the crop and inpaint region that MuseTalk is allowed to touch.",
+            "Mouth Area Setup",
+            "These controls define where MuseTalk is allowed to adjust the face and mouth.",
         )
         mask_row = QtWidgets.QHBoxLayout()
 
@@ -1002,7 +1002,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.musetalk_bbox_shift_spin.setRange(-80, 80)
         self.musetalk_bbox_shift_spin.setMinimumWidth(92)
         self.musetalk_bbox_shift_spin.setValue(0)
-        bbox_column.addWidget(QtWidgets.QLabel("BBox Shift"))
+        bbox_column.addWidget(QtWidgets.QLabel("Face crop position"))
         bbox_column.addWidget(self.musetalk_bbox_shift_spin)
         mask_row.addLayout(bbox_column)
 
@@ -1012,7 +1012,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         self.musetalk_parsing_mode_combo.addItem("Jaw", "jaw")
         self.musetalk_parsing_mode_combo.addItem("Raw", "raw")
         self.musetalk_parsing_mode_combo.setMinimumWidth(132)
-        parsing_column.addWidget(QtWidgets.QLabel("Parsing Mode"))
+        parsing_column.addWidget(QtWidgets.QLabel("Mouth mask style"))
         parsing_column.addWidget(self.musetalk_parsing_mode_combo)
         mask_row.addLayout(parsing_column)
 
@@ -1561,7 +1561,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         existing = [path for path in cache_paths if path.exists()]
         if not existing:
             if hasattr(self, "musetalk_avatar_status_label"):
-                self.musetalk_avatar_status_label.setText(f"No .npy startup cache found for '{avatar_id}'.")
+                self.musetalk_avatar_status_label.setText(f"No faster startup cache found for '{avatar_id}'.")
             return
 
         total_bytes = 0
@@ -1574,7 +1574,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
         response = QtWidgets.QMessageBox.question(
             None,
             "Clear MuseTalk Cache",
-            f"Delete the generated .npy startup cache for '{avatar_id}'?\n\n"
+            f"Delete the generated faster startup cache for '{avatar_id}'?\n\n"
             f"This removes about {total_mib:.1f} MiB and keeps all PNG/preprocess backup files.\n"
             "The cache can be recreated during preprocessing or the next MuseTalk initialize.",
         )
@@ -1594,7 +1594,7 @@ class MuseTalkPreprocessController(QtCore.QObject):
             return
         if hasattr(self, "musetalk_avatar_status_label"):
             self.musetalk_avatar_status_label.setText(
-                f"Cleared .npy startup cache for '{avatar_id}' ({removed} file(s), ~{total_mib:.1f} MiB)."
+                f"Cleared faster startup cache for '{avatar_id}' ({removed} file(s), ~{total_mib:.1f} MiB)."
             )
 
     def make_selected_musetalk_avatar_default(self):

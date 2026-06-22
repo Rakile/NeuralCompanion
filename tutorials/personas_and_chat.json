@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Presets Are Starting Points",
-      "body": "Presets load a saved persona and runtime setup. Use them to switch character style quickly, then adjust details by hand if needed.",
+      "body": "Presets load a saved persona and runtime setup. Use them to switch character style quickly, then adjust details by hand if needed. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "tab": "Persona",
       "target": "preset_combo",
       "actions": [

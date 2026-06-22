@@ -33,6 +33,18 @@ The **Companion Orb** addon tab has its own display modes:
 
 The orb is click-through by default so it does not block the desktop. Use **Edit Mode** or the edit hotkey to drag it, and **Placement Mode** to select a Hidden Sensory target.
 
+## Companion Orb Visual Styles
+
+The **Style** selector changes the orb renderer without changing the hidden sensory, voice sync, movement, or reply behavior:
+
+- **Neural Spark Orb** is the original plasma-and-node renderer.
+- **Aurora Glass Orb** uses a transparent glass shell with slow internal light ribbons.
+- **Prismatic Pulse Ring** uses a bright audio-reactive plasma ring.
+- **Aether Wisp Orb** uses a soft living core with a comet-like tail and drifting motes.
+- **Celestial Firetrail Orb** uses a polished core with rising sparks and curved light trails.
+
+All styles react to NC state. Speaking raises audio-reactive pulse strength, thinking shifts toward violet motion, and observing/placement focus adds a calmer scan-like accent.
+
 ## Motion And Particles
 
 **Movement enabled** gives the orb a subtle floating drift around its base position. **Movement Range** controls how far it can wander, while **Movement Speed** controls how quickly it breathes around that spot. **Reset Position** clears the custom position and returns the orb to the selected corner on a curved animated path instead of snapping straight back.

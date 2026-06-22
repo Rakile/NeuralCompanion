@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -251,6 +252,23 @@ def _without_reasoning(additional_params: dict[str, Any] | None) -> dict[str, An
     return cleaned
 
 
+def _normalize_openai_base_url(base_url: str | None) -> str:
+    url = str(base_url or DEFAULT_BASE_URL).strip().rstrip("/")
+    if not url:
+        return DEFAULT_BASE_URL
+    if url.endswith("/v1"):
+        return url
+    if "://" not in url:
+        return url
+    path_start = url.find("/", url.find("://") + 3)
+    if path_start < 0:
+        return f"{url}/v1"
+    path = url[path_start:].strip("/")
+    if not path:
+        return f"{url[:path_start]}/v1"
+    return url
+
+
 def _is_native_reasoning_unsupported_error(exc: urllib.error.HTTPError) -> bool:
     try:
         payload = json.loads(exc.read().decode("utf-8", errors="replace"))
@@ -317,6 +335,8 @@ class Addon(BaseAddon):
         return None
 
     def _responsiveness_guard(self):
+        if not lmstudio_runtime.is_local_base_url(self._base_url()):
+            return contextlib.nullcontext()
         return lmstudio_runtime.local_inference_responsiveness_guard(logger=print)
 
     def _worker_enabled(self) -> bool:
@@ -335,16 +355,9 @@ class Addon(BaseAddon):
     def _native_chat_url(self) -> str:
         return f"{self._native_api_base_url()}/api/v1/chat"
 
-    def _worker_request_config(
-        self,
-        params: dict[str, Any],
-        additional_params: dict[str, Any] | None = None,
-        *,
-        emit_chunks: bool = False,
-        stream: bool = False,
-    ) -> dict[str, Any]:
+    def _worker_request_config(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None, *, emit_chunks: bool = False) -> dict[str, Any]:
         if self._should_use_native_chat(params, additional_params):
-            payload = self._native_chat_payload(params, additional_params, stream=stream)
+            payload = self._native_chat_payload(params, additional_params, stream=True)
             fallback_payload = None
             if "reasoning" in dict(additional_params or {}):
                 control = "prompt_token" if _model_uses_prompt_token_reasoning((params or {}).get("model")) else ""
@@ -352,7 +365,7 @@ class Addon(BaseAddon):
                 fallback_payload = self._native_chat_payload(
                     params,
                     retry_params,
-                    stream=stream,
+                    stream=True,
                     reasoning_control=control or None,
                 )
             return {
@@ -362,26 +375,22 @@ class Addon(BaseAddon):
                 "payload": payload,
                 "fallback_payload": fallback_payload,
                 "emit_chunks": bool(emit_chunks),
-                "stream": bool(stream),
             }
         force_non_stream = bool(isinstance(params, dict) and params.get("response_format") is not None)
-        payload = self._request_kwargs(params, additional_params, stream=bool(stream) and not force_non_stream)
+        payload = self._openai_wire_payload(params, additional_params, stream=not force_non_stream)
         return {
             "url": self._openai_chat_url(),
             "api_key": self._api_key(),
             "native": False,
             "payload": payload,
             "emit_chunks": bool(emit_chunks) and not force_non_stream,
-            "stream": bool(stream) and not force_non_stream,
-            "force_non_stream": force_non_stream or not bool(stream),
+            "force_non_stream": force_non_stream,
         }
 
     def _start_worker(self) -> subprocess.Popen:
         worker_path = self._worker_path()
         if not worker_path.exists():
             raise RuntimeError(f"LM Studio helper process is missing: {worker_path}")
-        env = dict(os.environ)
-        env.setdefault("PYTHONIOENCODING", "utf-8")
         return subprocess.Popen(
             [sys.executable, "-u", str(worker_path)],
             stdin=subprocess.PIPE,
@@ -390,7 +399,6 @@ class Addon(BaseAddon):
             text=True,
             encoding="utf-8",
             errors="replace",
-            env=env,
             creationflags=self._worker_creation_flags(),
         )
 
@@ -420,7 +428,7 @@ class Addon(BaseAddon):
 
     def _stream_chat_via_worker(self, params: dict[str, Any], additional_params: dict[str, Any] | None = None):
         process = self._start_worker()
-        self._send_worker_config(process, self._worker_request_config(params, additional_params, emit_chunks=True, stream=True))
+        self._send_worker_config(process, self._worker_request_config(params, additional_params, emit_chunks=True))
         final_payload: dict[str, Any] = {}
         return_code = None
         try:
@@ -488,7 +496,7 @@ class Addon(BaseAddon):
         return self._setting("api_key") or DEFAULT_API_KEY
 
     def _base_url(self) -> str:
-        return self._setting("base_url") or DEFAULT_BASE_URL
+        return _normalize_openai_base_url(self._setting("base_url") or DEFAULT_BASE_URL)
 
     def _native_api_base_url(self) -> str:
         base_url = str(self._base_url() or DEFAULT_BASE_URL).strip().rstrip("/")
@@ -506,6 +514,15 @@ class Addon(BaseAddon):
         if stream:
             request_kwargs["stream"] = True
         return request_kwargs
+
+    def _openai_wire_payload(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None, *, stream: bool = False) -> dict[str, Any]:
+        payload = self._request_kwargs(params, additional_params, stream=stream)
+        extra_body = payload.pop("extra_body", None)
+        if isinstance(extra_body, dict):
+            for key, value in extra_body.items():
+                if value is not None:
+                    payload[str(key)] = value
+        return payload
 
     def _should_use_native_chat(self, params: dict[str, Any] | None, additional_params: dict[str, Any] | None = None) -> bool:
         reasoning = str((additional_params or {}).get("reasoning") or "").strip().lower()
@@ -747,6 +764,20 @@ class Addon(BaseAddon):
                 return self._complete_chat_via_worker(params, additional_params)
             if self._should_use_native_chat(params, additional_params):
                 return self._complete_native_chat(params, additional_params)
+            parts: list[str] = []
+            if not (isinstance(params, dict) and params.get("response_format") is not None):
+                try:
+                    client = self._client()
+                    stream = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=True))
+                    for chunk in _stream_text(stream):
+                        if chunk:
+                            parts.append(str(chunk))
+                    text = _strip_channel_blocks("".join(parts))
+                    if text:
+                        return text
+                except Exception:
+                    if parts:
+                        return _strip_channel_blocks("".join(parts))
             client = self._client()
             response = client.chat.completions.create(**self._request_kwargs(params, additional_params, stream=False))
             return _extract_text(response)

@@ -11,9 +11,12 @@ from pathlib import Path
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from core import crash_diagnostics
+
 _CRASH_LOG_HANDLE = None
 _CRASH_LOG_PATH = None
 _CRASH_LOG_DIRTY = False
+_CRASH_BUNDLE_PATH = None
 _ORIGINAL_SYS_EXCEPTHOOK = sys.excepthook
 _ORIGINAL_THREADING_EXCEPTHOOK = getattr(threading, "excepthook", None)
 _STARTUP_ONLY_CRASH_LOG_MAX_BYTES = 1024
@@ -74,6 +77,52 @@ def _prune_startup_only_crash_logs(log_dir):
                 pass
 
 
+def _crash_diag_app_root():
+    try:
+        return Path(SESSION_PATH).resolve().parent
+    except Exception:
+        return Path.cwd()
+
+
+def _crash_diag_runtime_config():
+    engine_module = sys.modules.get("engine")
+    payload = getattr(engine_module, "RUNTIME_CONFIG", {}) if engine_module is not None else {}
+    return dict(payload or {}) if isinstance(payload, dict) else {}
+
+
+def _write_codex_debug_bundle(reason, extra_context=None):
+    global _CRASH_BUNDLE_PATH, _CRASH_LOG_DIRTY
+    if _CRASH_BUNDLE_PATH is not None:
+        return _CRASH_BUNDLE_PATH
+    try:
+        bundle_path = crash_diagnostics.create_debug_bundle(
+            app_root=_crash_diag_app_root(),
+            reason=str(reason or "crash"),
+            crash_log_path=_CRASH_LOG_PATH,
+            runtime_config=_crash_diag_runtime_config(),
+            extra_context=dict(extra_context or {}),
+        )
+        _CRASH_BUNDLE_PATH = bundle_path
+        _CRASH_LOG_DIRTY = True
+        message = f"[CrashDiag] Codex debug bundle created: {bundle_path}"
+        if _CRASH_LOG_HANDLE is not None:
+            _CRASH_LOG_HANDLE.write(message + "\n")
+            _CRASH_LOG_HANDLE.flush()
+        print(message)
+        return bundle_path
+    except Exception as exc:
+        _CRASH_LOG_DIRTY = True
+        message = f"[CrashDiag] WARNING: Could not create Codex debug bundle: {exc}"
+        try:
+            if _CRASH_LOG_HANDLE is not None:
+                _CRASH_LOG_HANDLE.write(message + "\n")
+                _CRASH_LOG_HANDLE.flush()
+        except Exception:
+            pass
+        print(message)
+        return None
+
+
 def _install_crash_diagnostics():
     """Keep a lightweight crash recorder active for random native/Qt/runtime exits."""
     global _CRASH_LOG_DIRTY, _CRASH_LOG_HANDLE, _CRASH_LOG_PATH
@@ -98,6 +147,9 @@ def _install_crash_diagnostics():
     _CRASH_LOG_HANDLE.write(
         f"[CrashDiag] Started {time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()} argv={sys.argv!r}\n"
     )
+    crash_diagnostics.record_console_text(
+        f"[CrashDiag] Started {time.strftime('%Y-%m-%d %H:%M:%S')} pid={os.getpid()} argv={sys.argv!r}\n"
+    )
     try:
         faulthandler.enable(file=_CRASH_LOG_HANDLE, all_threads=True)
     except Exception as exc:
@@ -111,6 +163,14 @@ def _install_crash_diagnostics():
             _CRASH_LOG_HANDLE.write("[CrashDiag] Unhandled main-thread exception:\n")
             traceback.print_exception(exc_type, exc_value, exc_tb, file=_CRASH_LOG_HANDLE)
             _CRASH_LOG_HANDLE.flush()
+            _write_codex_debug_bundle(
+                "main_thread_exception",
+                {
+                    "exception_type": getattr(exc_type, "__name__", str(exc_type)),
+                    "exception": str(exc_value),
+                },
+            )
+            _CRASH_LOG_HANDLE.flush()
         except Exception:
             pass
         _ORIGINAL_SYS_EXCEPTHOOK(exc_type, exc_value, exc_tb)
@@ -123,6 +183,15 @@ def _install_crash_diagnostics():
                 f"[CrashDiag] Unhandled thread exception in {getattr(args.thread, 'name', '<unknown>')}:\n"
             )
             traceback.print_exception(args.exc_type, args.exc_value, args.exc_traceback, file=_CRASH_LOG_HANDLE)
+            _CRASH_LOG_HANDLE.flush()
+            _write_codex_debug_bundle(
+                "thread_exception",
+                {
+                    "thread": getattr(args.thread, "name", "<unknown>"),
+                    "exception_type": getattr(args.exc_type, "__name__", str(args.exc_type)),
+                    "exception": str(args.exc_value),
+                },
+            )
             _CRASH_LOG_HANDLE.flush()
         except Exception:
             pass

@@ -1,4 +1,4 @@
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from ui.runtime.shell_session_config import _ui_shell_combo_select_label, _ui_shell_combo_set_items
 from ui.runtime.shell_status_layout import _ui_shell_audio_device_labels
@@ -34,6 +34,7 @@ SYSTEM_SHAPING_TOOLTIPS = {
     "stream_mode_combo": "When On, NC streams the model reply and starts chunked TTS sooner. When Off, NC waits for the full reply first.",
     "musetalk_loop_fade_spin": "MuseTalk preview crossfade duration when switching avatar/emotion frames. 0 disables the fade; higher values smooth changes but can delay visible updates.",
     "musetalk_use_frame_cache_checkbox": "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames.",
+    "ua_companion_orb_send_musetalk_face_mask_checkbox": "Route MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay and suppress the local MuseTalk preview.",
     "musetalk_avatar_pack_combo": "Prepared MuseTalk avatar pack and variant used for rendering visual speech.",
     "btn_musetalk_avatar_pack_refresh": "Rescan installed MuseTalk avatar packs under avatar_packs/.",
     "scenic_pack_combo": "Portable Scenic Pack used by the Scenic avatar engine to map tags to still images.",
@@ -170,6 +171,15 @@ class BackendSystemShapingBuilderMixin:
         self.musetalk_frame_cache_label = QtWidgets.QLabel("Frame Cache")
         _set_tooltip(self.musetalk_frame_cache_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_use_frame_cache_checkbox"])
         form.addRow(self.musetalk_frame_cache_label, self.musetalk_use_frame_cache_checkbox)
+        self.ua_companion_orb_send_musetalk_face_mask_label = QtWidgets.QLabel("Ua Companion Orb")
+        _set_tooltip(
+            self.ua_companion_orb_send_musetalk_face_mask_label,
+            SYSTEM_SHAPING_TOOLTIPS["ua_companion_orb_send_musetalk_face_mask_checkbox"],
+        )
+        form.addRow(
+            self.ua_companion_orb_send_musetalk_face_mask_label,
+            self.ua_companion_orb_send_musetalk_face_mask_checkbox,
+        )
         self.musetalk_avatar_label = QtWidgets.QLabel("MuseTalk Avatar")
         _set_tooltip(self.musetalk_avatar_label, SYSTEM_SHAPING_TOOLTIPS["musetalk_avatar_pack_combo"])
         form.addRow(self.musetalk_avatar_label, self.musetalk_avatar_pack_row_widget)
@@ -362,19 +372,10 @@ class BackendSystemShapingBuilderMixin:
         self.ai_presence_visual_style_combo.setObjectName("ai_presence_visual_style_combo")
         self.ai_presence_visual_style_combo.setToolTip("Select the AI Presence animation style.")
         for label, value in [
-            ("Original Neural Orb", "classic_neural_orb"),
-            ("Breathing Orb", "breathing_orb"),
             ("Neural Network Pulse", "neural_network_pulse"),
-            ("Vector Voice Orb", "vector_voice_orb"),
-            ("Circular Audio Waveform", "circular_audio_waveform"),
-            ("Halo Rings", "halo_rings"),
-            ("Minimal Dot", "minimal_dot"),
-            ("Hologram Core", "hologram_core"),
-            ("Signal Bloom", "signal_bloom"),
-            ("Crystal Prism", "crystal_prism"),
         ]:
             self.ai_presence_visual_style_combo.addItem(label, value)
-        visual_style = str(runtime_config.get("ai_presence_visual_style", "breathing_orb") or "breathing_orb").strip().lower()
+        visual_style = str(runtime_config.get("ai_presence_visual_style", "neural_network_pulse") or "neural_network_pulse").strip().lower()
         for index in range(self.ai_presence_visual_style_combo.count()):
             if str(self.ai_presence_visual_style_combo.itemData(index) or "") == visual_style:
                 self.ai_presence_visual_style_combo.setCurrentIndex(index)
@@ -436,7 +437,7 @@ class BackendSystemShapingBuilderMixin:
         self.ai_presence_space_closes_fullscreen_checkbox = QtWidgets.QCheckBox("Space exits fullscreen")
         self.ai_presence_space_closes_fullscreen_checkbox.setObjectName("ai_presence_space_closes_fullscreen_checkbox")
         self.ai_presence_space_closes_fullscreen_checkbox.setChecked(bool(runtime_config.get("ai_presence_space_closes_fullscreen", True)))
-        self.ai_presence_space_closes_fullscreen_checkbox.setToolTip("When fullscreen AI Presence is showing, Space or Escape hides it and returns to NC.")
+        self.ai_presence_space_closes_fullscreen_checkbox.setToolTip("Escape or mouse click hides fullscreen. Enable this to let Space hide it too.")
         self.ai_presence_space_closes_fullscreen_checkbox.toggled.connect(lambda checked: self.on_ai_presence_setting_changed("ai_presence_space_closes_fullscreen", bool(checked)))
 
         self.ai_presence_music_reactivity_enabled_checkbox = QtWidgets.QCheckBox("Computer audio sync")
@@ -570,7 +571,7 @@ class BackendSystemShapingBuilderMixin:
         slider_grid.addWidget(self.ai_presence_music_reactivity_slider, 3, 1)
         layout.addLayout(slider_grid)
 
-        self.ai_presence_status_label = QtWidgets.QLabel("Uses Qt Quick when available; Fullscreen appears during thinking/speaking. Space or Escape hides fullscreen. Floating Window can be resized.")
+        self.ai_presence_status_label = QtWidgets.QLabel("Uses Qt Quick when available; Fullscreen appears during thinking/speaking. Escape or mouse click hides fullscreen. Floating Window can be resized.")
         self.ai_presence_status_label.setObjectName("ai_presence_status_label")
         self.ai_presence_status_label.setWordWrap(True)
         self.ai_presence_status_label.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -672,7 +673,7 @@ class BackendSystemShapingBuilderMixin:
         layout.addWidget(self.chat_runtime_inner_card)
 
         self._refresh_chat_provider_card()
-        self.chat_runtime_section = CollapsibleSection("Chat Runtime", self.chat_runtime_box, expanded=True)
+        self.chat_runtime_section = CollapsibleSection("LLM Runtime", self.chat_runtime_box, expanded=True)
         self.chat_runtime_section.toggle_button.toggled.connect(lambda _checked: self._on_runtime_section_toggled())
         self._refresh_chat_runtime_summary()
         return self.chat_runtime_section
@@ -754,8 +755,8 @@ class BackendSystemShapingBuilderMixin:
 
         self.tts_runtime_addon_tabs = QtWidgets.QTabWidget()
         self.tts_runtime_addon_tabs.setDocumentMode(False)
-        self.tts_runtime_addon_tabs.setMinimumHeight(420)
-        self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        self.tts_runtime_addon_tabs.setMinimumHeight(0)
+        self.tts_runtime_addon_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
         self.tts_runtime_addon_tabs.currentChanged.connect(self._on_tts_runtime_addon_tab_changed)
         self.tts_runtime_addon_tabs.setVisible(False)
         inner_layout.addWidget(self.tts_runtime_addon_tabs)
@@ -785,6 +786,7 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_feedback_tabs.setObjectName("sensory_feedback_tabs")
         self.sensory_feedback_tabs.setMinimumSize(0, 0)
         self.sensory_feedback_tabs.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        self._apply_vision_tab_button_style(self.sensory_feedback_tabs)
         self.sensory_feedback_tabs.currentChanged.connect(lambda _index, tabs=self.sensory_feedback_tabs: self._sync_tab_widget_height(tabs))
 
         core_tab = QtWidgets.QWidget()
@@ -792,29 +794,101 @@ class BackendSystemShapingBuilderMixin:
         core_layout.setContentsMargins(8, 8, 8, 8)
         core_layout.setSpacing(10)
 
-        sensory_box = QtWidgets.QGroupBox("Hidden Sensory Feedback")
+        sensory_box = QtWidgets.QGroupBox("Background Awareness")
+        sensory_box.setObjectName("vision_background_awareness_group")
+        sensory_box.setStyleSheet(
+            "QGroupBox {"
+            "  color: #dbeafe;"
+            "  font-weight: 700;"
+            "  border: 1px solid rgba(96, 165, 250, 0.32);"
+            "  border-radius: 7px;"
+            "  margin-top: 10px;"
+            "  padding-top: 10px;"
+            "}"
+            "QGroupBox::title {"
+            "  subcontrol-origin: margin;"
+            "  left: 10px;"
+            "  padding: 0 4px;"
+            "}"
+        )
         sensory_layout = QtWidgets.QVBoxLayout(sensory_box)
-        sensory_layout.setContentsMargins(12, 14, 12, 12)
-        sensory_layout.setSpacing(8)
+        sensory_layout.setContentsMargins(10, 10, 10, 10)
+        sensory_layout.setSpacing(10)
 
-        sensory_form = QtWidgets.QFormLayout()
-        sensory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        sensory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
-        sensory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-        sensory_form.addRow("Include", self.sensory_feedback_sources_widget)
-        sensory_form.addRow("Refresh (s)", self._wrap_compact_form_field(self.sensory_feedback_interval_spin))
-        sensory_form.addRow("Retain PONGs", self._wrap_compact_form_field(self.sensory_pingpong_history_spin))
-        sensory_layout.addWidget(self.sensory_pingpong_checkbox)
-        sensory_layout.addWidget(self.sensory_allow_hidden_proactive_checkbox)
-        sensory_layout.addWidget(self.sensory_allow_hidden_visual_checkbox)
+        intro_label = QtWidgets.QLabel(
+            "Choose what NC may quietly observe in the background. Observations are added as context; they are not sent as user messages."
+        )
+        intro_label.setObjectName("sensory_feedback_intro")
+        intro_label.setWordWrap(True)
+        intro_label.setStyleSheet("color: #b8c8d9; font-size: 11px;")
+        sensory_layout.addWidget(intro_label)
+
+        def make_card(title, object_name):
+            card = QtWidgets.QGroupBox(title)
+            card.setObjectName(object_name)
+            card.setStyleSheet(
+                "QGroupBox {"
+                "  color: #dbeafe;"
+                "  font-weight: 700;"
+                "  border: 1px solid rgba(96, 165, 250, 0.32);"
+                "  border-radius: 7px;"
+                "  margin-top: 10px;"
+                "  padding-top: 10px;"
+                "}"
+                "QGroupBox::title {"
+                "  subcontrol-origin: margin;"
+                "  left: 10px;"
+                "  padding: 0 4px;"
+                "}"
+            )
+            card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+            card_layout = QtWidgets.QVBoxLayout(card)
+            card_layout.setContentsMargins(10, 10, 10, 10)
+            card_layout.setSpacing(8)
+            return card, card_layout
+
+        def field_with_suffix(widget, suffix):
+            container = QtWidgets.QWidget()
+            row = QtWidgets.QHBoxLayout(container)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(6)
+            row.addWidget(self._wrap_compact_form_field(widget), 0)
+            suffix_label = QtWidgets.QLabel(suffix)
+            suffix_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+            row.addWidget(suffix_label, 0)
+            row.addStretch(1)
+            return container
+
+        review_card, review_layout = make_card("Background Review", "vision_overview_review_group")
+        review_layout.addWidget(self.sensory_pingpong_checkbox)
+        review_form = QtWidgets.QFormLayout()
+        review_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+        review_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+        review_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+        review_form.addRow("Review every", field_with_suffix(self.sensory_feedback_interval_spin, "seconds"))
+        review_form.addRow("Keep recent observations", self._wrap_compact_form_field(self.sensory_pingpong_history_spin))
+        review_layout.addLayout(review_form)
+        sensory_layout.addWidget(review_card)
+
+        sources_card, sources_layout = make_card("Sources to observe", "vision_overview_sources_group")
+        sources_hint = QtWidgets.QLabel("Select the background inputs NC may include when building context.")
+        sources_hint.setWordWrap(True)
+        sources_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        sources_layout.addWidget(sources_hint)
+        sources_layout.addWidget(self.sensory_feedback_sources_widget)
         companion_orb_target_row = QtWidgets.QHBoxLayout()
         companion_orb_target_row.setContentsMargins(0, 0, 0, 0)
         companion_orb_target_row.setSpacing(8)
         companion_orb_target_row.addWidget(self.companion_orb_sensory_target_checkbox)
         companion_orb_target_row.addWidget(self.btn_companion_orb_clear_sensory_target)
         companion_orb_target_row.addStretch(1)
-        sensory_layout.addLayout(companion_orb_target_row)
-        sensory_layout.addLayout(sensory_form)
+        sources_layout.addLayout(companion_orb_target_row)
+        sensory_layout.addWidget(sources_card)
+
+        actions_card, actions_layout = make_card("What NC may do", "vision_overview_actions_group")
+        actions_layout.addWidget(self.sensory_allow_hidden_proactive_checkbox)
+        actions_layout.addWidget(self.sensory_allow_hidden_visual_checkbox)
+        sensory_layout.addWidget(actions_card)
 
         self.sensory_feedback_hint = QtWidgets.QLabel()
         self.sensory_feedback_hint.setObjectName("sensory_feedback_hint")
@@ -823,7 +897,12 @@ class BackendSystemShapingBuilderMixin:
         sensory_layout.addWidget(self.sensory_feedback_hint)
         self._refresh_sensory_feedback_hint()
 
-        self.sensory_pingpong_prompt_label = QtWidgets.QLabel("Core Hidden PING/PONG Prompt")
+        advanced_widget = QtWidgets.QWidget()
+        advanced_layout = QtWidgets.QVBoxLayout(advanced_widget)
+        advanced_layout.setContentsMargins(0, 0, 0, 0)
+        advanced_layout.setSpacing(8)
+
+        self.sensory_pingpong_prompt_label = QtWidgets.QLabel("Developer prompt JSON contract")
         self.sensory_pingpong_prompt_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
         prompt_header = QtWidgets.QHBoxLayout()
         prompt_header.setContentsMargins(0, 0, 0, 0)
@@ -831,16 +910,21 @@ class BackendSystemShapingBuilderMixin:
         prompt_header.addWidget(self.sensory_pingpong_prompt_label)
         prompt_header.addStretch(1)
         prompt_header.addWidget(self.btn_sensory_pingpong_prompt_reset, 0)
-        sensory_layout.addLayout(prompt_header)
-        sensory_layout.addWidget(self.sensory_pingpong_prompt_text)
+        advanced_layout.addLayout(prompt_header)
+        advanced_layout.addWidget(self.sensory_pingpong_prompt_text)
 
-        self.sensory_pingpong_prompt_hint = QtWidgets.QLabel("Core prompt defines the shared JSON contract. Source tabs add source-specific guidance. Use __EMOTION_LIST__ to inject the currently available avatar emotion tags.")
+        self.sensory_pingpong_prompt_hint = QtWidgets.QLabel("Advanced: this prompt defines the JSON contract for background review. Source tabs add source-specific guidance. Use __EMOTION_LIST__ to inject the currently available avatar emotion tags.")
         self.sensory_pingpong_prompt_hint.setWordWrap(True)
         self.sensory_pingpong_prompt_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-        sensory_layout.addWidget(self.sensory_pingpong_prompt_hint)
+        advanced_layout.addWidget(self.sensory_pingpong_prompt_hint)
+        self.sensory_pingpong_prompt_section = CollapsibleSection("Advanced / Developer Prompt", advanced_widget, expanded=False)
+        self.sensory_pingpong_prompt_section.setSummary("JSON contract and source guidance")
+        sensory_layout.addWidget(self.sensory_pingpong_prompt_section)
 
         core_layout.addWidget(sensory_box)
-        self.sensory_feedback_tabs.addTab(core_tab, "Core")
+        style = QtWidgets.QApplication.style()
+        overview_icon = style.standardIcon(QtWidgets.QStyle.SP_MessageBoxInformation) if style is not None else QtGui.QIcon()
+        self.sensory_feedback_tabs.addTab(core_tab, overview_icon, "Overview")
         self._refresh_sensory_feedback_source_tabs()
         self._update_sensory_feedback_tab_bar_visibility()
         layout.addWidget(self.sensory_feedback_tabs, 0, QtCore.Qt.AlignTop)
@@ -1126,25 +1210,28 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_feedback_interval_spin.setMinimumWidth(112)
         self.sensory_feedback_interval_spin.setMaximumWidth(132)
 
-        self.sensory_pingpong_checkbox = QtWidgets.QCheckBox("Enable hidden PING/PONG loop")
+        self.sensory_pingpong_checkbox = QtWidgets.QCheckBox("Enable background review")
         self.sensory_pingpong_checkbox.setObjectName("sensory_pingpong_checkbox")
+        self.sensory_pingpong_checkbox.setToolTip("Lets NC quietly review selected sources while idle, then keep useful observation notes.")
         self.sensory_pingpong_checkbox.setChecked(bool(runtime_config.get("sensory_pingpong_enabled", False)))
         self.sensory_pingpong_checkbox.toggled.connect(self.on_sensory_pingpong_enabled_changed)
 
-        self.sensory_allow_hidden_proactive_checkbox = QtWidgets.QCheckBox("Allow hidden PONGs to trigger proactive speech")
+        self.sensory_allow_hidden_proactive_checkbox = QtWidgets.QCheckBox("Allow NC to speak about observations")
         self.sensory_allow_hidden_proactive_checkbox.setObjectName("sensory_allow_hidden_proactive_checkbox")
+        self.sensory_allow_hidden_proactive_checkbox.setToolTip("Allows a background observation to become a spoken proactive comment when the prompt marks it as worth saying.")
         self.sensory_allow_hidden_proactive_checkbox.setChecked(bool(runtime_config.get("sensory_allow_hidden_proactive_speech", False)))
         self.sensory_allow_hidden_proactive_checkbox.toggled.connect(self.on_sensory_allow_hidden_proactive_changed)
 
-        self.sensory_allow_hidden_visual_checkbox = QtWidgets.QCheckBox("Allow NC to generate visual replies automatically")
+        self.sensory_allow_hidden_visual_checkbox = QtWidgets.QCheckBox("Use observations for Visual Reply images")
         self.sensory_allow_hidden_visual_checkbox.setObjectName("sensory_allow_hidden_visual_checkbox")
+        self.sensory_allow_hidden_visual_checkbox.setToolTip("Allows selected sensory context to trigger automatic Visual Reply image generation when the prompt explicitly requests it.")
         self.sensory_allow_hidden_visual_checkbox.setChecked(bool(runtime_config.get("sensory_allow_hidden_visual_generation", False)))
         self.sensory_allow_hidden_visual_checkbox.toggled.connect(self.on_sensory_allow_hidden_visual_changed)
 
-        self.companion_orb_sensory_target_checkbox = QtWidgets.QCheckBox("Use Companion Orb as sensory focus target")
+        self.companion_orb_sensory_target_checkbox = QtWidgets.QCheckBox("Use Orb target as a source")
         self.companion_orb_sensory_target_checkbox.setObjectName("companion_orb_sensory_target_checkbox")
         self.companion_orb_sensory_target_checkbox.setToolTip(
-            "Uses the AI Presence Companion Orb selected window/region as the Hidden Sensory source. "
+            "Uses the Companion Orb selected window/region as a background source. "
             "It never silently falls back to full-screen capture."
         )
         self.companion_orb_sensory_target_checkbox.setChecked(bool(runtime_config.get("companion_orb_sensory_target_enabled", False)))
@@ -1152,7 +1239,7 @@ class BackendSystemShapingBuilderMixin:
 
         self.btn_companion_orb_clear_sensory_target = QtWidgets.QPushButton("Clear orb target")
         self.btn_companion_orb_clear_sensory_target.setObjectName("btn_companion_orb_clear_sensory_target")
-        self.btn_companion_orb_clear_sensory_target.setToolTip("Clears the selected Companion Orb Hidden Sensory target.")
+        self.btn_companion_orb_clear_sensory_target.setToolTip("Clears the selected Companion Orb sensory target.")
         self.btn_companion_orb_clear_sensory_target.clicked.connect(self.clear_companion_orb_sensory_target)
 
         self.sensory_pingpong_history_spin = ContextTokenStepper()
@@ -1167,10 +1254,10 @@ class BackendSystemShapingBuilderMixin:
         self.sensory_pingpong_prompt_text = QtWidgets.QPlainTextEdit()
         self.sensory_pingpong_prompt_text.setObjectName("sensory_pingpong_prompt_text")
         self.sensory_pingpong_prompt_text.setPlainText(str(runtime_config.get("sensory_pingpong_prompt", getattr(engine_module, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")) or getattr(engine_module, "DEFAULT_SENSORY_PINGPONG_PROMPT", "")))
-        self.sensory_pingpong_prompt_text.setPlaceholderText("Hidden PING/PONG prompt")
+        self.sensory_pingpong_prompt_text.setPlaceholderText("Advanced background review prompt")
         self.sensory_pingpong_prompt_text.setMinimumHeight(0)
         self.sensory_pingpong_prompt_text.textChanged.connect(self.on_sensory_pingpong_prompt_changed)
-        self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Use Recommended")
+        self.btn_sensory_pingpong_prompt_reset = QtWidgets.QPushButton("Restore recommended prompt")
         self.btn_sensory_pingpong_prompt_reset.setObjectName("btn_sensory_pingpong_prompt_reset")
         self.btn_sensory_pingpong_prompt_reset.clicked.connect(self.reset_sensory_pingpong_prompt_to_default)
 

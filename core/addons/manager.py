@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import importlib.util
 import logging
 import json
@@ -296,7 +297,7 @@ class AddonManager:
                 continue
             try:
                 if hasattr(record.instance, "invoke_capability"):
-                    result = record.instance.invoke_capability(capability, request)
+                    result = record.instance.invoke_capability(capability, self._capability_payload(request))
                     if result is not None:
                         return result
             except Exception:
@@ -322,12 +323,19 @@ class AddonManager:
             try:
                 if not hasattr(record.instance, "invoke_capability"):
                     continue
-                result = record.instance.invoke_capability(capability, request)
+                result = record.instance.invoke_capability(capability, self._capability_payload(request))
                 if result is not None:
                     results.append(result)
             except Exception:
                 self.logger.exception("Addon capability invoke failed for '%s' on '%s'", capability, record.manifest.id)
         return results
+
+    @staticmethod
+    def _capability_payload(payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return copy.deepcopy(dict(payload or {}))
+        except Exception:
+            return dict(payload or {})
 
     def invoke_addon_capability(self, addon_id: str, capability: str, payload: dict[str, Any] | None = None) -> Any:
         """Invoke a capability on one initialized addon.

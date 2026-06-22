@@ -6,23 +6,32 @@
   "steps": [
     {
       "title": "What the Installer Creates",
-      "body": "The installer creates the main Neural Companion runtime and, when selected, separate isolated runtimes for MuseTalk and PocketTTS. Isolation keeps incompatible dependency stacks from colliding.",
-      "target": "main_window"
+      "body": "The installer creates the main Neural Companion runtime and, when selected, separate isolated runtimes for MuseTalk and PocketTTS. Isolation keeps incompatible dependency stacks from colliding. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "target": "workspace_central"
     },
     {
       "title": "Main Runtime",
       "body": "The main runtime contains the app, PySide UI, chat integration, Chatterbox TTS, addon framework, and ordinary core dependencies.",
-      "target": "main_window"
+      "target": "host_settings_tabs",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
     },
     {
       "title": "MuseTalk Runtime",
       "body": "MuseTalk has its own runtime because talking-head inference depends on an older CUDA/PyTorch stack. Install it only when you want MuseTalk avatars.",
-      "target": "musetalk_vram_combo"
+      "target": "musetalk_vram_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
+        { "type": "set_combo_text", "target": "engine_combo", "value": "MuseTalk" }
+      ]
     },
     {
       "title": "PocketTTS Runtime",
-      "body": "PocketTTS is isolated as well. Voice cloning may require accepting Hugging Face model terms and logging in through the PocketTTS runtime.",
-      "target": "tts_backend_combo"
+      "body": "PocketTTS is isolated as well. Voice cloning may require accepting Hugging Face model terms and logging in through the PocketTTS runtime. Use the TTS backend tab circle to make PocketTTS active after it is installed.",
+      "target": "tts_runtime_active_provider_label"
     },
     {
       "title": "External Tools",
@@ -32,7 +41,12 @@
     {
       "title": "Avatar Packs Are Separate",
       "body": "MuseTalk avatar packs are distributed separately from the app. Import or unpack them into avatar_packs before selecting them in the MuseTalk avatar-pack control.",
-      "target": "musetalk_avatar_pack_combo"
+      "target": "musetalk_avatar_pack_combo",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" },
+        { "type": "set_combo_text", "target": "engine_combo", "value": "MuseTalk" }
+      ]
     }
   ]
 }

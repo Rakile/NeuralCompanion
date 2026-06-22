@@ -1,0 +1,38 @@
+{
+  "id": "nc.main_chat_remote",
+  "name": "Main Chat Remote",
+  "category": "chat",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "LAN phone bridge for the real NeuralCompanion main chat runtime.",
+  "permissions": [
+    "ui.tabs",
+    "services.register",
+    "llm.read",
+    "tts.read",
+    "avatar.read"
+  ],
+  "services": [
+    {
+      "id": "service_registry",
+      "service_name": "main_chat.remote",
+      "metadata": {
+        "kind": "chat_remote",
+        "transport": "local_bridge"
+      }
+    }
+  ],
+  "ui": [
+    {
+      "id": "main_chat_remote_tab",
+      "title": "Main Chat Remote",
+      "area": "top_level",
+      "order": 930,
+      "tooltip": "Local bridge status and controls for the phone remote.",
+      "metadata": {
+        "runtime_role": "main_chat_remote"
+      }
+    }
+  ],
+  "enabled": true
+}

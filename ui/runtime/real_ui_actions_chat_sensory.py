@@ -394,11 +394,10 @@ class RealUiActionsChatSensoryMixin:
                 return
             self._sync_combo_like_widget(frontend_combo, backend_combo)
             self._refresh_backend_preset_dirty_state()
+            if bool(getattr(self, "_runtime_provider_tab_activation_in_progress", False)):
+                return
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(300, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(1200, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
-            QtCore.QTimer.singleShot(350, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
 
     def _on_frontend_spellcheck_enabled_changed(self, checked):
             try:
@@ -448,7 +447,7 @@ class RealUiActionsChatSensoryMixin:
             self._sync_combo_like_widget(frontend_combo, backend_combo)
             self._refresh_backend_preset_dirty_state()
             QtCore.QTimer.singleShot(0, lambda: self._sync_backend_to_ui(force=True))
-            QtCore.QTimer.singleShot(50, self._resync_frontend_runtime_cards)
+            self._schedule_frontend_runtime_layout_pass(40)
 
     def _on_frontend_model_requires_vision_changed(self, checked):
             backend_checkbox = self._backend_widget("model_requires_vision_checkbox")

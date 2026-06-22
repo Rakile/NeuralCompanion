@@ -41,7 +41,20 @@ def _normalize_bounds(bounds) -> list[int]:
     return values
 
 
+def _log(message: str) -> None:
+    print(str(message or ""), file=sys.stderr, flush=True)
+
+
+def _emit_event(payload: dict[str, Any]) -> None:
+    try:
+        sys.stdout.write(json.dumps(dict(payload or {}), ensure_ascii=False, separators=(",", ":")) + "\n")
+        sys.stdout.flush()
+    except Exception as exc:
+        _log(f"Companion Orb external event emit failed: {exc}")
+
+
 DROP_ANCHOR_HOVER_SECONDS = 18.0
+POLL_DRAG_THRESHOLD_PX = 4.0
 
 
 class ExternalCompanionOrb(QtCore.QObject):
@@ -62,11 +75,26 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.drop_anchor_point: QtCore.QPoint | None = None
         self.drop_anchor_until = 0.0
         self.last_tick_at = 0.0
+        self.idle_pause_until = 0.0
+        self.idle_next_pause_at = time.monotonic() + 3.0
+        self.idle_pause_point: QtCore.QPointF | None = None
         self.move_start: QtCore.QPoint | None = None
         self.move_target: QtCore.QPoint | None = None
         self.move_started_at = 0.0
         self.move_duration = 0.0
         self.move_curve_sign = 1.0
+        self.drag_offset: QtCore.QPoint | None = None
+        self.drag_start_global_pos: QtCore.QPoint | None = None
+        self.drag_moved = False
+        self.direct_drag_mouse_grabbed = False
+        self.poll_drag_start_pos: QtCore.QPoint | None = None
+        self.poll_drag_offset: QtCore.QPoint | None = None
+        self.poll_drag_button = ""
+        self.poll_drag_active = False
+        self.right_button_was_down = False
+        self.left_button_was_down = False
+        self.cloaked = False
+        self.visible_before_cloak = False
 
         self.drift_timer = QtCore.QTimer(self)
         self.drift_timer.setInterval(16)
@@ -77,6 +105,9 @@ class ExternalCompanionOrb(QtCore.QObject):
         self.return_timer = QtCore.QTimer(self)
         self.return_timer.setSingleShot(True)
         self.return_timer.timeout.connect(lambda: self._return_home(animate=True))
+        self.poll_drag_timer = QtCore.QTimer(self)
+        self.poll_drag_timer.setInterval(16)
+        self.poll_drag_timer.timeout.connect(self._poll_pointer_drag)
 
         self._create_window()
 
@@ -117,6 +148,9 @@ class ExternalCompanionOrb(QtCore.QObject):
             return
         if msg_type == "drop_anchor":
             self._set_drop_anchor(message.get("point"), duration_seconds=message.get("duration_seconds", DROP_ANCHOR_HOVER_SECONDS))
+            return
+        if msg_type == "cloak":
+            self._set_cloak(bool(message.get("enabled")))
             return
         if msg_type == "clear_target":
             self.selected_target_bounds = []
@@ -173,9 +207,123 @@ class ExternalCompanionOrb(QtCore.QObject):
             errors = "; ".join(str(error.toString()) for error in quick.errors())
             raise RuntimeError(errors or "Companion Orb external QML load failed")
         layout.addWidget(quick)
+        for widget in (window, quick):
+            widget.installEventFilter(self)
         self.window = window
         self.quick = quick
         self._apply_window_settings()
+
+    def eventFilter(self, watched, event):
+        try:
+            if watched in (self.window, self.quick) and self.window is not None:
+                return self._handle_window_event(event)
+        except Exception as exc:
+            print(f"Companion Orb external interaction failed: {exc}", flush=True)
+        return super().eventFilter(watched, event)
+
+    def _event_global_pos(self, event) -> QtCore.QPoint:
+        try:
+            return event.globalPosition().toPoint()
+        except Exception:
+            try:
+                return event.globalPos()
+            except Exception:
+                return QtCore.QPoint(0, 0)
+
+    def _handle_window_event(self, event) -> bool:
+        window = self.window
+        if window is None:
+            return False
+        if event.type() == QtCore.QEvent.MouseButtonPress:
+            event_pos = self._event_global_pos(event)
+            right_drag_focus = bool(self.settings.get("companion_orb_right_drag_focus_enabled", False))
+            if event.button() == QtCore.Qt.LeftButton and (self.bridge.editMode or not self.bridge.clickThrough):
+                self._start_direct_drag(event_pos, button="left")
+                return True
+            if event.button() == QtCore.Qt.RightButton and (self.bridge.placementMode or right_drag_focus):
+                self._start_direct_drag(event_pos, button="right")
+                return True
+            if event.button() == QtCore.Qt.RightButton:
+                self._emit_menu_request(event_pos)
+                return True
+        if event.type() == QtCore.QEvent.MouseMove and self.drag_offset is not None:
+            event_pos = self._event_global_pos(event)
+            self._move_direct_drag(event_pos)
+            return True
+        if event.type() == QtCore.QEvent.MouseButtonRelease:
+            if self.drag_offset is not None:
+                event_pos = self._event_global_pos(event)
+                self._move_direct_drag(event_pos)
+                self._finish_direct_drag(global_pos=event_pos)
+                return True
+        return False
+
+    def _start_direct_drag(self, global_pos: QtCore.QPoint, *, button: str) -> None:
+        window = self.window
+        if window is None:
+            return
+        self.drift_timer.stop()
+        self.motion_timer.stop()
+        self.return_timer.stop()
+        self.drag_offset = global_pos - window.frameGeometry().topLeft()
+        self.drag_start_global_pos = QtCore.QPoint(global_pos)
+        self.drag_moved = False
+        self.poll_drag_button = str(button or "left").strip().lower()
+        self._grab_drag_mouse()
+
+    def _grab_drag_mouse(self) -> None:
+        window = self.window
+        if window is None or self.direct_drag_mouse_grabbed:
+            return
+        try:
+            window.grabMouse()
+            self.direct_drag_mouse_grabbed = True
+        except Exception as exc:
+            _log(f"Companion Orb external mouse grab failed: {exc}")
+
+    def _release_drag_mouse(self) -> None:
+        window = self.window
+        if window is None or not self.direct_drag_mouse_grabbed:
+            self.direct_drag_mouse_grabbed = False
+            return
+        try:
+            window.releaseMouse()
+        except Exception as exc:
+            _log(f"Companion Orb external mouse release failed: {exc}")
+        self.direct_drag_mouse_grabbed = False
+
+    def _clear_direct_drag(self) -> None:
+        self._release_drag_mouse()
+        self.drag_offset = None
+        self.drag_start_global_pos = None
+        self.drag_moved = False
+        self.poll_drag_button = ""
+
+    def _move_direct_drag(self, global_pos: QtCore.QPoint) -> None:
+        window = self.window
+        if window is None or self.drag_offset is None:
+            return
+        if self.drag_start_global_pos is not None:
+            dx = float(global_pos.x() - self.drag_start_global_pos.x())
+            dy = float(global_pos.y() - self.drag_start_global_pos.y())
+            if math.hypot(dx, dy) >= POLL_DRAG_THRESHOLD_PX:
+                self.drag_moved = True
+        point = global_pos - self.drag_offset
+        self._move_to_drag_position(point)
+
+    def _finish_direct_drag(self, *, global_pos: QtCore.QPoint) -> None:
+        window = self.window
+        if window is not None:
+            self._record_drag_position(window.frameGeometry().topLeft())
+        button = str(self.poll_drag_button or "left").strip().lower()
+        moved = bool(self.drag_moved)
+        if button == "right" and not moved:
+            self._emit_menu_request(global_pos)
+        else:
+            self._emit_position_changed()
+            self._emit_drop_event(button=button, reason=f"{button}_drag_drop")
+        self._clear_direct_drag()
+        self._sync_drift_timer()
 
     def _window_flags(self):
         flags = QtCore.Qt.Tool | QtCore.Qt.Window | QtCore.Qt.FramelessWindowHint | QtCore.Qt.WindowDoesNotAcceptFocus | _no_shadow_window_hint()
@@ -195,10 +343,12 @@ class ExternalCompanionOrb(QtCore.QObject):
         except Exception:
             pass
         click_through = bool(self.settings.get("companion_orb_click_through_default", True))
-        if self.bridge.editMode or self.bridge.placementMode:
+        right_drag_focus = bool(self.settings.get("companion_orb_right_drag_focus_enabled", False))
+        if self.bridge.editMode or self.bridge.placementMode or right_drag_focus:
             click_through = False
         self.bridge.set_modes(click_through=click_through)
         self._apply_click_through(click_through)
+        self._sync_drag_poll_timer()
         if self.base_position is None:
             self.base_position = self._home_position()
             window.move(self.base_position)
@@ -215,12 +365,21 @@ class ExternalCompanionOrb(QtCore.QObject):
         window = self.window
         if window is None:
             return
+        if self.cloaked:
+            if window.isVisible():
+                window.hide()
+            self.drift_timer.stop()
+            self.motion_timer.stop()
+            self.poll_drag_timer.stop()
+            return
         enabled = bool(self.settings.get("companion_orb_enabled", False))
         mode = str(self.settings.get("companion_orb_display_mode", "off") or "off").strip().lower()
         if not enabled or mode == "off":
             window.hide()
             self.drift_timer.stop()
             self.motion_timer.stop()
+            self.poll_drag_timer.stop()
+            self._clear_poll_drag()
             return
         active = self.bridge.aiState in {"listening", "thinking", "speaking"} or self.bridge.audioLevel > 0.025
         visible = mode in {"docked", "always"} or (mode == "interaction" and active) or self.bridge.editMode or self.bridge.placementMode
@@ -229,6 +388,7 @@ class ExternalCompanionOrb(QtCore.QObject):
         elif not visible and window.isVisible():
             window.hide()
         self._sync_drift_timer()
+        self._sync_drag_poll_timer()
 
     def _dock_position(self) -> QtCore.QPoint:
         size = self._window_size()
@@ -290,6 +450,8 @@ class ExternalCompanionOrb(QtCore.QObject):
             and not self.bridge.editMode
             and not self.bridge.placementMode
             and not self.motion_timer.isActive()
+            and self.drag_offset is None
+            and not self.poll_drag_active
             and (
                 bool(self.settings.get("companion_orb_movement_enabled", True))
                 or self._focus_ready()
@@ -411,10 +573,84 @@ class ExternalCompanionOrb(QtCore.QObject):
         except Exception:
             return 18
 
+    def _clamped_float_setting(self, key: str, default: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(self.settings.get(key, default))
+        except Exception:
+            value = float(default)
+        return max(float(minimum), min(float(maximum), value))
+
+    def _aware_motion_enabled(self) -> bool:
+        return bool(self.settings.get("companion_orb_aware_motion_enabled", True))
+
+    def _awareness_level(self) -> float:
+        return self._clamped_float_setting("companion_orb_awareness", 0.55, 0.0, 1.0)
+
+    def _focus_pull(self) -> float:
+        return self._clamped_float_setting("companion_orb_focus_pull", 0.65, 0.0, 1.0)
+
+    def _idle_pause_strength(self) -> float:
+        return self._clamped_float_setting("companion_orb_idle_pause", 0.45, 0.0, 1.0)
+
     def _time_scaled_blend(self, blend: float, frame_scale: float) -> float:
         base = max(0.0, min(0.98, float(blend)))
         scale = max(0.10, min(6.0, float(frame_scale)))
         return max(0.0, min(0.98, 1.0 - pow(1.0 - base, scale)))
+
+    def _aware_focus_hover_target(self, target: QtCore.QPointF, *, now: float, amount: float) -> QtCore.QPointF:
+        if not self._aware_motion_enabled():
+            return QtCore.QPointF(target)
+        awareness = self._awareness_level()
+        focus_pull = self._focus_pull()
+        if awareness <= 0.0 or focus_pull <= 0.0:
+            return QtCore.QPointF(target)
+        hover = min(7.0, max(1.5, max(4.0, float(amount)) * 0.12)) * awareness * (0.45 + focus_pull * 0.55)
+        x = target.x() + math.sin(now * 0.58 + 1.2) * hover
+        y = target.y() + math.cos(now * 0.47 + 0.4) * hover * 0.62
+        return self._clamp_top_left_to_screen(QtCore.QPointF(x, y))
+
+    def _aware_idle_target(
+        self,
+        *,
+        base: QtCore.QPoint,
+        target_x: float,
+        target_y: float,
+        now: float,
+        amount: float,
+        speed: float,
+    ) -> tuple[float, float, float]:
+        if not self._aware_motion_enabled():
+            return target_x, target_y, max(0.055, min(0.18, 0.055 + speed * 0.055))
+        awareness = self._awareness_level()
+        pause_strength = self._idle_pause_strength()
+        if awareness <= 0.0 and pause_strength <= 0.0:
+            return target_x, target_y, max(0.055, min(0.18, 0.055 + speed * 0.055))
+
+        t = now * max(0.15, speed)
+        calm_scale = 1.0 - pause_strength * 0.10
+        target_x = float(base.x()) + (target_x - float(base.x())) * calm_scale
+        target_y = float(base.y()) + (target_y - float(base.y())) * calm_scale
+        target_x += math.sin(t * 0.09 + 2.1) * amount * 0.08 * awareness
+        target_y += math.cos(t * 0.075 + 0.5) * amount * 0.055 * awareness
+
+        current = self.current_point or QtCore.QPointF(target_x, target_y)
+        if pause_strength > 0.0 and now >= self.idle_next_pause_at and now >= self.idle_pause_until:
+            self.idle_pause_point = QtCore.QPointF(current)
+            hold_seconds = 0.35 + pause_strength * (0.75 + awareness * 0.55)
+            rest_seconds = 2.4 + (1.0 - pause_strength) * 2.4 + (1.0 - awareness) * 1.2
+            self.idle_pause_until = now + hold_seconds
+            self.idle_next_pause_at = self.idle_pause_until + rest_seconds
+
+        smoothing = max(0.055, min(0.18, 0.055 + speed * 0.055))
+        if pause_strength > 0.0 and now < self.idle_pause_until and self.idle_pause_point is not None:
+            anchor = self.idle_pause_point
+            observe = min(3.8, max(0.8, amount * 0.06)) * awareness
+            target_x = anchor.x() + math.sin(now * 0.82) * observe
+            target_y = anchor.y() + math.cos(now * 0.71 + 0.8) * observe * 0.55
+            smoothing = 0.055 + awareness * 0.025
+        else:
+            smoothing = max(0.055, smoothing - pause_strength * 0.025)
+        return target_x, target_y, smoothing
 
     def _on_drift_tick(self) -> None:
         window = self.window
@@ -439,13 +675,29 @@ class ExternalCompanionOrb(QtCore.QObject):
                 left, top, width, height = self.focus_bounds
                 target_x = float(left + width * 0.5 - window.width() * 0.5)
                 target_y = float(top - window.height() * 0.62)
-            smoothing = self._time_scaled_blend(0.14, frame_scale)
+            target = self._aware_focus_hover_target(
+                self._clamp_top_left_to_screen(QtCore.QPointF(target_x, target_y)),
+                now=now,
+                amount=float(self._movement_range()),
+            )
+            target_x = target.x()
+            target_y = target.y()
+            focus_pull = self._focus_pull() if self._aware_motion_enabled() else 0.65
+            smoothing = self._time_scaled_blend(0.11 + focus_pull * 0.05, frame_scale)
         else:
             amount = float(self._movement_range()) if bool(self.settings.get("companion_orb_movement_enabled", True)) else 0.0
             t = now * speed
             target_x = float(base.x()) + math.sin(t * 0.42) * amount + math.sin(t * 0.17 + 1.9) * amount * 0.34
             target_y = float(base.y()) + math.cos(t * 0.36 + 0.7) * amount * 0.58 + math.sin(t * 0.13 + 2.4) * amount * 0.26
-            smoothing = self._time_scaled_blend(max(0.055, min(0.18, 0.055 + speed * 0.055)), frame_scale)
+            target_x, target_y, smoothing = self._aware_idle_target(
+                base=base,
+                target_x=target_x,
+                target_y=target_y,
+                now=now,
+                amount=amount,
+                speed=speed,
+            )
+            smoothing = self._time_scaled_blend(smoothing, frame_scale)
         current = self.current_point
         if current is None:
             current = QtCore.QPointF(float(window.x()), float(window.y()))
@@ -512,6 +764,219 @@ class ExternalCompanionOrb(QtCore.QObject):
         y = max(float(available.top()), min(float(point.y()), float(available.bottom() - window.height())))
         return QtCore.QPointF(x, y)
 
+    def _sync_drag_poll_timer(self) -> None:
+        window = self.window
+        should_run = bool(window is not None and window.isVisible() and self.bridge.clickThrough)
+        if should_run:
+            if not self.poll_drag_timer.isActive():
+                self.poll_drag_timer.start()
+        elif self.poll_drag_timer.isActive():
+            self.poll_drag_timer.stop()
+            self._clear_poll_drag()
+
+    def _poll_pointer_drag(self) -> None:
+        window = self.window
+        if window is None or not window.isVisible():
+            self._clear_poll_drag()
+            return
+        if not self.bridge.clickThrough:
+            self.right_button_was_down = False
+            self.left_button_was_down = False
+            self._clear_poll_drag()
+            return
+
+        right_down = self._mouse_button_down("right")
+        left_down = self._mouse_button_down("left")
+        cursor = QtGui.QCursor.pos()
+
+        if self.poll_drag_active:
+            drag_down = right_down if self.poll_drag_button == "right" else left_down
+            if drag_down:
+                self._move_poll_drag(cursor)
+            else:
+                self._finish_poll_drag()
+            self.right_button_was_down = right_down
+            self.left_button_was_down = left_down
+            return
+
+        if not right_down and not left_down:
+            if self.poll_drag_start_pos is not None:
+                button = str(self.poll_drag_button or "").strip().lower()
+                point = QtCore.QPoint(cursor)
+                self._clear_poll_drag()
+                self.right_button_was_down = False
+                self.left_button_was_down = False
+                if button == "right":
+                    self._emit_menu_request(point)
+                return
+            self._clear_poll_drag()
+            self.right_button_was_down = False
+            self.left_button_was_down = False
+            return
+
+        if not window.frameGeometry().contains(cursor):
+            self.right_button_was_down = right_down
+            self.left_button_was_down = left_down
+            return
+
+        if left_down and not self.left_button_was_down:
+            self.poll_drag_start_pos = QtCore.QPoint(cursor)
+            self.poll_drag_offset = cursor - window.frameGeometry().topLeft()
+            self.poll_drag_button = "left"
+        elif right_down and not self.right_button_was_down:
+            self.poll_drag_start_pos = QtCore.QPoint(cursor)
+            self.poll_drag_offset = cursor - window.frameGeometry().topLeft()
+            self.poll_drag_button = "right"
+        elif self.poll_drag_start_pos is not None:
+            dx = float(cursor.x() - self.poll_drag_start_pos.x())
+            dy = float(cursor.y() - self.poll_drag_start_pos.y())
+            if math.hypot(dx, dy) >= POLL_DRAG_THRESHOLD_PX:
+                self._start_poll_drag(cursor)
+
+        self.right_button_was_down = right_down
+        self.left_button_was_down = left_down
+
+    def _start_poll_drag(self, cursor: QtCore.QPoint) -> None:
+        window = self.window
+        if window is None:
+            return
+        if self.poll_drag_offset is None:
+            self.poll_drag_offset = cursor - window.frameGeometry().topLeft()
+        self.poll_drag_active = True
+        self.drift_timer.stop()
+        self.motion_timer.stop()
+        self.return_timer.stop()
+        self._move_poll_drag(cursor)
+
+    def _move_poll_drag(self, cursor: QtCore.QPoint) -> None:
+        if self.window is None or self.poll_drag_offset is None:
+            return
+        point = cursor - self.poll_drag_offset
+        self._move_to_drag_position(point)
+
+    def _finish_poll_drag(self) -> None:
+        window = self.window
+        button = str(self.poll_drag_button or "").strip().lower()
+        if window is not None:
+            self._record_drag_position(window.frameGeometry().topLeft())
+            self._emit_position_changed()
+        self._clear_poll_drag()
+        if button in {"left", "right"}:
+            self._emit_drop_event(button=button, reason=f"{button}_drag_drop")
+        self._sync_drift_timer()
+
+    def _clear_poll_drag(self) -> None:
+        self.poll_drag_start_pos = None
+        self.poll_drag_offset = None
+        self.poll_drag_button = ""
+        self.poll_drag_active = False
+
+    def _move_to_drag_position(self, point: QtCore.QPoint) -> None:
+        window = self.window
+        if window is None:
+            return
+        clamped = self._clamp_top_left_to_screen(QtCore.QPointF(point))
+        target = QtCore.QPoint(int(round(clamped.x())), int(round(clamped.y())))
+        window.move(target)
+        self._record_drag_position(point)
+
+    def _record_drag_position(self, point: QtCore.QPoint) -> None:
+        clamped = self._clamp_top_left_to_screen(QtCore.QPointF(point))
+        target = QtCore.QPoint(int(round(clamped.x())), int(round(clamped.y())))
+        self.settings["companion_orb_custom_position"] = [int(target.x()), int(target.y())]
+        self.base_position = QtCore.QPoint(target)
+        self.current_point = QtCore.QPointF(float(target.x()), float(target.y()))
+        self.move_start = None
+        self.move_target = None
+
+    def _emit_position_changed(self) -> None:
+        _emit_event(
+            {
+                "type": "orb.position_changed",
+                "top_left": self._window_top_left_payload(),
+                "center": self._window_center_payload(),
+            }
+        )
+
+    def _window_center_payload(self) -> list[int]:
+        window = self.window
+        if window is None:
+            return []
+        center = window.frameGeometry().center()
+        return [int(center.x()), int(center.y())]
+
+    def _window_top_left_payload(self) -> list[int]:
+        window = self.window
+        if window is None:
+            return []
+        point = window.frameGeometry().topLeft()
+        return [int(point.x()), int(point.y())]
+
+    def _emit_drop_event(self, *, button: str, reason: str) -> None:
+        _emit_event(
+            {
+                "type": "orb.dropped",
+                "button": str(button or ""),
+                "reason": str(reason or "external_drag_drop"),
+                "center": self._window_center_payload(),
+                "top_left": self._window_top_left_payload(),
+            }
+        )
+
+    def _emit_menu_request(self, global_pos: QtCore.QPoint) -> None:
+        _emit_event(
+            {
+                "type": "orb.request_menu",
+                "point": [int(global_pos.x()), int(global_pos.y())],
+                "center": self._window_center_payload(),
+                "top_left": self._window_top_left_payload(),
+            }
+        )
+
+    def _set_cloak(self, enabled: bool) -> None:
+        window = self.window
+        enabled = bool(enabled)
+        if window is None:
+            self.cloaked = enabled
+            return
+        if enabled:
+            if not self.cloaked:
+                self.visible_before_cloak = bool(window.isVisible())
+            self.cloaked = True
+            self._clear_direct_drag()
+            self._clear_poll_drag()
+            if window.isVisible():
+                window.hide()
+            self.drift_timer.stop()
+            self.motion_timer.stop()
+            self.poll_drag_timer.stop()
+            _emit_event({"type": "orb.cloak_changed", "enabled": True})
+            return
+        was_visible = bool(self.visible_before_cloak)
+        self.cloaked = False
+        self.visible_before_cloak = False
+        if was_visible:
+            self._refresh_visibility()
+        else:
+            self._sync_drag_poll_timer()
+        _emit_event({"type": "orb.cloak_changed", "enabled": False})
+
+    def _mouse_button_down(self, button: str) -> bool:
+        normalized = str(button or "").strip().lower()
+        if sys.platform == "win32":
+            try:
+                import ctypes
+
+                vk_code = 0x02 if normalized == "right" else 0x01
+                return bool(ctypes.windll.user32.GetAsyncKeyState(vk_code) & 0x8000)
+            except Exception:
+                pass
+        try:
+            qt_button = QtCore.Qt.RightButton if normalized == "right" else QtCore.Qt.LeftButton
+            return bool(QtGui.QGuiApplication.mouseButtons() & qt_button)
+        except Exception:
+            return False
+
     def _apply_click_through(self, enabled: bool) -> None:
         for widget in (self.window, self.quick):
             if widget is None:
@@ -521,6 +986,7 @@ class ExternalCompanionOrb(QtCore.QObject):
             except Exception:
                 pass
         if sys.platform != "win32" or self.window is None:
+            self._sync_drag_poll_timer()
             return
         try:
             import ctypes
@@ -538,6 +1004,7 @@ class ExternalCompanionOrb(QtCore.QObject):
             ctypes.windll.user32.SetWindowLongW(hwnd, gwl_exstyle, next_style)
         except Exception:
             pass
+        self._sync_drag_poll_timer()
 
 
 def _read_stdin(relay: _MessageRelay) -> None:
@@ -548,7 +1015,7 @@ def _read_stdin(relay: _MessageRelay) -> None:
         try:
             payload = json.loads(text)
         except Exception as exc:
-            print(f"Invalid Companion Orb external IPC payload: {exc}", flush=True)
+            _log(f"Invalid Companion Orb external IPC payload: {exc}")
             continue
         if isinstance(payload, dict):
             relay.message_received.emit(payload)
@@ -579,7 +1046,7 @@ def main() -> int:
     relay.message_received.connect(runtime.handle_message, QtCore.Qt.QueuedConnection)
     reader = threading.Thread(target=_read_stdin, args=(relay,), daemon=True, name="companion-orb-external-ipc")
     reader.start()
-    print("Companion Orb external runtime ready.", flush=True)
+    _emit_event({"type": "orb.ready"})
     return int(app.exec())
 
 

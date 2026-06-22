@@ -6,8 +6,12 @@
   "steps": [
     {
       "title": "What Visual Reply Does",
-      "body": "Visual Reply lets NC generate images when you ask the assistant for one, or when background sensory behavior is allowed to request one.",
-      "target": "main_window"
+      "body": "Visual Reply lets NC generate images when you ask the assistant for one, or when background sensory behavior is allowed to request one. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "target": "visual_reply_runtime_active_provider_label",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "host_settings_host_tab" }
+      ]
     },
     {
       "title": "Open Visual Settings",

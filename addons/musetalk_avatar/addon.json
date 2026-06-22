@@ -21,7 +21,8 @@
     "musetalk_quickstart_1_target_chars": 90,
     "musetalk_quickstart_1_max_chars": 130,
     "musetalk_quickstart_2_target_chars": 130,
-    "musetalk_quickstart_2_max_chars": 180
+    "musetalk_quickstart_2_max_chars": 180,
+    "ua_companion_orb_send_musetalk_face_mask": false
   },
   "services": [
     {

@@ -62,7 +62,7 @@ class Addon(BaseAddon):
         if capability == "real_ui.sync_widget_names":
             return {
                 "combo": ["musetalk_vram_combo", "musetalk_avatar_pack_combo"],
-                "checkbox": ["musetalk_use_frame_cache_checkbox"],
+                "checkbox": ["musetalk_use_frame_cache_checkbox", "ua_companion_orb_send_musetalk_face_mask_checkbox"],
                 "spin": ["musetalk_loop_fade_spin"],
             }
         if capability == "runtime.discover_avatar_packs":

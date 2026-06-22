@@ -6,7 +6,8 @@
   "entry_point": "main.py",
   "description": "Configure and run the Companion Orb Overlay from its own addon tab.",
   "runtime_defaults": {
-    "companion_orb_response_style": "friendly"
+    "companion_orb_response_style": "friendly",
+    "companion_orb_response_style_prompts": {}
   },
   "permissions": [
     "ui.tabs",

@@ -13,6 +13,7 @@ import os
 import re
 import subprocess
 import time
+from urllib.parse import urlparse
 
 
 _ANSI_RE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -58,6 +59,26 @@ def sdk_host(base_url: str) -> str:
         return api_host.strip("/")
     except Exception:
         return "127.0.0.1:1234"
+
+
+def _base_url_hostname(base_url: str) -> str:
+    value = str(base_url or "").strip()
+    if not value:
+        return "127.0.0.1"
+    parse_value = value if re.match(r"^[a-z][a-z0-9+.-]*://", value, flags=re.IGNORECASE) else f"http://{value}"
+    try:
+        parsed = urlparse(parse_value)
+        host = str(parsed.hostname or "").strip().lower()
+    except Exception:
+        host = ""
+    if not host:
+        host = sdk_host(value).split(":", 1)[0].strip("[]").lower()
+    return host
+
+
+def is_local_base_url(base_url: str) -> bool:
+    host = _base_url_hostname(base_url)
+    return host in {"", "localhost", "127.0.0.1", "::1", "0.0.0.0"}
 
 
 def sdk_client(sdk, base_url: str):
@@ -224,6 +245,8 @@ def local_inference_responsiveness_guard(logger=print):
 
 
 def unload_models(*, base_url: str, logger=print) -> bool:
+    target = sdk_host(base_url)
+    allow_local_cli_fallback = is_local_base_url(base_url)
     logger("🧠 [LM Studio] Unloading loaded models before MuseTalk warmup...")
     sdk = get_sdk()
     if sdk is not None:
@@ -243,7 +266,16 @@ def unload_models(*, base_url: str, logger=print) -> bool:
             logger(f"✓ [LM Studio] Unloaded via SDK: {', '.join(unloaded)}")
             return True
         except Exception as exc:
+            if not allow_local_cli_fallback:
+                logger(
+                    f"[LM Studio] SDK unload failed for remote target {target}: {exc}. "
+                    "local lms CLI fallback disabled."
+                )
+                return False
             logger(f"⚠️ [LM Studio] SDK unload failed, falling back to CLI: {exc}")
+    if not allow_local_cli_fallback:
+        logger(f"[LM Studio] Remote target {target}; SDK unavailable or failed; local lms CLI fallback disabled.")
+        return False
     ok, output = run_lms_cli(["unload", "--all"], timeout=180)
     if ok:
         if output:
@@ -259,6 +291,8 @@ def load_model(model_name: str, *, base_url: str, is_placeholder=None, logger=pr
     clean_model_name = str(model_name or "").strip()
     if callable(is_placeholder) and is_placeholder(clean_model_name):
         return False
+    target = sdk_host(base_url)
+    allow_local_cli_fallback = is_local_base_url(base_url)
     logger(f"🧠 [LM Studio] Reloading selected model: {clean_model_name}")
     sdk = get_sdk()
     if sdk is not None:
@@ -271,7 +305,16 @@ def load_model(model_name: str, *, base_url: str, is_placeholder=None, logger=pr
             logger(f"✓ [LM Studio] Model ready via SDK: {identifier}")
             return True
         except Exception as exc:
+            if not allow_local_cli_fallback:
+                logger(
+                    f"[LM Studio] SDK reload failed for remote target {target}: {exc}. "
+                    "local lms CLI fallback disabled."
+                )
+                return False
             logger(f"⚠️ [LM Studio] SDK reload failed, falling back to CLI: {exc}")
+    if not allow_local_cli_fallback:
+        logger(f"[LM Studio] Remote target {target}; SDK unavailable or failed; local lms CLI fallback disabled.")
+        return False
     ok, output = run_lms_cli(["load", clean_model_name, "--yes"], timeout=600)
     if ok:
         logger(f"✓ [LM Studio] Model ready: {clean_model_name}")

@@ -1,0 +1,63 @@
+{
+  "id": "visual_story_settings",
+  "order": 24,
+  "title": "24. Story Visuals",
+  "description": "Story-mode Visual Reply settings for continuity, image count, visual safety, and master prompt guidance.",
+  "steps": [
+    {
+      "title": "Open Story Visuals",
+      "body": "Story Visuals lives under Host settings and controls story-mode image behavior. It does not replace the main Visual Reply runtime provider; it shapes how story prompts are built. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "tab": "Story Visuals",
+      "target": "visual_story_group",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    },
+    {
+      "title": "Toggle Story Visual Mode",
+      "body": "The mode button switches story visual behavior on or off. Keep it off for text-only story tests, then enable it once the story and voice routing are stable.",
+      "tab": "Story Visuals",
+      "target": "visual_story_mode_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    },
+    {
+      "title": "Limit Image Count",
+      "body": "Max images limits how many story images can be generated. Use a small value for tests before running a long story session.",
+      "tab": "Story Visuals",
+      "target": "visual_story_max_images_spin",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    },
+    {
+      "title": "Set Continuity Strength",
+      "body": "Continuity helps recurring characters, places, props, and style stay consistent. Higher values hold the look tighter; lower values allow more variety.",
+      "tab": "Story Visuals",
+      "target": "visual_story_continuity_slider",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    },
+    {
+      "title": "Use Safety and Text Guards",
+      "body": "Safe mode and no speech bubbles keep story images cleaner for general use. They are prompt guards, not provider-level policy controls.",
+      "tab": "Story Visuals",
+      "target": "visual_story_safe_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    },
+    {
+      "title": "Write a Master Visual Prompt",
+      "body": "The master prompt is the stable visual style anchor for a story. Use it for recurring art direction, camera style, character consistency, and visual mood.",
+      "tab": "Story Visuals",
+      "target": "visual_story_master_prompt_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Story Visuals" }
+      ]
+    }
+  ]
+}

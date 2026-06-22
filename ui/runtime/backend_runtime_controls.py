@@ -12,16 +12,7 @@ def _update_runtime_config(key, value):
 
 _AI_PRESENCE_DISPLAY_MODES = {"off", "fullscreen", "floating", "both"}
 _AI_PRESENCE_VISUAL_STYLES = {
-    "classic_neural_orb",
-    "breathing_orb",
     "neural_network_pulse",
-    "vector_voice_orb",
-    "circular_audio_waveform",
-    "halo_rings",
-    "minimal_dot",
-    "hologram_core",
-    "signal_bloom",
-    "crystal_prism",
 }
 
 
@@ -31,8 +22,8 @@ def _normalize_ai_presence_display_mode(value):
 
 
 def _normalize_ai_presence_visual_style(value):
-    style = str(value or "breathing_orb").strip().lower()
-    return style if style in _AI_PRESENCE_VISUAL_STYLES else "breathing_orb"
+    style = str(value or "neural_network_pulse").strip().lower()
+    return style if style in _AI_PRESENCE_VISUAL_STYLES else "neural_network_pulse"
 
 
 def _audio_device_labels(*, show_all_inputs=False, include_input_mode_actions=False):

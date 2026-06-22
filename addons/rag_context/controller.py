@@ -24,7 +24,7 @@ class RagContextController:
 
     def bind_designer_tab(self, widget):
         if widget is None:
-            raise RuntimeError("RAG Context Designer UI did not provide a widget.")
+            raise RuntimeError("Document Memory Designer UI did not provide a widget.")
 
         self.widget = widget
         self.enable_checkbox = self._ui_child(widget, "rag_context_enable_checkbox", QtWidgets.QCheckBox)
@@ -60,7 +60,7 @@ class RagContextController:
             test_button,
         )
         if any(item is None for item in required):
-            raise RuntimeError("RAG Context Designer UI is missing one or more required controls.")
+            raise RuntimeError("Document Memory Designer UI is missing one or more required controls.")
 
         self._keep_scroll_viewport_inside_border(self.file_list)
         self._keep_scroll_viewport_inside_border(self.result_preview)
@@ -148,9 +148,9 @@ class RagContextController:
     def _add_files(self):
         paths, _selected_filter = QtWidgets.QFileDialog.getOpenFileNames(
             self.widget,
-            "Select RAG source files",
+            "Select Document Memory files",
             "",
-            "RAG source files (*.txt *.md *.markdown *.json *.log *.pdf);;Text files (*.txt *.md *.markdown *.json *.log);;PDF files (*.pdf);;All files (*)",
+            "Document Memory files (*.txt *.md *.markdown *.json *.log *.pdf);;Text files (*.txt *.md *.markdown *.json *.log);;PDF files (*.pdf);;All files (*)",
         )
         if not paths:
             return
@@ -187,7 +187,7 @@ class RagContextController:
         db = indexer.build_index(list(settings.get("files") or []))
         indexer.save_index(self.context.storage, db)
         self._set_status(
-            f"Built RAG DB with {len(db.get('chunks') or [])} chunk(s) from {len(db.get('files') or [])} selected file(s)."
+            f"Built Document Memory with {len(db.get('chunks') or [])} note(s) from {len(db.get('files') or [])} selected file(s)."
         )
 
     def _test_query(self):
@@ -203,14 +203,14 @@ class RagContextController:
         context_text = indexer.build_context(results, max_chars=int(settings.get("max_context_chars") or 4000))
         if self.result_preview is not None:
             self.result_preview.setPlainText(context_text or "No matching chunks.")
-        self._set_status(f"Test query returned {len(results)} matching chunk(s).")
+        self._set_status(f"Test search returned {len(results)} matching note(s).")
 
     def _refresh_status(self):
         db = indexer.load_index(self.context.storage)
         file_count = len(self.settings.get("files") or [])
         chunk_count = len(db.get("chunks") or [])
         built_at = str(db.get("built_at") or "not built")
-        self._set_status(f"Selected files: {file_count}. RAG DB chunks: {chunk_count}. Last build: {built_at}.")
+        self._set_status(f"Selected files: {file_count}. Search memory notes: {chunk_count}. Last build: {built_at}.")
 
     def _on_enabled_changed(self, checked):
         self.settings["enabled"] = bool(checked)

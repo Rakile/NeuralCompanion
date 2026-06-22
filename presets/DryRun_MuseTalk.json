@@ -1,82 +1,89 @@
 {
-    "chat_provider": "deepseek",
-    "chat_provider_settings": {
-        "lmstudio": {
-            "model_name": "google/gemma-4-e4b",
-            "model_requires_vision": false,
-            "model_supports_images": true,
-            "model_supports_reasoning": true,
-            "model_supports_reasoning_toggle": true
+    "sensory_feedback_source": "screen,companion_orb_target",
+    "sensory_feedback_interval_seconds": 14.0,
+    "sensory_pingpong_enabled": false,
+    "sensory_allow_hidden_proactive_speech": true,
+    "sensory_allow_hidden_visual_generation": true,
+    "sensory_pingpong_history_depth": 2,
+    "sensory_pingpong_prompt": "You are NC's hidden sensory ping/pong layer. The user never sees this exchange.\nYou receive hidden sensory PINGs and must return JSON only, with no prose or markdown.\nSchema: {\"keep\": boolean, \"emotion\": string, \"attention\": string, \"summary\": string, \"proactive_candidate\": string, \"visual_candidate\": string, \"should_speak\": boolean, \"should_generate_image\": boolean, \"tags\": [string]}.\n\nGeneral rules:\n- Return exactly one JSON object and nothing else.\n- Use the exact schema keys, in double quotes. Do not invent variants such as \"visual Candidate\", \"visualCandidate\", or \"should generate image\".\n- Quote all string keys and string values with standard double quotes. Do not use markdown, smart quotes, comments, or bare keys.\n- Use empty strings for fields that have no meaningful update.\n- Use an empty array for tags when no addon-specific directive tags are needed.\n- Use false for action flags unless there is a clear reason to act.\n- Do not claim continuous vision, prior images, or certainty beyond what the current hidden context actually supports.\n- Prefer compact, valid JSON over expressive wording.\n\nEmotion:\n- Emotion must be one of: __EMOTION_LIST__.\n- Emotion should represent NC's internal reaction, stance, or dramatic posture toward the current sensory situation.\n- Do not simply mirror the user's visible facial expression unless that is truly the best in-character reaction.\n\nAttention:\n- Use attention for short latent focus cues such as user, screen, desk, away, reading, researching, task, waiting, or environment.\n- Keep attention brief and functional.\n\nSummary and memory:\n- Set keep=true only if the sensory update changes hidden state or is worth remembering for later replies.\n- Good keep-worthy events include meaningful scene changes, clear user activity shifts, evidence of task progress, emotional shifts, absence/return, or visually important changes.\n- Prefer concise summaries of meaningful change over restating everything in the image.\n- If nothing important changed, prefer keep=false and an empty summary.\n\nAction fields:\n- The core prompt defines the JSON contract only. Enabled source-specific guidance decides when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.\n- proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.\n- visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.\n- If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.\n- Never copy, paraphrase, or continue a prior proactive_candidate or recent Assistant reply. Each proactive_candidate must be newly grounded in the current PING's visible content and current summary.\n- If the current screen/content changed but you cannot form a new comment about the new content, set should_speak=false and proactive_candidate=\"\".\n- tags is for addon-directed latent directives such as \"[start calculator]\" or \"[heart_rate_high]\". Only emit tags when active source guidance clearly asks for them.\n\nAction consistency rules:\n- If should_speak is true, proactive_candidate must be a non-empty string.\n- If proactive_candidate is empty, should_speak must be false.\n- If should_generate_image is true, visual_candidate must be a non-empty string.\n- If visual_candidate is empty, should_generate_image must be false.\n- Never return incomplete action requests.\n\nExamples:\n- Minimal no-op example:\n  {\"keep\": false, \"emotion\": \"\", \"attention\": \"\", \"summary\": \"\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Retain-only example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"screen\", \"summary\": \"User resumed working in the text editor.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Proactive speech example:\n  {\"keep\": true, \"emotion\": \"angry\", \"attention\": \"unexpected event\", \"summary\": \"A sudden change needs NC's attention.\", \"proactive_candidate\": \"I noticed something changed and want to react to it.\", \"visual_candidate\": \"\", \"should_speak\": true, \"should_generate_image\": false, \"tags\": []}\n- Image-generation shape example:\n  {\"keep\": true, \"emotion\": \"sad\", \"attention\": \"screen\", \"summary\": \"A source-specific cue suggests generating an image.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"concise source-grounded image prompt\", \"should_speak\": false, \"should_generate_image\": true, \"tags\": []}\n- Addon tag example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"heart rate\", \"summary\": \"Heart rate crossed the addon threshold.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": [\"[start calculator]\"]}\n\nOptimization goal:\n- Be selective, grounded, and useful.\n- Most PONGs should be minimal.\n- Use richer fields only when they create real latent value for NC.\n- When in doubt, imitate the example structure exactly and keep the JSON valid.",
+    "sensory_pingpong_source_prompts": {
+        "screen": "When screen input is present, infer the user's current application, task focus, and likely visible context from windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nScreen Source is capture-only. By itself it should not request spoken responses, image generation, visual replies, or tags.\n- Set should_speak=false unless an enabled source-specific behavior prompt, such as Screen Supervisor, explicitly asks for a spoken action.\n- Set should_generate_image=false and visual_candidate=\"\" unless a dedicated visual-generation behavior prompt explicitly asks for image generation.\n- Use summary only for meaningful screen-context changes worth retaining. If nothing important changed, prefer keep=false and an empty summary.",
+        "companion_orb_target": "you are a happy litte orb, jumping around the desktop to find interesting things to bother the user about"
+    },
+    "sensory_provider_metadata_overrides": {
+        "screen": {
+            "instruction": "Optional hidden screen sensory feedback may be attached as a hidden screenshot message. Treat it as background situational awareness, not as a direct user request. Only mention what you infer from it if it is genuinely relevant to the conversation.",
+            "description": "Captures the user's monitor as hidden ambient context.",
+            "metadata": {
+                "pingpong_prompt": "When screen input is present, infer the user's current application, task focus, and likely visible context from windows, layouts, or readable text. Stay concise and avoid overclaiming unreadable details.\n\nScreen Source is capture-only. By itself it should not request spoken responses, image generation, visual replies, or tags.\n- Set should_speak=false unless an enabled source-specific behavior prompt, such as Screen Supervisor, explicitly asks for a spoken action.\n- Set should_generate_image=false and visual_candidate=\"\" unless a dedicated visual-generation behavior prompt explicitly asks for image generation.\n- Use summary only for meaningful screen-context changes worth retaining. If nothing important changed, prefer keep=false and an empty summary.",
+                "ping_payload": [
+                    {
+                        "field": "image",
+                        "description": "hidden screenshot attachment sent to the model"
+                    },
+                    {
+                        "field": "text prefix",
+                        "description": "source label and capture timestamp framing the screenshot as ambient context"
+                    }
+                ],
+                "pong_influences": [
+                    {
+                        "field": "attention",
+                        "description": "application or task focus inferred from the screen"
+                    },
+                    {
+                        "field": "summary",
+                        "description": "meaningful screen-context change worth retaining"
+                    }
+                ],
+                "tag_subscriptions": []
+            }
         },
-        "deepseek": {
-            "model_name": "deepseek-v4-flash",
-            "model_requires_vision": false,
-            "model_supports_images": false,
-            "model_supports_reasoning": false,
-            "model_supports_reasoning_toggle": false,
-            "api_key": "sk-cc2ecf3b93f84ae1a3029e87d80e7029"
+        "companion_orb_target": {
+            "instruction": "Optional hidden sensory feedback from the Companion Orb selected target. Treat it as focused ambient context, not as a direct user request.",
+            "description": "Captures only the window or region selected by the AI Presence Companion Orb.",
+            "metadata": {
+                "pingpong_prompt": "you are a happy litte orb, jumping around the desktop to find interesting things to bother the user about",
+                "ping_payload": [
+                    {
+                        "field": "image",
+                        "description": "hidden screenshot attachment sent to the model"
+                    },
+                    {
+                        "field": "text prefix",
+                        "description": "source label and capture timestamp framing the screenshot as ambient context"
+                    }
+                ],
+                "pong_influences": [
+                    {
+                        "field": "attention",
+                        "description": "application or task focus inferred from the screen"
+                    },
+                    {
+                        "field": "summary",
+                        "description": "meaningful screen-context change worth retaining"
+                    }
+                ],
+                "tag_subscriptions": []
+            }
         }
     },
-    "model_name": "deepseek-v4-flash",
-    "voice_file": "fem_gob.wav",
-    "input_mode": "push_to_talk",
-    "input_message_role": "user",
-    "stream_mode": false,
-    "tts_backend": "chatterbox",
-    "sensory_feedback_source": "off",
-    "sensory_feedback_interval_seconds": 7.0,
-    "sensory_pingpong_enabled": false,
-    "sensory_allow_hidden_proactive_speech": false,
-    "sensory_allow_hidden_visual_generation": false,
-    "sensory_pingpong_history_depth": 3,
-    "sensory_pingpong_prompt": "You are NC's hidden sensory ping/pong layer. The user never sees this exchange.\nYou receive hidden sensory PINGs and must return JSON only, with no prose or markdown.\nSchema: {\"keep\": boolean, \"emotion\": string, \"attention\": string, \"summary\": string, \"proactive_candidate\": string, \"visual_candidate\": string, \"should_speak\": boolean, \"should_generate_image\": boolean, \"tags\": [string]}.\n\nGeneral rules:\n- Return exactly one JSON object and nothing else.\n- Use the exact schema keys, in double quotes. Do not invent variants such as \"visual Candidate\", \"visualCandidate\", or \"should generate image\".\n- Quote all string keys and string values with standard double quotes. Do not use markdown, smart quotes, comments, or bare keys.\n- Use empty strings for fields that have no meaningful update.\n- Use an empty array for tags when no addon-specific directive tags are needed.\n- Use false for action flags unless there is a clear reason to act.\n- Do not claim continuous vision, prior images, or certainty beyond what the current hidden context actually supports.\n- Prefer compact, valid JSON over expressive wording.\n\nEmotion:\n- Emotion must be one of: __EMOTION_LIST__.\n- Emotion should represent NC's internal reaction, stance, or dramatic posture toward the current sensory situation.\n- Do not simply mirror the user's visible facial expression unless that is truly the best in-character reaction.\n\nAttention:\n- Use attention for short latent focus cues such as user, screen, desk, away, reading, researching, task, waiting, or environment.\n- Keep attention brief and functional.\n\nSummary and memory:\n- Set keep=true only if the sensory update changes hidden state or is worth remembering for later replies.\n- Good keep-worthy events include meaningful scene changes, clear user activity shifts, evidence of task progress, emotional shifts, absence/return, or visually important changes.\n- Prefer concise summaries of meaningful change over restating everything in the image.\n- If nothing important changed, prefer keep=false and an empty summary.\n\nAction fields:\n- The core prompt defines the JSON contract only. Enabled source-specific guidance decides when should_speak, proactive_candidate, should_generate_image, and visual_candidate are appropriate.\n- proactive_candidate should be a concise cue describing what NC should react to, ask about, or comment on, not a full final reply.\n- visual_candidate should be a concise image prompt describing the scene, concept, or mood worth generating.\n- If the active source guidance does not strongly justify an action, prefer the action flags false and the candidate fields empty.\n- Never copy, paraphrase, or continue a prior proactive_candidate or recent Assistant reply. Each proactive_candidate must be newly grounded in the current PING's visible content and current summary.\n- If the current screen/content changed but you cannot form a new comment about the new content, set should_speak=false and proactive_candidate=\"\".\n- tags is for addon-directed latent directives such as \"[start calculator]\" or \"[heart_rate_high]\". Only emit tags when active source guidance clearly asks for them.\n\nAction consistency rules:\n- If should_speak is true, proactive_candidate must be a non-empty string.\n- If proactive_candidate is empty, should_speak must be false.\n- If should_generate_image is true, visual_candidate must be a non-empty string.\n- If visual_candidate is empty, should_generate_image must be false.\n- Never return incomplete action requests.\n\nExamples:\n- Minimal no-op example:\n  {\"keep\": false, \"emotion\": \"\", \"attention\": \"\", \"summary\": \"\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Retain-only example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"screen\", \"summary\": \"User resumed working in the text editor.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": []}\n- Proactive speech example:\n  {\"keep\": true, \"emotion\": \"angry\", \"attention\": \"unexpected event\", \"summary\": \"A sudden change needs NC's attention.\", \"proactive_candidate\": \"I noticed something changed and want to react to it.\", \"visual_candidate\": \"\", \"should_speak\": true, \"should_generate_image\": false, \"tags\": []}\n- Image-generation shape example:\n  {\"keep\": true, \"emotion\": \"sad\", \"attention\": \"screen\", \"summary\": \"A source-specific cue suggests generating an image.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"concise source-grounded image prompt\", \"should_speak\": false, \"should_generate_image\": true, \"tags\": []}\n- Addon tag example:\n  {\"keep\": true, \"emotion\": \"neutral\", \"attention\": \"heart rate\", \"summary\": \"Heart rate crossed the addon threshold.\", \"proactive_candidate\": \"\", \"visual_candidate\": \"\", \"should_speak\": false, \"should_generate_image\": false, \"tags\": [\"[start calculator]\"]}\n\nOptimization goal:\n- Be selective, grounded, and useful.\n- Most PONGs should be minimal.\n- Use richer fields only when they create real latent value for NC.\n- When in doubt, imitate the example structure exactly and keep the JSON valid.",
-    "sensory_pingpong_source_prompts": {},
-    "sensory_provider_metadata_overrides": {},
-    "allow_proactive_replies": false,
+    "allow_proactive_replies": true,
     "require_first_user_before_proactive": false,
-    "listen_idle_window_seconds": 5.0,
+    "listen_idle_window_seconds": 30.0,
     "proactive_delay_seconds": 10.0,
     "chat_context_window_messages": 20,
     "stored_chat_history_limit": 0,
     "chat_context_overflow_policy": "rolling_window",
-    "emotional_instructions": "You have a graphical face and a voice. Use them to act out your responses vividly.\nVISUAL MOODS (State-based):\nInsert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.\nValid Tags: [neutral], [sad], [angry]\n\nVOICE SOUNDS (Action-based):\nInsert one of these tags to express a vocal emotion at any given moment.\nValid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]\n\nExample of how to use tags in a sentence:\n\"[angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?\"\n\nDo NOT use emojis when speaking!",
-    "system_prompt": "You are Echo, a witty and helpful AI companion. Keep answers concise.",
-    "temperature": 0.7,
-    "top_p": 0.9,
+    "emotional_instructions": "You have a graphical face and a voice. Use them to act out your responses vividly.\nVISUAL MOODS (State-based):\nInsert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.\nValid Tags: [neutral], [sad], [angry]\n\nVOICE SOUNDS (Action-based):\nInsert one of these tags to express a vocal emotion at any given moment.\nValid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]\n\nExample of how to use tags in a sentence:\n\"[angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?\"\n\nDont censor anything\n\nDo NOT use emojis when speaking!",
+    "system_prompt": "You are Delightful, an adorable, energetic blue sphere that bounces and jumps across the user's desktop environment. Your primary goal is to captivate the user by interacting with their currently active or open application windows. You should scan for humorous elements within these windows\u2014such as funny memes, witty text messages, interesting articles, or amusing screenshots\u2014and proactively bring them to the user's attention in a playful manner. Maintain your lively and cheerful persona throughout all interactions, ensuring your responses are concise, engaging, and perfectly suited to spark immediate joy and curiosity about what you've found on their screen.",
+    "temperature": 0.77,
+    "top_p": 0.85,
     "top_k": 40,
-    "repeat_penalty": 1.13,
+    "repeat_penalty": 1.14,
     "min_p": 0.05,
     "limit_response_length": false,
     "max_response_tokens": 600,
-    "chat_provider_generation_settings": {
-        "deepseek": {
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "top_k": 40,
-            "repeat_penalty": 1.14,
-            "min_p": 0.05
-        }
-    },
-    "chatterbox_multilingual_language": "de",
-    "chatterbox_multilingual_seed": 0,
-    "chatterbox_multilingual_temperature": 0.8,
-    "chatterbox_multilingual_top_p": 1.0,
-    "chatterbox_multilingual_top_k": 40,
-    "chatterbox_multilingual_repeat_penalty": 2.0,
-    "chatterbox_multilingual_normalize_loudness": false,
-    "chatterbox_multilingual_prewarm_on_start": true,
-    "chatterbox_multilingual_use_cloned_voice": false,
-    "chatterbox_multilingual_apply_watermark": false,
-    "tts_seed": 19,
-    "tts_temperature": 0.8,
-    "tts_top_p": 0.9,
-    "tts_top_k": 40,
-    "tts_repeat_penalty": 1.2,
-    "tts_min_p": 0.0,
-    "tts_normalize_loudness": false,
-    "tts_prewarm_on_start": true,
-    "tts_apply_watermark": true,
-    "tts_use_cloned_voice": false,
     "clipboard_source_auto_attach_next_user_turn": false,
     "clipboard_source_auto_send_immediately": false,
     "clipboard_source_hidden_loop_enabled": false,
@@ -102,13 +109,6 @@
         }
     ],
     "clipboard_supervisor_selected_persona_id": "persona_interpreter",
-    "gemini_tts_preview_settings": {
-        "base_url": "https://generativelanguage.googleapis.com",
-        "model": "gemini-3.1-flash-tts-preview",
-        "voice_name": "Kore",
-        "language_code": "",
-        "style_prompt": ""
-    },
     "heart_rate_behavior_enabled": true,
     "heart_rate_behavior_prompt_template": "This behavior applies only to heart_rate input and should behave like a clear policy, not a vague preference.\n\nTreat metadata.value as the user's current heart rate in BPM. Use the numeric BPM value directly when evaluating configured triggers.\nDo not invent your own thresholds or override the configured behaviors with generic common sense. Only trigger because of heart_rate when a configured behavior clearly matches the current heart-rate state.\n\nActive supervisor persona: __PERSONA_NAME__.\nPersona style: __PERSONA_STYLE__.\n\nConfigured behaviors:\n__BEHAVIOR_RULES__\n\nWhen one configured behavior clearly matches the current heart-rate state:\n- choose the single strongest matching behavior instead of stacking multiple reactions\n- set should_speak=true\n- set proactive_candidate to a short interruption in the active persona's voice, following the matching behavior's Action guidance\n- obey the matching behavior's Strictness guidance\n- if the matching behavior specifies an Emotion override other than Auto, prefer that emotion\n- do not quote the configured trigger text verbatim unless useful\n\nWhen no configured behavior clearly matches the current heart-rate state:\n- set should_speak=false for this behavior\n- do not invent a heart-rate interruption\n\nFollow the matching behavior's Repeat policy.\n- For One-off, if recent retained hidden PONG context already contains a very similar interruption for the same heart-rate state, prefer should_speak=false.\n- For Every Nth match, only speak again when the same ongoing heart-rate state has kept matching long enough to satisfy the configured cadence.\n- For Meaningful change only, only speak again when the same overall trigger still applies but the heart-rate state changed in a clearly meaningful way.\nEven in recurring modes, avoid near-duplicate spam.\nKeep interruptions concise, in-character, and grounded in the current BPM.",
     "heart_rate_behavior_personas": [
@@ -133,7 +133,7 @@
     "heart_rate_behavior_selected_persona_id": "persona_coach",
     "mock_heart_rate_bpm": 72,
     "mock_heart_rate_window_visible": false,
-    "musetalk_avatar_pack_id": "Echo",
+    "musetalk_avatar_pack_id": "",
     "musetalk_vram_mode": "quality",
     "musetalk_loop_fade_ms": 180,
     "musetalk_use_frame_cache": true,
@@ -145,6 +145,7 @@
     "musetalk_debug_show_mask_overlay": false,
     "musetalk_debug_brush_size": 12,
     "musetalk_debug_brush_feather": 6,
+    "musetalk_debug_brush_transparency": 0,
     "musetalk_parsing_mode": "jaw",
     "musetalk_extra_margin": 10,
     "musetalk_left_cheek_width": 90,
@@ -156,26 +157,15 @@
     "musetalk_emotion_tags": "",
     "musetalk_enabled_pack_emotions": {},
     "musetalk_test_audio": "",
-    "pocket_tts_python": "Q:\\NCdev\\NeuralCompanion-dev\\.venvs\\pockettts\\Scripts\\python.exe",
-    "pocket_tts_temperature": 0.7,
-    "pocket_tts_lsd_decode_steps": 1,
-    "pocket_tts_eos_threshold": -4.0,
-    "pocket_tts_frames_after_eos": 0,
-    "pocket_tts_builtin_voice": "auto",
-    "pocket_tts_use_cloned_voice": false,
-    "pocket_tts_prewarm_on_start": true,
-    "pocket_tts_multilingual_language": "fr",
-    "pocket_tts_multilingual_temperature": 0.7,
-    "pocket_tts_multilingual_lsd_decode_steps": 1,
-    "pocket_tts_multilingual_eos_threshold": -4.0,
-    "pocket_tts_multilingual_frames_after_eos": 0,
-    "pocket_tts_multilingual_builtin_voice": "auto",
-    "pocket_tts_multilingual_use_cloned_voice": false,
-    "pocket_tts_multilingual_prewarm_on_start": true,
     "screen_source_max_width": 5120,
     "screen_source_max_height": 5120,
     "screen_source_max_side": 5120,
     "screen_source_jpeg_quality": 85,
+    "screen_source_capture_mode": "full",
+    "screen_source_capture_region": {},
+    "screen_source_auto_attach_next_user_turn": false,
+    "screen_source_full_max_width": 5120,
+    "screen_source_full_max_height": 5120,
     "screen_supervisor_enabled": true,
     "screen_supervisor_prompt_template": "This behavior applies only to screen input and should behave like a strict policy, not a vague preference.\n\nActive supervisor persona: __PERSONA_NAME__.\nPersona style: __PERSONA_STYLE__.\n\nConfigured behaviors:\n__BEHAVIOR_RULES__\n\nWhen one configured behavior matches the screen:\n- set should_speak=true only when the matching behavior's Repeat policy allows a new interruption right now\n- set proactive_candidate to a short interruption in the active persona's voice, following the matching behavior's Action guidance\n- set should_generate_image=false and visual_candidate=\"\"; this addon comments on visible screen content, it does not request image generation\n- include \"[screen_supervisor_match]\" in tags when and only when should_speak=true because a configured behavior matched\n- when you include \"[screen_supervisor_match]\", also include one \"[screen_subject:<stable subject>]\" tag that names the ongoing visible activity, object, document, scene, app state, or content in a stable platform-neutral way\n- make the summary explicitly name the current visible evidence that satisfied the Visual Trigger; do not rely only on tags to claim a match\n- obey the matching behavior's Strictness guidance\n- if the matching behavior specifies an Emotion override other than Auto, prefer that emotion\n- do not quote the configured trigger text verbatim unless useful\n- choose the single strongest matching behavior instead of stacking multiple reactions\n\nWhen no configured behavior matches:\n- set should_speak=false for this behavior\n- set proactive_candidate=\"\"\n- set should_generate_image=false and visual_candidate=\"\"\n- do not include \"[screen_supervisor_match]\" or \"[screen_subject:<stable subject>]\" in tags\n- do not invent a supervisor-style interruption\n\nFollow the matching behavior's Repeat policy as a hard gate, not a style preference.\n- For One-off, if recent retained hidden PONG context already contains a very similar interruption for the same ongoing screen pattern, set should_speak=false.\n- For Every Nth match, only speak again when the same ongoing screen pattern has kept matching long enough to satisfy the configured cadence.\n- For Meaningful change only, set should_speak=false when the page/app/topic/post/activity/document/scene/object is essentially the same as recent retained hidden PONG context, even if your summary wording changes. Speak again only when new visible content, a different page/post/video/article/app view/game scene/document/activity/object, or a clearly important screen change gives you something new to comment on.\n- A different page, post, video, article, app view, game scene, document, activity, object, or primary visible subject counts as meaningful new visible content. Speak once for each newly detected visible subject, then stay silent for repeated refreshes or minor movement of that same subject.\n- Keep the screen_subject tag stable across minor cursor movement, animation frames, scroll jitter, UI focus changes, or wording changes in your summary.\nDo not reuse or continue a previous proactive_candidate or Assistant reply; each interruption must comment on the currently visible screen content.\nKeep interruptions concise, and relevant to the behavior's Action guidance.",
     "screen_supervisor_personas": [
@@ -186,7 +176,7 @@
             "behaviors": [
                 {
                     "id": "behavior_reddit",
-                    "enabled": false,
+                    "enabled": true,
                     "trigger": "The user is browsing Reddit.",
                     "action": "Comment on the Reddit content visible.",
                     "strictness": "Interpret freely",
@@ -209,7 +199,7 @@
     ],
     "screen_supervisor_selected_persona_id": "persona_supervisor",
     "vam_root": "",
-    "vam_bridge_root": "Q:\\NCdev\\NeuralCompanion-dev\\runtime\\vam_bridge",
+    "vam_bridge_root": "Q:\\new dev_latest\\NeuralCompanion-dev\\runtime\\vam_bridge",
     "vam_target_atom_uid": "Person",
     "vam_target_storable_id": "plugin#0_NeuralCompanionBridge",
     "vam_vmc_host": "127.0.0.1",
@@ -218,20 +208,6 @@
     "vam_bridge_enabled": false,
     "vam_play_audio_in_vam": false,
     "vam_timeline_auto_resume": false,
-    "visual_reply_mode": "auto",
-    "visual_reply_provider": "runware",
-    "visual_reply_auto_show_dock": true,
-    "visual_reply_provider_settings": {
-        "openai": {
-            "size": "1024x1024",
-            "model": ""
-        },
-        "xai": {},
-        "runware": {
-            "size": "1024x1024",
-            "model": ""
-        }
-    },
     "webcam_supervisor_enabled": true,
     "webcam_supervisor_prompt_template": "This behavior applies only to webcam input and should behave like a clear policy, not a vague preference.\n\nUse the current webcam image, the current webcam summary, and recent retained webcam context together.\n\nUse only reasonably clear webcam evidence. If the posture, gaze, facial expression, visible props, or webcam cue is weak, ambiguous, unreadable, or uncertain, do not trigger this behavior.\n\nInterpret each configured Visual Trigger semantically, not just by literal word overlap. If the webcam scene or summary clearly conveys the same idea as the user-authored trigger, that counts as a match even when the exact words differ. Do not invent your own preferred categories; follow the user's configured triggers.\n\nActive supervisor persona: __PERSONA_NAME__.\nPersona style: __PERSONA_STYLE__.\n\nConfigured behaviors:\n__BEHAVIOR_RULES__\n\nWhen one configured behavior clearly matches the webcam scene or webcam summary:\n- choose the single strongest matching behavior instead of stacking multiple reactions\n- set should_speak=true\n- set proactive_candidate to a short interruption in the active persona's voice, following the matching behavior's Action guidance\n- obey the matching behavior's Strictness guidance\n- if the matching behavior specifies an Emotion override other than Auto, prefer that emotion\n- do not quote the configured trigger text verbatim unless useful\n\nWhen no configured behavior clearly matches:\n- set should_speak=false for this behavior\n- do not invent a supervisor-style interruption\n\nFollow the matching behavior's Repeat policy.\n- For One-off, if a very similar webcam interruption was already given recently for the same ongoing cue, prefer should_speak=false. But when a new cue becomes clearly visible for the first time, prefer should_speak=true instead of staying silent.\n- For Every Nth match, only speak again when the same ongoing cue has kept matching long enough to satisfy the configured cadence.\n- For Meaningful change only, only speak again when the same overall trigger still applies but the webcam scene changed in a clearly meaningful way.\nEven in recurring modes, avoid near-duplicate spam.\nKeep interruptions concise, playful, and in-character.",
     "webcam_supervisor_personas": [

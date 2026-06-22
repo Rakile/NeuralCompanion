@@ -1,0 +1,63 @@
+{
+  "id": "rag_context",
+  "order": 21,
+  "title": "21. Document Memory",
+  "description": "Build and test local document memory for chat using selected text or PDF files.",
+  "steps": [
+    {
+      "title": "Open Document Memory",
+      "body": "Document Memory lives under Host settings. It can add selected file snippets to chat, but only after you choose files and build the local search memory. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "tab": "Document Memory",
+      "target": "rag_context_group",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    },
+    {
+      "title": "Enable Document Memory",
+      "body": "Enable Document Memory only when you want selected documents to influence chat. Leave it off for ordinary conversation so unrelated files do not steer the assistant.",
+      "tab": "Document Memory",
+      "target": "rag_context_enable_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    },
+    {
+      "title": "Choose Source Files",
+      "body": "Add Files selects the documents that may be searched. Keep the set focused; a small relevant memory is easier to trust than a huge mixed one.",
+      "tab": "Document Memory",
+      "target": "rag_context_add_files_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    },
+    {
+      "title": "Tune Search Behavior",
+      "body": "How many notes to use, match strength, and max characters control how much document memory enters the prompt. Smaller limits reduce noise and token use.",
+      "tab": "Document Memory",
+      "target": "rag_context_top_k_spin",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    },
+    {
+      "title": "Build and Reload Search Memory",
+      "body": "Build Search Memory scans the selected files. Reload is useful after restarting the app or changing files on disk.",
+      "tab": "Document Memory",
+      "target": "rag_context_build_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    },
+    {
+      "title": "Test Before Using in Chat",
+      "body": "Use the test query and result preview to check what snippets would be injected. If the preview is irrelevant, tighten files, score, or query before starting a real chat.",
+      "tab": "Document Memory",
+      "target": "rag_context_test_query_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Document Memory" }
+      ]
+    }
+  ]
+}

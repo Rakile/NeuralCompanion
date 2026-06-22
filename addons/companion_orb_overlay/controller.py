@@ -5,7 +5,8 @@ import uuid
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from ui.widgets.basic import NoWheelTabWidget
+from core import companion_orb_reply_styles
+from ui.widgets.basic import NoWheelComboBox, NoWheelTabWidget
 
 from addons.ai_presence_mode.controller import (
     AIPresenceModeController,
@@ -25,6 +26,20 @@ from addons.companion_orb_overlay.companion_orb.sensory_source import (
     COMPANION_ORB_TARGET_PINGPONG_PROMPT,
     PROVIDER_ID as COMPANION_ORB_PROVIDER_ID,
 )
+
+COMPANION_ORB_AWARE_MOTION_SESSION_KEYS = [
+    "companion_orb_aware_motion_enabled",
+    "companion_orb_awareness",
+    "companion_orb_focus_pull",
+    "companion_orb_idle_pause",
+]
+COMPANION_ORB_AWARE_MOTION_DEFAULTS = {
+    "companion_orb_aware_motion_enabled": True,
+    "companion_orb_awareness": 0.55,
+    "companion_orb_focus_pull": 0.65,
+    "companion_orb_idle_pause": 0.45,
+}
+DEFAULT_SETTINGS.update({key: value for key, value in COMPANION_ORB_AWARE_MOTION_DEFAULTS.items() if key not in DEFAULT_SETTINGS})
 
 
 ORB_STATE_ANIMATIONS = [
@@ -90,12 +105,19 @@ COMPANION_ORB_TOOLTIPS = {
     "companion_orb_enabled_checkbox": "Turns the desktop Companion Orb overlay on or off.",
     "companion_orb_display_mode": "Controls when the orb is visible: off, docked, during interaction, or always visible.",
     "companion_orb_display_mode_combo": "Controls when the orb is visible: off, docked, during interaction, or always visible.",
-    "companion_orb_visual_style": "Companion Orb now uses the Neural Spark Orb renderer so color and state overrides remain predictable.",
-    "companion_orb_visual_style_combo": "Companion Orb now uses the Neural Spark Orb renderer so color and state overrides remain predictable.",
+    "companion_orb_visual_style": "Chooses the Companion Orb renderer: glass, plasma ring, wisp, firetrail, or neural spark.",
+    "companion_orb_visual_style_combo": "Chooses the Companion Orb renderer: glass, plasma ring, wisp, firetrail, or neural spark.",
     "companion_orb_position": "Chooses the default corner or custom position used when the orb is reset.",
     "companion_orb_position_combo": "Chooses the default corner or custom position used when the orb is reset.",
     "companion_orb_response_style": "Sets the tone used for Companion Orb proactive comments and right-click menu response style.",
     "companion_orb_response_style_combo": "Sets the tone used for Companion Orb proactive comments and right-click menu response style.",
+    "companion_orb_reply_style_prompt_group": "Edit the style prompt used when Companion Orb turns visual focus into a spoken reply.",
+    "companion_orb_reply_style_editor_combo": "Chooses which Companion Orb reply style prompt is shown in the editor.",
+    "companion_orb_reply_style_prompt_edit": "Custom prompt for the selected Companion Orb reply style. Save it to override the recommended default.",
+    "btn_companion_orb_reply_style_save": "Save the editor text as the selected Companion Orb reply style override.",
+    "btn_companion_orb_reply_style_load": "Reload the saved or recommended text for the selected reply style.",
+    "btn_companion_orb_reply_style_default": "Remove the custom override for the selected reply style and reload the recommended prompt.",
+    "btn_companion_orb_reply_style_reset_all": "Remove all custom Companion Orb reply style prompt overrides.",
     "companion_orb_show_button": "Shows the Companion Orb overlay and enables its runtime controller.",
     "companion_orb_edit_mode_button": "Temporarily disables click-through so the orb can be moved directly.",
     "companion_orb_placement_mode_button": "Lets the orb choose a focus target from the window or region under it.",
@@ -111,6 +133,8 @@ COMPANION_ORB_TOOLTIPS = {
     "companion_orb_external_runtime_enabled_checkbox": "Runs the animated orb window in a separate lightweight Python process so NC UI stalls affect it less.",
     "companion_orb_movement_enabled": "Allows the orb to drift, return home, and move toward sensory focus targets.",
     "companion_orb_movement_enabled_checkbox": "Allows the orb to drift, return home, and move toward sensory focus targets.",
+    "companion_orb_aware_motion_enabled": "Adds subtle pauses, steadier focus, and less mechanical idle paths without increasing speed.",
+    "companion_orb_aware_motion_enabled_checkbox": "Adds subtle pauses, steadier focus, and less mechanical idle paths without increasing speed.",
     "companion_orb_avoid_center": "Biases idle movement away from the middle of the screen.",
     "companion_orb_avoid_center_checkbox": "Biases idle movement away from the middle of the screen.",
     "companion_orb_avoid_mouse": "Makes idle movement avoid the pointer instead of hovering near it.",
@@ -175,12 +199,18 @@ COMPANION_ORB_TOOLTIPS = {
     "companion_orb_movement_speed_slider": "Controls how quickly the orb drifts, follows targets, and returns home.",
     "companion_orb_movement_range": "Controls how far the orb may wander around its resting point.",
     "companion_orb_movement_range_slider": "Controls how far the orb may wander around its resting point.",
+    "companion_orb_awareness": "How strongly aware motion makes the orb settle, arc, and watch focus targets.",
+    "companion_orb_awareness_slider": "How strongly aware motion makes the orb settle, arc, and watch focus targets.",
+    "companion_orb_focus_pull": "How strongly the orb perches near visual focus targets instead of drifting past them.",
+    "companion_orb_focus_pull_slider": "How strongly the orb perches near visual focus targets instead of drifting past them.",
+    "companion_orb_idle_pause": "How often idle movement pauses briefly as if observing the desktop.",
+    "companion_orb_idle_pause_slider": "How often idle movement pauses briefly as if observing the desktop.",
     "companion_orb_frame_rate": "Canvas and movement update rate. The slider snaps to 30, 60, 90, or 120 FPS.",
     "companion_orb_frame_rate_slider": "Canvas and movement update rate. The slider snaps to 30, 60, 90, or 120 FPS.",
     "companion_orb_return_home_delay": "Seconds of inactivity before the orb starts easing back toward home.",
     "companion_orb_return_delay_slider": "Seconds of inactivity before the orb starts easing back toward home.",
-    "companion_orb_harassment_timer_seconds": "Seconds of no interaction before playful pointer-seeking can start when Harassment is enabled.",
-    "companion_orb_harassment_timer_slider": "Seconds of no interaction before playful pointer-seeking can start when Harassment is enabled.",
+    "companion_orb_harassment_timer_seconds": "Seconds of no interaction before playful nudges can start.",
+    "companion_orb_harassment_timer_slider": "Seconds of no interaction before playful nudges can start.",
     "companion_orb_mouse_near_fade_distance": "Pointer distance at which mouse-near fading begins.",
     "companion_orb_mouse_fade_distance_slider": "Pointer distance at which mouse-near fading begins.",
     "companion_orb_mouse_near_opacity": "Opacity used while the pointer is near the orb.",
@@ -203,18 +233,18 @@ COMPANION_ORB_TOOLTIPS = {
     "companion_orb_speaking_reactivity_slider": "Controls how strongly the orb reacts to voice audio level.",
     "companion_orb_audio_refresh_hz": "How often the orb samples voice level for animation sync.",
     "companion_orb_audio_refresh_slider": "How often the orb samples voice level for animation sync.",
-    "companion_orb_sensory_tabs": "Settings for how Companion Orb Target hidden sensory context is captured and used.",
-    "companion_orb_source_guidance_preview": "The hidden sensory prompt fragment sent with Companion Orb Target.",
+    "companion_orb_sensory_tabs": "Settings for how Companion Orb background awareness is captured and used.",
+    "companion_orb_source_guidance_preview": "The background-awareness guidance sent with Companion Orb Target.",
     "companion_orb_source_provider_preview": "Provider metadata declared for Companion Orb Target.",
-    "companion_orb_source_ping_payload_preview": "Fields Companion Orb Target may send into hidden sensory PING.",
-    "companion_orb_source_pong_influence_preview": "Fields expected back from hidden sensory PONG that can guide orb speech and movement.",
+    "companion_orb_source_ping_payload_preview": "What Companion Orb Target may notice during a background check-in.",
+    "companion_orb_source_pong_influence_preview": "How returned observations can guide orb speech and movement.",
     "companion_orb_source_tag_subscriptions_preview": "Event tags this source listens to.",
     "companion_orb_sensory_target_enabled": "Adds Companion Orb Target to hidden sensory feedback so the orb can provide target or full-screen context.",
     "companion_orb_sensory_target_enabled_checkbox": "Adds Companion Orb Target to hidden sensory feedback so the orb can provide target or full-screen context.",
     "companion_orb_full_screen_context_enabled": "Captures a desktop-wide context map so the orb can talk about and move toward content across the screen.",
     "companion_orb_full_screen_context_enabled_checkbox": "Captures a desktop-wide context map so the orb can talk about and move toward content across the screen.",
-    "sensory_pingpong_enabled": "Runs the hidden PING/PONG loop so selected sensory sources can be analyzed while NC is idle.",
-    "companion_orb_pingpong_enabled_checkbox": "Runs the hidden PING/PONG loop so Companion Orb Target can be analyzed while NC is idle.",
+    "sensory_pingpong_enabled": "Runs background check-ins so selected sensory sources can be reviewed while NC is idle.",
+    "companion_orb_pingpong_enabled_checkbox": "Runs background check-ins so Companion Orb Target can be reviewed while NC is idle.",
     "companion_orb_target_mode": "Chooses whether the orb targets the window under it or a region around it.",
     "companion_orb_target_mode_combo": "Chooses whether the orb targets the window under it or a region around it.",
     "companion_orb_show_target_label": "Shows a small focus label under the orb when a target is active.",
@@ -239,9 +269,9 @@ COMPANION_ORB_TOOLTIPS = {
     "companion_orb_debug_enabled": "Writes movement, target, snapshot, OCR, and hidden sensory debug events to the runtime log.",
     "companion_orb_debug_enabled_checkbox": "Writes movement, target, snapshot, OCR, and hidden sensory debug events to the runtime log.",
     "companion_orb_debug_log_path_preview": "Path used for the Companion Orb debug log.",
-    "companion_orb_supervisor_enabled": "Adds behavior rules to Companion Orb Target hidden sensory prompts.",
-    "companion_orb_supervisor_enabled_checkbox": "Adds behavior rules to Companion Orb Target hidden sensory prompts.",
-    "companion_orb_supervisor_behavior_designer": "Behavior designer for Companion Orb Target, separate from the HOST Screen Supervisor.",
+    "companion_orb_supervisor_enabled": "Adds orb personality rules to Companion Orb Target background awareness.",
+    "companion_orb_supervisor_enabled_checkbox": "Adds orb personality rules to Companion Orb Target background awareness.",
+    "companion_orb_supervisor_behavior_designer": "Orb personality rules for Companion Orb Target, separate from the HOST Screen Supervisor.",
     "companion_orb_supervisor_persona_combo": "Choose which Companion Orb supervisor persona owns the behavior rules being edited.",
     "companion_orb_supervisor_persona_style_edit": "Tone/style used by the active Companion Orb supervisor persona.",
     "btn_companion_orb_supervisor_add_persona": "Add a new Companion Orb supervisor persona.",
@@ -249,7 +279,7 @@ COMPANION_ORB_TOOLTIPS = {
     "btn_companion_orb_supervisor_delete_persona": "Delete the active Companion Orb supervisor persona.",
     "btn_companion_orb_supervisor_add_behavior": "Add a new visual behavior rule for Companion Orb Target.",
     "companion_orb_supervisor_behaviors_widget": "List of Companion Orb Target visual trigger and action rules.",
-    "companion_orb_supervisor_template_edit": "Prompt template that wraps Companion Orb behavior rules before hidden PING/PONG.",
+    "companion_orb_supervisor_template_edit": "Prompt template that wraps Companion Orb behavior rules before background check-ins.",
     "btn_companion_orb_supervisor_reset_template": "Restore the recommended Companion Orb supervisor prompt template.",
     "companion_orb_supervisor_preview_edit": "Rendered prompt currently sent as behavior guidance for Companion Orb Target.",
     "companion_orb_supervisor_flow_preview": "Overview of the hidden sensory response flow.",
@@ -272,13 +302,17 @@ COMPANION_ORB_TOOLTIPS = {
 
 
 class CompanionOrbOverlaySettingsController(AIPresenceModeController):
-    SESSION_KEYS = COMPANION_ORB_SESSION_KEYS
+    SESSION_KEYS = list(dict.fromkeys([*COMPANION_ORB_SESSION_KEYS, *COMPANION_ORB_AWARE_MOTION_SESSION_KEYS]))
     APPLY_STATUS_MESSAGE = "Companion Orb Overlay settings applied."
 
     def __init__(self, context):
         super().__init__(context)
         self._orb_color_swatches: dict[str, QtWidgets.QLabel] = {}
         self._companion_orb_supervisor_expanded_behavior_ids: set[str] = set()
+        self._reply_style_prompt_combo: NoWheelComboBox | None = None
+        self._reply_style_prompt_edit: QtWidgets.QPlainTextEdit | None = None
+        self._reply_style_prompt_status: QtWidgets.QLabel | None = None
+        self._syncing_reply_style_prompt = False
         self._register_companion_orb_supervisor_contributor()
 
     def _default_companion_orb_supervisor_personas(self):
@@ -547,6 +581,90 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
     def _companion_orb_source_included(self):
         return COMPANION_ORB_PROVIDER_ID in set(self._parse_sensory_sources())
 
+    def _reply_style_prompt_overrides(self):
+        return companion_orb_reply_styles.normalize_reply_style_prompts(
+            _runtime_config().get("companion_orb_response_style_prompts", {})
+        )
+
+    def _selected_reply_style_prompt_style(self):
+        combo = self._reply_style_prompt_combo
+        if combo is not None:
+            return companion_orb_reply_styles.normalize_reply_style(combo.currentData())
+        return companion_orb_reply_styles.normalize_reply_style(
+            _runtime_config().get("companion_orb_response_style", "friendly")
+        )
+
+    def _set_reply_style_prompt_combo_value(self, style):
+        combo = self._reply_style_prompt_combo
+        if combo is None:
+            return
+        normalized = companion_orb_reply_styles.normalize_reply_style(style)
+        for index in range(combo.count()):
+            if str(combo.itemData(index) or "").strip().lower() == normalized:
+                combo.setCurrentIndex(index)
+                return
+
+    def _sync_reply_style_prompt_editor_from_runtime(self, style=None):
+        editor = self._reply_style_prompt_edit
+        if editor is None:
+            return
+        normalized_style = companion_orb_reply_styles.normalize_reply_style(
+            style if style is not None else self._selected_reply_style_prompt_style()
+        )
+        overrides = self._reply_style_prompt_overrides()
+        prompt = companion_orb_reply_styles.effective_reply_style_prompt(normalized_style, overrides)
+        self._syncing_reply_style_prompt = True
+        try:
+            combo = self._reply_style_prompt_combo
+            if combo is not None:
+                try:
+                    combo.blockSignals(True)
+                    self._set_reply_style_prompt_combo_value(normalized_style)
+                finally:
+                    combo.blockSignals(False)
+            try:
+                editor.blockSignals(True)
+                editor.setPlainText(prompt)
+            finally:
+                editor.blockSignals(False)
+        finally:
+            self._syncing_reply_style_prompt = False
+        label = companion_orb_reply_styles.reply_style_label(normalized_style)
+        source = "custom override" if normalized_style in overrides else "recommended default"
+        if self._reply_style_prompt_status is not None:
+            self._reply_style_prompt_status.setText(f"Loaded {source} for {label}.")
+
+    def _save_reply_style_prompt_override(self):
+        editor = self._reply_style_prompt_edit
+        if editor is None:
+            return
+        style = self._selected_reply_style_prompt_style()
+        text = str(editor.toPlainText() or "").strip()
+        if not text:
+            text = companion_orb_reply_styles.default_reply_style_prompt(style)
+        overrides = self._reply_style_prompt_overrides()
+        overrides[style] = text
+        _update_runtime_config("companion_orb_response_style_prompts", overrides)
+        self._set_status(f"Saved Companion Orb reply style: {companion_orb_reply_styles.reply_style_label(style)}.")
+        if self._reply_style_prompt_status is not None:
+            self._reply_style_prompt_status.setText(f"Saved custom override for {companion_orb_reply_styles.reply_style_label(style)}.")
+        self._save_session()
+
+    def _reset_reply_style_prompt_override(self):
+        style = self._selected_reply_style_prompt_style()
+        overrides = self._reply_style_prompt_overrides()
+        overrides.pop(style, None)
+        _update_runtime_config("companion_orb_response_style_prompts", overrides)
+        self._sync_reply_style_prompt_editor_from_runtime(style)
+        self._set_status(f"Restored recommended Companion Orb reply style: {companion_orb_reply_styles.reply_style_label(style)}.")
+        self._save_session()
+
+    def _reset_all_reply_style_prompt_overrides(self):
+        _update_runtime_config("companion_orb_response_style_prompts", {})
+        self._sync_reply_style_prompt_editor_from_runtime()
+        self._set_status("Restored all recommended Companion Orb reply style prompts.")
+        self._save_session()
+
     def _on_setting_changed(self, key, value):
         key = str(key or "").strip()
         super()._on_setting_changed(key, value)
@@ -573,6 +691,12 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             "sensory_pingpong_enabled",
         }:
             self._save_session()
+
+    def refresh_from_runtime(self):
+        super().refresh_from_runtime()
+        self._sync_reply_style_prompt_editor_from_runtime(
+            _runtime_config().get("companion_orb_response_style", "friendly")
+        )
 
     def build_tab(self):
         scroll, card_layout = self._build_card_shell(
@@ -638,6 +762,95 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         }
         return json.dumps(summary, indent=2, sort_keys=True)
 
+    def _build_reply_style_prompt_editor(self):
+        group, layout = self._section_group("Reply Style Prompt", "companion_orb_reply_style_prompt_group")
+        hint = QtWidgets.QLabel(
+            "Edit the instruction used when Companion Orb turns a visual focus cue into a spoken reply. Saved text overrides the recommended style prompt for that style only."
+        )
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        layout.addWidget(hint)
+
+        selector_row = QtWidgets.QHBoxLayout()
+        selector_row.setContentsMargins(0, 0, 0, 0)
+        selector_row.setSpacing(8)
+        selector_row.addWidget(self._compact_label("Style"))
+        style_combo = NoWheelComboBox()
+        style_combo.setObjectName("companion_orb_reply_style_editor_combo")
+        for label, value in ORB_RESPONSE_STYLES:
+            style_combo.addItem(label, value)
+        style_combo.setMinimumHeight(26)
+        style_combo.setMaximumHeight(30)
+        style_combo.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+        self._reply_style_prompt_combo = style_combo
+        selector_row.addWidget(style_combo, 1)
+        layout.addLayout(selector_row)
+
+        editor = QtWidgets.QPlainTextEdit()
+        editor.setObjectName("companion_orb_reply_style_prompt_edit")
+        editor.setMinimumHeight(145)
+        editor.setPlaceholderText("Write the style instruction for Companion Orb replies...")
+        editor.setStyleSheet(
+            "QPlainTextEdit#companion_orb_reply_style_prompt_edit {"
+            "  background: rgba(3, 9, 17, 0.55);"
+            "  border: 1px solid #29445f;"
+            "  border-radius: 6px;"
+            "  color: #dbeafe;"
+            "  selection-background-color: #1d4ed8;"
+            "  font-size: 11px;"
+            "}"
+        )
+        self._reply_style_prompt_edit = editor
+        layout.addWidget(editor)
+
+        button_row = QtWidgets.QHBoxLayout()
+        button_row.setContentsMargins(0, 0, 0, 0)
+        button_row.setSpacing(8)
+        save_button = QtWidgets.QPushButton("Save Style")
+        save_button.setObjectName("btn_companion_orb_reply_style_save")
+        load_button = QtWidgets.QPushButton("Load Saved")
+        load_button.setObjectName("btn_companion_orb_reply_style_load")
+        default_button = QtWidgets.QPushButton("Use Recommended")
+        default_button.setObjectName("btn_companion_orb_reply_style_default")
+        reset_all_button = QtWidgets.QPushButton("Reset All")
+        reset_all_button.setObjectName("btn_companion_orb_reply_style_reset_all")
+        for button in (save_button, load_button, default_button, reset_all_button):
+            button.setMinimumHeight(27)
+            button.setMaximumHeight(31)
+            button_row.addWidget(button)
+        button_row.addStretch(1)
+        layout.addLayout(button_row)
+
+        status = QtWidgets.QLabel("")
+        status.setObjectName("companion_orb_reply_style_prompt_status")
+        status.setWordWrap(True)
+        status.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+        self._reply_style_prompt_status = status
+        layout.addWidget(status)
+
+        style_combo.currentIndexChanged.connect(
+            lambda *_args: None
+            if self._syncing_reply_style_prompt
+            else self._sync_reply_style_prompt_editor_from_runtime(self._selected_reply_style_prompt_style())
+        )
+        save_button.clicked.connect(lambda *_args: self._save_reply_style_prompt_override())
+        load_button.clicked.connect(lambda *_args: self._sync_reply_style_prompt_editor_from_runtime(self._selected_reply_style_prompt_style()))
+        default_button.clicked.connect(lambda *_args: self._reset_reply_style_prompt_override())
+        reset_all_button.clicked.connect(lambda *_args: self._reset_all_reply_style_prompt_overrides())
+        self._sync_reply_style_prompt_editor_from_runtime(
+            _runtime_config().get("companion_orb_response_style", "friendly")
+        )
+        return group
+
+    def _companion_orb_slider_group(self, title, object_name, sliders, *, max_columns=2):
+        group, layout = self._section_group(title, object_name)
+        grid = _ResponsiveGridWidget(min_column_width=238, max_columns=max_columns, horizontal_spacing=10, vertical_spacing=6)
+        grid.setObjectName(f"{object_name}_grid")
+        for spec in sliders:
+            grid.add_widget(self._slider(*spec))
+        layout.addWidget(grid)
+        return group
+
     def _build_companion_orb_section(self):
         group = QtWidgets.QGroupBox("Companion Orb Overlay")
         group.setObjectName("companion_orb_overlay_group")
@@ -665,8 +878,12 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         selector_grid.addWidget(self._compact_label("Position"), 1, 2)
         selector_grid.addWidget(self._combo("companion_orb_position_combo", ORB_POSITIONS, "companion_orb_position", "bottom-right"), 1, 3)
         selector_grid.addWidget(self._compact_label("Reply style"), 2, 0)
+        reply_style_combo = self._combo("companion_orb_response_style_combo", ORB_RESPONSE_STYLES, "companion_orb_response_style", "friendly")
+        reply_style_combo.currentIndexChanged.connect(
+            lambda *_args, combo=reply_style_combo: self._sync_reply_style_prompt_editor_from_runtime(combo.currentData())
+        )
         selector_grid.addWidget(
-            self._combo("companion_orb_response_style_combo", ORB_RESPONSE_STYLES, "companion_orb_response_style", "friendly"),
+            reply_style_combo,
             2,
             1,
             1,
@@ -675,6 +892,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         selector_grid.setColumnStretch(1, 1)
         selector_grid.setColumnStretch(3, 1)
         display_layout.addLayout(selector_grid)
+        display_layout.addWidget(self._build_reply_style_prompt_editor())
 
         action_row = QtWidgets.QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
@@ -707,7 +925,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
                 self._checkbox("Always on top", "companion_orb_always_on_top_checkbox", "companion_orb_always_on_top", True),
                 self._checkbox("Click-through by default", "companion_orb_click_through_default_checkbox", "companion_orb_click_through_default", True),
                 self._checkbox("Remember position", "companion_orb_remember_position_checkbox", "companion_orb_remember_position", True),
-                self._checkbox("External runtime for orb animation", "companion_orb_external_runtime_enabled_checkbox", "companion_orb_external_runtime_enabled", False),
+                self._checkbox("External runtime for orb animation", "companion_orb_external_runtime_enabled_checkbox", "companion_orb_external_runtime_enabled", True),
             ),
         )
 
@@ -716,6 +934,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             behavior_layout,
             (
                 self._checkbox("Movement enabled", "companion_orb_movement_enabled_checkbox", "companion_orb_movement_enabled", True),
+                self._checkbox("Aware motion", "companion_orb_aware_motion_enabled_checkbox", "companion_orb_aware_motion_enabled", True),
                 self._checkbox("Avoid center", "companion_orb_avoid_center_checkbox", "companion_orb_avoid_center", True),
                 self._checkbox("Avoid mouse", "companion_orb_avoid_mouse_checkbox", "companion_orb_avoid_mouse", False),
                 self._checkbox("Mouse-near fade", "companion_orb_mouse_near_fade_checkbox", "companion_orb_mouse_near_fade", False),
@@ -808,31 +1027,64 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         state_layout.addWidget(state_animation_grid)
         slider_group_layout.addWidget(state_group)
 
-        slider_grid = _ResponsiveGridWidget(min_column_width=250, max_columns=3, horizontal_spacing=12, vertical_spacing=7)
-        slider_grid.setObjectName("companion_orb_slider_responsive_grid")
-        sliders = [
-            ("companion_orb_size", "companion_orb_size_slider", "Orb Size", 36, 220, 92, True),
-            ("companion_orb_opacity", "companion_orb_opacity_slider", "Orb Opacity", 0.10, 1.00, 0.82, False),
-            ("companion_orb_movement_speed", "companion_orb_movement_speed_slider", "Movement Speed", 0.10, 1.50, 0.65, False),
-            ("companion_orb_movement_range", "companion_orb_movement_range_slider", "Movement Range", 0, 90, 18, True),
-            ("companion_orb_frame_rate", "companion_orb_frame_rate_slider", "Orb Frame Rate", 30, 120, 60, True),
-            ("companion_orb_return_home_delay", "companion_orb_return_delay_slider", "Return-home Delay", 0.25, 30.00, 2.5, False),
-            ("companion_orb_harassment_timer_seconds", "companion_orb_harassment_timer_slider", "Harassment Timer", 5, 300, 45, True),
-            ("companion_orb_mouse_near_fade_distance", "companion_orb_mouse_fade_distance_slider", "Mouse Fade Distance", 24, 420, 120, True),
-            ("companion_orb_mouse_near_opacity", "companion_orb_mouse_near_opacity_slider", "Mouse-near Opacity", 0.05, 1.00, 0.28, False),
-            ("companion_orb_trail_length", "companion_orb_trail_length_slider", "Trail Length", 0.00, 1.00, 0.55, False),
-            ("companion_orb_particle_density", "companion_orb_particle_density_slider", "Orb Particles", 0, 120, 30, True),
-            ("companion_orb_falling_particle_density", "companion_orb_falling_particle_density_slider", "Drip Particles", 0, 80, 18, True),
-            ("companion_orb_falling_particle_lifetime", "companion_orb_falling_particle_lifetime_slider", "Drip Lifetime", 0.80, 8.00, 3.8, False),
-            ("companion_orb_smoke_intensity", "companion_orb_smoke_intensity_slider", "Smoke Intensity", 0.00, 1.00, 0.35, False),
-            ("companion_orb_glow_strength", "companion_orb_glow_strength_slider", "Orb Glow", 0.00, 1.75, 1.0, False),
-            ("companion_orb_mood_color_intensity", "companion_orb_mood_intensity_slider", "Orb Mood Color", 0.00, 1.00, 0.85, False),
-            ("companion_orb_speaking_reactivity", "companion_orb_speaking_reactivity_slider", "Orb Voice Reactivity", 0.10, 1.50, 0.85, False),
-            ("companion_orb_audio_refresh_hz", "companion_orb_audio_refresh_slider", "Orb Sync Rate", 5, 30, 24, True),
-        ]
-        for spec in sliders:
-            slider_grid.add_widget(self._slider(*spec))
-        slider_group_layout.addWidget(slider_grid)
+        tuning_cards = _ResponsiveGridWidget(min_column_width=330, max_columns=2, horizontal_spacing=12, vertical_spacing=8)
+        tuning_cards.setObjectName("companion_orb_tuning_cards_grid")
+        tuning_cards.add_widgets(
+            (
+                self._companion_orb_slider_group(
+                    "Size & Visibility",
+                    "companion_orb_size_visibility_group",
+                    (
+                        ("companion_orb_size", "companion_orb_size_slider", "Orb Size", 36, 220, 92, True),
+                        ("companion_orb_opacity", "companion_orb_opacity_slider", "Orb Opacity", 0.10, 1.00, 0.82, False),
+                        ("companion_orb_frame_rate", "companion_orb_frame_rate_slider", "Orb Frame Rate", 30, 120, 60, True),
+                    ),
+                ),
+                self._companion_orb_slider_group(
+                    "Aware Movement",
+                    "companion_orb_aware_movement_group",
+                    (
+                        ("companion_orb_movement_speed", "companion_orb_movement_speed_slider", "Movement Speed", 0.10, 1.50, 0.65, False),
+                        ("companion_orb_movement_range", "companion_orb_movement_range_slider", "Movement Range", 0, 90, 18, True),
+                        ("companion_orb_return_home_delay", "companion_orb_return_delay_slider", "Return-home Delay", 0.25, 30.00, 2.5, False),
+                        ("companion_orb_awareness", "companion_orb_awareness_slider", "Awareness", 0.00, 1.00, 0.55, False),
+                        ("companion_orb_focus_pull", "companion_orb_focus_pull_slider", "Focus Pull", 0.00, 1.00, 0.65, False),
+                        ("companion_orb_idle_pause", "companion_orb_idle_pause_slider", "Idle Pauses", 0.00, 1.00, 0.45, False),
+                    ),
+                ),
+                self._companion_orb_slider_group(
+                    "Pointer & Interaction",
+                    "companion_orb_pointer_interaction_group",
+                    (
+                        ("companion_orb_harassment_timer_seconds", "companion_orb_harassment_timer_slider", "Playful nudge delay", 5, 300, 45, True),
+                        ("companion_orb_mouse_near_fade_distance", "companion_orb_mouse_fade_distance_slider", "Mouse Fade Distance", 24, 420, 120, True),
+                        ("companion_orb_mouse_near_opacity", "companion_orb_mouse_near_opacity_slider", "Mouse-near Opacity", 0.05, 1.00, 0.28, False),
+                    ),
+                ),
+                self._companion_orb_slider_group(
+                    "Visual Texture",
+                    "companion_orb_visual_texture_group",
+                    (
+                        ("companion_orb_trail_length", "companion_orb_trail_length_slider", "Trail Length", 0.00, 1.00, 0.55, False),
+                        ("companion_orb_particle_density", "companion_orb_particle_density_slider", "Orb Particles", 0, 120, 30, True),
+                        ("companion_orb_falling_particle_density", "companion_orb_falling_particle_density_slider", "Drip Particles", 0, 80, 18, True),
+                        ("companion_orb_falling_particle_lifetime", "companion_orb_falling_particle_lifetime_slider", "Drip Lifetime", 0.80, 8.00, 3.8, False),
+                        ("companion_orb_smoke_intensity", "companion_orb_smoke_intensity_slider", "Smoke Intensity", 0.00, 1.00, 0.35, False),
+                        ("companion_orb_glow_strength", "companion_orb_glow_strength_slider", "Orb Glow", 0.00, 1.75, 1.0, False),
+                        ("companion_orb_mood_color_intensity", "companion_orb_mood_intensity_slider", "Orb Mood Color", 0.00, 1.00, 0.85, False),
+                    ),
+                ),
+                self._companion_orb_slider_group(
+                    "Voice Sync",
+                    "companion_orb_voice_sync_group",
+                    (
+                        ("companion_orb_speaking_reactivity", "companion_orb_speaking_reactivity_slider", "Orb Voice Reactivity", 0.10, 1.50, 0.85, False),
+                        ("companion_orb_audio_refresh_hz", "companion_orb_audio_refresh_slider", "Orb Sync Rate", 5, 30, 24, True),
+                    ),
+                ),
+            )
+        )
+        slider_group_layout.addWidget(tuning_cards)
         layout.addWidget(slider_group)
         layout.addWidget(self._build_companion_orb_sensory_tabs())
 
@@ -982,13 +1234,13 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         return super().shutdown()
 
     def _build_companion_orb_sensory_tabs(self):
-        group, layout = self._section_group("Hidden Sensory & Response", "companion_orb_sensory_tabs_group")
+        group, layout = self._section_group("Background Awareness & Response", "companion_orb_sensory_tabs_group")
         tabs = NoWheelTabWidget()
         tabs.setObjectName("companion_orb_sensory_tabs")
-        tabs.addTab(self._build_companion_orb_source_tab(), "Source")
-        tabs.addTab(self._build_companion_orb_capture_tab(), "Capture")
-        tabs.addTab(self._build_companion_orb_supervisor_tab(), "Supervisor")
-        tabs.setTabToolTip(0, "Source guidance and declared PING/PONG payload for Companion Orb Target.")
+        tabs.addTab(self._build_companion_orb_source_tab(), "What the orb noticed")
+        tabs.addTab(self._build_companion_orb_capture_tab(), "Capture target")
+        tabs.addTab(self._build_companion_orb_supervisor_tab(), "Orb personality rules")
+        tabs.setTabToolTip(0, "Source guidance and declared background-awareness payload for Companion Orb Target.")
         tabs.setTabToolTip(1, "Capture and target settings that decide what the orb sees.")
         tabs.setTabToolTip(2, "Response settings that decide when the orb comments, moves, or takes a snapshot.")
         layout.addWidget(tabs)
@@ -1000,7 +1252,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         layout.setContentsMargins(6, 8, 6, 6)
         layout.setSpacing(8)
 
-        source_label = QtWidgets.QLabel("Source guidance for Companion Orb Target")
+        source_label = QtWidgets.QLabel("How the orb should interpret its target")
         source_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 700;")
         layout.addWidget(source_label)
         layout.addWidget(
@@ -1017,8 +1269,8 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
 
         for title, object_name, text in (
             ("Provider", "companion_orb_source_provider_preview", self._metadata_overview_text()),
-            ("PING payload", "companion_orb_source_ping_payload_preview", self._metadata_items_text(metadata.get("ping_payload"))),
-            ("PONG influence", "companion_orb_source_pong_influence_preview", self._metadata_items_text(metadata.get("pong_influences"))),
+            ("What the orb notices", "companion_orb_source_ping_payload_preview", self._metadata_items_text(metadata.get("ping_payload"))),
+            ("How notices guide behavior", "companion_orb_source_pong_influence_preview", self._metadata_items_text(metadata.get("pong_influences"))),
         ):
             box, box_layout = self._section_group(title, object_name + "_group")
             box_layout.addWidget(self._read_only_text(text, object_name, height=112))
@@ -1045,7 +1297,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         layout.setSpacing(8)
 
         capture_intro = QtWidgets.QLabel(
-            "Companion Orb Target can send either the selected orb target or an opt-in desktop-wide context map with OCR regions. The returned focus bounds are what let the orb move to the thing it is talking about."
+            "Companion Orb Target can use either the selected orb target or an opt-in desktop-wide context map with OCR regions. Returned focus bounds let the orb move toward the thing it is talking about."
         )
         capture_intro.setWordWrap(True)
         capture_intro.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -1054,10 +1306,10 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         capture_grid = _ResponsiveGridWidget(min_column_width=260, max_columns=3, horizontal_spacing=10, vertical_spacing=8)
         capture_grid.setObjectName("companion_orb_capture_settings_grid")
 
-        source_group, source_layout = self._section_group("Source Include", "companion_orb_capture_source_group")
+        source_group, source_layout = self._section_group("What the orb can watch", "companion_orb_capture_source_group")
         source_layout.addWidget(
             self._checkbox(
-                "Enable Companion Orb Target source",
+                "Use Companion Orb Target",
                 "companion_orb_sensory_target_enabled_checkbox",
                 "companion_orb_sensory_target_enabled",
                 False,
@@ -1065,7 +1317,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         )
         source_layout.addWidget(
             self._checkbox(
-                "Run hidden PING/PONG loop",
+                "Run background check-ins",
                 "companion_orb_pingpong_enabled_checkbox",
                 "sensory_pingpong_enabled",
                 False,
@@ -1080,7 +1332,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             )
         )
         source_hint = QtWidgets.QLabel(
-            "This uses the Companion Orb Target hidden source, not the separate HOST Screen source. "
+            "This uses the Companion Orb Target source, not the separate HOST Screen source. "
             "Enable the source here, then turn on Full-screen context map when the orb should analyze the desktop-wide map instead of only the selected target."
         )
         source_hint.setWordWrap(True)
@@ -1169,10 +1421,10 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         return widget
 
     def _build_companion_orb_supervisor_designer(self):
-        group, layout = self._section_group("Companion Orb Target Supervisor", "companion_orb_supervisor_behavior_designer")
+        group, layout = self._section_group("Orb Personality Rules", "companion_orb_supervisor_behavior_designer")
         layout.addWidget(
             self._checkbox(
-                "Enable Companion Orb behavior supervisor",
+                "Enable orb personality rules",
                 "companion_orb_supervisor_enabled_checkbox",
                 "companion_orb_supervisor_enabled",
                 False,
@@ -1188,11 +1440,11 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         persona_header = QtWidgets.QHBoxLayout()
         persona_header.setContentsMargins(0, 0, 0, 0)
         persona_header.setSpacing(8)
-        persona_label = QtWidgets.QLabel("Active Persona")
+        persona_label = QtWidgets.QLabel("Active orb style")
         persona_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 700;")
         persona_header.addWidget(persona_label)
         persona_header.addStretch(1)
-        add_persona_button = QtWidgets.QPushButton("Add Supervisor Persona")
+        add_persona_button = QtWidgets.QPushButton("Add Orb Style")
         add_persona_button.setObjectName("btn_companion_orb_supervisor_add_persona")
         rename_persona_button = QtWidgets.QPushButton("Rename")
         rename_persona_button.setObjectName("btn_companion_orb_supervisor_rename_persona")
@@ -1215,16 +1467,16 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         persona_style_edit.setMaximumHeight(30)
         persona_form = QtWidgets.QFormLayout()
         persona_form.setContentsMargins(0, 0, 0, 0)
-        persona_form.addRow("Persona tone", persona_style_edit)
+        persona_form.addRow("Tone", persona_style_edit)
         layout.addLayout(persona_form)
 
         behavior_header = QtWidgets.QHBoxLayout()
         behavior_header.setContentsMargins(0, 2, 0, 0)
-        behavior_label = QtWidgets.QLabel("Behaviors")
+        behavior_label = QtWidgets.QLabel("Behavior rules")
         behavior_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 700;")
         behavior_header.addWidget(behavior_label)
         behavior_header.addStretch(1)
-        add_behavior_button = QtWidgets.QPushButton("Add Behavior")
+        add_behavior_button = QtWidgets.QPushButton("Add Rule")
         add_behavior_button.setObjectName("btn_companion_orb_supervisor_add_behavior")
         behavior_header.addWidget(add_behavior_button)
         layout.addLayout(behavior_header)
@@ -1236,10 +1488,10 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         behaviors_layout.setSpacing(8)
         layout.addWidget(behaviors_widget)
 
-        template_group, template_layout = self._section_group("Supervisor Prompt Template", "companion_orb_supervisor_template_group")
+        template_group, template_layout = self._section_group("Advanced Prompt Template", "companion_orb_supervisor_template_group")
         template_header = QtWidgets.QHBoxLayout()
         template_header.setContentsMargins(0, 0, 0, 0)
-        template_hint = QtWidgets.QLabel("Edit the template that wraps this orb-only behavior guidance before hidden PING/PONG.")
+        template_hint = QtWidgets.QLabel("Edit the template that wraps this orb-only behavior guidance before background check-ins.")
         template_hint.setWordWrap(True)
         template_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
         template_reset_button = QtWidgets.QPushButton("Use Recommended")
@@ -1253,7 +1505,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         template_layout.addWidget(template_edit)
         layout.addWidget(template_group)
 
-        preview_label = QtWidgets.QLabel("Active Rendered Prompt")
+        preview_label = QtWidgets.QLabel("Current orb prompt preview")
         preview_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 700;")
         layout.addWidget(preview_label)
         preview_edit = QtWidgets.QPlainTextEdit()
@@ -1277,7 +1529,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
 
         def refresh_preview():
             if not bool(_runtime_config().get("companion_orb_supervisor_enabled", False)):
-                preview_edit.setPlainText("Disabled. Enable Companion Orb behavior supervisor to add these rules to Companion Orb Target hidden sensory prompts.")
+                preview_edit.setPlainText("Disabled. Enable orb personality rules to add these rules to Companion Orb Target background awareness.")
                 return
             preview_edit.setPlainText(self._render_companion_orb_supervisor_prompt())
 
@@ -1600,7 +1852,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         layout.setSpacing(8)
 
         response_intro = QtWidgets.QLabel(
-            "Supervisor-style settings decide how hidden Companion Orb Target feedback becomes visible behavior: comments, playful pointer seeking, screenshots, and movement toward PONG focus bounds."
+            "Orb personality settings decide how background observations become visible behavior: comments, playful nudges, screenshots, and movement toward the returned focus area."
         )
         response_intro.setWordWrap(True)
         response_intro.setStyleSheet("color: #8ea3b8; font-size: 11px;")
@@ -1610,34 +1862,34 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
         response_grid = _ResponsiveGridWidget(min_column_width=260, max_columns=3, horizontal_spacing=10, vertical_spacing=8)
         response_grid.setObjectName("companion_orb_supervisor_settings_grid")
 
-        reply_group, reply_layout = self._section_group("Reply Triggers", "companion_orb_supervisor_reply_group")
+        reply_group, reply_layout = self._section_group("Response Triggers", "companion_orb_supervisor_reply_group")
         self._add_checkbox_stack(
             reply_layout,
             (
-                self._checkbox("Harassment", "companion_orb_harassment_enabled_checkbox", "companion_orb_harassment_enabled", False),
+                self._checkbox("Playful nudges", "companion_orb_harassment_enabled_checkbox", "companion_orb_harassment_enabled", False),
                 self._checkbox("Snapshot at pointer", "companion_orb_snapshot_on_pointer_reached_checkbox", "companion_orb_snapshot_on_pointer_reached", False),
                 self._checkbox("Right-click drag changes focus", "companion_orb_right_drag_focus_enabled_checkbox", "companion_orb_right_drag_focus_enabled", False),
             ),
         )
 
-        debug_group, debug_layout = self._section_group("Debug", "companion_orb_supervisor_debug_group")
+        debug_group, debug_layout = self._section_group("Advanced Debug", "companion_orb_supervisor_debug_group")
         debug_layout.addWidget(
             self._checkbox("Movement and snapshot debug log", "companion_orb_debug_enabled_checkbox", "companion_orb_debug_enabled", False)
         )
         debug_layout.addWidget(
             self._read_only_text(
-                "When enabled, snapshot captures, OCR focus matches, movement targets, and hidden PING attempts are written to:\n"
+                "When enabled, snapshot captures, OCR focus matches, movement targets, and background check-ins are written to:\n"
                 "runtime/companion_orb/debug/companion_orb_debug.log",
                 "companion_orb_debug_log_path_preview",
                 height=76,
             )
         )
 
-        flow_group, flow_layout = self._section_group("Response Flow", "companion_orb_supervisor_flow_group")
+        flow_group, flow_layout = self._section_group("How responses happen", "companion_orb_supervisor_flow_group")
         flow_layout.addWidget(
             self._read_only_text(
-                "1. Hidden PING captures the selected target or full-screen context map.\n"
-                "2. The hidden model returns attention, summary, optional proactive_candidate, and optional focus_bounds/focus_text.\n"
+                "1. Background check-in captures the selected target or full-screen context map.\n"
+                "2. The hidden model returns attention, summary, optional proactive comment, and optional focus area/text.\n"
                 "3. The Companion Orb moves toward focus_bounds when present, or tries to match focus_text against OCR regions.\n"
                 "4. Spoken proactive replies only happen when HOST hidden proactive replies are enabled and the source says should_speak=true.",
                 "companion_orb_supervisor_flow_preview",
@@ -1645,7 +1897,7 @@ class CompanionOrbOverlaySettingsController(AIPresenceModeController):
             )
         )
 
-        focus_group, focus_layout = self._section_group("Focus Output", "companion_orb_supervisor_focus_group")
+        focus_group, focus_layout = self._section_group("Movement focus", "companion_orb_supervisor_focus_group")
         focus_layout.addWidget(
             self._read_only_text(
                 "The orb listens for focus_bounds, focus_label, and focus_text from sensory.hidden_pong.parsed. "

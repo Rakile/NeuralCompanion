@@ -119,11 +119,11 @@ Normal avatar, voice sample, and AudioFX paths are stored as paths only. Story L
 
 ## Long Memory
 
-MPRC uses an addon-local JSON long-memory layer for both normal roleplay and AlternativeReality mode. New assistant turns are recorded into `memory/long_memory.json` with compact event summaries, chapter summaries, character memory, location memory, active characters, scene, location, and mode. Prompts retrieve only a small relevant slice of this memory plus recent events, so long stories can keep continuity without stuffing the full transcript into every request.
+MPRC uses an addon-local long-memory layer for both normal roleplay and AlternativeReality mode. New assistant turns are recorded into `memory/long_memory.json` for export/import compatibility and mirrored into `memory/long_memory.sqlite3` for ranked retrieval. The memory shape includes compact event summaries, chapter summaries, character memory, location memory, active characters, scene, location, and mode. Prompts retrieve only a small relevant slice of this memory plus recent events, so long stories can keep continuity without stuffing the full transcript into every request.
 
 The Status tab includes a Memory Browser / Editor. It supports pinned facts, recent memory review, deleting one wrong memory event, resetting character memory only, and resetting story memory only while preserving pinned facts.
 
-This JSON backend is the stable local memory shape. A PostgreSQL or vector backend can be added later as an optional storage adapter without changing persona or session files.
+The SQLite mirror includes deterministic local embedding vectors and data-bank chunks for semantic-ish story recall. The data bank can index pinned facts, chapter summaries, recent long-memory events, story archives, and configured local documents from `long_memory_databank_sources` in settings. PostgreSQL can be selected later by setting `long_memory_database_backend` to `postgres` or `postgresql` and providing `long_memory_postgres_dsn`; if the driver or connection is unavailable, MPRC falls back to SQLite.
 
 ## Backend Limits
 

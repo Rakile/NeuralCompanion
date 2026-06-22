@@ -1,0 +1,29 @@
+{
+  "name": "nc-main-chat-remote-phone",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "android": "expo start --android",
+    "ios": "expo start --ios",
+    "web": "expo start --web",
+    "typecheck": "tsc --noEmit",
+    "validate:temp": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/validate-temp.ps1"
+  },
+  "dependencies": {
+    "expo": "54.0.8",
+    "expo-audio": "1.0.12",
+    "expo-file-system": "19.0.14",
+    "expo-keep-awake": "~15.0.7",
+    "expo-media-library": "~18.2.1",
+    "expo-secure-store": "15.0.7",
+    "expo-sharing": "~14.0.8",
+    "react": "19.1.0",
+    "react-native": "0.81.4"
+  },
+  "devDependencies": {
+    "@types/react": "~19.1.17",
+    "typescript": "~5.9.2"
+  }
+}

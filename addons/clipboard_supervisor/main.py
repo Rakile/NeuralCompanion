@@ -674,13 +674,13 @@ class Addon(BaseAddon):
             preview_edit.setReadOnly(True)
             preview_edit.setMinimumHeight(180)
             root_layout = widget.layout()
-            template_group = QtWidgets.QGroupBox("Supervisor Prompt Template")
+            template_group = QtWidgets.QGroupBox("Advanced Prompt Rules")
             template_layout = QtWidgets.QVBoxLayout(template_group)
             template_header = QtWidgets.QHBoxLayout()
-            template_hint = QtWidgets.QLabel("Edit the template that wraps this addon's behavior rules before they are sent to hidden PING/PONG.")
+            template_hint = QtWidgets.QLabel("Advanced: refine how these reaction rules are added to background review.")
             template_hint.setWordWrap(True)
             template_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            template_reset_button = QtWidgets.QPushButton("Use Recommended")
+            template_reset_button = QtWidgets.QPushButton("Restore recommended prompt")
             template_header.addWidget(template_hint, 1)
             template_header.addWidget(template_reset_button, 0)
             template_layout.addLayout(template_header)
@@ -701,7 +701,7 @@ class Addon(BaseAddon):
             layout = QtWidgets.QVBoxLayout(widget)
 
             intro = QtWidgets.QLabel(
-                "Build one or more supervisor personas for the Clipboard source. Each persona can own several behaviors, where every behavior pairs a visual trigger with the action the hidden LLM should take when a copied image arrives."
+                "Build reaction profiles for the Clipboard source. Each profile owns rules that say: when a copied image matches this pattern, NC may respond in this style if background review allows it."
             )
             intro.setWordWrap(True)
             layout.addWidget(intro)
@@ -712,11 +712,11 @@ class Addon(BaseAddon):
             layout.addWidget(state_label)
 
             persona_header = QtWidgets.QHBoxLayout()
-            persona_label = QtWidgets.QLabel("Active Persona")
+            persona_label = QtWidgets.QLabel("Active Reaction Profile")
             persona_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
             persona_header.addWidget(persona_label)
             persona_header.addStretch(1)
-            add_persona_button = QtWidgets.QPushButton("Add Supervisor Persona")
+            add_persona_button = QtWidgets.QPushButton("Add Profile")
             rename_persona_button = QtWidgets.QPushButton("Rename")
             delete_persona_button = QtWidgets.QPushButton("Delete")
             persona_header.addWidget(add_persona_button)
@@ -729,15 +729,15 @@ class Addon(BaseAddon):
 
             form = QtWidgets.QFormLayout()
             persona_style_edit = QtWidgets.QLineEdit()
-            form.addRow("Persona tone", persona_style_edit)
+            form.addRow("Speaking style", persona_style_edit)
             layout.addLayout(form)
 
             behavior_header = QtWidgets.QHBoxLayout()
-            behavior_label = QtWidgets.QLabel("Behaviors")
+            behavior_label = QtWidgets.QLabel("Reaction Rules")
             behavior_label.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
             behavior_header.addWidget(behavior_label)
             behavior_header.addStretch(1)
-            add_behavior_button = QtWidgets.QPushButton("Add Behavior")
+            add_behavior_button = QtWidgets.QPushButton("Add Rule")
             behavior_header.addWidget(add_behavior_button)
             layout.addLayout(behavior_header)
 
@@ -747,18 +747,18 @@ class Addon(BaseAddon):
             behaviors_layout.setSpacing(8)
             layout.addWidget(behaviors_widget)
 
-            note = QtWidgets.QLabel("Each enabled behavior should describe a clipboard-image pattern and the in-character interruption it should trigger. Open Advanced only when you want tighter control.")
+            note = QtWidgets.QLabel("Each enabled rule should describe a clipboard-image pattern and the in-character response it should trigger. Open Advanced only when you want tighter control.")
             note.setWordWrap(True)
             note.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             layout.addWidget(note)
 
-            template_group = QtWidgets.QGroupBox("Supervisor Prompt Template")
+            template_group = QtWidgets.QGroupBox("Advanced Prompt Rules")
             template_layout = QtWidgets.QVBoxLayout(template_group)
             template_header = QtWidgets.QHBoxLayout()
-            template_hint = QtWidgets.QLabel("Edit the template that wraps this addon's behavior rules before they are sent to hidden PING/PONG.")
+            template_hint = QtWidgets.QLabel("Advanced: refine how these reaction rules are added to background review.")
             template_hint.setWordWrap(True)
             template_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
-            template_reset_button = QtWidgets.QPushButton("Use Recommended")
+            template_reset_button = QtWidgets.QPushButton("Restore recommended prompt")
             template_header.addWidget(template_hint, 1)
             template_header.addWidget(template_reset_button, 0)
             template_layout.addLayout(template_header)
@@ -767,7 +767,7 @@ class Addon(BaseAddon):
             template_layout.addWidget(template_edit)
             layout.addWidget(template_group)
 
-            preview_header = QtWidgets.QLabel("Active Rendered Prompt")
+            preview_header = QtWidgets.QLabel("Review Prompt Preview")
             preview_header.setStyleSheet("color: #9fb3c8; font-size: 11px; font-weight: 600;")
             layout.addWidget(preview_header)
 
@@ -791,7 +791,7 @@ class Addon(BaseAddon):
 
         def refresh_preview():
             if not self.enabled:
-                preview_edit.setPlainText("Disabled. This child behavior is currently excluded by its parent Clipboard source tab.")
+                preview_edit.setPlainText("Disabled. This optional reaction add-on is off in the parent Clipboard source tab.")
                 return
             preview_edit.setPlainText(self._render_prompt())
 
@@ -1020,7 +1020,7 @@ class Addon(BaseAddon):
                 refresh_preview()
 
         def add_persona():
-            name, accepted = QtWidgets.QInputDialog.getText(widget, "Add Supervisor Persona", "Persona name:")
+            name, accepted = QtWidgets.QInputDialog.getText(widget, "Add Reaction Profile", "Profile name:")
             if accepted and str(name or "").strip():
                 self._add_persona(name)
 

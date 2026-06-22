@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from PySide6 import QtCore, QtWidgets
 
+from core import companion_orb_reply_styles
 from ui.widgets.basic import LabeledSlider, NoWheelComboBox
 
 
@@ -13,20 +14,7 @@ DISPLAY_MODES = [
 ]
 
 VISUAL_STYLES = [
-    ("Original Neural Orb", "classic_neural_orb"),
-    ("Breathing Orb", "breathing_orb"),
     ("Neural Network Pulse", "neural_network_pulse"),
-    ("Blue Flame Smoke", "blue_flame_smoke"),
-    ("Neural Face - Male", "neural_face_male"),
-    ("Neural Face - Female", "neural_face_female"),
-    ("Neural Face - Auto Persona", "neural_face_auto"),
-    ("Vector Voice Orb", "vector_voice_orb"),
-    ("Circular Audio Waveform", "circular_audio_waveform"),
-    ("Halo Rings", "halo_rings"),
-    ("Minimal Dot", "minimal_dot"),
-    ("Hologram Core", "hologram_core"),
-    ("Signal Bloom", "signal_bloom"),
-    ("Crystal Prism", "crystal_prism"),
 ]
 
 CORE_VISUAL_STYLES = [
@@ -78,6 +66,10 @@ ORB_POSITIONS = [
 
 ORB_VISUAL_STYLES = [
     ("Neural Spark Orb", "neural_spark"),
+    ("Aurora Glass Orb", "aurora_glass"),
+    ("Prismatic Pulse Ring", "prismatic_pulse"),
+    ("Aether Wisp Orb", "aether_wisp"),
+    ("Celestial Firetrail Orb", "celestial_firetrail"),
 ]
 
 ORB_TARGET_MODES = [
@@ -85,13 +77,7 @@ ORB_TARGET_MODES = [
     ("Region around orb", "region"),
 ]
 
-ORB_RESPONSE_STYLES = [
-    ("Very friendly", "friendly"),
-    ("Very loving", "loving"),
-    ("Sarcastic / ironic", "sarcastic"),
-    ("Roast mode", "roast"),
-    ("Sensual / non-explicit", "sensual_non_explicit"),
-]
+ORB_RESPONSE_STYLES = list(companion_orb_reply_styles.ORB_RESPONSE_STYLES)
 
 BOOL_SETTINGS = {
     "ai_presence_enabled",
@@ -101,6 +87,7 @@ BOOL_SETTINGS = {
     "ai_presence_click_through_default",
     "ai_presence_right_drag_move_enabled",
     "ai_presence_transparent_background",
+    "ai_presence_external_runtime_enabled",
     "ai_presence_reduced_effects",
     "ai_presence_shaders_enabled",
     "ai_presence_particles_enabled",
@@ -167,6 +154,7 @@ AI_PRESENCE_SESSION_KEYS = [
     "ai_presence_right_drag_move_enabled",
     "ai_presence_transparent_background",
     "ai_presence_floating_geometry",
+    "ai_presence_external_runtime_enabled",
     "ai_presence_thinking_pulse",
     "ai_presence_speaking_reactivity",
     "ai_presence_audio_refresh_hz",
@@ -186,6 +174,7 @@ AI_PRESENCE_SESSION_KEYS = [
     "ai_presence_allow_persona_mood_override",
     "ai_presence_glow_strength",
     "ai_presence_animation_speed",
+    "ai_presence_idle_motion_strength",
     "ai_presence_primary_color_strength",
     "ai_presence_secondary_color_strength",
     "ai_presence_background_darkness",
@@ -233,6 +222,7 @@ AI_PRESENCE_SESSION_KEYS = [
     "companion_orb_return_home_delay",
     "companion_orb_harassment_enabled",
     "companion_orb_response_style",
+    "companion_orb_response_style_prompts",
     "companion_orb_harassment_timer_seconds",
     "companion_orb_snapshot_on_pointer_reached",
     "companion_orb_debug_enabled",
@@ -310,7 +300,7 @@ AI_PRESENCE_CORE_SESSION_KEYS = [
 DEFAULT_SETTINGS = {
     "ai_presence_enabled": False,
     "ai_presence_display_mode": "fullscreen",
-    "ai_presence_visual_style": "breathing_orb",
+    "ai_presence_visual_style": "neural_network_pulse",
     "ai_presence_fullscreen": True,
     "ai_presence_overlay_opacity": 0.72,
     "ai_presence_floating_opacity": 0.92,
@@ -320,6 +310,7 @@ DEFAULT_SETTINGS = {
     "ai_presence_right_drag_move_enabled": False,
     "ai_presence_transparent_background": False,
     "ai_presence_floating_geometry": [],
+    "ai_presence_external_runtime_enabled": False,
     "ai_presence_thinking_pulse": 0.55,
     "ai_presence_speaking_reactivity": 0.85,
     "ai_presence_audio_refresh_hz": 30,
@@ -339,6 +330,7 @@ DEFAULT_SETTINGS = {
     "ai_presence_allow_persona_mood_override": True,
     "ai_presence_glow_strength": 1.0,
     "ai_presence_animation_speed": 1.0,
+    "ai_presence_idle_motion_strength": 0.16,
     "ai_presence_primary_color_strength": 1.0,
     "ai_presence_secondary_color_strength": 1.0,
     "ai_presence_background_darkness": 1.0,
@@ -377,7 +369,7 @@ DEFAULT_SETTINGS = {
     "companion_orb_click_through_default": True,
     "companion_orb_right_drag_focus_enabled": False,
     "companion_orb_remember_position": True,
-    "companion_orb_external_runtime_enabled": False,
+    "companion_orb_external_runtime_enabled": True,
     "companion_orb_custom_position": [],
     "companion_orb_movement_enabled": True,
     "companion_orb_movement_speed": 0.65,
@@ -386,6 +378,7 @@ DEFAULT_SETTINGS = {
     "companion_orb_return_home_delay": 2.5,
     "companion_orb_harassment_enabled": False,
     "companion_orb_response_style": "friendly",
+    "companion_orb_response_style_prompts": {},
     "companion_orb_harassment_timer_seconds": 45,
     "companion_orb_snapshot_on_pointer_reached": False,
     "companion_orb_debug_enabled": False,
@@ -619,16 +612,16 @@ class AIPresenceModeController(QtCore.QObject):
             "AI PRESENCE MODE",
         )
 
-        display_group, display_layout = self._section_group("Display & Preview", "ai_presence_display_group")
+        display_group, display_layout = self._section_group("Presence Preset", "ai_presence_display_group")
         selector_grid = QtWidgets.QGridLayout()
         selector_grid.setContentsMargins(0, 0, 0, 0)
         selector_grid.setHorizontalSpacing(8)
         selector_grid.setVerticalSpacing(4)
         self.display_mode_combo = self._combo("ai_presence_display_mode_combo", DISPLAY_MODES, "ai_presence_display_mode", "fullscreen")
-        self.visual_style_combo = self._combo("ai_presence_visual_style_combo", CORE_VISUAL_STYLES, "ai_presence_visual_style", "breathing_orb")
-        selector_grid.addWidget(self._compact_label("Display"), 0, 0)
+        self.visual_style_combo = self._combo("ai_presence_visual_style_combo", CORE_VISUAL_STYLES, "ai_presence_visual_style", "neural_network_pulse")
+        selector_grid.addWidget(self._compact_label("Screen mode"), 0, 0)
         selector_grid.addWidget(self.display_mode_combo, 0, 1)
-        selector_grid.addWidget(self._compact_label("Style"), 0, 2)
+        selector_grid.addWidget(self._compact_label("Presence style"), 0, 2)
         selector_grid.addWidget(self.visual_style_combo, 0, 3)
         selector_grid.setColumnStretch(1, 1)
         selector_grid.setColumnStretch(3, 1)
@@ -637,13 +630,13 @@ class AIPresenceModeController(QtCore.QObject):
         action_row = QtWidgets.QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 0)
         action_row.setSpacing(8)
-        self.preview_button = QtWidgets.QPushButton("Show Fullscreen")
+        self.preview_button = QtWidgets.QPushButton("Preview Fullscreen")
         self.preview_button.setObjectName("ai_presence_preview_button")
         self.preview_button.clicked.connect(self._show_fullscreen_preview)
-        self.floating_button = QtWidgets.QPushButton("Show Floating")
+        self.floating_button = QtWidgets.QPushButton("Open Floating Window")
         self.floating_button.setObjectName("ai_presence_floating_button")
         self.floating_button.clicked.connect(self._show_floating)
-        self.reset_floating_button = QtWidgets.QPushButton("Reset Floating Position")
+        self.reset_floating_button = QtWidgets.QPushButton("Center Floating Window")
         self.reset_floating_button.setObjectName("ai_presence_reset_floating_position_button")
         self.reset_floating_button.setToolTip("Center the AI Presence floating window on the current screen.")
         self.reset_floating_button.clicked.connect(self._reset_floating_position)
@@ -663,15 +656,21 @@ class AIPresenceModeController(QtCore.QObject):
         toggle_grid = _ResponsiveGridWidget(min_column_width=235, max_columns=3, horizontal_spacing=10, vertical_spacing=8)
         toggle_grid.setObjectName("ai_presence_toggle_groups_grid")
 
-        mode_group, mode_layout = self._section_group("Mode", "ai_presence_mode_toggles_group")
-        self.enabled_checkbox = self._checkbox("Enable AI Presence Mode", "ai_presence_enabled_checkbox", "ai_presence_enabled", False)
-        self.fullscreen_checkbox = self._checkbox("Fullscreen overlay", "ai_presence_fullscreen_checkbox", "ai_presence_fullscreen", True)
+        mode_group, mode_layout = self._section_group("Start Behavior", "ai_presence_mode_toggles_group")
+        self.enabled_checkbox = self._checkbox("Use AI Presence", "ai_presence_enabled_checkbox", "ai_presence_enabled", False)
+        self.fullscreen_checkbox = self._checkbox("Use fullscreen mode", "ai_presence_fullscreen_checkbox", "ai_presence_fullscreen", True)
         self.reduced_checkbox = self._checkbox("Reduced effects", "ai_presence_reduced_effects_checkbox", "ai_presence_reduced_effects", False)
         self._add_checkbox_stack(
             mode_layout,
             (
                 self.enabled_checkbox,
                 self.fullscreen_checkbox,
+                self._checkbox(
+                    "Run visualizer in its own venv",
+                    "ai_presence_external_runtime_enabled_checkbox",
+                    "ai_presence_external_runtime_enabled",
+                    False,
+                ),
                 self.reduced_checkbox,
                 self._checkbox("Space exits fullscreen", "ai_presence_space_closes_fullscreen_checkbox", "ai_presence_space_closes_fullscreen", True),
             ),
@@ -689,13 +688,13 @@ class AIPresenceModeController(QtCore.QObject):
             ),
         )
 
-        visual_group, visual_layout = self._section_group("Visual Inputs", "ai_presence_visual_toggles_group")
+        visual_group, visual_layout = self._section_group("Advanced Visual Effects", "ai_presence_visual_toggles_group")
         self._add_checkbox_stack(
             visual_layout,
             (
-                self._checkbox("Soft glow", "ai_presence_shaders_enabled_checkbox", "ai_presence_shaders_enabled", True),
-                self._checkbox("Particles", "ai_presence_particles_enabled_checkbox", "ai_presence_particles_enabled", True),
-                self._checkbox("Computer audio sync", "ai_presence_music_reactivity_enabled_checkbox", "ai_presence_music_reactivity_enabled", False),
+                self._checkbox("Glow effect", "ai_presence_shaders_enabled_checkbox", "ai_presence_shaders_enabled", True),
+                self._checkbox("Particle field", "ai_presence_particles_enabled_checkbox", "ai_presence_particles_enabled", True),
+                self._checkbox("React to computer audio", "ai_presence_music_reactivity_enabled_checkbox", "ai_presence_music_reactivity_enabled", False),
             ),
         )
 
@@ -704,7 +703,7 @@ class AIPresenceModeController(QtCore.QObject):
         mood_grid.setContentsMargins(0, 0, 0, 0)
         mood_grid.setHorizontalSpacing(8)
         mood_grid.setVerticalSpacing(4)
-        self.mood_colors_checkbox = self._checkbox("Enable Mood Colors", "ai_presence_mood_colors_enabled_checkbox", "ai_presence_mood_colors_enabled", True)
+        self.mood_colors_checkbox = self._checkbox("Use mood colors", "ai_presence_mood_colors_enabled_checkbox", "ai_presence_mood_colors_enabled", True)
         self.mood_mode_combo = self._combo("ai_presence_mood_color_mode_combo", MOOD_COLOR_MODES, "ai_presence_mood_color_mode", "automatic")
         self.manual_mood_combo = self._combo("ai_presence_manual_mood_combo", MOOD_CHOICES, "ai_presence_manual_mood", "neutral")
         self.story_mood_checkbox = self._checkbox("Story mood override", "ai_presence_allow_story_mood_override_checkbox", "ai_presence_allow_story_mood_override", True)
@@ -722,38 +721,48 @@ class AIPresenceModeController(QtCore.QObject):
         toggle_grid.add_widgets((mode_group, floating_group, visual_group, mood_group))
         card_layout.addWidget(toggle_grid)
 
-        slider_group, slider_group_layout = self._section_group("Visual Tuning", "ai_presence_visual_tuning_group")
-        slider_grid = _ResponsiveGridWidget(min_column_width=250, max_columns=3, horizontal_spacing=12, vertical_spacing=7)
-        slider_grid.setObjectName("ai_presence_slider_responsive_grid")
-        sliders = [
-            ("ai_presence_overlay_opacity", "ai_presence_opacity_slider", "Opacity", 0.10, 1.00, 0.72, False),
-            ("ai_presence_thinking_pulse", "ai_presence_thinking_slider", "Thinking Pulse", 0.10, 1.00, 0.55, False),
-            ("ai_presence_speaking_reactivity", "ai_presence_speaking_slider", "Speaking Reactivity", 0.10, 1.50, 0.85, False),
-            ("ai_presence_audio_refresh_hz", "ai_presence_audio_refresh_slider", "Audio Sync Rate", 5, 30, 30, True),
-            ("ai_presence_node_density", "ai_presence_density_slider", "Neural Node Density", 8, 96, 32, True),
-            ("ai_presence_particle_density", "ai_presence_particle_density_slider", "Particle Density", 0, 120, 28, True),
-            ("ai_presence_floating_opacity", "ai_presence_floating_opacity_slider", "Floating Opacity", 0.35, 1.00, 0.92, False),
-            ("ai_presence_music_reactivity", "ai_presence_music_reactivity_slider", "Music Reactivity", 0.00, 1.50, 0.65, False),
-            ("ai_presence_mood_color_intensity", "ai_presence_mood_color_intensity_slider", "Mood Color Intensity", 0.00, 1.00, 0.85, False),
-            ("ai_presence_glow_strength", "ai_presence_glow_strength_slider", "Glow Strength", 0.00, 1.75, 1.0, False),
-            ("ai_presence_animation_speed", "ai_presence_animation_speed_slider", "Animation Speed", 0.35, 1.75, 1.0, False),
-            ("ai_presence_primary_color_strength", "ai_presence_primary_color_strength_slider", "Primary Color Strength", 0.00, 1.50, 1.0, False),
-            ("ai_presence_secondary_color_strength", "ai_presence_secondary_color_strength_slider", "Secondary Color Strength", 0.00, 1.50, 1.0, False),
-            ("ai_presence_background_darkness", "ai_presence_background_darkness_slider", "Background Darkness", 0.00, 1.00, 1.0, False),
-            ("ai_presence_halo_thickness", "ai_presence_halo_thickness_slider", "Halo Thickness", 0.35, 2.00, 1.0, False),
-            ("ai_presence_waveform_strength", "ai_presence_waveform_strength_slider", "Waveform Strength", 0.20, 2.00, 1.0, False),
-            ("ai_presence_ring_expansion_speed", "ai_presence_ring_expansion_speed_slider", "Ring Expansion Speed", 0.25, 2.00, 1.0, False),
-            ("ai_presence_blur_softness", "ai_presence_blur_softness_slider", "Blur / Softness", 0.00, 1.00, 0.35, False),
-            ("ai_presence_line_brightness", "ai_presence_line_brightness_slider", "Line Brightness", 0.20, 2.00, 1.0, False),
+        look_group, look_group_layout = self._section_group("Presence Look", "ai_presence_visual_tuning_group")
+        look_slider_grid = _ResponsiveGridWidget(min_column_width=250, max_columns=3, horizontal_spacing=12, vertical_spacing=7)
+        look_slider_grid.setObjectName("ai_presence_slider_responsive_grid")
+        look_sliders = [
+            ("ai_presence_overlay_opacity", "ai_presence_opacity_slider", "Overlay opacity", 0.10, 1.00, 0.72, False),
+            ("ai_presence_thinking_pulse", "ai_presence_thinking_slider", "Thinking pulse", 0.10, 1.00, 0.55, False),
+            ("ai_presence_speaking_reactivity", "ai_presence_speaking_slider", "Voice reactivity", 0.10, 1.50, 0.85, False),
+            ("ai_presence_floating_opacity", "ai_presence_floating_opacity_slider", "Floating window opacity", 0.35, 1.00, 0.92, False),
+            ("ai_presence_mood_color_intensity", "ai_presence_mood_color_intensity_slider", "Mood color strength", 0.00, 1.00, 0.85, False),
+            ("ai_presence_glow_strength", "ai_presence_glow_strength_slider", "Glow strength", 0.00, 1.75, 1.0, False),
+            ("ai_presence_animation_speed", "ai_presence_animation_speed_slider", "Animation speed", 0.35, 1.75, 1.0, False),
+            ("ai_presence_idle_motion_strength", "ai_presence_idle_motion_slider", "Idle motion", 0.00, 1.00, 0.16, False),
+            ("ai_presence_background_darkness", "ai_presence_background_darkness_slider", "Background dimming", 0.00, 1.00, 1.0, False),
         ]
-        for spec in sliders:
-            slider = self._slider(*spec)
-            slider_grid.add_widget(slider)
-        slider_group_layout.addWidget(slider_grid)
-        card_layout.addWidget(slider_group)
+        for spec in look_sliders:
+            look_slider_grid.add_widget(self._slider(*spec))
+        look_group_layout.addWidget(look_slider_grid)
+        card_layout.addWidget(look_group)
+
+        advanced_group, advanced_group_layout = self._section_group("Advanced motion and audio", "ai_presence_advanced_motion_audio_group")
+        advanced_slider_grid = _ResponsiveGridWidget(min_column_width=250, max_columns=3, horizontal_spacing=12, vertical_spacing=7)
+        advanced_slider_grid.setObjectName("ai_presence_advanced_slider_responsive_grid")
+        advanced_sliders = [
+            ("ai_presence_audio_refresh_hz", "ai_presence_audio_refresh_slider", "Audio sync rate", 5, 30, 30, True),
+            ("ai_presence_node_density", "ai_presence_density_slider", "Node count", 8, 96, 32, True),
+            ("ai_presence_particle_density", "ai_presence_particle_density_slider", "Particle count", 0, 120, 28, True),
+            ("ai_presence_music_reactivity", "ai_presence_music_reactivity_slider", "Computer audio reaction", 0.00, 1.50, 0.65, False),
+            ("ai_presence_primary_color_strength", "ai_presence_primary_color_strength_slider", "Primary color strength", 0.00, 1.50, 1.0, False),
+            ("ai_presence_secondary_color_strength", "ai_presence_secondary_color_strength_slider", "Secondary color strength", 0.00, 1.50, 1.0, False),
+            ("ai_presence_halo_thickness", "ai_presence_halo_thickness_slider", "Halo thickness", 0.35, 2.00, 1.0, False),
+            ("ai_presence_waveform_strength", "ai_presence_waveform_strength_slider", "Waveform strength", 0.20, 2.00, 1.0, False),
+            ("ai_presence_ring_expansion_speed", "ai_presence_ring_expansion_speed_slider", "Ring expansion speed", 0.25, 2.00, 1.0, False),
+            ("ai_presence_blur_softness", "ai_presence_blur_softness_slider", "Blur / softness", 0.00, 1.00, 0.35, False),
+            ("ai_presence_line_brightness", "ai_presence_line_brightness_slider", "Line brightness", 0.20, 2.00, 1.0, False),
+        ]
+        for spec in advanced_sliders:
+            advanced_slider_grid.add_widget(self._slider(*spec))
+        advanced_group_layout.addWidget(advanced_slider_grid)
+        card_layout.addWidget(advanced_group)
 
         split_hint = QtWidgets.QLabel(
-            "Neural Face Presence and Companion Orb Overlay now have their own addon tabs, so their settings are saved separately from this AI Presence overlay tab. Right double-click the floating AI Presence window to cycle visual styles when click-through is off."
+            "Neural Face Presence and Companion Orb Overlay have their own tabs. This tab controls the general presence overlay and its presets."
         )
         split_hint.setWordWrap(True)
         split_hint.setStyleSheet("color: #9fb3c8; font-size: 11px;")
@@ -785,6 +794,11 @@ class AIPresenceModeController(QtCore.QObject):
         checkbox.setObjectName(object_name)
         checkbox.setSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Fixed)
         checkbox.setChecked(bool(_runtime_config().get(key, DEFAULT_SETTINGS.get(key, default))))
+        if key == "ai_presence_external_runtime_enabled":
+            checkbox.setToolTip(
+                "Runs the AI Presence renderer in a separate Python process. "
+                "Set NC_AI_PRESENCE_PYTHON or create runtime/ai_presence/external_venv to use a dedicated venv."
+            )
         self._controls[key] = checkbox
         checkbox.toggled.connect(lambda checked, setting_key=key: self._on_setting_changed(setting_key, bool(checked)))
         return checkbox
@@ -816,14 +830,14 @@ class AIPresenceModeController(QtCore.QObject):
         return edit
 
     def _build_neural_face_section(self):
-        group = QtWidgets.QGroupBox("Neural Face Presence")
+        group = QtWidgets.QGroupBox("Face Preset")
         group.setObjectName("ai_presence_neural_face_group")
         layout = QtWidgets.QVBoxLayout(group)
         layout.setContentsMargins(12, 14, 12, 12)
         layout.setSpacing(8)
 
         intro = QtWidgets.QLabel(
-            "Wireframe face styles for the main AI Presence overlay, with TTS lip sync, blink, gaze, emotion response, and vector glow."
+            "Choose the face style first, then adjust expression, mouth movement, and advanced wireframe details only if needed."
         )
         intro.setWordWrap(True)
         intro.setStyleSheet("color: #9fb3c8; font-size: 11px;")
@@ -833,49 +847,71 @@ class AIPresenceModeController(QtCore.QObject):
         selector_grid.setContentsMargins(0, 0, 0, 0)
         selector_grid.setHorizontalSpacing(10)
         selector_grid.setVerticalSpacing(6)
-        selector_grid.addWidget(self._checkbox("Enable Neural Face Presence", "ai_presence_neural_face_enabled_checkbox", "ai_presence_neural_face_enabled", True), 0, 0, 1, 2)
-        selector_grid.addWidget(QtWidgets.QLabel("Face style"), 0, 2)
+        selector_grid.addWidget(self._checkbox("Use Neural Face", "ai_presence_neural_face_enabled_checkbox", "ai_presence_neural_face_enabled", True), 0, 0, 1, 2)
+        selector_grid.addWidget(QtWidgets.QLabel("Face preset"), 0, 2)
         selector_grid.addWidget(self._combo("ai_presence_neural_face_variant_combo", FACE_VARIANTS, "ai_presence_neural_face_variant", "auto"), 0, 3)
+        selector_grid.addWidget(
+            self._checkbox("Use female reference face", "ai_presence_female_neural_face_enabled_checkbox", "ai_presence_female_neural_face_enabled", True),
+            1,
+            0,
+            1,
+            4,
+        )
         selector_grid.setColumnStretch(3, 1)
         layout.addLayout(selector_grid)
 
-        option_grid = QtWidgets.QGridLayout()
-        option_grid.setContentsMargins(0, 0, 0, 0)
-        option_grid.setHorizontalSpacing(10)
-        option_grid.setVerticalSpacing(4)
-        option_boxes = [
-            self._checkbox("Enable Female Neural Face", "ai_presence_female_neural_face_enabled_checkbox", "ai_presence_female_neural_face_enabled", True),
-            self._checkbox("Reference orange nodes", "ai_presence_female_reference_nodes_checkbox", "ai_presence_female_reference_nodes", True),
-            self._checkbox("Show wire nodes", "ai_presence_female_show_nodes_checkbox", "ai_presence_female_show_wire_nodes", True),
-            self._checkbox("Show wire lines", "ai_presence_female_show_lines_checkbox", "ai_presence_female_show_wire_lines", True),
-            self._checkbox("Female node glow", "ai_presence_female_node_glow_checkbox", "ai_presence_female_node_glow_enabled", True),
-            self._checkbox("Female wire pulse", "ai_presence_female_wire_pulse_checkbox", "ai_presence_female_wire_pulse_enabled", True),
-            self._checkbox("Female depth/parallax", "ai_presence_female_depth_checkbox", "ai_presence_female_depth_enabled", True),
+        behavior_group, behavior_layout = self._section_group("Face behavior", "ai_presence_neural_face_behavior_group")
+        behavior_grid = QtWidgets.QGridLayout()
+        behavior_grid.setContentsMargins(0, 0, 0, 0)
+        behavior_grid.setHorizontalSpacing(10)
+        behavior_grid.setVerticalSpacing(4)
+        behavior_boxes = [
             self._checkbox("Eye movement", "ai_presence_neural_face_eye_movement_checkbox", "ai_presence_neural_face_eye_movement_enabled", True),
-            self._checkbox("Blink", "ai_presence_neural_face_blink_checkbox", "ai_presence_neural_face_blink_enabled", True),
+            self._checkbox("Natural blinks", "ai_presence_neural_face_blink_checkbox", "ai_presence_neural_face_blink_enabled", True),
             self._checkbox("Neural glow", "ai_presence_neural_face_glow_checkbox", "ai_presence_neural_face_glow_enabled", True),
             self._checkbox("Emotion reaction", "ai_presence_neural_face_emotion_checkbox", "ai_presence_neural_face_emotion_enabled", True),
-            self._checkbox("Use TTS emotion metadata", "ai_presence_neural_face_tts_emotion_checkbox", "ai_presence_neural_face_use_tts_emotion", True),
-            self._checkbox("Fallback audio lip-sync", "ai_presence_neural_face_audio_lipsync_checkbox", "ai_presence_neural_face_audio_lipsync_enabled", True),
-            self._checkbox("Reduced face animation", "ai_presence_neural_face_reduced_checkbox", "ai_presence_neural_face_reduced_animation", False),
+            self._checkbox("Use voice emotion", "ai_presence_neural_face_tts_emotion_checkbox", "ai_presence_neural_face_use_tts_emotion", True),
+            self._checkbox("Lip-sync from audio", "ai_presence_neural_face_audio_lipsync_checkbox", "ai_presence_neural_face_audio_lipsync_enabled", True),
+            self._checkbox("Calmer animation", "ai_presence_neural_face_reduced_checkbox", "ai_presence_neural_face_reduced_animation", False),
         ]
-        for index, checkbox in enumerate(option_boxes):
-            option_grid.addWidget(checkbox, index // 3, index % 3)
-        layout.addLayout(option_grid)
+        for index, checkbox in enumerate(behavior_boxes):
+            behavior_grid.addWidget(checkbox, index // 3, index % 3)
+        behavior_layout.addLayout(behavior_grid)
+        layout.addWidget(behavior_group)
 
+        advanced_group, advanced_layout = self._section_group("Advanced wireframe", "ai_presence_neural_face_advanced_wireframe_group")
+        advanced_grid = QtWidgets.QGridLayout()
+        advanced_grid.setContentsMargins(0, 0, 0, 0)
+        advanced_grid.setHorizontalSpacing(10)
+        advanced_grid.setVerticalSpacing(4)
+        advanced_boxes = [
+            self._checkbox("Show reference nodes", "ai_presence_female_reference_nodes_checkbox", "ai_presence_female_reference_nodes", True),
+            self._checkbox("Show wire nodes", "ai_presence_female_show_nodes_checkbox", "ai_presence_female_show_wire_nodes", True),
+            self._checkbox("Show wire lines", "ai_presence_female_show_lines_checkbox", "ai_presence_female_show_wire_lines", True),
+            self._checkbox("Node glow", "ai_presence_female_node_glow_checkbox", "ai_presence_female_node_glow_enabled", True),
+            self._checkbox("Wire pulse", "ai_presence_female_wire_pulse_checkbox", "ai_presence_female_wire_pulse_enabled", True),
+            self._checkbox("Depth movement", "ai_presence_female_depth_checkbox", "ai_presence_female_depth_enabled", True),
+        ]
+        for index, checkbox in enumerate(advanced_boxes):
+            advanced_grid.addWidget(checkbox, index // 3, index % 3)
+        advanced_layout.addLayout(advanced_grid)
+        layout.addWidget(advanced_group)
+
+        slider_group, slider_layout = self._section_group("Face tuning", "ai_presence_neural_face_tuning_group")
         slider_grid = QtWidgets.QGridLayout()
         slider_grid.setContentsMargins(0, 0, 0, 0)
         slider_grid.setHorizontalSpacing(12)
         slider_grid.setVerticalSpacing(8)
         sliders = [
-            ("ai_presence_neural_face_size", "ai_presence_neural_face_size_slider", "Face Size", 0.55, 1.35, 1.0, False),
-            ("ai_presence_neural_face_opacity", "ai_presence_neural_face_opacity_slider", "Face Opacity", 0.15, 1.00, 0.92, False),
-            ("ai_presence_neural_face_animation_intensity", "ai_presence_neural_face_animation_slider", "Face Animation", 0.00, 1.50, 0.78, False),
-            ("ai_presence_neural_face_lipsync_strength", "ai_presence_neural_face_lipsync_slider", "Lip Sync Strength", 0.00, 1.75, 1.0, False),
+            ("ai_presence_neural_face_size", "ai_presence_neural_face_size_slider", "Face size", 0.55, 1.35, 1.0, False),
+            ("ai_presence_neural_face_opacity", "ai_presence_neural_face_opacity_slider", "Face visibility", 0.15, 1.00, 0.92, False),
+            ("ai_presence_neural_face_animation_intensity", "ai_presence_neural_face_animation_slider", "Face liveliness", 0.00, 1.50, 0.78, False),
+            ("ai_presence_neural_face_lipsync_strength", "ai_presence_neural_face_lipsync_slider", "Mouth movement", 0.00, 1.75, 1.0, False),
         ]
         for index, spec in enumerate(sliders):
             slider_grid.addWidget(self._slider(*spec), index // 2, index % 2)
-        layout.addLayout(slider_grid)
+        slider_layout.addLayout(slider_grid)
+        layout.addWidget(slider_group)
         return group
 
     def _build_companion_orb_section(self):
@@ -1088,16 +1124,21 @@ class AIPresenceModeController(QtCore.QObject):
             mode = str(value or "fullscreen").strip().lower()
             return mode if mode in {item[1] for item in DISPLAY_MODES} else "fullscreen"
         if key == "ai_presence_visual_style":
-            style = str(value or "breathing_orb").strip().lower()
-            return style if style in {item[1] for item in VISUAL_STYLES} else "breathing_orb"
+            style = str(value or "neural_network_pulse").strip().lower()
+            return style if style in {item[1] for item in VISUAL_STYLES} else "neural_network_pulse"
         if key == "companion_orb_display_mode":
             mode = str(value or "off").strip().lower()
             return mode if mode in {item[1] for item in ORB_DISPLAY_MODES} else "off"
         if key == "companion_orb_position":
             position = str(value or "top-center").strip().lower()
             return position if position in {item[1] for item in ORB_POSITIONS} else "top-center"
+        if key == "companion_orb_response_style":
+            return companion_orb_reply_styles.normalize_reply_style(value)
+        if key == "companion_orb_response_style_prompts":
+            return companion_orb_reply_styles.normalize_reply_style_prompts(value)
         if key == "companion_orb_visual_style":
-            return "neural_spark"
+            style = str(value or "neural_spark").strip().lower()
+            return style if style in {item[1] for item in ORB_VISUAL_STYLES} else "neural_spark"
         if key == "companion_orb_target_mode":
             mode = str(value or "window").strip().lower()
             return mode if mode in {item[1] for item in ORB_TARGET_MODES} else "window"
@@ -1124,6 +1165,8 @@ class AIPresenceModeController(QtCore.QObject):
             return max(0.00, min(1.75, float(value)))
         if key == "ai_presence_animation_speed":
             return max(0.35, min(1.75, float(value)))
+        if key == "ai_presence_idle_motion_strength":
+            return max(0.00, min(1.00, float(value)))
         if key in {"ai_presence_primary_color_strength", "ai_presence_secondary_color_strength"}:
             return max(0.00, min(1.50, float(value)))
         if key == "ai_presence_background_darkness":
@@ -1380,7 +1423,7 @@ class AIPresenceModeController(QtCore.QObject):
         payload = dict(session or {})
         for key in self.SESSION_KEYS:
             if key in payload:
-                _update_runtime_config(key, payload.get(key))
+                _update_runtime_config(key, self._normalize_setting(key, payload.get(key)))
         self.refresh_from_runtime()
         self._apply_runtime_config()
         return None
@@ -1402,6 +1445,11 @@ class NeuralFacePresenceController(AIPresenceModeController):
             "neural_face_presence_card",
             "NEURAL FACE PRESENCE",
         )
+
+        experimental_label = QtWidgets.QLabel("Expromental")
+        experimental_label.setObjectName("neural_face_presence_experimental_label")
+        experimental_label.setStyleSheet("color: #ff3b3b; font-size: 20px; font-weight: 800;")
+        card_layout.addWidget(experimental_label)
 
         intro = QtWidgets.QLabel(
             "Own settings for the wireframe face presence. These controls adjust face topology, lip sync, blink, gaze, glow, and female reference rendering without changing Companion Orb settings."

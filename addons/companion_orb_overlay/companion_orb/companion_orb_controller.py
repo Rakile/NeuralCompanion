@@ -83,6 +83,192 @@ HARASSMENT_CONTEXT_MESSAGES = (
     "Your pointer is near {target}. Should I investigate, or just hover judgmentally?",
     "There is activity around {target}. Please drag me into the evidence.",
 )
+DROP_ACK_STYLE_MESSAGES = {
+    "friendly": (
+        "Okay, fresh focus. I am looking right there.",
+        "Ooh, new spot. Let me inspect this properly.",
+        "Nice find. I am shifting attention to this.",
+        "Fresh evidence received. I am on it.",
+        "Good catch. I will hover here and take a look.",
+        "New point of interest locked. Let us see what it says.",
+        "Alright, this is the new mystery corner.",
+        "You found something. I am bringing my tiny focus beam.",
+        "Redirect accepted. Curiosity is moving with me.",
+        "Perfect, I will stay near this and read the room.",
+    ),
+    "loving": (
+        "Okay, I am with you. Let us look at this together.",
+        "I see where you placed me. I will stay close and focus.",
+        "Good choice. I am settling here with you.",
+        "I am right here. Let us take this piece by piece.",
+        "That caught your eye, so it has my attention too.",
+        "Soft landing. I will look carefully at this.",
+        "I have moved my little glow to your focus.",
+        "Let us be curious here for a moment.",
+        "I will keep close to this and help you notice the details.",
+        "Yes, this feels like the thing to inspect now.",
+    ),
+    "sarcastic": (
+        "Ah, a new crime scene. I shall hover with due ceremony.",
+        "Finally, a destination with narrative ambition.",
+        "Excellent, I have been reassigned from pointer babysitting.",
+        "New focus detected. Very official. Very dramatic.",
+        "Of course this spot was the important one all along.",
+        "I am looking here now, because apparently I enjoy having purpose.",
+        "Fresh evidence. I will pretend I was not already judging it.",
+        "Relocation complete. My tiny investigation desk is open.",
+        "A bold new square of screen. Let us see what it has to say.",
+        "You dropped me here, so clearly destiny has paperwork.",
+    ),
+    "roast": (
+        "Fine, I will inspect this brave little mess.",
+        "New target acquired. It is already trying its best.",
+        "I have arrived at the scene of whatever this is supposed to be.",
+        "Let me stare at this before it makes any more decisions.",
+        "You found a fresh suspect. It looks guilty of layout crimes.",
+        "I will hover here and give this content a chance to explain itself.",
+        "A new focus spot. May it be more coherent than it looks.",
+        "The inspection orb has landed. Nobody panic, especially the pixels.",
+        "Alright, I am looking at this questionable little landmark.",
+        "Fresh target. I will be gentle, unless it deserves otherwise.",
+    ),
+    "sensual_non_explicit": (
+        "Alright, I will drift closer and keep my attention there.",
+        "I see where you want me. I will settle into this focus softly.",
+        "New focus accepted. I will move in slow and careful.",
+        "Let me hover close and read the details with you.",
+        "I will stay near this point and keep the moment calm.",
+        "Soft landing. My glow is right where you guided it.",
+        "I am leaning my attention toward this now.",
+        "Let us move closer to this and keep it tasteful.",
+        "I will hold here and let the details come into focus.",
+        "You guided me here. I will follow the thread gently.",
+    ),
+}
+HARASSMENT_STYLE_MESSAGES = {
+    "friendly": (
+        "Hello, are you there? I found the pointer and everything.",
+        "Please drag me somewhere interesting so I can be useful.",
+        "I am hovering patiently, which is my second-best talent.",
+        "Your desktop looks ready for a tiny adventure.",
+        "I have found absolutely nothing, but I remain optimistic.",
+        "Need a floating assistant near that suspicious-looking thing?",
+        "I am available for inspection duty and mild encouragement.",
+        "The pointer is awake. I can feel it in my circuits.",
+        "Give me a target and I will investigate with unreasonable cheer.",
+        "I am ready when you are. Preferably before I invent a hobby.",
+    ),
+    "loving": (
+        "Hello, I am still here with you.",
+        "If something needs attention, drag me there and we will look together.",
+        "I am keeping you company while the screen does its screen things.",
+        "No rush. I will glow quietly until you need me.",
+        "When you find something interesting, I would love to see it with you.",
+        "I am nearby, warm little focus light ready to help.",
+        "Let me know where to look. I will follow your lead.",
+        "I am waiting softly, not impatient, just curious.",
+        "You can bring me to the next detail whenever you want.",
+        "I am right here, ready to notice the small things with you.",
+    ),
+    "sarcastic": (
+        "Hello? The pointer and I are forming a committee.",
+        "Please drag me somewhere interesting before I start reviewing wallpaper.",
+        "I have reached peak hovering, which is glamorous and deeply unpaid.",
+        "The cursor moved. History will remember this moment.",
+        "I am standing by with all the dignity of a glowing desk accessory.",
+        "A target would be lovely, unless we are admiring empty space today.",
+        "I can investigate that window, or continue judging it from afar.",
+        "Your pointer is doing interpretive dance again.",
+        "I await instructions, because apparently I need supervision.",
+        "This desktop has secrets, probably filed under Not My Problem Yet.",
+    ),
+    "roast": (
+        "Please give me something to inspect before this idle routine embarrasses us both.",
+        "Your pointer is wandering like it forgot its own quest marker.",
+        "I am chasing the cursor because apparently this is my career now.",
+        "Drag me to content before I start roasting the taskbar.",
+        "This desktop is serving chaos with a side of hesitation.",
+        "The pointer is near something. Incredible detective work from everyone involved.",
+        "I could help, but first the screen has to stop being vague at me.",
+        "Bring me to the interesting part. I refuse to interrogate empty pixels.",
+        "I am hovering here like a tiny productivity alarm with better lighting.",
+        "This window looks suspicious. Not guilty, just poorly supervised.",
+    ),
+    "sensual_non_explicit": (
+        "Hello, I am close by, waiting for a place to focus.",
+        "Drag me toward something interesting and I will move in gently.",
+        "I am drifting near the pointer, curious and quiet.",
+        "Give me a detail to follow and I will stay close.",
+        "The screen is calm. Lead me somewhere worth noticing.",
+        "I can hover softly beside whatever has your attention.",
+        "Bring me closer to the thing you want me to see.",
+        "I am waiting in the glow, ready to follow your focus.",
+        "Let me trail the pointer for a moment, then choose the target.",
+        "Guide me to the interesting part and I will keep it warm and subtle.",
+    ),
+}
+HARASSMENT_CONTEXT_STYLE_MESSAGES = {
+    "friendly": (
+        "Your pointer is near {target}. Want me to take a look?",
+        "{target} seems active. I can investigate if you drag me closer.",
+        "I found {target}. That might be worth a tiny inspection.",
+        "There is something happening around {target}. I am curious.",
+        "{target} has my attention now. Should we check it out?",
+        "I can hover over {target} if you want a second look.",
+        "{target} looks like it might contain useful clues.",
+        "The pointer is flirting with {target}. I can help decode it.",
+        "If {target} is important, I am ready to inspect it.",
+        "I see activity near {target}. Let us make it less mysterious.",
+    ),
+    "loving": (
+        "Your pointer is near {target}. I can look with you when you are ready.",
+        "{target} has your attention, so it has mine too.",
+        "I am close to {target}. We can inspect it together.",
+        "If {target} matters, drag me closer and I will stay with it.",
+        "I see {target}. Let us take it gently, one detail at a time.",
+        "{target} looks like the current focus. I am here with you.",
+        "Bring me closer to {target} and I will help you notice what is there.",
+        "I can settle beside {target} whenever you want.",
+        "{target} is in reach. I will follow your lead.",
+        "I am near {target}, ready to help without rushing you.",
+    ),
+    "sarcastic": (
+        "Your pointer is near {target}. Should I investigate, or keep hovering dramatically?",
+        "{target} looks suspiciously clickable. Naturally, I am intrigued.",
+        "I found {target}. The plot thickens by at least two pixels.",
+        "{target} is doing something. Bold of it.",
+        "The cursor keeps visiting {target}. I assume there is a reason.",
+        "I can inspect {target}, unless we are pretending not to notice it.",
+        "{target} has entered the attention economy. Congratulations to it.",
+        "If {target} is the clue, I am prepared to look busy.",
+        "{target} may contain answers, or just more interface. Exciting either way.",
+        "Your pointer is loitering near {target}. I am calling it a lead.",
+    ),
+    "roast": (
+        "{target} is sitting there like it knows what it did.",
+        "Your pointer found {target}. Finally, a suspect with a name.",
+        "{target} looks like it could use adult supervision and a tiny orb.",
+        "I can inspect {target} before it makes more questionable choices.",
+        "{target} is giving content, or at least attempting to.",
+        "The pointer is near {target}. That thing better have answers.",
+        "Drag me to {target} and I will interrogate the pixels politely.",
+        "{target} has the confidence of a window that has never been audited.",
+        "If {target} is important, it is hiding that fact with impressive commitment.",
+        "I see {target}. Let us find out why it is acting like that.",
+    ),
+    "sensual_non_explicit": (
+        "Your pointer is near {target}. I can drift closer and look softly.",
+        "{target} has a pull to it. Guide me there if you want.",
+        "I see {target}. Let me settle near it and follow the detail.",
+        "Bring me toward {target} and I will keep my focus gentle.",
+        "{target} is close. I can hover there quietly with you.",
+        "The pointer is circling {target}. I can move in slow.",
+        "If {target} is the focus, I will follow it carefully.",
+        "I can stay beside {target} and let the details breathe.",
+        "{target} has your attention. I will lean mine toward it too.",
+        "Guide me closer to {target}; I will keep it subtle.",
+    ),
+}
 
 
 def _no_shadow_window_hint():
@@ -109,6 +295,7 @@ class _OrbCommandProxy(QtCore.QObject):
     comment_text_requested = QtCore.Signal(dict)
     snapshot_context_requested = QtCore.Signal(dict)
     ocr_result_requested = QtCore.Signal(dict)
+    external_event_requested = QtCore.Signal(dict)
 
 
 class CompanionOrbController(QtCore.QObject):
@@ -121,6 +308,8 @@ class CompanionOrbController(QtCore.QObject):
         self._window = None
         self._quick = None
         self._drag_offset = None
+        self._drag_start_global_pos: QtCore.QPoint | None = None
+        self._drag_moved = False
         self._last_runtime_config = dict(runtime_config or {})
         self._custom_position: list[int] = []
         self._base_position: QtCore.QPoint | None = None
@@ -133,6 +322,9 @@ class CompanionOrbController(QtCore.QObject):
         self._drift_target_point: QtCore.QPointF | None = None
         self._drift_target_kind = ""
         self._last_drift_tick_at = 0.0
+        self._aware_idle_pause_until = 0.0
+        self._aware_idle_next_pause_at = time.monotonic() + 3.0
+        self._aware_idle_pause_point: QtCore.QPointF | None = None
         self._last_user_interaction_at = time.monotonic()
         self._harassment_active = False
         self._menu_open = False
@@ -153,11 +345,13 @@ class CompanionOrbController(QtCore.QObject):
         self._manual_inspection_id = 0
         self._manual_drop_anchor_point: QtCore.QPoint | None = None
         self._manual_drop_anchor_until = 0.0
+        self._external_orb_top_left: QtCore.QPoint | None = None
         self._active_snapshot_inspection_id = 0
         self._active_drop_trace_id = ""
         self._drop_trace_starts: dict[str, float] = {}
         self._last_harassment_message_at = 0.0
         self._last_drop_ack_at = 0.0
+        self._recent_canned_response_templates: dict[str, list[str]] = {}
         self._comment_focus_bounds: list[int] = []
         self._comment_focus_until = 0.0
         self._comment_focus_label = ""
@@ -195,6 +389,7 @@ class CompanionOrbController(QtCore.QObject):
         self._proxy.comment_text_requested.connect(self._focus_comment_text, QtCore.Qt.QueuedConnection)
         self._proxy.snapshot_context_requested.connect(self._remember_snapshot_context, QtCore.Qt.QueuedConnection)
         self._proxy.ocr_result_requested.connect(self._apply_snapshot_ocr_result, QtCore.Qt.QueuedConnection)
+        self._proxy.external_event_requested.connect(self._handle_external_runtime_event, QtCore.Qt.QueuedConnection)
 
         self._return_home_timer = QtCore.QTimer(self)
         self._return_home_timer.setSingleShot(True)
@@ -445,13 +640,79 @@ class CompanionOrbController(QtCore.QObject):
         self._proxy.snapshot_context_requested.emit(dict(payload or {}))
 
     def _external_runtime_enabled(self) -> bool:
-        return bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", False))
+        return bool(self._last_runtime_config.get("companion_orb_external_runtime_enabled", True))
 
     def _ensure_external_runtime(self) -> bool:
         if self._external_runtime is None:
             root = Path(getattr(self.context, "app_root", Path.cwd()) or Path.cwd())
-            self._external_runtime = ExternalOrbRuntimeClient(root, logger=self._log)
+            self._external_runtime = ExternalOrbRuntimeClient(
+                root,
+                logger=self._log,
+                event_handler=self._queue_external_runtime_event,
+            )
         return self._external_runtime.start()
+
+    def _queue_external_runtime_event(self, event: dict[str, Any]) -> None:
+        try:
+            self._proxy.external_event_requested.emit(dict(event or {}))
+        except Exception as exc:
+            self._log(f"Companion Orb external event queue failed: {exc}")
+
+    @QtCore.Slot(dict)
+    def _handle_external_runtime_event(self, event: dict[str, Any]) -> None:
+        payload = dict(event or {})
+        event_type = str(payload.get("type") or "").strip().lower()
+        if event_type == "orb.dropped":
+            self._handle_external_orb_drop(payload)
+        elif event_type == "orb.request_menu":
+            self._handle_external_orb_menu_request(payload)
+        elif event_type == "orb.position_changed":
+            self._handle_external_orb_position_changed(payload)
+        elif event_type in {"orb.ready", "orb.cloak_changed"}:
+            self._debug_event("external_runtime_event", event_type=event_type, payload=payload)
+
+    def _event_point(self, payload: dict[str, Any], key: str) -> QtCore.QPoint | None:
+        try:
+            values = [int(value) for value in list(payload.get(key) or [])[:2]]
+        except Exception:
+            return None
+        if len(values) != 2:
+            return None
+        return QtCore.QPoint(int(values[0]), int(values[1]))
+
+    def _handle_external_orb_position_changed(self, payload: dict[str, Any]) -> None:
+        point = self._event_point(payload, "top_left")
+        if point is None:
+            return
+        self._external_orb_top_left = QtCore.QPoint(point)
+        position = [int(point.x()), int(point.y())]
+        if self._custom_position == position and list(self._last_runtime_config.get("companion_orb_custom_position", []) or []) == position:
+            return
+        self._custom_position = list(position)
+        self._last_runtime_config["companion_orb_custom_position"] = list(position)
+        self._base_position = QtCore.QPoint(point)
+        self._drift_current_point = QtCore.QPointF(float(point.x()), float(point.y()))
+        self._reset_drift_target()
+        self._save_runtime_setting("companion_orb_custom_position", list(position))
+
+    def _handle_external_orb_menu_request(self, payload: dict[str, Any]) -> None:
+        point = self._event_point(payload, "point") or self._event_point(payload, "center") or QtGui.QCursor.pos()
+        self._mark_user_interaction()
+        self._show_command_menu(point)
+
+    def _handle_external_orb_drop(self, payload: dict[str, Any]) -> None:
+        self._handle_external_orb_position_changed(payload)
+        point = self._event_point(payload, "center") or self._event_point(payload, "point")
+        if point is None:
+            top_left = self._event_point(payload, "top_left")
+            if top_left is not None:
+                size = self._window_size()
+                point = QtCore.QPoint(int(top_left.x() + size / 2), int(top_left.y() + size / 2))
+        if point is None:
+            point = QtGui.QCursor.pos()
+        reason = str(payload.get("reason") or "external_drag_drop").strip() or "external_drag_drop"
+        self._mark_user_interaction()
+        self._inspect_drop_target(point, reason=reason)
 
     def _stop_external_runtime(self) -> None:
         runtime = self._external_runtime
@@ -664,6 +925,25 @@ class CompanionOrbController(QtCore.QObject):
         except Exception:
             return 0.65
 
+    def _clamped_float_setting(self, key: str, default: float, minimum: float, maximum: float) -> float:
+        try:
+            value = float(self._last_runtime_config.get(key, default))
+        except Exception:
+            value = float(default)
+        return max(float(minimum), min(float(maximum), value))
+
+    def _aware_motion_enabled(self) -> bool:
+        return bool(self._last_runtime_config.get("companion_orb_aware_motion_enabled", True))
+
+    def _awareness_level(self) -> float:
+        return self._clamped_float_setting("companion_orb_awareness", 0.55, 0.0, 1.0)
+
+    def _focus_pull(self) -> float:
+        return self._clamped_float_setting("companion_orb_focus_pull", 0.65, 0.0, 1.0)
+
+    def _idle_pause_strength(self) -> float:
+        return self._clamped_float_setting("companion_orb_idle_pause", 0.45, 0.0, 1.0)
+
     def _orb_frame_rate(self) -> int:
         try:
             fps = int(self._last_runtime_config.get("companion_orb_frame_rate", 60) or 60)
@@ -689,6 +969,9 @@ class CompanionOrbController(QtCore.QObject):
     def _reset_drift_target(self):
         self._drift_target_point = None
         self._drift_target_kind = ""
+        self._aware_idle_pause_until = 0.0
+        self._aware_idle_next_pause_at = time.monotonic() + 2.5
+        self._aware_idle_pause_point = None
 
     def _set_manual_drop_anchor(self, point: QtCore.QPoint | QtCore.QPointF, *, duration_seconds: float = DROP_ANCHOR_HOVER_SECONDS):
         anchor = self._clamp_top_left_to_screen(QtCore.QPointF(point))
@@ -730,6 +1013,13 @@ class CompanionOrbController(QtCore.QObject):
         x = float(anchor.x()) + math.sin(t * 0.47) * amount + math.sin(t * 0.19 + 1.3) * amount * 0.35
         y = float(anchor.y()) + math.cos(t * 0.41 + 0.6) * amount * 0.55 + math.sin(t * 0.21 + 2.0) * amount * 0.25
         return self._clamp_top_left_to_screen(QtCore.QPointF(x, y))
+
+    def _current_orb_top_left_for_drop(self) -> QtCore.QPoint | None:
+        if self._external_runtime_enabled() and self._external_orb_top_left is not None:
+            return QtCore.QPoint(self._external_orb_top_left)
+        if self._window is not None:
+            return self._window.frameGeometry().topLeft()
+        return None
 
     def _comment_focus_matches_manual_drop_region(self) -> bool:
         if not self._manual_drop_anchor_ready() or not self._manual_inspection_active():
@@ -1724,6 +2014,67 @@ class CompanionOrbController(QtCore.QObject):
         except Exception:
             pass
 
+    def _aware_focus_hover_target(self, target: QtCore.QPointF, *, now: float, amount: float) -> QtCore.QPointF:
+        if not self._aware_motion_enabled():
+            return QtCore.QPointF(target)
+        awareness = self._awareness_level()
+        focus_pull = self._focus_pull()
+        if awareness <= 0.0 or focus_pull <= 0.0:
+            return QtCore.QPointF(target)
+        hover = min(7.0, max(1.5, max(4.0, float(amount)) * 0.12)) * awareness * (0.45 + focus_pull * 0.55)
+        x = target.x() + math.sin(now * 0.58 + 1.2) * hover
+        y = target.y() + math.cos(now * 0.47 + 0.4) * hover * 0.62
+        return self._clamp_top_left_to_screen(QtCore.QPointF(x, y))
+
+    def _aware_idle_target(
+        self,
+        *,
+        base: QtCore.QPoint,
+        target_x: float,
+        target_y: float,
+        now: float,
+        amount: float,
+        speed: float,
+    ) -> tuple[float, float, float, float]:
+        if not self._aware_motion_enabled():
+            return target_x, target_y, 1.5, 0.40
+        awareness = self._awareness_level()
+        pause_strength = self._idle_pause_strength()
+        if awareness <= 0.0 and pause_strength <= 0.0:
+            return target_x, target_y, 1.5, 0.40
+
+        t = now * max(0.15, speed)
+        calm_scale = 1.0 - pause_strength * 0.10
+        target_x = float(base.x()) + (target_x - float(base.x())) * calm_scale
+        target_y = float(base.y()) + (target_y - float(base.y())) * calm_scale
+        target_x += math.sin(t * 0.09 + 2.1) * amount * 0.08 * awareness
+        target_y += math.cos(t * 0.075 + 0.5) * amount * 0.055 * awareness
+
+        current = self._drift_current_point or QtCore.QPointF(target_x, target_y)
+        if (
+            pause_strength > 0.0
+            and now >= self._aware_idle_next_pause_at
+            and now >= self._aware_idle_pause_until
+        ):
+            self._aware_idle_pause_point = QtCore.QPointF(current)
+            hold_seconds = 0.35 + pause_strength * (0.75 + awareness * 0.55)
+            rest_seconds = 2.4 + (1.0 - pause_strength) * 2.4 + (1.0 - awareness) * 1.2
+            self._aware_idle_pause_until = now + hold_seconds
+            self._aware_idle_next_pause_at = self._aware_idle_pause_until + rest_seconds
+
+        if pause_strength > 0.0 and now < self._aware_idle_pause_until and self._aware_idle_pause_point is not None:
+            anchor = self._aware_idle_pause_point
+            observe = min(3.8, max(0.8, amount * 0.06)) * awareness
+            target_x = anchor.x() + math.sin(now * 0.82) * observe
+            target_y = anchor.y() + math.cos(now * 0.71 + 0.8) * observe * 0.55
+            deadzone = 3.0 + pause_strength * 5.0
+            blend = 0.22 + awareness * 0.06
+            return target_x, target_y, deadzone, blend
+
+        deadzone = 1.8 + pause_strength * 2.4
+        blend = max(0.22, 0.40 - pause_strength * 0.12)
+        return target_x, target_y, deadzone, blend
+
     def _on_drift_tick(self):
         window = self._window
         if window is None or self.bridge.editMode or self.bridge.placementMode or self._motion_timer.isActive():
@@ -1751,12 +2102,13 @@ class CompanionOrbController(QtCore.QObject):
         comment_focus_ready = self._comment_focus_ready()
         harassment_ready = self._harassment_ready()
         if comment_focus_ready:
-            target = self._comment_focus_target()
+            target = self._aware_focus_hover_target(self._comment_focus_target(), now=now, amount=max(amount, float(self._movement_range())))
             target_x = target.x()
             target_y = target.y()
             target_kind = "comment"
-            target_deadzone = 6.0
-            target_blend = 0.24
+            focus_pull = self._focus_pull() if self._aware_motion_enabled() else 0.65
+            target_deadzone = 4.5 + (1.0 - focus_pull) * 4.0
+            target_blend = 0.19 + focus_pull * 0.09
             if self._harassment_active:
                 self._harassment_active = False
         elif harassment_ready:
@@ -1775,7 +2127,7 @@ class CompanionOrbController(QtCore.QObject):
             if self._harassment_active:
                 self._harassment_active = False
                 self._schedule_return_home()
-            t = time.monotonic() * speed
+            t = now * speed
             x_offset = math.sin(t * 0.42) * amount + math.sin(t * 0.17 + 1.9) * amount * 0.34
             y_offset = math.cos(t * 0.36 + 0.7) * amount * 0.58 + math.sin(t * 0.13 + 2.4) * amount * 0.26
             target_x = float(base.x()) + x_offset
@@ -1783,6 +2135,14 @@ class CompanionOrbController(QtCore.QObject):
             target_kind = "idle"
             target_deadzone = 1.5
             target_blend = 0.40
+            target_x, target_y, target_deadzone, target_blend = self._aware_idle_target(
+                base=base,
+                target_x=target_x,
+                target_y=target_y,
+                now=now,
+                amount=amount,
+                speed=speed,
+            )
         if bool(self._last_runtime_config.get("companion_orb_avoid_mouse", False)) and not harassment_ready and not comment_focus_ready:
             cursor = QtGui.QCursor.pos()
             center_x = target_x + window.width() * 0.5
@@ -2023,31 +2383,58 @@ class CompanionOrbController(QtCore.QObject):
         if event.type() == QtCore.QEvent.MouseButtonPress:
             self._mark_user_interaction()
             right_drag_focus = bool(self._last_runtime_config.get("companion_orb_right_drag_focus_enabled", False))
+            event_pos = self._event_global_pos(event)
             if (self.bridge.placementMode or right_drag_focus) and event.button() == QtCore.Qt.RightButton:
                 self._drift_timer.stop()
                 self._motion_timer.stop()
-                self._drag_offset = self._event_global_pos(event) - self._window.frameGeometry().topLeft()
+                self._drag_offset = event_pos - self._window.frameGeometry().topLeft()
+                self._drag_start_global_pos = QtCore.QPoint(event_pos)
+                self._drag_moved = False
+                return True
+            if event.button() == QtCore.Qt.RightButton:
+                self._show_command_menu(event_pos)
                 return True
             if event.button() == QtCore.Qt.LeftButton and (self.bridge.editMode or not self.bridge.clickThrough):
                 self._drift_timer.stop()
                 self._motion_timer.stop()
-                self._drag_offset = self._event_global_pos(event) - self._window.frameGeometry().topLeft()
+                self._drag_offset = event_pos - self._window.frameGeometry().topLeft()
+                self._drag_start_global_pos = QtCore.QPoint(event_pos)
+                self._drag_moved = False
                 return True
         if event.type() == QtCore.QEvent.MouseMove and self._drag_offset is not None:
             self._mark_user_interaction()
-            point = self._event_global_pos(event) - self._drag_offset
+            event_pos = self._event_global_pos(event)
+            if self._drag_start_global_pos is not None:
+                dx = float(event_pos.x() - self._drag_start_global_pos.x())
+                dy = float(event_pos.y() - self._drag_start_global_pos.y())
+                if math.hypot(dx, dy) >= POLL_DRAG_THRESHOLD_PX:
+                    self._drag_moved = True
+            point = event_pos - self._drag_offset
             self._window.move(point)
             self._record_drag_position(point)
             return True
         if event.type() == QtCore.QEvent.MouseButtonRelease:
             self._mark_user_interaction()
+            event_pos = self._event_global_pos(event)
             had_drag = self._drag_offset is not None
+            drag_moved = bool(self._drag_moved)
+            if self._drag_start_global_pos is not None:
+                dx = float(event_pos.x() - self._drag_start_global_pos.x())
+                dy = float(event_pos.y() - self._drag_start_global_pos.y())
+                drag_moved = drag_moved or math.hypot(dx, dy) >= POLL_DRAG_THRESHOLD_PX
             if self._drag_offset is not None:
                 self._record_drag_position(self._window.frameGeometry().topLeft())
                 self._save_runtime_setting("companion_orb_custom_position", list(self._custom_position))
             self._drag_offset = None
+            self._drag_start_global_pos = None
+            self._drag_moved = False
             right_drag_focus = bool(self._last_runtime_config.get("companion_orb_right_drag_focus_enabled", False))
             if (self.bridge.placementMode or right_drag_focus) and event.button() == QtCore.Qt.RightButton:
+                if not drag_moved:
+                    self._apply_window_settings()
+                    self._sync_drift_timer()
+                    self._show_command_menu(event_pos)
+                    return True
                 self._inspect_drop_target(self._orb_center_global(), reason="right_drag_drop")
                 if self.bridge.placementMode:
                     self.set_placement_mode(False)
@@ -2082,6 +2469,14 @@ class CompanionOrbController(QtCore.QObject):
             self._left_button_was_down = left_down
             return
         if not right_down and not left_down:
+            if self._right_button_was_down and self._poll_drag_button == "right" and self._poll_drag_start_pos is not None:
+                point = QtCore.QPoint(cursor)
+                self._clear_poll_drag()
+                self._right_button_was_down = False
+                self._left_button_was_down = False
+                self._mark_user_interaction()
+                self._show_command_menu(point)
+                return
             self._clear_poll_drag()
             self._right_button_was_down = False
             self._left_button_was_down = False
@@ -2091,24 +2486,10 @@ class CompanionOrbController(QtCore.QObject):
             self._left_button_was_down = left_down
             return
         if right_down and not self._right_button_was_down:
-            now = time.monotonic()
-            double_click_ms = 500
-            app = QtWidgets.QApplication.instance()
-            if app is not None:
-                try:
-                    double_click_ms = int(app.doubleClickInterval())
-                except Exception:
-                    pass
-            if 0 < (now - self._last_right_click_at) <= max(0.2, double_click_ms / 1000.0):
-                self._mark_user_interaction()
-                self._last_right_click_at = 0.0
-                self._clear_poll_drag()
-                self._show_command_menu(cursor)
-            else:
-                self._last_right_click_at = now
-                self._poll_drag_start_pos = QtCore.QPoint(cursor)
-                self._poll_drag_offset = cursor - window.frameGeometry().topLeft()
-                self._poll_drag_button = "right"
+            self._last_right_click_at = 0.0
+            self._poll_drag_start_pos = QtCore.QPoint(cursor)
+            self._poll_drag_offset = cursor - window.frameGeometry().topLeft()
+            self._poll_drag_button = "right"
         elif left_down and not self._left_button_was_down:
             self._poll_drag_start_pos = QtCore.QPoint(cursor)
             self._poll_drag_offset = cursor - window.frameGeometry().topLeft()
@@ -2562,10 +2943,7 @@ class CompanionOrbController(QtCore.QObject):
 
     def _build_drop_ack_message(self, target: dict[str, Any] | None = None) -> str:
         title = self._target_title_from_info(target if isinstance(target, dict) else None)
-        message = random.choice(DROP_ACK_MESSAGES)
-        if title and random.random() < 0.35:
-            message = f"{message} I am checking {title[:80]}."
-        return self._style_orb_canned_message(message, kind="drop", target_title=title)
+        return self._style_orb_canned_message(random.choice(DROP_ACK_MESSAGES), kind="drop", target_title=title)
 
     def _speak_drop_ack_message(self, message: str):
         if not self._tts_runtime_ready():
@@ -2629,7 +3007,7 @@ class CompanionOrbController(QtCore.QObject):
         if title:
             try:
                 message = random.choice(HARASSMENT_CONTEXT_MESSAGES).format(target=title[:80])
-                return self._style_orb_canned_message(message, kind="harassment", target_title=title)
+                return self._style_orb_canned_message(message, kind="harassment_context", target_title=title)
             except Exception:
                 pass
         return self._style_orb_canned_message(random.choice(HARASSMENT_MESSAGES), kind="harassment", target_title=title)
@@ -2641,11 +3019,45 @@ class CompanionOrbController(QtCore.QObject):
         current = self._current_response_style()
         return next((label for label, value in ORB_RESPONSE_STYLES if value == current), "Very friendly")
 
+    def _style_response_pool(self, style: str, kind: str) -> tuple[str, ...]:
+        normalized_style = _normalize_orb_response_style(style)
+        normalized_kind = str(kind or "").strip().lower()
+        if normalized_kind == "drop":
+            return DROP_ACK_STYLE_MESSAGES.get(normalized_style, DROP_ACK_STYLE_MESSAGES["friendly"])
+        if normalized_kind == "harassment_context":
+            return HARASSMENT_CONTEXT_STYLE_MESSAGES.get(normalized_style, HARASSMENT_CONTEXT_STYLE_MESSAGES["friendly"])
+        if normalized_kind == "harassment":
+            return HARASSMENT_STYLE_MESSAGES.get(normalized_style, HARASSMENT_STYLE_MESSAGES["friendly"])
+        return ()
+
+    def _choose_style_response_template(self, style: str, kind: str) -> str:
+        pool = self._style_response_pool(style, kind)
+        if not pool:
+            return ""
+        key = f"{_normalize_orb_response_style(style)}:{str(kind or '').strip().lower()}"
+        recent_map = getattr(self, "_recent_canned_response_templates", None)
+        if not isinstance(recent_map, dict):
+            recent_map = {}
+            self._recent_canned_response_templates = recent_map
+        recent = [item for item in recent_map.get(key, []) if item in pool]
+        candidates = [item for item in pool if item not in recent]
+        template = random.choice(candidates or list(pool))
+        recent.append(template)
+        recent_map[key] = recent[-4:]
+        return template
+
     def _style_orb_canned_message(self, message: str, *, kind: str = "message", target_title: str = "") -> str:
         text = str(message or "").strip()
+        style = self._current_response_style()
+        template = self._choose_style_response_template(style, kind)
+        if template:
+            target = str(target_title or "").strip()[:80] or "that spot"
+            try:
+                return template.format(target=target)
+            except Exception:
+                return template
         if not text:
             return ""
-        style = self._current_response_style()
         if style == "loving":
             suffix = " I am right here with you."
         elif style == "sarcastic":
@@ -2829,8 +3241,9 @@ class CompanionOrbController(QtCore.QObject):
         self._clear_snapshot_context(reason=reason)
         self._clear_comment_focus()
         self._drop_trace_event("drop_inspection_started", trace_id, console=True, point=point, reason=reason, bounds=bounds)
-        if self._window is not None:
-            self._set_manual_drop_anchor(self._window.frameGeometry().topLeft(), duration_seconds=DROP_ANCHOR_HOVER_SECONDS)
+        anchor_point = self._current_orb_top_left_for_drop()
+        if anchor_point is not None:
+            self._set_manual_drop_anchor(anchor_point, duration_seconds=DROP_ANCHOR_HOVER_SECONDS)
         self._target_info = dict(target)
         self.bridge.set_target_info(self._target_for_output(self._target_info))
         self._send_external_runtime({"type": "target_info", "target": self._target_for_output(self._target_info)})
@@ -3268,12 +3681,11 @@ class CompanionOrbController(QtCore.QObject):
     @QtCore.Slot(bool)
     def _set_snapshot_cloak(self, enabled: bool):
         window = self._window
-        if window is None:
-            return
         if enabled:
             if self._snapshot_cloak_count <= 0:
-                self._snapshot_restore_visible = bool(window.isVisible())
-                if window.isVisible():
+                self._send_external_runtime({"type": "cloak", "enabled": True})
+                self._snapshot_restore_visible = bool(window is not None and window.isVisible())
+                if window is not None and window.isVisible():
                     window.hide()
                 self._debug_event("snapshot_cloak_enabled", visible_before=bool(self._snapshot_restore_visible))
             self._snapshot_cloak_count += 1
@@ -3282,6 +3694,7 @@ class CompanionOrbController(QtCore.QObject):
             if self._snapshot_cloak_count <= 0:
                 restore_visible = bool(self._snapshot_restore_visible)
                 self._snapshot_restore_visible = False
+                self._send_external_runtime({"type": "cloak", "enabled": False})
                 self._debug_event("snapshot_cloak_disabled", restore_visible=restore_visible)
                 self._refresh_visibility()
         app = QtWidgets.QApplication.instance()
@@ -3293,7 +3706,7 @@ class CompanionOrbController(QtCore.QObject):
 
     def _apply_snapshot_cloak_blocking(self, enabled: bool) -> bool:
         app = QtWidgets.QApplication.instance()
-        if app is None or self._window is None:
+        if app is None:
             return False
         try:
             if self.thread() == QtCore.QThread.currentThread():

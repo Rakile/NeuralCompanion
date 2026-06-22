@@ -11,6 +11,7 @@ faster-whisper
 gdown
 gradio==5.44.1
 huggingface_hub==0.33.5
+hf_xet
 imageio[ffmpeg]
 keyboard
 librosa==0.11.0

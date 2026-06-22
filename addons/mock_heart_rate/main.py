@@ -261,6 +261,7 @@ class Addon(BaseAddon):
         show_button = self._ui_child(widget, "btn_mock_heart_rate_show", QtWidgets.QPushButton)
         hide_button = self._ui_child(widget, "btn_mock_heart_rate_hide", QtWidgets.QPushButton)
         reset_button = self._ui_child(widget, "btn_mock_heart_rate_reset", QtWidgets.QPushButton)
+        details_title = self._ui_child(widget, "heart_rate_details_title", QtWidgets.QLabel)
         details = self._ui_child(widget, "mock_heart_rate_details", QtWidgets.QPlainTextEdit)
 
         if any(item is None for item in (status_label, show_button, hide_button, reset_button, details)):
@@ -269,16 +270,15 @@ class Addon(BaseAddon):
         show_button.clicked.connect(lambda: self.show_window())
         hide_button.clicked.connect(lambda: self.hide_window())
         reset_button.clicked.connect(lambda: self.set_bpm(72))
+        if details_title is not None:
+            details_title.setText("How this source connects")
         details.setReadOnly(True)
         details.setPlainText(
             "\n".join(
                 [
-                    "Peer service: heart_rate.mock",
-                    "Provider id: heart_rate",
-                    "Example addon usage:",
-                    "  service = context.services.get('heart_rate.mock')",
-                    "  bpm = service.current_bpm()",
-                    "  token = service.subscribe(callback, interval_seconds=0.5)",
+                    "Use the floating BPM window to simulate heart-rate changes.",
+                    "When Heart Rate is selected in Background Awareness, NC can use the current BPM as quiet context.",
+                    "Other heart-rate reaction rules can listen to this source without extra setup.",
                 ]
             )
         )

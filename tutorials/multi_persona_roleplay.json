@@ -2,62 +2,134 @@
   "id": "multi_persona_roleplay",
   "order": 14,
   "title": "14. Multi Persona Roleplay",
-  "description": "Status-first setup for MPRC, AlternativeReality stories, Master Story drafts, Visual Reply provider styles, and persona voice routing.",
+  "description": "A guided setup for MPRC story mode: master story drafts, focused cast turns, multi-voice output, Story Images, Story Memory, Spotify music, remote play, Chromecast, and troubleshooting.",
   "steps": [
     {
       "title": "Open Roleplay",
-      "body": "Enable the Multi Persona Roleplay addon if needed, then open the Roleplay workspace tab. The addon has its own Guide tab for quick local reference while you work.",
-      "target": "main_window"
+      "body": "Open the Roleplay workspace tab. This addon is separate from normal main chat and has its own Story Health, Play, Master, Registry, Voice, Story Images, Story Sounds, Story Memory, Guide, and Troubleshooting sections. Use Read steps aloud or Read Step if you want spoken guidance while switching sections.",
+      "tab": "Roleplay",
+      "target": "multi_persona_roleplay_tab",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Start With Status",
-      "body": "Use Status as the first stop. Start Demo / Validate / Continue loads a known-good demo, validates narrator, voices, Visual Reply, AudioFX, memory, and then queues a Continue turn.",
-      "target": "main_window"
+      "title": "Start With Story Health",
+      "body": "Story Health is the safest first stop. Start Demo / Validate / Continue loads a known-good demo, checks narrator lock, voices, Story Images, Story Sounds, story memory, and then queues a Continue turn so you can prove the whole loop before editing.",
+      "tab": "Roleplay",
+      "target": "mprc_story_first_run",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Pick Narrator and Personas",
-      "body": "Choose the narrator and active story personas before long sessions. Registry manages the cast, Editor changes persona prompts and AR profiles, and Status shows whether story personas are linked correctly.",
-      "target": "main_window"
+      "title": "Pick the Active Cast",
+      "body": "Registry manages the cast. Keep one master narrator and only enable the personas that should participate in the current story. A tighter cast gives the story director a cleaner speaker pool and reduces character blending.",
+      "tab": "Roleplay",
+      "target": "mprc_persona_list",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Create a Master Story",
-      "body": "Use the Master Story flow in the Master tab when you want one prompt to draft a full story setup. Generate Story Setup creates a JSON draft with session state, AR state, personas, content safety, and generation metadata. Review the draft, then Apply Draft.",
-      "target": "main_window"
+      "title": "Create a Master Story Draft",
+      "body": "The Master Story prompt turns a single rough idea into a draft with premise, session state, AR state, cast, visual direction, and story metadata. Review the generated JSON before Apply Draft so broken names, voices, and scene goals do not become the new baseline.",
+      "tab": "Roleplay",
+      "target": "mprc_master_story_prompt",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Export a Story Package",
-      "body": "Use Story Library Export below the Story Library card to create a portable story package. Choose which sections to include; green rows mean data exists. When selected, avatar images, voice samples, and AudioFX files are copied into the package and remapped into the addon's runtime assets folder on import.",
-      "target": "main_window"
+      "title": "Export Story Packages",
+      "body": "Story Library Export can package the story, selected personas, voice samples, memory, AudioFX, and visual assets. Use it after a setup works, not before, so imported stories bring useful data instead of unfinished experiments.",
+      "tab": "Roleplay",
+      "target": "mprc_story_export_button",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Configure Voices",
-      "body": "Open Voice and assign a local voice sample path to every persona that should sound different. Newly created personas need voice samples, and the active NC TTS backend must support reference audio such as Chatterbox or PocketTTS.",
-      "target": "main_window"
+      "title": "Assign Persona Voices",
+      "body": "Voice assigns samples and backend overrides per persona. The multi-voice output works best when the active TTS backend supports reference audio and each speaking persona has a clear voice sample.",
+      "tab": "Roleplay",
+      "target": "mprc_voice_sample",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Test Play and Response Speech",
-      "body": "Use Play or the Response Window path to test one story response. Plain AR narration should stay on the narrator voice. Voices should switch only on explicit labels such as [NARRATOR] or [CHARACTER: Exact Persona Display Name], while explicit payload persona IDs always win.",
-      "target": "main_window"
+      "title": "Use Play as the Live Story Surface",
+      "body": "Play is the live session surface. Start Play, Stop, Restart Story, Clear, Float Play, Voice, Intent, Focus, and Advanced stay together so the story can be driven without hunting through setup tabs.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_play_toolbar_panel",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Inspect Voice Routing",
-      "body": "Use Debug or Status -> Voice Routing Inspector when a voice sounds wrong. Route reasons include explicit_persona, text_speaker_label, ar_narrator_default, ar_stream_speaker, current_speaker, and active_persona.",
-      "target": "main_window"
+      "title": "Use Focused Speaker Deliberately",
+      "body": "The Focus selector is the practical cast-mode control. Choose a specific character for focused speaker turns when you want less blending and stronger dialogue. Use broader joined-cast behavior for setup, recap, or master-story style turns.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_speaker_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Configure Visual Reply",
-      "body": "Open Visual for per-persona story images. Grok/xAI uses richer natural-language prompts with story context and character appearance. Runware uses shorter direct prompts with concrete visual phrases. ComfyUI keeps compact positive prompts.",
-      "target": "main_window"
+      "title": "Keep Structured Output On for Multi-TTS",
+      "body": "Structured Output asks the model for clean narrator and character segments. That gives voice routing a safer contract than guessing from loose paragraphs. Export Structured LLM Output is useful when debugging bad segmentation.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_structured_output_checkbox",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Troubleshoot Images",
-      "body": "If images do not generate, check the main Visual Reply provider, model, API key or base URL, then check the persona visual toggle, trigger mode, cooldown, and max auto images. Use Preview Image Prompt before spending provider calls.",
-      "target": "main_window"
+      "title": "Read the Story Director Summary",
+      "body": "The Story Director summary shows the current premise/state, focused cast mode, pacing, choice nudge, speaker discipline, and structured-output state. If the story starts wandering, this is the first summary to inspect.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_story_director_summary",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     },
     {
-      "title": "Use Audio and Debug",
-      "body": "Audio prepares Story Sounds for tags such as [AMBIENCE], [MUSIC], [FX], and [STINGER]. Debug shows prompt context, Visual Reply payloads, provider prompt style, voice route results, and compact state.",
-      "target": "main_window"
+      "title": "Check the Visual Beat",
+      "body": "Story Images and Visual Beat explain what Visual Reply should draw: the actual scene beat, subject, mood, location, and image intent. Use OpenAI, Grok/xAI, Runware, or another active image provider according to the story's needs. The beat should describe the moment the player cares about, not a generic summary of the whole story.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_visual_beat_summary",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
+    },
+    {
+      "title": "Let Spotify Sense Handle Story Music",
+      "body": "Spotify Music shows the soundtrack request sent to Spotify Sense. Use it for ambient or story music that follows the scene mood, with fades and lower-music-while-speaking behavior handled by Spotify Sense so TTS remains understandable.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_spotify_music_summary",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
+    },
+    {
+      "title": "Use Remote and Chromecast After Local Play Works",
+      "body": "Advanced includes LAN Remote and Chromecast controls. Keep local Play working first, then test the phone app or cast target. The remote code is a pairing code; do not treat it like a public internet password.",
+      "tab": "Roleplay",
+      "target": "mprc_chat_chromecast_device_combo",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
+    },
+    {
+      "title": "Troubleshoot the Exact Payloads",
+      "body": "Troubleshooting shows the effective prompt, Visual Reply prompt, Voice Routing Check, compact state, and Visual Reply call log. Use it when a voice is wrong, an image misses the scene, memory feels stale, or Spotify music does not match the story.",
+      "tab": "Roleplay",
+      "target": "mprc_debug_visual_calls",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Roleplay" }
+      ]
     }
   ]
 }

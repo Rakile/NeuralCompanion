@@ -43,6 +43,7 @@ Item {
     property real moodParticleMultiplier: presenceBridge ? presenceBridge.moodParticleMultiplier : 1.0
     property real glowStrength: presenceBridge ? presenceBridge.glowStrength : 1.0
     property real animationSpeed: presenceBridge ? presenceBridge.animationSpeed : 1.0
+    property real idleMotionStrength: presenceBridge ? presenceBridge.idleMotionStrength : 0.16
     property real primaryColorStrength: presenceBridge ? presenceBridge.primaryColorStrength : 1.0
     property real secondaryColorStrength: presenceBridge ? presenceBridge.secondaryColorStrength : 1.0
     property real backgroundDarkness: presenceBridge ? presenceBridge.backgroundDarkness : 1.0
@@ -137,6 +138,27 @@ Item {
     function smoothLevel(current, target, attack, release) {
         var factor = target > current ? attack : release
         return current + (target - current) * factor
+    }
+
+    function idleMotionOffset(axis, width, height) {
+        var strength = root.reducedEffects ? 0.0 : root.clamp01(root.idleMotionStrength)
+        if (strength <= 0.0) {
+            return 0.0
+        }
+        var span = Math.max(1.0, Math.min(width, height))
+        var maxOffset = Math.min(18.0, Math.max(1.5, span * 0.014)) * strength
+        if (axis === "x") {
+            return (
+                Math.sin(root.animationTick * 0.67 + 0.35)
+                + Math.sin(root.animationTick * 1.31 + 1.70) * 0.42
+                + Math.sin(root.animationTick * 2.07 + 0.90) * 0.18
+            ) * maxOffset
+        }
+        return (
+            Math.cos(root.animationTick * 0.59 + 1.10)
+            + Math.cos(root.animationTick * 1.17 + 0.45) * 0.38
+            + Math.cos(root.animationTick * 1.83 + 2.20) * 0.20
+        ) * maxOffset
     }
 
     function loadFemaleReferenceTopology() {
@@ -1674,8 +1696,8 @@ Item {
             var style = String(root.visualStyle || "breathing_orb").toLowerCase()
             var primary = root.palettePrimary(style)
             var accent = root.paletteAccent(style)
-            var cx = width * 0.5
-            var cy = height * 0.5
+            var cx = width * 0.5 + root.idleMotionOffset("x", width, height)
+            var cy = height * 0.5 + root.idleMotionOffset("y", width, height)
             var pulse = 1.0 + Math.sin(root.animationTick * 2.0) * 0.035 * root.pulseIntensity + voice * 0.12 * root.speakingReactivity
             var base = Math.min(width, height) * (style === "minimal_dot" ? 0.075 : 0.19)
             var radius = Math.max(style === "minimal_dot" ? 18 : 42, base * pulse)
@@ -1745,6 +1767,7 @@ Item {
     onOverlayOpacityChanged: presenceCanvas.requestPaint()
     onPulseIntensityChanged: presenceCanvas.requestPaint()
     onSpeakingReactivityChanged: presenceCanvas.requestPaint()
+    onIdleMotionStrengthChanged: presenceCanvas.requestPaint()
     onNodeDensityChanged: presenceCanvas.requestPaint()
     onParticleDensityChanged: presenceCanvas.requestPaint()
     onReducedEffectsChanged: presenceCanvas.requestPaint()

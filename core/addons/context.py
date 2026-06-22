@@ -292,6 +292,34 @@ class AddonUIService(AddonServiceBase):
         self._tab_contributions.append(contribution)
         return contribution
 
+    def register_manifest_tab(
+        self,
+        *,
+        id: str,
+        factory: Callable[["AddonContext"], Any],
+        title: str | None = None,
+        area: str | None = None,
+        order: int | None = None,
+        tooltip: str | None = None,
+        parent_tab_id: str | None = None,
+        icon_path: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> TabContribution:
+        entry = self._manifest_ui_entry(id)
+        entry_metadata = dict(entry.get("metadata") or {})
+        entry_metadata.update(dict(metadata or {}))
+        return self.register_tab(
+            id=id,
+            title=str(title if title is not None else entry.get("title", "")).strip(),
+            factory=factory,
+            area=str(area if area is not None else entry.get("area", "top_level")).strip() or "top_level",
+            order=int(order if order is not None else entry.get("order", 1000)),
+            tooltip=str(tooltip if tooltip is not None else entry.get("tooltip", "")).strip(),
+            parent_tab_id=str(parent_tab_id if parent_tab_id is not None else entry.get("parent_tab_id", "")).strip(),
+            icon_path=str(icon_path if icon_path is not None else entry.get("icon_path", "")).strip(),
+            metadata=entry_metadata,
+        )
+
     def register_manifest_designer_tab(
         self,
         *,

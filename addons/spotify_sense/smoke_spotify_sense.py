@@ -10,6 +10,8 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from PySide6 import QtWidgets
+
 from addons.spotify_sense.intent_router import infer_music_mood, route_music_intent
 from addons.spotify_sense.settings import SpotifySenseSettings
 from addons.spotify_sense.controller import SpotifySenseController
@@ -91,6 +93,12 @@ def main():
         assert settings.data["require_confirmation"] is True
         assert settings.data["hidden_response_cooldown_seconds"] == 300
         assert settings.data["user_music_change_cooldown_seconds"] == 120
+        assert settings.data["hidden_commentary_style_prompt"]
+        assert isinstance(settings.data["hidden_sensory_quick_ids"], list)
+        settings.update(story_mode_background_music=True, music_response_mode="companion")
+        assert settings.data["music_response_mode"] == "story_soundtrack"
+        settings.update(story_mode_background_music=False, music_response_mode="companion")
+        assert settings.data["music_response_mode"] == "companion"
         settings.update(client_id="fake-client-id")
         client = SpotifySenseClient(settings)
         auth = client.build_authorization_url()
@@ -183,6 +191,7 @@ def main():
         assert infer_music_mood({"name": "dark cyberpunk focus", "artists": ["Example"]}) in {"dark", "focus"}
 
         controller = SpotifySenseController(_Context(settings.storage))
+        assert any(record["id"] == "builtin.natural_companion" for record in controller._hidden_sensory_preset_records())
         assert controller.collect_chat_context({}) is None
         assert controller.capture_sensory_snapshot({}) is None
         compact_with_art = controller._compact_track(
@@ -294,11 +303,44 @@ def main():
         assert controller._pending_track_change_context is not None
         sensory = controller.capture_sensory_snapshot({})
         assert sensory and sensory["source"] == "spotify_sense"
+        assert sensory["content"] == sensory["content_text"]
+        assert "should_speak=true" in sensory["content"]
+        assert "proactive_candidate" in sensory["content"]
+        assert "Commentary style:" in sensory["content"]
+        assert "Suggested comment cue:" not in sensory["content"]
+        assert "Song changed:" not in sensory["content"]
+        assert "Song changed" not in sensory["metadata"].get("proactive_candidate", "")
+        assert sensory["metadata"]["proactive_candidate"] == ""
+        assert sensory["metadata"]["comment_angle"]
+        assert sensory["metadata"]["comment_brief"]["track"] == "calm night"
+        assert sensory["metadata"]["recent_comment_angles"]
+        assert sensory["metadata"]["commentary_style_prompt"]
         assert sensory["metadata"]["metadata_only"] is True
         assert sensory["metadata"]["hidden_response_allowed"] is True
         assert controller.capture_sensory_snapshot({}) is None
+        controller._last_hidden_response_snapshot_at = 0.0
+        controller._pending_track_change_context = {
+            "changed_at": time.time(),
+            "response_allowed_at": time.time(),
+            "track": controller._music_context_payload_from_track(track_two),
+            "commentary": controller._commentary_for_track(track_two),
+        }
+        assert controller.capture_sensory_snapshot({}) is None
         controller._handle_track_monitor_change({"id": "track-3", "name": "calm morning", "artists": ["Example"]})
-        assert controller._pending_track_change_context["track"]["track"] == "calm night"
+        assert controller._pending_track_change_context["track"]["track"] == "calm morning"
+        assert controller.capture_sensory_snapshot({}) is None
+        controller.settings.update(music_awareness_enabled=False)
+        controller._last_track_comment_at = 0.0
+        controller._last_hidden_response_snapshot_at = 0.0
+        controller._handle_track_monitor_change({"id": "track-4", "name": "storm piano", "artists": ["Example"]})
+        sensory_without_chat_awareness = controller.capture_sensory_snapshot({})
+        assert sensory_without_chat_awareness and sensory_without_chat_awareness["source"] == "spotify_sense"
+        assert "storm piano" in sensory_without_chat_awareness["content"]
+        assert sensory_without_chat_awareness["metadata"]["hidden_response_allowed"] is True
+        assert sensory_without_chat_awareness["metadata"]["comment_angle"] != sensory["metadata"]["comment_angle"]
+        assert "Suggested comment cue:" not in sensory_without_chat_awareness["content"]
+        assert "Song changed:" not in sensory_without_chat_awareness["content"]
+        controller.settings.update(music_awareness_enabled=True)
 
         controller.settings.update(allow_llm_control=True, user_music_change_cooldown_seconds=120)
         controller._last_user_music_change_at = time.time()
@@ -376,6 +418,259 @@ def main():
         assert restored["restored"] is True
         assert volume_calls[-1] == (55, "device-2")
 
+        low_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            duck_while_speaking=True,
+            restore_volume_after_speech=True,
+            default_device_id="quiet-device",
+            default_volume=20,
+            duck_volume_percent=30,
+            duck_fade_down_ms=0,
+            duck_fade_up_ms=0,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "quiet-device", "volume_percent": 10}},
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            low_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        low_duck = controller.invoke_capability("tts.duck.start", {"source": "smoke-low-volume"})
+        assert low_duck["ok"] is True
+        assert low_duck["ducked"] is True
+        assert low_volume_calls[-1][0] < 10
+        assert low_volume_calls[-1][1] == "quiet-device"
+        controller.invoke_capability("tts.duck.end", {"source": "smoke-low-volume"})
+
+        fallback_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            duck_while_speaking=True,
+            restore_volume_after_speech=True,
+            default_device_id="fallback-device",
+            default_volume=44,
+            duck_volume_percent=12,
+            duck_fade_down_ms=0,
+            duck_fade_up_ms=0,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": False,
+            "error_code": "no_active_device",
+            "error": "No active Spotify device returned playback state.",
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            fallback_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        fallback_duck = controller.invoke_capability("tts.duck.start", {"source": "smoke-fallback"})
+        assert fallback_duck["ok"] is True
+        assert fallback_duck["ducked"] is True
+        assert fallback_duck["previous_volume"] == 44
+        assert fallback_volume_calls[-1] == (12, "fallback-device")
+        fallback_restore = controller.invoke_capability("tts.duck.end", {"source": "smoke-fallback"})
+        assert fallback_restore["ok"] is True
+        assert fallback_restore["restored"] is True
+        assert fallback_volume_calls[-1] == (44, "fallback-device")
+
+        engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
+        duck_start_index = engine_source.index("def _notify_addon_tts_duck_start")
+        duck_end_index = engine_source.index("\ndef _notify_addon_tts_duck_end", duck_start_index)
+        tts_volume_index = engine_source.index("\ndef _tts_playback_voice_volume", duck_end_index)
+        duck_start_source = engine_source[duck_start_index:duck_end_index]
+        duck_end_source = engine_source[duck_end_index:tts_volume_index]
+        assert "_invoke_all_addon_capabilities" in duck_start_source
+        assert "_invoke_all_addon_capabilities" in duck_end_source
+
+        story_play_calls = []
+        story_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            allow_llm_control=True,
+            require_confirmation=True,
+            story_mode_background_music=True,
+            autonomous_music="full",
+            default_device_id="story-device",
+            story_music_target_volume=34,
+            story_music_transition_floor_volume=6,
+            story_music_fade_down_ms=0,
+            story_music_fade_up_ms=0,
+            story_music_prefer_ambient=True,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "story-device", "volume_percent": 61}},
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            story_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        controller.client.play = lambda query=None, device_id=None, preferred_type=None, **_kwargs: (
+            story_play_calls.append((query, device_id, preferred_type))
+            or {
+                "ok": True,
+                "query": query,
+                "device_id": device_id,
+                "preferred_type": preferred_type,
+                "selected_item": {"type": "playlist", "name": "Archive Atmospheres"},
+            }
+        )
+        story_result = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "A sealed door waits in a blue archive corridor.",
+                "location": "Archive corridor",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert story_result["ok"] is True
+        assert story_result["started"] is True
+        assert story_result["query"] == "mysterious cinematic ambient story ambience"
+        assert story_result["fade"]["from"] == 61
+        assert story_result["fade"]["floor"] == 6
+        assert story_result["fade"]["target"] == 34
+        assert story_play_calls[-1] == ("mysterious cinematic ambient story ambience", "story-device", "playlist")
+        assert story_volume_calls[:2] == [(6, "story-device"), (34, "story-device")]
+
+        story_play_calls.clear()
+        story_volume_calls.clear()
+        controller.settings.update(default_device_id="stale-story-device")
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "live-story-device", "volume_percent": 50}},
+        }
+        live_device_result = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "The lantern reveals a hidden archive map.",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert live_device_result["ok"] is True
+        assert live_device_result["started"] is True
+        assert story_play_calls[-1] == ("mysterious cinematic ambient story ambience", "live-story-device", "playlist")
+        assert story_volume_calls[:2] == [(6, "live-story-device"), (34, "live-story-device")]
+
+        story_race_play_calls = []
+        story_race_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            allow_llm_control=True,
+            require_confirmation=True,
+            duck_while_speaking=True,
+            restore_volume_after_speech=True,
+            duck_volume_percent=11,
+            duck_fade_down_ms=0,
+            duck_fade_up_ms=0,
+            story_mode_background_music=True,
+            autonomous_music="full",
+            default_device_id="story-device",
+            story_music_target_volume=33,
+            story_music_transition_floor_volume=7,
+            story_music_fade_down_ms=240,
+            story_music_fade_up_ms=240,
+            story_music_prefer_ambient=True,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "story-device", "volume_percent": 60}},
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            story_race_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        controller.client.play = lambda query=None, device_id=None, preferred_type=None, **_kwargs: (
+            story_race_play_calls.append((query, device_id, preferred_type))
+            or {"ok": True, "query": query, "device_id": device_id, "preferred_type": preferred_type}
+        )
+        transition = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "The archive sigil reacts to the lantern.",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert transition["ok"] is True
+        assert transition["transitioning"] is True
+        ducked_during_story = controller.invoke_capability("tts.duck.start", {"source": "smoke"})
+        assert ducked_during_story["ok"] is True
+        deadline = time.time() + 1.0
+        while time.time() < deadline and not story_race_play_calls:
+            time.sleep(0.02)
+        assert story_race_play_calls[-1] == ("mysterious cinematic ambient story ambience", "story-device", "playlist")
+        assert (33, "story-device") not in story_race_volume_calls
+        restored_after_story = controller.invoke_capability("tts.duck.end", {"source": "smoke"})
+        assert restored_after_story["ok"] is True
+        assert restored_after_story["volume"] == 60
+        assert story_race_volume_calls[-1] == (60, "story-device")
+
+        story_overlap_play_calls = []
+        story_overlap_volume_calls = []
+        controller.settings.update(
+            enabled=True,
+            allow_llm_control=True,
+            require_confirmation=True,
+            duck_while_speaking=True,
+            restore_volume_after_speech=True,
+            duck_volume_percent=12,
+            duck_fade_down_ms=0,
+            duck_fade_up_ms=0,
+            story_mode_background_music=True,
+            autonomous_music="full",
+            default_device_id="overlap-device",
+            story_music_target_volume=45,
+            story_music_transition_floor_volume=5,
+            story_music_fade_down_ms=0,
+            story_music_fade_up_ms=1200,
+            story_music_prefer_ambient=True,
+        )
+        controller.client.get_playback_state = lambda: {
+            "ok": True,
+            "data": {"device": {"id": "overlap-device", "volume_percent": 70}},
+        }
+        controller.client.set_volume = lambda percent, device_id=None: (
+            story_overlap_volume_calls.append((int(percent), device_id)) or {"ok": True, "percent": int(percent), "device_id": device_id}
+        )
+        controller.client.play = lambda query=None, device_id=None, preferred_type=None, **_kwargs: (
+            story_overlap_play_calls.append((query, device_id, preferred_type))
+            or {"ok": True, "query": query, "device_id": device_id, "preferred_type": preferred_type}
+        )
+        overlap_transition = controller.invoke_capability(
+            "spotify.story_hook",
+            {
+                "event": "story_turn",
+                "mood": "tense curiosity",
+                "scene": "The hidden door hums as the floor lights wake up.",
+                "tension_level": 6,
+                "music_kind": "ambient",
+                "prefer_ambient": True,
+            },
+        )
+        assert overlap_transition["ok"] is True
+        assert overlap_transition["transitioning"] is True
+        deadline = time.time() + 1.0
+        while time.time() < deadline and len(story_overlap_volume_calls) < 2:
+            time.sleep(0.02)
+        assert len(story_overlap_volume_calls) >= 2
+        overlap_duck = controller.invoke_capability("tts.duck.start", {"source": "smoke-overlap"})
+        assert overlap_duck["ok"] is True
+        assert story_overlap_volume_calls[-1] == (12, "overlap-device")
+        duck_call_count = len(story_overlap_volume_calls)
+        time.sleep(0.35)
+        assert story_overlap_volume_calls[duck_call_count - 1 :] == [(12, "overlap-device")]
+        overlap_restore = controller.invoke_capability("tts.duck.end", {"source": "smoke-overlap"})
+        assert overlap_restore["ok"] is True
+        assert story_overlap_volume_calls[-1] == (70, "overlap-device")
+
         controller.settings.update(enabled=False, allow_llm_control=False, user_music_change_cooldown_seconds=120)
         controller._last_user_music_change_at = time.time()
         direct_play = controller.invoke_capability("chat.user_text_command", {"text": "play ambient electronic"})
@@ -386,6 +681,24 @@ def main():
         assert blocked_tool["ok"] is False
         assert blocked_tool["error_code"] == "disabled"
         controller.shutdown()
+
+        app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+        ui_controller = SpotifySenseController(_Context(settings.storage))
+        ui_controller.client.get_devices = lambda: {"ok": True, "data": {"devices": []}}
+        tab = ui_controller.build_tab()
+        button_labels = {
+            button.text()
+            for button in tab.findChildren(QtWidgets.QPushButton)
+        }
+        for label in ("Current Track", "Play", "Pause", "Next", "Previous", "Volume 30%"):
+            assert label in button_labels
+        assert "Play / Pause" not in button_labels
+        assert tab.findChild(QtWidgets.QPlainTextEdit, "spotify_sense_hidden_commentary_style") is not None
+        assert tab.findChild(QtWidgets.QComboBox, "spotify_sense_hidden_preset_combo") is not None
+        quick_boxes = tab.findChildren(QtWidgets.QCheckBox)
+        assert any(box.objectName().startswith("spotify_sense_hidden_quick_") for box in quick_boxes)
+        ui_controller.shutdown()
+        app.processEvents()
 
     print("Spotify Sense smoke checks passed.")
 

@@ -12,11 +12,16 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from addons.audio_story_mode.stream_security import is_stream_request_authorized, stream_url_with_token
 from addons.visual_reply import state as visual_reply_state
 
 
 class _ReusableThreadingHTTPServer(ThreadingHTTPServer):
     allow_reuse_address = True
+
+    def __init__(self, server_address, request_handler_class, *, access_token: str = ""):
+        super().__init__(server_address, request_handler_class)
+        self.access_token = str(access_token or "").strip()
 
 
 def _local_ip() -> str:
@@ -93,9 +98,10 @@ def _current_stream_state() -> dict:
 
 
 class AudioStoryVisualStreamServer:
-    def __init__(self, *, port: int = 8765, port_scan_limit: int = 80):
+    def __init__(self, *, port: int = 8765, port_scan_limit: int = 80, access_token: str = ""):
         self.port = max(1024, min(65535, int(port or 8765)))
         self.port_scan_limit = max(1, min(512, int(port_scan_limit or 80)))
+        self.access_token = str(access_token or "").strip()
         self._server: ThreadingHTTPServer | None = None
         self._thread: threading.Thread | None = None
 
@@ -104,8 +110,20 @@ class AudioStoryVisualStreamServer:
         return self._server is not None
 
     @property
-    def url(self) -> str:
+    def base_url(self) -> str:
         return f"http://{_local_ip()}:{int(self.port)}/"
+
+    @property
+    def url(self) -> str:
+        return stream_url_with_token(self.base_url, self.access_token)
+
+    def url_for(self, path_and_query: str = "") -> str:
+        path = str(path_and_query or "").strip()
+        if not path:
+            return self.url
+        if path.startswith("/"):
+            path = path[1:]
+        return stream_url_with_token(f"{self.base_url.rstrip('/')}/{path}", self.access_token)
 
     def start(self) -> str:
         if self._server is not None:
@@ -127,7 +145,7 @@ class AudioStoryVisualStreamServer:
             if candidate > 65535:
                 break
             try:
-                server = _ReusableThreadingHTTPServer(("0.0.0.0", int(candidate)), _VisualStreamHandler)
+                server = _ReusableThreadingHTTPServer(("0.0.0.0", int(candidate)), _VisualStreamHandler, access_token=self.access_token)
                 self.port = int(candidate)
                 return server
             except OSError as exc:
@@ -317,6 +335,9 @@ class _VisualStreamHandler(BaseHTTPRequestHandler):
         return
 
     def do_GET(self):  # noqa: N802
+        if not is_stream_request_authorized(str(self.path or ""), self.headers, getattr(self.server, "access_token", "")):
+            self.send_error(403)
+            return
         parsed_url = urlparse(str(self.path or "/"))
         path = parsed_url.path
         if path in {"", "/"}:
@@ -368,9 +389,14 @@ let lastPath = "";
 let lastAudioPath = "";
 let lastSeek = 0;
 let lastPlaybackState = "";
-async function refresh() {
+    const accessToken = new URLSearchParams(window.location.search).get("token") || "";
+    function withToken(url) {
+      if (!accessToken) return url;
+      return url + (url.includes("?") ? "&" : "?") + "token=" + encodeURIComponent(accessToken);
+    }
+    async function refresh() {
   try {
-    const response = await fetch("/state.json?ts=" + Date.now(), { cache: "no-store" });
+    const response = await fetch(withToken("/state.json?ts=" + Date.now()), { cache: "no-store" });
     const state = await response.json();
     const img = document.getElementById("image");
     const empty = document.getElementById("empty");
@@ -379,7 +405,7 @@ async function refresh() {
     if (state.ready) {
       if (state.path !== lastPath) {
         lastPath = state.path;
-        img.src = "/current.jpg?fit=screen&w=1920&h=1080&ts=" + Date.now();
+        img.src = withToken("/current.jpg?fit=screen&w=1920&h=1080&ts=" + Date.now());
       }
       img.hidden = false;
       empty.hidden = true;
@@ -398,7 +424,7 @@ async function refresh() {
     }
     if (state.audio_ready && state.audio_path !== lastAudioPath) {
       lastAudioPath = state.audio_path;
-      audio.src = "/audio?ts=" + Date.now();
+      audio.src = withToken("/audio?ts=" + Date.now());
       lastSeek = 0;
     }
     if (state.audio_ready) {

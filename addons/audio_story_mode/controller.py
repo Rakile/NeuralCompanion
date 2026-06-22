@@ -17,6 +17,7 @@ from contextlib import ExitStack
 from pathlib import Path
 
 from addons.audio_story_mode import runtime_bridge as audio_story_runtime
+from addons.audio_story_mode.job_control import CancellationToken, JobDeadline
 from addons.audio_story_mode.visual_stream import (
     AudioStoryVisualStreamServer,
     cast_image_to_chromecast,
@@ -29,9 +30,12 @@ from addons.audio_story_mode.visual_stream import (
 )
 from addons.audio_story_mode.prompt_builder import build_grok_story_bible_prompt
 from addons.audio_story_mode.session_schema import audio_story_mode_session_payload, flatten_audio_story_mode_settings
+from addons.audio_story_mode.story_planner import build_scene_review
+from addons.audio_story_mode.story_session import build_story_state_flat_payload, restore_story_overrides
 from addons.audio_story_mode.story_analyzer import StoryAnalyzer
 from addons.audio_story_mode.story_memory import StoryMemoryStore, merge_story_memory
 from addons.audio_story_mode.story_modes import normalize_analysis_mode
+from addons.audio_story_mode.stream_security import new_stream_access_token
 from PySide6 import QtCore, QtGui, QtWidgets
 
 try:
@@ -108,21 +112,21 @@ _AUDIO_STORY_XAI_IMAGE_RESOLUTIONS = ("1k", "2k")
 _AUDIO_STORY_XAI_IMAGE_RESPONSE_FORMATS = ("b64_json",)
 
 _AUDIO_STORY_CONTROL_TOOLTIPS = {
-    "audio_story_intro_label": "Audio Story turns an imported story or audiobook into transcript windows, scene prompts, generated visuals, and synced playback.",
+    "audio_story_intro_label": "Audio Story turns an imported story or audiobook into planned scenes, generated visuals, and synced playback.",
     "audio_story_path_edit": "Current source audio for Audio Story Mode. Import a file, then transcribe it before playback or image generation can run.",
     "audio_story_import_button": "Choose the audiobook or story audio file. Importing a new file clears the current transcript, images, and cached story timing.",
-    "audio_story_playback_label": "Playback source used when Audio Story plays the timeline.",
+    "audio_story_playback_label": "Audio source used when Audio Story plays the timeline.",
     "audio_story_playback_mode_combo": "Playback source. Imported Audio is cheapest and fastest; TTS Narration renders a new local narration track from the transcript before playing.",
-    "audio_story_precision_label": "Overall cost and quality preset for transcript chunking, image cadence, story analysis, and prompt detail.",
+    "audio_story_precision_label": "Overall quality preset for transcript detail, image timing, scene planning, and prompt detail.",
     "audio_story_cost_profile_combo": "Overall cost/quality preset. Economy avoids extra LLM analysis and makes fewer images; Detailed and Cinematic use richer prompts and denser image timing.",
-    "audio_story_settings_preset_label": "Reusable Audio Story settings profile. Presets do not include the imported audio file.",
+    "audio_story_settings_preset_label": "Reusable Audio Story setup. Presets do not include the imported audio file.",
     "audio_story_settings_preset_combo": "Choose or type a reusable Audio Story settings preset name.",
     "audio_story_settings_preset_save_button": "Save the current Audio Story settings to the selected preset name. Existing presets with the same name are overwritten.",
     "audio_story_settings_preset_load_button": "Load the selected Audio Story settings preset. If a transcript is already loaded, story windows and prompts are rebuilt with the loaded settings.",
     "audio_story_transcribe_seconds_label": "Transcript window size used when splitting the audio into story chunks.",
     "audio_story_transcribe_seconds_slider": "Transcript analysis window size. Smaller values give finer scene detection but more chunks to analyze.",
     "audio_story_transcribe_seconds_value_label": "Current transcript window size in seconds.",
-    "audio_story_transcription_range_label": "Source-audio range to transcribe.",
+    "audio_story_transcription_range_label": "Audio range to transcribe.",
     "audio_story_transcription_start_spin": "First source-audio second included when transcribing. Use 0 to start at the beginning.",
     "audio_story_transcription_end_spin": "Last source-audio second included when transcribing. Use the audio duration to transcribe through the end.",
     "audio_story_image_frequency_label": "Target image cadence when Image Timing is Fixed Seconds.",
@@ -141,19 +145,19 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_master_prompt_label": "Story-wide visual prompt anchoring for the global Visual Reply master prompt.",
     "audio_story_master_prompt_button": "Temporarily drive the global Visuals master prompt from this story. Turning it off restores the previous Visuals master prompt when possible.",
     "audio_story_master_prompt_mode_combo": "How forcefully the story-generated master prompt should anchor visual identity. Stronger modes improve consistency but make prompts longer.",
-    "audio_story_prompt_blocks_label": "Per-section character budgets used when Audio Story builds image prompts.",
-    "audio_story_prompt_cap_label": "Hard limit for the final combined image prompt.",
-    "audio_story_prompt_safety_cap_spin": "Hard cap for the final prompt sent to the image provider. Lower caps reduce payload size; higher caps preserve more continuity and scene detail.",
-    "audio_story_story_analysis_label": "Optional LLM pass that extracts story structure before image prompt generation.",
-    "audio_story_llm_analysis_checkbox": "Use an LLM to extract story bible, character/location anchors, scene boundaries, and ready image-prompt fragments.",
+    "audio_story_prompt_blocks_label": "How much room each scene-detail section gets when Audio Story builds image prompts.",
+    "audio_story_prompt_cap_label": "Maximum length for the final combined image prompt.",
+    "audio_story_prompt_safety_cap_spin": "Maximum prompt length sent to the image provider. Lower values reduce payload size; higher values preserve more continuity and scene detail.",
+    "audio_story_story_analysis_label": "Optional AI planning pass that extracts story structure before image prompt generation.",
+    "audio_story_llm_analysis_checkbox": "Use AI to extract story bible, character/location anchors, scene boundaries, and ready image-prompt fragments.",
     "audio_story_analysis_mode_label": "Depth of story analysis used for image prompt planning.",
     "audio_story_analysis_mode_combo": "Scene Only keeps the per-scene prompt path. Story Bible persists character, location, prop, and style memory for stronger consistency.",
     "audio_story_analysis_provider_label": "Provider used for transcript analysis and prompt planning.",
     "audio_story_analysis_provider_combo": "Where transcript analysis and prompt planning runs. Current Chat Provider follows your active chat runtime.",
-    "audio_story_analysis_model_label": "Optional model override used only for Audio Story analysis.",
-    "audio_story_analysis_model_combo": "Model used only for Audio Story analysis and prompt planning. Auto uses the provider default; you can type a model id manually.",
+    "audio_story_analysis_model_label": "Optional model override used only for Audio Story scene planning.",
+    "audio_story_analysis_model_combo": "Model used only for Audio Story scene planning and prompt planning. Auto uses the provider default; you can type a model id manually.",
     "audio_story_xai_image_settings_label": "Provider-specific image generation options. These xAI options are only used when Visual Reply is set to xAI / Grok.",
-    "audio_story_xai_image_settings_hint": "Audio Story uses the active Visual Reply provider. xAI-specific overrides are ignored by other providers.",
+    "audio_story_xai_image_settings_hint": "Audio Story uses the active Visual Reply provider. Advanced xAI options are ignored by other providers.",
     "audio_story_xai_aspect_ratio_label": "Aspect ratio for generated Audio Story images.",
     "audio_story_xai_aspect_ratio_combo": "Aspect ratio sent to xAI image generation for Audio Story visuals.",
     "audio_story_xai_resolution_label": "Resolution for generated Audio Story images.",
@@ -189,7 +193,7 @@ _AUDIO_STORY_CONTROL_TOOLTIPS = {
     "audio_story_stream_url_label": "Local network URL for the Audio Story visual stream when enabled.",
     "audio_story_cast_device_combo": "Chromecast or Google Cast device to show Audio Story visuals on.",
     "audio_story_cast_refresh_button": "Search your local network for Chromecast devices.",
-    "audio_story_cast_install_button": "Install PyChromecast and Zeroconf for Chromecast discovery and casting.",
+    "audio_story_cast_install_button": "Install PyChromecast and Zeroconf into the active Python environment after confirmation.",
     "audio_story_cast_button": "Cast the current Audio Story visual to the selected Chromecast.",
     "audio_story_cast_stop_button": "Stop media playback on the selected Chromecast.",
     "audio_story_cast_prompt_checkbox": "Show or hide the current image prompt overlay on the Chromecast stream page.",
@@ -740,6 +744,7 @@ class AudioStoryModeController(QtCore.QObject):
         self._visual_client_signature = ""
         self._xai_reference_edit_warning_shown = False
         self._visual_stream_server = None
+        self._visual_stream_access_token = ""
         self._chromecast_devices = []
         self._chromecast_busy = False
         self._chromecast_job_done = None
@@ -1447,6 +1452,153 @@ class AudioStoryModeController(QtCore.QObject):
         for object_name, tooltip in _AUDIO_STORY_CONTROL_TOOLTIPS.items():
             self._set_audio_story_tooltip(root.findChild(QtCore.QObject, str(object_name)), tooltip)
 
+    def _apply_audio_story_user_facing_copy(self, root):
+        if root is None:
+            return
+        group_titles = {
+            "audio_story_audio_group": "Audio Source",
+            "audio_story_timing_group": "Plan Scenes",
+            "audio_story_prompt_group": "Story Image Style",
+            "audio_story_analysis_group": "Scene Planner",
+            "audio_story_xai_group": "Advanced Image Provider",
+        }
+        for object_name, title in group_titles.items():
+            group = self._ui_child(root, object_name, QtWidgets.QGroupBox)
+            if group is not None:
+                group.setTitle(title)
+        label_text = {
+            "audio_story_source_title": "1. Import Audio",
+            "audio_story_scene_title": "4. Review Scene Plan",
+            "audio_story_playback_title": "5. Play / Cast Story",
+            "audio_story_transcript_title": "Transcript Windows",
+            "audio_story_playback_label": "Playback source",
+            "audio_story_precision_label": "Quality profile",
+            "audio_story_settings_preset_label": "Reusable setup",
+            "audio_story_transcribe_seconds_label": "Transcript detail",
+            "audio_story_transcription_range_label": "Test range",
+            "audio_story_image_frequency_label": "New image timing",
+            "audio_story_image_timing_label": "Timing mode",
+            "audio_story_continuity_label": "Keep scenes consistent",
+            "audio_story_generate_ahead_label": "Prepare ahead",
+            "audio_story_styles_label": "Style layers",
+            "audio_story_master_prompt_label": "Whole-story visual anchor",
+            "audio_story_prompt_blocks_label": "Advanced prompt block sizes",
+            "audio_story_prompt_cap_label": "Advanced prompt safety limit",
+            "audio_story_story_analysis_label": "Scene planning",
+            "audio_story_analysis_mode_label": "Planning depth",
+            "audio_story_analysis_provider_label": "Planner provider",
+            "audio_story_analysis_model_label": "Planner model",
+            "audio_story_xai_image_settings_label": "Advanced image provider options",
+            "audio_story_xai_image_settings_hint": "Audio Story uses the active Visual Reply provider. These options apply only when Visual Reply is set to xAI / Grok.",
+            "audio_story_xai_aspect_ratio_label": "Aspect ratio",
+            "audio_story_xai_resolution_label": "Image size",
+            "audio_story_xai_response_format_label": "Response format",
+            "audio_story_xai_n_label": "Images per request",
+            "audio_story_anchor_label": "Scene image direction",
+            "audio_story_negative_prompt_label": "Avoid in this image",
+        }
+        for object_name, text in label_text.items():
+            label = self._ui_child(root, object_name, QtWidgets.QLabel)
+            if label is not None:
+                label.setText(text)
+        checkbox_text = {
+            "audio_story_llm_analysis_checkbox": "Use LLM scene planner",
+            "audio_story_style_live_checkbox": "Apply style edits while working",
+            "audio_story_stream_enabled_checkbox": "Share visual stream on LAN",
+            "audio_story_cast_prompt_checkbox": "Show prompt on cast screen",
+        }
+        for object_name, text in checkbox_text.items():
+            checkbox = self._ui_child(root, object_name, QtWidgets.QCheckBox)
+            if checkbox is not None:
+                checkbox.setText(text)
+
+    def _ensure_audio_story_workflow_strip(self, root):
+        if root is None or self._ui_child(root, "audio_story_workflow_strip", QtWidgets.QLabel) is not None:
+            return
+        title = self._ui_child(root, "audio_story_source_title", QtWidgets.QLabel)
+        parent = title.parentWidget() if title is not None else None
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return
+        strip = QtWidgets.QLabel("1 Import Audio  |  2 Transcribe  |  3 Plan Scenes  |  4 Generate Images  |  5 Play / Cast")
+        strip.setObjectName("audio_story_workflow_strip")
+        strip.setWordWrap(True)
+        strip.setStyleSheet(
+            "QLabel#audio_story_workflow_strip {"
+            "padding: 8px 10px; border: 1px solid #35506c; border-radius: 8px;"
+            "background: #132033; color: #d9e8ff; font-weight: 600;"
+            "}"
+        )
+        index = max(0, layout.indexOf(title) + 1)
+        layout.insertWidget(index, strip)
+
+    def _ensure_audio_story_scene_review_panel(self, root):
+        if root is None or getattr(self, "audio_story_scene_review_labels", None):
+            return
+        status = self._ui_child(root, "audio_story_scene_status_label", QtWidgets.QLabel)
+        parent = status.parentWidget() if status is not None else None
+        layout = parent.layout() if parent is not None else None
+        if layout is None:
+            return
+        box = QtWidgets.QGroupBox("Scene Review")
+        box.setObjectName("audio_story_scene_review_group")
+        grid = QtWidgets.QGridLayout(box)
+        grid.setContentsMargins(12, 10, 12, 10)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(6)
+        self.audio_story_scene_review_labels = {}
+        rows = (
+            ("scene", "Scene"),
+            ("beat", "Story beat"),
+            ("characters", "Cast"),
+            ("location", "Place"),
+            ("mood", "Mood"),
+            ("mode", "Image mode"),
+            ("image_status", "Image"),
+        )
+        for row, (key, caption) in enumerate(rows):
+            name = QtWidgets.QLabel(caption)
+            name.setStyleSheet("color: #a9bed6; font-weight: 600;")
+            value = QtWidgets.QLabel("Not planned yet")
+            value.setWordWrap(True)
+            value.setStyleSheet("color: #f2f5f9;")
+            grid.addWidget(name, row, 0)
+            grid.addWidget(value, row, 1)
+            self.audio_story_scene_review_labels[key] = value
+        grid.setColumnStretch(1, 1)
+        index = layout.indexOf(status)
+        layout.insertWidget(index if index >= 0 else 1, box)
+        self.audio_story_scene_review_group = box
+
+    def _refresh_scene_review_panel(self):
+        labels = dict(getattr(self, "audio_story_scene_review_labels", {}) or {})
+        if not labels:
+            return
+        scene_entry = self._current_scene_entry()
+        if not scene_entry:
+            empty = {
+                "scene": "No scene selected",
+                "beat": "Import audio and transcribe it to build a scene plan.",
+                "characters": "No active cast detected",
+                "location": "No location detected",
+                "mood": "No mood detected",
+                "mode": "Not ready",
+                "image_status": "Waiting for story plan",
+            }
+            for key, value in empty.items():
+                label = labels.get(key)
+                if label is not None:
+                    label.setText(value)
+            return
+        index = int(scene_entry.get("chunk_index", self._current_chunk_index if self._current_chunk_index >= 0 else 0) or 0)
+        with self._lock:
+            image_entry = dict(self._image_cache.get(index) or {})
+        review = build_scene_review(scene_entry, self.story_bible, image_entry)
+        for key, value in review.items():
+            label = labels.get(key)
+            if label is not None:
+                label.setText(str(value or "").strip())
+
     def _bind_designer_runtime_widget(self, root):
         # The Designer shell owns fixed layout. Runtime code only binds behavior
         # and still creates data-driven rows such as style presets and prompt caps.
@@ -1474,6 +1626,9 @@ class AudioStoryModeController(QtCore.QObject):
         self._install_audio_story_interaction_filters(root)
         QtCore.QTimer.singleShot(0, self._force_audio_story_runtime_enabled)
         QtCore.QTimer.singleShot(250, self._force_audio_story_runtime_enabled)
+        self._apply_audio_story_user_facing_copy(root)
+        self._ensure_audio_story_workflow_strip(root)
+        self._ensure_audio_story_scene_review_panel(root)
 
         compact_button_style = self._audio_story_compact_button_style()
         style_button_style = (
@@ -1522,7 +1677,7 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_transcribe_seconds_slider.valueChanged.connect(self._on_transcribe_seconds_changed)
         self.audio_story_transcribe_seconds_label = self._ui_child(root, "audio_story_transcribe_seconds_label", QtWidgets.QLabel)
         if self.audio_story_transcribe_seconds_label is not None:
-            self.audio_story_transcribe_seconds_label.setText("Transcription Granularity")
+            self.audio_story_transcribe_seconds_label.setText("Transcript detail")
         self.audio_story_transcribe_seconds_value_label = self._ui_child(root, "audio_story_transcribe_seconds_value_label", QtWidgets.QLabel)
         self.audio_story_transcription_start_spin = self._ui_child(root, "audio_story_transcription_start_spin", QtWidgets.QSpinBox)
         self.audio_story_transcription_end_spin = self._ui_child(root, "audio_story_transcription_end_spin", QtWidgets.QSpinBox)
@@ -1794,7 +1949,7 @@ class AudioStoryModeController(QtCore.QObject):
             self.audio_story_cast_refresh_button.clicked.connect(self._refresh_chromecast_devices)
         self.audio_story_cast_install_button = self._ui_child(root, "audio_story_cast_install_button", QtWidgets.QPushButton)
         if self.audio_story_cast_install_button is None:
-            self.audio_story_cast_install_button = QtWidgets.QPushButton("Install PyChromecast")
+            self.audio_story_cast_install_button = QtWidgets.QPushButton("Install Cast Support")
             self.audio_story_cast_install_button.setObjectName("audio_story_cast_install_button")
             status_parent = root.findChild(QtWidgets.QWidget, "audio_story_cast_status_label")
             parent_widget = status_parent.parentWidget() if status_parent is not None else None
@@ -2261,6 +2416,20 @@ class AudioStoryModeController(QtCore.QObject):
             "audio_story_mode_chromecast_show_prompt": bool(self._stored_chromecast_show_prompt),
             "audio_story_mode_playback_mode": str(self.audio_story_playback_mode_combo.currentText() or "Play Imported Audio") if hasattr(self, "audio_story_playback_mode_combo") else "Play Imported Audio",
         }
+        flat_payload.update(
+            build_story_state_flat_payload(
+                story_bible=self.story_bible,
+                scene_plan=self.scene_plan,
+                scene_overrides=self.scene_overrides,
+                continuity_memory=self.continuity_memory,
+                character_anchors=self.character_anchors,
+                location_anchors=self.location_anchors,
+                transcript_chunks=self.transcript_chunks,
+                full_transcript_text=self.full_transcript_text,
+                raw_transcript_segments=self._raw_transcript_segments,
+                audio_duration_seconds=self.imported_audio_duration_seconds,
+            )
+        )
         return audio_story_mode_session_payload(flat_payload)
 
     def import_session_state(self, session):
@@ -2426,17 +2595,7 @@ class AudioStoryModeController(QtCore.QObject):
             self.scene_plan = [dict(item) if isinstance(item, dict) else item for item in scene_plan]
         scene_overrides = payload.get("audio_story_mode_scene_overrides")
         if isinstance(scene_overrides, dict):
-            self.scene_overrides = {
-                "pinned_character_ids": list(scene_overrides.get("pinned_character_ids", []) or []),
-                "pinned_location_ids": list(scene_overrides.get("pinned_location_ids", []) or []),
-                "forced_scene_modes": dict(scene_overrides.get("forced_scene_modes", {}) or {}),
-                "scene_anchor_overrides": dict(scene_overrides.get("scene_anchor_overrides", {}) or {}),
-                "global_scene_anchor": str(scene_overrides.get("global_scene_anchor", "") or "").strip(),
-                "global_scene_anchor_enabled": bool(scene_overrides.get("global_scene_anchor_enabled", False)),
-                "scene_negative_prompt_overrides": dict(scene_overrides.get("scene_negative_prompt_overrides", {}) or {}),
-                "global_negative_prompt": str(scene_overrides.get("global_negative_prompt", "") or "").strip(),
-                "global_negative_prompt_enabled": bool(scene_overrides.get("global_negative_prompt_enabled", False)),
-            }
+            self.scene_overrides = restore_story_overrides(scene_overrides)
         continuity_memory = payload.get("audio_story_mode_continuity_memory")
         if isinstance(continuity_memory, dict):
             self.continuity_memory = dict(continuity_memory)
@@ -2446,6 +2605,44 @@ class AudioStoryModeController(QtCore.QObject):
         location_anchors = payload.get("audio_story_mode_location_anchors")
         if isinstance(location_anchors, dict):
             self.location_anchors = dict(location_anchors)
+        transcript_chunks = payload.get("audio_story_mode_transcript_chunks")
+        if isinstance(transcript_chunks, list):
+            self.transcript_chunks = [dict(item) if isinstance(item, dict) else item for item in transcript_chunks]
+        full_transcript_text = payload.get("audio_story_mode_full_transcript_text")
+        if full_transcript_text is not None:
+            self.full_transcript_text = str(full_transcript_text or "").strip()
+        raw_segments = payload.get("audio_story_mode_raw_transcript_segments")
+        if isinstance(raw_segments, list):
+            self._raw_transcript_segments = [dict(item) if isinstance(item, dict) else item for item in raw_segments]
+        audio_duration_seconds = payload.get("audio_story_mode_audio_duration_seconds")
+        if audio_duration_seconds is not None:
+            try:
+                self.imported_audio_duration_seconds = max(0.0, float(audio_duration_seconds or 0.0))
+                self._last_transcription_audio_duration = self.imported_audio_duration_seconds
+            except Exception:
+                pass
+        if self.transcript_chunks:
+            if hasattr(self, "audio_story_summary_label"):
+                scene_count = len({str(item.get("scene_id", "") or "") for item in list(self.scene_plan or []) if isinstance(item, dict) and str(item.get("scene_id", "") or "").strip()})
+                self.audio_story_summary_label.setText(
+                    f"Restored story plan. Image windows: {len(self.transcript_chunks)}\n"
+                    f"Scenes: {scene_count}\n"
+                    f"Playback mode: {self.audio_story_playback_mode_combo.currentText() if hasattr(self, 'audio_story_playback_mode_combo') else 'Play Imported Audio'}"
+                )
+            if hasattr(self, "audio_story_transcript_edit"):
+                lines = []
+                for chunk in self.transcript_chunks:
+                    if not isinstance(chunk, dict):
+                        continue
+                    lines.append(
+                        f"[{self._format_seconds(float(chunk.get('start_seconds', 0.0) or 0.0))}"
+                        f" - {self._format_seconds(float(chunk.get('end_seconds', 0.0) or 0.0))}] "
+                        f"{str(chunk.get('text', '') or '').strip()}"
+                    )
+                self.audio_story_transcript_edit.setPlainText("\n\n".join(lines))
+            self._sync_story_generated_master_prompt(refresh_visuals=False)
+            self._refresh_scene_override_controls()
+            self._prepare_source_media()
         self._refresh_controls()
         return None
 
@@ -4301,12 +4498,12 @@ class AudioStoryModeController(QtCore.QObject):
     def _bind_xai_image_settings_controls(self, root):
         label = self._ui_child(root, "audio_story_xai_image_settings_label", QtWidgets.QLabel)
         if label is not None:
-            label.setText("Provider Image Settings")
+            label.setText("Image provider settings")
             label.setStyleSheet("font-size: 12px; font-weight: 700; color: #f2f5f9;")
             label.setWordWrap(True)
         hint = self._ui_child(root, "audio_story_xai_image_settings_hint", QtWidgets.QLabel)
         if hint is not None:
-            hint.setText("Audio Story uses the active Visual Reply provider. These xAI overrides apply only when Visual Reply is set to xAI / Grok.")
+            hint.setText("Audio Story uses the active Visual Reply provider. These advanced xAI options apply only when Visual Reply is set to xAI / Grok.")
             hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
             hint.setWordWrap(True)
         self.audio_story_xai_aspect_ratio_combo = self._ui_child(root, "audio_story_xai_aspect_ratio_combo", QtWidgets.QComboBox)
@@ -4657,10 +4854,15 @@ class AudioStoryModeController(QtCore.QObject):
 
     def _build_llm_story_analysis_with_timeout(self, **kwargs):
         result_queue: queue.Queue = queue.Queue(maxsize=1)
+        timeout_seconds = float(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)
+        cancel_token = CancellationToken()
+        deadline = JobDeadline(timeout_seconds=timeout_seconds)
 
         def worker():
             try:
-                result_queue.put(("ok", self._build_llm_story_analysis(**kwargs)), block=False)
+                result = self._build_llm_story_analysis(cancel_token=cancel_token, deadline=deadline, **kwargs)
+                cancel_token.raise_if_cancelled()
+                result_queue.put(("ok", result), block=False)
             except Exception as exc:
                 try:
                     result_queue.put(("error", exc), block=False)
@@ -4670,17 +4872,20 @@ class AudioStoryModeController(QtCore.QObject):
         thread = threading.Thread(target=worker, name="audio-story-llm-analysis", daemon=True)
         thread.start()
         try:
-            status, value = result_queue.get(timeout=float(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS))
+            status, value = result_queue.get(timeout=timeout_seconds)
         except queue.Empty:
+            cancel_token.cancel("timed out")
             raise TimeoutError(
                 f"{self._story_analysis_provider_status_label()} story analysis exceeded "
-                f"{int(_AUDIO_STORY_LLM_ANALYSIS_TIMEOUT_SECONDS)} seconds."
+                f"{int(timeout_seconds)} seconds."
             )
         if status == "error":
             raise value
         return value
 
-    def _build_llm_story_analysis(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float, fallback_story_bible: dict):
+    def _build_llm_story_analysis(self, *, full_text: str, image_chunks: list[dict], story_style_guide: str, continuity_strength: float, fallback_story_bible: dict, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         provider, model = self._active_story_analysis_chat_provider()
         if not provider or not model:
             raise RuntimeError(f"No {self._story_analysis_provider_status_label()} model is available for LLM story analysis.")
@@ -4702,11 +4907,15 @@ class AudioStoryModeController(QtCore.QObject):
             cached = copy.deepcopy(dict(self._llm_story_analysis_cache.get(cache_key) or {}))
         if cached.get("scenes") and cached.get("story_bible"):
             return cached
-        raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload)
+        raw_text = self._call_llm_story_analysis(provider=provider, model=model, prompt_payload=prompt_payload, cancel_token=cancel_token, deadline=deadline)
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         try:
             parsed = self._parse_llm_json_object(raw_text)
         except Exception:
-            repaired_text = self._repair_llm_story_analysis_json(raw_text, provider=provider, model=model)
+            repaired_text = self._repair_llm_story_analysis_json(raw_text, provider=provider, model=model, cancel_token=cancel_token, deadline=deadline)
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
             parsed = self._parse_llm_json_object(repaired_text)
         story_bible = self._normalize_llm_story_bible(
             parsed.get("story_bible") or {},
@@ -4722,6 +4931,8 @@ class AudioStoryModeController(QtCore.QObject):
         story_bible["analysis_provider"] = chat_providers.provider_label(provider)
         story_bible["analysis_model"] = model
         result = {"story_bible": story_bible, "scenes": scenes}
+        if cancel_token is not None:
+            cancel_token.raise_if_cancelled()
         with self._lock:
             self._llm_story_analysis_cache[cache_key] = copy.deepcopy(result)
             while len(self._llm_story_analysis_cache) > 24:
@@ -4763,7 +4974,7 @@ class AudioStoryModeController(QtCore.QObject):
             "chunks": chunks,
         }
 
-    def _call_llm_story_analysis(self, *, provider: str, model: str, prompt_payload: dict):
+    def _call_llm_story_analysis(self, *, provider: str, model: str, prompt_payload: dict, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
         system_prompt = (
             "You are a visual story continuity analyst for an audiobook image generator. "
             "Return strict JSON only. Do not use markdown, comments, prose, code fences, or trailing commas. "
@@ -4844,6 +5055,18 @@ class AudioStoryModeController(QtCore.QObject):
         )
         last_error = None
         for _attempt in range(3):
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if deadline is not None and deadline.expired:
+                if cancel_token is not None:
+                    cancel_token.cancel("timed out")
+                raise TimeoutError(f"{self._story_analysis_provider_status_label()} story analysis deadline expired.")
+            if deadline is not None:
+                remaining = deadline.remaining_seconds(default=120.0, minimum=1.0)
+                try:
+                    params["timeout"] = min(float(params.get("timeout", remaining) or remaining), remaining)
+                except Exception:
+                    params["timeout"] = remaining
             try:
                 return str(chat_providers.complete_chat(provider, params, additional_params) or "").strip()
             except Exception as exc:
@@ -4872,7 +5095,7 @@ class AudioStoryModeController(QtCore.QObject):
             raise last_error
         return ""
 
-    def _repair_llm_story_analysis_json(self, text: str, *, provider: str, model: str):
+    def _repair_llm_story_analysis_json(self, text: str, *, provider: str, model: str, cancel_token: CancellationToken | None = None, deadline: JobDeadline | None = None):
         raw_text = _audio_story_truncate(str(text or "").strip(), 24000)
         if not raw_text:
             raise RuntimeError("LLM story analysis returned an empty response.")
@@ -4913,6 +5136,18 @@ class AudioStoryModeController(QtCore.QObject):
         )
         last_error = None
         for _attempt in range(3):
+            if cancel_token is not None:
+                cancel_token.raise_if_cancelled()
+            if deadline is not None and deadline.expired:
+                if cancel_token is not None:
+                    cancel_token.cancel("timed out")
+                raise TimeoutError(f"{self._story_analysis_provider_status_label()} story analysis repair deadline expired.")
+            if deadline is not None:
+                remaining = deadline.remaining_seconds(default=90.0, minimum=1.0)
+                try:
+                    params["timeout"] = min(float(params.get("timeout", remaining) or remaining), remaining)
+                except Exception:
+                    params["timeout"] = remaining
             try:
                 return str(chat_providers.complete_chat(provider, params, additional_params) or "").strip()
             except Exception as exc:
@@ -6418,7 +6653,12 @@ class AudioStoryModeController(QtCore.QObject):
             self._sync_visual_stream_controls()
             return True
         try:
-            self._visual_stream_server = AudioStoryVisualStreamServer(port=int(self._stored_visual_stream_port or 8765))
+            if not str(getattr(self, "_visual_stream_access_token", "") or "").strip():
+                self._visual_stream_access_token = new_stream_access_token()
+            self._visual_stream_server = AudioStoryVisualStreamServer(
+                port=int(self._stored_visual_stream_port or 8765),
+                access_token=str(self._visual_stream_access_token or ""),
+            )
             url = self._visual_stream_server.start()
             self._stored_visual_stream_port = int(getattr(self._visual_stream_server, "port", self._stored_visual_stream_port) or self._stored_visual_stream_port or 8765)
         except Exception as exc:
@@ -6466,7 +6706,7 @@ class AudioStoryModeController(QtCore.QObject):
         server = getattr(self, "_visual_stream_server", None)
         if server is None or not getattr(server, "running", False):
             return ""
-        return f"{server.url.rstrip('/')}/current.jpg?fit=cast&w=1920&h=1080&ts={int(time.time())}"
+        return server.url_for(f"current.jpg?fit=cast&w=1920&h=1080&ts={int(time.time())}")
 
     def _cast_stream_page_url(self):
         if not self._start_visual_stream(silent=True):
@@ -6474,7 +6714,7 @@ class AudioStoryModeController(QtCore.QObject):
         server = getattr(self, "_visual_stream_server", None)
         if server is None or not getattr(server, "running", False):
             return ""
-        return f"{server.url.rstrip('/')}/?cast=1&ts={int(time.time())}"
+        return server.url_for(f"?cast=1&ts={int(time.time())}")
 
     def _cast_audio_url(self):
         if not self._start_visual_stream(silent=True):
@@ -6482,7 +6722,7 @@ class AudioStoryModeController(QtCore.QObject):
         server = getattr(self, "_visual_stream_server", None)
         if server is None or not getattr(server, "running", False):
             return ""
-        return f"{server.url.rstrip('/')}/audio?ts={int(time.time())}"
+        return server.url_for(f"audio?ts={int(time.time())}")
 
     def _active_audio_story_stream_path(self):
         mode = self._playback_mode_value()
@@ -6575,6 +6815,19 @@ class AudioStoryModeController(QtCore.QObject):
                 status.setText("Chromecast discovery not run.")
 
     def _install_chromecast_dependencies(self):
+        parent = self.audio_story_tab_widget if self.audio_story_tab_widget is not None else None
+        answer = QtWidgets.QMessageBox.question(
+            parent,
+            "Install Cast Support",
+            "This installs PyChromecast and Zeroconf into the active Neural Companion Python environment.\n\n"
+            "Continue only if you want this environment changed now.",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if answer != QtWidgets.QMessageBox.Yes:
+            self._set_status("Cast support install cancelled.")
+            return
+
         def worker():
             return install_chromecast_dependencies()
 
@@ -6938,6 +7191,7 @@ class AudioStoryModeController(QtCore.QObject):
             negative_prompt_anchor_button.blockSignals(True)
             negative_prompt_anchor_button.setChecked(bool(self.scene_overrides.get("global_negative_prompt_enabled", False)))
             negative_prompt_anchor_button.blockSignals(False)
+        self._refresh_scene_review_panel()
         self.apply_theme_palette()
 
     def _scene_override_refresh_after_change(self, *, refresh_visuals: bool = True):

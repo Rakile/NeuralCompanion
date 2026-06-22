@@ -77,6 +77,8 @@ class BackendAvatarRuntimeMixin:
             "musetalk_loop_fade_spin",
             "musetalk_frame_cache_label",
             "musetalk_use_frame_cache_checkbox",
+            "ua_companion_orb_send_musetalk_face_mask_label",
+            "ua_companion_orb_send_musetalk_face_mask_checkbox",
             "musetalk_avatar_label",
             "musetalk_avatar_pack_row_widget",
             "musetalk_vram_hint",

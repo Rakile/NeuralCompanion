@@ -6,7 +6,7 @@
   "steps": [
     {
       "title": "Why Dry Run Exists",
-      "body": "Dry Run measures the active configuration instead of relying on generic advice. It is most useful after the core app starts and before you spend time hand-tuning chunking.",
+      "body": "Dry Run measures the active configuration instead of relying on generic advice. It is most useful after the core app starts and before you spend time hand-tuning chunking. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
       "target": "dry_run_tab",
       "actions": [
         { "type": "open_tab", "tab_widget": "left_tabs", "value": "Dry Run" }

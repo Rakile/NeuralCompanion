@@ -13,6 +13,7 @@ except Exception:  # pragma: no cover - depends on optional Qt Quick deployment.
     QQuickWidget = None
 
 from . import runtime as presence_runtime
+from .external_runtime_client import ExternalAIPresenceRuntimeClient
 from .visual_presence_bridge import VisualPresenceBridge
 
 
@@ -37,6 +38,7 @@ _LIVE_SETTING_RANGES = {
     "ai_presence_speaking_reactivity": (0.10, 1.5, float),
     "ai_presence_glow_strength": (0.0, 1.75, float),
     "ai_presence_animation_speed": (0.35, 1.75, float),
+    "ai_presence_idle_motion_strength": (0.0, 1.0, float),
     "ai_presence_mood_color_intensity": (0.0, 1.0, float),
     "ai_presence_primary_color_strength": (0.0, 1.5, float),
     "ai_presence_secondary_color_strength": (0.0, 1.5, float),
@@ -134,7 +136,7 @@ class _FallbackPresenceWindow(QtWidgets.QWidget):
         self.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, False)
         self.setAutoFillBackground(False)
         if not self._floating:
-            self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+            self.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
         else:
             self.setMinimumSize(220, 180)
             self.resize(420, 360)
@@ -202,6 +204,26 @@ class _FallbackPresenceWindow(QtWidgets.QWidget):
             return 0.0
         factor = attack if target_value > current_value else release
         return current_value + (target_value - current_value) * factor
+
+    def _idle_motion_offset(self, width: int, height: int) -> QtCore.QPointF:
+        if bool(getattr(self.bridge, "reducedEffects", False)):
+            return QtCore.QPointF(0.0, 0.0)
+        strength = self._clamp01(getattr(self.bridge, "idleMotionStrength", 0.0))
+        if strength <= 0.0:
+            return QtCore.QPointF(0.0, 0.0)
+        span = max(1.0, min(float(width), float(height)))
+        max_offset = min(18.0, max(1.5, span * 0.014)) * strength
+        x = (
+            math.sin(self._tick * 0.67 + 0.35)
+            + math.sin(self._tick * 1.31 + 1.70) * 0.42
+            + math.sin(self._tick * 2.07 + 0.90) * 0.18
+        ) * max_offset
+        y = (
+            math.cos(self._tick * 0.59 + 1.10)
+            + math.cos(self._tick * 1.17 + 0.45) * 0.38
+            + math.cos(self._tick * 1.83 + 2.20) * 0.20
+        ) * max_offset
+        return QtCore.QPointF(x, y)
 
     def _mix_color(self, base, target, amount: float) -> QtGui.QColor:
         base_color = QtGui.QColor(base)
@@ -909,7 +931,8 @@ class _FallbackPresenceWindow(QtWidgets.QWidget):
             darkness = max(0.0, min(1.0, float(getattr(self.bridge, "backgroundDarkness", 1.0) or 1.0)))
             background.setAlpha(int((92 + darkness * (120 if self._floating else 148)) * opacity))
             painter.fillRect(rect, background)
-        center = QtCore.QPointF(width * 0.5, height * 0.5)
+        idle_offset = self._idle_motion_offset(width, height)
+        center = QtCore.QPointF(width * 0.5 + idle_offset.x(), height * 0.5 + idle_offset.y())
         pulse = 1.0 + math.sin(self._tick * 2.0) * 0.035 * self.bridge.pulseIntensity + voice_level * 0.12 * self.bridge.speakingReactivity
         base = min(width, height) * (0.075 if style == "minimal_dot" else 0.19)
         radius = max(18.0 if style == "minimal_dot" else 42.0, base * pulse)
@@ -1008,6 +1031,7 @@ class VisualPresenceController(QtCore.QObject):
         self._fullscreen_suppressed = False
         self._floating_geometry_restored = False
         self._last_runtime_config = dict(runtime_config or {})
+        self._external_runtime: ExternalAIPresenceRuntimeClient | None = None
         self._proxy = _PresenceCommandProxy(self)
         self._proxy.state_requested.connect(self._set_ai_state, QtCore.Qt.QueuedConnection)
         self._proxy.level_requested.connect(self._set_audio_level, QtCore.Qt.QueuedConnection)
@@ -1046,17 +1070,24 @@ class VisualPresenceController(QtCore.QObject):
 
     def eventFilter(self, watched, event):
         try:
-            if (
-                event.type() == QtCore.QEvent.KeyPress
-                and bool(self.bridge.spaceClosesFullscreen)
-                and self._fullscreen_window is not None
-                and self._fullscreen_window.isVisible()
-                and event.key() in {QtCore.Qt.Key_Space, QtCore.Qt.Key_Escape}
-                and (event.key() == QtCore.Qt.Key_Space or not bool(self.bridge.liveControlsVisible))
-            ):
-                self.hide_fullscreen_temporarily()
-                event.accept()
-                return True
+            if self._fullscreen_overlay_visible():
+                if event.type() == QtCore.QEvent.KeyPress:
+                    if event.key() == QtCore.Qt.Key_Escape:
+                        self.hide_fullscreen_temporarily()
+                        event.accept()
+                        return True
+                    if bool(self.bridge.spaceClosesFullscreen) and event.key() == QtCore.Qt.Key_Space:
+                        self.hide_fullscreen_temporarily()
+                        event.accept()
+                        return True
+                if (
+                    self._is_fullscreen_overlay_widget(watched)
+                    and event.type() == QtCore.QEvent.MouseButtonPress
+                    and event.button() in {QtCore.Qt.LeftButton, QtCore.Qt.RightButton, QtCore.Qt.MiddleButton}
+                ):
+                    self.hide_fullscreen_temporarily()
+                    event.accept()
+                    return True
             if event.type() == QtCore.QEvent.KeyPress and self._presence_window_visible() and not self._focus_is_text_input():
                 if event.key() == QtCore.Qt.Key_H:
                     self.bridge.toggleLiveControls()
@@ -1088,6 +1119,29 @@ class VisualPresenceController(QtCore.QObject):
         except Exception:
             pass
         return super().eventFilter(watched, event)
+
+    def _fullscreen_overlay_visible(self):
+        try:
+            return self._fullscreen_window is not None and self._fullscreen_window.isVisible()
+        except Exception:
+            return False
+
+    def _is_fullscreen_overlay_widget(self, watched):
+        if watched is None:
+            return False
+        if watched in (self._fullscreen_window, self._fullscreen_quick_widget):
+            return True
+        if not isinstance(watched, QtWidgets.QWidget):
+            return False
+        for parent in (self._fullscreen_window, self._fullscreen_quick_widget):
+            if parent is None:
+                continue
+            try:
+                if parent.isAncestorOf(watched):
+                    return True
+            except Exception:
+                pass
+        return False
 
     def _presence_window_visible(self):
         for window in (self._fullscreen_window, self._floating_window):
@@ -1241,7 +1295,7 @@ class VisualPresenceController(QtCore.QObject):
         window.setAttribute(QtCore.Qt.WA_OpaquePaintEvent, False)
         window.setAutoFillBackground(False)
         if not floating:
-            window.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, True)
+            window.setAttribute(QtCore.Qt.WA_TransparentForMouseEvents, False)
         else:
             window.setMinimumSize(220, 180)
             window.resize(420, 360)
@@ -1286,6 +1340,7 @@ class VisualPresenceController(QtCore.QObject):
             window, quick = self._create_qml_window(floating=False)
             self._fullscreen_window = window
             self._fullscreen_quick_widget = quick
+            self._install_fullscreen_event_filters()
             self.available = True
             self._sync_geometry()
             print("[AI Presence] Qt Quick fullscreen overlay ready.")
@@ -1295,6 +1350,7 @@ class VisualPresenceController(QtCore.QObject):
             try:
                 self._fullscreen_window = _FallbackPresenceWindow(self.bridge, floating=False)
                 self._fullscreen_quick_widget = None
+                self._install_fullscreen_event_filters()
                 self.available = True
                 self._sync_geometry()
                 print("[AI Presence] QWidget fullscreen fallback ready.")
@@ -1302,6 +1358,15 @@ class VisualPresenceController(QtCore.QObject):
                 self.error = str(fallback_exc)
                 self._fullscreen_window = None
                 print(f"[AI Presence] Fullscreen fallback disabled: {fallback_exc}")
+
+    def _install_fullscreen_event_filters(self):
+        for widget in (self._fullscreen_window, self._fullscreen_quick_widget):
+            if widget is None:
+                continue
+            try:
+                widget.installEventFilter(self)
+            except Exception:
+                pass
 
     def _create_floating_window(self):
         self._floating_size_grip = None
@@ -1433,26 +1498,90 @@ class VisualPresenceController(QtCore.QObject):
     def request_reset_floating_position(self):
         self._proxy.reset_floating_requested.emit()
 
+    def _external_runtime_enabled(self) -> bool:
+        return bool(self._last_runtime_config.get("ai_presence_external_runtime_enabled", False))
+
+    def _ensure_external_runtime(self) -> bool:
+        if self._external_runtime is None:
+            root = self._app_root()
+            self._external_runtime = ExternalAIPresenceRuntimeClient(root, logger=self._log_external_runtime)
+        return self._external_runtime.start()
+
+    def _stop_external_runtime(self) -> None:
+        runtime = self._external_runtime
+        self._external_runtime = None
+        if runtime is not None:
+            runtime.stop()
+
+    def _send_external_runtime(self, payload: dict) -> bool:
+        if not self._external_runtime_enabled():
+            return False
+        if not self._ensure_external_runtime():
+            return False
+        runtime = self._external_runtime
+        return bool(runtime is not None and runtime.send(dict(payload or {})))
+
+    def _send_external_runtime_snapshot(self) -> None:
+        if not self._external_runtime_enabled():
+            return
+        self._send_external_runtime({"type": "settings", "settings": dict(self._last_runtime_config or {})})
+        self._send_external_runtime({"type": "state", "state": str(self.bridge.aiState or "idle")})
+        self._send_external_runtime({"type": "audio_level", "level": float(self.bridge.audioLevel or 0.0)})
+        self._send_external_runtime({"type": "music_level", "level": float(self.bridge.musicLevel or 0.0)})
+        self._send_external_runtime({"type": "mood", "mood": str(self.bridge.moodName or "neutral")})
+
+    def _hide_local_windows_for_external(self) -> None:
+        for window in (self._fullscreen_window, self._floating_window):
+            try:
+                if window is not None and window.isVisible():
+                    window.hide()
+            except Exception:
+                pass
+        if self._geometry_timer.isActive():
+            self._geometry_timer.stop()
+
+    def _app_root(self) -> Path:
+        try:
+            return Path(__file__).resolve().parents[1]
+        except Exception:
+            return Path.cwd()
+
+    def _log_external_runtime(self, message: str) -> None:
+        print(f"[AI Presence] {message}")
+
     @QtCore.Slot(str)
     def _set_ai_state(self, state):
         self.bridge.setAiState(state)
         if str(self.bridge.aiState or "") == "idle":
             self._fullscreen_suppressed = False
+        self._send_external_runtime({"type": "state", "state": str(self.bridge.aiState or "idle")})
+        if self._external_runtime_enabled():
+            self._hide_local_windows_for_external()
+            return
         self._refresh_visibility()
 
     @QtCore.Slot(float)
     def _set_audio_level(self, level):
         self.bridge.setAudioLevel(level)
+        self._send_external_runtime({"type": "audio_level", "level": float(self.bridge.audioLevel or 0.0)})
+        if self._external_runtime_enabled():
+            return
         self._update_fallback_windows()
 
     @QtCore.Slot(float)
     def _set_music_level(self, level):
         self.bridge.setMusicLevel(level)
+        self._send_external_runtime({"type": "music_level", "level": float(self.bridge.musicLevel or 0.0)})
+        if self._external_runtime_enabled():
+            return
         self._update_fallback_windows()
 
     @QtCore.Slot(str)
     def _set_presence_mood(self, mood):
         self.bridge.setPresenceMood(mood)
+        self._send_external_runtime({"type": "mood", "mood": str(self.bridge.moodName or "neutral")})
+        if self._external_runtime_enabled():
+            return
         self._update_fallback_windows()
 
     def _cycle_floating_visual_style(self):
@@ -1526,6 +1655,11 @@ class VisualPresenceController(QtCore.QObject):
         self.bridge.apply_settings(config)
         self._display_mode = _normalize_display_mode(config.get("ai_presence_display_mode", self.bridge.displayMode))
         self._fullscreen = bool(config.get("ai_presence_fullscreen", True))
+        if self._external_runtime_enabled():
+            self._hide_local_windows_for_external()
+            self._send_external_runtime_snapshot()
+            return
+        self._stop_external_runtime()
         self._ensure_floating_renderer()
         self._apply_floating_window_settings()
         self._restore_floating_geometry()
@@ -1675,6 +1809,9 @@ class VisualPresenceController(QtCore.QObject):
 
     @QtCore.Slot()
     def reset_floating_position(self):
+        if self._external_runtime_enabled():
+            self._send_external_runtime({"type": "reset_floating_position"})
+            return
         if self._floating_window is None:
             return
         geometry = self._floating_center_geometry()
@@ -1702,6 +1839,10 @@ class VisualPresenceController(QtCore.QObject):
                 pass
 
     def _refresh_visibility(self):
+        if self._external_runtime_enabled():
+            self._hide_local_windows_for_external()
+            self._send_external_runtime_snapshot()
+            return
         enabled = bool(self.bridge.enabled) and self._display_mode != "off"
         active = bool(self.bridge.aiState in {"thinking", "speaking"})
         show_fullscreen = bool(enabled and active and self._display_mode in {"fullscreen", "both"} and not self._fullscreen_suppressed)
@@ -1732,6 +1873,7 @@ class VisualPresenceController(QtCore.QObject):
 
     def shutdown(self):
         presence_runtime.unregister_controller(self)
+        self._stop_external_runtime()
         app = QtWidgets.QApplication.instance()
         if app is not None:
             try:

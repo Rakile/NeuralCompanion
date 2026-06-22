@@ -1270,13 +1270,33 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                 </widget>
                </item>
                <item row="8" column="0">
+                <widget class="QLabel" name="ua_companion_orb_send_musetalk_face_mask_label">
+                 <property name="text">
+                  <string>Ua Companion Orb</string>
+                 </property>
+                </widget>
+               </item>
+               <item row="8" column="1">
+                <widget class="QCheckBox" name="ua_companion_orb_send_musetalk_face_mask_checkbox">
+                 <property name="toolTip">
+                  <string>Route MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay and suppress the local MuseTalk preview.</string>
+                 </property>
+                 <property name="text">
+                  <string>Send MuseTalk face mask to Ua Companion Orb</string>
+                 </property>
+                 <property name="checked">
+                  <bool>false</bool>
+                 </property>
+                </widget>
+               </item>
+               <item row="9" column="0">
                 <widget class="QLabel" name="musetalk_avatar_label">
                  <property name="text">
                   <string>MuseTalk Avatar</string>
                  </property>
                 </widget>
                </item>
-               <item row="8" column="1">
+               <item row="9" column="1">
                 <widget class="QWidget" name="musetalk_avatar_pack_row_widget" native="true">
                  <layout class="QHBoxLayout" name="musetalkAvatarPackRowLayout">
                   <property name="leftMargin">
@@ -1336,14 +1356,14 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </layout>
                 </widget>
                </item>
-               <item row="9" column="0">
+               <item row="10" column="0">
                 <widget class="QLabel" name="scenic_pack_label">
                  <property name="text">
                   <string>Scenic Pack</string>
                  </property>
                 </widget>
                </item>
-               <item row="9" column="1">
+               <item row="10" column="1">
                 <widget class="QWidget" name="scenic_pack_row_widget" native="true">
                  <layout class="QHBoxLayout" name="scenicPackRowLayout">
                   <property name="leftMargin">
@@ -1403,14 +1423,14 @@ QTabWidget#tts_runtime_addon_tabs QTabBar::tab:hover {
                  </layout>
                 </widget>
                </item>
-               <item row="10" column="0">
+               <item row="11" column="0">
                 <widget class="QLabel" name="preset_label">
                  <property name="text">
                   <string>Preset</string>
                  </property>
                 </widget>
                </item>
-               <item row="10" column="1">
+               <item row="11" column="1">
                 <widget class="QWidget" name="preset_row_widget" native="true">
                  <layout class="QHBoxLayout" name="presetRowLayout">
                   <property name="leftMargin">
@@ -1509,7 +1529,7 @@ QToolButton:hover { background: #351a55; }
 QToolButton:checked { background: #291641; }</string>
                </property>
                <property name="text">
-                <string>Chat Runtime</string>
+                <string>LLM Runtime</string>
                </property>
                <property name="checkable">
                 <bool>true</bool>
@@ -1531,7 +1551,7 @@ QToolButton:checked { background: #291641; }</string>
              <item>
               <widget class="QGroupBox" name="chat_runtime_box">
                <property name="title">
-                <string>Chat Runtime</string>
+                <string>LLM Runtime</string>
                </property>
                <property name="checkable">
                 <bool>true</bool>
@@ -2342,7 +2362,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                </property>
                <widget class="QWidget" name="sensory_feedback_core_tab">
                 <attribute name="title">
-                 <string>Core</string>
+                  <string>Overview</string>
                 </attribute>
                 <layout class="QVBoxLayout" name="sensoryCoreLayout">
                  <item>
@@ -2354,27 +2374,27 @@ QToolButton:checked { background: #3a1d3d; }</string>
                     </sizepolicy>
                    </property>
                    <property name="title">
-                    <string>Hidden Sensory Feedback</string>
+                    <string>Background Sensory Awareness</string>
                    </property>
                    <layout class="QVBoxLayout" name="sensoryFeedbackBoxLayout">
                     <item>
                      <widget class="QCheckBox" name="sensory_pingpong_checkbox">
                       <property name="text">
-                       <string>Enable Hidden PING/PONG Loop</string>
+                       <string>Run background sensory review</string>
                       </property>
                      </widget>
                     </item>
                     <item>
                      <widget class="QCheckBox" name="sensory_allow_hidden_proactive_checkbox">
                       <property name="text">
-                       <string>Allow Hidden Proactive Replies</string>
+                       <string>Let NC speak from background observations</string>
                       </property>
                      </widget>
                     </item>
                     <item>
                      <widget class="QCheckBox" name="sensory_allow_hidden_visual_checkbox">
                       <property name="text">
-                       <string>Allow Hidden Visual Replies</string>
+                       <string>Let Visual Reply use background observations</string>
                       </property>
                      </widget>
                     </item>
@@ -2383,7 +2403,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                       <item row="0" column="0">
                        <widget class="QLabel" name="sensory_include_label">
                         <property name="text">
-                         <string>Include</string>
+                         <string>Capture sources</string>
                         </property>
                        </widget>
                       </item>
@@ -2417,7 +2437,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                       <item row="1" column="0">
                        <widget class="QLabel" name="sensory_refresh_label">
                         <property name="text">
-                         <string>Refresh (s)</string>
+                         <string>Refresh every</string>
                         </property>
                        </widget>
                       </item>
@@ -2443,7 +2463,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                       <item row="2" column="0">
                        <widget class="QLabel" name="sensory_retain_label">
                         <property name="text">
-                         <string>Retain PONGs</string>
+                         <string>Keep recent notes</string>
                         </property>
                        </widget>
                       </item>
@@ -2471,7 +2491,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                     <item>
                      <widget class="QLabel" name="sensory_feedback_hint">
                       <property name="text">
-                       <string>Core prompt defines the shared hidden sensory contract. Source tabs add source-specific guidance.</string>
+                       <string>Select capture sources for background context. NC treats these as context, not as a user message.</string>
                       </property>
                       <property name="wordWrap">
                        <bool>true</bool>
@@ -2490,7 +2510,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                     </sizepolicy>
                    </property>
                    <property name="title">
-                   <string>Core Hidden PING/PONG Prompt</string>
+                   <string>Advanced Background Review Prompt</string>
                    </property>
                    <layout class="QVBoxLayout" name="sensoryPingPongPromptLayout">
                     <item>
@@ -2546,13 +2566,13 @@ QToolButton:checked { background: #3a1d3d; }</string>
                </widget>
                <widget class="QWidget" name="sensory_feedback_sources_tab">
                 <attribute name="title">
-                 <string>Sources</string>
+                 <string>Source Details</string>
                 </attribute>
                 <layout class="QVBoxLayout" name="sensorySourcesLayout">
                  <item>
                   <widget class="QPlainTextEdit" name="sensory_sources_placeholder">
                    <property name="plainText">
-                    <string>Source-specific prompt tabs are mounted dynamically in the live app.</string>
+                    <string>Source-specific guidance tabs are mounted dynamically in the live app.</string>
                    </property>
                   </widget>
                  </item>
@@ -2598,20 +2618,20 @@ QToolButton:checked { background: #3a1d3d; }</string>
                </sizepolicy>
               </property>
                <property name="title">
-                <string>Conversation Flow</string>
+                <string>Natural replies</string>
                </property>
                <layout class="QVBoxLayout" name="conversationFlowLayout">
                 <item>
                  <widget class="QCheckBox" name="allow_proactive_checkbox">
                   <property name="text">
-                   <string>Allow Proactive Replies</string>
+                   <string>Let NC speak first when useful</string>
                   </property>
                  </widget>
                 </item>
                 <item>
                  <widget class="QCheckBox" name="require_first_user_checkbox">
                   <property name="text">
-                   <string>Require First User Message</string>
+                   <string>Wait for me before the first reply</string>
                   </property>
                  </widget>
                 </item>
@@ -2620,7 +2640,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item row="0" column="0">
                    <widget class="QLabel" name="listen_idle_window_label">
                     <property name="text">
-                     <string>Idle wait window (s)</string>
+                     <string>Listening pause before reply (s)</string>
                     </property>
                    </widget>
                   </item>
@@ -2646,7 +2666,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item row="1" column="0">
                    <widget class="QLabel" name="proactive_delay_label">
                     <property name="text">
-                     <string>Proactive delay (s)</string>
+                     <string>Speak-first delay (s)</string>
                     </property>
                    </widget>
                   </item>
@@ -2672,7 +2692,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item row="2" column="0">
                    <widget class="QLabel" name="chat_context_window_label">
                     <property name="text">
-                     <string>Context window (msgs)</string>
+                     <string>Recent chat memory (messages)</string>
                     </property>
                    </widget>
                   </item>
@@ -2704,7 +2724,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item row="3" column="0">
                    <widget class="QLabel" name="stored_history_limit_label">
                     <property name="text">
-                     <string>Stored history limit</string>
+                     <string>Saved chat limit</string>
                     </property>
                    </widget>
                   </item>
@@ -2730,7 +2750,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item row="4" column="0">
                    <widget class="QLabel" name="overflow_policy_label">
                     <property name="text">
-                     <string>Overflow policy</string>
+                     <string>When memory is full</string>
                     </property>
                    </widget>
                   </item>
@@ -2770,7 +2790,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                 <item>
                  <widget class="QLabel" name="chat_session_hint">
                   <property name="text">
-                   <string>Conversation flow and context retention settings for the active session.</string>
+                   <string>Controls when NC replies, how much recent chat it remembers, and what happens when the recent memory fills up.</string>
                   </property>
                   <property name="wordWrap">
                    <bool>true</bool>
@@ -2789,7 +2809,7 @@ QToolButton:checked { background: #3a1d3d; }</string>
                </sizepolicy>
               </property>
                <property name="title">
-                <string>Session</string>
+                <string>Conversation memory</string>
                </property>
                <layout class="QVBoxLayout" name="sessionBoxLayout">
                 <item>
@@ -2807,21 +2827,21 @@ QToolButton:checked { background: #3a1d3d; }</string>
                   <item>
                    <widget class="QPushButton" name="btn_save_chat_session">
                     <property name="text">
-                     <string>Save Chat Context</string>
+                   <string>Save Conversation Memory</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QPushButton" name="btn_load_chat_session">
                     <property name="text">
-                     <string>Load Chat Context</string>
+                     <string>Load Conversation Memory</string>
                     </property>
                    </widget>
                   </item>
                   <item>
                    <widget class="QPushButton" name="btn_reset_chat_session">
                     <property name="text">
-                     <string>Reset Chat Memory</string>
+                     <string>Restart Current Conversation</string>
                     </property>
                    </widget>
                   </item>
@@ -4100,13 +4120,13 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <string/>
         </attribute>
         <attribute name="toolTip">
-         <string>Chunking</string>
+         <string>Speech Timing</string>
         </attribute>
         <layout class="QVBoxLayout" name="chunkingLayout">
          <item>
           <widget class="QLabel" name="chunking_hint_label">
            <property name="text">
-            <string>Global pipeline tuning. These values affect chunking behavior system-wide and are not saved with personas.</string>
+            <string>Speech Timing controls how long replies are split before TTS and streaming playback. Shorter timing feels more responsive; longer timing can sound smoother.</string>
            </property>
            <property name="wordWrap">
             <bool>true</bool>
@@ -4116,13 +4136,13 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <item>
           <widget class="QGroupBox" name="standard_chunking_box">
            <property name="title">
-            <string>Standard</string>
+            <string>Normal speech timing</string>
            </property>
            <layout class="QFormLayout" name="standardChunkingForm">
             <item row="0" column="0">
              <widget class="QLabel" name="chunk_target_chars_label">
               <property name="text">
-               <string>Target Chars</string>
+               <string>Preferred phrase length</string>
               </property>
              </widget>
             </item>
@@ -4136,7 +4156,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="1" column="0">
              <widget class="QLabel" name="chunk_max_chars_label">
               <property name="text">
-               <string>Max Chars</string>
+               <string>Longest phrase length</string>
               </property>
              </widget>
             </item>
@@ -4153,13 +4173,13 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <item>
           <widget class="QGroupBox" name="musetalk_chunking_box">
            <property name="title">
-            <string>MuseTalk Non-Stream</string>
+            <string>MuseTalk speech timing</string>
            </property>
            <layout class="QFormLayout" name="musetalkChunkingForm">
             <item row="0" column="0">
              <widget class="QLabel" name="musetalk_chunk_target_chars_label">
               <property name="text">
-               <string>Target Chars</string>
+               <string>Preferred phrase length</string>
               </property>
              </widget>
             </item>
@@ -4173,7 +4193,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="1" column="0">
              <widget class="QLabel" name="musetalk_chunk_max_chars_label">
               <property name="text">
-               <string>Max Chars</string>
+               <string>Longest phrase length</string>
               </property>
              </widget>
             </item>
@@ -4187,7 +4207,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="2" column="0">
              <widget class="QLabel" name="musetalk_quickstart_1_target_chars_label">
               <property name="text">
-               <string>Quickstart 1 Target</string>
+               <string>Quick start phrase length</string>
               </property>
              </widget>
             </item>
@@ -4201,7 +4221,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="3" column="0">
              <widget class="QLabel" name="musetalk_quickstart_1_max_chars_label">
               <property name="text">
-               <string>Quickstart 1 Max</string>
+               <string>Quick start maximum length</string>
               </property>
              </widget>
             </item>
@@ -4215,7 +4235,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="4" column="0">
              <widget class="QLabel" name="musetalk_quickstart_2_target_chars_label">
               <property name="text">
-               <string>Quickstart 2 Target</string>
+               <string>Follow-up phrase length</string>
               </property>
              </widget>
             </item>
@@ -4229,7 +4249,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="5" column="0">
              <widget class="QLabel" name="musetalk_quickstart_2_max_chars_label">
               <property name="text">
-               <string>Quickstart 2 Max</string>
+               <string>Follow-up maximum length</string>
               </property>
              </widget>
             </item>
@@ -4246,13 +4266,13 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <item>
           <widget class="QGroupBox" name="streaming_chunking_box">
            <property name="title">
-            <string>Streaming</string>
+            <string>Streaming speech timing</string>
            </property>
            <layout class="QFormLayout" name="streamingChunkingForm">
             <item row="0" column="0">
              <widget class="QLabel" name="stream_chunk_target_chars_label">
               <property name="text">
-               <string>Target Chars</string>
+               <string>Preferred phrase length</string>
               </property>
              </widget>
             </item>
@@ -4266,7 +4286,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="1" column="0">
              <widget class="QLabel" name="stream_chunk_max_chars_label">
               <property name="text">
-               <string>Max Chars</string>
+               <string>Longest phrase length</string>
               </property>
              </widget>
             </item>
@@ -4280,7 +4300,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="2" column="0">
              <widget class="QLabel" name="stream_first_chunk_min_chars_label">
               <property name="text">
-               <string>First Chunk Min</string>
+               <string>First phrase minimum</string>
               </property>
              </widget>
             </item>
@@ -4294,7 +4314,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="3" column="0">
              <widget class="QLabel" name="stream_force_flush_seconds_label">
               <property name="text">
-               <string>First Flush (s)</string>
+               <string>First speech wait (s)</string>
               </property>
              </widget>
             </item>
@@ -4308,7 +4328,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
             <item row="4" column="0">
              <widget class="QLabel" name="stream_force_flush_later_seconds_label">
               <property name="text">
-               <string>Later Flush (s)</string>
+               <string>Later speech wait (s)</string>
               </property>
              </widget>
             </item>
@@ -4325,7 +4345,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <item>
           <widget class="QPushButton" name="btn_reset_chunking_defaults">
            <property name="text">
-            <string>Reset Chunking Defaults</string>
+            <string>Reset Speech Timing Defaults</string>
            </property>
           </widget>
          </item>
@@ -4394,13 +4414,13 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <string/>
         </attribute>
         <attribute name="toolTip">
-         <string>Dry Run</string>
+         <string>Performance Check</string>
         </attribute>
         <layout class="QVBoxLayout" name="dryRunLayout">
          <item>
           <widget class="QLabel" name="dry_run_intro">
            <property name="text">
-            <string>Dry Run profiles your current hardware and recommends safer startup/chunking values without changing the live pipeline while it measures.</string>
+            <string>Performance Check profiles your current hardware and recommends safer startup and speech timing values without changing the live pipeline while it measures.</string>
            </property>
            <property name="wordWrap">
             <bool>true</bool>
@@ -4444,14 +4464,14 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
            <item>
             <widget class="QPushButton" name="btn_dry_run_start">
              <property name="text">
-              <string>Arm Dry Run</string>
+              <string>Run Performance Check</string>
              </property>
             </widget>
            </item>
            <item>
             <widget class="QPushButton" name="btn_dry_run_stop">
              <property name="text">
-              <string>Stop Dry Run</string>
+              <string>Stop Performance Check</string>
              </property>
             </widget>
            </item>
@@ -4467,7 +4487,7 @@ QCheckBox#use_wav_file_checkbox::indicator:checked {
          <item>
           <widget class="QLabel" name="dry_run_status_label">
            <property name="text">
-            <string>Dry Run idle.</string>
+            <string>Performance Check idle.</string>
            </property>
           </widget>
          </item>

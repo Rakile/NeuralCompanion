@@ -74,8 +74,6 @@ class BackendTtsRuntimeMixin:
                     policy.setRetainSizeWhenHidden(False)
 
                 page.setSizePolicy(policy)
-                if i != current_idx:
-                    page.adjustSize()
 
             if active_page:
                 if active_page.layout():
@@ -111,8 +109,6 @@ class BackendTtsRuntimeMixin:
             callback = getattr(self, "frontend_layout_resync_callback", None)
             if callable(callback):
                 callback()
-                QtCore.QTimer.singleShot(75, callback)
-                QtCore.QTimer.singleShot(200, callback)
         except Exception:
             pass
 
@@ -153,7 +149,8 @@ class BackendTtsRuntimeMixin:
                 )
         self._refresh_tts_runtime_summary()
         self._sync_use_wav_file_checkbox()
-        QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
+        if not callable(getattr(self, "frontend_layout_resync_callback", None)):
+            QtCore.QTimer.singleShot(0, self._sync_tts_runtime_fields_height)
 
     def _find_tts_runtime_tab_index(self, backend):
         if not hasattr(self, "tts_runtime_addon_tabs"):
@@ -424,6 +421,9 @@ class BackendTtsRuntimeMixin:
         self._sync_use_wav_file_checkbox()
         self._refresh_tts_runtime_card(activate_tab=not bool(getattr(self, "_restoring_preset", False)))
         self._refresh_tts_runtime_summary()
+        refresh_setup = getattr(self, "_refresh_runtime_provider_setup_card", None)
+        if callable(refresh_setup):
+            refresh_setup("tts")
         self._advisor_context_manual_override = False
         self.emit_tutorial_event("ui_changed", {"field": "tts_backend", "value": backend})
         self.update_model_budget_hint()

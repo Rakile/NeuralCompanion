@@ -57,6 +57,12 @@ def _animation_setting(settings, key, default) -> str:
     return value if value in allowed else str(default)
 
 
+def _visual_style_setting(settings, key, default) -> str:
+    value = str((settings or {}).get(key, default) or default).strip().lower()
+    allowed = {"neural_spark", "aurora_glass", "prismatic_pulse", "aether_wisp", "celestial_firetrail"}
+    return value if value in allowed else str(default)
+
+
 class CompanionOrbBridge(QtCore.QObject):
     state_changed = QtCore.Signal()
     level_changed = QtCore.Signal()
@@ -335,7 +341,7 @@ class CompanionOrbBridge(QtCore.QObject):
         self._enabled = bool(payload.get("companion_orb_enabled", False))
         mode = str(payload.get("companion_orb_display_mode", "off") or "off").strip().lower()
         self._display_mode = mode if mode in {"off", "docked", "interaction", "always"} else "off"
-        self._visual_style = "neural_spark"
+        self._visual_style = _visual_style_setting(payload, "companion_orb_visual_style", "neural_spark")
         self._orb_size = _int_setting(payload, "companion_orb_size", 92, 36, 220)
         self._orb_opacity = _float_setting(payload, "companion_orb_opacity", 0.82, 0.10, 1.0)
         self._trail_length = _float_setting(payload, "companion_orb_trail_length", 0.55, 0.0, 1.0)

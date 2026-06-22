@@ -129,7 +129,7 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._frontend_layout_persistence_ready = False
         self.backend = CompanionQtMainWindow(suppress_restored_aux_docks=True)
         self.backend._session_read_only = self._session_read_only
-        self.backend.frontend_layout_resync_callback = self._fix_system_shaping_scroll_content_size
+        self.backend.frontend_layout_resync_callback = self._schedule_frontend_runtime_layout_pass
         self._frontend_should_prompt_first_run = bool(getattr(self.backend, "first_run", False)) and not self._session_read_only
         self._frontend_first_run_prompt_scheduled = False
         self.backend.first_run = False
@@ -207,7 +207,8 @@ class MainUiRealRuntimeBridge(MainUiRealLayoutMixin, MainUiRealInputMixin, MainU
         self._normalize_frontend_chat_runtime_editor_widths()
         self._normalize_frontend_runtime_section_layouts()
         self._bind_frontend_layout_persistence_hooks()
-        self._restore_frontend_layout_state()
+        if not self._restore_frontend_layout_state():
+            self._apply_frontend_default_workspace_layout(save=False)
         self._apply_frontend_workspace_dock_tab_styles()
         QtCore.QTimer.singleShot(0, self._apply_frontend_workspace_dock_tab_styles)
         QtCore.QTimer.singleShot(150, self._apply_frontend_workspace_dock_tab_styles)

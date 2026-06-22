@@ -308,19 +308,21 @@ class MainUiRealThemeMixin:
             return {
                 "SystemShapingDock": "HOST",
                 "WorkspaceTabsDock": "ADDONS",
-                "OperationalViewDock": "CHAT INTERFACE",
+                "OperationalViewDock": "CHAT WINDOW",
                 "VisualReplyDock": "VISUAL REPLY",
-                "MuseTalkPreviewDock": "MuseTalk",
-                "PreviewDock": "MuseTalk",
+                "MuseTalkPreviewDock": "MUSETALK",
+                "PreviewDock": "MUSETALK",
             }
 
     def _frontend_workspace_legacy_dock_title_aliases(self):
             return {
                 "System Shaping": "HOST",
                 "Workspace Tabs": "ADDONS",
-                "Operational View": "CHAT INTERFACE",
+                "Operational View": "CHAT WINDOW",
+                "CHAT INTERFACE": "CHAT WINDOW",
                 "Visual Reply": "VISUAL REPLY",
-                "MuseTalk Preview": "MuseTalk",
+                "MuseTalk Preview": "MUSETALK",
+                "MuseTalk": "MUSETALK",
             }
 
     def _frontend_workspace_dock_tab_palettes(self):
@@ -339,7 +341,7 @@ class MainUiRealThemeMixin:
                     "border": "#4d8dff",
                     "text": "#f1f7ff",
                 },
-                "CHAT INTERFACE": {
+                "CHAT WINDOW": {
                     "background": "#0d2b20",
                     "checked": "#123b2c",
                     "hover": "#184d39",
@@ -353,7 +355,7 @@ class MainUiRealThemeMixin:
                     "border": "#ffb347",
                     "text": "#fff8ed",
                 },
-                "MuseTalk": {
+                "MUSETALK": {
                     "background": "#1d183b",
                     "checked": "#282153",
                     "hover": "#342b70",
@@ -922,7 +924,19 @@ QToolButton#ncDockCloseButton {{
             # The Designer/runtime theme intentionally keeps icon-sidebar tabs narrow,
             # but text tabs need enough width after dynamic addon pages are adopted.
             return """
-QTabWidget#sensory_feedback_tabs QTabBar::tab,
+QTabWidget#sensory_feedback_tabs QTabBar::tab {
+    /* nc-vision-tab-buttons-compact */
+    min-width: 112px;
+    max-width: 190px;
+    min-height: 30px;
+    max-height: 30px;
+    height: 30px;
+    padding: 4px 12px;
+    margin-right: 3px;
+}
+QTabWidget#sensory_feedback_tabs QTabBar::tab:selected {
+    padding: 4px 12px;
+}
 QTabWidget#vseeface_tabs QTabBar::tab,
 QTabWidget#musetalk_tabs QTabBar::tab,
 QTabWidget#vam_setup_tabs QTabBar::tab {

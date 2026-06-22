@@ -1,0 +1,54 @@
+{
+  "id": "hotkeys",
+  "order": 22,
+  "title": "22. Hotkeys",
+  "description": "Configure push-to-talk and runtime action shortcuts from the Hotkeys addon.",
+  "steps": [
+    {
+      "title": "Open Hotkeys",
+      "body": "Hotkeys lists configurable shortcuts for push-to-talk and other runtime actions. Use it when the default binding conflicts with a game, editor, or desktop tool. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "tab": "Hotkeys",
+      "target": "hotkey_binding_edit",
+      "actions": [
+        { "type": "show_dock", "target": "WorkspaceTabsDock" },
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Hotkeys" }
+      ]
+    },
+    {
+      "title": "Select an Action",
+      "body": "Choose the action first. The details panel shows the current binding, default binding, and description for the selected shortcut.",
+      "tab": "Hotkeys",
+      "target": "hotkey_list",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Hotkeys" }
+      ]
+    },
+    {
+      "title": "Edit or Record a Binding",
+      "body": "You can type a binding manually or press Record. Keep shortcuts explicit and avoid combinations that your operating system or foreground app already owns.",
+      "tab": "Hotkeys",
+      "target": "hotkey_binding_edit",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Hotkeys" }
+      ]
+    },
+    {
+      "title": "Apply, Clear, or Reset",
+      "body": "Apply saves the selected shortcut. Clear removes the binding. Reset restores the selected action to its default.",
+      "tab": "Hotkeys",
+      "target": "btn_hotkey_apply",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Hotkeys" }
+      ]
+    },
+    {
+      "title": "Reset All Carefully",
+      "body": "Reset All Defaults is useful when bindings become confusing, but it affects every hotkey. Review the list after using it.",
+      "tab": "Hotkeys",
+      "target": "btn_hotkey_reset_all",
+      "actions": [
+        { "type": "open_tab", "tab_widget": "left_tabs", "value": "Hotkeys" }
+      ]
+    }
+  ]
+}

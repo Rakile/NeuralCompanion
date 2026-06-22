@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import json
+import os
 from pathlib import Path
 
 from PySide6 import QtCore
@@ -10,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from core import companion_orb_reply_styles
 from addons.ai_presence_mode.mood_color_resolver import normalize_mood_name, resolve_mood_colors
 from addons.ai_presence_mode.controller import (
     AI_PRESENCE_CORE_SESSION_KEYS,
@@ -29,10 +31,13 @@ from addons.companion_orb_overlay.companion_orb.companion_orb_controller import 
     COMPANION_ORB_TARGET_METADATA,
     CompanionOrbController,
     DROP_ACK_MESSAGES,
+    DROP_ACK_STYLE_MESSAGES,
     DROP_FOCUS_SECONDS,
     FOCUS_GRID_COLUMNS,
     FOCUS_GRID_ROWS,
     FULL_SCREEN_CONTEXT_THUMBNAIL_SIZE,
+    HARASSMENT_CONTEXT_STYLE_MESSAGES,
+    HARASSMENT_STYLE_MESSAGES,
     MANUAL_INSPECTION_SECONDS,
     ORB_COMMAND_MENU_ACTIONS,
     VOICE_FILE_SUFFIXES,
@@ -41,6 +46,7 @@ from addons.companion_orb_overlay.companion_orb import snapshot_ocr
 from addons.companion_orb_overlay.companion_orb.snapshot_ocr import best_region_for_text
 from addons.companion_orb_overlay.companion_orb.window_target_resolver import resolve_target_at, target_bounds, target_is_available
 from visual_presence import runtime as presence_runtime
+from visual_presence.external_runtime_client import ExternalAIPresenceRuntimeClient
 from visual_presence.visual_presence_controller import FLOATING_STYLE_CYCLE, VisualPresenceController, _next_visual_style
 from visual_presence.visual_presence_bridge import VisualPresenceBridge
 
@@ -57,7 +63,7 @@ def main():
     assert not face_keys.intersection(orb_keys)
     assert AIPresenceModeController.SESSION_KEYS == AI_PRESENCE_CORE_SESSION_KEYS
     assert NeuralFacePresenceController.SESSION_KEYS == NEURAL_FACE_SESSION_KEYS
-    assert CompanionOrbOverlaySettingsController.SESSION_KEYS == COMPANION_ORB_SESSION_KEYS
+    assert set(COMPANION_ORB_SESSION_KEYS).issubset(set(CompanionOrbOverlaySettingsController.SESSION_KEYS))
     assert "companion_orb_harassment_enabled" in orb_keys
     assert "companion_orb_harassment_timer_seconds" in orb_keys
     assert "companion_orb_snapshot_on_pointer_reached" in orb_keys
@@ -65,11 +71,16 @@ def main():
     assert "companion_orb_full_screen_context_enabled" in orb_keys
     assert "companion_orb_include_process_name" in orb_keys
     assert "companion_orb_response_style" in orb_keys
+    assert "companion_orb_response_style_prompts" in orb_keys
     assert "companion_orb_supervisor_enabled" in orb_keys
     assert "companion_orb_supervisor_prompt_template" in orb_keys
     assert "companion_orb_supervisor_personas" in orb_keys
     assert "companion_orb_supervisor_selected_persona_id" in orb_keys
     assert "companion_orb_external_runtime_enabled" in orb_keys
+    assert "ai_presence_external_runtime_enabled" in core_keys
+    assert DEFAULT_SETTINGS["ai_presence_external_runtime_enabled"] is False
+    assert "ai_presence_idle_motion_strength" in core_keys
+    assert DEFAULT_SETTINGS["ai_presence_idle_motion_strength"] == 0.16
     assert "companion_orb_custom_colors_enabled" in orb_keys
     assert "companion_orb_primary_color" in orb_keys
     assert "companion_orb_secondary_color" in orb_keys
@@ -83,6 +94,14 @@ def main():
     assert "companion_orb_idle_animation" in orb_keys
     assert "companion_orb_thinking_animation" in orb_keys
     assert "companion_orb_speaking_animation" in orb_keys
+    assert "companion_orb_aware_motion_enabled" in CompanionOrbOverlaySettingsController.SESSION_KEYS
+    assert "companion_orb_awareness" in CompanionOrbOverlaySettingsController.SESSION_KEYS
+    assert "companion_orb_focus_pull" in CompanionOrbOverlaySettingsController.SESSION_KEYS
+    assert "companion_orb_idle_pause" in CompanionOrbOverlaySettingsController.SESSION_KEYS
+    assert DEFAULT_SETTINGS.get("companion_orb_aware_motion_enabled") is True
+    assert DEFAULT_SETTINGS.get("companion_orb_awareness") == 0.55
+    assert DEFAULT_SETTINGS.get("companion_orb_focus_pull") == 0.65
+    assert DEFAULT_SETTINGS.get("companion_orb_idle_pause") == 0.45
     assert "companion_orb_frame_rate" in orb_keys
     assert DEFAULT_SETTINGS["companion_orb_harassment_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_harassment_timer_seconds"] == 45
@@ -91,14 +110,25 @@ def main():
     assert DEFAULT_SETTINGS["companion_orb_full_screen_context_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_include_process_name"] is True
     assert DEFAULT_SETTINGS["companion_orb_response_style"] == "friendly"
+    assert DEFAULT_SETTINGS["companion_orb_response_style_prompts"] == {}
     assert DEFAULT_SETTINGS["companion_orb_supervisor_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_supervisor_prompt_template"] == ""
     assert DEFAULT_SETTINGS["companion_orb_supervisor_personas"] == []
-    assert DEFAULT_SETTINGS["companion_orb_external_runtime_enabled"] is False
+    assert DEFAULT_SETTINGS["companion_orb_external_runtime_enabled"] is True
     assert DEFAULT_SETTINGS["companion_orb_position"] == "top-center"
     assert ("Top center", "top-center") in ORB_POSITIONS
     assert DEFAULT_SETTINGS["companion_orb_visual_style"] == "neural_spark"
-    assert ORB_VISUAL_STYLES == [("Neural Spark Orb", "neural_spark")]
+    assert ORB_VISUAL_STYLES == [
+        ("Neural Spark Orb", "neural_spark"),
+        ("Aurora Glass Orb", "aurora_glass"),
+        ("Prismatic Pulse Ring", "prismatic_pulse"),
+        ("Aether Wisp Orb", "aether_wisp"),
+        ("Celestial Firetrail Orb", "celestial_firetrail"),
+    ]
+    normalizer_probe = AIPresenceModeController.__new__(AIPresenceModeController)
+    for _label, style_value in ORB_VISUAL_STYLES:
+        assert normalizer_probe._normalize_setting("companion_orb_visual_style", style_value) == style_value
+    assert normalizer_probe._normalize_setting("companion_orb_visual_style", "not-a-style") == "neural_spark"
     assert DEFAULT_SETTINGS["companion_orb_custom_colors_enabled"] is False
     assert DEFAULT_SETTINGS["companion_orb_primary_color"] == "#22d3ee"
     assert DEFAULT_SETTINGS["companion_orb_secondary_color"] == "#38bdf8"
@@ -114,6 +144,9 @@ def main():
     assert DEFAULT_SETTINGS["companion_orb_speaking_animation"] == "voice_ripple"
     assert DEFAULT_SETTINGS["companion_orb_frame_rate"] == 60
     assert ("Sensual / non-explicit", "sensual_non_explicit") in ORB_RESPONSE_STYLES
+    assert companion_orb_reply_styles.normalize_reply_style("roast") == "roast"
+    assert companion_orb_reply_styles.normalize_reply_style("bad-style") == "friendly"
+    assert "overrides the normal assistant persona/system tone" in companion_orb_reply_styles.build_reply_style_instruction("friendly")
     assert ORB_COMMAND_MENU_ACTIONS == ("Change Voice", "Response Style", "Chat text input")
     assert "INITIALIZE" not in ORB_COMMAND_MENU_ACTIONS
     assert "TERMINATE" not in ORB_COMMAND_MENU_ACTIONS
@@ -121,6 +154,10 @@ def main():
     assert ".mp3" in VOICE_FILE_SUFFIXES
     assert DROP_ACK_MESSAGES
     assert any("something else to look at" in message for message in DROP_ACK_MESSAGES)
+    for response_style in {value for _label, value in ORB_RESPONSE_STYLES}:
+        assert len(DROP_ACK_STYLE_MESSAGES[response_style]) >= 10
+        assert len(HARASSMENT_STYLE_MESSAGES[response_style]) >= 10
+        assert len(HARASSMENT_CONTEXT_STYLE_MESSAGES[response_style]) >= 10
     assert DROP_FOCUS_SECONDS > 20.0
     assert MANUAL_INSPECTION_SECONDS >= 45.0
     assert FOCUS_GRID_COLUMNS == 12
@@ -138,7 +175,19 @@ def main():
     assert any(item.get("field") == "metadata.manual_inspection_primary" for item in COMPANION_ORB_TARGET_METADATA["ping_payload"])
     assert any(item.get("field") == "metadata.drop_focus_bounds" for item in COMPANION_ORB_TARGET_METADATA["ping_payload"])
     assert hasattr(snapshot_ocr, "_extract_with_win32_window_text")
-    assert ("Blue Flame Smoke", "blue_flame_smoke") in VISUAL_STYLES
+    assert VISUAL_STYLES == [("Neural Network Pulse", "neural_network_pulse")]
+    assert '"ai_presence_visual_style": "neural_network_pulse"' in (ROOT / "engine.py").read_text(encoding="utf-8")
+    for ui_source_path in (
+        ROOT / "addons" / "ai_presence_mode" / "controller.py",
+        ROOT / "ui" / "runtime" / "backend_system_shaping_builders.py",
+        ROOT / "ui" / "runtime" / "real_ui_layout.py",
+    ):
+        ui_source = ui_source_path.read_text(encoding="utf-8")
+        assert '("Neural Network Pulse", "neural_network_pulse")' in ui_source
+        assert '("Original Neural Orb", "classic_neural_orb")' not in ui_source
+        assert '("Breathing Orb", "breathing_orb")' not in ui_source
+    assert AIPresenceModeController.__new__(AIPresenceModeController)._normalize_setting("ai_presence_visual_style", "blue_flame_smoke") == "neural_network_pulse"
+    assert AIPresenceModeController.__new__(AIPresenceModeController)._normalize_setting("ai_presence_visual_style", "neural_network_pulse") == "neural_network_pulse"
     assert "blue_flame_smoke" in FLOATING_STYLE_CYCLE
     assert _next_visual_style("breathing_orb") in FLOATING_STYLE_CYCLE
     assert _next_visual_style(FLOATING_STYLE_CYCLE[-1]) == FLOATING_STYLE_CYCLE[0]
@@ -193,6 +242,7 @@ def main():
             "ai_presence_neural_face_lipsync_strength": 1.25,
             "ai_presence_neural_face_blink_enabled": True,
             "ai_presence_neural_face_eye_movement_enabled": True,
+            "ai_presence_idle_motion_strength": 0.42,
             "ai_presence_female_neural_face_enabled": True,
             "ai_presence_female_reference_nodes": True,
             "ai_presence_female_show_wire_nodes": True,
@@ -212,6 +262,9 @@ def main():
     assert presence_bridge.neuralFaceSize > 1.0
     assert presence_bridge.neuralFaceOpacity < 0.9
     assert presence_bridge.neuralFaceLipSyncStrength > 1.0
+    assert presence_bridge.idleMotionStrength == 0.42
+    presence_bridge.apply_settings({"ai_presence_idle_motion_strength": 2.0})
+    assert presence_bridge.idleMotionStrength == 1.0
     assert presence_bridge.femaleNeuralFaceEnabled is True
     assert presence_bridge.femaleReferenceNodes is True
     assert presence_bridge.femaleShowWireNodes is True
@@ -229,11 +282,17 @@ def main():
     assert "renderTarget: Canvas.Image" in overlay_qml
     assert 'globalCompositeOperation = "copy"' in overlay_qml
     assert "drawBlueFlameSmoke" in overlay_qml
+    assert "property real idleMotionStrength" in overlay_qml
+    assert "function idleMotionOffset" in overlay_qml
     presence_controller_source = (ROOT / "visual_presence" / "visual_presence_controller.py").read_text(encoding="utf-8")
+    external_client_source = (ROOT / "visual_presence" / "external_runtime_client.py").read_text(encoding="utf-8")
+    external_runtime_source = (ROOT / "visual_presence" / "external_ai_presence_runtime.py").read_text(encoding="utf-8")
     assert "CompositionMode_Source" in presence_controller_source
     assert "def _ensure_floating_renderer" in presence_controller_source
     assert "def _resolved_palette" in presence_controller_source
     assert "glowStrength" in presence_controller_source
+    assert "idleMotionStrength" in presence_controller_source
+    assert "def _idle_motion_offset" in presence_controller_source
     assert "lineBrightness" in presence_controller_source
     assert "haloThickness" in presence_controller_source
     assert "ringExpansionSpeed" in presence_controller_source
@@ -248,30 +307,56 @@ def main():
     assert "radius * 0.48" in presence_controller_source
     assert "radius * 0.62" in presence_controller_source
     assert "radius * 0.56" in presence_controller_source
+    assert "ExternalAIPresenceRuntimeClient" in presence_controller_source
+    assert "def _external_runtime_enabled" in presence_controller_source
+    assert "def _send_external_runtime_snapshot" in presence_controller_source
+    assert "ai_presence_external_runtime_enabled" in presence_controller_source
+    assert "external_ai_presence_runtime.py" in external_client_source
+    assert "NC_AI_PRESENCE_PYTHON" in external_client_source
+    assert "runtime/ai_presence/external_runtime.log" in external_client_source
+    assert "class ExternalAIPresenceRuntime" in external_runtime_source
+    assert "VisualPresenceController" in external_runtime_source
+    assert "message_received = QtCore.Signal(dict)" in external_runtime_source
+    assert "def _read_stdin" in external_runtime_source
+    previous_ai_presence_python = os.environ.get("NC_AI_PRESENCE_PYTHON")
+    try:
+        os.environ["NC_AI_PRESENCE_PYTHON"] = str(ROOT / "missing-ai-presence-python.exe")
+        client = ExternalAIPresenceRuntimeClient(ROOT)
+        assert client._python_executable().exists()
+    finally:
+        if previous_ai_presence_python is None:
+            os.environ.pop("NC_AI_PRESENCE_PYTHON", None)
+        else:
+            os.environ["NC_AI_PRESENCE_PYTHON"] = previous_ai_presence_python
     ai_presence_controller_source = (ROOT / "addons" / "ai_presence_mode" / "controller.py").read_text(encoding="utf-8")
     assert "class _ResponsiveGridWidget" in ai_presence_controller_source
     assert "ai_presence_slider_responsive_grid" in ai_presence_controller_source
     assert "ai_presence_toggle_groups_grid" in ai_presence_controller_source
-    assert "Visual Tuning" in ai_presence_controller_source
+    assert "Presence Look" in ai_presence_controller_source
+    assert "Advanced motion and audio" in ai_presence_controller_source
+    assert "ai_presence_idle_motion_slider" in ai_presence_controller_source
+    assert "Idle motion" in ai_presence_controller_source
+    assert "Face Preset" in ai_presence_controller_source
+    assert "ai_presence_external_runtime_enabled_checkbox" in ai_presence_controller_source
     companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")
     companion_overlay_main_source = (ROOT / "addons" / "companion_orb_overlay" / "main.py").read_text(encoding="utf-8")
     companion_orb_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "sensory_source.py").read_text(encoding="utf-8")
     companion_orb_qml = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "qml" / "CompanionOrbOverlay.qml").read_text(encoding="utf-8")
     engine_source = (ROOT / "engine.py").read_text(encoding="utf-8")
-    assert "companion_orb_slider_responsive_grid" in companion_overlay_controller_source
+    assert "companion_orb_tuning_cards_grid" in companion_overlay_controller_source
     assert "companion_orb_toggle_groups_grid" in companion_overlay_controller_source
     assert "companion_orb_hotkey_responsive_grid" in companion_overlay_controller_source
     assert "companion_orb_sensory_tabs" in companion_overlay_controller_source
-    assert "Source guidance for Companion Orb Target" in companion_overlay_controller_source
+    assert "How the orb should interpret its target" in companion_overlay_controller_source
     assert "companion_orb_capture_settings_grid" in companion_overlay_controller_source
     assert "companion_orb_supervisor_settings_grid" in companion_overlay_controller_source
     assert "companion_orb_debug_enabled_checkbox" in companion_overlay_controller_source
     assert "companion_orb_debug_log_path_preview" in companion_overlay_controller_source
-    assert "Enable Companion Orb Target source" in companion_overlay_controller_source
-    assert "Run hidden PING/PONG loop" in companion_overlay_controller_source
+    assert "Use Companion Orb Target" in companion_overlay_controller_source
+    assert "Run background check-ins" in companion_overlay_controller_source
     assert "Full-screen context map" in companion_overlay_controller_source
     assert "not the separate HOST Screen source" in companion_overlay_controller_source
-    assert "Companion Orb Target Supervisor" in companion_overlay_controller_source
+    assert "Orb Personality Rules" in companion_overlay_controller_source
     assert "companion_orb_supervisor_behavior_designer" in companion_overlay_controller_source
     assert "btn_companion_orb_supervisor_add_behavior" in companion_overlay_controller_source
     assert "COMPANION_ORB_SUPERVISOR_CONTRIBUTOR_ID" in companion_overlay_controller_source
@@ -460,6 +545,8 @@ def main():
     assert "companion_orb_response_style" in companion_orb_source
     assert "def _style_orb_canned_message" in companion_orb_source
     assert "Use the Companion Orb response style" in companion_orb_source
+    assert "_drag_start_global_pos" in companion_orb_source
+    assert "_show_command_menu(point)" in companion_orb_source
     assert "def _screen_source_capture_index" in companion_orb_source
     assert "capture_mode = \"selected_screen\"" in companion_orb_source
     assert "screen_source_capture_screen_index" in companion_orb_source
@@ -470,6 +557,7 @@ def main():
     assert "frame_scale = max(0.25" in companion_orb_source
     assert "ExternalOrbRuntimeClient" in companion_orb_source
     assert "def _external_runtime_enabled" in companion_orb_source
+    assert 'get("companion_orb_external_runtime_enabled", True)' in companion_orb_source
     assert "def _send_external_runtime_snapshot" in companion_orb_source
     assert '"type": "comment_focus"' in companion_orb_source
     assert "external_orb_runtime.py" in external_client_source
@@ -491,12 +579,18 @@ def main():
     assert "Hidden PONG retrying with text-only sensory context" in engine_source
     assert "\"focus_bounds\": [number, number, number, number]" in engine_source
     assert "companion_orb_include_process_name" in engine_source
+    assert "companion_orb_response_style_prompts" in engine_source
     assert "def _companion_orb_response_style_instruction" in engine_source
+    assert "build_reply_style_instruction" in engine_source
+    assert "overrides the base system persona tone" in engine_source
+    assert "the orb is hovering over" in engine_source
     assert "def _companion_orb_response_style_label" in engine_source
     assert "def _companion_orb_source_uses_response_style" in engine_source
     assert "hard style instruction" in engine_source
     assert "Make the style clearly recognizable" in engine_source
-    assert "sensual_non_explicit" in engine_source
+    reply_style_source = (ROOT / "core" / "companion_orb_reply_styles.py").read_text(encoding="utf-8")
+    assert "sensual_non_explicit" in reply_style_source
+    assert "COMMON_ORB_REPLY_STYLE_RULES" in reply_style_source
     assert "Selected response style" in engine_source
     assert "manual_inspection" in engine_source
     assert "def _manual_priority_sensory_snapshots" in engine_source
@@ -519,6 +613,19 @@ def main():
     assert "engine_hidden_pong_speech_suppressed_for_immediate_image" in engine_source
     assert "\"focus_bounds\": list(focus_bounds)" in engine_source
     assert "\"focus_text\": focus_text or proactive_candidate or summary" in engine_source
+    companion_overlay_controller_source = (ROOT / "addons" / "companion_orb_overlay" / "controller.py").read_text(encoding="utf-8")
+    assert "companion_orb_reply_style_prompt_group" in companion_overlay_controller_source
+    assert "companion_orb_reply_style_prompt_edit" in companion_overlay_controller_source
+    assert "def _save_reply_style_prompt_override" in companion_overlay_controller_source
+    assert "def _reset_all_reply_style_prompt_overrides" in companion_overlay_controller_source
+    assert "companion_orb_size_visibility_group" in companion_overlay_controller_source
+    assert "companion_orb_aware_movement_group" in companion_overlay_controller_source
+    assert "companion_orb_pointer_interaction_group" in companion_overlay_controller_source
+    assert "companion_orb_visual_texture_group" in companion_overlay_controller_source
+    assert "companion_orb_voice_sync_group" in companion_overlay_controller_source
+    assert "companion_orb_awareness_slider" in companion_overlay_controller_source
+    assert "companion_orb_focus_pull_slider" in companion_overlay_controller_source
+    assert "companion_orb_idle_pause_slider" in companion_overlay_controller_source
 
     region = resolve_target_at(100, 100, region_width=320, region_height=200, mode="region")
     assert region["target_type"] == "region"
@@ -541,6 +648,21 @@ def main():
     target_probe._last_runtime_config["companion_orb_response_style"] = "sarcastic"
     styled_message = CompanionOrbController._style_orb_canned_message(target_probe, "Hello, are you there?")
     assert "extremely normal" in styled_message
+    target_probe._last_runtime_config = {
+        "companion_orb_aware_motion_enabled": True,
+        "companion_orb_awareness": 1.7,
+        "companion_orb_focus_pull": -0.2,
+        "companion_orb_idle_pause": "bad",
+    }
+    assert CompanionOrbController._aware_motion_enabled(target_probe)
+    assert CompanionOrbController._awareness_level(target_probe) == 1.0
+    assert CompanionOrbController._focus_pull(target_probe) == 0.0
+    assert CompanionOrbController._idle_pause_strength(target_probe) == 0.45
+    external_runtime_source = (ROOT / "addons" / "companion_orb_overlay" / "companion_orb" / "external_orb_runtime.py").read_text(encoding="utf-8")
+    assert "def _aware_motion_enabled" in external_runtime_source
+    assert "def _awareness_level" in external_runtime_source
+    assert "def _focus_pull" in external_runtime_source
+    assert "def _idle_pause_strength" in external_runtime_source
     assert CompanionOrbController._target_requires_confirmation(
         target_probe,
         {"target_type": "window", "window_id": "0x1234", "title": "Other", "bounds": [1, 2, 3, 4]},

@@ -11,32 +11,32 @@
    <property name="spacing"><number>8</number></property>
    <item>
     <widget class="QLabel" name="webcam_supervisor_intro_label">
-     <property name="text"><string>Build one or more supervisor personas for the Webcam source. Each persona can own several behaviors, where every behavior pairs a visual trigger with the action the hidden LLM should take.</string></property>
+     <property name="text"><string>Build reaction profiles for the Webcam source. Each profile owns rules that say: when this posture, expression, or attention cue appears, NC may respond in this style if background review allows it.</string></property>
      <property name="wordWrap"><bool>true</bool></property>
     </widget>
    </item>
    <item><widget class="QLabel" name="webcam_supervisor_state_label"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string/></property><property name="wordWrap"><bool>true</bool></property></widget></item>
    <item>
     <layout class="QHBoxLayout" name="webcam_supervisor_persona_header_layout">
-     <item><widget class="QLabel" name="webcam_supervisor_persona_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Active Persona</string></property></widget></item>
+     <item><widget class="QLabel" name="webcam_supervisor_persona_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Active Reaction Profile</string></property></widget></item>
      <item><spacer name="webcam_supervisor_persona_header_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-     <item><widget class="QPushButton" name="btn_webcam_supervisor_add_persona"><property name="text"><string>Add Supervisor Persona</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_webcam_supervisor_add_persona"><property name="text"><string>Add Profile</string></property></widget></item>
      <item><widget class="QPushButton" name="btn_webcam_supervisor_rename_persona"><property name="text"><string>Rename</string></property></widget></item>
      <item><widget class="QPushButton" name="btn_webcam_supervisor_delete_persona"><property name="text"><string>Delete</string></property></widget></item>
     </layout>
    </item>
    <item><widget class="QComboBox" name="webcam_supervisor_persona_combo"/></item>
-   <item><layout class="QFormLayout" name="webcam_supervisor_persona_form"><property name="fieldGrowthPolicy"><enum>QFormLayout::ExpandingFieldsGrow</enum></property><item row="0" column="0"><widget class="QLabel" name="webcam_supervisor_persona_tone_label"><property name="text"><string>Persona tone</string></property></widget></item><item row="0" column="1"><widget class="QLineEdit" name="webcam_supervisor_persona_style_edit"/></item></layout></item>
+   <item><layout class="QFormLayout" name="webcam_supervisor_persona_form"><property name="fieldGrowthPolicy"><enum>QFormLayout::ExpandingFieldsGrow</enum></property><item row="0" column="0"><widget class="QLabel" name="webcam_supervisor_persona_tone_label"><property name="text"><string>Speaking style</string></property></widget></item><item row="0" column="1"><widget class="QLineEdit" name="webcam_supervisor_persona_style_edit"/></item></layout></item>
    <item>
     <layout class="QHBoxLayout" name="webcam_supervisor_behavior_header_layout">
-     <item><widget class="QLabel" name="webcam_supervisor_behavior_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Behaviors</string></property></widget></item>
+     <item><widget class="QLabel" name="webcam_supervisor_behavior_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Reaction Rules</string></property></widget></item>
      <item><spacer name="webcam_supervisor_behavior_header_spacer"><property name="orientation"><enum>Qt::Horizontal</enum></property><property name="sizeHint" stdset="0"><size><width>40</width><height>20</height></size></property></spacer></item>
-     <item><widget class="QPushButton" name="btn_webcam_supervisor_add_behavior"><property name="text"><string>Add Behavior</string></property></widget></item>
+     <item><widget class="QPushButton" name="btn_webcam_supervisor_add_behavior"><property name="text"><string>Add Rule</string></property></widget></item>
     </layout>
    </item>
    <item><widget class="QWidget" name="webcam_supervisor_behaviors_widget"><layout class="QVBoxLayout" name="webcam_supervisor_behaviors_layout"><property name="leftMargin"><number>0</number></property><property name="topMargin"><number>0</number></property><property name="rightMargin"><number>0</number></property><property name="bottomMargin"><number>0</number></property><property name="spacing"><number>8</number></property></layout></widget></item>
-   <item><widget class="QLabel" name="webcam_supervisor_note_label"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Each enabled behavior should describe a clear webcam pattern and the in-character interruption it should trigger. Open Advanced only when you want tighter control.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
-   <item><widget class="QLabel" name="webcam_supervisor_preview_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Active Rendered Prompt</string></property></widget></item>
+   <item><widget class="QLabel" name="webcam_supervisor_note_label"><property name="styleSheet"><string notr="true">color: #8ea3b8; font-size: 11px;</string></property><property name="text"><string>Each enabled rule should describe a clear webcam pattern and the in-character response it should trigger. Open Advanced only when you want tighter control.</string></property><property name="wordWrap"><bool>true</bool></property></widget></item>
+   <item><widget class="QLabel" name="webcam_supervisor_preview_label"><property name="styleSheet"><string notr="true">color: #9fb3c8; font-size: 11px; font-weight: 600;</string></property><property name="text"><string>Review Prompt Preview</string></property></widget></item>
    <item><widget class="QPlainTextEdit" name="webcam_supervisor_preview_edit"><property name="minimumHeight"><number>180</number></property><property name="readOnly"><bool>true</bool></property></widget></item>
    <item><spacer name="root_spacer"><property name="orientation"><enum>Qt::Vertical</enum></property><property name="sizeHint" stdset="0"><size><width>20</width><height>40</height></size></property></spacer></item>
   </layout>

@@ -1,0 +1,16 @@
+{
+  "id": "nc.ua_companion_orb_overlay",
+  "name": "Ua Companion Orb Overlay",
+  "category": "visuals",
+  "version": "0.1.0",
+  "entry_point": "main.py",
+  "description": "Streams MuseTalk grayscale face masks to the Unreal Companion Orb overlay.",
+  "runtime_defaults": {
+    "ua_companion_orb_send_musetalk_face_mask": false,
+    "ua_companion_orb_mask_size": 1024
+  },
+  "permissions": [
+    "services.register"
+  ],
+  "enabled": true
+}

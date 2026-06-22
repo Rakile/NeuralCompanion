@@ -146,7 +146,7 @@ class MainWindowSessionMixin:
         return {
             "ai_presence_enabled": _checked("ai_presence_enabled_checkbox", "ai_presence_enabled", False),
             "ai_presence_display_mode": str(_combo("ai_presence_display_mode_combo", "ai_presence_display_mode", "fullscreen") or "fullscreen"),
-            "ai_presence_visual_style": str(_combo("ai_presence_visual_style_combo", "ai_presence_visual_style", "breathing_orb") or "breathing_orb"),
+            "ai_presence_visual_style": str(_combo("ai_presence_visual_style_combo", "ai_presence_visual_style", "neural_network_pulse") or "neural_network_pulse"),
             "ai_presence_fullscreen": _checked("ai_presence_fullscreen_checkbox", "ai_presence_fullscreen", True),
             "ai_presence_overlay_opacity": float(_slider("ai_presence_opacity_slider", "ai_presence_overlay_opacity", 0.72) or 0.72),
             "ai_presence_floating_opacity": float(_slider("ai_presence_floating_opacity_slider", "ai_presence_floating_opacity", 0.92) or 0.92),
@@ -154,6 +154,7 @@ class MainWindowSessionMixin:
             "ai_presence_remember_floating_geometry": _checked("ai_presence_remember_floating_geometry_checkbox", "ai_presence_remember_floating_geometry", True),
             "ai_presence_transparent_background": _checked("ai_presence_transparent_background_checkbox", "ai_presence_transparent_background", False),
             "ai_presence_floating_geometry": RUNTIME_CONFIG.get("ai_presence_floating_geometry", []),
+            "ai_presence_external_runtime_enabled": _checked("ai_presence_external_runtime_enabled_checkbox", "ai_presence_external_runtime_enabled", False),
             "ai_presence_thinking_pulse": float(_slider("ai_presence_thinking_slider", "ai_presence_thinking_pulse", 0.55) or 0.55),
             "ai_presence_speaking_reactivity": float(_slider("ai_presence_speaking_slider", "ai_presence_speaking_reactivity", 0.85) or 0.85),
             "ai_presence_audio_refresh_hz": int(_slider("ai_presence_audio_refresh_slider", "ai_presence_audio_refresh_hz", 30) or 30),
@@ -191,7 +192,7 @@ class MainWindowSessionMixin:
         config = {
             "ai_presence_enabled": bool(session.get("ai_presence_enabled", RUNTIME_CONFIG.get("ai_presence_enabled", False))),
             "ai_presence_display_mode": str(session.get("ai_presence_display_mode", RUNTIME_CONFIG.get("ai_presence_display_mode", "fullscreen")) or "fullscreen"),
-            "ai_presence_visual_style": str(session.get("ai_presence_visual_style", RUNTIME_CONFIG.get("ai_presence_visual_style", "breathing_orb")) or "breathing_orb"),
+            "ai_presence_visual_style": str(session.get("ai_presence_visual_style", RUNTIME_CONFIG.get("ai_presence_visual_style", "neural_network_pulse")) or "neural_network_pulse"),
             "ai_presence_fullscreen": bool(session.get("ai_presence_fullscreen", RUNTIME_CONFIG.get("ai_presence_fullscreen", True))),
             "ai_presence_overlay_opacity": float(session.get("ai_presence_overlay_opacity", RUNTIME_CONFIG.get("ai_presence_overlay_opacity", 0.72)) or 0.72),
             "ai_presence_floating_opacity": float(session.get("ai_presence_floating_opacity", RUNTIME_CONFIG.get("ai_presence_floating_opacity", 0.92)) or 0.92),
@@ -199,6 +200,9 @@ class MainWindowSessionMixin:
             "ai_presence_remember_floating_geometry": bool(session.get("ai_presence_remember_floating_geometry", RUNTIME_CONFIG.get("ai_presence_remember_floating_geometry", True))),
             "ai_presence_transparent_background": bool(session.get("ai_presence_transparent_background", RUNTIME_CONFIG.get("ai_presence_transparent_background", False))),
             "ai_presence_floating_geometry": session.get("ai_presence_floating_geometry", RUNTIME_CONFIG.get("ai_presence_floating_geometry", [])),
+            "ai_presence_external_runtime_enabled": bool(
+                session.get("ai_presence_external_runtime_enabled", RUNTIME_CONFIG.get("ai_presence_external_runtime_enabled", False))
+            ),
             "ai_presence_thinking_pulse": float(session.get("ai_presence_thinking_pulse", RUNTIME_CONFIG.get("ai_presence_thinking_pulse", 0.55)) or 0.55),
             "ai_presence_speaking_reactivity": float(session.get("ai_presence_speaking_reactivity", RUNTIME_CONFIG.get("ai_presence_speaking_reactivity", 0.85)) or 0.85),
             "ai_presence_audio_refresh_hz": int(session.get("ai_presence_audio_refresh_hz", RUNTIME_CONFIG.get("ai_presence_audio_refresh_hz", 30)) or 30),
@@ -234,21 +238,12 @@ class MainWindowSessionMixin:
         if config["ai_presence_display_mode"] not in {"off", "fullscreen", "floating", "both"}:
             config["ai_presence_display_mode"] = "fullscreen"
         if config["ai_presence_visual_style"] not in {
-            "classic_neural_orb",
-            "breathing_orb",
             "neural_network_pulse",
             "neural_face_male",
             "neural_face_female",
             "neural_face_auto",
-            "vector_voice_orb",
-            "circular_audio_waveform",
-            "halo_rings",
-            "minimal_dot",
-            "hologram_core",
-            "signal_bloom",
-            "crystal_prism",
         }:
-            config["ai_presence_visual_style"] = "breathing_orb"
+            config["ai_presence_visual_style"] = "neural_network_pulse"
         config["ai_presence_overlay_opacity"] = max(0.10, min(1.00, config["ai_presence_overlay_opacity"]))
         config["ai_presence_floating_opacity"] = max(0.35, min(1.00, config["ai_presence_floating_opacity"]))
         config["ai_presence_thinking_pulse"] = max(0.10, min(1.00, config["ai_presence_thinking_pulse"]))
@@ -276,6 +271,7 @@ class MainWindowSessionMixin:
             ("ai_presence_floating_always_on_top_checkbox", "ai_presence_floating_always_on_top", "checked"),
             ("ai_presence_remember_floating_geometry_checkbox", "ai_presence_remember_floating_geometry", "checked"),
             ("ai_presence_transparent_background_checkbox", "ai_presence_transparent_background", "checked"),
+            ("ai_presence_external_runtime_enabled_checkbox", "ai_presence_external_runtime_enabled", "checked"),
             ("ai_presence_reduced_effects_checkbox", "ai_presence_reduced_effects", "checked"),
             ("ai_presence_shaders_enabled_checkbox", "ai_presence_shaders_enabled", "checked"),
             ("ai_presence_particles_enabled_checkbox", "ai_presence_particles_enabled", "checked"),
@@ -634,10 +630,8 @@ class MainWindowSessionMixin:
                     index = self.stream_mode_combo.findText(stream_mode)
                     if index >= 0:
                         self.stream_mode_combo.setCurrentIndex(index)
-                    update_runtime_config("stream_mode", stream_mode)
                 else:
                     self.stream_mode_combo.setCurrentText("On" if bool(stream_mode) else "Off")
-                    update_runtime_config("stream_mode", bool(stream_mode))
             stt_backend_settings = session.get("stt_backend_settings")
             if stt_backend_settings is not None:
                 update_runtime_config("stt_backend_settings", stt_backend_settings)
@@ -707,7 +701,11 @@ class MainWindowSessionMixin:
                 update_runtime_config("model_name", saved_model_name)
             model_requires_vision = session.get("model_requires_vision")
             if model_requires_vision is not None and hasattr(self, "model_requires_vision_checkbox"):
-                self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
+                self.model_requires_vision_checkbox.blockSignals(True)
+                try:
+                    self.model_requires_vision_checkbox.setChecked(bool(model_requires_vision))
+                finally:
+                    self.model_requires_vision_checkbox.blockSignals(False)
                 update_runtime_config("model_requires_vision", bool(model_requires_vision))
             if "model_supports_images" in session:
                 update_runtime_config("model_supports_images", session.get("model_supports_images"))
@@ -991,5 +989,6 @@ class MainWindowSessionMixin:
             QtCore.QTimer.singleShot(0, self._ensure_window_on_screen)
         finally:
             self._suspend_session_save = previous_suspend
+            self._restoring_session = False
         self.save_session()
         QtCore.QTimer.singleShot(700, self._finalize_session_restore_dirty_state)

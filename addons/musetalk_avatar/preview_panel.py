@@ -16,11 +16,78 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from addons.musetalk_avatar import state as musetalk_state
 from ui.widgets.basic import AltWheelZoomScrollArea
 
-QT_PREVIEW_CACHE_LIMIT = 384
-QT_PREVIEW_INITIAL_PRELOAD = 32
-QT_PREVIEW_AHEAD_PRELOAD = 32
+
+def _ua_companion_orb_preview_suppressed(runtime_config):
+    try:
+        from addons.ua_companion_orb_overlay import stream_runtime as ua_companion_orb_stream_runtime
+    except Exception:
+        return False
+    return bool(ua_companion_orb_stream_runtime.should_suppress_musetalk_preview(runtime_config or {}))
+
+
+QT_PREVIEW_CACHE_LIMIT = 1024
+QT_PREVIEW_INITIAL_PRELOAD = 96
+QT_PREVIEW_AHEAD_PRELOAD = 96
+QT_PREVIEW_PRELOAD_QUEUE_LIMIT = 2048
+QT_PREVIEW_PRELOAD_RETRY_DELAY_MS = 40
 QT_PREVIEW_POLL_INTERVAL_MS = 8
 QT_MUSETALK_LOOP_FADE_MS = 180
+QT_PREVIEW_FRAME_READY_AGE_MS = 60.0
+QT_PREVIEW_SLOW_RENDER_LOG_MS = 40.0
+QT_PREVIEW_SLOW_RENDER_LOG_INTERVAL_SECONDS = 1.0
+
+
+def _image_file_debug_payload(path):
+    image_path = str(path or "").strip()
+    payload = {
+        "path": image_path,
+        "exists": False,
+        "size_bytes": None,
+        "mtime": None,
+        "age_ms": None,
+    }
+    if not image_path:
+        return payload
+    try:
+        stat = os.stat(image_path)
+    except OSError:
+        return payload
+    payload["exists"] = True
+    payload["size_bytes"] = int(stat.st_size)
+    payload["mtime"] = float(stat.st_mtime)
+    payload["age_ms"] = round(max(0.0, time.time() - float(stat.st_mtime)) * 1000.0, 1)
+    return payload
+
+
+def _preview_image_file_ready(path, *, min_age_ms=QT_PREVIEW_FRAME_READY_AGE_MS):
+    payload = _image_file_debug_payload(path)
+    if not payload.get("exists"):
+        return False, payload
+    try:
+        if int(payload.get("size_bytes") or 0) <= 0:
+            return False, payload
+    except Exception:
+        return False, payload
+    age_ms = payload.get("age_ms")
+    try:
+        if age_ms is not None and float(age_ms) < float(min_age_ms):
+            return False, payload
+    except Exception:
+        return False, payload
+    return True, payload
+
+
+def _preview_image_file_retryable(payload, *, min_age_ms=QT_PREVIEW_FRAME_READY_AGE_MS):
+    try:
+        if not payload.get("exists"):
+            return False
+        if int(payload.get("size_bytes") or 0) <= 0:
+            return False
+        age_ms = payload.get("age_ms")
+        return age_ms is not None and float(age_ms) < float(min_age_ms)
+    except Exception:
+        return False
+
 
 class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
     focusModeRequested = QtCore.Signal()
@@ -132,7 +199,9 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         self.preload_target_size = None
         self.preload_frontier = -1
         self.preload_lock = threading.Lock()
-        self.preload_requests = queue.Queue(maxsize=256)
+        self.preview_decode_error_lock = threading.Lock()
+        self.preview_decode_error_counts = {}
+        self.preload_requests = queue.Queue(maxsize=QT_PREVIEW_PRELOAD_QUEUE_LIMIT)
         self.preload_enqueued = set()
         self._preload_shutdown = False
         self.preload_worker_thread = threading.Thread(target=self._preload_worker, daemon=True)
@@ -440,6 +509,10 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         mask_path = modified_mask_path if modified_mask_path and os.path.isfile(modified_mask_path) else mask_frame_path
         mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         if base_frame is None or mask is None:
+            if base_frame is None:
+                self._log_preview_image_read_error(base_frame_path, context="debug_mask_base")
+            if mask is None:
+                self._log_preview_image_read_error(mask_path, context="debug_mask_mask")
             self.clear_debug_mask_editor()
             return False
         try:
@@ -731,6 +804,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             return False
         image = QtGui.QImage(frame_path)
         if image.isNull():
+            self._log_preview_image_read_error(frame_path, context="static_frame")
             return False
         self.current_sync_time = 0.0
         self.frame_paths = [frame_path]
@@ -779,8 +853,32 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
     def _build_cached_preview_image(self, frame_path, _target_size):
         image = QtGui.QImage(str(frame_path))
         if image.isNull():
+            self._log_preview_image_read_error(frame_path, context="preview_frame")
             raise ValueError(f"Could not load preview frame: {frame_path}")
         return image.copy()
+
+    def _log_preview_image_read_error(self, frame_path, *, context, error=None):
+        path_key = str(frame_path or "").strip()
+        with self.preview_decode_error_lock:
+            count = int(self.preview_decode_error_counts.get(path_key, 0) or 0) + 1
+            self.preview_decode_error_counts[path_key] = count
+        if count > 3:
+            return
+        payload = _image_file_debug_payload(path_key)
+        message = (
+            f"[MuseTalkPreviewImage] Could not load {context}: "
+            f"path={payload.get('path') or '<unknown>'} "
+            f"exists={payload.get('exists')} "
+            f"size={payload.get('size_bytes')} "
+            f"age_ms={payload.get('age_ms')} "
+            f"chunk={self.last_chunk_id} "
+            f"frame={self.current_frame_index} "
+            f"expected={self.expected_frame_count}"
+        )
+        if error:
+            message += f" error={error}"
+        musetalk_state.append_musetalk_preview_log(message)
+        print(message)
 
     def _get_cached_preview_image(self, frame_path):
         with self.preload_lock:
@@ -834,6 +932,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
     def _preload_worker(self):
         while True:
             generation, frame_path = self.preload_requests.get()
+            keep_enqueued = False
             try:
                 if generation is None and frame_path is None:
                     break
@@ -841,7 +940,16 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     continue
                 if generation != self.preload_generation:
                     continue
-                if not frame_path or not os.path.exists(frame_path):
+                ready, payload = _preview_image_file_ready(frame_path)
+                if not frame_path or not ready:
+                    if frame_path and _preview_image_file_retryable(payload):
+                        time.sleep(float(QT_PREVIEW_PRELOAD_RETRY_DELAY_MS) / 1000.0)
+                        if not getattr(self, "_preload_shutdown", False) and generation == self.preload_generation:
+                            try:
+                                self.preload_requests.put_nowait((generation, frame_path))
+                                keep_enqueued = True
+                            except queue.Full:
+                                pass
                     continue
                 if self._get_cached_preview_image(frame_path) is not None:
                     continue
@@ -853,8 +961,9 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                     continue
                 self._store_cached_preview_image(frame_path, image)
             finally:
-                with self.preload_lock:
-                    self.preload_enqueued.discard((generation, frame_path))
+                if not keep_enqueued:
+                    with self.preload_lock:
+                        self.preload_enqueued.discard((generation, frame_path))
                 self.preload_requests.task_done()
 
     def _refresh_frame_paths_from_dir(self):
@@ -865,6 +974,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             for name in os.listdir(self.frame_dir)
             if name.lower().endswith(".png")
         )
+        scanned = [path for path in scanned if _preview_image_file_ready(path)[0]]
         if self.trim_start_frames > 0 and scanned:
             trimmed = scanned[min(self.trim_start_frames, len(scanned) - 1):]
             if trimmed:
@@ -940,7 +1050,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         if frame_index is None or frame_index == self.current_frame_index:
             return
         next_frame_path = self.frame_paths[frame_index]
-        if not os.path.exists(next_frame_path):
+        if not _preview_image_file_ready(next_frame_path)[0]:
             return
         self.current_frame_index = frame_index
         self.current_frame_path = next_frame_path
@@ -1015,7 +1125,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         return True
 
     def render_current_frame(self):
-        if not self.current_frame_path or not os.path.exists(self.current_frame_path):
+        if not self.current_frame_path or not _preview_image_file_ready(self.current_frame_path)[0]:
             return
         render_started_at = time.time()
         load_ms = 0.0
@@ -1071,7 +1181,10 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
             musetalk_state.append_musetalk_preview_log(message)
             print(message)
             self.pending_handoff = None
-        if render_ms >= 20.0 and (now - self.last_slow_render_log_at) > 0.25:
+        if (
+            render_ms >= QT_PREVIEW_SLOW_RENDER_LOG_MS
+            and (now - self.last_slow_render_log_at) > QT_PREVIEW_SLOW_RENDER_LOG_INTERVAL_SECONDS
+        ):
             self.last_slow_render_log_at = now
             message = (
                 f"🖼️ [MuseTalkPreview] Slow frame render: {render_ms:.1f} ms "
@@ -1102,7 +1215,11 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
         previous_source = self.last_presented_source_index
         previous_avatar_id = self.last_avatar_id
         self.current_sync_time = float(state.get("sync_time", 0.0) or 0.0)
-        self.frame_paths = list(state.get("frame_paths", []) or [])
+        self.frame_paths = [
+            path
+            for path in list(state.get("frame_paths", []) or [])
+            if _preview_image_file_ready(path)[0]
+        ]
         self.frame_dir = state.get("frame_dir", "")
         self.current_frame_index = -1
         self.current_frame_path = None
@@ -1224,6 +1341,11 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
 
     def poll_state(self):
         try:
+            if _ua_companion_orb_preview_suppressed(self._runtime_config):
+                if self.preview_label.text() != "MuseTalk routed to Ua Companion Orb":
+                    self.reset_preview()
+                    self.preview_label.setText("MuseTalk routed to Ua Companion Orb")
+                return
             if self.loop_fade_active:
                 self._update_loop_fade_display()
             fade_locked = bool(self.loop_fade_active and time.time() < float(self.loop_fade_lock_until or 0.0))
@@ -1244,7 +1366,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 latest = feed_updates[-1]
                 self.last_feed_seq = int(latest.get("_seq", self.last_feed_seq) or self.last_feed_seq)
                 frame_path = latest.get("frame_path")
-                if frame_path and os.path.exists(frame_path) and not fade_locked:
+                if frame_path and _preview_image_file_ready(frame_path)[0] and not fade_locked:
                     next_chunk_id = latest.get("chunk_id", self.last_chunk_id)
                     next_frame_index = int(latest.get("frame_index", 0) or 0)
                     next_source_index = int(latest.get("source_index", next_frame_index) or next_frame_index)
@@ -1298,7 +1420,7 @@ class QtMuseTalkPreviewPanel(QtWidgets.QWidget):
                 if frame_index is not None and frame_index != self.current_frame_index:
                     self.current_frame_index = frame_index
                     next_frame_path = self.frame_paths[frame_index]
-                    if os.path.exists(next_frame_path):
+                    if _preview_image_file_ready(next_frame_path)[0]:
                         self.current_frame_path = next_frame_path
                         if not state.get("loop", False):
                             self._start_frame_preload(

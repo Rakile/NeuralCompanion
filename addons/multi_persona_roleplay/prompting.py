@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any
 
+from . import story_director
 from .models import AR_MODE, PersonaConfig, RoleplaySessionState, normalize_persona_id
 
 
@@ -137,88 +138,17 @@ def build_alternative_reality_prompt(
     latest_user_text: str = "",
     available_audio: list[dict[str, Any]] | None = None,
     narrator_persona_id: str = "",
+    cast_mode: str = story_director.CAST_MODE_FOCUSED_SPEAKER,
 ) -> str:
     """Build the AR prompt layer from compact state and enabled personas."""
-    enabled = [persona for persona in list(personas or []) if persona.enabled]
-    narrator = (
-        _persona_by_id(enabled, narrator_persona_id)
-        or _find_narrator_persona(enabled)
-        or _persona_by_id(enabled, session.current_speaker_id)
-        or _persona_by_id(enabled, session.active_persona_id)
+    return story_director.build_story_director_prompt(
+        personas,
+        session,
+        latest_user_text=latest_user_text,
+        available_audio=available_audio,
+        narrator_persona_id=narrator_persona_id,
+        cast_mode=cast_mode,
     )
-    state = session.ar_state
-    active_ids = [normalize_persona_id(item) for item in list(state.active_characters or []) if str(item or "").strip()]
-    active_personas = [_persona_by_id(enabled, item) for item in active_ids]
-    active_personas = [item for item in active_personas if item is not None]
-    if not active_personas:
-        active_personas = [persona for persona in enabled if narrator is None or persona.id != narrator.id][:4]
-    roster = []
-    for persona in enabled:
-        role = persona.role or persona.behavior_mode
-        marker = " narrator" if narrator is not None and persona.id == narrator.id else ""
-        roster.append(f"- {persona.display_name} ({persona.id}{marker}): {role}; {_ar_description(persona, session)}")
-    ar_instructions = []
-    if getattr(session, "ar_use_persona_profiles", True):
-        for persona in enabled:
-            instruction = _ar_system_prompt(persona, session)
-            if instruction:
-                ar_instructions.append(f"{persona.display_name} ({persona.id}): {instruction}")
-    audio_lines = _available_audio_lines(available_audio or [])
-    audio_cue_block = "\n".join(audio_lines) if audio_lines else "NONE. Do not output story audio tags because no ready story audio cues are available."
-
-    active_names = ", ".join(persona.display_name for persona in active_personas) or "choose only who the scene needs"
-    narrator_name = narrator.display_name if narrator is not None else "the current speaker"
-    continue_requested = _looks_like_continue(latest_user_text)
-    pacing = str(session.ar_pacing or "Balanced")
-    interaction = str(session.ar_interaction_frequency or "Ask sometimes")
-    pacing_rule = {
-        "Slow / Audiobook": "Use longer cinematic narration and let the scene breathe before asking for input.",
-        "Fast / Game-like": "Use shorter beats, clearer consequences, and reach actionable choices sooner.",
-    }.get(pacing, "Balance narration, dialogue, consequence, and forward motion.")
-    interaction_rule = {
-        "Ask often": "Offer player choices frequently, especially after meaningful discoveries or risks.",
-        "Continue until important choice": "Keep narrating through minor beats and ask only when a decision materially changes the scene.",
-    }.get(interaction, "Ask for input sometimes, but continue through small transitional beats.")
-
-    parts = [
-        "AlternativeReality mode is active. This is an interactive audiobook/adventure runtime, not a normal chatbot and not an equal group chat.",
-        "Use the AR persona profiles when enabled. These replace normal companion or tabletop persona behavior inside AR mode.",
-        "Director/System orchestration: use these instructions to guide pacing, continuity, and speaker selection. Do not expose director notes, hidden planning, or chain-of-thought.",
-        "Tone: cinematic, adventurous, intimate, stylish, and suggestive when it fits the scene; keep it consensual, non-explicit, and user-agency centered.",
-        "Avoid tabletop/DnD framing, dice, stats, class language, quest-log phrasing, or equal turn-taking unless the user explicitly asks for it.",
-        f"Narrator role: {narrator_name}. The narrator usually controls continuity, framing, transitions, consequences, and pacing.",
-        "NPC/Character roles: characters speak only when naturally relevant to the scene. Do not make every persona respond every turn.",
-        "World/Ambience role: write environmental flavor as normal [NARRATOR] prose unless you are activating one exact listed sound cue.",
-        "User/Player role: treat the user's message as player action, speech, interruption, or a request to continue.",
-        _block("AR output format", "[NARRATOR]\nScene narration, character actions, expressions, movement, consequences, and descriptive ambience.\n\n[CHARACTER: Exact Persona Display Name]\nOnly that character's direct spoken dialogue.\n\n[NARRATOR]\nContinue narration after the character speaks.\n\n[AMBIENCE: exact listed activation text only]\n[MUSIC: exact listed activation text only]\n[FX: exact listed activation text only]\n[STINGER: exact listed activation text only]\n\n[CHOICES]\nOptional concise choices."),
-        "Use [NARRATOR], [CHARACTER: Name], and [CHOICES] for story text. Put each tag on its own line, with no markdown around the tag and no extra wrapper headings such as Narrator #1, Story:, Scene:, or Speaker:. Use [AMBIENCE: ...], [MUSIC: ...], [FX: ...], [STINGER: ...], or [AUDIO: ...] only as playback commands for exact listed sounds.",
-        "New character rule: if the scene introduces a new named speaking character that is not in the roster, describe their visible role/appearance/personality in [NARRATOR] prose, then use [CHARACTER: New Name] only for their direct dialogue. This lets MPRC create an editable persona from the active chat.",
-        "Voice routing rule: [NARRATOR] tells the story, including character actions, expressions, movement, scene framing, and consequences. Use [CHARACTER: Exact Persona Display Name] only for direct spoken dialogue or explicit first-person thought from that character. Never wrap third-person character action or description in a [CHARACTER] tag. Wrong: [CHARACTER: Terrax] Terrax looms beside you. Correct: [NARRATOR] Terrax looms beside you. Do not write quoted dialogue inside [NARRATOR] prose, such as \"Line,\" Elara says; split it into [CHARACTER: Elara] for the spoken words, then return to [NARRATOR]. Do not use character tags for narration such as Snik cackles, Grasha leans forward, Vexa steps closer, or she squints. Put [CHARACTER: Name] on its own line before the spoken/first-person words, then return to [NARRATOR] for narration.",
-        "Strict Story Sounds rule: the only valid story audio tags are the activate= values in Available story audio cues. Copy one exactly, including spelling. If no listed cue fits, omit the audio tag. Never write descriptive ambience, mood, invented sounds, new filenames, or summarized cue names inside audio tags.",
-        "Continue the story unless the player must make an important decision.",
-        "Progression rule: the latest player action overrides older scene memory. If the player leaves, enters, travels, opens a door, or moves to a new place, advance the scene to that new visible place unless an immediate concrete obstacle blocks it. Do not keep the story in the opening location just because the scene summary mentions it.",
-        "Location rule: after visible movement, write the new location clearly in narration and continue from there on later turns.",
-        "Preserve player agency. Do not decide major player actions.",
-        _block("Pacing", f"{pacing}. {pacing_rule}"),
-        _block("Interaction frequency", f"{interaction}. {interaction_rule}"),
-        _block("Current scene", state.current_scene or session.scene_title),
-        _block("Location", state.location or session.location),
-        _block("Time of day", state.time_of_day or session.time_of_day),
-        _block("Mood", state.mood or session.mood),
-        _block("Tension level", str(state.tension_level)),
-        _block("Story goal", state.story_goal or session.objective),
-        _block("Player intent", state.player_intent or ("continue" if continue_requested else latest_user_text)),
-        _block("Active characters", active_names),
-        _block("Pending choices", "; ".join(_compact(item, 140) for item in state.pending_choices)),
-        _block("Recent AR events", "; ".join(_compact(item, 160) for item in state.recent_events[-6:])),
-        _block("Scene continuity summary", _compact(session.scene_summary, 900)),
-        _block("Persona roster", "\n".join(roster)),
-        _block("AR persona instructions", "\n".join(ar_instructions)),
-        _block("Available story audio cues", audio_cue_block),
-    ]
-    if continue_requested:
-        parts.append("The user asked to continue. Advance the current scene from stored AR state without resetting, recapping excessively, or asking a trivial question.")
-    return "\n\n".join(item for item in parts if item).strip()
 
 
 def is_alternative_reality_mode(session: RoleplaySessionState | None) -> bool:
@@ -353,13 +283,16 @@ def build_visual_reply_prompt(
     prompt_style = visual_prompt_style(provider_id)
     pieces = []
     ar_state = getattr(session, "ar_state", None)
-    latest_action = _visible_story_action(source_text, 520)
-    location = _compact(getattr(ar_state, "location", ""), 120) if ar_state is not None else ""
-    location = location or _compact(session.location, 120)
-    mood = _compact(getattr(ar_state, "mood", ""), 120) if ar_state is not None else ""
-    mood = mood or _compact(session.mood, 120)
-    time_of_day = _compact(getattr(ar_state, "time_of_day", ""), 80) if ar_state is not None else ""
-    time_of_day = time_of_day or _compact(session.time_of_day, 80)
+    beat_context = story_director.build_visual_beat_context(
+        persona=persona,
+        session=session,
+        reason=reason,
+        source_text=source_text,
+    )
+    latest_action = _compact(beat_context.get("latest_visible_action", ""), 520)
+    location = _compact(beat_context.get("location", ""), 120)
+    mood = _compact(beat_context.get("mood", ""), 120)
+    time_of_day = _compact(beat_context.get("time_of_day", ""), 80)
     if prompt_style == "comfyui":
         scene_bits = []
         if latest_action:

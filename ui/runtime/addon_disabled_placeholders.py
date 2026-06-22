@@ -17,6 +17,9 @@ MUSETALK_LOOP_FADE_TOOLTIP = (
 MUSETALK_FRAME_CACHE_TOOLTIP = (
     "Use/create MuseTalk NumPy frame caches for faster avatar startup. Disable to save disk space and always read PNG frames."
 )
+UA_COMPANION_ORB_TOOLTIP = (
+    "Route MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay and suppress the local MuseTalk preview."
+)
 MUSETALK_AVATAR_PACK_TOOLTIP = "Prepared MuseTalk avatar pack and variant used for rendering visual speech."
 MUSETALK_AVATAR_PACK_REFRESH_TOOLTIP = "Rescan installed MuseTalk avatar packs under avatar_packs/."
 
@@ -97,6 +100,13 @@ def ensure_musetalk_legacy_placeholders(backend, runtime_config=None):
             runtime.get("musetalk_use_frame_cache", True),
         )
         backend.musetalk_use_frame_cache_checkbox.setToolTip(MUSETALK_FRAME_CACHE_TOOLTIP)
+    if not hasattr(backend, "ua_companion_orb_send_musetalk_face_mask_checkbox"):
+        backend.ua_companion_orb_send_musetalk_face_mask_checkbox = _checkbox(
+            "ua_companion_orb_send_musetalk_face_mask_checkbox",
+            "Send MuseTalk face mask to Ua Companion Orb",
+            runtime.get("ua_companion_orb_send_musetalk_face_mask", False),
+        )
+        backend.ua_companion_orb_send_musetalk_face_mask_checkbox.setToolTip(UA_COMPANION_ORB_TOOLTIP)
     if not hasattr(backend, "musetalk_avatar_pack_combo"):
         backend.musetalk_avatar_pack_combo = _combo(
             "musetalk_avatar_pack_combo",

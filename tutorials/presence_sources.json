@@ -6,12 +6,16 @@
   "steps": [
     {
       "title": "Presence Sources",
-      "body": "Webcam and Heart Rate are more personal than screen or clipboard. Enable them only when the user wants this kind of awareness.",
-      "target": "main_window"
+      "body": "Webcam and Heart Rate are more personal than screen or clipboard. Enable them only when the user wants this kind of awareness. Use Read steps aloud or Read Step in this tutorial panel if you want spoken guidance while you work.",
+      "target": "sensory_feedback_tabs",
+      "actions": [
+        { "type": "show_dock", "target": "SystemShapingDock" },
+        { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" }
+      ]
     },
     {
       "title": "Webcam Context",
-      "body": "Webcam is useful for posture, gaze, expression, visible props, and presence cues. Good rules react to clear signals rather than guessing too much.",
+      "body": "Webcam is useful for posture, gaze, expression, visible props, and presence cues. Use the Source Overview and Source Setup cards to keep the capture purpose clear, and react only to visible evidence.",
       "target": "sensory_feedback_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "host_settings_tabs", "value": "Vision" },
@@ -20,7 +24,7 @@
     },
     {
       "title": "Heart Rate Context",
-      "body": "Heart Rate reacts to BPM states instead of images. It is best for coaching, concern, workout callouts, or persona reactions to measurable thresholds.",
+      "body": "Heart Rate reacts to BPM states instead of images. Its source cards should explain current state, thresholds, and optional pulse rules so reactions are tied to measurable changes.",
       "target": "sensory_feedback_tabs",
       "actions": [
         { "type": "open_tab", "tab_widget": "sensory_feedback_tabs", "value": "Heart Rate" }
@@ -28,8 +32,8 @@
     },
     {
       "title": "Avoid Overreach",
-      "body": "Presence sources should be conservative. Prefer simple observations and opt-in behavior over confident claims about mood, health, or intent.",
-      "target": "main_window"
+      "body": "Presence sources should be conservative. Prefer simple observations and opt-in reactions over confident claims about mood, health, or intent.",
+      "target": "sensory_allow_hidden_proactive_checkbox"
     }
   ]
 }

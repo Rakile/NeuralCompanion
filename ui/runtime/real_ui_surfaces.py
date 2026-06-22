@@ -178,20 +178,20 @@ class MainUiRealSurfacesMixin:
                     except Exception:
                         return str(default)
 
-                archive_box = QtWidgets.QGroupBox("Long-Term Memory Archive", parent_widget)
+                archive_box = QtWidgets.QGroupBox("Long-term archive", parent_widget)
                 archive_box.setObjectName("long_term_memory_archive_group")
                 archive_layout = QtWidgets.QVBoxLayout(archive_box)
                 archive_layout.setContentsMargins(12, 14, 12, 12)
                 archive_layout.setSpacing(8)
                 archive_intro = QtWidgets.QLabel(
-                    "Long-Term Memory stores raw chat archive chunks on Save Chat Context or after the archive interval. Retrieval can inject matching archive recall into chat requests.",
+                    "Long-term archive saves older chat notes when you save conversation memory or after the archive interval. Matching archive notes can be added back into future chat requests.",
                     archive_box,
                 )
                 archive_intro.setWordWrap(True)
                 archive_intro.setStyleSheet("color: #8ea3b8; font-size: 11px;")
                 archive_layout.addWidget(archive_intro)
 
-                retrieval_enabled = QtWidgets.QCheckBox("Use archive retrieval in chat", archive_box)
+                retrieval_enabled = QtWidgets.QCheckBox("Use long-term archive in chat", archive_box)
                 retrieval_enabled.setObjectName("long_term_memory_retrieval_enabled_checkbox")
                 retrieval_enabled.setChecked(_backend_archive_checked("long_term_memory_retrieval_enabled_checkbox", False))
                 archive_layout.addWidget(retrieval_enabled)
@@ -214,8 +214,8 @@ class MainUiRealSurfacesMixin:
                 retrieval_form.setLabelAlignment(QtCore.Qt.AlignLeft)
                 retrieval_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
                 retrieval_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-                retrieval_form.addRow("Archive interval (msgs)", archive_batch_turns)
-                retrieval_form.addRow("Max recall items", retrieval_max_items)
+                retrieval_form.addRow("Archive every (messages)", archive_batch_turns)
+                retrieval_form.addRow("Archive notes to use", retrieval_max_items)
                 embedding_model = QtWidgets.QComboBox(archive_box)
                 embedding_model.setObjectName("long_term_memory_embedding_model_edit")
                 embedding_model.setEditable(True)
@@ -237,12 +237,12 @@ class MainUiRealSurfacesMixin:
                 embedding_model_row.setSpacing(8)
                 embedding_model_row.addWidget(embedding_model, 1)
                 embedding_model_row.addWidget(embedding_refresh)
-                retrieval_form.addRow("Embedding model", embedding_model_row)
-                retrieval_form.addRow("Embedding context", embedding_context)
-                retrieval_form.addRow("Embedding base URL", embedding_base_url)
+                retrieval_form.addRow("Semantic search model", embedding_model_row)
+                retrieval_form.addRow("Semantic search context", embedding_context)
+                retrieval_form.addRow("Semantic search server", embedding_base_url)
                 archive_layout.addLayout(retrieval_form)
 
-                embedding_enabled = QtWidgets.QCheckBox("Use LM Studio embeddings for semantic retrieval", archive_box)
+                embedding_enabled = QtWidgets.QCheckBox("Use semantic search for archive matches", archive_box)
                 embedding_enabled.setObjectName("long_term_memory_embedding_enabled_checkbox")
                 embedding_enabled.setChecked(_backend_archive_checked("long_term_memory_embedding_enabled_checkbox", False))
                 archive_layout.addWidget(embedding_enabled)
@@ -289,7 +289,7 @@ class MainUiRealSurfacesMixin:
                         button_parent = anchor_button.parentWidget()
                         button_layout = button_parent.layout() if button_parent is not None and hasattr(button_parent, "layout") else None
                         if button_layout is not None and hasattr(button_layout, "insertWidget"):
-                            batch_update = QtWidgets.QPushButton("Summarize Recent...", button_parent)
+                            batch_update = QtWidgets.QPushButton("Update Memory...", button_parent)
                             batch_update.setObjectName("btn_batch_update_long_term_memory")
                             insert_index = button_layout.indexOf(anchor_button)
                             button_layout.insertWidget(insert_index + 1 if insert_index >= 0 else button_layout.count(), batch_update)
@@ -312,13 +312,13 @@ class MainUiRealSurfacesMixin:
                 except Exception:
                     return int(default)
 
-            memory_box = QtWidgets.QGroupBox("Continuity Memory", parent_widget)
+            memory_box = QtWidgets.QGroupBox("Conversation memory", parent_widget)
             memory_box.setObjectName("long_term_memory_group")
             memory_layout = QtWidgets.QVBoxLayout(memory_box)
             memory_layout.setContentsMargins(12, 14, 12, 12)
             memory_layout.setSpacing(8)
 
-            enabled = QtWidgets.QCheckBox("Enable continuity memory summary", memory_box)
+            enabled = QtWidgets.QCheckBox("Remember a running conversation summary", memory_box)
             enabled.setObjectName("long_term_memory_enabled_checkbox")
             enabled.setChecked(_backend_checked("long_term_memory_enabled_checkbox", False))
             memory_layout.addWidget(enabled)
@@ -328,7 +328,7 @@ class MainUiRealSurfacesMixin:
             update_on_save.setChecked(_backend_checked("long_term_memory_update_on_save_checkbox", False))
             memory_layout.addWidget(update_on_save)
 
-            inject = QtWidgets.QCheckBox("Inject continuity summary into chat", memory_box)
+            inject = QtWidgets.QCheckBox("Use conversation memory in replies", memory_box)
             inject.setObjectName("long_term_memory_inject_checkbox")
             inject.setChecked(_backend_checked("long_term_memory_inject_checkbox", False))
             memory_layout.addWidget(inject)
@@ -351,17 +351,17 @@ class MainUiRealSurfacesMixin:
             memory_form.setLabelAlignment(QtCore.Qt.AlignLeft)
             memory_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
             memory_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
-            memory_form.addRow("Auto summary interval (msgs)", auto_turns)
-            memory_form.addRow("Summary budget (chars)", max_chars)
+            memory_form.addRow("Update every (messages)", auto_turns)
+            memory_form.addRow("Summary size (characters)", max_chars)
             memory_layout.addLayout(memory_form)
 
             button_row = QtWidgets.QHBoxLayout()
             button_row.setSpacing(8)
-            review = QtWidgets.QPushButton("Review Summary", memory_box)
+            review = QtWidgets.QPushButton("Review Memory", memory_box)
             review.setObjectName("btn_review_long_term_memory")
             batch_update = QtWidgets.QPushButton("Summarize Recent...", memory_box)
             batch_update.setObjectName("btn_batch_update_long_term_memory")
-            forget = QtWidgets.QPushButton("Forget Summary", memory_box)
+            forget = QtWidgets.QPushButton("Forget Memory", memory_box)
             forget.setObjectName("btn_forget_long_term_memory")
             button_row.addWidget(review)
             button_row.addWidget(batch_update)
@@ -686,6 +686,9 @@ class MainUiRealSurfacesMixin:
             frontend_history_spin = self._ui_object("sensory_pingpong_history_spin")
             frontend_prompt_text = self._ui_object("sensory_pingpong_prompt_text")
             frontend_hint_label = self._ui_object("sensory_feedback_hint")
+            frontend_feedback_box = self._ui_object("sensory_feedback_box")
+            frontend_prompt_box = self._ui_object("sensory_pingpong_prompt_box")
+            frontend_prompt_reset = self._ui_object("btn_sensory_pingpong_prompt_reset")
             if frontend_sources_layout is None and frontend_sources_widget is not None and hasattr(frontend_sources_widget, "layout"):
                 try:
                     frontend_sources_layout = frontend_sources_widget.layout()
@@ -693,6 +696,180 @@ class MainUiRealSurfacesMixin:
                     frontend_sources_layout = None
             if frontend_tabs is None or frontend_sources_widget is None or frontend_sources_layout is None:
                 return
+
+            def _set_widget_text(object_name, text):
+                widget = self._ui_object(object_name)
+                if widget is None:
+                    return
+                try:
+                    if isinstance(widget, QtWidgets.QGroupBox):
+                        widget.setTitle(str(text or ""))
+                    elif hasattr(widget, "setText"):
+                        widget.setText(str(text or ""))
+                except Exception:
+                    pass
+
+            def _set_widget_tooltip(widget, text):
+                if widget is None or not hasattr(widget, "setToolTip"):
+                    return
+                try:
+                    widget.setToolTip(str(text or ""))
+                except Exception:
+                    pass
+
+            _set_widget_text("sensory_feedback_box", "Background Awareness")
+            _set_widget_text("sensory_pingpong_prompt_box", "Advanced / Developer Prompt")
+            _set_widget_text("sensory_pingpong_checkbox", "Enable background review")
+            _set_widget_text("sensory_allow_hidden_proactive_checkbox", "Allow NC to speak about observations")
+            _set_widget_text("sensory_allow_hidden_visual_checkbox", "Use observations for Visual Reply images")
+            _set_widget_text("sensory_include_label", "Sources to observe")
+            _set_widget_text("sensory_refresh_label", "Review every")
+            _set_widget_text("sensory_retain_label", "Keep recent observations")
+            _set_widget_text("btn_sensory_pingpong_prompt_reset", "Restore recommended prompt")
+            _set_widget_tooltip(
+                frontend_pingpong_checkbox,
+                "Lets NC quietly review selected sources while idle, then keep useful observation notes.",
+            )
+            _set_widget_tooltip(
+                frontend_hidden_proactive_checkbox,
+                "Allows a background observation to become a spoken proactive comment when the prompt marks it as worth saying.",
+            )
+            _set_widget_tooltip(
+                frontend_hidden_visual_checkbox,
+                "Allows selected sensory context to trigger automatic Visual Reply image generation when the prompt explicitly requests it.",
+            )
+            _set_widget_tooltip(frontend_interval_spin, "How many seconds may pass before NC reviews selected sources again.")
+            _set_widget_tooltip(frontend_history_spin, "How many useful background observations NC may keep.")
+            if frontend_prompt_text is not None and hasattr(frontend_prompt_text, "setPlaceholderText"):
+                try:
+                    frontend_prompt_text.setPlaceholderText("Advanced background review prompt")
+                except Exception:
+                    pass
+            try:
+                if frontend_tabs.count() > 0:
+                    frontend_tabs.setTabText(0, "Overview")
+                if frontend_tabs.count() > 1:
+                    frontend_tabs.setTabText(1, "Sources")
+            except Exception:
+                pass
+
+            def _apply_frontend_sensory_cards():
+                if getattr(self, "_sensory_runtime_cards_applied", False):
+                    return
+                if frontend_feedback_box is None or not hasattr(frontend_feedback_box, "layout"):
+                    return
+                try:
+                    feedback_layout = frontend_feedback_box.layout()
+                except Exception:
+                    feedback_layout = None
+                if feedback_layout is None:
+                    return
+                while feedback_layout.count():
+                    feedback_layout.takeAt(0)
+                for object_name in ("sensory_include_label", "sensory_refresh_label", "sensory_retain_label"):
+                    label_widget = self._ui_object(object_name)
+                    if label_widget is not None and hasattr(label_widget, "setVisible"):
+                        label_widget.setVisible(False)
+                for widget in (
+                    frontend_pingpong_checkbox,
+                    frontend_interval_spin,
+                    frontend_history_spin,
+                    frontend_sources_widget,
+                    frontend_hidden_proactive_checkbox,
+                    frontend_hidden_visual_checkbox,
+                    frontend_hint_label,
+                ):
+                    if widget is not None and hasattr(widget, "setParent"):
+                        widget.setParent(None)
+
+                def make_card(title):
+                    card = QtWidgets.QGroupBox(title)
+                    card.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Maximum)
+                    card_layout = QtWidgets.QVBoxLayout(card)
+                    card_layout.setContentsMargins(12, 14, 12, 12)
+                    card_layout.setSpacing(8)
+                    return card, card_layout
+
+                def spin_row(widget, suffix=""):
+                    container = QtWidgets.QWidget()
+                    row = QtWidgets.QHBoxLayout(container)
+                    row.setContentsMargins(0, 0, 0, 0)
+                    row.setSpacing(6)
+                    if widget is not None:
+                        row.addWidget(widget, 0)
+                    if suffix:
+                        suffix_label = QtWidgets.QLabel(suffix)
+                        suffix_label.setStyleSheet("color: #9fb3c8; font-size: 11px;")
+                        row.addWidget(suffix_label, 0)
+                    row.addStretch(1)
+                    return container
+
+                intro_label = QtWidgets.QLabel(
+                    "Choose what NC may quietly observe in the background. Observations are added as context; they are not sent as user messages."
+                )
+                intro_label.setObjectName("sensory_feedback_intro")
+                intro_label.setWordWrap(True)
+                intro_label.setStyleSheet("color: #b8c8d9; font-size: 11px;")
+                feedback_layout.addWidget(intro_label)
+
+                review_card, review_layout = make_card("Background Review")
+                if frontend_pingpong_checkbox is not None:
+                    review_layout.addWidget(frontend_pingpong_checkbox)
+                review_form = QtWidgets.QFormLayout()
+                review_form.setLabelAlignment(QtCore.Qt.AlignLeft)
+                review_form.setFieldGrowthPolicy(QtWidgets.QFormLayout.FieldsStayAtSizeHint)
+                review_form.setFormAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop)
+                review_form.addRow("Review every", spin_row(frontend_interval_spin, "seconds"))
+                review_form.addRow("Keep recent observations", spin_row(frontend_history_spin))
+                review_layout.addLayout(review_form)
+                feedback_layout.addWidget(review_card)
+
+                sources_card, sources_layout = make_card("Sources to observe")
+                sources_hint = QtWidgets.QLabel("Select the background inputs NC may include when building context.")
+                sources_hint.setWordWrap(True)
+                sources_hint.setStyleSheet("color: #8ea3b8; font-size: 11px;")
+                sources_layout.addWidget(sources_hint)
+                sources_layout.addWidget(frontend_sources_widget)
+                feedback_layout.addWidget(sources_card)
+
+                actions_card, actions_layout = make_card("Allowed Actions")
+                if frontend_hidden_proactive_checkbox is not None:
+                    actions_layout.addWidget(frontend_hidden_proactive_checkbox)
+                if frontend_hidden_visual_checkbox is not None:
+                    actions_layout.addWidget(frontend_hidden_visual_checkbox)
+                feedback_layout.addWidget(actions_card)
+                if frontend_hint_label is not None:
+                    feedback_layout.addWidget(frontend_hint_label)
+                self._sensory_runtime_cards_applied = True
+
+            def _apply_frontend_prompt_collapse():
+                if getattr(self, "_sensory_prompt_collapse_applied", False):
+                    return
+                if frontend_prompt_box is None or not isinstance(frontend_prompt_box, QtWidgets.QGroupBox):
+                    return
+
+                def set_prompt_expanded(expanded):
+                    visible = bool(expanded)
+                    for widget in (frontend_prompt_reset, frontend_prompt_text):
+                        if widget is not None and hasattr(widget, "setVisible"):
+                            widget.setVisible(visible)
+                    try:
+                        frontend_prompt_box.setMaximumHeight(16777215 if visible else 42)
+                    except Exception:
+                        pass
+
+                try:
+                    frontend_prompt_box.setCheckable(True)
+                    frontend_prompt_box.setChecked(False)
+                    frontend_prompt_box.toggled.connect(set_prompt_expanded)
+                    set_prompt_expanded(False)
+                    self._sensory_prompt_collapse_applied = True
+                except Exception:
+                    pass
+
+            _apply_frontend_sensory_cards()
+            _apply_frontend_prompt_collapse()
+
             backend_interval_spin = getattr(self.backend, "sensory_feedback_interval_spin", None)
             backend_pingpong_checkbox = getattr(self.backend, "sensory_pingpong_checkbox", None)
             backend_hidden_proactive_checkbox = getattr(self.backend, "sensory_allow_hidden_proactive_checkbox", None)

@@ -32,7 +32,7 @@
       <string notr="true">color: #cbd5e1;</string>
      </property>
      <property name="text">
-      <string>Clipboard is a user-curated Vision source. Copy an image with Snipping Tool or another app, then use it as a manual image send, the next user-turn attachment, or optional hidden-loop context.</string>
+      <string>Clipboard is a user-curated image source. Copy an image with Snipping Tool or another app, then choose whether it is sent now, attached to the next user turn, or included in Background Awareness.</string>
      </property>
      <property name="wordWrap">
       <bool>true</bool>
@@ -66,7 +66,7 @@
          <string notr="true">font-size: 13px; font-weight: 700; color: #f2f5f9;</string>
         </property>
         <property name="text">
-         <string>Clipboard Delivery Rules</string>
+         <string>Clipboard Image Flow</string>
         </property>
        </widget>
       </item>
@@ -87,7 +87,7 @@
       <item>
        <widget class="QCheckBox" name="clipboard_hidden_loop_checkbox">
         <property name="text">
-         <string>Include the latest clipboard image in the hidden Vision loop</string>
+         <string>Use the latest clipboard image for Background Awareness</string>
         </property>
        </widget>
       </item>
@@ -133,14 +133,14 @@
         <item>
          <widget class="QPushButton" name="btn_clipboard_send_now">
           <property name="text">
-           <string>Send Now</string>
+           <string>Send Image Now</string>
           </property>
          </widget>
         </item>
         <item>
          <widget class="QPushButton" name="btn_clipboard_arm_next_turn">
           <property name="text">
-           <string>Arm Next Turn</string>
+           <string>Attach Next Turn</string>
           </property>
          </widget>
         </item>

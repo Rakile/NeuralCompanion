@@ -34,6 +34,10 @@ FRAME_CACHE_TOOLTIP = (
 )
 AVATAR_PACK_TOOLTIP = "Prepared MuseTalk avatar pack and variant used for rendering visual speech."
 AVATAR_PACK_REFRESH_TOOLTIP = "Rescan installed MuseTalk avatar packs under avatar_packs/."
+UA_COMPANION_ORB_TOOLTIP = (
+    "Send MuseTalk preview frames as grayscale masks to the Ua Companion Orb Unreal overlay. "
+    "When enabled, the local MuseTalk preview is suppressed."
+)
 DEFAULT_LOOP_FADE_MS = 180
 PERFORMANCE_PROFILE_APPLY_KEYS = {
     "musetalk_vram_mode",
@@ -144,6 +148,10 @@ def collect_runtime_config(backend, runtime_config=None):
             "musetalk_use_frame_cache_checkbox",
             runtime.get("musetalk_use_frame_cache", True),
         ),
+        "ua_companion_orb_send_musetalk_face_mask": backend._live_checked(
+            "ua_companion_orb_send_musetalk_face_mask_checkbox",
+            runtime.get("ua_companion_orb_send_musetalk_face_mask", False),
+        ),
         "musetalk_loop_fade_ms": int(
             backend._live_value(
                 "musetalk_loop_fade_spin",
@@ -197,6 +205,11 @@ def apply_runtime_settings(backend, settings):
         enabled = bool(payload["musetalk_use_frame_cache"])
         widget.setChecked(enabled)
         apply_frame_cache_change(backend, enabled)
+    widget = backend._live_widget_attr("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    if "ua_companion_orb_send_musetalk_face_mask" in payload and widget is not None:
+        enabled = bool(payload["ua_companion_orb_send_musetalk_face_mask"])
+        widget.setChecked(enabled)
+        apply_ua_companion_orb_send_change(backend, enabled)
 
 
 def add_performance_override(backend, override, runtime_config=None):
@@ -218,6 +231,9 @@ def refresh_resource_widgets(backend, runtime_config=None):
     widget = backend._live_widget_attr("musetalk_vram_combo")
     if widget is not None:
         widget.setCurrentText(vram_label_from_key(vram_mode))
+    widget = backend._live_widget_attr("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    if widget is not None:
+        widget.setChecked(bool(runtime.get("ua_companion_orb_send_musetalk_face_mask", False)))
 
 
 def update_runtime_config_from_widgets(backend, runtime_config=None):
@@ -280,6 +296,25 @@ def apply_frame_cache_change(backend, checked):
     _update_runtime_config(backend, "musetalk_use_frame_cache", enabled)
     if hasattr(backend, "emit_tutorial_event"):
         backend.emit_tutorial_event("ui_changed", {"field": "musetalk_use_frame_cache", "value": enabled})
+    if hasattr(backend, "save_session"):
+        backend.save_session()
+
+
+def apply_ua_companion_orb_send_change(backend, checked):
+    enabled = bool(checked)
+    _update_runtime_config(backend, "ua_companion_orb_send_musetalk_face_mask", enabled)
+    preview = getattr(backend, "embedded_musetalk_preview", None)
+    if preview is not None and hasattr(preview, "reset_preview"):
+        preview.reset_preview()
+        if enabled and hasattr(preview, "preview_label"):
+            preview.preview_label.setText("MuseTalk routed to Ua Companion Orb")
+    if enabled:
+        for dock_name in ("preview_dock", "_musetalk_stage_window"):
+            dock = getattr(backend, dock_name, None)
+            if dock is not None and hasattr(dock, "hide"):
+                dock.hide()
+    if hasattr(backend, "emit_tutorial_event"):
+        backend.emit_tutorial_event("ui_changed", {"field": "ua_companion_orb_send_musetalk_face_mask", "value": enabled})
     if hasattr(backend, "save_session"):
         backend.save_session()
 
@@ -397,6 +432,16 @@ def build_legacy_runtime_widgets(backend, runtime_config=None):
     backend.musetalk_use_frame_cache_checkbox.setChecked(bool(runtime.get("musetalk_use_frame_cache", True)))
     backend.musetalk_use_frame_cache_checkbox.setToolTip(FRAME_CACHE_TOOLTIP)
     backend.musetalk_use_frame_cache_checkbox.toggled.connect(backend.on_musetalk_use_frame_cache_changed)
+
+    backend.ua_companion_orb_send_musetalk_face_mask_checkbox = QtWidgets.QCheckBox("Send MuseTalk face mask to Ua Companion Orb")
+    backend.ua_companion_orb_send_musetalk_face_mask_checkbox.setObjectName("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    backend.ua_companion_orb_send_musetalk_face_mask_checkbox.setChecked(
+        bool(runtime.get("ua_companion_orb_send_musetalk_face_mask", False))
+    )
+    backend.ua_companion_orb_send_musetalk_face_mask_checkbox.setToolTip(UA_COMPANION_ORB_TOOLTIP)
+    backend.ua_companion_orb_send_musetalk_face_mask_checkbox.toggled.connect(
+        lambda checked: apply_ua_companion_orb_send_change(backend, checked)
+    )
 
     backend.musetalk_avatar_pack_combo = NoWheelComboBox()
     backend.musetalk_avatar_pack_combo.setObjectName("musetalk_avatar_pack_combo")
@@ -738,6 +783,14 @@ def sync_frame_cache(bridge):
     bridge._refresh_musetalk_visual_runtime_frontend()
 
 
+def sync_ua_companion_orb_send(bridge):
+    bridge._sync_single_checkbox_to_backend("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    widget = bridge._ui_object("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    if widget is not None and hasattr(widget, "isChecked"):
+        apply_ua_companion_orb_send_change(bridge.backend, bool(widget.isChecked()))
+    bridge._refresh_musetalk_visual_runtime_frontend()
+
+
 def bind_runtime_controls(bridge):
     """Wire MuseTalk-owned runtime controls from main.ui to MuseTalk backend callbacks."""
     combo_bindings = {
@@ -761,3 +814,7 @@ def bind_runtime_controls(bridge):
     frame_cache_checkbox = bridge._ui_object("musetalk_use_frame_cache_checkbox")
     if frame_cache_checkbox is not None and hasattr(frame_cache_checkbox, "toggled"):
         frame_cache_checkbox.toggled.connect(lambda _checked=False: sync_frame_cache(bridge))
+
+    ua_companion_orb_checkbox = bridge._ui_object("ua_companion_orb_send_musetalk_face_mask_checkbox")
+    if ua_companion_orb_checkbox is not None and hasattr(ua_companion_orb_checkbox, "toggled"):
+        ua_companion_orb_checkbox.toggled.connect(lambda _checked=False: sync_ua_companion_orb_send(bridge))

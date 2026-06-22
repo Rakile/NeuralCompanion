@@ -48,6 +48,7 @@ import gc
 import importlib
 import dry_run
 import app_help
+from core import companion_orb_reply_styles
 from core import sensory, audio_story_runtime, avatar_hand_state, avatar_runtime, avatar_runtime_context, chat_providers, continuity_memory, conversation_history as conversation_history_runtime, lmstudio_runtime, long_term_memory, runtime_chat, runtime_files, runtime_hotkeys, runtime_paths, runtime_shutdown, speech_text, streaming_text, stt_runtime, text_chunking, text_tags, tts_runtime, audio_playback, user_image_turns
 from core import expression_state
 from core.addons import bootstrap_runtime
@@ -343,7 +344,19 @@ def _default_assistant_memory():
 # ============================================================================
 # INSTRUCTIONS
 # ============================================================================
-DEFAULT_EMOTIONAL_INSTRUCTIONS = ""
+DEFAULT_EMOTIONAL_INSTRUCTIONS = """You have a graphical face and a voice. Use them to act out your responses vividly.
+VISUAL MOODS (State-based):
+Insert one of these tags to make your graphical avatar take on a specific facial expression at any given moment.
+Valid Tags: [neutral], [sad], [angry]
+
+VOICE SOUNDS (Action-based):
+Insert one of these tags to express a vocal emotion at any given moment.
+Valid Tags: [laugh], [chuckle], [sigh], [groan], [gasp], [clear throat], [sniff]
+
+Example of how to use tags in a sentence:
+"[angry] You did what? [laugh] [sad] Oh my god, are you okay? [neutral] Or just clumsy?"
+
+Do NOT use emojis when speaking!"""
 
 DEFAULT_SENSORY_PINGPONG_PROMPT = """You are NC's hidden sensory ping/pong layer. The user never sees this exchange.
 You receive hidden sensory PINGs and must return JSON only, with no prose or markdown.
@@ -735,7 +748,7 @@ RUNTIME_CONFIG = {
     "proactive_delay_seconds": 10.0,
     "ai_presence_enabled": False,
     "ai_presence_display_mode": "fullscreen",
-    "ai_presence_visual_style": "breathing_orb",
+    "ai_presence_visual_style": "neural_network_pulse",
     "ai_presence_fullscreen": True,
     "ai_presence_overlay_opacity": 0.72,
     "ai_presence_floating_opacity": 0.92,
@@ -745,6 +758,7 @@ RUNTIME_CONFIG = {
     "ai_presence_right_drag_move_enabled": False,
     "ai_presence_transparent_background": False,
     "ai_presence_floating_geometry": [],
+    "ai_presence_external_runtime_enabled": False,
     "ai_presence_thinking_pulse": 0.55,
     "ai_presence_speaking_reactivity": 0.85,
     "ai_presence_audio_refresh_hz": 30,
@@ -809,6 +823,7 @@ RUNTIME_CONFIG = {
     "companion_orb_return_home_delay": 2.5,
     "companion_orb_harassment_enabled": False,
     "companion_orb_response_style": "friendly",
+    "companion_orb_response_style_prompts": {},
     "companion_orb_harassment_timer_seconds": 45,
     "companion_orb_snapshot_on_pointer_reached": False,
     "companion_orb_debug_enabled": False,
@@ -944,11 +959,6 @@ def update_runtime_config(key, value):
             value = chat_providers.normalize_provider_id(value, fallback=chat_providers.DEFAULT_PROVIDER_ID)
         elif key == "chat_provider_settings":
             value = dict(value or {})
-        elif key == "stream_mode":
-            if isinstance(value, str):
-                value = value.strip().lower() in {"1", "true", "yes", "on", "stream", "enabled"}
-            else:
-                value = bool(value)
         elif key == "stt_backend_settings":
             value = dict(value or {})
         elif key == "chat_replay_role_voices":
@@ -1031,6 +1041,9 @@ sensory_pingpong_state = {
     "last_failure_key": "",
     "fallback_request_until": 0.0,
     "fallback_request_source": "",
+    "invalid_response_until": 0.0,
+    "invalid_response_source": "",
+    "invalid_response_count": 0,
     "last_emotion": "",
     "last_attention": "",
     "last_summary": "",
@@ -1135,6 +1148,21 @@ def _invoke_addon_capability(capability, payload=None):
     except Exception as exc:
         print(f"⚠️ [Addons] Capability '{capability}' failed: {exc}")
         return None
+
+
+def _invoke_all_addon_capabilities(capability, payload=None):
+    manager = _get_addon_manager()
+    if manager is None:
+        return []
+    invoker = getattr(manager, "invoke_all_capabilities", None)
+    if callable(invoker):
+        try:
+            return list(invoker(str(capability or ""), dict(payload or {})) or [])
+        except Exception as exc:
+            print(f"[Addons] Capability fanout '{capability}' failed: {exc}")
+            return []
+    result = _invoke_addon_capability(capability, payload or {})
+    return [] if result is None else [result]
 
 
 def _maybe_handle_addon_user_text_command(text, *, input_role="user"):
@@ -1294,21 +1322,25 @@ def _notify_addon_tts_segment_started(payload=None) -> bool:
     return result is not None
 
 
-def _notify_addon_tts_audio_chunk_ready(payload=None) -> bool:
-    result = _invoke_addon_capability("tts.audio_chunk_ready", payload or {})
-    return result is not None
+def _notify_addon_tts_audio_chunk_ready(payload=None) -> dict:
+    results = _invoke_all_addon_capabilities("tts.audio_chunk_ready", payload or {})
+    return {
+        "handled": any(result is not None for result in results),
+        "skip_local_playback": any(
+            isinstance(result, dict) and bool(result.get("skip_local_playback", False))
+            for result in results
+        ),
+    }
 
 
 def _notify_addon_tts_duck_start(payload=None) -> bool:
-    result = _invoke_addon_capability("tts.duck.start", payload or {})
-    if isinstance(result, dict):
-        return bool(result.get("ducked", False))
-    return False
+    results = _invoke_all_addon_capabilities("tts.duck.start", payload or {})
+    return any(isinstance(result, dict) and bool(result.get("ducked", False)) for result in results)
 
 
 def _notify_addon_tts_duck_end(payload=None) -> bool:
-    result = _invoke_addon_capability("tts.duck.end", payload or {})
-    return result is not None
+    results = _invoke_all_addon_capabilities("tts.duck.end", payload or {})
+    return any(result is not None for result in results)
 
 
 def _tts_playback_voice_volume(source_meta=None, text="") -> float:
@@ -1464,12 +1496,20 @@ def _get_lmstudio_sdk():
     return lmstudio_runtime.get_sdk()
 
 
+def _active_lmstudio_base_url():
+    return str(
+        _chat_provider_base_url("lmstudio")
+        or chat_providers.get_provider_setting("lmstudio", "base_url")
+        or LMSTUDIO_BASE_URL
+    ).strip() or LMSTUDIO_BASE_URL
+
+
 def _get_lmstudio_sdk_host():
-    return lmstudio_runtime.sdk_host(LMSTUDIO_BASE_URL)
+    return lmstudio_runtime.sdk_host(_active_lmstudio_base_url())
 
 
 def _get_lmstudio_sdk_client(sdk):
-    return lmstudio_runtime.sdk_client(sdk, LMSTUDIO_BASE_URL)
+    return lmstudio_runtime.sdk_client(sdk, _active_lmstudio_base_url())
 
 
 def _run_lms_cli(args, timeout=300):
@@ -1477,13 +1517,13 @@ def _run_lms_cli(args, timeout=300):
 
 
 def unload_lmstudio_models():
-    return lmstudio_runtime.unload_models(base_url=LMSTUDIO_BASE_URL, logger=print)
+    return lmstudio_runtime.unload_models(base_url=_active_lmstudio_base_url(), logger=print)
 
 
 def load_lmstudio_model(model_name):
     return lmstudio_runtime.load_model(
         model_name,
-        base_url=LMSTUDIO_BASE_URL,
+        base_url=_active_lmstudio_base_url(),
         is_placeholder=_is_model_catalog_placeholder,
         logger=print,
     )
@@ -3060,6 +3100,7 @@ def _sanitize_hidden_proactive_request(entry):
         return None
     summary = _sanitize_hidden_action_text(entry.get("summary", ""), limit=220)
     attention = _sanitize_hidden_action_text(entry.get("attention", ""), limit=80, lower=True)
+    emotion = _sanitize_hidden_action_text(entry.get("emotion", ""), limit=40, lower=True)
     source = _sanitize_hidden_action_text(entry.get("source", "sensory"), limit=40, lower=True) or "sensory"
     created_at = float(entry.get("created_at", time.time()) or time.time())
     trace_id = _sanitize_hidden_action_text(entry.get("trace_id", ""), limit=80)
@@ -3070,6 +3111,8 @@ def _sanitize_hidden_proactive_request(entry):
         "source": source,
         "created_at": created_at,
     }
+    if emotion:
+        request["emotion"] = emotion
     if trace_id:
         request["trace_id"] = trace_id
     focus_bounds = _normalize_hidden_focus_bounds(entry.get("focus_bounds"))
@@ -3130,6 +3173,7 @@ def _queue_hidden_proactive_candidate(
     *,
     summary="",
     attention="",
+    emotion="",
     source="sensory",
     allow_repeated_candidate=False,
     focus_bounds=None,
@@ -3146,6 +3190,7 @@ def _queue_hidden_proactive_candidate(
             "candidate": candidate,
             "summary": summary,
             "attention": attention,
+            "emotion": emotion,
             "source": source,
             "created_at": time.time(),
             "focus_bounds": focus_bounds,
@@ -3268,116 +3313,32 @@ def _get_active_hidden_proactive_request():
         return _sanitize_hidden_proactive_request(sensory_hidden_action_state.get("active_proactive"))
 
 
-COMPANION_ORB_RESPONSE_STYLE_EXAMPLES = {
-    "friendly": (
-        "That bit looks interesting. I am checking it now.",
-        "Nice find, I can focus on that with you.",
-        "I see the thing you mean. Let us inspect it.",
-        "Fresh clue spotted. I am on it.",
-        "That area has useful details. I will stay with it.",
-        "Good target. I can help read what is happening there.",
-        "This looks worth a closer look.",
-        "I am hovering near the useful part now.",
-        "That caught my attention too.",
-        "Let us make sense of this little corner.",
-    ),
-    "loving": (
-        "I see it. I am right here with you.",
-        "Let us look at that together, one detail at a time.",
-        "That matters to you, so I will stay with it.",
-        "I am close by and focused on the same thing.",
-        "We can take this gently and notice what is there.",
-        "I have your focus point. I will keep it steady.",
-        "I am here, watching that detail with you.",
-        "That looks like the right place to pause.",
-        "Let us be patient with this and read it carefully.",
-        "I will keep my attention warm and close to that.",
-    ),
-    "sarcastic": (
-        "Ah yes, the important bit has revealed itself.",
-        "That area is clearly auditioning for attention.",
-        "I see it. The pixels are being very dramatic.",
-        "A suspicious little detail. Naturally, I am intrigued.",
-        "This window is trying to tell us something, probably loudly.",
-        "That looks clickable enough to have opinions.",
-        "Fine, I admit it, that part is interesting.",
-        "The plot thickens by approximately one interface element.",
-        "I am focusing there, with the seriousness it apparently deserves.",
-        "This is either a clue or a very confident distraction.",
-    ),
-    "roast": (
-        "That part looks guilty of something.",
-        "I am inspecting this brave little mess.",
-        "These pixels have chosen chaos, but I will try.",
-        "That section is doing its best. Questionable, but brave.",
-        "I see the suspect. It is not beating the allegations.",
-        "This detail has main-character confusion.",
-        "I will interrogate that area before it gets worse.",
-        "That window has the confidence of a bad plan.",
-        "This is either useful or aggressively weird.",
-        "I found the issue-shaped object. Let us poke it.",
-    ),
-    "sensual_non_explicit": (
-        "I see it. I will move in softly and keep focus there.",
-        "Let me stay close to that detail for a moment.",
-        "That area has a quiet pull. I will follow it.",
-        "I am leaning my attention toward that now.",
-        "We can look at this slowly and keep it clear.",
-        "I will hover near that point and let the details settle.",
-        "That focus feels right. I will keep it gentle.",
-        "I am close enough to notice the small things now.",
-        "Let us follow that thread without rushing it.",
-        "I will hold the focus there, calm and careful.",
-    ),
-}
-
-
-def _companion_orb_response_style_examples(style: str) -> str:
-    examples = COMPANION_ORB_RESPONSE_STYLE_EXAMPLES.get(style, COMPANION_ORB_RESPONSE_STYLE_EXAMPLES["friendly"])
-    return " | ".join(examples)
-
-
 def _companion_orb_response_style_instruction():
-    style = str(RUNTIME_CONFIG.get("companion_orb_response_style", "friendly") or "friendly").strip().lower()
-    instructions = {
-        "friendly": (
-            "Very friendly: sound bright, curious, supportive, and lightly funny. "
-            "Avoid sarcasm, roasts, or flirtation."
-        ),
-        "loving": (
-            "Very loving: sound affectionate, reassuring, warm, and emotionally present. "
-            "Use caring phrasing, not sarcasm or roasts."
-        ),
-        "sarcastic": (
-            "Sarcastic / ironic: use dry wit, ironic understatement, and playful side-eye. "
-            "Keep it useful and do not become cruel."
-        ),
-        "roast": (
-            "Roast mode: use sharper teasing humor and tiny playful jabs at the situation or desktop chaos. "
-            "Do not bully the user, attack protected traits, or target vulnerabilities."
-        ),
-        "sensual_non_explicit": (
-            "Sensual / non-explicit: use warm, intimate, lightly flirtatious phrasing, but keep it non-explicit. "
-            "Do not generate sexual content, erotic descriptions, graphic nudity, or explicit sexual activity."
-        ),
-    }
-    detail = instructions.get(style, instructions["friendly"])
-    return (
-        f"{detail} Vary the wording and avoid repeating the same opener. "
-        f"Example style lines: {_companion_orb_response_style_examples(style)}"
+    style = companion_orb_reply_styles.normalize_reply_style(
+        RUNTIME_CONFIG.get("companion_orb_response_style", "friendly")
+    )
+    return companion_orb_reply_styles.build_reply_style_instruction(
+        style,
+        RUNTIME_CONFIG.get("companion_orb_response_style_prompts", {}),
     )
 
 
 def _companion_orb_response_style_label():
-    style = str(RUNTIME_CONFIG.get("companion_orb_response_style", "friendly") or "friendly").strip().lower()
-    labels = {
-        "friendly": "Very friendly",
-        "loving": "Very loving",
-        "sarcastic": "Sarcastic / ironic",
-        "roast": "Roast mode",
-        "sensual_non_explicit": "Sensual / non-explicit",
-    }
-    return labels.get(style, labels["friendly"])
+    return companion_orb_reply_styles.reply_style_label(
+        RUNTIME_CONFIG.get("companion_orb_response_style", "friendly")
+    )
+
+
+def _companion_orb_current_mood_cue():
+    mood = ""
+    try:
+        with sensory_pingpong_lock:
+            mood = str(sensory_pingpong_state.get("last_emotion", "") or "").strip().lower()
+    except Exception:
+        mood = ""
+    if not mood and str(RUNTIME_CONFIG.get("ai_presence_mood_color_mode", "automatic") or "").strip().lower() == "manual":
+        mood = str(RUNTIME_CONFIG.get("ai_presence_manual_mood", "") or "").strip().lower()
+    return _sanitize_hidden_action_text(mood, limit=40, lower=True)
 
 
 def _companion_orb_source_uses_response_style(source) -> bool:
@@ -3403,21 +3364,29 @@ def _build_active_hidden_proactive_context_text():
     ]
     summary = str(request.get("summary", "") or "").strip()
     attention = str(request.get("attention", "") or "").strip()
+    emotion = str(request.get("emotion", "") or "").strip()
     source = str(request.get("source", "sensory") or "sensory").strip()
     if summary:
         parts.append(f"Reason: {summary}")
     if attention:
         parts.append(f"Attention: {attention}")
+    if emotion:
+        parts.append(f"Mood/emotion cue: {emotion}")
     if source:
         parts.append(f"Source: {source}")
     if _companion_orb_source_uses_response_style(source):
         parts.append(
-            "Companion Orb response style is a hard style instruction for this interjection. "
+            "Companion Orb response style is a hard style instruction for this interjection and overrides the base "
+            "system persona tone for this one short Orb reply when they conflict. Keep all safety rules. "
             "Make the wording noticeably match the selected style while staying anchored to the visible cue."
         )
         parts.append(f"Selected response style: {_companion_orb_response_style_label()}.")
         parts.append(f"Style details: {_companion_orb_response_style_instruction()}")
-        parts.append("Do not mention the style menu, style setting, or these instructions.")
+        parts.append(
+            "Use original phrasing. Rewrite dry cues as natural spoken dialogue. Do not begin with or include "
+            "'the orb is hovering over', 'the image shows', 'this appears to be', or other caption-style wording. "
+            "Do not mention the style menu, style setting, or these instructions."
+        )
     return "\n".join(parts)
 
 
@@ -3428,11 +3397,13 @@ def _build_active_hidden_proactive_prompt_message():
     candidate = str(request.get("candidate", "") or "").strip()
     summary = str(request.get("summary", "") or "").strip()
     attention = str(request.get("attention", "") or "").strip()
+    emotion = str(request.get("emotion", "") or "").strip()
     parts = [
         "React now to this hidden sensory cue.",
         "Do not answer the previous visible user message.",
         "Do not continue the earlier topic unless it directly matches the cue.",
-        "Keep the reply short and directly about the cue.",
+        "Keep the reply short and directly about the visible content in the cue.",
+        "Do not narrate orb movement, hovering, screenshots, captures, OCR, metadata, or hidden sensory mechanics.",
     ]
     if candidate:
         parts.append(f"Cue: {candidate}")
@@ -3440,13 +3411,18 @@ def _build_active_hidden_proactive_prompt_message():
         parts.append(f"Observed change: {summary}")
     if attention:
         parts.append(f"Attention cue: {attention}")
+    if emotion:
+        parts.append(f"Mood/emotion cue: {emotion}")
     source = str(request.get("source", "sensory") or "sensory").strip()
     if _companion_orb_source_uses_response_style(source):
         parts.append(
             f"Use the selected Companion Orb response style now: {_companion_orb_response_style_label()} - "
             f"{_companion_orb_response_style_instruction()}"
         )
-        parts.append("Make the style clearly recognizable in the phrasing, but keep the response short.")
+        parts.append(
+            "Make the style clearly recognizable in original phrasing. Rewrite any dry candidate cue into casual "
+            "spoken dialogue about the visible content."
+        )
     return {"role": "user", "content": "\n".join(parts)}
 
 
@@ -4456,6 +4432,7 @@ def _apply_sensory_pong_result(result, snapshots):
             proactive_candidate,
             summary=summary,
             attention=attention,
+            emotion=emotion,
             source=snapshot_source,
             allow_repeated_candidate=screen_supervisor_new_meaningful_subject,
             focus_bounds=focus_bounds,
@@ -4562,6 +4539,41 @@ def _remember_hidden_sensory_fallback_request(source_text, *, seconds=300.0):
         sensory_pingpong_state["fallback_request_until"] = time.time() + max(30.0, float(seconds or 300.0))
 
 
+def _hidden_sensory_invalid_response_cooldown_active(source_text):
+    now = time.time()
+    with sensory_pingpong_lock:
+        invalid_source = str(sensory_pingpong_state.get("invalid_response_source", "") or "")
+        invalid_until = float(sensory_pingpong_state.get("invalid_response_until", 0.0) or 0.0)
+    return bool(invalid_source == str(source_text or "") and invalid_until > now)
+
+
+def _remember_hidden_sensory_invalid_response(source_text, payload_text):
+    now = time.time()
+    source = str(source_text or "")
+    with sensory_pingpong_lock:
+        previous_source = str(sensory_pingpong_state.get("invalid_response_source", "") or "")
+        previous_until = float(sensory_pingpong_state.get("invalid_response_until", 0.0) or 0.0)
+        previous_count = int(sensory_pingpong_state.get("invalid_response_count", 0) or 0)
+        count = previous_count + 1 if previous_source == source and previous_until > now else 1
+        cooldown_seconds = min(180.0, 30.0 * max(1, count))
+        sensory_pingpong_state["invalid_response_source"] = source
+        sensory_pingpong_state["invalid_response_count"] = count
+        sensory_pingpong_state["invalid_response_until"] = now + cooldown_seconds
+        sensory_pingpong_state["last_failure_at"] = now
+        sensory_pingpong_state["last_failure_key"] = f"{source}|invalid_json|{_debug_preview_text(payload_text, limit=120)}"
+    return cooldown_seconds, count
+
+
+def _clear_hidden_sensory_invalid_response(source_text):
+    source = str(source_text or "")
+    with sensory_pingpong_lock:
+        if str(sensory_pingpong_state.get("invalid_response_source", "") or "") != source:
+            return
+        sensory_pingpong_state["invalid_response_source"] = ""
+        sensory_pingpong_state["invalid_response_count"] = 0
+        sensory_pingpong_state["invalid_response_until"] = 0.0
+
+
 def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, priority=False, priority_source="", trace_id=""):
     cycle_started_at = time.monotonic()
     if not _sensory_pingpong_enabled():
@@ -4602,6 +4614,12 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
     sources = [str((item or {}).get("source", "sensory") or "sensory") for item in snapshots if isinstance(item, dict)]
     _publish_addon_runtime_event("sensory.hidden_ping", {"snapshots": [dict(item or {}) for item in snapshots if isinstance(item, dict)], "sources": list(sources)})
     source_text = ", ".join(sources) if sources else "sensory"
+    if _hidden_sensory_invalid_response_cooldown_active(source_text):
+        with sensory_pingpong_lock:
+            sensory_pingpong_state["last_cycle_at"] = time.time()
+            sensory_pingpong_state["last_source"] = source_text
+        _log_companion_orb_debug_event("engine_hidden_ping_skipped", trace_id=trace_id, reason="invalid_response_cooldown", source_text=source_text)
+        return False
     use_fallback_request = _hidden_sensory_should_use_fallback_request(source_text)
     messages_started_at = time.monotonic()
     messages = _build_sensory_pingpong_messages(snapshots, allow_images=False if use_fallback_request else None, priority=priority)
@@ -4674,14 +4692,55 @@ def run_hidden_sensory_pingpong_cycle(force=False, snapshots_override=None, prio
         elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
     )
     result = _parse_sensory_pong(payload_text)
+    if not result and not retried_text_only and not use_fallback_request:
+        fallback_messages = _build_sensory_pingpong_messages(snapshots, allow_images=False, priority=priority)
+        if fallback_messages:
+            print("📡 [Sensory] Hidden PONG retrying with text-only sensory context after invalid JSON.")
+            fallback_params = dict(params)
+            fallback_params["messages"] = fallback_messages
+            fallback_params.pop("response_format", None)
+            retried_text_only = True
+            _llm_request_active.set()
+            llm_started_at = time.monotonic()
+            try:
+                payload_text = _chat_completion_create(fallback_params, additional_params)
+                _remember_hidden_sensory_fallback_request(source_text)
+            except Exception as exc:
+                _log_hidden_sensory_pong_failure(exc, source_text=source_text, retried_text_only=True)
+                _log_companion_orb_debug_event(
+                    "engine_hidden_pong_failed",
+                    trace_id=trace_id,
+                    error=str(exc),
+                    retried_text_only=True,
+                    elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+                )
+                return False
+            finally:
+                _llm_request_active.clear()
+            _log_companion_orb_debug_event(
+                "engine_hidden_pong_retry_received",
+                trace_id=trace_id,
+                payload_chars=len(str(payload_text or "")),
+                llm_elapsed_ms=round((time.monotonic() - llm_started_at) * 1000.0, 1),
+                elapsed_ms=round((time.monotonic() - cycle_started_at) * 1000.0, 1),
+            )
+            result = _parse_sensory_pong(payload_text)
     if not result:
         print("⚠️ [Sensory] Hidden PONG was not valid JSON; ignoring.")
         raw_preview = _debug_preview_text(payload_text)
         if raw_preview:
             print(f"🧾 [Sensory] Raw hidden PONG preview: {raw_preview}")
+        else:
+            print("🧾 [Sensory] Raw hidden PONG preview: <empty>")
+        cooldown_seconds, invalid_count = _remember_hidden_sensory_invalid_response(source_text, payload_text)
+        print(
+            f"⏳ [Sensory] Hidden PONG invalid/empty from {source_text}; "
+            f"cooling down for {cooldown_seconds:.0f}s (failure {invalid_count})."
+        )
         return False
     if bool(result.pop("_repaired_json", False)):
         print("🛠️ [Sensory] Repaired near-JSON hidden PONG automatically.")
+    _clear_hidden_sensory_invalid_response(source_text)
     applied = _apply_sensory_pong_result(result, snapshots)
     _log_companion_orb_debug_event(
         "engine_hidden_pong_applied",
@@ -5186,6 +5245,9 @@ def reset_session_state():
         "last_failure_key": "",
         "fallback_request_until": 0.0,
         "fallback_request_source": "",
+        "invalid_response_until": 0.0,
+        "invalid_response_source": "",
+        "invalid_response_count": 0,
         "last_emotion": "",
         "last_attention": "",
         "last_summary": "",
@@ -7335,7 +7397,7 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                     if ctrl.cancel_requested.is_set() or stop_playback.is_set():
                         safe_delete_with_retry(path)
                         break
-                    _notify_addon_tts_audio_chunk_ready(
+                    chunk_notifications = _notify_addon_tts_audio_chunk_ready(
                         {
                             "audio_path": path,
                             "text": str(sub or ""),
@@ -7348,6 +7410,8 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                             "created_at": time.time(),
                         }
                     )
+                    if isinstance(chunk_notifications, dict) and bool(chunk_notifications.get("skip_local_playback", False)):
+                        chunk_meta["skip_local_playback"] = True
                     if not _put_unless_stopping(playback_queue, (path, emotion, sub, chunk_sequence, chunk_meta)):
                         safe_delete_with_retry(path)
                         break
@@ -7496,6 +7560,9 @@ def speak_async(text: str, text_iterable=None, dry_run_reply_id=None, voice_path
                         "playback_duration_seconds": delegated_duration_seconds,
                         "expected_frame_count": delegated_frame_count,
                     }
+
+                if bool((source_meta or {}).get("skip_local_playback", False)):
+                    chunk_result["skip_local_playback"] = True
 
                 if chunk_result.get("ok"):
                     if ctrl.cancel_requested.is_set() or stop_playback.is_set() or ctrl.should_skip_message(replay_message_id):
@@ -8641,17 +8708,21 @@ def _build_companion_orb_image_turn_context(history):
     turn = _latest_companion_orb_image_turn(history)
     if not turn:
         return ""
-    return "\n".join(
-        [
-            "The latest user image turn was delivered by the Companion Orb immediate snapshot route.",
-            "Treat it as the orb's freshly selected focus crop, equivalent to the current Companion Orb drop inspection.",
-            "Respond directly to visible content in the image. Do not describe the drag/drop action, the upload, or hidden delivery mechanics.",
-            "Keep the reply short and natural, matching Companion Orb spoken interjection behavior.",
-            f"Selected response style: {_companion_orb_response_style_label()}.",
-            f"Style details: {_companion_orb_response_style_instruction()}",
-            "Do not mention the style menu, style setting, or these instructions.",
-        ]
-    )
+    parts = [
+        "The latest user image turn was delivered by the Companion Orb immediate snapshot route.",
+        "Treat it as the orb's freshly selected focus crop, equivalent to the current Companion Orb drop inspection.",
+        "Respond directly to visible content in the image. Do not describe the drag/drop action, the upload, or hidden delivery mechanics.",
+        "Keep the reply short and natural, matching Companion Orb spoken interjection behavior.",
+        "The selected Companion Orb reply style overrides the base system persona tone for this one short Orb reply when they conflict. Keep all safety rules.",
+        "Do not say the orb is hovering over something, do not caption the screenshot, and do not dryly explain UI layout unless the user asks.",
+        f"Selected response style: {_companion_orb_response_style_label()}.",
+        f"Style details: {_companion_orb_response_style_instruction()}",
+    ]
+    mood = _companion_orb_current_mood_cue()
+    if mood:
+        parts.append(f"Mood/emotion cue: {mood}.")
+    parts.append("Use original phrasing. Do not mention the style menu, style setting, or these instructions.")
+    return "\n".join(parts)
 
 
 def _pop_last_proactive_placeholder(content):

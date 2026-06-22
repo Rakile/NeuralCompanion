@@ -262,6 +262,9 @@ class MPRCRemoteBackend:
                 if path == "/api/visual":
                     self._send_json({"ok": True, "state": controller.remote_request_visual()})
                     return
+                if path == "/api/cast":
+                    self._send_json({"ok": True, "result": controller.remote_chromecast_action(payload)})
+                    return
                 self._send_json({"ok": False, "error": "Not found"}, status=404)
 
             def _authorized(self, query: str) -> bool:
